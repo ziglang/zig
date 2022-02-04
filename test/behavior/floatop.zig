@@ -72,3 +72,45 @@ test "negative f128 floatToInt at compile-time" {
     var b = @floatToInt(i64, a);
     try expect(@as(i64, -2) == b);
 }
+
+test "@sqrt" {
+    comptime try testSqrt();
+    try testSqrt();
+}
+
+fn testSqrt() !void {
+    {
+        var a: f16 = 4;
+        try expect(@sqrt(a) == 2);
+    }
+    {
+        var a: f32 = 9;
+        try expect(@sqrt(a) == 3);
+        var b: f32 = 1.1;
+        try expect(math.approxEqAbs(f32, @sqrt(b), 1.0488088481701516, epsilon));
+    }
+    {
+        var a: f64 = 25;
+        try expect(@sqrt(a) == 5);
+    }
+}
+
+test "more @sqrt f16 tests" {
+    // TODO these are not all passing at comptime
+    try expect(@sqrt(@as(f16, 0.0)) == 0.0);
+    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 2.0)), 1.414214, epsilon));
+    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 3.6)), 1.897367, epsilon));
+    try expect(@sqrt(@as(f16, 4.0)) == 2.0);
+    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 7.539840)), 2.745877, epsilon));
+    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 19.230934)), 4.385309, epsilon));
+    try expect(@sqrt(@as(f16, 64.0)) == 8.0);
+    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 64.1)), 8.006248, epsilon));
+    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 8942.230469)), 94.563370, epsilon));
+
+    // special cases
+    try expect(math.isPositiveInf(@sqrt(@as(f16, math.inf(f16)))));
+    try expect(@sqrt(@as(f16, 0.0)) == 0.0);
+    try expect(@sqrt(@as(f16, -0.0)) == -0.0);
+    try expect(math.isNan(@sqrt(@as(f16, -1.0))));
+    try expect(math.isNan(@sqrt(@as(f16, math.nan(f16)))));
+}

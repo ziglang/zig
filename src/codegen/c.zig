@@ -1446,6 +1446,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul_sat => try airSatOp(f, inst, "muls_"),
             .shl_sat => try airSatOp(f, inst, "shls_"),
 
+            .sqrt => try airSqrt(f, inst),
+
             .add_with_overflow => try airAddWithOverflow(f, inst),
             .sub_with_overflow => try airSubWithOverflow(f, inst),
             .mul_with_overflow => try airMulWithOverflow(f, inst),
@@ -3391,6 +3393,12 @@ fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
         @enumToInt(prefetch.rw), prefetch.locality,
     });
     return CValue.none;
+}
+
+fn airSqrt(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = f;
+    _ = inst;
+    return f.fail("TODO: C backend: implement sqrt", .{});
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {

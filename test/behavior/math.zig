@@ -792,8 +792,6 @@ fn remdiv(comptime T: type) !void {
 }
 
 test "@sqrt" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testSqrt(f64, 12.0);
     comptime try testSqrt(f64, 12.0);
     try testSqrt(f32, 13.0);
@@ -801,10 +799,12 @@ test "@sqrt" {
     try testSqrt(f16, 13.0);
     comptime try testSqrt(f16, 13.0);
 
-    const x = 14.0;
-    const y = x * x;
-    const z = @sqrt(y);
-    comptime try expect(z == x);
+    if (builtin.zig_backend == .stage1) {
+        const x = 14.0;
+        const y = x * x;
+        const z = @sqrt(y);
+        comptime try expect(z == x);
+    }
 }
 
 fn testSqrt(comptime T: type, x: T) !void {

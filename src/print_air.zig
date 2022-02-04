@@ -158,6 +158,7 @@ const Writer = struct {
             .ret_load,
             .tag_name,
             .error_name,
+            .sqrt,
             => try w.writeUnOp(s, inst),
 
             .breakpoint,

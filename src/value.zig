@@ -3265,6 +3265,28 @@ pub const Value = extern union {
         }
     }
 
+    pub fn sqrt(val: Value, float_type: Type, arena: Allocator) !Value {
+        switch (float_type.tag()) {
+            .f16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @sqrt(f));
+            },
+            .f32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @sqrt(f));
+            },
+            .f64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @sqrt(f));
+            },
+
+            // TODO: implement @sqrt for these types
+            .f128, .comptime_float, .c_longdouble => unreachable,
+
+            else => unreachable,
+        }
+    }
+
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,

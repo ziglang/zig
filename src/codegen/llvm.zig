@@ -2050,6 +2050,8 @@ pub const FuncGen = struct {
                 .shr                => try self.airShr(inst, false),
                 .shr_exact          => try self.airShr(inst, true),
 
+                .sqrt => try self.airSqrt(inst),
+
                 .cmp_eq  => try self.airCmp(inst, .eq),
                 .cmp_gt  => try self.airCmp(inst, .gt),
                 .cmp_gte => try self.airCmp(inst, .gte),
@@ -4209,6 +4211,20 @@ pub const FuncGen = struct {
             const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
             return self.builder.buildExtractValue(union_handle, tag_index, "");
         }
+    }
+
+    fn airSqrt(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = try self.resolveInst(un_op);
+        const operand_ty = self.air.typeOf(un_op);
+
+        const operand_llvm_ty = try self.dg.llvmType(operand_ty);
+        const fn_val = self.getIntrinsic("llvm.sqrt", &.{operand_llvm_ty});
+        const params = [_]*const llvm.Value{operand};
+
+        return self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
     }
 
     fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, prefix: [*:0]const u8) !?*const llvm.Value {

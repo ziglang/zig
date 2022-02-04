@@ -745,19 +745,19 @@ fn analyzeBodyInner(
             .clz => try sema.zirClzCtz(block, inst, .clz, Value.clz),
             .ctz => try sema.zirClzCtz(block, inst, .ctz, Value.ctz),
 
-            .sqrt  => try sema.zirUnaryMath(block, inst),
-            .sin   => try sema.zirUnaryMath(block, inst),
-            .cos   => try sema.zirUnaryMath(block, inst),
-            .exp   => try sema.zirUnaryMath(block, inst),
-            .exp2  => try sema.zirUnaryMath(block, inst),
-            .log   => try sema.zirUnaryMath(block, inst),
-            .log2  => try sema.zirUnaryMath(block, inst),
-            .log10 => try sema.zirUnaryMath(block, inst),
-            .fabs  => try sema.zirUnaryMath(block, inst),
-            .floor => try sema.zirUnaryMath(block, inst),
-            .ceil  => try sema.zirUnaryMath(block, inst),
-            .trunc => try sema.zirUnaryMath(block, inst),
-            .round => try sema.zirUnaryMath(block, inst),
+            .sqrt  => try sema.zirUnaryMath(block, inst, .sqrt),
+            .sin   => try sema.zirUnaryMath(block, inst, .sin),
+            .cos   => try sema.zirUnaryMath(block, inst, .cos),
+            .exp   => try sema.zirUnaryMath(block, inst, .exp),
+            .exp2  => try sema.zirUnaryMath(block, inst, .exp2),
+            .log   => try sema.zirUnaryMath(block, inst, .log),
+            .log2  => try sema.zirUnaryMath(block, inst, .log2),
+            .log10 => try sema.zirUnaryMath(block, inst, .log10),
+            .fabs  => try sema.zirUnaryMath(block, inst, .fabs),
+            .floor => try sema.zirUnaryMath(block, inst, .floor),
+            .ceil  => try sema.zirUnaryMath(block, inst, .ceil),
+            .trunc => try sema.zirUnaryMath(block, inst, .trunc),
+            .round => try sema.zirUnaryMath(block, inst, .round),
 
             .error_set_decl      => try sema.zirErrorSetDecl(block, inst, .parent),
             .error_set_decl_anon => try sema.zirErrorSetDecl(block, inst, .anon),
@@ -11010,10 +11010,64 @@ fn zirErrorName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     return block.addUnOp(.error_name, operand);
 }
 
-fn zirUnaryMath(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirUnaryMath(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    zir_tag: Zir.Inst.Tag,
+) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirUnaryMath", .{});
+    const operand = sema.resolveInst(inst_data.operand);
+    const operand_ty = sema.typeOf(operand);
+    const operand_zig_ty_tag = operand_ty.zigTypeTag();
+
+    const is_float = operand_zig_ty_tag == .Float or operand_zig_ty_tag == .ComptimeFloat;
+    if (!is_float) {
+        return sema.fail(block, src, "expected float type, found '{s}'", .{@tagName(operand_zig_ty_tag)});
+    }
+
+    switch (zir_tag) {
+        .sqrt => {
+            switch (operand_ty.tag()) {
+                .f128,
+                .comptime_float,
+                .c_longdouble,
+                => |t| return sema.fail(block, src, "TODO implement @sqrt for type '{s}'", .{@tagName(t)}),
+                else => {},
+            }
+
+            const maybe_operand_val = try sema.resolveMaybeUndefVal(block, src, operand);
+            if (maybe_operand_val) |val| {
+                if (val.isUndef())
+                    return sema.addConstUndef(operand_ty);
+                const result_val = try val.sqrt(operand_ty, sema.arena);
+                return sema.addConstant(operand_ty, result_val);
+            }
+
+            try sema.requireRuntimeBlock(block, src);
+            return block.addUnOp(.sqrt, operand);
+        },
+
+        .sin,
+        .cos,
+        .exp,
+        .exp2,
+        .log,
+        .log2,
+        .log10,
+        .fabs,
+        .floor,
+        .ceil,
+        .trunc,
+        .round,
+        => return sema.fail(block, src, "TODO: implement zirUnaryMath for ZIR tag '{s}'", .{@tagName(zir_tag)}),
+
+        else => unreachable,
+    }
 }
 
 fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
