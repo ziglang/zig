@@ -979,18 +979,16 @@ test "vector integer addition" {
 }
 
 test "NaN comparison" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testNanEqNan(f16);
     try testNanEqNan(f32);
     try testNanEqNan(f64);
     try testNanEqNan(f128);
-    if (has_f80_rt) try testNanEqNan(f80);
+    if (has_f80_rt and (builtin.zig_backend == .stage1)) try testNanEqNan(f80); // TODO
     comptime try testNanEqNan(f16);
     comptime try testNanEqNan(f32);
     comptime try testNanEqNan(f64);
     comptime try testNanEqNan(f128);
-    // comptime try testNanEqNan(f80);
+    // comptime try testNanEqNan(f80); // TODO
 }
 
 fn testNanEqNan(comptime F: type) !void {
