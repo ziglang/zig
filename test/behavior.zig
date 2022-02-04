@@ -163,7 +163,6 @@ test {
                     _ = @import("behavior/select.zig");
                     _ = @import("behavior/shuffle.zig");
                     _ = @import("behavior/sizeof_and_typeof_stage1.zig");
-                    _ = @import("behavior/slice_stage1.zig");
                     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
                     _ = @import("behavior/struct_contains_slice_of_itself.zig");
                     _ = @import("behavior/switch_prong_err_enum.zig");

@@ -634,7 +634,19 @@ pub const Type = extern union {
                         for (a_payload.data.values) |a_val, i| {
                             const ty = a_payload.data.types[i];
                             const b_val = b_payload.data.values[i];
-                            if (!Value.eql(a_val, b_val, ty)) return false;
+                            if (a_val.tag() == .unreachable_value) {
+                                if (b_val.tag() == .unreachable_value) {
+                                    continue;
+                                } else {
+                                    return false;
+                                }
+                            } else {
+                                if (b_val.tag() == .unreachable_value) {
+                                    return false;
+                                } else {
+                                    if (!Value.eql(a_val, b_val, ty)) return false;
+                                }
+                            }
                         }
 
                         return true;

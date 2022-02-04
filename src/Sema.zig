@@ -12998,7 +12998,7 @@ fn fieldVal(
         .Array => {
             if (mem.eql(u8, field_name, "len")) {
                 return sema.addConstant(
-                    Type.initTag(.comptime_int),
+                    Type.comptime_int,
                     try Value.Tag.int_u64.create(arena, inner_ty.arrayLen()),
                 );
             } else {
@@ -13010,26 +13010,43 @@ fn fieldVal(
                 );
             }
         },
-        .Pointer => if (inner_ty.isSlice()) {
-            if (mem.eql(u8, field_name, "ptr")) {
-                const slice = if (is_pointer_to)
-                    try sema.analyzeLoad(block, src, object, object_src)
-                else
-                    object;
-                return sema.analyzeSlicePtr(block, src, slice, inner_ty, object_src);
-            } else if (mem.eql(u8, field_name, "len")) {
-                const slice = if (is_pointer_to)
-                    try sema.analyzeLoad(block, src, object, object_src)
-                else
-                    object;
-                return sema.analyzeSliceLen(block, src, slice);
-            } else {
-                return sema.fail(
-                    block,
-                    field_name_src,
-                    "no member named '{s}' in '{}'",
-                    .{ field_name, object_ty },
-                );
+        .Pointer => {
+            const ptr_info = inner_ty.ptrInfo().data;
+            if (ptr_info.size == .Slice) {
+                if (mem.eql(u8, field_name, "ptr")) {
+                    const slice = if (is_pointer_to)
+                        try sema.analyzeLoad(block, src, object, object_src)
+                    else
+                        object;
+                    return sema.analyzeSlicePtr(block, src, slice, inner_ty, object_src);
+                } else if (mem.eql(u8, field_name, "len")) {
+                    const slice = if (is_pointer_to)
+                        try sema.analyzeLoad(block, src, object, object_src)
+                    else
+                        object;
+                    return sema.analyzeSliceLen(block, src, slice);
+                } else {
+                    return sema.fail(
+                        block,
+                        field_name_src,
+                        "no member named '{s}' in '{}'",
+                        .{ field_name, object_ty },
+                    );
+                }
+            } else if (ptr_info.pointee_type.zigTypeTag() == .Array) {
+                if (mem.eql(u8, field_name, "len")) {
+                    return sema.addConstant(
+                        Type.comptime_int,
+                        try Value.Tag.int_u64.create(arena, ptr_info.pointee_type.arrayLen()),
+                    );
+                } else {
+                    return sema.fail(
+                        block,
+                        field_name_src,
+                        "no member named '{s}' in '{}'",
+                        .{ field_name, ptr_info.pointee_type },
+                    );
+                }
             }
         },
         .Type => {
@@ -16371,7 +16388,8 @@ fn resolveStructFully(
     try resolveStructLayout(sema, block, src, ty);
 
     const resolved_ty = try sema.resolveTypeFields(block, src, ty);
-    const struct_obj = resolved_ty.castTag(.@"struct").?.data;
+    const payload = resolved_ty.castTag(.@"struct") orelse return;
+    const struct_obj = payload.data;
     switch (struct_obj.status) {
         .none, .have_field_types, .field_types_wip, .layout_wip, .have_layout => {},
         .fully_resolved_wip, .fully_resolved => return,
