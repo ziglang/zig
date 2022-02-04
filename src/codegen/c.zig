@@ -422,6 +422,9 @@ pub const DeclGen = struct {
         const is_neg = int_val < 0;
         comptime assert(int_info.bits > 64 and int_info.bits <= 128);
 
+        // TODO support big endian arch
+        comptime assert(builtin.cpu.arch.endian() == .Little);
+
         // Clang and GCC don't support 128-bit integer constants but will hopefully unfold them
         // if we construct one manually.
         const magnitude = std.math.absCast(int_val);
