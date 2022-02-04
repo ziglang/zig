@@ -4230,7 +4230,7 @@ pub const ClangArgIterator = struct {
         };
     }
 
-    const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments_supported = true });
+    const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, .single_quotes = true });
 
     /// Initialize the arguments from a Response File. "*.rsp"
     fn initArgIteratorResponseFile(allocator: Allocator, resp_file_path: []const u8) !ArgIteratorResponseFile {

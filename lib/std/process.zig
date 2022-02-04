@@ -303,7 +303,8 @@ pub const ArgIteratorWasi = struct {
 
 /// Optional parameters for `ArgIteratorGeneral`
 pub const ArgIteratorGeneralOptions = struct {
-    comments_supported: bool = false,
+    comments: bool = false,
+    single_quotes: bool = false,
 };
 
 /// A general Iterator to parse a string into a set of arguments
@@ -387,7 +388,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
                     0 => return false,
                     ' ', '\t', '\r', '\n' => continue,
                     '#' => {
-                        if (options.comments_supported) {
+                        if (options.comments) {
                             while (true) : (self.index += 1) {
                                 switch (self.cmd_line[self.index]) {
                                     '\n' => break,
@@ -417,7 +418,11 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
                 const character = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
                 switch (character) {
                     0 => return true,
-                    '"' => {
+                    '"', '\'' => {
+                        if (!options.single_quotes and character == '\'') {
+                            backslash_count = 0;
+                            continue;
+                        }
                         const quote_is_real = backslash_count % 2 == 0;
                         if (quote_is_real) {
                             in_quote = !in_quote;
@@ -460,7 +465,13 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
                         self.start = self.end;
                         return token;
                     },
-                    '"' => {
+                    '"', '\'' => {
+                        if (!options.single_quotes and character == '\'') {
+                            self.emitBackslashes(backslash_count);
+                            backslash_count = 0;
+                            self.emitCharacter(character);
+                            continue;
+                        }
                         const quote_is_real = backslash_count % 2 == 0;
                         self.emitBackslashes(backslash_count / 2);
                         backslash_count = 0;
@@ -522,7 +533,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
 /// Cross-platform command line argument iterator.
 pub const ArgIterator = struct {
     const InnerType = switch (builtin.os.tag) {
-        .windows => ArgIteratorGeneral(.{ .comments_supported = false }),
+        .windows => ArgIteratorGeneral(.{}),
         .wasi => if (builtin.link_libc) ArgIteratorPosix else ArgIteratorWasi,
         else => ArgIteratorPosix,
     };
@@ -664,27 +675,30 @@ pub fn argsFree(allocator: mem.Allocator, args_alloc: []const [:0]u8) void {
 }
 
 test "general arg parsing" {
-    try testGeneralCmdLine("a   b\tc d", &[_][]const u8{ "a", "b", "c", "d" });
-    try testGeneralCmdLine("\"abc\" d e", &[_][]const u8{ "abc", "d", "e" });
-    try testGeneralCmdLine("a\\\\\\b d\"e f\"g h", &[_][]const u8{ "a\\\\\\b", "de fg", "h" });
-    try testGeneralCmdLine("a\\\\\\\"b c d", &[_][]const u8{ "a\\\"b", "c", "d" });
-    try testGeneralCmdLine("a\\\\\\\\\"b c\" d e", &[_][]const u8{ "a\\\\b c", "d", "e" });
-    try testGeneralCmdLine("a   b\tc \"d f", &[_][]const u8{ "a", "b", "c", "d f" });
-    try testGeneralCmdLine("j k l\\", &[_][]const u8{ "j", "k", "l\\" });
-    try testGeneralCmdLine("\"\" x y z\\\\", &[_][]const u8{ "", "x", "y", "z\\\\" });
+    try testGeneralCmdLine("a   b\tc d", &.{ "a", "b", "c", "d" });
+    try testGeneralCmdLine("\"abc\" d e", &.{ "abc", "d", "e" });
+    try testGeneralCmdLine("a\\\\\\b d\"e f\"g h", &.{ "a\\\\\\b", "de fg", "h" });
+    try testGeneralCmdLine("a\\\\\\\"b c d", &.{ "a\\\"b", "c", "d" });
+    try testGeneralCmdLine("a\\\\\\\\\"b c\" d e", &.{ "a\\\\b c", "d", "e" });
+    try testGeneralCmdLine("a   b\tc \"d f", &.{ "a", "b", "c", "d f" });
+    try testGeneralCmdLine("j k l\\", &.{ "j", "k", "l\\" });
+    try testGeneralCmdLine("\"\" x y z\\\\", &.{ "", "x", "y", "z\\\\" });
 
-    try testGeneralCmdLine("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", &[_][]const u8{
+    try testGeneralCmdLine("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", &.{
         ".\\..\\zig-cache\\build",
         "bin\\zig.exe",
         ".\\..",
         ".\\..\\zig-cache",
         "--help",
     });
+
+    try testGeneralCmdLine(
+        \\ 'foo' "bar"
+    , &.{ "'foo'", "bar" });
 }
 
 fn testGeneralCmdLine(input_cmd_line: []const u8, expected_args: []const []const u8) !void {
-    var it = try ArgIteratorGeneral(.{ .comments_supported = false })
-        .init(std.testing.allocator, input_cmd_line);
+    var it = try ArgIteratorGeneral(.{}).init(std.testing.allocator, input_cmd_line);
     defer it.deinit();
     for (expected_args) |expected_arg| {
         const arg = it.next().?;
@@ -697,30 +711,34 @@ test "response file arg parsing" {
     try testResponseFileCmdLine(
         \\a b
         \\c d\
-    , &[_][]const u8{ "a", "b", "c", "d\\" });
-    try testResponseFileCmdLine("a b c d\\", &[_][]const u8{ "a", "b", "c", "d\\" });
+    , &.{ "a", "b", "c", "d\\" });
+    try testResponseFileCmdLine("a b c d\\", &.{ "a", "b", "c", "d\\" });
 
     try testResponseFileCmdLine(
         \\j
         \\ k l # this is a comment \\ \\\ \\\\ "none" "\\" "\\\"
         \\ "m" #another comment
         \\
-    , &[_][]const u8{ "j", "k", "l", "m" });
+    , &.{ "j", "k", "l", "m" });
 
     try testResponseFileCmdLine(
         \\ "" q ""
         \\ "r s # t" "u\" v" #another comment
         \\
-    , &[_][]const u8{ "", "q", "", "r s # t", "u\" v" });
+    , &.{ "", "q", "", "r s # t", "u\" v" });
 
     try testResponseFileCmdLine(
         \\ -l"advapi32" a# b#c d#
         \\e\\\
-    , &[_][]const u8{ "-ladvapi32", "a#", "b#c", "d#", "e\\\\\\" });
+    , &.{ "-ladvapi32", "a#", "b#c", "d#", "e\\\\\\" });
+
+    try testResponseFileCmdLine(
+        \\ 'foo' "bar"
+    , &.{ "foo", "bar" });
 }
 
 fn testResponseFileCmdLine(input_cmd_line: []const u8, expected_args: []const []const u8) !void {
-    var it = try ArgIteratorGeneral(.{ .comments_supported = true })
+    var it = try ArgIteratorGeneral(.{ .comments = true, .single_quotes = true })
         .init(std.testing.allocator, input_cmd_line);
     defer it.deinit();
     for (expected_args) |expected_arg| {
