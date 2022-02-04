@@ -10,6 +10,7 @@ test {
     _ = @import("behavior/bugs/655.zig");
     _ = @import("behavior/bugs/656.zig");
     _ = @import("behavior/bugs/679.zig");
+    _ = @import("behavior/bugs/1025.zig");
     _ = @import("behavior/bugs/1111.zig");
     _ = @import("behavior/bugs/1277.zig");
     _ = @import("behavior/bugs/1310.zig");
@@ -17,6 +18,8 @@ test {
     _ = @import("behavior/bugs/1486.zig");
     _ = @import("behavior/bugs/1500.zig");
     _ = @import("behavior/bugs/1735.zig");
+    _ = @import("behavior/bugs/1741.zig");
+    _ = @import("behavior/bugs/1914.zig");
     _ = @import("behavior/bugs/2006.zig");
     _ = @import("behavior/bugs/2346.zig");
     _ = @import("behavior/bugs/3112.zig");
@@ -38,7 +41,8 @@ test {
     _ = @import("behavior/struct.zig");
 
     if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
-        // Tests that pass for stage1, llvm backend, C backend, wasm backend.
+        // Tests that pass (partly) for stage1, llvm backend, C backend, wasm backend.
+        _ = @import("behavior/array_llvm.zig");
         _ = @import("behavior/basic.zig");
         _ = @import("behavior/bitcast.zig");
         _ = @import("behavior/bugs/624.zig");
@@ -69,6 +73,7 @@ test {
         _ = @import("behavior/pointers.zig");
         _ = @import("behavior/ptrcast.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
+        _ = @import("behavior/slice.zig");
         _ = @import("behavior/src.zig");
         _ = @import("behavior/this.zig");
         _ = @import("behavior/try.zig");
@@ -88,11 +93,7 @@ test {
 
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
-                _ = @import("behavior/array_llvm.zig");
                 _ = @import("behavior/atomics.zig");
-                _ = @import("behavior/bugs/1025.zig");
-                _ = @import("behavior/bugs/1741.zig");
-                _ = @import("behavior/bugs/1914.zig");
                 _ = @import("behavior/bugs/2578.zig");
                 _ = @import("behavior/bugs/3007.zig");
                 _ = @import("behavior/bugs/9584.zig");
@@ -108,7 +109,6 @@ test {
                 _ = @import("behavior/popcount.zig");
                 _ = @import("behavior/saturating_arithmetic.zig");
                 _ = @import("behavior/sizeof_and_typeof.zig");
-                _ = @import("behavior/slice.zig");
                 _ = @import("behavior/struct_llvm.zig");
                 _ = @import("behavior/switch.zig");
                 _ = @import("behavior/widening.zig");

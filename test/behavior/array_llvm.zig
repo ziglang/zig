@@ -7,6 +7,7 @@ var s_array: [8]Sub = undefined;
 const Sub = struct { b: u8 };
 const Str = struct { a: []Sub };
 test "set global var array via slice embedded in struct" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     var s = Str{ .a = s_array[0..] };
 
     s.a[0].b = 1;
@@ -19,6 +20,7 @@ test "set global var array via slice embedded in struct" {
 }
 
 test "read/write through global variable array of struct fields initialized via array mult" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             try expect(storage[0].term == 1);
@@ -36,6 +38,7 @@ test "read/write through global variable array of struct fields initialized via 
 }
 
 test "implicit cast single-item pointer" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try testImplicitCastSingleItemPtr();
     comptime try testImplicitCastSingleItemPtr();
 }
@@ -52,6 +55,7 @@ fn testArrayByValAtComptime(b: [2]u8) u8 {
 }
 
 test "comptime evaluating function that takes array by value" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const arr = [_]u8{ 1, 2 };
     const x = comptime testArrayByValAtComptime(arr);
     const y = comptime testArrayByValAtComptime(arr);
@@ -60,12 +64,14 @@ test "comptime evaluating function that takes array by value" {
 }
 
 test "runtime initialize array elem and then implicit cast to slice" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     var two: i32 = 2;
     const x: []const i32 = &[_]i32{two};
     try expect(x[0] == 2);
 }
 
 test "array literal as argument to function" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         fn entry(two: i32) !void {
             try foo(&[_]i32{ 1, 2, 3 });
@@ -90,6 +96,7 @@ test "array literal as argument to function" {
 }
 
 test "double nested array to const slice cast in array literal" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         fn entry(two: i32) !void {
             const cases = [_][]const []const i32{
@@ -147,6 +154,7 @@ test "double nested array to const slice cast in array literal" {
 }
 
 test "anonymous literal in array" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         const Foo = struct {
             a: usize = 2,
@@ -168,6 +176,7 @@ test "anonymous literal in array" {
 }
 
 test "access the null element of a null terminated array" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var array: [4:0]u8 = .{ 'a', 'o', 'e', 'u' };
@@ -181,6 +190,7 @@ test "access the null element of a null terminated array" {
 }
 
 test "type deduction for array subscript expression" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var array = [_]u8{ 0x55, 0xAA };
@@ -196,6 +206,8 @@ test "type deduction for array subscript expression" {
 
 test "sentinel element count towards the ABI size calculation" {
     if (@import("builtin").zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+    if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -218,6 +230,8 @@ test "sentinel element count towards the ABI size calculation" {
 
 test "zero-sized array with recursive type definition" {
     if (@import("builtin").zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+    if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const U = struct {
         fn foo(comptime T: type, comptime n: usize) type {
@@ -237,6 +251,7 @@ test "zero-sized array with recursive type definition" {
 }
 
 test "type coercion of anon struct literal to array" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         const U = union {
             a: u32,
@@ -253,6 +268,7 @@ test "type coercion of anon struct literal to array" {
             try expect(arr1[2] == 54);
 
             if (@import("builtin").zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+            if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
             var x2: U = .{ .a = 42 };
             const t2 = .{ x2, .{ .b = true }, .{ .c = "hello" } };
@@ -268,6 +284,8 @@ test "type coercion of anon struct literal to array" {
 
 test "type coercion of pointer to anon struct literal to pointer to array" {
     if (@import("builtin").zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+    if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const S = struct {
         const U = union {

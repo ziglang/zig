@@ -546,3 +546,10 @@ pub const MemArg = struct {
     offset: u32,
     alignment: u32,
 };
+
+/// Represents a memory address, which holds both the pointer
+/// or the parent pointer and the offset to it.
+pub const Memory = struct {
+    pointer: u32,
+    offset: u32,
+};
