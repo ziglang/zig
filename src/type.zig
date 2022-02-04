@@ -3042,6 +3042,9 @@ pub const Type = extern union {
             .array_u8,
             .manyptr_u8,
             .manyptr_const_u8,
+            .const_slice_u8,
+            .const_slice,
+            .mut_slice,
             => return null,
 
             .pointer => return self.castTag(.pointer).?.data.sentinel,

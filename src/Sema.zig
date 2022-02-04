@@ -2503,6 +2503,13 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             try sema.requireRuntimeBlock(block, src);
             try sema.resolveTypeLayout(block, ty_src, final_elem_ty);
 
+            const final_ptr_ty = try Type.ptr(sema.arena, .{
+                .pointee_type = final_elem_ty,
+                .mutable = var_is_mut,
+                .@"align" = inferred_alloc.data.alignment,
+                .@"addrspace" = target_util.defaultAddressSpace(target, .local),
+            });
+
             if (var_is_mut) {
                 try sema.validateVarType(block, ty_src, final_elem_ty, false);
             } else ct: {
@@ -2534,8 +2541,6 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 if (store_op.lhs != Air.indexToRef(bitcast_inst)) break :ct;
                 if (air_datas[bitcast_inst].ty_op.operand != Air.indexToRef(const_inst)) break :ct;
 
-                const bitcast_ty_ref = air_datas[bitcast_inst].ty_op.ty;
-
                 const new_decl = d: {
                     var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
@@ -2551,17 +2556,15 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 // block so that codegen does not see it.
                 block.instructions.shrinkRetainingCapacity(block.instructions.items.len - 3);
                 sema.air_values.items[value_index] = try Value.Tag.decl_ref.create(sema.arena, new_decl);
-                air_datas[ptr_inst].ty_pl.ty = bitcast_ty_ref;
+                // Would be nice if we could just assign `bitcast_ty_ref` to
+                // `air_datas[ptr_inst].ty_pl.ty`, wouldn't it? Alas, that is almost correct,
+                // except that the pointer is mutable and we need to make it constant here.
+                air_datas[ptr_inst].ty_pl.ty = try sema.addType(final_ptr_ty);
 
                 return;
             }
 
             // Change it to a normal alloc.
-            const final_ptr_ty = try Type.ptr(sema.arena, .{
-                .pointee_type = final_elem_ty,
-                .@"align" = inferred_alloc.data.alignment,
-                .@"addrspace" = target_util.defaultAddressSpace(target, .local),
-            });
             sema.air_instructions.set(ptr_inst, .{
                 .tag = .alloc,
                 .data = .{ .ty = final_ptr_ty },
@@ -15609,12 +15612,16 @@ fn analyzeSlice(
     var slice_ty = ptr_ptr_ty;
     var ptr_or_slice = ptr_ptr;
     var elem_ty = ptr_ptr_child_ty.childType();
+    var ptr_sentinel: ?Value = null;
     switch (ptr_ptr_child_ty.zigTypeTag()) {
-        .Array => {},
+        .Array => {
+            ptr_sentinel = ptr_ptr_child_ty.sentinel();
+        },
         .Pointer => switch (ptr_ptr_child_ty.ptrSize()) {
             .One => {
                 const double_child_ty = ptr_ptr_child_ty.childType();
                 if (double_child_ty.zigTypeTag() == .Array) {
+                    ptr_sentinel = double_child_ty.sentinel();
                     ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                     slice_ty = ptr_ptr_child_ty;
                     array_ty = double_child_ty;
@@ -15624,12 +15631,14 @@ fn analyzeSlice(
                 }
             },
             .Many, .C => {
+                ptr_sentinel = ptr_ptr_child_ty.sentinel();
                 ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                 slice_ty = ptr_ptr_child_ty;
                 array_ty = ptr_ptr_child_ty;
                 elem_ty = ptr_ptr_child_ty.childType();
             },
             .Slice => {
+                ptr_sentinel = ptr_ptr_child_ty.sentinel();
                 ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                 slice_ty = ptr_ptr_child_ty;
                 array_ty = ptr_ptr_child_ty;
@@ -15647,29 +15656,67 @@ fn analyzeSlice(
     const start = try sema.coerce(block, Type.usize, uncasted_start, start_src);
     const new_ptr = try analyzePtrArithmetic(sema, block, src, ptr, start, .ptr_add, ptr_src, start_src);
 
+    // true if and only if the end index of the slice, implicitly or explicitly, equals
+    // the length of the underlying object being sliced. we might learn the length of the
+    // underlying object because it is an array (which has the length in the type), or
+    // we might learn of the length because it is a comptime-known slice value.
+    var end_is_len = uncasted_end_opt == .none;
     const end = e: {
-        if (uncasted_end_opt != .none) {
-            break :e try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
-        }
-
         if (array_ty.zigTypeTag() == .Array) {
-            break :e try sema.addConstant(
-                Type.usize,
-                try Value.Tag.int_u64.create(sema.arena, array_ty.arrayLen()),
-            );
+            const len_val = try Value.Tag.int_u64.create(sema.arena, array_ty.arrayLen());
+
+            if (!end_is_len) {
+                const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                if (try sema.resolveMaybeUndefVal(block, end_src, end)) |end_val| {
+                    if (end_val.eql(len_val, Type.usize)) {
+                        end_is_len = true;
+                    }
+                }
+                break :e end;
+            }
+
+            break :e try sema.addConstant(Type.usize, len_val);
         } else if (slice_ty.isSlice()) {
+            if (!end_is_len) {
+                const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
+                    if (try sema.resolveDefinedValue(block, src, ptr_or_slice)) |slice_val| {
+                        var int_payload: Value.Payload.U64 = .{
+                            .base = .{ .tag = .int_u64 },
+                            .data = slice_val.sliceLen(),
+                        };
+                        const slice_len_val = Value.initPayload(&int_payload.base);
+                        if (end_val.eql(slice_len_val, Type.usize)) {
+                            end_is_len = true;
+                        }
+                    }
+                }
+                break :e end;
+            }
             break :e try sema.analyzeSliceLen(block, src, ptr_or_slice);
+        }
+        if (!end_is_len) {
+            break :e try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
         }
         return sema.fail(block, end_src, "slice of pointer must include end value", .{});
     };
 
-    const slice_sentinel = if (sentinel_opt != .none) blk: {
-        const casted = try sema.coerce(block, elem_ty, sentinel_opt, sentinel_src);
-        break :blk try sema.resolveConstValue(block, sentinel_src, casted);
-    } else null;
+    const sentinel = s: {
+        if (sentinel_opt != .none) {
+            const casted = try sema.coerce(block, elem_ty, sentinel_opt, sentinel_src);
+            break :s try sema.resolveConstValue(block, sentinel_src, casted);
+        }
+        // If we are slicing to the end of something that is sentinel-terminated
+        // then the resulting slice type is also sentinel-terminated.
+        if (end_is_len) {
+            if (ptr_sentinel) |sent| {
+                break :s sent;
+            }
+        }
+        break :s null;
+    };
 
     const new_len = try sema.analyzeArithmetic(block, .sub, end, start, src, end_src, start_src);
-
     const opt_new_len_val = try sema.resolveDefinedValue(block, src, new_len);
 
     const new_ptr_ty_info = sema.typeOf(new_ptr).ptrInfo().data;
@@ -15677,11 +15724,6 @@ fn analyzeSlice(
 
     if (opt_new_len_val) |new_len_val| {
         const new_len_int = new_len_val.toUnsignedInt();
-
-        const sentinel = if (array_ty.zigTypeTag() == .Array and new_len_int == array_ty.arrayLen())
-            array_ty.sentinel()
-        else
-            slice_sentinel;
 
         const return_ty = try Type.ptr(sema.arena, .{
             .pointee_type = try Type.array(sema.arena, new_len_int, sentinel, elem_ty),
@@ -15713,7 +15755,7 @@ fn analyzeSlice(
 
     const return_ty = try Type.ptr(sema.arena, .{
         .pointee_type = elem_ty,
-        .sentinel = slice_sentinel,
+        .sentinel = sentinel,
         .@"align" = new_ptr_ty_info.@"align",
         .@"addrspace" = new_ptr_ty_info.@"addrspace",
         .mutable = new_ptr_ty_info.mutable,

@@ -4,18 +4,6 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
-test "slice string literal has correct type" {
-    comptime {
-        try expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
-        const array = [_]i32{ 1, 2, 3, 4 };
-        try expect(@TypeOf(array[0..]) == *const [4]i32);
-    }
-    var runtime_zero: usize = 0;
-    comptime try expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
-    const array = [_]i32{ 1, 2, 3, 4 };
-    comptime try expect(@TypeOf(array[runtime_zero..]) == []const i32);
-}
-
 test "result location zero sized array inside struct field implicit cast to slice" {
     const E = struct {
         entries: []u32,

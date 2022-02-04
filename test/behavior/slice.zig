@@ -192,3 +192,15 @@ test "compile time slice of pointer to hard coded address" {
     try expect(@ptrToInt(y) == 0x1400);
     try expect(y.len == 0x400);
 }
+
+test "slice string literal has correct type" {
+    comptime {
+        try expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
+        const array = [_]i32{ 1, 2, 3, 4 };
+        try expect(@TypeOf(array[0..]) == *const [4]i32);
+    }
+    var runtime_zero: usize = 0;
+    comptime try expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
+    const array = [_]i32{ 1, 2, 3, 4 };
+    comptime try expect(@TypeOf(array[runtime_zero..]) == []const i32);
+}
