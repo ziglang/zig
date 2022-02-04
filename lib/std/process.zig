@@ -141,8 +141,13 @@ pub const EnvMapWindows = struct {
                 var name_utf16_buf = try std.ArrayListAligned(u8, @alignOf(u16)).initCapacity(self.allocator, name.len);
                 errdefer name_utf16_buf.deinit();
 
-                var uppercased_len = try std.unicode.utf8ToUtf16LeWriter(name_utf16_buf.writer(), name);
-                assert(uppercased_len == name_utf16_buf.items.len);
+                const bytes_written = try std.unicode.utf8ToUtf16LeWriter(name_utf16_buf.writer(), name);
+                var name_utf16 = name_utf16_buf.items[0..bytes_written];
+
+                // uppercase in place
+                var name_uppercased_utf16 = std.mem.bytesAsSlice(u16, name_utf16);
+                const uppercased_len = uppercaseName(name_uppercased_utf16, name_uppercased_utf16);
+                assert(uppercased_len == name_uppercased_utf16.len);
 
                 break :uppercased name_utf16_buf.toOwnedSlice();
             };
@@ -278,7 +283,7 @@ test "EnvMapWindows" {
 
     // both put methods
     try env_map.putUtf16NoClobber(std.unicode.utf8ToUtf16LeStringLiteral("Path"), std.unicode.utf8ToUtf16LeStringLiteral("something"));
-    try env_map.putUtf8("КИРИЛЛИЦА", "something else");
+    try env_map.putUtf8("КИРиллИЦА", "something else");
     try env_map.reallocUppercaseBuf();
 
     try testing.expectEqual(@as(EnvMap.Size, 2), env_map.count());
@@ -292,7 +297,7 @@ test "EnvMapWindows" {
     var it = env_map.iterator();
     var count: EnvMap.Size = 0;
     while (it.next()) |entry| {
-        const is_an_expected_name = std.mem.eql(u8, "Path", entry.name) or std.mem.eql(u8, "КИРИЛЛИЦА", entry.name);
+        const is_an_expected_name = std.mem.eql(u8, "Path", entry.name) or std.mem.eql(u8, "КИРиллИЦА", entry.name);
         try testing.expect(is_an_expected_name);
         count += 1;
     }
