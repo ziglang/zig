@@ -10,6 +10,7 @@ jobs:
   - script: ci/azure/macos_script
     name: main
     displayName: 'Build and test'
+
 - job: BuildMacOS_arm64
   pool:
     vmImage: 'macOS-10.15'
@@ -21,30 +22,125 @@ jobs:
   - script: ci/azure/macos_arm64_script
     name: main
     displayName: 'Build'
+
 - job: BuildWindows
+  timeoutInMinutes: 360
   pool:
     vmImage: 'windows-2019'
-  timeoutInMinutes: 360
+  variables:
+    LLVM_CLANG_LLD_URL: 'https://ziglang.org/deps/llvm+clang+lld-13.0.0-x86_64-windows-msvc-release-mt.tar.xz'
+    LLVM_CLANG_LLD_DIR: 'llvm+clang+lld-13.0.0-x86_64-windows-msvc-release-mt'
   steps:
-  - powershell: |
-      (New-Object Net.WebClient).DownloadFile("https://github.com/msys2/msys2-installer/releases/download/2022-01-28/msys2-base-x86_64-20220128.sfx.exe", "sfx.exe")
-      .\sfx.exe -y -o\
-    displayName: Download/Extract/Install MSYS2
-  - script: |
-      @REM install updated filesystem package first without dependency checking
-      @REM because of: https://github.com/msys2/MSYS2-packages/issues/2021
-      %CD:~0,2%\msys64\usr\bin\bash -lc "pacman --noconfirm -Sydd filesystem"
-    displayName: Workaround filesystem dash MSYS2 dependency issue
-  - script: |
-      %CD:~0,2%\msys64\usr\bin\bash -lc "pacman --noconfirm -Syuu"
-      %CD:~0,2%\msys64\usr\bin\bash -lc "pacman --noconfirm -Syuu"
-    displayName: Update MSYS2
+  - pwsh: |
+      (New-Object Net.WebClient).DownloadFile("$(LLVM_CLANG_LLD_URL)", "${LLVM_CLANG_LLD_DIR}.tar.xz")
+      & 'C:\Program Files\7-Zip\7z.exe' x "${LLVM_CLANG_LLD_DIR}.tar.xz"
+      & 'C:\Program Files\7-Zip\7z.exe' x "${LLVM_CLANG_LLD_DIR}.tar"
+    name: install
+    displayName: 'Install LLVM/CLANG/LLD'
+
+  - pwsh: |
+      Set-Variable -Name ZIGBUILDDIR -Value "$(Get-Location)\build"
+      Set-Variable -Name ZIGINSTALLDIR -Value "$ZIGBUILDDIR\dist"
+      Set-Variable -Name ZIGPREFIXPATH -Value "$(Get-Location)\$(LLVM_CLANG_LLD_DIR)"
+
+      # Make the `zig version` number consistent.
+      # This will affect the cmake command below.
+      git config core.abbrev 9
+      git fetch --tags
+
+      mkdir $ZIGBUILDDIR
+      cd $ZIGBUILDDIR
+      & "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+      cmake .. `
+        -Thost=x64 `
+        -G "Visual Studio 16 2019" `
+        -A x64 `
+        -DCMAKE_INSTALL_PREFIX="$ZIGINSTALLDIR" `
+        -DCMAKE_PREFIX_PATH="$ZIGPREFIXPATH" `
+        -DCMAKE_BUILD_TYPE=Release `
+        -DZIG_OMIT_STAGE2=ON 2> out-null
+      & "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
+        /maxcpucount /p:Configuration=Release INSTALL.vcxproj
+    name: build
+    displayName: 'Build'
+
+  - pwsh: |
+      Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\build\dist"
+
+      # Sadly, stage2 is omitted from this build to save memory on the CI server. Once self-hosted is
+      # built with itself and does not gobble as much memory, we can enable these tests.
+      #& "$ZIGINSTALLDIR\bin\zig.exe" test "..\test\behavior.zig" -fno-stage1 -fLLVM -I "..\test" 2>&1
+
+      & "$ZIGINSTALLDIR\bin\zig.exe" build test-toolchain -Dskip-non-native -Dskip-stage2-tests 2>&1
+      & "$ZIGINSTALLDIR\bin\zig.exe" build test-std -Dskip-non-native  2>&1
+    name: test
+    displayName: 'Test'
+
+  - pwsh: |
+      Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\build\dist"
+
+      & "$ZIGINSTALLDIR\bin\zig.exe" build docs
+    timeoutInMinutes: 60
+    name: doc
+    displayName: 'Documentation'
+
   - task: DownloadSecureFile@1
     inputs:
-      secureFile: s3cfg
-  - script: ci/azure/windows_msvc_script.bat
-    name: main
-    displayName: 'Build and test'
+      name: aws_credentials
+      secureFile: aws_credentials
+
+  - pwsh: |
+      Set-Variable -Name ZIGBUILDDIR -Value "$(Get-Location)\build"
+      $Env:AWS_SHARED_CREDENTIALS_FILE = "$(aws_credentials.secureFilePath)"
+
+      cd "$ZIGBUILDDIR"
+      mv ../LICENSE dist/
+      mv ../zig-cache/langref.html dist/
+      mv dist/bin/zig.exe dist/
+      rmdir dist/bin
+
+      # Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
+      mv dist/lib/zig dist/lib2
+      rmdir dist/lib
+      mv dist/lib2 dist/lib
+
+      Set-Variable -Name VERSION -Value $(./dist/zig.exe version)
+      Set-Variable -Name DIRNAME -Value "zig-windows-x86_64-$VERSION"
+      Set-Variable -Name TARBALL -Value "$DIRNAME.zip"
+      mv dist "$DIRNAME"
+      7z a "$TARBALL" "$DIRNAME"
+
+      aws s3 cp `
+      "$TARBALL" `
+      s3://ziglang.org/builds/ `
+      --cache-control 'public, max-age=31536000, immutable'
+
+      Set-Variable -Name SHASUM -Value (Get-FileHash "$TARBALL" -Algorithm SHA256 | select-object -ExpandProperty Hash)
+      Set-Variable -Name BYTESIZE -Value (Get-Item "$TARBALL").length
+
+      Set-Variable -Name JSONFILE -Value "windows-${GITBRANCH}.json"
+      echo $null > $JSONFILE
+      echo ('{"tarball": "' + $TARBALL  + '",') >> $JSONFILE
+      echo ('"shasum":   "' + $SHASUM   + '",') >> $JSONFILE
+      echo ('"size": '      + $BYTESIZE + '}' ) >> $JSONFILE
+
+      aws s3 cp `
+      "$JSONFILE" `
+      s3://ziglang.org/builds/ `
+      --cache-control 'max-age=0, must-revalidate'
+
+      aws s3 cp `
+      "$JSONFILE" `
+      "s3://ziglang.org/builds/x86_64-windows-${VERSION}.json"
+
+      echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
+      echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
+      echo "##vso[task.setvariable variable=bytesize;isOutput=true]$BYTESIZE"
+
+    name: upload
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    displayName: 'Upload'
+
 - job: OnMasterSuccess
   dependsOn:
   - BuildMacOS
