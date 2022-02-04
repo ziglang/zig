@@ -1862,15 +1862,7 @@ pub const LibExeObjStep = struct {
     /// If the value is omitted, it is set to 1.
     /// `name` and `value` need not live longer than the function call.
     pub fn defineCMacro(self: *LibExeObjStep, name: []const u8, value: ?[]const u8) void {
-        var macro = self.builder.allocator.alloc(
-            u8,
-            name.len + if (value) |value_slice| value_slice.len + 1 else 0,
-        ) catch |err| if (err == error.OutOfMemory) @panic("Out of memory") else unreachable;
-        mem.copy(u8, macro, name);
-        if (value) |value_slice| {
-            macro[name.len] = '=';
-            mem.copy(u8, macro[name.len + 1 ..], value_slice);
-        }
+        const macro = constructCMacro(self.builder.allocator, name, value);
         self.c_macros.append(macro) catch unreachable;
     }
 
@@ -2933,6 +2925,22 @@ pub const LibExeObjStep = struct {
         }
     }
 };
+
+/// Allocates a new string for assigning a value to a named macro.
+/// If the value is omitted, it is set to 1.
+/// `name` and `value` need not live longer than the function call.
+pub fn constructCMacro(allocator: Allocator, name: []const u8, value: ?[]const u8) []const u8 {
+    var macro = allocator.alloc(
+        u8,
+        name.len + if (value) |value_slice| value_slice.len + 1 else 0,
+    ) catch |err| if (err == error.OutOfMemory) @panic("Out of memory") else unreachable;
+    mem.copy(u8, macro, name);
+    if (value) |value_slice| {
+        macro[name.len] = '=';
+        mem.copy(u8, macro[name.len + 1 ..], value_slice);
+    }
+    return macro;
+}
 
 pub const InstallArtifactStep = struct {
     pub const base_id = .install_artifact;
