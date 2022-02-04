@@ -88,13 +88,14 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .c_longlong_type,
                     .c_ulonglong_type,
                     .c_longdouble_type,
-                    .comptime_int_type,
                     => @enumToInt(std.builtin.TypeId.Int),
                     .f16_type,
                     .f32_type,
                     .f64_type,
                     .f128_type,
                     => @enumToInt(std.builtin.TypeId.Float),
+                    .comptime_int_type => @enumToInt(std.builtin.TypeId.ComptimeInt),
+                    .comptime_float_type => @enumToInt(std.builtin.TypeId.ComptimeFloat),
                     .bool_type => @enumToInt(std.builtin.TypeId.Bool),
                     .void_type => @enumToInt(std.builtin.TypeId.Void),
                     .type_type => @enumToInt(std.builtin.TypeId.Type),
@@ -275,7 +276,11 @@ const DocData = struct {
             value: usize, // direct value
             negated: bool = false,
         },
-
+        float: struct {
+            typeRef: TypeRef,
+            value: f64, // direct value
+            negated: bool = false,
+        },
         pub fn jsonStringify(
             self: WalkResult,
             options: std.json.StringifyOptions,
@@ -298,6 +303,16 @@ const DocData = struct {
                     const neg = if (v.negated) "-" else "";
                     try w.print(
                         \\{{ "int": {{ "typeRef": 
+                    , .{});
+                    try v.typeRef.jsonStringify(options, w);
+                    try w.print(
+                        \\, "value": {s}{} }} }}
+                    , .{ neg, v.value });
+                },
+                .float => |v| {
+                    const neg = if (v.negated) "-" else "";
+                    try w.print(
+                        \\{{ "float": {{ "typeRef": 
                     , .{});
                     try v.typeRef.jsonStringify(options, w);
                     try w.print(
@@ -347,6 +362,15 @@ fn walkInstruction(
                 .int = .{
                     .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
                     .value = int,
+                },
+            };
+        },
+        .float => {
+            const float = data[inst_index].float;
+            return DocData.WalkResult{
+                .float = .{
+                    .typeRef = .{ .type = @enumToInt(Ref.comptime_float_type) },
+                    .value = float,
                 },
             };
         },
