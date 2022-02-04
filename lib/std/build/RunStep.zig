@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const build = std.build;
+const os = std.os;
 const Step = build.Step;
 const Builder = build.Builder;
 const LibExeObjStep = build.LibExeObjStep;
@@ -153,10 +154,6 @@ fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
 }
 
 fn make(step: *Step) !void {
-    if (!os.can_spawn()) {
-        std.debug.print("Unable to spawn {s}: the current OS doesn't support it\n", .{argv[0]});
-        return;
-    }
     const self = @fieldParentPtr(RunStep, "step", step);
 
     const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
@@ -178,6 +175,11 @@ fn make(step: *Step) !void {
     }
 
     const argv = argv_list.items;
+
+    if (!os.can_spawn()) {
+        std.debug.print("Unable to spawn {s}: the current OS doesn't support it\n", .{argv[0]});
+        return;
+    }
 
     const child = std.ChildProcess.init(argv, self.builder.allocator) catch unreachable;
     defer child.deinit();
