@@ -790,9 +790,9 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:1:17: note: function cannot return an error",
         "tmp.zig:8:5: error: expected type 'void', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set'",
         "tmp.zig:7:17: note: function cannot return an error",
-        "tmp.zig:11:15: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
+        "tmp.zig:11:15: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
         "tmp.zig:10:17: note: function cannot return an error",
-        "tmp.zig:15:14: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
+        "tmp.zig:15:14: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
         "tmp.zig:14:5: note: cannot store an error in type 'u32'",
     });
 
@@ -1879,7 +1879,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = afoo;
         \\}
     , &[_][]const u8{
-        "tmp.zig:12:25: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(get_uval)).Fn.return_type.?).ErrorUnion.error_set!u32'",
+        "tmp.zig:12:25: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(get_uval)).Fn.return_type.?).ErrorUnion.error_set!u32'",
     });
 
     ctx.objErrStage1("assigning to struct or union fields that are not optionals with a function that returns an optional",
