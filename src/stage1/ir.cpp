@@ -11666,6 +11666,7 @@ static Stage1AirInst *ir_analyze_instruction_export(IrAnalyze *ira, Stage1ZirIns
                 case CallingConventionAAPCS:
                 case CallingConventionAAPCSVFP:
                 case CallingConventionSysV:
+                case CallingConventionPtxKernel:
                     add_fn_export(ira->codegen, fn_entry, buf_ptr(symbol_name), global_linkage_id, cc);
                     fn_entry->section_name = section_name;
                     break;

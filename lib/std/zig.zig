@@ -181,6 +181,7 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
             .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, ofmt.fileExt(target.cpu.arch) }),
             .Lib => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{ target.libPrefix(), root_name }),
         },
+        .nvptx => return std.fmt.allocPrint(allocator, "{s}", .{root_name}),
     }
 }
 

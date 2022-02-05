@@ -215,6 +215,7 @@ pub const File = struct {
         c: void,
         wasm: Wasm.DeclBlock,
         spirv: void,
+        nvptx: void,
     };
 
     pub const LinkFn = union {
@@ -225,6 +226,7 @@ pub const File = struct {
         c: void,
         wasm: Wasm.FnData,
         spirv: SpirV.FnData,
+        nvptx: void,
     };
 
     pub const Export = union {
@@ -235,6 +237,7 @@ pub const File = struct {
         c: void,
         wasm: void,
         spirv: void,
+        nvptx: void,
     };
 
     /// For DWARF .debug_info.
@@ -274,6 +277,7 @@ pub const File = struct {
                 .plan9 => return &(try Plan9.createEmpty(allocator, options)).base,
                 .c => unreachable, // Reported error earlier.
                 .spirv => &(try SpirV.createEmpty(allocator, options)).base,
+                .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                 .hex => return error.HexObjectFormatUnimplemented,
                 .raw => return error.RawObjectFormatUnimplemented,
             };
@@ -292,6 +296,7 @@ pub const File = struct {
                     .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                     .c => unreachable, // Reported error earlier.
                     .spirv => &(try SpirV.createEmpty(allocator, options)).base,
+                    .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                     .hex => return error.HexObjectFormatUnimplemented,
                     .raw => return error.RawObjectFormatUnimplemented,
                 };
@@ -312,6 +317,7 @@ pub const File = struct {
             .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
             .c => &(try C.openPath(allocator, sub_path, options)).base,
             .spirv => &(try SpirV.openPath(allocator, sub_path, options)).base,
+            .nvptx => &(try NvPtx.openPath(allocator, sub_path, options)).base,
             .hex => return error.HexObjectFormatUnimplemented,
             .raw => return error.RawObjectFormatUnimplemented,
         };
@@ -344,7 +350,7 @@ pub const File = struct {
                     .mode = determineMode(base.options),
                 });
             },
-            .c, .wasm, .spirv => {},
+            .c, .wasm, .spirv, .nvptx => {},
         }
     }
 
@@ -389,7 +395,7 @@ pub const File = struct {
                 f.close();
                 base.file = null;
             },
-            .c, .wasm, .spirv => {},
+            .c, .wasm, .spirv, .nvptx => {},
         }
     }
 
@@ -437,6 +443,7 @@ pub const File = struct {
             .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateDecl(module, decl),
             .spirv => return @fieldParentPtr(SpirV, "base", base).updateDecl(module, decl),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDecl(module, decl),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateDecl(module, decl),
             // zig fmt: on
         }
     }
@@ -456,6 +463,7 @@ pub const File = struct {
             .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateFunc(module, func, air, liveness),
             .spirv => return @fieldParentPtr(SpirV, "base", base).updateFunc(module, func, air, liveness),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).updateFunc(module, func, air, liveness),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateFunc(module, func, air, liveness),
             // zig fmt: on
         }
     }
@@ -471,7 +479,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
             .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl),
             .plan9 => @panic("TODO: implement updateDeclLineNumber for plan9"),
-            .wasm, .spirv => {},
+            .wasm, .spirv, .nvptx => {},
         }
     }
 
@@ -493,7 +501,7 @@ pub const File = struct {
             },
             .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl),
-            .c, .spirv => {},
+            .c, .spirv, .nvptx => {},
         }
     }
 
@@ -551,6 +559,11 @@ pub const File = struct {
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
+            .nvptx => {
+                const parent = @fieldParentPtr(NvPtx, "base", base);
+                parent.deinit();
+                base.allocator.destroy(parent);
+            },
         }
     }
 
@@ -584,6 +597,7 @@ pub const File = struct {
             .wasm => return @fieldParentPtr(Wasm, "base", base).flush(comp),
             .spirv => return @fieldParentPtr(SpirV, "base", base).flush(comp),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).flush(comp),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).flush(comp),
         }
     }
 
@@ -598,6 +612,7 @@ pub const File = struct {
             .wasm => return @fieldParentPtr(Wasm, "base", base).flushModule(comp),
             .spirv => return @fieldParentPtr(SpirV, "base", base).flushModule(comp),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).flushModule(comp),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).flushModule(comp),
         }
     }
 
@@ -612,6 +627,7 @@ pub const File = struct {
             .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl),
             .spirv => @fieldParentPtr(SpirV, "base", base).freeDecl(decl),
             .plan9 => @fieldParentPtr(Plan9, "base", base).freeDecl(decl),
+            .nvptx => @fieldParentPtr(NvPtx, "base", base).freeDecl(decl),
         }
     }
 
@@ -622,7 +638,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).error_flags,
             .plan9 => return @fieldParentPtr(Plan9, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
-            .wasm, .spirv => return ErrorFlags{},
+            .wasm, .spirv, .nvptx => return ErrorFlags{},
         }
     }
 
@@ -644,6 +660,7 @@ pub const File = struct {
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl, exports),
             .spirv => return @fieldParentPtr(SpirV, "base", base).updateDeclExports(module, decl, exports),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclExports(module, decl, exports),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateDeclExports(module, decl, exports),
         }
     }
 
@@ -656,6 +673,7 @@ pub const File = struct {
             .c => unreachable,
             .wasm => unreachable,
             .spirv => unreachable,
+            .nvptx => unreachable,
         }
     }
 
@@ -851,6 +869,7 @@ pub const File = struct {
         wasm,
         spirv,
         plan9,
+        nvptx,
     };
 
     pub const ErrorFlags = struct {
@@ -864,6 +883,7 @@ pub const File = struct {
     pub const MachO = @import("link/MachO.zig");
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
+    pub const NvPtx = @import("link/NvPtx.zig");
 };
 
 pub fn determineMode(options: Options) fs.File.Mode {

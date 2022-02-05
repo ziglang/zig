@@ -83,7 +83,8 @@ enum CallingConvention {
     CallingConventionAPCS,
     CallingConventionAAPCS,
     CallingConventionAAPCSVFP,
-    CallingConventionSysV
+    CallingConventionSysV,
+    CallingConventionPtxKernel
 };
 
 // Stage 1 supports only the generic address space

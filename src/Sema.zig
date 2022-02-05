@@ -3724,6 +3724,7 @@ pub fn analyzeExport(
             .c => .{ .c = {} },
             .wasm => .{ .wasm = {} },
             .spirv => .{ .spirv = {} },
+            .nvptx => .{ .nvptx = {} },
         },
         .owner_decl = owner_decl,
         .src_decl = src_decl,
