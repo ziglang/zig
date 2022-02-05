@@ -1899,7 +1899,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = s;
         \\}
     , &[_][]const u8{
-        "tmp.zig:11:27: error: expected type 'u8', found '?u8'",
+        "tmp.zig:11:27: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type 'u8', found '?u8'",
     });
 
     ctx.objErrStage1("missing result type for phi node",
@@ -2308,7 +2308,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    not_optional: i32,
         \\};
     , &[_][]const u8{
-        "tmp.zig:3:36: error: expected type 'i32', found '?i32'",
+        "tmp.zig:3:36: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type 'i32', found '?i32'",
     });
 
     ctx.objErrStage1("result location incompatibility mismatching handle_is_ptr",
@@ -2325,7 +2325,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    not_optional: i32,
         \\};
     , &[_][]const u8{
-        "tmp.zig:3:36: error: expected type 'i32', found '?i32'",
+        "tmp.zig:3:36: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type 'i32', found '?i32'",
     });
 
     ctx.objErrStage1("const frame cast to anyframe",
@@ -8828,7 +8828,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    v = u;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:9: error: expected type '*anyopaque', found '?*anyopaque'",
+        "tmp.zig:4:9: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type '*anyopaque', found '?*anyopaque'",
     });
 
     ctx.objErrStage1("Issue #6823: don't allow .* to be followed by **",
