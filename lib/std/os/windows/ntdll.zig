@@ -235,6 +235,10 @@ pub extern "NtDll" fn RtlUpcaseUnicodeString(
     AllocateDestinationString: BOOLEAN,
 ) callconv(WINAPI) NTSTATUS;
 
+pub extern "NtDll" fn RtlUpcaseUnicodeChar(
+    SourceCharacter: u16,
+) callconv(WINAPI) u16;
+
 pub extern "ntdll" fn NtLockFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,

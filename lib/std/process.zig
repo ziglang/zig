@@ -63,26 +63,42 @@ pub const EnvMap = struct {
     );
 
     pub const EnvNameHashContext = struct {
+        fn upcase(c: u21) u21 {
+            if (c <= std.math.maxInt(u16))
+                return std.os.windows.ntdll.RtlUpcaseUnicodeChar(c);
+            return c;
+        }
+
         pub fn hash(self: @This(), s: []const u8) u64 {
             _ = self;
             if (builtin.os.tag == .windows) {
                 const h = std.hash.Wyhash.init(0);
-                // TODO: improve this, instead of iterating over ascii,
-                //       iterate over with unicode
-                for (s) |c| {
-                    var s_upper = [_]u8 { std.ascii.toLower(c) };
-                    h.update(s_upper);
+                var it = std.unicode.Utf8View(s).iterator();
+                while (it.nextCodepoint()) |cp| {
+                    const cp_upper = upcase(cp);
+                    h.update(&[_]u8{
+                        @intCast(u8, (cp_upper >> 16) & 0xff),
+                        @intCast(u8, (cp_upper >> 8) & 0xff),
+                        @intCast(u8, (cp_upper >> 0) & 0xff),
+                    });
                 }
                 return h.final();
             }
             return std.hash_map.hashString(s);
         }
+
         pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
             _ = self;
             if (builtin.os.tag == .windows) {
-                // TODO: improve this, instead of comparing ascii
-                //       compare with unicode
-                return std.ascii.eqlIgnoreCase(a, b);
+                var it_a = std.unicode.Utf8View(a).iterator();
+                var it_b = std.unicode.Utf8View(b).iterator();
+                while (true) {
+                    const c_a = it_a.nextCodepoint() orelse break;
+                    const c_b = it_b.nextCodepoint() orelse return false;
+                    if (upcase(c_a) != upcase(c_b))
+                        return false;
+                }
+                if (it_b.nextCodepoint()) return false;
             }
             return std.hash_map.eqlString(a, b);
         }
