@@ -12,6 +12,7 @@ const File = link.File;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const TypedValue = @import("../TypedValue.zig");
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -273,6 +274,14 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
     };
     try self.putFn(decl, out);
     return self.updateFinish(decl);
+}
+
+pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl: *Module.Decl) !u32 {
+    _ = self;
+    _ = tv;
+    _ = decl;
+    log.debug("TODO lowerUnnamedConst for Plan9", .{});
+    return error.AnalysisFail;
 }
 
 pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {

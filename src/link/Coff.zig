@@ -21,6 +21,7 @@ const mingw = @import("../mingw.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
+const TypedValue = @import("../TypedValue.zig");
 
 const allocation_padding = 4 / 3;
 const minimum_text_block_size = 64 * allocation_padding;
@@ -695,6 +696,14 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
     };
 
     return self.finishUpdateDecl(module, func.owner_decl, code);
+}
+
+pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl: *Module.Decl) !u32 {
+    _ = self;
+    _ = tv;
+    _ = decl;
+    log.debug("TODO lowerUnnamedConst for Coff", .{});
+    return error.AnalysisFail;
 }
 
 pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {

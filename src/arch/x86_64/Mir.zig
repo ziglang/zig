@@ -202,12 +202,15 @@ pub const Inst = struct {
         ///      0b00  reg1, [reg2 + imm32]
         ///      0b00  reg1, [ds:imm32]
         ///      0b01  reg1, [rip + imm32]
-        ///      0b10  reg1, [rip + reloc]
-        ///      0b11  reg1, [reg2 + rcx + imm32]
-        /// Notes:
-        /// * if flags are 0b10, `Data` contains `got_entry` for the linker to generate
-        /// a valid relocation for.
+        ///      0b10  reg1, [reg2 + rcx + imm32]
         lea,
+
+        /// ops flags: form:
+        ///      0b00  reg1, [rip + reloc] // via GOT emits X86_64_RELOC_GOT relocation
+        ///      0b01  reg1, [rip + reloc] // direct load emits X86_64_RELOC_SIGNED relocation
+        /// Notes:
+        /// * `Data` contains `linker_sym_index` 
+        lea_pie,
 
         /// ops flags: form:
         ///      0bX0  reg1
@@ -342,8 +345,8 @@ pub const Inst = struct {
         /// An extern function.
         /// Index into the linker's string table.
         extern_fn: u32,
-        /// Entry in the GOT table by index.
-        got_entry: u32,
+        /// Entry in the linker's symbol table.
+        linker_sym_index: u32,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         payload: u32,
     };

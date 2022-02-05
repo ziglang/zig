@@ -131,6 +131,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .movabs => try emit.mirMovabs(inst),
 
             .lea => try emit.mirLea(inst),
+            .lea_pie => try emit.mirLeaPie(inst),
 
             .imul_complex => try emit.mirIMulComplex(inst),
 
@@ -706,36 +707,6 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             mem.writeIntLittle(i32, emit.code.items[end_offset - 4 ..][0..4], disp);
         },
         0b10 => {
-            // lea reg1, [rip + reloc]
-            // RM
-            try lowerToRmEnc(
-                .lea,
-                ops.reg1,
-                RegisterOrMemory.rip(Memory.PtrSize.fromBits(ops.reg1.size()), 0),
-                emit.code,
-            );
-            const end_offset = emit.code.items.len;
-            const got_entry = emit.mir.instructions.items(.data)[inst].got_entry;
-            if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-                // TODO I think the reloc might be in the wrong place.
-                const decl = macho_file.active_decl.?;
-                try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
-                    .offset = @intCast(u32, end_offset - 4),
-                    .target = .{ .local = got_entry },
-                    .addend = 0,
-                    .subtractor = null,
-                    .pcrel = true,
-                    .length = 2,
-                    .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
-                });
-            } else {
-                return emit.fail(
-                    "TODO implement lea reg, [rip + reloc] for linking backends different than MachO",
-                    .{},
-                );
-            }
-        },
-        0b11 => {
             // lea reg, [rbp + rcx + imm32]
             const imm = emit.mir.instructions.items(.data)[inst].imm;
             const src_reg: ?Register = if (ops.reg2 == .none) null else ops.reg2;
@@ -754,6 +725,46 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                 emit.code,
             );
         },
+        0b11 => return emit.fail("TODO unused LEA variant 0b11", .{}),
+    }
+}
+
+fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    assert(tag == .lea_pie);
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+
+    // lea reg1, [rip + reloc]
+    // RM
+    try lowerToRmEnc(
+        .lea,
+        ops.reg1,
+        RegisterOrMemory.rip(Memory.PtrSize.fromBits(ops.reg1.size()), 0),
+        emit.code,
+    );
+    const end_offset = emit.code.items.len;
+    const reloc_type = switch (ops.flags) {
+        0b00 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
+        0b01 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
+        else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
+    };
+    const sym_index = emit.mir.instructions.items(.data)[inst].linker_sym_index;
+    if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+        const decl = macho_file.active_decl.?;
+        try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
+            .offset = @intCast(u32, end_offset - 4),
+            .target = .{ .local = sym_index },
+            .addend = 0,
+            .subtractor = null,
+            .pcrel = true,
+            .length = 2,
+            .@"type" = reloc_type,
+        });
+    } else {
+        return emit.fail(
+            "TODO implement lea reg, [rip + reloc] for linking backends different than MachO",
+            .{},
+        );
     }
 }
 

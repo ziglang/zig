@@ -39,6 +39,7 @@ const StringIndexAdapter = std.hash_map.StringIndexAdapter;
 const StringIndexContext = std.hash_map.StringIndexContext;
 const Trie = @import("MachO/Trie.zig");
 const Type = @import("../type.zig").Type;
+const TypedValue = @import("../TypedValue.zig");
 
 pub const TextBlock = Atom;
 
@@ -166,14 +167,17 @@ stub_helper_preamble_atom: ?*Atom = null,
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 
-tlv_ptr_entries_map: std.AutoArrayHashMapUnmanaged(Atom.Relocation.Target, *Atom) = .{},
-tlv_ptr_entries_map_free_list: std.ArrayListUnmanaged(u32) = .{},
+tlv_ptr_entries: std.ArrayListUnmanaged(Entry) = .{},
+tlv_ptr_entries_free_list: std.ArrayListUnmanaged(u32) = .{},
+tlv_ptr_entries_table: std.AutoArrayHashMapUnmanaged(Atom.Relocation.Target, u32) = .{},
 
-got_entries_map: std.AutoArrayHashMapUnmanaged(Atom.Relocation.Target, *Atom) = .{},
-got_entries_map_free_list: std.ArrayListUnmanaged(u32) = .{},
+got_entries: std.ArrayListUnmanaged(Entry) = .{},
+got_entries_free_list: std.ArrayListUnmanaged(u32) = .{},
+got_entries_table: std.AutoArrayHashMapUnmanaged(Atom.Relocation.Target, u32) = .{},
 
-stubs_map: std.AutoArrayHashMapUnmanaged(u32, *Atom) = .{},
-stubs_map_free_list: std.ArrayListUnmanaged(u32) = .{},
+stubs: std.ArrayListUnmanaged(*Atom) = .{},
+stubs_free_list: std.ArrayListUnmanaged(u32) = .{},
+stubs_table: std.AutoArrayHashMapUnmanaged(u32, u32) = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
@@ -217,6 +221,27 @@ atoms: std.AutoHashMapUnmanaged(MatchingSection, *Atom) = .{},
 /// TODO consolidate this.
 managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
 
+/// Table of unnamed constants associated with a parent `Decl`.
+/// We store them here so that we can free the constants whenever the `Decl`
+/// needs updating or is freed.
+///
+/// For example,
+///
+/// ```zig
+/// const Foo = struct{
+///     a: u8,
+/// };
+/// 
+/// pub fn main() void {
+///     var foo = Foo{ .a = 1 };
+///     _ = foo;
+/// }
+/// ```
+///
+/// value assigned to label `foo` is an unnamed constant belonging/associated
+/// with `Decl` `main`, and lives as long as that `Decl`.
+unnamed_const_atoms: UnnamedConstTable = .{},
+
 /// Table of Decls that are currently alive.
 /// We store them here so that we can properly dispose of any allocated
 /// memory within the atom in the incremental linker.
@@ -228,6 +253,13 @@ decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, ?MatchingSection) = .{},
 /// to codegen.genSetReg() or alternatively move PIE displacement for MCValue{ .memory = x }
 /// somewhere else in the codegen.
 active_decl: ?*Module.Decl = null,
+
+const Entry = struct {
+    target: Atom.Relocation.Target,
+    atom: *Atom,
+};
+
+const UnnamedConstTable = std.AutoHashMapUnmanaged(*Module.Decl, std.ArrayListUnmanaged(*Atom));
 
 const PendingUpdate = union(enum) {
     resolve_undef: u32,
@@ -661,16 +693,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                                 sym.n_desc = 0;
                             },
                         }
-                        if (self.got_entries_map.getIndex(.{ .global = entry.key })) |i| {
-                            self.got_entries_map_free_list.append(
-                                self.base.allocator,
-                                @intCast(u32, i),
-                            ) catch {};
-                            self.got_entries_map.keys()[i] = .{ .local = 0 };
+                        if (self.got_entries_table.get(.{ .global = entry.key })) |i| {
+                            self.got_entries_free_list.append(self.base.allocator, @intCast(u32, i)) catch {};
+                            self.got_entries.items[i] = .{ .target = .{ .local = 0 }, .atom = undefined };
+                            _ = self.got_entries_table.swapRemove(.{ .global = entry.key });
                         }
-                        if (self.stubs_map.getIndex(entry.key)) |i| {
-                            self.stubs_map_free_list.append(self.base.allocator, @intCast(u32, i)) catch {};
-                            self.stubs_map.keys()[i] = 0;
+                        if (self.stubs_table.get(entry.key)) |i| {
+                            self.stubs_free_list.append(self.base.allocator, @intCast(u32, i)) catch {};
+                            self.stubs.items[i] = undefined;
+                            _ = self.stubs_table.swapRemove(entry.key);
                         }
                     }
                 }
@@ -2948,7 +2979,7 @@ fn resolveSymbolsInDylibs(self: *MachO) !void {
                     .none => {},
                     .got => return error.TODOGotHint,
                     .stub => {
-                        if (self.stubs_map.contains(sym.n_strx)) break :outer_blk;
+                        if (self.stubs_table.contains(sym.n_strx)) break :outer_blk;
                         const stub_helper_atom = blk: {
                             const match = MatchingSection{
                                 .seg = self.text_segment_cmd_index.?,
@@ -2991,7 +3022,9 @@ fn resolveSymbolsInDylibs(self: *MachO) !void {
                             atom_sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
                             break :blk atom;
                         };
-                        try self.stubs_map.putNoClobber(self.base.allocator, sym.n_strx, stub_atom);
+                        const stub_index = @intCast(u32, self.stubs.items.len);
+                        try self.stubs.append(self.base.allocator, stub_atom);
+                        try self.stubs_table.putNoClobber(self.base.allocator, sym.n_strx, stub_index);
                     },
                 }
             }
@@ -3086,7 +3119,9 @@ fn resolveDyldStubBinder(self: *MachO) !void {
     // Add dyld_stub_binder as the final GOT entry.
     const target = Atom.Relocation.Target{ .global = n_strx };
     const atom = try self.createGotAtom(target);
-    try self.got_entries_map.putNoClobber(self.base.allocator, target, atom);
+    const got_index = @intCast(u32, self.got_entries.items.len);
+    try self.got_entries.append(self.base.allocator, .{ .target = target, .atom = atom });
+    try self.got_entries_table.putNoClobber(self.base.allocator, target, got_index);
     const match = MatchingSection{
         .seg = self.data_const_segment_cmd_index.?,
         .sect = self.got_section_index.?,
@@ -3339,12 +3374,15 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.section_ordinals.deinit(self.base.allocator);
-    self.tlv_ptr_entries_map.deinit(self.base.allocator);
-    self.tlv_ptr_entries_map_free_list.deinit(self.base.allocator);
-    self.got_entries_map.deinit(self.base.allocator);
-    self.got_entries_map_free_list.deinit(self.base.allocator);
-    self.stubs_map.deinit(self.base.allocator);
-    self.stubs_map_free_list.deinit(self.base.allocator);
+    self.tlv_ptr_entries.deinit(self.base.allocator);
+    self.tlv_ptr_entries_free_list.deinit(self.base.allocator);
+    self.tlv_ptr_entries_table.deinit(self.base.allocator);
+    self.got_entries.deinit(self.base.allocator);
+    self.got_entries_free_list.deinit(self.base.allocator);
+    self.got_entries_table.deinit(self.base.allocator);
+    self.stubs.deinit(self.base.allocator);
+    self.stubs_free_list.deinit(self.base.allocator);
+    self.stubs_table.deinit(self.base.allocator);
     self.strtab_dir.deinit(self.base.allocator);
     self.strtab.deinit(self.base.allocator);
     self.undefs.deinit(self.base.allocator);
@@ -3395,6 +3433,14 @@ pub fn deinit(self: *MachO) void {
         decl.link.macho.deinit(self.base.allocator);
     }
     self.decls.deinit(self.base.allocator);
+
+    {
+        var it = self.unnamed_const_atoms.valueIterator();
+        while (it.next()) |atoms| {
+            atoms.deinit(self.base.allocator);
+        }
+        self.unnamed_const_atoms.deinit(self.base.allocator);
+    }
 }
 
 pub fn closeFiles(self: MachO) void {
@@ -3409,9 +3455,11 @@ pub fn closeFiles(self: MachO) void {
     }
 }
 
-fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection) void {
+fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection, owns_atom: bool) void {
     log.debug("freeAtom {*}", .{atom});
-    atom.deinit(self.base.allocator);
+    if (!owns_atom) {
+        atom.deinit(self.base.allocator);
+    }
 
     const free_list = self.atom_free_lists.getPtr(match).?;
     var already_have_free_list_node = false;
@@ -3502,23 +3550,22 @@ fn growAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, match
     return self.allocateAtom(atom, new_atom_size, alignment, match);
 }
 
-pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
-    if (self.llvm_object) |_| return;
-    if (decl.link.macho.local_sym_index != 0) return;
-
+fn allocateLocalSymbol(self: *MachO) !u32 {
     try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
-    try self.decls.putNoClobber(self.base.allocator, decl, null);
 
-    if (self.locals_free_list.popOrNull()) |i| {
-        log.debug("reusing symbol index {d} for {s}", .{ i, decl.name });
-        decl.link.macho.local_sym_index = i;
-    } else {
-        log.debug("allocating symbol index {d} for {s}", .{ self.locals.items.len, decl.name });
-        decl.link.macho.local_sym_index = @intCast(u32, self.locals.items.len);
-        _ = self.locals.addOneAssumeCapacity();
-    }
+    const index = blk: {
+        if (self.locals_free_list.popOrNull()) |index| {
+            log.debug("  (reusing symbol index {d})", .{index});
+            break :blk index;
+        } else {
+            log.debug("  (allocating symbol index {d})", .{self.locals.items.len});
+            const index = @intCast(u32, self.locals.items.len);
+            _ = self.locals.addOneAssumeCapacity();
+            break :blk index;
+        }
+    };
 
-    self.locals.items[decl.link.macho.local_sym_index] = .{
+    self.locals.items[index] = .{
         .n_strx = 0,
         .n_type = 0,
         .n_sect = 0,
@@ -3526,24 +3573,86 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
         .n_value = 0,
     };
 
-    // TODO try popping from free list first before allocating a new GOT atom.
-    const target = Atom.Relocation.Target{ .local = decl.link.macho.local_sym_index };
-    const value_ptr = blk: {
-        if (self.got_entries_map_free_list.popOrNull()) |i| {
-            log.debug("reusing GOT entry index {d} for {s}", .{ i, decl.name });
-            self.got_entries_map.keys()[i] = target;
-            const value_ptr = self.got_entries_map.getPtr(target).?;
-            break :blk value_ptr;
+    return index;
+}
+
+pub fn allocateGotEntry(self: *MachO, target: Atom.Relocation.Target) !u32 {
+    try self.got_entries.ensureUnusedCapacity(self.base.allocator, 1);
+
+    const index = blk: {
+        if (self.got_entries_free_list.popOrNull()) |index| {
+            log.debug("  (reusing GOT entry index {d})", .{index});
+            break :blk index;
         } else {
-            const res = try self.got_entries_map.getOrPut(self.base.allocator, target);
-            log.debug("creating new GOT entry at index {d} for {s}", .{
-                self.got_entries_map.getIndex(target).?,
-                decl.name,
-            });
-            break :blk res.value_ptr;
+            log.debug("  (allocating GOT entry at index {d})", .{self.got_entries.items.len});
+            const index = @intCast(u32, self.got_entries.items.len);
+            _ = self.got_entries.addOneAssumeCapacity();
+            break :blk index;
         }
     };
-    value_ptr.* = try self.createGotAtom(target);
+
+    self.got_entries.items[index] = .{
+        .target = target,
+        .atom = undefined,
+    };
+    try self.got_entries_table.putNoClobber(self.base.allocator, target, index);
+
+    return index;
+}
+
+pub fn allocateStubEntry(self: *MachO, n_strx: u32) !u32 {
+    try self.stubs.ensureUnusedCapacity(self.base.allocator, 1);
+
+    const index = blk: {
+        if (self.stubs_free_list.popOrNull()) |index| {
+            log.debug("  (reusing stub entry index {d})", .{index});
+            break :blk index;
+        } else {
+            log.debug("  (allocating stub entry at index {d})", .{self.stubs.items.len});
+            const index = @intCast(u32, self.stubs.items.len);
+            _ = self.stubs.addOneAssumeCapacity();
+            break :blk index;
+        }
+    };
+
+    self.stubs.items[index] = undefined;
+    try self.stubs_table.putNoClobber(self.base.allocator, n_strx, index);
+
+    return index;
+}
+
+pub fn allocateTlvPtrEntry(self: *MachO, target: Atom.Relocation.Target) !u32 {
+    try self.tlv_ptr_entries.ensureUnusedCapacity(self.base.allocator, 1);
+
+    const index = blk: {
+        if (self.tlv_ptr_entries_free_list.popOrNull()) |index| {
+            log.debug("  (reusing TLV ptr entry index {d})", .{index});
+            break :blk index;
+        } else {
+            log.debug("  (allocating TLV ptr entry at index {d})", .{self.tlv_ptr_entries.items.len});
+            const index = @intCast(u32, self.tlv_ptr_entries.items.len);
+            _ = self.tlv_ptr_entries.addOneAssumeCapacity();
+            break :blk index;
+        }
+    };
+
+    self.tlv_ptr_entries.items[index] = .{ .target = target, .atom = undefined };
+    try self.tlv_ptr_entries_table.putNoClobber(self.base.allocator, target, index);
+
+    return index;
+}
+
+pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
+    if (self.llvm_object) |_| return;
+    if (decl.link.macho.local_sym_index != 0) return;
+
+    decl.link.macho.local_sym_index = try self.allocateLocalSymbol();
+    try self.decls.putNoClobber(self.base.allocator, decl, null);
+
+    const got_target = .{ .local = decl.link.macho.local_sym_index };
+    const got_index = try self.allocateGotEntry(got_target);
+    const got_atom = try self.createGotAtom(got_target);
+    self.got_entries.items[got_index].atom = got_atom;
 }
 
 pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -3557,6 +3666,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     defer tracy.end();
 
     const decl = func.owner_decl;
+    self.freeUnnamedConsts(decl);
     // TODO clearing the code and relocs buffer should probably be orchestrated
     // in a different, smarter, more automatic way somewhere else, in a more centralised
     // way than this.
@@ -3622,6 +3732,70 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     // needs to be updated.
     const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
     try self.updateDeclExports(module, decl, decl_exports);
+}
+
+pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.Decl) !u32 {
+    var code_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer code_buffer.deinit();
+
+    const module = self.base.options.module.?;
+    const gop = try self.unnamed_const_atoms.getOrPut(self.base.allocator, decl);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    const unnamed_consts = gop.value_ptr;
+
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
+        .none = .{},
+    });
+    const code = switch (res) {
+        .externally_managed => |x| x,
+        .appended => code_buffer.items,
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl, em);
+            return error.AnalysisFail;
+        },
+    };
+
+    const name_str_index = blk: {
+        const index = unnamed_consts.items.len;
+        const name = try std.fmt.allocPrint(self.base.allocator, "__unnamed_{s}_{d}", .{ decl.name, index });
+        defer self.base.allocator.free(name);
+        break :blk try self.makeString(name);
+    };
+    const name = self.getString(name_str_index);
+
+    log.debug("allocating symbol indexes for {s}", .{name});
+
+    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const match = (try self.getMatchingSection(.{
+        .segname = makeStaticString("__TEXT"),
+        .sectname = makeStaticString("__const"),
+        .size = code.len,
+        .@"align" = math.log2(required_alignment),
+    })).?;
+    const local_sym_index = try self.allocateLocalSymbol();
+    const atom = try self.createEmptyAtom(local_sym_index, code.len, math.log2(required_alignment));
+    mem.copy(u8, atom.code.items, code);
+    const addr = try self.allocateAtom(atom, code.len, required_alignment, match);
+
+    log.debug("allocated atom for {s} at 0x{x}", .{ name, addr });
+
+    errdefer self.freeAtom(atom, match, true);
+
+    const symbol = &self.locals.items[atom.local_sym_index];
+    symbol.* = .{
+        .n_strx = name_str_index,
+        .n_type = macho.N_SECT,
+        .n_sect = @intCast(u8, self.section_ordinals.getIndex(match).?) + 1,
+        .n_desc = 0,
+        .n_value = addr,
+    };
+
+    try unnamed_consts.append(self.base.allocator, atom);
+
+    return atom.local_sym_index;
 }
 
 pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
@@ -3879,7 +4053,8 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
 
             if (vaddr != symbol.n_value) {
                 log.debug(" (writing new GOT entry)", .{});
-                const got_atom = self.got_entries_map.get(.{ .local = decl.link.macho.local_sym_index }).?;
+                const got_index = self.got_entries_table.get(.{ .local = decl.link.macho.local_sym_index }).?;
+                const got_atom = self.got_entries.items[got_index].atom;
                 const got_sym = &self.locals.items[got_atom.local_sym_index];
                 const got_vaddr = try self.allocateAtom(got_atom, @sizeOf(u64), 8, .{
                     .seg = self.data_const_segment_cmd_index.?,
@@ -3920,7 +4095,7 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
 
         log.debug("allocated atom for {s} at 0x{x}", .{ decl_name, addr });
 
-        errdefer self.freeAtom(&decl.link.macho, match);
+        errdefer self.freeAtom(&decl.link.macho, match, false);
 
         symbol.* = .{
             .n_strx = name_str_index,
@@ -3929,7 +4104,8 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
             .n_desc = 0,
             .n_value = addr,
         };
-        const got_atom = self.got_entries_map.get(.{ .local = decl.link.macho.local_sym_index }).?;
+        const got_index = self.got_entries_table.get(.{ .local = decl.link.macho.local_sym_index }).?;
+        const got_atom = self.got_entries.items[got_index].atom;
         const got_sym = &self.locals.items[got_atom.local_sym_index];
         const vaddr = try self.allocateAtom(got_atom, @sizeOf(u64), 8, .{
             .seg = self.data_const_segment_cmd_index.?,
@@ -4103,6 +4279,19 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
     global.n_value = 0;
 }
 
+fn freeUnnamedConsts(self: *MachO, decl: *Module.Decl) void {
+    const unnamed_consts = self.unnamed_const_atoms.getPtr(decl) orelse return;
+    for (unnamed_consts.items) |atom| {
+        self.freeAtom(atom, .{
+            .seg = self.text_segment_cmd_index.?,
+            .sect = self.text_const_section_index.?,
+        }, true);
+        self.locals_free_list.append(self.base.allocator, atom.local_sym_index) catch {};
+        self.locals.items[atom.local_sym_index].n_type = 0;
+    }
+    unnamed_consts.clearAndFree(self.base.allocator);
+}
+
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
@@ -4110,15 +4299,19 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
     log.debug("freeDecl {*}", .{decl});
     const kv = self.decls.fetchSwapRemove(decl);
     if (kv.?.value) |match| {
-        self.freeAtom(&decl.link.macho, match);
+        self.freeAtom(&decl.link.macho, match, false);
+        self.freeUnnamedConsts(decl);
     }
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     if (decl.link.macho.local_sym_index != 0) {
         self.locals_free_list.append(self.base.allocator, decl.link.macho.local_sym_index) catch {};
 
-        // Try freeing GOT atom
-        const got_index = self.got_entries_map.getIndex(.{ .local = decl.link.macho.local_sym_index }).?;
-        self.got_entries_map_free_list.append(self.base.allocator, @intCast(u32, got_index)) catch {};
+        // Try freeing GOT atom if this decl had one
+        if (self.got_entries_table.get(.{ .local = decl.link.macho.local_sym_index })) |got_index| {
+            self.got_entries_free_list.append(self.base.allocator, @intCast(u32, got_index)) catch {};
+            self.got_entries.items[got_index] = .{ .target = .{ .local = 0 }, .atom = undefined };
+            _ = self.got_entries_table.swapRemove(.{ .local = decl.link.macho.local_sym_index });
+        }
 
         self.locals.items[decl.link.macho.local_sym_index].n_type = 0;
         decl.link.macho.local_sym_index = 0;
@@ -5932,8 +6125,8 @@ fn writeSymbolTable(self: *MachO) !void {
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].segment;
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
 
-    const nstubs = @intCast(u32, self.stubs_map.keys().len);
-    const ngot_entries = @intCast(u32, self.got_entries_map.keys().len);
+    const nstubs = @intCast(u32, self.stubs_table.keys().len);
+    const ngot_entries = @intCast(u32, self.got_entries_table.keys().len);
 
     dysymtab.indirectsymoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
     dysymtab.nindirectsyms = nstubs * 2 + ngot_entries;
@@ -5953,7 +6146,7 @@ fn writeSymbolTable(self: *MachO) !void {
     var writer = stream.writer();
 
     stubs.reserved1 = 0;
-    for (self.stubs_map.keys()) |key| {
+    for (self.stubs_table.keys()) |key| {
         const resolv = self.symbol_resolver.get(key).?;
         switch (resolv.where) {
             .global => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
@@ -5962,7 +6155,7 @@ fn writeSymbolTable(self: *MachO) !void {
     }
 
     got.reserved1 = nstubs;
-    for (self.got_entries_map.keys()) |key| {
+    for (self.got_entries_table.keys()) |key| {
         switch (key) {
             .local => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
             .global => |n_strx| {
@@ -5976,7 +6169,7 @@ fn writeSymbolTable(self: *MachO) !void {
     }
 
     la_symbol_ptr.reserved1 = got.reserved1 + ngot_entries;
-    for (self.stubs_map.keys()) |key| {
+    for (self.stubs_table.keys()) |key| {
         const resolv = self.symbol_resolver.get(key).?;
         switch (resolv.where) {
             .global => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
@@ -6348,7 +6541,7 @@ fn snapshotState(self: *MachO) !void {
                     };
 
                     if (is_via_got) {
-                        const got_atom = self.got_entries_map.get(rel.target) orelse break :blk 0;
+                        const got_atom = self.got_entries_table.get(rel.target) orelse break :blk 0;
                         break :blk self.locals.items[got_atom.local_sym_index].n_value;
                     }
 
@@ -6380,10 +6573,11 @@ fn snapshotState(self: *MachO) !void {
                             switch (resolv.where) {
                                 .global => break :blk self.globals.items[resolv.where_index].n_value,
                                 .undef => {
-                                    break :blk if (self.stubs_map.get(n_strx)) |stub_atom|
-                                        self.locals.items[stub_atom.local_sym_index].n_value
-                                    else
-                                        0;
+                                    if (self.stubs_table.get(n_strx)) |stub_index| {
+                                        const stub_atom = self.stubs.items[stub_index];
+                                        break :blk self.locals.items[stub_atom.local_sym_index].n_value;
+                                    }
+                                    break :blk 0;
                                 },
                             }
                         },
@@ -6508,15 +6702,20 @@ fn logSymtab(self: MachO) void {
     }
 
     log.debug("GOT entries:", .{});
-    for (self.got_entries_map.keys()) |key| {
+    for (self.got_entries_table.values()) |value| {
+        const key = self.got_entries.items[value].target;
+        const atom = self.got_entries.items[value].atom;
         switch (key) {
-            .local => |sym_index| log.debug("  {} => {d}", .{ key, sym_index }),
+            .local => {
+                const sym = self.locals.items[atom.local_sym_index];
+                log.debug("  {} => {s}", .{ key, self.getString(sym.n_strx) });
+            },
             .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
         }
     }
 
     log.debug("__thread_ptrs entries:", .{});
-    for (self.tlv_ptr_entries_map.keys()) |key| {
+    for (self.tlv_ptr_entries_table.keys()) |key| {
         switch (key) {
             .local => unreachable,
             .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
@@ -6524,7 +6723,7 @@ fn logSymtab(self: MachO) void {
     }
 
     log.debug("stubs:", .{});
-    for (self.stubs_map.keys()) |key| {
+    for (self.stubs_table.keys()) |key| {
         log.debug("  {} => {s}", .{ key, self.getString(key) });
     }
 }

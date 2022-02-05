@@ -119,6 +119,7 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
             .movabs => try print.mirMovabs(inst, w),
 
             .lea => try print.mirLea(inst, w),
+            .lea_pie => try print.mirLeaPie(inst, w),
 
             .imul_complex => try print.mirIMulComplex(inst, w),
 
@@ -412,7 +413,7 @@ fn mirLea(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
             } else {
                 try w.print("ds:", .{});
             }
-            try w.print("{d}]\n", .{imm});
+            try w.print("{d}]", .{imm});
         },
         0b01 => {
             try w.print("{s}, ", .{@tagName(ops.reg1)});
@@ -429,6 +430,7 @@ fn mirLea(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
             try w.print("target@{x}", .{imm});
         },
         0b10 => {
+            const imm = print.mir.instructions.items(.data)[inst].imm;
             try w.print("{s}, ", .{@tagName(ops.reg1)});
             switch (ops.reg1.size()) {
                 8 => try w.print("byte ptr ", .{}),
@@ -437,21 +439,35 @@ fn mirLea(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
                 64 => try w.print("qword ptr ", .{}),
                 else => unreachable,
             }
-            try w.print("[rip + 0x0] ", .{});
-            const got_entry = print.mir.instructions.items(.data)[inst].got_entry;
-            if (print.bin_file.cast(link.File.MachO)) |macho_file| {
-                const target = macho_file.locals.items[got_entry];
-                const target_name = macho_file.getString(target.n_strx);
-                try w.print("target@{s}", .{target_name});
-            } else {
-                try w.writeAll("TODO lea reg, [rip + reloc] for linking backends different than MachO");
-            }
+            try w.print("[rbp + rcx + {d}]", .{imm});
         },
         0b11 => {
-            try w.writeAll("unused variant\n");
+            try w.writeAll("unused variant");
         },
     }
     try w.writeAll("\n");
+}
+
+fn mirLeaPie(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
+    const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
+    try w.print("lea {s}, ", .{@tagName(ops.reg1)});
+    switch (ops.reg1.size()) {
+        8 => try w.print("byte ptr ", .{}),
+        16 => try w.print("word ptr ", .{}),
+        32 => try w.print("dword ptr ", .{}),
+        64 => try w.print("qword ptr ", .{}),
+        else => unreachable,
+    }
+    try w.print("[rip + 0x0] ", .{});
+    const sym_index = print.mir.instructions.items(.data)[inst].linker_sym_index;
+    if (print.bin_file.cast(link.File.MachO)) |macho_file| {
+        const target = macho_file.locals.items[sym_index];
+        const target_name = macho_file.getString(target.n_strx);
+        try w.print("target@{s}", .{target_name});
+    } else {
+        try w.print("TODO lea PIE for other backends", .{});
+    }
+    return w.writeByte('\n');
 }
 
 fn mirCallExtern(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
