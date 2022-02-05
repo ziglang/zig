@@ -28,17 +28,6 @@ pub const TranslateCContext = @import("src/translate_c.zig").TranslateCContext;
 pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTranslatedCContext;
 pub const CompareOutputContext = @import("src/compare_output.zig").CompareOutputContext;
 
-fn argvCmd(allocator: Allocator, argv: []const []const u8) ![]u8 {
-    var cmd = std.ArrayList(u8).init(allocator);
-    defer cmd.deinit();
-    for (argv[0 .. argv.len - 1]) |arg| {
-        try cmd.appendSlice(arg);
-        try cmd.append(' ');
-    }
-    try cmd.appendSlice(argv[argv.len - 1]);
-    return cmd.toOwnedSlice();
-}
-
 const TestTarget = struct {
     target: CrossTarget = @as(CrossTarget, .{}),
     mode: std.builtin.Mode = .Debug,
@@ -736,7 +725,7 @@ pub const StackTracesContext = struct {
             std.debug.print("Test {d}/{d} {s}...", .{ self.test_index + 1, self.context.test_index, self.name });
 
             if (!std.process.can_spawn) {
-                const cmd = try argvCmd(b.allocator, args.items);
+                const cmd = try std.mem.join(b.allocator, " ", args.items);
                 std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
                 b.allocator.free(cmd);
                 return ExecError.ExecNotSupported;

@@ -2881,7 +2881,7 @@ fn runOrTest(
         // execv releases the locks; no need to destroy the Compilation here.
         const err = std.process.execv(gpa, argv.items);
         try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
-        const cmd = try argvCmd(arena, argv.items);
+        const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else if (std.process.can_spawn) {
         const child = try std.ChildProcess.init(argv.items, gpa);
@@ -2900,7 +2900,7 @@ fn runOrTest(
 
         const term = child.spawnAndWait() catch |err| {
             try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
-            const cmd = try argvCmd(arena, argv.items);
+            const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
         };
         switch (arg_mode) {
@@ -2931,12 +2931,12 @@ fn runOrTest(
                         if (code == 0) {
                             if (!watch) return cleanExit();
                         } else {
-                            const cmd = try argvCmd(arena, argv.items);
+                            const cmd = try std.mem.join(arena, " ", argv.items);
                             fatal("the following test command failed with exit code {d}:\n{s}", .{ code, cmd });
                         }
                     },
                     else => {
-                        const cmd = try argvCmd(arena, argv.items);
+                        const cmd = try std.mem.join(arena, " ", argv.items);
                         fatal("the following test command crashed:\n{s}", .{cmd});
                     },
                 }
@@ -2944,7 +2944,7 @@ fn runOrTest(
             else => unreachable,
         }
     } else {
-        const cmd = try argvCmd(arena, argv.items);
+        const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
     }
 }
@@ -3573,30 +3573,19 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 if (prominent_compile_errors) {
                     fatal("the build command failed with exit code {d}", .{code});
                 } else {
-                    const cmd = try argvCmd(arena, child_argv);
+                    const cmd = try std.mem.join(arena, " ", child_argv);
                     fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
                 }
             },
             else => {
-                const cmd = try argvCmd(arena, child_argv);
+                const cmd = try std.mem.join(arena, " ", child_argv);
                 fatal("the following build command crashed:\n{s}", .{cmd});
             },
         }
     } else {
-        const cmd = try argvCmd(arena, child_argv);
+        const cmd = try std.mem.join(arena, " ", child_argv);
         fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
     }
-}
-
-fn argvCmd(allocator: Allocator, argv: []const []const u8) ![]u8 {
-    var cmd = std.ArrayList(u8).init(allocator);
-    defer cmd.deinit();
-    for (argv[0 .. argv.len - 1]) |arg| {
-        try cmd.appendSlice(arg);
-        try cmd.append(' ');
-    }
-    try cmd.appendSlice(argv[argv.len - 1]);
-    return cmd.toOwnedSlice();
 }
 
 fn readSourceFileToEndAlloc(

@@ -138,17 +138,6 @@ pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8
     ) catch unreachable;
 }
 
-fn argvCmd(allocator: Allocator, argv: []const []const u8) ![]u8 {
-    var cmd = std.ArrayList(u8).init(allocator);
-    defer cmd.deinit();
-    for (argv[0 .. argv.len - 1]) |arg| {
-        try cmd.appendSlice(arg);
-        try cmd.append(' ');
-    }
-    try cmd.appendSlice(argv[argv.len - 1]);
-    return cmd.toOwnedSlice();
-}
-
 pub fn expectStdErrEqual(self: *RunStep, bytes: []const u8) void {
     self.stderr_action = .{ .expect_exact = self.builder.dupe(bytes) };
 }
@@ -189,7 +178,7 @@ fn make(step: *Step) !void {
     const argv = argv_list.items;
 
     if (!std.process.can_spawn) {
-        const cmd = try argvCmd(self.builder.allocator, argv);
+        const cmd = try std.mem.join(self.builder.allocator, " ", argv);
         std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
         self.builder.allocator.free(cmd);
         return ExecError.ExecNotSupported;
