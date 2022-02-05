@@ -22,7 +22,6 @@ test "@alignOf(T) before referencing T" {
 
 test "comparison of @alignOf(T) against zero" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     {
         const T = struct { x: u32 };
