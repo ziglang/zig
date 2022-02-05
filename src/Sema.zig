@@ -164,11 +164,6 @@ pub const Block = struct {
         br_list: std.ArrayListUnmanaged(Air.Inst.Index),
     };
 
-    /// For debugging purposes.
-    pub fn dump(block: *Block, mod: Module) void {
-        Zir.dumpBlock(mod, block);
-    }
-
     pub fn makeSubBlock(parent: *Block) Block {
         return .{
             .parent = parent,

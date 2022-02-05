@@ -4709,6 +4709,31 @@ pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedV
     return mod.createAnonymousDeclFromDecl(block.src_decl, block.namespace, block.wip_capture_scope, typed_value);
 }
 
+/// TODO cleanup
+pub fn createAnonymousDecl2(mod: *Module, typed_value: TypedValue, src_name: []const u8) !*Decl {
+    const name_index = mod.getNextAnonNameIndex();
+    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
+        src_name, name_index,
+    });
+    errdefer mod.gpa.free(name);
+
+    const new_decl = try mod.allocateNewDecl(name, undefined, 0, null);
+
+    new_decl.src_line = 0;
+    new_decl.ty = typed_value.ty;
+    new_decl.val = typed_value.val;
+    new_decl.align_val = Value.@"null";
+    new_decl.linksection_val = Value.@"null";
+    new_decl.has_tv = true;
+    new_decl.analysis = .complete;
+    new_decl.generation = mod.generation;
+
+    try mod.comp.bin_file.allocateDeclIndexes(new_decl);
+    try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = new_decl });
+
+    return new_decl;
+}
+
 pub fn createAnonymousDeclFromDecl(
     mod: *Module,
     src_decl: *Decl,

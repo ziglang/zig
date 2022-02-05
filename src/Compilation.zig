@@ -35,6 +35,7 @@ const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
 const Color = @import("main.zig").Color;
+const aro = @import("aro/lib.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -237,6 +238,10 @@ const Job = union(enum) {
 
     /// The value is the index into `link.File.Options.system_libs`.
     windows_import_lib: usize,
+
+    /// Compile a C source file with Aro.
+    /// The value is the index into `c_source_files`.
+    arocc: usize,
 };
 
 pub const CObject = struct {
@@ -1677,17 +1682,20 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     try comp.astgen_wait_group.init();
     errdefer comp.astgen_wait_group.deinit();
 
-    // Add a `CObject` for each `c_source_files`.
-    try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
-    for (options.c_source_files) |c_source_file| {
-        const c_object = try gpa.create(CObject);
-        errdefer gpa.destroy(c_object);
+    // When using Clang, add a `CObject` for each `c_source_files`.
+    const use_clang = build_options.have_llvm;
+    if (use_clang) {
+        try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
+        for (options.c_source_files) |c_source_file| {
+            const c_object = try gpa.create(CObject);
+            errdefer gpa.destroy(c_object);
 
-        c_object.* = .{
-            .status = .{ .new = {} },
-            .src = c_source_file,
-        };
-        comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
+            c_object.* = .{
+                .status = .{ .new = {} },
+                .src = c_source_file,
+            };
+            comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
+        }
     }
 
     const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
@@ -2025,9 +2033,17 @@ pub fn update(comp: *Compilation) !void {
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each C object.
-    try comp.c_object_work_queue.ensureUnusedCapacity(comp.c_object_table.count());
-    for (comp.c_object_table.keys()) |key| {
-        comp.c_object_work_queue.writeItemAssumeCapacity(key);
+    // Note that when using Aro frontend instead of Clang, `c_object_work_queue` is always empty.
+    const use_clang = build_options.have_llvm;
+    if (use_clang) {
+        try comp.c_object_work_queue.ensureUnusedCapacity(comp.c_object_table.count());
+        for (comp.c_object_table.keys()) |key| {
+            comp.c_object_work_queue.writeItemAssumeCapacity(key);
+        }
+    } else {
+        for (comp.c_source_files) |_, i| {
+            try comp.work_queue.writeItem(.{ .arocc = i });
+        }
     }
 
     const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
@@ -2811,6 +2827,15 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                 return;
             },
         },
+        .arocc => |c_source_file_index| {
+            const c_source_file = comp.c_source_files[c_source_file_index];
+            comp.compileWithAro(c_source_file) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => {
+                    @panic("properly handle arocc errors");
+                },
+            };
+        },
         .emit_h_decl => |decl| switch (decl.analysis) {
             .unreferenced => unreachable,
             .in_progress => unreachable,
@@ -3143,6 +3168,58 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
     }
+}
+
+fn compileWithAro(comp: *Compilation, c_source_file: CSourceFile) !void {
+    const src_path = c_source_file.src_path;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    var aro_comp = aro.Compilation.init(comp.gpa);
+    defer aro_comp.deinit();
+
+    aro_comp.target = comp.getTarget();
+
+    try aro_comp.addDefaultPragmaHandlers();
+
+    const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
+    try aro_comp.system_include_dirs.append(c_headers_dir);
+
+    for (comp.libc_include_dir_list) |include_dir| {
+        try aro_comp.system_include_dirs.append(include_dir);
+    }
+
+    var macro_buf = std.ArrayList(u8).init(comp.gpa);
+    defer macro_buf.deinit();
+
+    const builtin_macros = try aro_comp.generateBuiltinMacros();
+    const user_macros = try aro_comp.addSourceFromBuffer("<command line>", macro_buf.items);
+
+    const source = try aro_comp.addSourceFromPath(src_path);
+
+    aro_comp.generated_buf.items.len = 0;
+    var pp = aro.Preprocessor.init(&aro_comp);
+    defer pp.deinit();
+    try pp.addBuiltinMacros();
+
+    _ = try pp.preprocess(builtin_macros);
+    _ = try pp.preprocess(user_macros);
+    const eof = try pp.preprocess(source);
+    try pp.tokens.append(comp.gpa, eof);
+
+    var tree = try aro.Parser.parse(&pp);
+    defer tree.deinit();
+
+    aro_comp.renderErrors(); // populates aro_comp.diag.errors
+
+    if (aro_comp.diag.errors != 0) {
+        // errors occurred
+        @panic("report aro errors");
+    }
+
+    try aro.Codegen.generateTree(comp, &aro_comp, tree, arena);
 }
 
 const AstGenSrc = union(enum) {
