@@ -17,6 +17,7 @@ const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
+const TypedValue = @import("TypedValue.zig");
 
 pub const SystemLib = struct {
     needed: bool = false,
@@ -428,6 +429,25 @@ pub const File = struct {
         NameTooLong,
         CurrentWorkingDirectoryUnlinked,
     };
+
+    /// Called from within the CodeGen to lower a local variable instantion as an unnamed
+    /// constant. Returns the symbol index of the lowered constant in the read-only section
+    /// of the final binary.
+    pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl: *Module.Decl) UpdateDeclError!u32 {
+        log.debug("lowerUnnamedConst {*} ({s})", .{ decl, decl.name });
+        switch (base.tag) {
+            // zig fmt: off
+            .coff  => return @fieldParentPtr(Coff,  "base", base).lowerUnnamedConst(tv, decl),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).lowerUnnamedConst(tv, decl),
+            .macho => return @fieldParentPtr(MachO, "base", base).lowerUnnamedConst(tv, decl),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).lowerUnnamedConst(tv, decl),
+            .spirv => unreachable,
+            .c     => unreachable,
+            .wasm  => unreachable,
+            .nvptx => unreachable,
+            // zig fmt: on
+        }
+    }
 
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.

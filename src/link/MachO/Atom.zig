@@ -545,28 +545,11 @@ fn addPtrBindingOrRebase(
 }
 
 fn addTlvPtrEntry(target: Relocation.Target, context: RelocContext) !void {
-    if (context.macho_file.tlv_ptr_entries_map.contains(target)) return;
+    if (context.macho_file.tlv_ptr_entries_table.contains(target)) return;
 
-    const value_ptr = blk: {
-        if (context.macho_file.tlv_ptr_entries_map_free_list.popOrNull()) |i| {
-            log.debug("reusing __thread_ptrs entry index {d} for {}", .{ i, target });
-            context.macho_file.tlv_ptr_entries_map.keys()[i] = target;
-            const value_ptr = context.macho_file.tlv_ptr_entries_map.getPtr(target).?;
-            break :blk value_ptr;
-        } else {
-            const res = try context.macho_file.tlv_ptr_entries_map.getOrPut(
-                context.macho_file.base.allocator,
-                target,
-            );
-            log.debug("creating new __thread_ptrs entry at index {d} for {}", .{
-                context.macho_file.tlv_ptr_entries_map.getIndex(target).?,
-                target,
-            });
-            break :blk res.value_ptr;
-        }
-    };
+    const index = try context.macho_file.allocateTlvPtrEntry(target);
     const atom = try context.macho_file.createTlvPtrAtom(target);
-    value_ptr.* = atom;
+    context.macho_file.tlv_ptr_entries.items[index].atom = atom;
 
     const match = (try context.macho_file.getMatchingSection(.{
         .segname = MachO.makeStaticString("__DATA"),
@@ -586,28 +569,11 @@ fn addTlvPtrEntry(target: Relocation.Target, context: RelocContext) !void {
 }
 
 fn addGotEntry(target: Relocation.Target, context: RelocContext) !void {
-    if (context.macho_file.got_entries_map.contains(target)) return;
+    if (context.macho_file.got_entries_table.contains(target)) return;
 
-    const value_ptr = blk: {
-        if (context.macho_file.got_entries_map_free_list.popOrNull()) |i| {
-            log.debug("reusing GOT entry index {d} for {}", .{ i, target });
-            context.macho_file.got_entries_map.keys()[i] = target;
-            const value_ptr = context.macho_file.got_entries_map.getPtr(target).?;
-            break :blk value_ptr;
-        } else {
-            const res = try context.macho_file.got_entries_map.getOrPut(
-                context.macho_file.base.allocator,
-                target,
-            );
-            log.debug("creating new GOT entry at index {d} for {}", .{
-                context.macho_file.got_entries_map.getIndex(target).?,
-                target,
-            });
-            break :blk res.value_ptr;
-        }
-    };
+    const index = try context.macho_file.allocateGotEntry(target);
     const atom = try context.macho_file.createGotAtom(target);
-    value_ptr.* = atom;
+    context.macho_file.got_entries.items[index].atom = atom;
 
     const match = MachO.MatchingSection{
         .seg = context.macho_file.data_const_segment_cmd_index.?,
@@ -627,30 +593,13 @@ fn addGotEntry(target: Relocation.Target, context: RelocContext) !void {
 
 fn addStub(target: Relocation.Target, context: RelocContext) !void {
     if (target != .global) return;
-    if (context.macho_file.stubs_map.contains(target.global)) return;
+    if (context.macho_file.stubs_table.contains(target.global)) return;
     // If the symbol has been resolved as defined globally elsewhere (in a different translation unit),
     // then skip creating stub entry.
     // TODO Is this the correct for the incremental?
     if (context.macho_file.symbol_resolver.get(target.global).?.where == .global) return;
 
-    const value_ptr = blk: {
-        if (context.macho_file.stubs_map_free_list.popOrNull()) |i| {
-            log.debug("reusing stubs entry index {d} for {}", .{ i, target });
-            context.macho_file.stubs_map.keys()[i] = target.global;
-            const value_ptr = context.macho_file.stubs_map.getPtr(target.global).?;
-            break :blk value_ptr;
-        } else {
-            const res = try context.macho_file.stubs_map.getOrPut(
-                context.macho_file.base.allocator,
-                target.global,
-            );
-            log.debug("creating new stubs entry at index {d} for {}", .{
-                context.macho_file.stubs_map.getIndex(target.global).?,
-                target,
-            });
-            break :blk res.value_ptr;
-        }
-    };
+    const stub_index = try context.macho_file.allocateStubEntry(target.global);
 
     // TODO clean this up!
     const stub_helper_atom = atom: {
@@ -707,7 +656,7 @@ fn addStub(target: Relocation.Target, context: RelocContext) !void {
     } else {
         try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
     }
-    value_ptr.* = atom;
+    context.macho_file.stubs.items[stub_index] = atom;
 }
 
 pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
@@ -741,7 +690,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
             };
 
             if (is_via_got) {
-                const atom = macho_file.got_entries_map.get(rel.target) orelse {
+                const got_index = macho_file.got_entries_table.get(rel.target) orelse {
                     const n_strx = switch (rel.target) {
                         .local => |sym_index| macho_file.locals.items[sym_index].n_strx,
                         .global => |n_strx| n_strx,
@@ -750,6 +699,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 };
+                const atom = macho_file.got_entries.items[got_index].atom;
                 break :blk macho_file.locals.items[atom.local_sym_index].n_value;
             }
 
@@ -795,15 +745,17 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                     switch (resolv.where) {
                         .global => break :blk macho_file.globals.items[resolv.where_index].n_value,
                         .undef => {
-                            break :blk if (macho_file.stubs_map.get(n_strx)) |atom|
-                                macho_file.locals.items[atom.local_sym_index].n_value
-                            else inner: {
-                                if (macho_file.tlv_ptr_entries_map.get(rel.target)) |atom| {
+                            if (macho_file.stubs_table.get(n_strx)) |stub_index| {
+                                const atom = macho_file.stubs.items[stub_index];
+                                break :blk macho_file.locals.items[atom.local_sym_index].n_value;
+                            } else {
+                                if (macho_file.tlv_ptr_entries_table.get(rel.target)) |tlv_ptr_index| {
                                     is_via_thread_ptrs = true;
-                                    break :inner macho_file.locals.items[atom.local_sym_index].n_value;
+                                    const atom = macho_file.tlv_ptr_entries.items[tlv_ptr_index].atom;
+                                    break :blk macho_file.locals.items[atom.local_sym_index].n_value;
                                 }
-                                break :inner 0;
-                            };
+                                break :blk 0;
+                            }
                         },
                     }
                 },

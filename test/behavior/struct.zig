@@ -51,6 +51,27 @@ test "non-packed struct has fields padded out to the required alignment" {
     try expect(foo.fourth() == 2);
 }
 
+const SmallStruct = struct {
+    a: u8,
+    b: u32,
+
+    fn first(self: *SmallStruct) u8 {
+        return self.a;
+    }
+
+    fn second(self: *SmallStruct) u32 {
+        return self.b;
+    }
+};
+
+test "lower unnamed constants" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    var foo = SmallStruct{ .a = 1, .b = 255 };
+    try expect(foo.first() == 1);
+    try expect(foo.second() == 255);
+}
+
 const StructWithNoFields = struct {
     fn add(a: i32, b: i32) i32 {
         return a + b;
