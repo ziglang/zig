@@ -768,8 +768,6 @@ test "shift left/right on u0 operand" {
 }
 
 test "comptime float rem int" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime {
         var x = @as(f32, 1) % 2;
         try expect(x == 1.0);
@@ -777,15 +775,13 @@ test "comptime float rem int" {
 }
 
 test "remainder division" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime try remdiv(f16);
     comptime try remdiv(f32);
     comptime try remdiv(f64);
-    comptime try remdiv(f128);
+    if (builtin.zig_backend == .stage1) comptime try remdiv(f128); // TODO
     try remdiv(f16);
     try remdiv(f64);
-    try remdiv(f128);
+    if (builtin.zig_backend == .stage1) try remdiv(f128); // TODO
 }
 
 fn remdiv(comptime T: type) !void {

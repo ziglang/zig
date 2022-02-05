@@ -2759,10 +2759,39 @@ pub const Value = extern union {
     }
 
     pub fn floatRem(lhs: Value, rhs: Value, allocator: Allocator) !Value {
-        _ = lhs;
-        _ = rhs;
-        _ = allocator;
-        @panic("TODO implement Value.floatRem");
+        const rhs_type = rhs.tag();
+
+        switch (rhs_type) {
+            .float_16 => {
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                const rem = @rem(lhs_val, rhs_val);
+
+                return Value.Tag.float_16.create(allocator, rem);
+            },
+            .float_32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                const rem = @rem(lhs_val, rhs_val);
+
+                return Value.Tag.float_32.create(allocator, rem);
+            },
+            .float_64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                const rem = @rem(lhs_val, rhs_val);
+
+                return Value.Tag.float_64.create(allocator, rem);
+            },
+            .float_128 => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                const rem = @rem(lhs_val, rhs_val);
+
+                return Value.Tag.float_128.create(allocator, rem);
+            },
+            else => unreachable,
+        }
     }
 
     pub fn floatMod(lhs: Value, rhs: Value, allocator: Allocator) !Value {
