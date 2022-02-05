@@ -22,14 +22,10 @@ test "global variable alignment" {
 }
 
 test "default alignment allows unspecified in type syntax" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(*u32 == *align(@alignOf(u32)) u32);
 }
 
 test "implicitly decreasing pointer alignment" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     try expect(addUnaligned(&a, &b) == 7);
@@ -40,8 +36,6 @@ fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
 }
 
 test "@alignCast pointers" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     var x: u32 align(4) = 1;
     expectsOnly1(&x);
     try expect(x == 2);
@@ -54,8 +48,6 @@ fn expects4(x: *align(4) u32) void {
 }
 
 test "alignment of structs" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(@alignOf(struct {
         a: i32,
         b: *i32,
@@ -63,15 +55,11 @@ test "alignment of structs" {
 }
 
 test "alignment of >= 128-bit integer type" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(@alignOf(u128) == 16);
     try expect(@alignOf(u129) == 16);
 }
 
 test "alignment of struct with 128-bit field" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(@alignOf(struct {
         x: u128,
     }) == 16);
@@ -84,8 +72,6 @@ test "alignment of struct with 128-bit field" {
 }
 
 test "size of extern struct with 128-bit field" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(@sizeOf(extern struct {
         x: u128,
         y: u8,
@@ -100,8 +86,6 @@ test "size of extern struct with 128-bit field" {
 }
 
 test "@ptrCast preserves alignment of bigger source" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     var x: u32 align(16) = 1234;
     const ptr = @ptrCast(*u8, &x);
     try expect(@TypeOf(ptr) == *align(16) u8);

@@ -166,7 +166,6 @@ test "generic fn keeps non-generic parameter types" {
 
 test "array of generic fns" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     try expect(foos[0](true));
     try expect(!foos[1](true));
@@ -186,7 +185,6 @@ fn foo2(arg: anytype) bool {
 
 test "generic struct" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     var a1 = GenNode(i32){
         .value = 13,
