@@ -1247,7 +1247,6 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
             else => return self.fail("TODO slice_elem_val when slice is {}", .{slice_mcv}),
         };
         self.register_manager.freezeRegs(&.{base_mcv.register});
-        defer self.register_manager.unfreezeRegs(&.{base_mcv.register});
 
         switch (elem_size) {
             1, 4 => {
@@ -1283,6 +1282,8 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                     } },
                 });
 
+                self.register_manager.unfreezeRegs(&.{base_mcv.register});
+
                 break :result dst_mcv;
             },
             else => {
@@ -1291,7 +1292,6 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                 const offset_mcv = try self.genArmMulConstant(bin_op.rhs, @intCast(u32, elem_size));
                 assert(offset_mcv == .register); // result of multiplication should always be register
                 self.register_manager.freezeRegs(&.{offset_mcv.register});
-                defer self.register_manager.unfreezeRegs(&.{offset_mcv.register});
 
                 const addr_reg = try self.register_manager.allocReg(null);
                 self.register_manager.freezeRegs(&.{addr_reg});
@@ -1299,11 +1299,9 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
                 try self.genArmBinOpCode(addr_reg, base_mcv, offset_mcv, false, .add, .unsigned);
 
-                // I know we will unfreeze these registers at the end of
-                // the scope of :result. However, at this point in time,
-                // neither the base register nor the offset register
-                // contains any valuable data anymore. In order to reduce
-                // register pressure, unfreeze them prematurely
+                // At this point in time, neither the base register
+                // nor the offset register contains any valuable data
+                // anymore.
                 self.register_manager.unfreezeRegs(&.{ base_mcv.register, offset_mcv.register });
 
                 try self.load(dst_mcv, .{ .register = addr_reg }, slice_ptr_field_type);
