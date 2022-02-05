@@ -2,6 +2,8 @@ const std = @import("../../std.zig");
 const math = std.math;
 const Limb = std.math.big.Limb;
 const limb_bits = @typeInfo(Limb).Int.bits;
+const HalfLimb = std.math.big.HalfLimb;
+const half_limb_bits = @typeInfo(HalfLimb).Int.bits;
 const DoubleLimb = std.math.big.DoubleLimb;
 const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
 const Log2Limb = std.math.big.Log2Limb;
@@ -1335,7 +1337,16 @@ pub const Mutable = struct {
         const xy_trailing = math.min(x_trailing, y_trailing);
 
         if (y.len - xy_trailing == 1) {
-            lldiv1(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], y.limbs[y.len - 1]);
+            const divisor = y.limbs[y.len - 1];
+
+            // Optimization for small divisor. By using a half limb we can avoid requiring DoubleLimb
+            // divisions in the hot code path. This may often require compiler_rt software-emulation.
+            if (divisor < maxInt(HalfLimb)) {
+                lldiv0p5(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], @intCast(HalfLimb, divisor));
+            } else {
+                lldiv1(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], divisor);
+            }
+
             q.normalize(x.len - xy_trailing);
             q.positive = q_positive;
 
@@ -1939,7 +1950,8 @@ pub const Const = struct {
             }
         } else {
             // Non power-of-two: batch divisions per word size.
-            const digits_per_limb = math.log(Limb, base, maxInt(Limb));
+            // We use a HalfLimb here so the division uses the faster lldiv0p5 over lldiv1 codepath.
+            const digits_per_limb = math.log(HalfLimb, base, maxInt(HalfLimb));
             var limb_base: Limb = 1;
             var j: usize = 0;
             while (j < digits_per_limb) : (j += 1) {
@@ -3205,6 +3217,30 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
             quo[i] = @truncate(Limb, @divTrunc(pdiv, b));
             rem.* = @truncate(Limb, pdiv - (quo[i] *% b));
         }
+    }
+}
+
+fn lldiv0p5(quo: []Limb, rem: *Limb, a: []const Limb, b: HalfLimb) void {
+    @setRuntimeSafety(debug_safety);
+    assert(a.len > 1 or a[0] >= b);
+    assert(quo.len >= a.len);
+
+    rem.* = 0;
+    for (a) |_, ri| {
+        const i = a.len - ri - 1;
+        const ai_high = a[i] >> half_limb_bits;
+        const ai_low = a[i] & ((1 << half_limb_bits) - 1);
+
+        // Split the division into two divisions acting on half a limb each. Carry remainder.
+        const ai_high_with_carry = (rem.* << half_limb_bits) | ai_high;
+        const ai_high_quo = ai_high_with_carry / b;
+        rem.* = ai_high_with_carry % b;
+
+        const ai_low_with_carry = (rem.* << half_limb_bits) | ai_low;
+        const ai_low_quo = ai_low_with_carry / b;
+        rem.* = ai_low_with_carry % b;
+
+        quo[i] = (ai_high_quo << half_limb_bits) | ai_low_quo;
     }
 }
 
