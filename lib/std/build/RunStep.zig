@@ -99,7 +99,7 @@ pub fn clearEnvironment(self: *RunStep) void {
 pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
     const env_map = self.getEnvMap();
 
-    var key: []const u8 = "PATH";
+    const key = "PATH";
     var prev_path = env_map.get(key);
 
     if (prev_path) |pp| {

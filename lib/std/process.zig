@@ -62,18 +62,20 @@ pub const EnvMap = struct {
         std.hash_map.default_max_load_percentage,
     );
 
+    pub const Size = HashMap.Size;
+
     pub const EnvNameHashContext = struct {
         fn upcase(c: u21) u21 {
             if (c <= std.math.maxInt(u16))
-                return std.os.windows.ntdll.RtlUpcaseUnicodeChar(c);
+                return std.os.windows.ntdll.RtlUpcaseUnicodeChar(@intCast(u16, c));
             return c;
         }
 
         pub fn hash(self: @This(), s: []const u8) u64 {
             _ = self;
             if (builtin.os.tag == .windows) {
-                const h = std.hash.Wyhash.init(0);
-                var it = std.unicode.Utf8View(s).iterator();
+                var h = std.hash.Wyhash.init(0);
+                var it = std.unicode.Utf8View.initUnchecked(s).iterator();
                 while (it.nextCodepoint()) |cp| {
                     const cp_upper = upcase(cp);
                     h.update(&[_]u8{
@@ -90,15 +92,15 @@ pub const EnvMap = struct {
         pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
             _ = self;
             if (builtin.os.tag == .windows) {
-                var it_a = std.unicode.Utf8View(a).iterator();
-                var it_b = std.unicode.Utf8View(b).iterator();
+                var it_a = std.unicode.Utf8View.initUnchecked(a).iterator();
+                var it_b = std.unicode.Utf8View.initUnchecked(b).iterator();
                 while (true) {
                     const c_a = it_a.nextCodepoint() orelse break;
                     const c_b = it_b.nextCodepoint() orelse return false;
                     if (upcase(c_a) != upcase(c_b))
                         return false;
                 }
-                if (it_b.nextCodepoint()) return false;
+                if (it_b.nextCodepoint()) |_| return false;
             }
             return std.hash_map.eqlString(a, b);
         }
@@ -220,7 +222,7 @@ test "EnvMap" {
     var it = env.iterator();
     var count: EnvMap.Size = 0;
     while (it.next()) |entry| {
-        const is_an_expected_name = std.mem.eql(u8, "SOMETHING_NEW", entry.name) or std.mem.eql(u8, "SOMETHING_NEW_AND_LONGER", entry.name);
+        const is_an_expected_name = std.mem.eql(u8, "SOMETHING_NEW", entry.key_ptr.*) or std.mem.eql(u8, "SOMETHING_NEW_AND_LONGER", entry.key_ptr.*);
         try testing.expect(is_an_expected_name);
         count += 1;
     }
