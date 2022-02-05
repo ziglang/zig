@@ -332,6 +332,17 @@ pub const Instruction = union(enum) {
         op: u1,
         sf: u1,
     },
+    data_processing_3_source: packed struct {
+        rd: u5,
+        rn: u5,
+        ra: u5,
+        o0: u1,
+        rm: u5,
+        op31: u3,
+        fixed: u5 = 0b11011,
+        op54: u2,
+        sf: u1,
+    },
 
     pub const Shift = struct {
         shift: Type = .lsl,
@@ -470,6 +481,7 @@ pub const Instruction = union(enum) {
             .conditional_branch => |v| @as(u32, v.cond) | (@as(u32, v.o0) << 4) | (@as(u32, v.imm19) << 5) | (@as(u32, v.o1) << 24) | (@as(u32, v.fixed) << 25),
             .compare_and_branch => |v| @as(u32, v.rt) | (@as(u32, v.imm19) << 5) | (@as(u32, v.op) << 24) | (@as(u32, v.fixed) << 25) | (@as(u32, v.sf) << 31),
             .conditional_select => |v| @as(u32, v.rd) | @as(u32, v.rn) << 5 | @as(u32, v.op2) << 10 | @as(u32, v.cond) << 12 | @as(u32, v.rm) << 16 | @as(u32, v.fixed) << 21 | @as(u32, v.s) << 29 | @as(u32, v.op) << 30 | @as(u32, v.sf) << 31,
+            .data_processing_3_source => |v| @bitCast(u32, v),
         };
     }
 
@@ -967,6 +979,33 @@ pub const Instruction = union(enum) {
         };
     }
 
+    fn dataProcessing3Source(
+        op54: u2,
+        op31: u3,
+        o0: u1,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        ra: Register,
+    ) Instruction {
+        return Instruction{
+            .data_processing_3_source = .{
+                .rd = rd.id(),
+                .rn = rn.id(),
+                .ra = ra.id(),
+                .o0 = o0,
+                .rm = rm.id(),
+                .op31 = op31,
+                .op54 = op54,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
     // Helper functions for assembly syntax functions
 
     // Move wide (immediate)
@@ -1245,6 +1284,24 @@ pub const Instruction = union(enum) {
     pub fn csneg(rd: Register, rn: Register, rm: Register, cond: Condition) Instruction {
         return conditionalSelect(0b01, 0b1, 0b0, rd, rn, rm, cond);
     }
+
+    // Data processing (3 source)
+
+    pub fn madd(rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
+        return dataProcessing3Source(0b00, 0b000, 0b0, rd, rn, rm, ra);
+    }
+
+    pub fn msub(rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
+        return dataProcessing3Source(0b00, 0b000, 0b1, rd, rn, rm, ra);
+    }
+
+    pub fn mul(rd: Register, rn: Register, rm: Register) Instruction {
+        return madd(rd, rn, rm, .xzr);
+    }
+
+    pub fn mneg(rd: Register, rn: Register, rm: Register) Instruction {
+        return msub(rd, rn, rm, .xzr);
+    }
 };
 
 test {
@@ -1413,6 +1470,10 @@ test "serialize instructions" {
         .{ // csinc x1, x2, x4, eq
             .inst = Instruction.csinc(.x1, .x2, .x4, .eq),
             .expected = 0b1_0_0_11010100_00100_0000_0_1_00010_00001,
+        },
+        .{ // mul x1, x4, x9
+            .inst = Instruction.mul(.x1, .x4, .x9),
+            .expected = 0b1_00_11011_000_01001_0_11111_00100_00001,
         },
     };
 
