@@ -118,6 +118,10 @@ pub const MCValue = union(enum) {
     /// The value is in memory at a hard-coded address.
     /// If the type is a pointer, it means the pointer address is at this memory location.
     memory: u64,
+    /// The value is in memory but not allocated an address yet by the linker, so we store
+    /// the symbol index instead.
+    /// If the type is a pointer, it means the pointer is the symbol.
+    linker_sym_index: u32,
     /// The value is one of the stack variables.
     /// If the type is a pointer, it means the pointer address is in the stack at this offset.
     stack_offset: i32,
@@ -1686,8 +1690,10 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 else => return self.fail("TODO implement loading from register into {}", .{dst_mcv}),
             }
         },
-        .memory => |addr| {
-            const reg = try self.copyToTmpRegister(ptr_ty, .{ .memory = addr });
+        .memory,
+        .linker_sym_index,
+        => {
+            const reg = try self.copyToTmpRegister(ptr_ty, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
         },
         .stack_offset => {
@@ -1817,27 +1823,33 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 },
             }
         },
-        .memory => |addr| {
+        .linker_sym_index,
+        .memory,
+        => {
             value.freezeIfRegister(&self.register_manager);
             defer value.unfreezeIfRegister(&self.register_manager);
 
             const addr_reg: Register = blk: {
-                if (self.bin_file.options.pie) {
-                    const addr_reg = try self.register_manager.allocReg(null);
-                    _ = try self.addInst(.{
-                        .tag = .lea,
-                        .ops = (Mir.Ops{
-                            .reg1 = addr_reg.to64(),
-                            .flags = 0b10,
-                        }).encode(),
-                        .data = .{ .got_entry = @truncate(u32, addr) },
-                    });
-                    break :blk addr_reg;
-                } else {
-                    // TODO: in case the address fits in an imm32 we can use [ds:imm32]
-                    // instead of wasting an instruction copying the address to a register
-                    const addr_reg = try self.copyToTmpRegister(ptr_ty, .{ .immediate = addr });
-                    break :blk addr_reg;
+                switch (ptr) {
+                    .linker_sym_index => |sym_index| {
+                        const addr_reg = try self.register_manager.allocReg(null);
+                        _ = try self.addInst(.{
+                            .tag = .lea,
+                            .ops = (Mir.Ops{
+                                .reg1 = addr_reg.to64(),
+                                .flags = 0b10,
+                            }).encode(),
+                            .data = .{ .got_entry = sym_index },
+                        });
+                        break :blk addr_reg;
+                    },
+                    .memory => |addr| {
+                        // TODO: in case the address fits in an imm32 we can use [ds:imm32]
+                        // instead of wasting an instruction copying the address to a register
+                        const addr_reg = try self.copyToTmpRegister(ptr_ty, .{ .immediate = addr });
+                        break :blk addr_reg;
+                    },
+                    else => unreachable,
                 }
             };
 
@@ -2148,6 +2160,9 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                 .embedded_in_code, .memory => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source memory", .{});
                 },
+                .linker_sym_index => {
+                    return self.fail("TODO implement x86 ADD/SUB/CMP source symbol at index in linker", .{});
+                },
                 .stack_offset => |off| {
                     if (off > math.maxInt(i32)) {
                         return self.fail("stack offset too large", .{});
@@ -2232,6 +2247,9 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                 .embedded_in_code, .memory, .stack_offset => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source memory", .{});
                 },
+                .linker_sym_index => {
+                    return self.fail("TODO implement x86 ADD/SUB/CMP source symbol at index in linker", .{});
+                },
                 .compare_flags_unsigned => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source compare flag (unsigned)", .{});
                 },
@@ -2242,6 +2260,9 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
         },
         .embedded_in_code, .memory => {
             return self.fail("TODO implement x86 ADD/SUB/CMP destination memory", .{});
+        },
+        .linker_sym_index => {
+            return self.fail("TODO implement x86 ADD/SUB/CMP destination symbol at index", .{});
         },
     }
 }
@@ -2296,6 +2317,9 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                 .embedded_in_code, .memory, .stack_offset => {
                     return self.fail("TODO implement x86 multiply source memory", .{});
                 },
+                .linker_sym_index => {
+                    return self.fail("TODO implement x86 multiply source symbol at index in linker", .{});
+                },
                 .compare_flags_unsigned => {
                     return self.fail("TODO implement x86 multiply source compare flag (unsigned)", .{});
                 },
@@ -2334,6 +2358,9 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                 .embedded_in_code, .memory, .stack_offset => {
                     return self.fail("TODO implement x86 multiply source memory", .{});
                 },
+                .linker_sym_index => {
+                    return self.fail("TODO implement x86 multiply source symbol at index in linker", .{});
+                },
                 .compare_flags_unsigned => {
                     return self.fail("TODO implement x86 multiply source compare flag (unsigned)", .{});
                 },
@@ -2344,6 +2371,9 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
         },
         .embedded_in_code, .memory => {
             return self.fail("TODO implement x86 multiply destination memory", .{});
+        },
+        .linker_sym_index => {
+            return self.fail("TODO implement x86 multiply destination symbol at index in linker", .{});
         },
     }
 }
@@ -2448,6 +2478,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             .dead => unreachable,
             .embedded_in_code => unreachable,
             .memory => unreachable,
+            .linker_sym_index => unreachable,
             .compare_flags_signed => unreachable,
             .compare_flags_unsigned => unreachable,
         }
@@ -2508,10 +2539,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
         if (self.air.value(callee)) |func_value| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
-                // TODO I'm hacking my way through here by repurposing .memory for storing
-                // index to the GOT target symbol index.
                 try self.genSetReg(Type.initTag(.usize), .rax, .{
-                    .memory = func.owner_decl.link.macho.local_sym_index,
+                    .linker_sym_index = func.owner_decl.link.macho.local_sym_index,
                 });
                 // callq *%rax
                 _ = try self.addInst(.{
@@ -3547,6 +3576,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
         },
         .memory,
         .embedded_in_code,
+        .linker_sym_index,
         => {
             if (ty.abiSize(self.target.*) <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
@@ -3952,29 +3982,28 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .data = undefined,
             });
         },
+        .linker_sym_index => |sym_index| {
+            _ = try self.addInst(.{
+                .tag = .lea,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .flags = 0b10,
+                }).encode(),
+                .data = .{ .got_entry = sym_index },
+            });
+            // MOV reg, [reg]
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .reg2 = reg,
+                    .flags = 0b01,
+                }).encode(),
+                .data = .{ .imm = 0 },
+            });
+        },
         .memory => |x| {
-            // TODO can we move this entire logic into Emit.zig like with aarch64?
-            if (self.bin_file.options.pie) {
-                // TODO we should flag up `x` as GOT symbol entry explicitly rather than as a hack.
-                _ = try self.addInst(.{
-                    .tag = .lea,
-                    .ops = (Mir.Ops{
-                        .reg1 = reg,
-                        .flags = 0b10,
-                    }).encode(),
-                    .data = .{ .got_entry = @truncate(u32, x) },
-                });
-                // MOV reg, [reg]
-                _ = try self.addInst(.{
-                    .tag = .mov,
-                    .ops = (Mir.Ops{
-                        .reg1 = reg,
-                        .reg2 = reg,
-                        .flags = 0b01,
-                    }).encode(),
-                    .data = .{ .imm = 0 },
-                });
-            } else if (x <= math.maxInt(i32)) {
+            if (x <= math.maxInt(i32)) {
                 // mov reg, [ds:imm32]
                 _ = try self.addInst(.{
                     .tag = .mov,
@@ -4285,9 +4314,9 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        // TODO I'm hacking my way through here by repurposing .memory for storing
-        // index to the GOT target symbol index.
-        return MCValue{ .memory = decl.link.macho.local_sym_index };
+        // Because MachO is PIE-always-on, we defer memory address resolution until
+        // the linker has enough info to perform relocations.
+        return MCValue{ .linker_sym_index = decl.link.macho.local_sym_index };
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
         const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
