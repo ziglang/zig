@@ -31,6 +31,7 @@ const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const InnerError = error{
     OutOfMemory,
     CodegenFail,
+    OutOfRegisters,
 };
 
 gpa: Allocator,
@@ -280,6 +281,9 @@ pub fn generate(
 
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
         error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
+        error.OutOfRegisters => return FnResult{
+            .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
+        },
         else => |e| return e,
     };
     defer call_info.deinit(&function);
@@ -291,6 +295,9 @@ pub fn generate(
 
     function.gen() catch |err| switch (err) {
         error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
+        error.OutOfRegisters => return FnResult{
+            .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
+        },
         else => |e| return e,
     };
 
