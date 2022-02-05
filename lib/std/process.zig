@@ -255,19 +255,21 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
             const key_w = ptr[key_start..i];
+            const key = try std.unicode.utf16leToUtf8Alloc(allocator, key_w);
+            errdefer allocator.free(key);
 
             if (ptr[i] == '=') i += 1;
 
             const value_start = i;
             while (ptr[i] != 0) : (i += 1) {}
             const value_w = ptr[value_start..i];
-
-            try result.storage.putUtf16NoClobber(key_w, value_w);
+            const value = try std.unicode.utf16leToUtf8Alloc(allocator, value_w);
+            errdefer allocator.free(value);
 
             i += 1; // skip over null byte
-        }
 
-        try result.storage.reallocUppercaseBuf();
+            try result.putMove(key, value);
+        }
         return result;
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var environ_count: usize = undefined;

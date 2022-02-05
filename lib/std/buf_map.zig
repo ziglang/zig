@@ -9,7 +9,7 @@ const testing = std.testing;
 pub const BufMap = struct {
     hash_map: BufMapHashMap,
 
-    pub const BufMapHashMap = StringHashMap([]const u8);
+    const BufMapHashMap = StringHashMap([]const u8);
 
     /// Create a BufMap backed by a specific allocator.
     /// That allocator will be used for both backing allocations
