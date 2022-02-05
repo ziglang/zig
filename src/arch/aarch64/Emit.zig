@@ -91,6 +91,7 @@ pub fn emitMir(
 
             .call_extern => try emit.mirCallExtern(inst),
 
+            .add_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
             .cmp_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
 
             .cset => try emit.mirConditionalSelect(inst),
@@ -131,6 +132,8 @@ pub fn emitMir(
 
             .movk => try emit.mirMoveWideImmediate(inst),
             .movz => try emit.mirMoveWideImmediate(inst),
+
+            .mul => try emit.mirDataProcessing3Source(inst),
 
             .nop => try emit.mirNop(),
 
@@ -200,6 +203,12 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
                 if (addr <= math.maxInt(u48)) return 4 * 4;
                 return 5 * 4;
             }
+        },
+        .pop_regs, .push_regs => {
+            const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
+            const number_of_regs = @popCount(u32, reg_list);
+            const number_of_insts = std.math.divCeil(u6, number_of_regs, 2) catch unreachable;
+            return number_of_insts * 4;
         },
         .call_extern => return 4,
         .dbg_line,
@@ -565,15 +574,15 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const rrr_imm6_shift = emit.mir.instructions.items(.data)[inst].rrr_imm6_shift;
+    const rd = rrr_imm6_shift.rd;
+    const rn = rrr_imm6_shift.rn;
+    const rm = rrr_imm6_shift.rm;
+    const shift = rrr_imm6_shift.shift;
+    const imm6 = rrr_imm6_shift.imm6;
 
     switch (tag) {
-        .cmp_shifted_register => try emit.writeInstruction(Instruction.subsShiftedRegister(
-            rrr_imm6_shift.rd,
-            rrr_imm6_shift.rn,
-            rrr_imm6_shift.rm,
-            rrr_imm6_shift.shift,
-            rrr_imm6_shift.imm6,
-        )),
+        .cmp_shifted_register => try emit.writeInstruction(Instruction.subsShiftedRegister(rd, rn, rm, shift, imm6)),
+        .add_shifted_register => try emit.writeInstruction(Instruction.addShiftedRegister(rd, rn, rm, shift, imm6)),
         else => unreachable,
     }
 }
@@ -798,6 +807,16 @@ fn mirMoveWideImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .movz => try emit.writeInstruction(Instruction.movz(r_imm16_sh.rd, r_imm16_sh.imm16, @as(u6, r_imm16_sh.hw) << 4)),
         .movk => try emit.writeInstruction(Instruction.movk(r_imm16_sh.rd, r_imm16_sh.imm16, @as(u6, r_imm16_sh.hw) << 4)),
+        else => unreachable,
+    }
+}
+
+fn mirDataProcessing3Source(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rrr = emit.mir.instructions.items(.data)[inst].rrr;
+
+    switch (tag) {
+        .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
         else => unreachable,
     }
 }

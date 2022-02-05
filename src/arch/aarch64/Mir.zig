@@ -26,6 +26,8 @@ pub const Inst = struct {
     pub const Tag = enum(u16) {
         /// Add (immediate)
         add_immediate,
+        /// Add (shifted register)
+        add_shifted_register,
         /// Branch conditionally
         b_cond,
         /// Branch
@@ -82,6 +84,8 @@ pub const Inst = struct {
         movk,
         /// Move wide with zero
         movz,
+        /// Multiply
+        mul,
         /// No Operation
         nop,
         /// Pseudo-instruction: Pop multiple registers
@@ -187,6 +191,14 @@ pub const Inst = struct {
             imm12: u12,
             sh: u1 = 0,
         },
+        /// Two registers
+        ///
+        /// Used by e.g. mul
+        rrr: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+        },
         /// Three registers and a shift (shift type and 6-bit amount)
         ///
         /// Used by e.g. cmp_shifted_register
@@ -208,7 +220,7 @@ pub const Inst = struct {
         },
         /// Two registers and a LoadStoreOffsetImmediate
         ///
-        /// Used by e.g. str_register
+        /// Used by e.g. str_immediate
         load_store_register_immediate: struct {
             rt: Register,
             rn: Register,

@@ -1164,7 +1164,20 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_len for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach => unreachable,
+            .register => unreachable, // a slice doesn't fit in one register
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off + 8 };
+            },
+            .memory => |addr| {
+                break :result MCValue{ .memory = addr + 8 };
+            },
+            else => return self.fail("TODO implement slice_len for {}", .{mcv}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1183,8 +1196,112 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_elem_val for {}", .{self.target.cpu.arch});
+
+    if (!is_volatile and self.liveness.isUnused(inst)) return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    const result: MCValue = result: {
+        const slice_mcv = try self.resolveInst(bin_op.lhs);
+
+        // TODO optimize for the case where the index is a constant,
+        // i.e. index_mcv == .immediate
+        const index_mcv = try self.resolveInst(bin_op.rhs);
+        const index_is_register = index_mcv == .register;
+
+        const slice_ty = self.air.typeOf(bin_op.lhs);
+        const elem_ty = slice_ty.childType();
+        const elem_size = elem_ty.abiSize(self.target.*);
+
+        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+        const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
+
+        if (index_is_register) self.register_manager.freezeRegs(&.{index_mcv.register});
+        defer if (index_is_register) self.register_manager.unfreezeRegs(&.{index_mcv.register});
+
+        const base_mcv: MCValue = switch (slice_mcv) {
+            .stack_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_offset = off + 8 }) },
+            else => return self.fail("TODO slice_elem_val when slice is {}", .{slice_mcv}),
+        };
+        self.register_manager.freezeRegs(&.{base_mcv.register});
+
+        // TODO implement optimized ldr for airSliceElemVal
+        const dst_mcv = try self.allocRegOrMem(inst, true);
+
+        const offset_mcv = try self.genMulConstant(bin_op.rhs, @intCast(u32, elem_size));
+        assert(offset_mcv == .register); // result of multiplication should always be register
+        self.register_manager.freezeRegs(&.{offset_mcv.register});
+
+        const addr_reg = try self.register_manager.allocReg(null);
+        self.register_manager.freezeRegs(&.{addr_reg});
+        defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+        _ = try self.addInst(.{
+            .tag = .add_shifted_register,
+            .data = .{ .rrr_imm6_shift = .{
+                .rd = addr_reg,
+                .rn = base_mcv.register,
+                .rm = offset_mcv.register,
+                .imm6 = 0,
+                .shift = .lsl,
+            } },
+        });
+
+        // At this point in time, neither the base register
+        // nor the offset register contains any valuable data
+        // anymore.
+        self.register_manager.unfreezeRegs(&.{ base_mcv.register, offset_mcv.register });
+
+        try self.load(dst_mcv, .{ .register = addr_reg }, slice_ptr_field_type);
+
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn genMulConstant(self: *Self, op: Air.Inst.Ref, imm: u32) !MCValue {
+    const lhs = try self.resolveInst(op);
+    const rhs = MCValue{ .immediate = imm };
+
+    const lhs_is_register = lhs == .register;
+
+    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+    defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
+
+    // Destination must be a register
+    // LHS must be a register
+    // RHS must be a register
+    var dst_mcv: MCValue = undefined;
+    var lhs_mcv: MCValue = lhs;
+    var rhs_mcv: MCValue = rhs;
+
+    // Allocate registers for operands and/or destination
+    // Allocate 1 or 2 registers
+    if (lhs_is_register) {
+        // Move RHS to register
+        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(null) };
+        rhs_mcv = dst_mcv;
+    } else {
+        // Move LHS and RHS to register
+        const regs = try self.register_manager.allocRegs(2, .{ null, null });
+        lhs_mcv = MCValue{ .register = regs[0] };
+        rhs_mcv = MCValue{ .register = regs[1] };
+        dst_mcv = lhs_mcv;
+    }
+
+    // Move the operands to the newly allocated registers
+    if (!lhs_is_register) {
+        try self.genSetReg(self.air.typeOf(op), lhs_mcv.register, lhs);
+    }
+    try self.genSetReg(Type.initTag(.usize), rhs_mcv.register, rhs);
+
+    _ = try self.addInst(.{
+        .tag = .mul,
+        .data = .{ .rrr = .{
+            .rd = dst_mcv.register,
+            .rn = lhs_mcv.register,
+            .rm = rhs_mcv.register,
+        } },
+    });
+
+    return dst_mcv;
 }
 
 fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
@@ -1310,6 +1427,16 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .undef => unreachable,
                 .compare_flags_signed, .compare_flags_unsigned => unreachable,
                 .embedded_in_code => unreachable,
+                .register => |dst_reg| {
+                    _ = try self.addInst(.{
+                        .tag = .ldr_immediate,
+                        .data = .{ .load_store_register_immediate = .{
+                            .rt = dst_reg,
+                            .rn = addr_reg,
+                            .offset = Instruction.LoadStoreOffset.none.immediate,
+                        } },
+                    });
+                },
                 .stack_offset => |off| {
                     if (elem_ty.abiSize(self.target.*) <= 8) {
                         const tmp_reg = try self.register_manager.allocReg(null);
@@ -2590,8 +2717,61 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             if (stack_offset == off)
                 return; // Copy stack variable to itself; nothing to do.
 
-            const reg = try self.copyToTmpRegister(ty, mcv);
-            return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+            const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+            const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+            if (ty.abiSize(self.target.*) <= ptr_bytes) {
+                const reg = try self.copyToTmpRegister(ty, mcv);
+                return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+            } else {
+                // TODO optimize the register allocation
+                const regs = try self.register_manager.allocRegs(5, .{ null, null, null, null, null });
+                self.register_manager.freezeRegs(&regs);
+                defer self.register_manager.unfreezeRegs(&regs);
+
+                const src_reg = regs[0];
+                const dst_reg = regs[1];
+                const len_reg = regs[2];
+                const count_reg = regs[3];
+                const tmp_reg = regs[4];
+
+                // sub src_reg, fp, #off
+                const adj_src_offset = off + @intCast(u32, ty.abiSize(self.target.*));
+                const src_offset = math.cast(u12, adj_src_offset) catch return self.fail("TODO load: larger stack offsets", .{});
+                _ = try self.addInst(.{
+                    .tag = .sub_immediate,
+                    .data = .{ .rr_imm12_sh = .{
+                        .rd = src_reg,
+                        .rn = .x29,
+                        .imm12 = src_offset,
+                    } },
+                });
+
+                // sub dst_reg, fp, #stack_offset
+                const adj_dst_off = stack_offset + @intCast(u32, ty.abiSize(self.target.*));
+                const dst_offset = math.cast(u12, adj_dst_off) catch return self.fail("TODO load: larger stack offsets", .{});
+                _ = try self.addInst(.{
+                    .tag = .sub_immediate,
+                    .data = .{ .rr_imm12_sh = .{
+                        .rd = dst_reg,
+                        .rn = .x29,
+                        .imm12 = dst_offset,
+                    } },
+                });
+
+                // mov len, #elem_size
+                const elem_size = @intCast(u32, ty.abiSize(self.target.*));
+                const len_imm = math.cast(u16, elem_size) catch return self.fail("TODO load: larger stack offsets", .{});
+                _ = try self.addInst(.{
+                    .tag = .movk,
+                    .data = .{ .r_imm16_sh = .{
+                        .rd = len_reg,
+                        .imm16 = len_imm,
+                    } },
+                });
+
+                // memcpy(src, dst, len)
+                try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
+            }
         },
     }
 }
@@ -2711,7 +2891,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         } },
                     });
                 },
-                else => return self.fail("TODO implement genSetReg other types abi_size={}", .{abi_size}),
+                3 => return self.fail("TODO implement genSetReg types size 3", .{}),
+                else => unreachable,
             }
         },
         else => return self.fail("TODO implement genSetReg for aarch64 {}", .{mcv}),
