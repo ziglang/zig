@@ -1098,7 +1098,14 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement unwrap error union error for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const error_union_ty = self.air.typeOf(ty_op.operand);
+        const payload_ty = error_union_ty.errorUnionPayload();
+        const mcv = try self.resolveInst(ty_op.operand);
+        if (!payload_ty.hasRuntimeBits()) break :result mcv;
+
+        return self.fail("TODO implement unwrap error union error for non-empty payloads", .{});
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1644,20 +1651,31 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    return self.structFieldPtr(extra.struct_operand, ty_pl.ty, extra.field_index);
+    const result = try self.structFieldPtr(inst, extra.struct_operand, extra.field_index);
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    return self.structFieldPtr(ty_op.operand, ty_op.ty, index);
+    const result = try self.structFieldPtr(inst, ty_op.operand, index);
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
-fn structFieldPtr(self: *Self, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !void {
-    _ = self;
-    _ = operand;
-    _ = ty;
-    _ = index;
-    return self.fail("TODO implement codegen struct_field_ptr", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+
+fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
+    return if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(operand);
+        const struct_ty = self.air.typeOf(operand).childType();
+        const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
+        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+        const struct_field_ty = struct_ty.structFieldType(index);
+        const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+        switch (mcv) {
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off + struct_size - struct_field_offset - struct_field_size };
+            },
+            else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
+        }
+    };
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
@@ -1754,10 +1772,16 @@ fn airFence(self: *Self) !void {
 
 fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const fn_ty = self.air.typeOf(pl_op.operand);
     const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
     const args = @bitCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
+    const ty = self.air.typeOf(callee);
+
+    const fn_ty = switch (ty.zigTypeTag()) {
+        .Fn => ty,
+        .Pointer => ty.childType(),
+        else => unreachable,
+    };
 
     var info = try self.resolveCallingConventionValues(fn_ty);
     defer info.deinit(self);
@@ -1821,7 +1845,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
         } else {
-            return self.fail("TODO implement calling runtime known function pointer", .{});
+            assert(ty.zigTypeTag() == .Pointer);
+            const mcv = try self.resolveInst(callee);
+            try self.genSetReg(Type.initTag(.usize), .x30, mcv);
+
+            _ = try self.addInst(.{
+                .tag = .blr,
+                .data = .{ .reg = .x30 },
+            });
         }
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
         for (info.args) |mc_arg, arg_i| {
@@ -2008,12 +2039,23 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+
     const ty = self.air.typeOf(bin_op.lhs);
-    assert(ty.eql(self.air.typeOf(bin_op.rhs)));
-    if (ty.zigTypeTag() == .ErrorSet)
-        return self.fail("TODO implement cmp for errors", .{});
+
+    if (ty.abiSize(self.target.*) > 8) {
+        return self.fail("TODO cmp for types with size > 8", .{});
+    }
+
+    const signedness: std.builtin.Signedness = blk: {
+        // by default we tell the operand type is unsigned (i.e. bools and enum values)
+        if (ty.zigTypeTag() != .Int) break :blk .unsigned;
+
+        // incase of an actual integer, we emit the correct signedness
+        break :blk ty.intInfo(self.target.*).signedness;
+    };
 
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
@@ -2089,9 +2131,9 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
             else => unreachable,
         }
 
-        break :result switch (ty.isSignedInt()) {
-            true => MCValue{ .compare_flags_signed = op },
-            false => MCValue{ .compare_flags_unsigned = op },
+        break :result switch (signedness) {
+            .signed => MCValue{ .compare_flags_signed = op },
+            .unsigned => MCValue{ .compare_flags_unsigned = op },
         };
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
