@@ -1064,7 +1064,7 @@ test "big.int mulWrap large" {
     try testing.expect(b.eq(c));
 }
 
-test "big.int div single-single no rem" {
+test "big.int div single-half no rem" {
     var a = try Managed.initSet(testing.allocator, 50);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 5);
@@ -1080,7 +1080,7 @@ test "big.int div single-single no rem" {
     try testing.expect((try r.to(u32)) == 0);
 }
 
-test "big.int div single-single with rem" {
+test "big.int div single-half with rem" {
     var a = try Managed.initSet(testing.allocator, 49);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 5);
@@ -1094,6 +1094,39 @@ test "big.int div single-single with rem" {
 
     try testing.expect((try q.to(u32)) == 9);
     try testing.expect((try r.to(u32)) == 4);
+}
+
+test "big.int div single-single no rem" {
+    // assumes usize is <= 64 bits.
+    var a = try Managed.initSet(testing.allocator, 1 << 52);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 1 << 35);
+    defer b.deinit();
+
+    var q = try Managed.init(testing.allocator);
+    defer q.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+
+    try testing.expect((try q.to(u32)) == 131072);
+    try testing.expect((try r.to(u32)) == 0);
+}
+
+test "big.int div single-single with rem" {
+    var a = try Managed.initSet(testing.allocator, (1 << 52) | (1 << 33));
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, (1 << 35));
+    defer b.deinit();
+
+    var q = try Managed.init(testing.allocator);
+    defer q.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+
+    try testing.expect((try q.to(u64)) == 131072);
+    try testing.expect((try r.to(u64)) == 8589934592);
 }
 
 test "big.int div multi-single no rem" {
