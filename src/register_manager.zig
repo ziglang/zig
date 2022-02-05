@@ -12,6 +12,17 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 
 const log = std.log.scoped(.register_manager);
 
+pub const AllocateRegistersError = error{
+    /// No registers are available anymore
+    OutOfRegisters,
+    /// Can happen when spilling an instruction in codegen runs out of
+    /// memory, so we propagate that error
+    OutOfMemory,
+    /// Can happen when spilling an instruction triggers a codegen
+    /// error, so we propagate that error
+    CodegenFail,
+};
+
 pub fn RegisterManager(
     comptime Function: type,
     comptime Register: type,
@@ -168,8 +179,9 @@ pub fn RegisterManager(
             self: *Self,
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
-        ) ![count]Register {
+        ) AllocateRegistersError![count]Register {
             comptime assert(count > 0 and count <= callee_preserved_regs.len);
+            if (count > callee_preserved_regs.len - @popCount(FreeRegInt, self.frozen_registers)) return error.OutOfRegisters;
 
             const result = self.tryAllocRegs(count, insts) orelse blk: {
                 // We'll take over the first count registers. Spill
@@ -214,14 +226,14 @@ pub fn RegisterManager(
 
         /// Allocates a register and optionally tracks it with a
         /// corresponding instruction.
-        pub fn allocReg(self: *Self, inst: ?Air.Inst.Index) !Register {
+        pub fn allocReg(self: *Self, inst: ?Air.Inst.Index) AllocateRegistersError!Register {
             return (try self.allocRegs(1, .{inst}))[0];
         }
 
         /// Spills the register if it is currently allocated. If a
         /// corresponding instruction is passed, will also track this
         /// register.
-        pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) !void {
+        pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
             const index = reg.allocIndex() orelse return;
             self.markRegAllocated(reg);
 
@@ -316,6 +328,13 @@ fn MockFunction(comptime Register: type) type {
         pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
             _ = inst;
             try self.spilled.append(self.allocator, reg);
+        }
+
+        pub fn genAdd(self: *Self, res: Register, lhs: Register, rhs: Register) !void {
+            _ = self;
+            _ = res;
+            _ = lhs;
+            _ = rhs;
         }
     };
 }
@@ -431,7 +450,9 @@ test "tryAllocRegs" {
     try expect(function.register_manager.isRegAllocated(.r3));
 }
 
-test "allocRegs" {
+test "allocRegs: normal usage" {
+    // TODO: convert this into a decltest once that is supported
+
     const allocator = std.testing.allocator;
 
     var function = MockFunction2{
@@ -439,35 +460,57 @@ test "allocRegs" {
     };
     defer function.deinit();
 
-    const mock_instruction: Air.Inst.Index = 1;
-
-    try expectEqual([_]MockRegister2{ .r0, .r1, .r2 }, try function.register_manager.allocRegs(3, .{
-        mock_instruction,
-        mock_instruction,
-        mock_instruction,
-    }));
-
-    try expect(function.register_manager.isRegAllocated(.r0));
-    try expect(function.register_manager.isRegAllocated(.r1));
-    try expect(function.register_manager.isRegAllocated(.r2));
-    try expect(!function.register_manager.isRegAllocated(.r3));
-
-    // Frozen registers
-    function.register_manager.freeReg(.r0);
-    function.register_manager.freeReg(.r2);
-    function.register_manager.freeReg(.r3);
     {
-        function.register_manager.freezeRegs(&.{.r1});
-        defer function.register_manager.unfreezeRegs(&.{.r1});
+        const result_reg: MockRegister2 = .r1;
 
-        try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, try function.register_manager.allocRegs(3, .{ null, null, null }));
+        // The result register is known and fixed at this point, we
+        // don't want to accidentally allocate lhs or rhs to the
+        // result register, this is why we freeze it.
+        //
+        // Using defer unfreeze right after freeze is a good idea in
+        // most cases as you probably are using the frozen registers
+        // in the remainder of this scope and don't need to use it
+        // after the end of this scope. However, in some situations,
+        // it may make sense to manually unfreeze registers before the
+        // end of the scope when you are certain that they don't
+        // contain any valuable data anymore and can be reused. For an
+        // example of that, see `selectively reducing register
+        // pressure`.
+        function.register_manager.freezeRegs(&.{result_reg});
+        defer function.register_manager.unfreezeRegs(&.{result_reg});
+
+        const regs = try function.register_manager.allocRegs(2, .{ null, null });
+        try function.genAdd(result_reg, regs[0], regs[1]);
     }
-    try expect(!function.register_manager.frozenRegsExist());
+}
 
-    try expect(function.register_manager.isRegAllocated(.r0));
-    try expect(function.register_manager.isRegAllocated(.r1));
-    try expect(function.register_manager.isRegAllocated(.r2));
-    try expect(function.register_manager.isRegAllocated(.r3));
+test "allocRegs: selectively reducing register pressure" {
+    // TODO: convert this into a decltest once that is supported
+
+    const allocator = std.testing.allocator;
+
+    var function = MockFunction2{
+        .allocator = allocator,
+    };
+    defer function.deinit();
+
+    {
+        const result_reg: MockRegister2 = .r1;
+
+        function.register_manager.freezeRegs(&.{result_reg});
+        defer function.register_manager.unfreezeRegs(&.{result_reg});
+
+        // Here, we don't defer unfreeze because we manually unfreeze
+        // after genAdd
+        const regs = try function.register_manager.allocRegs(2, .{ null, null });
+        function.register_manager.freezeRegs(&.{result_reg});
+
+        try function.genAdd(result_reg, regs[0], regs[1]);
+        function.register_manager.unfreezeRegs(&regs);
+
+        const extra_summand_reg = try function.register_manager.allocReg(null);
+        try function.genAdd(result_reg, result_reg, extra_summand_reg);
+    }
 }
 
 test "getReg" {
