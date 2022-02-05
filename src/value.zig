@@ -262,9 +262,9 @@ pub const Value = extern union {
                 .int_big_negative,
                 => Payload.BigInt,
 
-                .extern_fn,
-                .decl_ref,
-                => Payload.Decl,
+                .extern_fn => Payload.ExternFn,
+
+                .decl_ref => Payload.Decl,
 
                 .repeated,
                 .eu_payload,
@@ -475,7 +475,7 @@ pub const Value = extern union {
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .function => return self.copyPayloadShallow(arena, Payload.Function),
-            .extern_fn => return self.copyPayloadShallow(arena, Payload.Decl),
+            .extern_fn => return self.copyPayloadShallow(arena, Payload.ExternFn),
             .variable => return self.copyPayloadShallow(arena, Payload.Variable),
             .decl_ref => return self.copyPayloadShallow(arena, Payload.Decl),
             .decl_ref_mut => return self.copyPayloadShallow(arena, Payload.DeclRefMut),
@@ -1803,9 +1803,10 @@ pub const Value = extern union {
     pub fn pointerDecl(val: Value) ?*Module.Decl {
         return switch (val.tag()) {
             .decl_ref_mut => val.castTag(.decl_ref_mut).?.data.decl,
-            .extern_fn, .decl_ref => val.cast(Payload.Decl).?.data,
+            .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
             .function => val.castTag(.function).?.data.owner_decl,
             .variable => val.castTag(.variable).?.data.owner_decl,
+            .decl_ref => val.cast(Payload.Decl).?.data,
             else => null,
         };
     }
@@ -1872,9 +1873,10 @@ pub const Value = extern union {
     pub fn markReferencedDeclsAlive(val: Value) void {
         switch (val.tag()) {
             .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.markAlive(),
-            .extern_fn, .decl_ref => return val.cast(Payload.Decl).?.data.markAlive(),
+            .extern_fn => return val.castTag(.extern_fn).?.data.owner_decl.markAlive(),
             .function => return val.castTag(.function).?.data.owner_decl.markAlive(),
             .variable => return val.castTag(.variable).?.data.owner_decl.markAlive(),
+            .decl_ref => return val.cast(Payload.Decl).?.data.markAlive(),
 
             .repeated,
             .eu_payload,
@@ -3146,6 +3148,11 @@ pub const Value = extern union {
         pub const Function = struct {
             base: Payload,
             data: *Module.Fn,
+        };
+
+        pub const ExternFn = struct {
+            base: Payload,
+            data: *Module.ExternFn,
         };
 
         pub const Decl = struct {

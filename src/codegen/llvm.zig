@@ -622,7 +622,7 @@ pub const DeclGen = struct {
             _ = func_payload;
             @panic("TODO llvm backend genDecl function pointer");
         } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
-            _ = try dg.resolveLlvmFunction(extern_fn.data);
+            _ = try dg.resolveLlvmFunction(extern_fn.data.owner_decl);
         } else {
             const target = dg.module.getTarget();
             const global = try dg.resolveGlobalDecl(decl);
@@ -1410,7 +1410,7 @@ pub const DeclGen = struct {
             },
             .Fn => {
                 const fn_decl = switch (tv.val.tag()) {
-                    .extern_fn => tv.val.castTag(.extern_fn).?.data,
+                    .extern_fn => tv.val.castTag(.extern_fn).?.data.owner_decl,
                     .function => tv.val.castTag(.function).?.data.owner_decl,
                     else => unreachable,
                 };

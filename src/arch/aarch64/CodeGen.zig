@@ -1574,8 +1574,15 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     .data = .{ .reg = .x30 },
                 });
             } else if (func_value.castTag(.extern_fn)) |func_payload| {
-                const decl = func_payload.data;
-                const n_strx = try macho_file.addExternFn(mem.sliceTo(decl.name, 0));
+                const extern_fn = func_payload.data;
+                const decl_name = extern_fn.owner_decl.name;
+                if (extern_fn.lib_name) |lib_name| {
+                    log.debug("TODO enforce that '{s}' is expected in '{s}' library", .{
+                        decl_name,
+                        lib_name,
+                    });
+                }
+                const n_strx = try macho_file.addExternFn(mem.sliceTo(decl_name, 0));
 
                 _ = try self.addInst(.{
                     .tag = .call_extern,

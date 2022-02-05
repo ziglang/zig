@@ -5614,10 +5614,24 @@ fn funcCommon(
     }
 
     if (is_extern) {
-        return sema.addConstant(
-            fn_ty,
-            try Value.Tag.extern_fn.create(sema.arena, sema.owner_decl),
-        );
+        const new_extern_fn = try sema.gpa.create(Module.ExternFn);
+        errdefer sema.gpa.destroy(new_extern_fn);
+
+        const lib_name: ?[*:0]const u8 = if (opt_lib_name) |lib_name| blk: {
+            break :blk try sema.gpa.dupeZ(u8, lib_name);
+        } else null;
+
+        new_extern_fn.* = Module.ExternFn{
+            .owner_decl = sema.owner_decl,
+            .lib_name = lib_name,
+        };
+
+        const extern_fn_payload = try sema.arena.create(Value.Payload.ExternFn);
+        extern_fn_payload.* = .{
+            .base = .{ .tag = .extern_fn },
+            .data = new_extern_fn,
+        };
+        return sema.addConstant(fn_ty, Value.initPayload(&extern_fn_payload.base));
     }
 
     if (!has_body) {
