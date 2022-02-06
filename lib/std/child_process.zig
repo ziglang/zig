@@ -288,10 +288,8 @@ pub const ChildProcess = struct {
                 else => |err| return windows.unexpectedError(err),
             }
         }
-        if (wait_object_count == 0)
-            return;
 
-        while (true) {
+        while (wait_object_count > 0) {
             const status = windows.kernel32.WaitForMultipleObjects(wait_object_count, &wait_objects, 0, windows.INFINITE);
             if (status == windows.WAIT_FAILED) {
                 switch (windows.kernel32.GetLastError()) {
@@ -315,11 +313,7 @@ pub const ChildProcess = struct {
             var read_bytes: u32 = undefined;
             if (windows.kernel32.GetOverlappedResult(handles[i], &overlapped[i], &read_bytes, 0) == 0) {
                 switch (windows.kernel32.GetLastError()) {
-                    .BROKEN_PIPE => {
-                        if (wait_object_count == 0)
-                            break;
-                        continue;
-                    },
+                    .BROKEN_PIPE => continue,
                     else => |err| return windows.unexpectedError(err),
                 }
             }
