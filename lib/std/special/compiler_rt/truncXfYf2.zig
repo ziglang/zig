@@ -26,11 +26,6 @@ pub fn __trunctfdf2(a: f128) callconv(.C) f64 {
     return truncXfYf2(f64, f128, a);
 }
 
-pub fn __trunctfxf2(a: f128) callconv(.C) c_longdouble {
-    _ = a;
-    @panic("TODO implement");
-}
-
 pub fn __truncdfsf2(a: f64) callconv(.C) f32 {
     return truncXfYf2(f32, f64, a);
 }
