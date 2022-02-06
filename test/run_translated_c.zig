@@ -1819,4 +1819,14 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Zero-initialization of global union. Issue #10797",
+        \\#include <stdlib.h>
+        \\union U { int x; double y; };
+        \\union U u;
+        \\int main(void) {
+        \\    if (u.x != 0) abort();
+        \\    return 0;
+        \\}
+    , "");
 }
