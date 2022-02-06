@@ -147,10 +147,6 @@ pub fn main() !void {
                     std.debug.print("Expected argument after --glibc-runtimes\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
-            } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
-                builder.verbose_tokenize = true;
-            } else if (mem.eql(u8, arg, "--verbose-ast")) {
-                builder.verbose_ast = true;
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
@@ -310,8 +306,6 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --cache-dir [path]           Override path to zig cache directory
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --debug-log [scope]          Enable debugging the compiler
-        \\  --verbose-tokenize           Enable compiler debug output for tokenization
-        \\  --verbose-ast                Enable compiler debug output for parsing into an AST
         \\  --verbose-link               Enable compiler debug output for linking
         \\  --verbose-air                Enable compiler debug output for Zig AIR
         \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR
