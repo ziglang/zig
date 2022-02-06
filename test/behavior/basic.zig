@@ -693,3 +693,9 @@ test "variable name containing underscores does not shadow int primitive" {
     _ = u6__4;
     _ = i2_04_8;
 }
+
+test "if expression type coercion" {
+    var cond: bool = true;
+    const x: u16 = if (cond) 1 else 0;
+    try expect(@as(u16, x) == 1);
+}

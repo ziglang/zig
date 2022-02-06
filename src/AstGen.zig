@@ -5118,8 +5118,10 @@ fn setCondBrPayloadElideBlockStorePtr(
     const astgen = then_scope.astgen;
     const then_body = then_scope.instructionsSliceUpto(else_scope);
     const else_body = else_scope.instructionsSlice();
-    const then_body_len = @intCast(u32, then_body.len + @boolToInt(then_break != 0));
-    const else_body_len = @intCast(u32, else_body.len + @boolToInt(else_break != 0));
+    const has_then_break = then_break != 0;
+    const has_else_break = else_break != 0;
+    const then_body_len = @intCast(u32, then_body.len + @boolToInt(has_then_break));
+    const else_body_len = @intCast(u32, else_body.len + @boolToInt(has_else_break));
     try astgen.extra.ensureUnusedCapacity(astgen.gpa, @typeInfo(Zir.Inst.CondBr).Struct.fields.len +
         then_body_len + else_body_len);
 
@@ -5135,26 +5137,49 @@ fn setCondBrPayloadElideBlockStorePtr(
     const then_body_len_index = condbr_pl + 1;
     const else_body_len_index = condbr_pl + 2;
 
+    // The break instructions need to have their operands coerced if the
+    // switch's result location is a `ty`. In this case we overwrite the
+    // `store_to_block_ptr` instruction with an `as` instruction and repurpose
+    // it as the break operand.
     for (then_body) |src_inst| {
-        if (zir_tags[src_inst] == .store_to_block_ptr) {
-            if (zir_datas[src_inst].bin.lhs == block_ptr) {
+        if (zir_tags[src_inst] == .store_to_block_ptr and
+            zir_datas[src_inst].bin.lhs == block_ptr)
+        {
+            if (then_scope.rl_ty_inst != .none and has_then_break) {
+                zir_tags[src_inst] = .as;
+                zir_datas[src_inst].bin = .{
+                    .lhs = then_scope.rl_ty_inst,
+                    .rhs = zir_datas[then_break].@"break".operand,
+                };
+                zir_datas[then_break].@"break".operand = indexToRef(src_inst);
+            } else {
                 astgen.extra.items[then_body_len_index] -= 1;
                 continue;
             }
         }
         astgen.extra.appendAssumeCapacity(src_inst);
     }
-    if (then_break != 0) astgen.extra.appendAssumeCapacity(then_break);
+    if (has_then_break) astgen.extra.appendAssumeCapacity(then_break);
+
     for (else_body) |src_inst| {
-        if (zir_tags[src_inst] == .store_to_block_ptr) {
-            if (zir_datas[src_inst].bin.lhs == block_ptr) {
+        if (zir_tags[src_inst] == .store_to_block_ptr and
+            zir_datas[src_inst].bin.lhs == block_ptr)
+        {
+            if (else_scope.rl_ty_inst != .none and has_else_break) {
+                zir_tags[src_inst] = .as;
+                zir_datas[src_inst].bin = .{
+                    .lhs = else_scope.rl_ty_inst,
+                    .rhs = zir_datas[else_break].@"break".operand,
+                };
+                zir_datas[else_break].@"break".operand = indexToRef(src_inst);
+            } else {
                 astgen.extra.items[else_body_len_index] -= 1;
                 continue;
             }
         }
         astgen.extra.appendAssumeCapacity(src_inst);
     }
-    if (else_break != 0) astgen.extra.appendAssumeCapacity(else_break);
+    if (has_else_break) astgen.extra.appendAssumeCapacity(else_break);
 }
 
 fn whileExpr(
@@ -9460,6 +9485,7 @@ const GenZir = struct {
             .decl_node_index = gz.decl_node_index,
             .decl_line = gz.decl_line,
             .parent = scope,
+            .rl_ty_inst = gz.rl_ty_inst,
             .astgen = gz.astgen,
             .suspend_node = gz.suspend_node,
             .nosuspend_node = gz.nosuspend_node,
