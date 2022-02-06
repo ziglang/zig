@@ -309,9 +309,7 @@ pub fn zeroes(comptime T: type) T {
             if (comptime meta.containerLayout(T) == .Extern) {
                 // The C language specification states that (global) unions
                 // should be zero initialized to the first named member.
-                var item: T = undefined;
-                @field(item, info.fields[0].name) = zeroes(@TypeOf(@field(item, info.fields[0].name)));
-                return item;
+                return @unionInit(T, info.fields[0].name, zeroes(info.fields[0].field_type));
             }
 
             @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
@@ -417,6 +415,9 @@ test "mem.zeroes" {
 
     var c = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), c.a);
+
+    comptime var comptime_union = zeroes(C_union);
+    try testing.expectEqual(@as(u8, 0), comptime_union.a);
 }
 
 /// Initializes all fields of the struct with their default value, or zero values if no default value is present.
