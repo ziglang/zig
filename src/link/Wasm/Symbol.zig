@@ -142,19 +142,20 @@ pub fn format(self: Symbol, comptime fmt: []const u8, options: std.fmt.FormatOpt
     _ = fmt;
     _ = options;
 
-    const kind_fmt: u8 = switch (self.kind) {
+    const kind_fmt: u8 = switch (self.tag) {
         .function => 'F',
         .data => 'D',
         .global => 'G',
         .section => 'S',
         .event => 'E',
         .table => 'T',
+        .dead => '-',
     };
     const visible: []const u8 = if (self.isVisible()) "yes" else "no";
     const binding: []const u8 = if (self.isLocal()) "local" else "global";
 
     try writer.print(
         "{c} binding={s} visible={s} id={d} name={s}",
-        .{ kind_fmt, binding, visible, self.index(), self.name },
+        .{ kind_fmt, binding, visible, self.index, self.name },
     );
 }

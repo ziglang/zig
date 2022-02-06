@@ -144,7 +144,7 @@ pub fn main2() anyerror!void {
             }
         };
     }
-    if (builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .stage2_llvm or builtin.zig_backend == .stage2_wasm) {
         const passed = builtin.test_functions.len - skipped - failed;
         const stderr = std.io.getStdErr();
         writeInt(stderr, passed) catch {};

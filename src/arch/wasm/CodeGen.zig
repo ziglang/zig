@@ -954,7 +954,7 @@ pub const DeclGen = struct {
         } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
             const ext_decl = extern_fn.data.owner_decl;
             var func_type = try genFunctype(self.gpa, ext_decl.ty, self.target());
-            func_type.deinit(self.gpa);
+            defer func_type.deinit(self.gpa);
             ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
             return Result{ .appended = {} };
         } else {

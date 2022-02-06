@@ -11,37 +11,31 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("wasm function calls", wasi);
 
         case.addCompareOutput(
-            \\pub fn main() u8 {
+            \\pub fn main() void {
             \\    foo();
             \\    bar();
-            \\    return 42;
             \\}
             \\fn foo() void {
             \\    bar();
             \\    bar();
             \\}
             \\fn bar() void {}
-        ,
-            "42\n",
-        );
+        , "");
 
         case.addCompareOutput(
-            \\pub fn main() u8 {
+            \\pub fn main() void {
             \\    bar();
             \\    foo();
             \\    foo();
             \\    bar();
             \\    foo();
             \\    bar();
-            \\    return 42;
             \\}
             \\fn foo() void {
             \\    bar();
             \\}
             \\fn bar() void {}
-        ,
-            "42\n",
-        );
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -56,23 +50,22 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\fn bar() void {}
         ,
-            "0\n",
+            "",
         );
 
         case.addCompareOutput(
-            \\pub fn main() u8 {
+            \\pub fn main() void {
             \\    foo(10, 20);
-            \\    return 5;
             \\}
             \\fn foo(x: u8, y: u8) void { _ = x; _ = y; }
-        , "5\n");
+        , "");
     }
 
     {
         var case = ctx.exe("wasm locals", wasi);
 
         case.addCompareOutput(
-            \\pub fn main() u8 {
+            \\pub fn main() void {
             \\    var i: u8 = 5;
             \\    var y: f32 = 42.0;
             \\    var x: u8 = 10;
@@ -80,38 +73,38 @@ pub fn addCases(ctx: *TestContext) !void {
             \\      y;
             \\      x;
             \\    }
-            \\    return i;
+            \\    if (i != 5) unreachable;
             \\}
-        , "5\n");
+        , "");
 
         case.addCompareOutput(
-            \\pub fn main() u8 {
+            \\pub fn main() void {
             \\    var i: u8 = 5;
             \\    var y: f32 = 42.0;
             \\    _ = y;
             \\    var x: u8 = 10;
             \\    foo(i, x);
             \\    i = x;
-            \\    return i;
+            \\    if (i != 10) unreachable;
             \\}
             \\fn foo(x: u8, y: u8) void {
             \\    _  = y;
             \\    var i: u8 = 10;
             \\    i = x;
             \\}
-        , "10\n");
+        , "");
     }
 
     {
         var case = ctx.exe("wasm binary operands", wasi);
 
         case.addCompareOutput(
-            \\pub fn main() u8 {
+            \\pub fn main() void {
             \\    var i: u8 = 5;
             \\    i += 20;
-            \\    return i;
+            \\    if (i != 25) unreachable;
             \\}
-        , "25\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -119,7 +112,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (i +% 1 != -2147483648) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -127,34 +120,34 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (i +% 1 != 0) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var i: u8 = 255;
             \\    return i +% 1;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var i: u8 = 5;
             \\    i += 20;
             \\    var result: u8 = foo(i, 10);
-            \\    return result;
+            \\    return result - 35;
             \\}
             \\fn foo(x: u8, y: u8) u8 {
             \\    return x + y;
             \\}
-        , "35\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var i: u8 = 20;
             \\    i -= 5;
-            \\    return i;
+            \\    return i - 15;
             \\}
-        , "15\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -162,7 +155,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (i -% 1 != 2147483647) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -170,26 +163,26 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (i -% 1 != 63) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
-            \\pub fn main() u8 {
+            \\pub fn main() void {
             \\    var i: u4 = 0;
-            \\    return i -% 1;
+            \\    if(i -% 1 != 15) unreachable;
             \\}
-        , "15\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var i: u8 = 5;
             \\    i -= 3;
             \\    var result: u8 = foo(i, 10);
-            \\    return result;
+            \\    return result - 8;
             \\}
             \\fn foo(x: u8, y: u8) u8 {
             \\    return y - x;
             \\}
-        , "8\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -202,7 +195,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\fn foo(x: u32, y: u32) u32 {
             \\    return x * y;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -211,7 +204,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (result != -2) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -219,7 +212,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (i *% 3 != 1) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -227,7 +220,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (i *% 3 != 1) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -240,31 +233,31 @@ pub fn addCases(ctx: *TestContext) !void {
             \\fn foo(x: u32, y: u32) u32 {
             \\    return x / y;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var i: u8 = 5;
             \\    i &= 6;
-            \\    return i;
+            \\    return i - 4;
             \\}
-        , "4\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var i: u8 = 5;
             \\    i |= 6;
-            \\    return i;
+            \\    return i - 7;
             \\}
-        , "7\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var i: u8 = 5;
             \\    i ^= 6;
-            \\    return i;
+            \\    return i - 3;
             \\}
-        , "3\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -273,7 +266,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (b) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -282,7 +275,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (!b) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -291,7 +284,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (!b) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -300,7 +293,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (!b) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -309,7 +302,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (b) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -318,7 +311,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (b) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -327,7 +320,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (b) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -336,7 +329,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (!b) unreachable;
             \\    return;
             \\}
-        , "0\n");
+        , "");
     }
 
     {
@@ -348,9 +341,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (i > @as(u8, 4)) {
             \\        i += 10;
             \\    }
-            \\    return i;
+            \\    return i - 15;
             \\}
-        , "15\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -360,9 +353,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    } else {
             \\        i = 2;
             \\    }
-            \\    return i;
+            \\    return i - 2;
             \\}
-        , "2\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -372,9 +365,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    } else if(i == @as(u8, 5)) {
             \\        i = 20;
             \\    }
-            \\    return i;
+            \\    return i - 20;
             \\}
-        , "20\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -388,9 +381,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\            i = 20;
             \\        }
             \\    }
-            \\    return i;
+            \\    return i - 31;
             \\}
-        , "31\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -405,7 +398,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    const x = if(ok) @as(i32, 20) else @as(i32, 10);
             \\    return x;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() void {
@@ -425,7 +418,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    };
             \\    return val + 10;
             \\}
-        , "0\n");
+        , "");
     }
 
     {
@@ -438,9 +431,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        i += 1;
             \\    }
             \\
-            \\    return i;
+            \\    return i - 5;
             \\}
-        , "5\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -449,9 +442,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        var x: u8 = 1;
             \\        i += x;
             \\    }
-            \\    return i;
+            \\    return i - 10;
             \\}
-        , "10\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -461,9 +454,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        i += x;
             \\        if (i == @as(u8, 5)) break;
             \\    }
-            \\    return i;
+            \\    return i - 5;
             \\}
-        , "5\n");
+        , "");
     }
 
     {
@@ -485,7 +478,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    }
             \\    return;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\const Number = enum { One, Two, Three };
@@ -507,7 +500,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\fn assert(val: bool) void {
             \\    if(!val) unreachable;
             \\}
-        , "0\n");
+        , "");
     }
 
     {
@@ -518,9 +511,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
             \\pub fn main() u8 {
             \\    var example: Example = .{ .x = 5 };
-            \\    return example.x;
+            \\    return example.x - 5;
             \\}
-        , "5\n");
+        , "");
 
         case.addCompareOutput(
             \\const Example = struct { x: u8 };
@@ -528,18 +521,18 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn main() u8 {
             \\    var example: Example = .{ .x = 5 };
             \\    example.x = 10;
-            \\    return example.x;
+            \\    return example.x - 10;
             \\}
-        , "10\n");
+        , "");
 
         case.addCompareOutput(
             \\const Example = struct { x: u8, y: u8 };
             \\
             \\pub fn main() u8 {
             \\    var example: Example = .{ .x = 5, .y = 10 };
-            \\    return example.y + example.x;
+            \\    return example.y + example.x - 15;
             \\}
-        , "15\n");
+        , "");
 
         case.addCompareOutput(
             \\const Example = struct { x: u8, y: u8 };
@@ -549,9 +542,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var example2: Example = .{ .x = 10, .y = 20 };
             \\
             \\    example = example2;
-            \\    return example.y + example.x;
+            \\    return example.y + example.x - 30;
             \\}
-        , "30\n");
+        , "");
 
         case.addCompareOutput(
             \\const Example = struct { x: u8, y: u8 };
@@ -560,9 +553,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var example: Example = .{ .x = 5, .y = 10 };
             \\
             \\    example = .{ .x = 10, .y = 20 };
-            \\    return example.y + example.x;
+            \\    return example.y + example.x - 30;
             \\}
-        , "30\n");
+        , "");
     }
 
     {
@@ -578,9 +571,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        else => 5,
             \\    };
             \\
-            \\    return a;
+            \\    return a - 2;
             \\}
-        , "2\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -592,9 +585,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        else => 5,
             \\    };
             \\
-            \\    return a;
+            \\    return a - 3;
             \\}
-        , "3\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -606,9 +599,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        else => 5,
             \\    };
             \\
-            \\    return a;
+            \\    return a - 5;
             \\}
-        , "5\n");
+        , "");
 
         case.addCompareOutput(
             \\const MyEnum = enum { One, Two, Three };
@@ -621,9 +614,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        .Three => 3,
             \\    };
             \\
-            \\    return a;
+            \\    return a - 2;
             \\}
-        , "2\n");
+        , "");
     }
 
     {
@@ -641,35 +634,35 @@ pub fn addCases(ctx: *TestContext) !void {
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var e: anyerror!u8 = 5;
             \\    const i = e catch 10;
-            \\    return i;
+            \\    return i - 5;
             \\}
-        , "5\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var e: anyerror!u8 = error.Foo;
             \\    const i = e catch 10;
-            \\    return i;
+            \\    return i - 10;
             \\}
-        , "10\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var e = foo();
             \\    const i = e catch 69;
-            \\    return i;
+            \\    return i - 5;
             \\}
             \\
             \\fn foo() anyerror!u8 {
             \\    return 5;
             \\}
-        , "5\n");
+        , "");
     }
 
     {
@@ -679,24 +672,24 @@ pub fn addCases(ctx: *TestContext) !void {
             \\pub fn main() u8 {
             \\    var e = foo();
             \\    const i = e catch 69;
-            \\    return i;
+            \\    return i - 69;
             \\}
             \\
             \\fn foo() anyerror!u8 {
             \\    return error.Bruh;
             \\}
-        , "69\n");
+        , "");
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var e = foo();
             \\    const i = e catch 42;
-            \\    return i;
+            \\    return i - 42;
             \\}
             \\
             \\fn foo() anyerror!u8 {
             \\    return error.Dab;
             \\}
-        , "42\n");
+        , "");
     }
 
     {
@@ -709,7 +702,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = y;
             \\    return;
             \\}
-        , "0\n");
+        , "");
     }
 
     {
@@ -722,9 +715,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (x) |val| {
             \\        y = val;
             \\    }
-            \\    return y;
+            \\    return y - 5;
             \\}
-        , "5\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -735,22 +728,22 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    }
             \\    return y;
             \\}
-        , "0\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var x: ?u8 = 5;
-            \\    return x.?;
+            \\    return x.? - 5;
             \\}
-        , "5\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
             \\    var x: u8 = 5;
             \\    var y: ?u8 = x;
-            \\    return y.?;
+            \\    return y.? - 5;
             \\}
-        , "5\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -763,7 +756,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    }
             \\    return 0;
             \\}
-        , "0\n");
+        , "");
     }
 
     {
@@ -774,13 +767,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var x: u8 = 0;
             \\
             \\    foo(&x);
-            \\    return x;
+            \\    return x - 2;
             \\}
             \\
             \\fn foo(x: *u8)void {
             \\    x.* = 2;
             \\}
-        , "2\n");
+        , "");
 
         case.addCompareOutput(
             \\pub fn main() u8 {
@@ -788,7 +781,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
             \\    foo(&x);
             \\    bar(&x);
-            \\    return x;
+            \\    return x - 4;
             \\}
             \\
             \\fn foo(x: *u8)void {
@@ -798,6 +791,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\fn bar(x: *u8) void {
             \\    x.* += 2;
             \\}
-        , "4\n");
+        , "");
     }
 }
