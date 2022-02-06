@@ -260,7 +260,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl);
     }
-    if (!decl.ty.hasRuntimeBits()) return;
+
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
     decl.link.wasm.clear();
@@ -297,8 +297,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
 fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     if (decl.isExtern()) {
-        try self.addOrUpdateImport(decl);
-        return;
+        return self.addOrUpdateImport(decl);
     }
 
     if (code.len == 0) return;
@@ -407,16 +406,18 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     self.symbols.items[atom.sym_index].tag = .dead; // to ensure it does not end in the names section
     for (atom.locals.items) |local_atom| {
         self.symbols.items[local_atom.sym_index].tag = .dead; // also for any local symbol
+        self.symbols_free_list.append(self.base.allocator, local_atom.sym_index) catch {};
     }
-    atom.deinit(self.base.allocator);
 
     if (decl.isExtern()) {
-        const import = self.imports.fetchRemove(decl.link.wasm.sym_index).?.value;
+        const import = self.imports.fetchRemove(atom.sym_index).?.value;
         switch (import.kind) {
             .function => self.imported_functions_count -= 1,
             else => unreachable,
         }
     }
+
+    atom.deinit(self.base.allocator);
 }
 
 /// Appends a new entry to the indirect function table
@@ -441,10 +442,13 @@ fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
     switch (decl.ty.zigTypeTag()) {
         .Fn => {
             const gop = try self.imports.getOrPut(self.base.allocator, symbol_index);
+            const module_name = if (decl.getExternFn().?.lib_name) |lib_name| blk: {
+                break :blk std.mem.sliceTo(lib_name, 0);
+            } else self.host_name;
             if (!gop.found_existing) {
                 self.imported_functions_count += 1;
                 gop.value_ptr.* = .{
-                    .module_name = self.host_name,
+                    .module_name = module_name,
                     .name = std.mem.span(symbol.name),
                     .kind = .{ .function = decl.fn_link.wasm.type_index },
                 };
