@@ -34,7 +34,6 @@ test "addosi4" {
         try test__addosi4(-i, i);
     }
 
-    // zig fmt: off
     // edge cases
     // 0   + 0     = 0
     // MIN + MIN   overflow
@@ -45,7 +44,6 @@ test "addosi4" {
     // MAX + 0     MAX
     // MIN + MAX   -1
     // MAX + MIN   -1
-    // zig fmt: on
     try test__addosi4(0, 0);
     try test__addosi4(min, min);
     try test__addosi4(max, max);
@@ -56,7 +54,6 @@ test "addosi4" {
     try test__addosi4(min, max);
     try test__addosi4(max, min);
 
-    // zig fmt: off
     // derived edge cases
     // MIN+1 + MIN   overflow
     // MAX-1 + MAX   overflow
@@ -68,7 +65,6 @@ test "addosi4" {
     // MIN   + -1    overflow
     // MAX   + 1     overflow
     // MAX   + -1  = MAX-1
-    // zig fmt: on
     try test__addosi4(min + 1, min);
     try test__addosi4(max - 1, max);
     try test__addosi4(1, min);
