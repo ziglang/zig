@@ -2765,31 +2765,19 @@ pub const Value = extern union {
             .float_16 => {
                 const lhs_val = lhs.toFloat(f16);
                 const rhs_val = rhs.toFloat(f16);
-                const rem = @rem(lhs_val, rhs_val);
-
-                return Value.Tag.float_16.create(allocator, rem);
+                return Value.Tag.float_16.create(allocator, @rem(lhs_val, rhs_val));
             },
             .float_32 => {
                 const lhs_val = lhs.toFloat(f32);
                 const rhs_val = rhs.toFloat(f32);
-                const rem = @rem(lhs_val, rhs_val);
-
-                return Value.Tag.float_32.create(allocator, rem);
+                return Value.Tag.float_32.create(allocator, @rem(lhs_val, rhs_val));
             },
             .float_64 => {
                 const lhs_val = lhs.toFloat(f64);
                 const rhs_val = rhs.toFloat(f64);
-                const rem = @rem(lhs_val, rhs_val);
-
-                return Value.Tag.float_64.create(allocator, rem);
+                return Value.Tag.float_64.create(allocator, @rem(lhs_val, rhs_val));
             },
-            .float_128 => {
-                const lhs_val = lhs.toFloat(f128);
-                const rhs_val = rhs.toFloat(f128);
-                const rem = @rem(lhs_val, rhs_val);
-
-                return Value.Tag.float_128.create(allocator, rem);
-            },
+            .float_128 => @panic("TODO implement Value.floatRem for f128, for more info see #10819"),
             else => unreachable,
         }
     }
