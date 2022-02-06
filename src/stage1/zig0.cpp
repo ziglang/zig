@@ -51,8 +51,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --strip                      exclude debug symbols\n"
         "  -target [name]               <arch>-<os>-<abi> see the targets command\n"
         "  -mcpu [cpu]                  specify target CPU and feature set\n"
-        "  --verbose-tokenize           enable compiler debug output for tokenization\n"
-        "  --verbose-ast                enable compiler debug output for AST parsing\n"
         "  --verbose-ir                 enable compiler debug output for Zig IR\n"
         "  --verbose-llvm-ir            enable compiler debug output for LLVM IR\n"
         "  --verbose-cimport            enable compiler debug output for C imports\n"

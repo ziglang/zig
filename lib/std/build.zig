@@ -34,8 +34,6 @@ pub const Builder = struct {
     available_options_map: AvailableOptionsMap,
     available_options_list: ArrayList(AvailableOption),
     verbose: bool,
-    verbose_tokenize: bool,
-    verbose_ast: bool,
     verbose_link: bool,
     verbose_cc: bool,
     verbose_air: bool,
@@ -172,8 +170,6 @@ pub const Builder = struct {
             .cache_root = try fs.path.relative(allocator, build_root, cache_root),
             .global_cache_root = global_cache_root,
             .verbose = false,
-            .verbose_tokenize = false,
-            .verbose_ast = false,
             .verbose_link = false,
             .verbose_cc = false,
             .verbose_air = false,
@@ -2405,8 +2401,6 @@ pub const LibExeObjStep = struct {
             try zig_args.append(log_scope);
         }
 
-        if (builder.verbose_tokenize) zig_args.append("--verbose-tokenize") catch unreachable;
-        if (builder.verbose_ast) zig_args.append("--verbose-ast") catch unreachable;
         if (builder.verbose_cimport) zig_args.append("--verbose-cimport") catch unreachable;
         if (builder.verbose_air) zig_args.append("--verbose-air") catch unreachable;
         if (builder.verbose_llvm_ir) zig_args.append("--verbose-llvm-ir") catch unreachable;
