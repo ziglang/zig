@@ -277,10 +277,19 @@ pub const ChildProcess = struct {
             const new_capacity = std.math.min(outs[i].items.len + bump_amt, max_output_bytes);
             try outs[i].ensureTotalCapacity(new_capacity);
             const buf = outs[i].unusedCapacitySlice();
-            _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
-            wait_objects[wait_object_count] = handles[i];
-            wait_object_count += 1;
+            const read_result = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
+            std.debug.assert(read_result == 0);
+            switch (windows.kernel32.GetLastError()) {
+                .IO_PENDING => {
+                    wait_objects[wait_object_count] = handles[i];
+                    wait_object_count += 1;
+                },
+                .BROKEN_PIPE => {}, // don't add to the wait_objects list
+                else => |err| return windows.unexpectedError(err),
+            }
         }
+        if (wait_object_count == 0)
+            return;
 
         while (true) {
             const status = windows.kernel32.WaitForMultipleObjects(wait_object_count, &wait_objects, 0, windows.INFINITE);
@@ -320,9 +329,16 @@ pub const ChildProcess = struct {
             try outs[i].ensureTotalCapacity(new_capacity);
             const buf = outs[i].unusedCapacitySlice();
             if (buf.len == 0) return if (i == 0) error.StdoutStreamTooLong else error.StderrStreamTooLong;
-            _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
-            wait_objects[wait_object_count] = handles[i];
-            wait_object_count += 1;
+            const read_result = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
+            std.debug.assert(read_result == 0);
+            switch (windows.kernel32.GetLastError()) {
+                .IO_PENDING => {
+                    wait_objects[wait_object_count] = handles[i];
+                    wait_object_count += 1;
+                },
+                .BROKEN_PIPE => {}, // don't add to the wait_objects list
+                else => |err| return windows.unexpectedError(err),
+            }
         }
     }
 
