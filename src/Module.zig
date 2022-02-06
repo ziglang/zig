@@ -510,6 +510,7 @@ pub const Decl = struct {
             gpa.destroy(func);
         }
         if (decl.getVariable()) |variable| {
+            variable.deinit(gpa);
             gpa.destroy(variable);
         }
         if (decl.value_arena) |arena_state| {
@@ -694,6 +695,8 @@ pub const Decl = struct {
         return func;
     }
 
+    /// If the Decl has a value and it is an extern function, returns it,
+    /// otherwise null.
     pub fn getExternFn(decl: *const Decl) ?*ExternFn {
         if (!decl.owns_tv) return null;
         const extern_fn = (decl.val.castTag(.extern_fn) orelse return null).data;
@@ -701,6 +704,8 @@ pub const Decl = struct {
         return extern_fn;
     }
 
+    /// If the Decl has a value and it is a variable, returns it,
+    /// otherwise null.
     pub fn getVariable(decl: *Decl) ?*Var {
         if (!decl.owns_tv) return null;
         const variable = (decl.val.castTag(.variable) orelse return null).data;
@@ -1469,9 +1474,20 @@ pub const Var = struct {
     init: Value,
     owner_decl: *Decl,
 
+    /// Library name if specified.
+    /// For example `extern "c" var stderrp = ...` would have 'c' as library name.
+    /// Allocated with Module's allocator; outlives the ZIR code.
+    lib_name: ?[*:0]const u8,
+
     is_extern: bool,
     is_mutable: bool,
     is_threadlocal: bool,
+
+    pub fn deinit(variable: *Var, gpa: Allocator) void {
+        if (variable.lib_name) |lib_name| {
+            gpa.free(mem.sliceTo(lib_name, 0));
+        }
+    }
 };
 
 /// The container that structs, enums, unions, and opaques have.
