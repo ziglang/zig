@@ -647,11 +647,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     }
 }
 
-fn writeInt(self: *Self, comptime T: type, buf: *[@divExact(@typeInfo(T).Int.bits, 8)]u8, value: T) void {
-    const endian = self.target.cpu.arch.endian();
-    std.mem.writeInt(T, buf, value, endian);
-}
-
 /// Asserts there is already capacity to insert into top branch inst_table.
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const air_tags = self.air.instructions.items(.tag);
@@ -906,7 +901,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                 break :result r;
             },
             else => {
-                break :result try self.genArmBinOp(inst, ty_op.operand, .bool_true, .not);
+                break :result try self.genBinOp(inst, ty_op.operand, .bool_true, .not);
             },
         }
     };
@@ -934,7 +929,7 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airAdd(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .add);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .add);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -952,7 +947,7 @@ fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSub(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .sub);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .sub);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -970,7 +965,7 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airMul(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genArmMul(inst, bin_op.lhs, bin_op.rhs);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genMul(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1026,25 +1021,25 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airBitAnd(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .bit_and);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .bit_and);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airBitOr(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .bit_or);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .bit_or);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airXor(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .xor);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .xor);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airShl(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .shl);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .shl);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1056,7 +1051,7 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airShr(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .shr);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .shr);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1296,7 +1291,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
             else => {
                 const dst_mcv = try self.allocRegOrMem(inst, true);
 
-                const offset_mcv = try self.genArmMulConstant(bin_op.rhs, @intCast(u32, elem_size));
+                const offset_mcv = try self.genMulConstant(bin_op.rhs, @intCast(u32, elem_size));
                 assert(offset_mcv == .register); // result of multiplication should always be register
                 self.register_manager.freezeRegs(&.{offset_mcv.register});
 
@@ -1304,7 +1299,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                 self.register_manager.freezeRegs(&.{addr_reg});
                 defer self.register_manager.unfreezeRegs(&.{addr_reg});
 
-                try self.genArmBinOpCode(addr_reg, base_mcv, offset_mcv, false, .add, .unsigned);
+                try self.genBinOpCode(addr_reg, base_mcv, offset_mcv, false, .add, .unsigned);
 
                 // At this point in time, neither the base register
                 // nor the offset register contains any valuable data
@@ -1415,6 +1410,8 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
 
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
     const elem_ty = ptr_ty.elemType();
+    const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
+
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -1440,24 +1437,17 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .compare_flags_signed, .compare_flags_unsigned => unreachable,
                 .embedded_in_code => unreachable,
                 .register => |dst_reg| {
-                    _ = try self.addInst(.{
-                        .tag = .ldr,
-                        .data = .{ .rr_offset = .{
-                            .rt = dst_reg,
-                            .rn = reg,
-                            .offset = .{ .offset = Instruction.Offset.none },
-                        } },
-                    });
+                    try self.genLdrRegister(dst_reg, reg, elem_size);
                 },
                 .stack_offset => |off| {
-                    if (elem_ty.abiSize(self.target.*) <= 4) {
+                    if (elem_size <= 4) {
                         const tmp_reg = try self.register_manager.allocReg(null);
                         self.register_manager.freezeRegs(&.{tmp_reg});
                         defer self.register_manager.unfreezeRegs(&.{tmp_reg});
 
                         try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
                         try self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
-                    } else if (elem_ty.abiSize(self.target.*) == 8) {
+                    } else if (elem_size == 8) {
                         // TODO generalize this: maybe add a
                         // genArmMemcpy function which manually copies
                         // data if the size is below a certain
@@ -1500,7 +1490,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         const tmp_reg = regs[3];
 
                         // sub dst_reg, fp, #off
-                        const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
                         const adj_off = off + elem_size;
                         const offset_op: Instruction.Operand = if (Instruction.Operand.fromU32(adj_off)) |x| x else {
                             return self.fail("TODO load: set reg to stack offset with all possible offsets", .{});
@@ -1528,7 +1517,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         });
 
                         // memcpy(src, dst, len)
-                        try self.genArmInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
+                        try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
                     }
                 },
                 else => return self.fail("TODO load from register into {}", .{dst_mcv}),
@@ -1600,14 +1589,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
 
             switch (value) {
                 .register => |value_reg| {
-                    _ = try self.addInst(.{
-                        .tag = .str,
-                        .data = .{ .rr_offset = .{
-                            .rt = value_reg,
-                            .rn = addr_reg,
-                            .offset = .{ .offset = Instruction.Offset.none },
-                        } },
-                    });
+                    try self.genStrRegister(value_reg, addr_reg, @intCast(u32, value_ty.abiSize(self.target.*)));
                 },
                 else => {
                     if (value_ty.abiSize(self.target.*) <= 4) {
@@ -1723,7 +1705,7 @@ fn armOperandShouldBeRegister(self: *Self, mcv: MCValue) !bool {
     };
 }
 
-fn genArmBinOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref, op: Air.Inst.Tag) !MCValue {
+fn genBinOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref, op: Air.Inst.Tag) !MCValue {
     // In the case of bitshifts, the type of rhs is different
     // from the resulting type
     const ty = self.air.typeOf(op_lhs);
@@ -1732,17 +1714,17 @@ fn genArmBinOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: 
         .Float => return self.fail("TODO ARM binary operations on floats", .{}),
         .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
         .Bool => {
-            return self.genArmBinIntOp(inst, op_lhs, op_rhs, op, 1, .unsigned);
+            return self.genBinIntOp(inst, op_lhs, op_rhs, op, 1, .unsigned);
         },
         .Int => {
             const int_info = ty.intInfo(self.target.*);
-            return self.genArmBinIntOp(inst, op_lhs, op_rhs, op, int_info.bits, int_info.signedness);
+            return self.genBinIntOp(inst, op_lhs, op_rhs, op, int_info.bits, int_info.signedness);
         },
         else => unreachable,
     }
 }
 
-fn genArmBinIntOp(
+fn genBinIntOp(
     self: *Self,
     inst: Air.Inst.Index,
     op_lhs: Air.Inst.Ref,
@@ -1852,7 +1834,7 @@ fn genArmBinIntOp(
         try self.genSetReg(self.air.typeOf(op_rhs), rhs_mcv.register, rhs);
     }
 
-    try self.genArmBinOpCode(
+    try self.genBinOpCode(
         dst_mcv.register,
         lhs_mcv,
         rhs_mcv,
@@ -1863,7 +1845,7 @@ fn genArmBinIntOp(
     return dst_mcv;
 }
 
-fn genArmBinOpCode(
+fn genBinOpCode(
     self: *Self,
     dst_reg: Register,
     lhs_mcv: MCValue,
@@ -1971,7 +1953,7 @@ fn genArmBinOpCode(
     }
 }
 
-fn genArmMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref) !MCValue {
+fn genMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref) !MCValue {
     const lhs = try self.resolveInst(op_lhs);
     const rhs = try self.resolveInst(op_rhs);
 
@@ -2050,7 +2032,7 @@ fn genArmMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Ai
     return dst_mcv;
 }
 
-fn genArmMulConstant(self: *Self, op: Air.Inst.Ref, imm: u32) !MCValue {
+fn genMulConstant(self: *Self, op: Air.Inst.Ref, imm: u32) !MCValue {
     const lhs = try self.resolveInst(op);
     const rhs = MCValue{ .immediate = imm };
 
@@ -2097,7 +2079,71 @@ fn genArmMulConstant(self: *Self, op: Air.Inst.Ref, imm: u32) !MCValue {
     return dst_mcv;
 }
 
-fn genArmInlineMemcpy(
+fn genLdrRegister(self: *Self, dest_reg: Register, addr_reg: Register, abi_size: u32) !void {
+    switch (abi_size) {
+        1, 3, 4 => {
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .ldrb,
+                3, 4 => .ldr,
+                else => unreachable,
+            };
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .data = .{ .rr_offset = .{
+                    .rt = dest_reg,
+                    .rn = addr_reg,
+                    .offset = .{ .offset = Instruction.Offset.none },
+                } },
+            });
+        },
+        2 => {
+            _ = try self.addInst(.{
+                .tag = .ldrh,
+                .data = .{ .rr_extra_offset = .{
+                    .rt = dest_reg,
+                    .rn = addr_reg,
+                    .offset = .{ .offset = Instruction.ExtraLoadStoreOffset.none },
+                } },
+            });
+        },
+        else => unreachable, // invalid abi_size for a register
+    }
+}
+
+fn genStrRegister(self: *Self, source_reg: Register, addr_reg: Register, abi_size: u32) !void {
+    switch (abi_size) {
+        1, 3, 4 => {
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .strb,
+                3, 4 => .str,
+                else => unreachable,
+            };
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .data = .{ .rr_offset = .{
+                    .rt = source_reg,
+                    .rn = addr_reg,
+                    .offset = .{ .offset = Instruction.Offset.none },
+                } },
+            });
+        },
+        2 => {
+            _ = try self.addInst(.{
+                .tag = .strh,
+                .data = .{ .rr_extra_offset = .{
+                    .rt = source_reg,
+                    .rn = addr_reg,
+                    .offset = .{ .offset = Instruction.ExtraLoadStoreOffset.none },
+                } },
+            });
+        },
+        else => unreachable, // invalid abi_size for a register
+    }
+}
+
+fn genInlineMemcpy(
     self: *Self,
     src: Register,
     dst: Register,
@@ -2469,7 +2515,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 
         // The destination register is not present in the cmp instruction
         // The signedness of the integer does not matter for the cmp instruction
-        try self.genArmBinOpCode(undefined, lhs_mcv, rhs_mcv, false, .cmp_eq, undefined);
+        try self.genBinOpCode(undefined, lhs_mcv, rhs_mcv, false, .cmp_eq, undefined);
 
         break :result switch (signedness) {
             .signed => MCValue{ .compare_flags_signed = op },
@@ -2701,7 +2747,7 @@ fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
             else => .{ .register = try self.copyToTmpRegister(ty, operand) },
         };
 
-        try self.genArmBinOpCode(undefined, reg_mcv, .{ .immediate = 0 }, false, .cmp_eq, undefined);
+        try self.genBinOpCode(undefined, reg_mcv, .{ .immediate = 0 }, false, .cmp_eq, undefined);
 
         return MCValue{ .compare_flags_unsigned = .eq };
     } else {
@@ -2731,7 +2777,7 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
                 else => .{ .register = try self.copyToTmpRegister(error_type, operand) },
             };
 
-            try self.genArmBinOpCode(undefined, reg_mcv, .{ .immediate = 0 }, false, .cmp_eq, undefined);
+            try self.genBinOpCode(undefined, reg_mcv, .{ .immediate = 0 }, false, .cmp_eq, undefined);
 
             return MCValue{ .compare_flags_unsigned = .gt };
         } else {
@@ -2946,8 +2992,8 @@ fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const air_tags = self.air.instructions.items(.tag);
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (air_tags[inst]) {
-        .bool_and => try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .bool_and),
-        .bool_or => try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .bool_or),
+        .bool_and => try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .bool_and),
+        .bool_or => try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .bool_or),
         else => unreachable, // Not a boolean operation
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -3242,7 +3288,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 });
 
                 // memcpy(src, dst, len)
-                try self.genArmInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
+                try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
             }
         },
     }
@@ -3439,14 +3485,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // The value is in memory at a hard-coded address.
             // If the type is a pointer, it means the pointer address is at this memory location.
             try self.genSetReg(ty, reg, .{ .immediate = @intCast(u32, addr) });
-            _ = try self.addInst(.{
-                .tag = .ldr,
-                .data = .{ .rr_offset = .{
-                    .rt = reg,
-                    .rn = reg,
-                    .offset = .{ .offset = Instruction.Offset.none },
-                } },
-            });
+            try self.genLdrRegister(reg, reg, @intCast(u32, ty.abiSize(self.target.*)));
         },
         .stack_offset => |unadjusted_off| {
             // TODO: maybe addressing from sp instead of fp
