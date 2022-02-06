@@ -7058,6 +7058,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 sema.air_extra.appendSliceAssumeCapacity(prev_then_body);
                 sema.air_extra.appendSliceAssumeCapacity(cond_body);
             }
+            gpa.free(prev_then_body);
             prev_then_body = case_block.instructions.toOwnedSlice(gpa);
             prev_cond_br = new_cond_br;
         }
