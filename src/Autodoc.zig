@@ -60,10 +60,10 @@ pub fn generateZirData(self: *Autodoc) !void {
             try self.types.append(self.arena, .{
                 .name = tmpbuf.toOwnedSlice(),
                 .kind = switch (@intToEnum(Ref, i)) {
-                    else => |t| blk: {
-                        std.debug.print("TODO: categorize `{s}` in typeKinds\n", .{
-                            @tagName(t),
-                        });
+                    else => blk: {
+                        //std.debug.print("TODO: categorize `{s}` in typeKinds\n", .{
+                        //    @tagName(t),
+                        //});
                         break :blk 7;
                     },
                     .u1_type,
@@ -302,7 +302,7 @@ const DocData = struct {
                 .int => |v| {
                     const neg = if (v.negated) "-" else "";
                     try w.print(
-                        \\{{ "int": {{ "typeRef": 
+                        \\{{ "int": {{ "typeRef":
                     , .{});
                     try v.typeRef.jsonStringify(options, w);
                     try w.print(
@@ -312,7 +312,7 @@ const DocData = struct {
                 .float => |v| {
                     const neg = if (v.negated) "-" else "";
                     try w.print(
-                        \\{{ "float": {{ "typeRef": 
+                        \\{{ "float": {{ "typeRef":
                     , .{});
                     try v.typeRef.jsonStringify(options, w);
                     try w.print(
@@ -429,13 +429,6 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
             const break_index = zir.extra[extra.end..][extra.data.body_len - 1];
-
-            std.debug.print("[instr: {}] body len: {} last instr idx: {}\n", .{
-                inst_index,
-                extra.data.body_len,
-                break_index,
-            });
-
             const break_operand = data[break_index].@"break".operand;
             return self.walkRef(zir, parent_scope, break_operand);
         },
@@ -444,9 +437,226 @@ fn walkInstruction(
             switch (extended.opcode) {
                 else => {
                     std.debug.panic(
-                        "TODO: implement `walkInstruction` (inside .extended case) for {s}\n\n",
+                        "TODO: implement `walkInstruction.extended` for {s}\n\n",
                         .{@tagName(extended.opcode)},
                     );
+                },
+                .union_decl => {
+                    var scope: Scope = .{ .parent = parent_scope };
+
+                    const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
+                    var extra_index: usize = extended.operand;
+
+                    const src_node: ?i32 = if (small.has_src_node) blk: {
+                        const src_node = @bitCast(i32, zir.extra[extra_index]);
+                        extra_index += 1;
+                        break :blk src_node;
+                    } else null;
+                    _ = src_node;
+
+                    const tag_type: ?Ref = if (small.has_tag_type) blk: {
+                        const tag_type = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk @intToEnum(Ref, tag_type);
+                    } else null;
+                    _ = tag_type;
+
+                    const body_len = if (small.has_body_len) blk: {
+                        const body_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk body_len;
+                    } else 0;
+
+                    const fields_len = if (small.has_fields_len) blk: {
+                        const fields_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk fields_len;
+                    } else 0;
+                    _ = fields_len;
+
+                    const decls_len = if (small.has_decls_len) blk: {
+                        const decls_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk decls_len;
+                    } else 0;
+
+                    var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
+                    var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
+
+                    const decls_first_index = self.decls.items.len;
+                    // Decl name lookahead for reserving slots in `scope` (and `decls`).
+                    // Done to make sure that all decl refs can be resolved correctly,
+                    // even if we haven't fully analyzed the decl yet.
+                    {
+                        var it = zir.declIterator(@intCast(u32, inst_index));
+                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
+                        var decls_slot_index = decls_first_index;
+                        while (it.next()) |d| : (decls_slot_index += 1) {
+                            const decl_name_index = zir.extra[d.sub_index + 5];
+                            try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
+                        }
+                    }
+
+                    extra_index = try self.walkDecls(
+                        zir,
+                        &scope,
+                        decls_first_index,
+                        decls_len,
+                        &decl_indexes,
+                        &priv_decl_indexes,
+                        extra_index,
+                    );
+
+                    // const body = zir.extra[extra_index..][0..body_len];
+                    extra_index += body_len;
+
+                    var field_type_indexes: std.ArrayListUnmanaged(DocData.WalkResult) = .{};
+                    var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
+                    try self.collectUnionFieldInfo(
+                        zir,
+                        &scope,
+                        fields_len,
+                        &field_type_indexes,
+                        &field_name_indexes,
+                        extra_index,
+                    );
+
+                    self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
+
+                    try self.types.append(self.arena, .{
+                        .kind = @enumToInt(std.builtin.TypeId.Union),
+                        .name = "todo_name",
+                        .src = self_ast_node_index,
+                        .privDecls = priv_decl_indexes.items,
+                        .pubDecls = decl_indexes.items,
+                        .fields = field_type_indexes.items,
+                    });
+
+                    return DocData.WalkResult{ .type = self.types.items.len - 1 };
+                },
+                .enum_decl => {
+                    var scope: Scope = .{ .parent = parent_scope };
+
+                    const small = @bitCast(Zir.Inst.EnumDecl.Small, extended.small);
+                    var extra_index: usize = extended.operand;
+
+                    const src_node: ?i32 = if (small.has_src_node) blk: {
+                        const src_node = @bitCast(i32, zir.extra[extra_index]);
+                        extra_index += 1;
+                        break :blk src_node;
+                    } else null;
+                    _ = src_node;
+
+                    const tag_type: ?Ref = if (small.has_tag_type) blk: {
+                        const tag_type = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk @intToEnum(Ref, tag_type);
+                    } else null;
+                    _ = tag_type;
+
+                    const body_len = if (small.has_body_len) blk: {
+                        const body_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk body_len;
+                    } else 0;
+
+                    const fields_len = if (small.has_fields_len) blk: {
+                        const fields_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk fields_len;
+                    } else 0;
+                    _ = fields_len;
+
+                    const decls_len = if (small.has_decls_len) blk: {
+                        const decls_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk decls_len;
+                    } else 0;
+
+                    var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
+                    var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
+
+                    const decls_first_index = self.decls.items.len;
+                    // Decl name lookahead for reserving slots in `scope` (and `decls`).
+                    // Done to make sure that all decl refs can be resolved correctly,
+                    // even if we haven't fully analyzed the decl yet.
+                    {
+                        var it = zir.declIterator(@intCast(u32, inst_index));
+                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
+                        var decls_slot_index = decls_first_index;
+                        while (it.next()) |d| : (decls_slot_index += 1) {
+                            const decl_name_index = zir.extra[d.sub_index + 5];
+                            try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
+                        }
+                    }
+
+                    extra_index = try self.walkDecls(
+                        zir,
+                        &scope,
+                        decls_first_index,
+                        decls_len,
+                        &decl_indexes,
+                        &priv_decl_indexes,
+                        extra_index,
+                    );
+
+                    // const body = zir.extra[extra_index..][0..body_len];
+                    extra_index += body_len;
+
+                    var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
+                    {
+                        var bit_bag_idx = extra_index;
+                        var cur_bit_bag: u32 = undefined;
+                        extra_index += std.math.divCeil(usize, fields_len, 32) catch unreachable;
+
+                        var idx: usize = 0;
+                        while (idx < fields_len) : (idx += 1) {
+                            if (idx % 32 == 0) {
+                                cur_bit_bag = zir.extra[bit_bag_idx];
+                                bit_bag_idx += 1;
+                            }
+
+                            const has_value = @truncate(u1, cur_bit_bag) != 0;
+                            cur_bit_bag >>= 1;
+
+                            const field_name_index = zir.extra[extra_index];
+                            extra_index += 1;
+
+                            const doc_comment_index = zir.extra[extra_index];
+                            extra_index += 1;
+
+                            const value_ref: ?Ref = if (has_value) blk: {
+                                const value_ref = zir.extra[extra_index];
+                                extra_index += 1;
+                                break :blk @intToEnum(Ref, value_ref);
+                            } else null;
+                            _ = value_ref;
+
+                            const field_name = zir.nullTerminatedString(field_name_index);
+
+                            try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
+                            const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
+                                zir.nullTerminatedString(doc_comment_index)
+                            else
+                                null;
+                            try self.ast_nodes.append(self.arena, .{
+                                .name = field_name,
+                                .docs = doc_comment,
+                            });
+                        }
+                    }
+
+                    self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
+
+                    try self.types.append(self.arena, .{
+                        .kind = @enumToInt(std.builtin.TypeId.Enum),
+                        .name = "todo_name",
+                        .src = self_ast_node_index,
+                        .privDecls = priv_decl_indexes.items,
+                        .pubDecls = decl_indexes.items,
+                    });
+
+                    return DocData.WalkResult{ .type = self.types.items.len - 1 };
                 },
                 .struct_decl => {
                     var scope: Scope = .{ .parent = parent_scope };
@@ -512,7 +722,7 @@ fn walkInstruction(
 
                     var field_type_indexes: std.ArrayListUnmanaged(DocData.WalkResult) = .{};
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
-                    try self.collectFieldInfo(
+                    try self.collectStructFieldInfo(
                         zir,
                         &scope,
                         fields_len,
@@ -539,12 +749,12 @@ fn walkInstruction(
     }
 }
 
-/// Called by `walkInstruction` when encountering a container type, 
+/// Called by `walkInstruction` when encountering a container type,
 /// iterates over all decl definitions in its body.
-/// It also analyzes each decl's body recursively. 
+/// It also analyzes each decl's body recursively.
 ///
-/// Does not append to `self.decls` directly because `walkInstruction` 
-/// is expected to (look-ahead) scan all decls and reserve `body_len` 
+/// Does not append to `self.decls` directly because `walkInstruction`
+/// is expected to (look-ahead) scan all decls and reserve `body_len`
 /// slots in `self.decls`, which are then filled out by `walkDecls`.
 fn walkDecls(
     self: *Autodoc,
@@ -678,7 +888,7 @@ fn walkDecls(
     return extra_index;
 }
 
-fn collectFieldInfo(
+fn collectUnionFieldInfo(
     self: *Autodoc,
     zir: Zir,
     scope: *Scope,
@@ -703,9 +913,78 @@ fn collectFieldInfo(
             cur_bit_bag = zir.extra[bit_bag_index];
             bit_bag_index += 1;
         }
-        // const has_align = @truncate(u1, cur_bit_bag) != 0;
+        const has_type = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
-        // const has_default = @truncate(u1, cur_bit_bag) != 0;
+        const has_align = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const has_tag = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const unused = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        _ = unused;
+
+        const field_name = zir.nullTerminatedString(zir.extra[extra_index]);
+        extra_index += 1;
+        const doc_comment_index = zir.extra[extra_index];
+        extra_index += 1;
+        const field_type = if (has_type)
+            @intToEnum(Zir.Inst.Ref, zir.extra[extra_index])
+        else
+            .void_type;
+        extra_index += 1;
+
+        if (has_align) extra_index += 1;
+        if (has_tag) extra_index += 1;
+
+        // type
+        {
+            const walk_result = try self.walkRef(zir, scope, field_type);
+            try field_type_indexes.append(self.arena, walk_result);
+        }
+
+        // ast node
+        {
+            try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
+            const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
+                zir.nullTerminatedString(doc_comment_index)
+            else
+                null;
+            try self.ast_nodes.append(self.arena, .{
+                .name = field_name,
+                .docs = doc_comment,
+            });
+        }
+    }
+}
+
+fn collectStructFieldInfo(
+    self: *Autodoc,
+    zir: Zir,
+    scope: *Scope,
+    fields_len: usize,
+    field_type_indexes: *std.ArrayListUnmanaged(DocData.WalkResult),
+    field_name_indexes: *std.ArrayListUnmanaged(usize),
+    ei: usize,
+) !void {
+    if (fields_len == 0) return;
+    var extra_index = ei;
+
+    const bits_per_field = 4;
+    const fields_per_u32 = 32 / bits_per_field;
+    const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
+    var bit_bag_index: usize = extra_index;
+    extra_index += bit_bags_count;
+
+    var cur_bit_bag: u32 = undefined;
+    var field_i: u32 = 0;
+    while (field_i < fields_len) : (field_i += 1) {
+        if (field_i % fields_per_u32 == 0) {
+            cur_bit_bag = zir.extra[bit_bag_index];
+            bit_bag_index += 1;
+        }
+        const has_align = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const has_default = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
         // const is_comptime = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
@@ -719,6 +998,9 @@ fn collectFieldInfo(
         extra_index += 1;
         const doc_comment_index = zir.extra[extra_index];
         extra_index += 1;
+
+        if (has_align) extra_index += 1;
+        if (has_default) extra_index += 1;
 
         // type
         {
