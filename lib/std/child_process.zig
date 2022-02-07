@@ -270,12 +270,14 @@ pub const ChildProcess = struct {
             try buf.ensureTotalCapacity(new_capacity);
             const next_buf = buf.unusedCapacitySlice();
             if (next_buf.len == 0) return .full;
-            const read_result = windows.kernel32.ReadFile(handle, next_buf.ptr, math.cast(u32, next_buf.len) catch maxInt(u32), null, overlapped);
+            var read_bytes: u32 = undefined;
+            const read_result = windows.kernel32.ReadFile(handle, next_buf.ptr, math.cast(u32, next_buf.len) catch maxInt(u32), &read_bytes, overlapped);
             if (read_result == 0) return switch (windows.kernel32.GetLastError()) {
                 .IO_PENDING => .pending,
                 .BROKEN_PIPE => .closed,
                 else => |err| windows.unexpectedError(err),
             };
+            buf.items.len += read_bytes;
         }
     }
 
