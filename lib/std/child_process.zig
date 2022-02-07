@@ -12,7 +12,7 @@ const linux = os.linux;
 const mem = std.mem;
 const math = std.math;
 const debug = std.debug;
-const BufMap = std.BufMap;
+const EnvMap = process.EnvMap;
 const Os = std.builtin.Os;
 const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
@@ -34,7 +34,7 @@ pub const ChildProcess = struct {
     argv: []const []const u8,
 
     /// Leave as null to use the current env map using the supplied allocator.
-    env_map: ?*const BufMap,
+    env_map: ?*const EnvMap,
 
     stdin_behavior: StdIo,
     stdout_behavior: StdIo,
@@ -375,7 +375,7 @@ pub const ChildProcess = struct {
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
         cwd_dir: ?fs.Dir = null,
-        env_map: ?*const BufMap = null,
+        env_map: ?*const EnvMap = null,
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
     }) !ExecResult {
@@ -1237,7 +1237,7 @@ fn readIntFd(fd: i32) !ErrInt {
 }
 
 /// Caller must free result.
-pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const BufMap) ![]u16 {
+pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
         var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
@@ -1245,7 +1245,7 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const BufMap) !
         while (it.next()) |pair| {
             // +1 for '='
             // +1 for null byte
-            max_chars_needed += pair.key_ptr.len + pair.value_ptr.len + 2;
+            max_chars_needed += pair.name.len + pair.value.len + 2;
         }
         break :x max_chars_needed;
     };
@@ -1255,10 +1255,10 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const BufMap) !
     var it = env_map.iterator();
     var i: usize = 0;
     while (it.next()) |pair| {
-        i += try unicode.utf8ToUtf16Le(result[i..], pair.key_ptr.*);
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.name);
         result[i] = '=';
         i += 1;
-        i += try unicode.utf8ToUtf16Le(result[i..], pair.value_ptr.*);
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.value);
         result[i] = 0;
         i += 1;
     }
@@ -1273,17 +1273,17 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const BufMap) !
     return allocator.shrink(result, i);
 }
 
-pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
+pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {
     const envp_count = env_map.count();
     const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
     {
         var it = env_map.iterator();
         var i: usize = 0;
         while (it.next()) |pair| : (i += 1) {
-            const env_buf = try arena.allocSentinel(u8, pair.key_ptr.len + pair.value_ptr.len + 1, 0);
-            mem.copy(u8, env_buf, pair.key_ptr.*);
-            env_buf[pair.key_ptr.len] = '=';
-            mem.copy(u8, env_buf[pair.key_ptr.len + 1 ..], pair.value_ptr.*);
+            const env_buf = try arena.allocSentinel(u8, pair.name.len + pair.value.len + 1, 0);
+            mem.copy(u8, env_buf, pair.name);
+            env_buf[pair.name.len] = '=';
+            mem.copy(u8, env_buf[pair.name.len + 1 ..], pair.value);
             envp_buf[i] = env_buf.ptr;
         }
         assert(i == envp_count);
@@ -1294,7 +1294,7 @@ pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const std.BufMa
 test "createNullDelimitedEnvMap" {
     const testing = std.testing;
     const allocator = testing.allocator;
-    var envmap = BufMap.init(allocator);
+    var envmap = EnvMap.init(allocator);
     defer envmap.deinit();
 
     try envmap.put("HOME", "/home/ifreund");

@@ -1364,7 +1364,7 @@ pub fn execv(allocator: mem.Allocator, argv: []const []const u8) ExecvError {
 pub fn execve(
     allocator: mem.Allocator,
     argv: []const []const u8,
-    env_map: ?*const std.BufMap,
+    env_map: ?*const EnvMap,
 ) ExecvError {
     if (!can_execv) @compileError("The target OS does not support execv");
 
