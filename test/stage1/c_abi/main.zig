@@ -16,10 +16,14 @@ extern fn c_u8(u8) void;
 extern fn c_u16(u16) void;
 extern fn c_u32(u32) void;
 extern fn c_u64(u64) void;
+extern fn c_u128(u128) void;
+extern fn c_struct_u128(U128) void;
 extern fn c_i8(i8) void;
 extern fn c_i16(i16) void;
 extern fn c_i32(i32) void;
 extern fn c_i64(i64) void;
+extern fn c_i128(i128) void;
+extern fn c_struct_i128(I128) void;
 
 // On windows x64, the first 4 are passed via registers, others on the stack.
 extern fn c_five_integers(i32, i32, i32, i32, i32) void;
@@ -37,11 +41,15 @@ test "C ABI integers" {
     c_u16(0xfffe);
     c_u32(0xfffffffd);
     c_u64(0xfffffffffffffffc);
+    c_u128(0xfffffffffffffffc);
+    c_struct_u128(.{ .value = 0xfffffffffffffffc });
 
     c_i8(-1);
     c_i16(-2);
     c_i32(-3);
     c_i64(-4);
+    c_i128(-5);
+    c_struct_i128(.{ .value = -6 });
     c_five_integers(12, 34, 56, 78, 90);
 }
 
@@ -57,6 +65,9 @@ export fn zig_u32(x: u32) void {
 export fn zig_u64(x: u64) void {
     expect(x == 0xfffffffffffffffc) catch @panic("test failure");
 }
+export fn zig_u128(x: u128) void {
+    expect(x == 0xfffffffffffffffc) catch @panic("test failure");
+}
 export fn zig_i8(x: i8) void {
     expect(x == -1) catch @panic("test failure");
 }
@@ -68,6 +79,22 @@ export fn zig_i32(x: i32) void {
 }
 export fn zig_i64(x: i64) void {
     expect(x == -4) catch @panic("test failure");
+}
+export fn zig_i128(x: i128) void {
+    expect(x == -5) catch @panic("test failure");
+}
+
+const I128 = extern struct {
+    value: i128,
+};
+const U128 = extern struct {
+    value: u128,
+};
+export fn zig_struct_i128(a: I128) void {
+    expect(a.value == -6) catch @panic("test failure");
+}
+export fn zig_struct_u128(a: U128) void {
+    expect(a.value == 0xfffffffffffffffc) catch @panic("test failure");
 }
 
 extern fn c_f32(f32) void;

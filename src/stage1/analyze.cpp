@@ -8684,14 +8684,23 @@ static Error resolve_llvm_c_abi_type(CodeGen *g, ZigType *ty) {
                 if (ty->data.structure.fields[i]->offset >= 8) {
                     eightbyte_index = 1;
                 }
-                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields[i]->type_entry);
+                ZigType *field_ty = ty->data.structure.fields[i]->type_entry;
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, field_ty);
 
                 if (field_class == X64CABIClass_INTEGER) {
                     type_classes[eightbyte_index] = X64CABIClass_INTEGER;
                 } else if (type_classes[eightbyte_index] == X64CABIClass_Unknown) {
                     type_classes[eightbyte_index] = field_class;
                 }
-                type_sizes[eightbyte_index] += ty->data.structure.fields[i]->type_entry->abi_size;
+                if (field_ty->abi_size > 8) {
+                    assert(eightbyte_index == 0);
+                    type_sizes[0] = 8;
+                    type_sizes[1] = field_ty->abi_size - 8;
+                    type_classes[1] = type_classes[0];
+                    eightbyte_index = 1;
+                } else {
+                    type_sizes[eightbyte_index] += field_ty->abi_size;
+                }
             }
 
             LLVMTypeRef return_elem_types[] = {
