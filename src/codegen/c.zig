@@ -542,8 +542,8 @@ pub const DeclGen = struct {
                     try dg.renderDeclName(func.owner_decl, writer);
                 },
                 .extern_fn => {
-                    const decl = val.castTag(.extern_fn).?.data;
-                    try dg.renderDeclName(decl, writer);
+                    const extern_fn = val.castTag(.extern_fn).?.data;
+                    try dg.renderDeclName(extern_fn.owner_decl, writer);
                 },
                 .int_u64, .one => {
                     try writer.writeAll("((");
@@ -681,7 +681,7 @@ pub const DeclGen = struct {
                     return dg.renderDeclValue(writer, ty, val, decl);
                 },
                 .extern_fn => {
-                    const decl = val.castTag(.extern_fn).?.data;
+                    const decl = val.castTag(.extern_fn).?.data.owner_decl;
                     return dg.renderDeclValue(writer, ty, val, decl);
                 },
                 else => unreachable,
@@ -2442,7 +2442,7 @@ fn airCall(f: *Function, inst: Air.Inst.Index) !CValue {
             const fn_decl = fn_decl: {
                 const callee_val = f.air.value(pl_op.operand) orelse break :known;
                 break :fn_decl switch (callee_val.tag()) {
-                    .extern_fn => callee_val.castTag(.extern_fn).?.data,
+                    .extern_fn => callee_val.castTag(.extern_fn).?.data.owner_decl,
                     .function => callee_val.castTag(.function).?.data.owner_decl,
                     .decl_ref => callee_val.castTag(.decl_ref).?.data,
                     else => break :known,

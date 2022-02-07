@@ -501,11 +501,16 @@ pub const Decl = struct {
     }
 
     pub fn clearValues(decl: *Decl, gpa: Allocator) void {
+        if (decl.getExternFn()) |extern_fn| {
+            extern_fn.deinit(gpa);
+            gpa.destroy(extern_fn);
+        }
         if (decl.getFunction()) |func| {
             func.deinit(gpa);
             gpa.destroy(func);
         }
         if (decl.getVariable()) |variable| {
+            variable.deinit(gpa);
             gpa.destroy(variable);
         }
         if (decl.value_arena) |arena_state| {
@@ -690,6 +695,17 @@ pub const Decl = struct {
         return func;
     }
 
+    /// If the Decl has a value and it is an extern function, returns it,
+    /// otherwise null.
+    pub fn getExternFn(decl: *const Decl) ?*ExternFn {
+        if (!decl.owns_tv) return null;
+        const extern_fn = (decl.val.castTag(.extern_fn) orelse return null).data;
+        assert(extern_fn.owner_decl == decl);
+        return extern_fn;
+    }
+
+    /// If the Decl has a value and it is a variable, returns it,
+    /// otherwise null.
     pub fn getVariable(decl: *Decl) ?*Var {
         if (!decl.owns_tv) return null;
         const variable = (decl.val.castTag(.variable) orelse return null).data;
@@ -1320,9 +1336,26 @@ pub const Opaque = struct {
     }
 };
 
+/// Some extern function struct memory is owned by the Decl's TypedValue.Managed
+/// arena allocator.
+pub const ExternFn = struct {
+    /// The Decl that corresponds to the function itself.
+    owner_decl: *Decl,
+    /// Library name if specified.
+    /// For example `extern "c" fn write(...) usize` would have 'c' as library name.
+    /// Allocated with Module's allocator; outlives the ZIR code.
+    lib_name: ?[*:0]const u8,
+
+    pub fn deinit(extern_fn: *ExternFn, gpa: Allocator) void {
+        if (extern_fn.lib_name) |lib_name| {
+            gpa.free(mem.sliceTo(lib_name, 0));
+        }
+    }
+};
+
 /// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
-/// Extern functions do not have this data structure; they are represented by
-/// the `Decl` only, with a `Value` tag of `extern_fn`.
+/// Extern functions do not have this data structure; they are represented by `ExternFn`
+/// instead.
 pub const Fn = struct {
     /// The Decl that corresponds to the function itself.
     owner_decl: *Decl,
@@ -1441,9 +1474,20 @@ pub const Var = struct {
     init: Value,
     owner_decl: *Decl,
 
+    /// Library name if specified.
+    /// For example `extern "c" var stderrp = ...` would have 'c' as library name.
+    /// Allocated with Module's allocator; outlives the ZIR code.
+    lib_name: ?[*:0]const u8,
+
     is_extern: bool,
     is_mutable: bool,
     is_threadlocal: bool,
+
+    pub fn deinit(variable: *Var, gpa: Allocator) void {
+        if (variable.lib_name) |lib_name| {
+            gpa.free(mem.sliceTo(lib_name, 0));
+        }
+    }
 };
 
 /// The container that structs, enums, unions, and opaques have.
@@ -3768,8 +3812,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             }
         },
         .extern_fn => {
-            const owner_decl = decl_tv.val.castTag(.extern_fn).?.data;
-            if (decl == owner_decl) {
+            const extern_fn = decl_tv.val.castTag(.extern_fn).?.data;
+            if (extern_fn.owner_decl == decl) {
                 decl.owns_tv = true;
                 queue_linker_work = true;
                 is_extern = true;

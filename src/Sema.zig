@@ -5431,6 +5431,69 @@ fn zirFunc(
     );
 }
 
+/// Given a library name, examines if the library name should end up in
+/// `link.File.Options.system_libs` table (for example, libc is always
+/// specified via dedicated flag `link.File.Options.link_libc` instead),
+/// and puts it there if it doesn't exist.
+/// It also dupes the library name which can then be saved as part of the
+/// respective `Decl` (either `ExternFn` or `Var`).
+/// The liveness of the duped library name is tied to liveness of `Module`.
+/// To deallocate, call `deinit` on the respective `Decl` (`ExternFn` or `Var`).
+fn handleExternLibName(
+    sema: *Sema,
+    block: *Block,
+    src_loc: LazySrcLoc,
+    lib_name: []const u8,
+) CompileError![:0]u8 {
+    blk: {
+        const mod = sema.mod;
+        const target = mod.getTarget();
+        log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
+        if (target_util.is_libc_lib_name(target, lib_name)) {
+            if (!mod.comp.bin_file.options.link_libc) {
+                return sema.fail(
+                    block,
+                    src_loc,
+                    "dependency on libc must be explicitly specified in the build command",
+                    .{},
+                );
+            }
+            mod.comp.bin_file.options.link_libc = true;
+            break :blk;
+        }
+        if (target_util.is_libcpp_lib_name(target, lib_name)) {
+            if (!mod.comp.bin_file.options.link_libcpp) {
+                return sema.fail(
+                    block,
+                    src_loc,
+                    "dependency on libc++ must be explicitly specified in the build command",
+                    .{},
+                );
+            }
+            mod.comp.bin_file.options.link_libcpp = true;
+            break :blk;
+        }
+        if (mem.eql(u8, lib_name, "unwind")) {
+            mod.comp.bin_file.options.link_libunwind = true;
+            break :blk;
+        }
+        if (!target.isWasm() and !mod.comp.bin_file.options.pic) {
+            return sema.fail(
+                block,
+                src_loc,
+                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
+                .{ lib_name, lib_name },
+            );
+        }
+        mod.comp.stage1AddLinkLib(lib_name) catch |err| {
+            return sema.fail(block, src_loc, "unable to add link lib '{s}': {s}", .{
+                lib_name, @errorName(err),
+            });
+        };
+    }
+    return sema.gpa.dupeZ(u8, lib_name);
+}
+
 fn funcCommon(
     sema: *Sema,
     block: *Block,
@@ -5568,57 +5631,27 @@ fn funcCommon(
         });
     };
 
-    if (opt_lib_name) |lib_name| blk: {
-        const lib_name_src: LazySrcLoc = .{ .node_offset_lib_name = src_node_offset };
-        log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
-        if (target_util.is_libc_lib_name(target, lib_name)) {
-            if (!mod.comp.bin_file.options.link_libc) {
-                return sema.fail(
-                    block,
-                    lib_name_src,
-                    "dependency on libc must be explicitly specified in the build command",
-                    .{},
-                );
-            }
-            mod.comp.bin_file.options.link_libc = true;
-            break :blk;
-        }
-        if (target_util.is_libcpp_lib_name(target, lib_name)) {
-            if (!mod.comp.bin_file.options.link_libcpp) {
-                return sema.fail(
-                    block,
-                    lib_name_src,
-                    "dependency on libc++ must be explicitly specified in the build command",
-                    .{},
-                );
-            }
-            mod.comp.bin_file.options.link_libcpp = true;
-            break :blk;
-        }
-        if (mem.eql(u8, lib_name, "unwind")) {
-            mod.comp.bin_file.options.link_libunwind = true;
-            break :blk;
-        }
-        if (!target.isWasm() and !mod.comp.bin_file.options.pic) {
-            return sema.fail(
-                block,
-                lib_name_src,
-                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
-                .{ lib_name, lib_name },
-            );
-        }
-        mod.comp.stage1AddLinkLib(lib_name) catch |err| {
-            return sema.fail(block, lib_name_src, "unable to add link lib '{s}': {s}", .{
-                lib_name, @errorName(err),
-            });
-        };
-    }
-
     if (is_extern) {
-        return sema.addConstant(
-            fn_ty,
-            try Value.Tag.extern_fn.create(sema.arena, sema.owner_decl),
-        );
+        const new_extern_fn = try sema.gpa.create(Module.ExternFn);
+        errdefer sema.gpa.destroy(new_extern_fn);
+
+        new_extern_fn.* = Module.ExternFn{
+            .owner_decl = sema.owner_decl,
+            .lib_name = null,
+        };
+
+        if (opt_lib_name) |lib_name| {
+            new_extern_fn.lib_name = try sema.handleExternLibName(block, .{
+                .node_offset_lib_name = src_node_offset,
+            }, lib_name);
+        }
+
+        const extern_fn_payload = try sema.arena.create(Value.Payload.ExternFn);
+        extern_fn_payload.* = .{
+            .base = .{ .tag = .extern_fn },
+            .data = new_extern_fn,
+        };
+        return sema.addConstant(fn_ty, Value.initPayload(&extern_fn_payload.base));
     }
 
     if (!has_body) {
@@ -12444,13 +12477,8 @@ fn zirVarExtended(
 
     try sema.validateVarType(block, mut_src, var_ty, small.is_extern);
 
-    if (lib_name != null) {
-        // Look at the sema code for functions which has this logic, it just needs to
-        // be extracted and shared by both var and func
-        return sema.fail(block, src, "TODO: handle var with lib_name in Sema", .{});
-    }
-
     const new_var = try sema.gpa.create(Module.Var);
+    errdefer sema.gpa.destroy(new_var);
 
     log.debug("created variable {*} owner_decl: {*} ({s})", .{
         new_var, sema.owner_decl, sema.owner_decl.name,
@@ -12462,7 +12490,13 @@ fn zirVarExtended(
         .is_extern = small.is_extern,
         .is_mutable = true, // TODO get rid of this unused field
         .is_threadlocal = small.is_threadlocal,
+        .lib_name = null,
     };
+
+    if (lib_name) |lname| {
+        new_var.lib_name = try sema.handleExternLibName(block, ty_src, lname);
+    }
+
     const result = try sema.addConstant(
         var_ty,
         try Value.Tag.variable.create(sema.arena, new_var),

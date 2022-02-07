@@ -952,7 +952,7 @@ pub const DeclGen = struct {
             _ = func_payload;
             return self.fail("TODO wasm backend genDecl function pointer", .{});
         } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
-            const ext_decl = extern_fn.data;
+            const ext_decl = extern_fn.data.owner_decl;
             var func_type = try genFunctype(self.gpa, ext_decl.ty, self.target());
             func_type.deinit(self.gpa);
             ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
@@ -978,7 +978,7 @@ pub const DeclGen = struct {
         switch (ty.zigTypeTag()) {
             .Fn => {
                 const fn_decl = switch (val.tag()) {
-                    .extern_fn => val.castTag(.extern_fn).?.data,
+                    .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
                     .function => val.castTag(.function).?.data.owner_decl,
                     else => unreachable,
                 };
@@ -1776,7 +1776,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         if (func_val.castTag(.function)) |func| {
             break :blk func.data.owner_decl;
         } else if (func_val.castTag(.extern_fn)) |ext_fn| {
-            break :blk ext_fn.data;
+            break :blk ext_fn.data.owner_decl;
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {
             break :blk decl_ref.data;
         }
