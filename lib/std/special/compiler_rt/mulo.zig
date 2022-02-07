@@ -3,7 +3,7 @@ const std = @import("std");
 const math = std.math;
 
 // mulo - multiplication overflow
-// * return a*b.
+// * return a*%b.
 // * return if a*b overflows => 1 else => 0
 // - muloXi4_genericSmall as default
 // - muloXi4_genericFast for 2*bitsize <= usize

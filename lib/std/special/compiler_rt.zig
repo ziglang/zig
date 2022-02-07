@@ -106,6 +106,12 @@ comptime {
     }
 
     // Integral arithmetic which returns if overflow
+    const __addosi4 = @import("compiler_rt/addo.zig").__addosi4;
+    @export(__addosi4, .{ .name = "__addosi4", .linkage = linkage });
+    const __addodi4 = @import("compiler_rt/addo.zig").__addodi4;
+    @export(__addodi4, .{ .name = "__addodi4", .linkage = linkage });
+    const __addoti4 = @import("compiler_rt/addo.zig").__addoti4;
+    @export(__addoti4, .{ .name = "__addoti4", .linkage = linkage });
     const __mulosi4 = @import("compiler_rt/mulo.zig").__mulosi4;
     @export(__mulosi4, .{ .name = "__mulosi4", .linkage = linkage });
     const __mulodi4 = @import("compiler_rt/mulo.zig").__mulodi4;
