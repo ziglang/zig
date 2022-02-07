@@ -1120,8 +1120,8 @@ pub const Value = extern union {
     fn floatReadFromMemory(comptime F: type, target: Target, buffer: []const u8) F {
         if (F == f80) {
             // TODO: use std.math.F80Repr?
-            const big_int = std.mem.readInt(u128, buffer[0..16], target.cpu.arch.endian());
-            const int = @truncate(u80, big_int);
+            const int = std.mem.readInt(u128, buffer[0..16], target.cpu.arch.endian());
+            // TODO shouldn't this be a bitcast from u80 to f80 instead of u128 to f80?
             return @bitCast(F, int);
         }
         const Int = @Type(.{ .Int = .{
@@ -1143,8 +1143,18 @@ pub const Value = extern union {
 
             .zero => 0,
             .one => 1,
-            .int_u64 => @intToFloat(T, val.castTag(.int_u64).?.data),
-            .int_i64 => @intToFloat(T, val.castTag(.int_i64).?.data),
+            .int_u64 => {
+                if (T == f80) {
+                    @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
+                }
+                return @intToFloat(T, val.castTag(.int_u64).?.data);
+            },
+            .int_i64 => {
+                if (T == f80) {
+                    @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
+                }
+                return @intToFloat(T, val.castTag(.int_i64).?.data);
+            },
 
             .int_big_positive => @floatCast(T, bigIntToFloat(val.castTag(.int_big_positive).?.data, true)),
             .int_big_negative => @floatCast(T, bigIntToFloat(val.castTag(.int_big_negative).?.data, false)),
@@ -2202,7 +2212,9 @@ pub const Value = extern union {
             16 => return Value.Tag.float_16.create(arena, @intToFloat(f16, x)),
             32 => return Value.Tag.float_32.create(arena, @intToFloat(f32, x)),
             64 => return Value.Tag.float_64.create(arena, @intToFloat(f64, x)),
-            80 => return Value.Tag.float_80.create(arena, @intToFloat(f80, x)),
+            // We can't lower this properly on non-x86 llvm backends yet
+            //80 => return Value.Tag.float_80.create(arena, @intToFloat(f80, x)),
+            80 => @panic("TODO f80 intToFloat"),
             128 => return Value.Tag.float_128.create(arena, @intToFloat(f128, x)),
             else => unreachable,
         }
