@@ -2025,15 +2025,34 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(operand);
         const struct_ty = self.air.typeOf(operand);
-        const struct_size = @intCast(i32, struct_ty.abiSize(self.target.*));
-        const struct_field_offset = @intCast(i32, struct_ty.structFieldOffset(index, self.target.*));
+        const struct_size = struct_ty.abiSize(self.target.*);
+        const struct_field_offset = struct_ty.structFieldOffset(index, self.target.*);
         const struct_field_ty = struct_ty.structFieldType(index);
-        const struct_field_size = @intCast(i32, struct_field_ty.abiSize(self.target.*));
+        const struct_field_size = struct_field_ty.abiSize(self.target.*);
 
         switch (mcv) {
             .stack_offset => |off| {
-                const stack_offset = off + struct_size - struct_field_offset - struct_field_size;
+                const offset_to_field = struct_size - struct_field_offset - struct_field_size;
+                const stack_offset = off + @intCast(i32, offset_to_field);
                 break :result MCValue{ .stack_offset = stack_offset };
+            },
+            .register => |reg| {
+                // 1. Shift by struct_field_offset.
+                // 2. Mask with reg.size() - struct_field_size
+                // 3. Return in register
+
+                // TODO check if register can be re-used
+                self.register_manager.freezeRegs(&.{reg});
+                defer self.register_manager.unfreezeRegs(&.{reg});
+                const dst_mcv = try self.copyToNewRegister(inst, Type.usize, .{ .register = reg.to64() });
+
+                // TODO shift here
+
+                const mask_shift = @intCast(u6, (64 - struct_field_ty.bitSize(self.target.*)));
+                const mask = (~@as(u64, 0)) >> mask_shift;
+                try self.genBinMathOpMir(.@"and", Type.usize, dst_mcv, .{ .immediate = mask });
+
+                break :result dst_mcv;
             },
             else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
         }
