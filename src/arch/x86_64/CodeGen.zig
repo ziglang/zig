@@ -4692,11 +4692,17 @@ fn parseRegName(name: []const u8) ?Register {
 
 fn registerAlias(reg: Register, size_bytes: u32) Register {
     // For x86_64 we have to pick a smaller register alias depending on abi size.
-    switch (size_bytes) {
-        1 => return reg.to8(),
-        2 => return reg.to16(),
-        4 => return reg.to32(),
-        8 => return reg.to64(),
-        else => unreachable,
+    if (size_bytes == 0) {
+        unreachable; // should be comptime known
+    } else if (size_bytes <= 1) {
+        return reg.to8();
+    } else if (size_bytes <= 2) {
+        return reg.to16();
+    } else if (size_bytes <= 4) {
+        return reg.to32();
+    } else if (size_bytes <= 8) {
+        return reg.to64();
+    } else {
+        unreachable; // TODO handle floating-point registers
     }
 }
