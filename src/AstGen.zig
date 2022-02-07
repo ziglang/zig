@@ -2601,8 +2601,8 @@ fn varDecl(
 
             var resolve_inferred_alloc: Zir.Inst.Ref = .none;
             var opt_type_inst: Zir.Inst.Ref = .none;
-            if (var_decl.ast.type_node != 0) {
-                const type_inst = try typeExpr(gz, &init_scope.base, var_decl.ast.type_node);
+            if (type_node != 0) {
+                const type_inst = try typeExpr(gz, &init_scope.base, type_node);
                 opt_type_inst = type_inst;
                 if (align_inst == .none) {
                     init_scope.instructions_top = gz.instructions.items.len;
@@ -2683,7 +2683,7 @@ fn varDecl(
                 const src_inst = gz.instructions.items[src];
                 if (zir_tags[src_inst] == .store_to_block_ptr) {
                     if (zir_datas[src_inst].bin.lhs == init_scope.rl_ptr) {
-                        if (var_decl.ast.type_node != 0) {
+                        if (type_node != 0) {
                             zir_tags[src_inst] = .store;
                         } else {
                             zir_tags[src_inst] = .store_to_inferred_ptr;
