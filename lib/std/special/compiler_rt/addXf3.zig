@@ -339,7 +339,7 @@ pub fn __addxf3(a: f80, b: f80) callconv(.C) f80 {
         // If partial cancellation occurred, we need to left-shift the result
         // and adjust the exponent:
         if (a_int < int_bit << 3) {
-            const shift = @intCast(i32, @clz(u80, a_int)) - @intCast(i32, @clz(u80, int_bit << 3));
+            const shift = @intCast(i32, @clz(u80, a_int)) - @intCast(i32, @clz(u80, @as(u80, int_bit) << 3));
             a_int <<= @intCast(u7, shift);
             a_exp -= shift;
         }
