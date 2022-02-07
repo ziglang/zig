@@ -1033,6 +1033,11 @@ pub const Value = extern union {
     }
 
     pub fn writeToMemory(val: Value, ty: Type, target: Target, buffer: []u8) void {
+        if (val.isUndef()) {
+            const size = @intCast(usize, ty.abiSize(target));
+            std.mem.set(u8, buffer[0..size], 0xaa);
+            return;
+        }
         switch (ty.zigTypeTag()) {
             .Int => {
                 var bigint_buffer: BigIntSpace = undefined;
@@ -1066,6 +1071,14 @@ pub const Value = extern union {
                     const elem_val = val.elemValueBuffer(elem_i, &elem_value_buf);
                     writeToMemory(elem_val, elem_ty, target, buffer[buf_off..]);
                     buf_off += elem_size;
+                }
+            },
+            .Struct => {
+                const fields = ty.structFields().values();
+                const field_vals = val.castTag(.@"struct").?.data;
+                for (fields) |field, i| {
+                    const off = @intCast(usize, ty.structFieldOffset(i, target));
+                    writeToMemory(field_vals[i], field.ty, target, buffer[off..]);
                 }
             },
             else => @panic("TODO implement writeToMemory for more types"),
@@ -1106,7 +1119,7 @@ pub const Value = extern union {
 
     fn floatReadFromMemory(comptime F: type, target: Target, buffer: []const u8) F {
         if (F == f80) {
-            // TODO: use std.math.F80Repr
+            // TODO: use std.math.F80Repr?
             const big_int = std.mem.readInt(u128, buffer[0..16], target.cpu.arch.endian());
             const int = @truncate(u80, big_int);
             return @bitCast(F, int);
