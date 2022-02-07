@@ -1610,9 +1610,13 @@ fn getDebugInfoAllocator() mem.Allocator {
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
 pub const have_segfault_handling_support = switch (native_os) {
-    .linux, .netbsd, .solaris => true,
-    .macos => native_arch == .x86_64,
-    .windows => true,
+    .linux,
+    .macos,
+    .netbsd,
+    .solaris,
+    .windows,
+    => true,
+
     .freebsd, .openbsd => @hasDecl(os.system, "ucontext_t"),
     else => false,
 };
@@ -1726,9 +1730,15 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         },
         .aarch64 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.pc);
+            const ip = switch (native_os) {
+                .macos => @intCast(usize, ctx.mcontext.ss.pc),
+                else => @intCast(usize, ctx.mcontext.pc),
+            };
             // x29 is the ABI-designated frame pointer
-            const bp = @intCast(usize, ctx.mcontext.regs[29]);
+            const bp = switch (native_os) {
+                .macos => @intCast(usize, ctx.mcontext.ss.fp),
+                else => @intCast(usize, ctx.mcontext.regs[29]),
+            };
             dumpStackTraceFromBase(bp, ip);
         },
         else => {},
