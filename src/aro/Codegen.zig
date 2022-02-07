@@ -3,6 +3,7 @@ tree: aro.Tree,
 bin_file: *link.File,
 arena: Allocator,
 gpa: Allocator,
+symbols: std.StringHashMapUnmanaged(*Module.Decl),
 verbose_air: bool,
 
 const builtin = @import("builtin");
@@ -30,12 +31,16 @@ pub fn generateTree(comp: *Compilation, aro_comp: *aro.Compilation, tree: aro.Tr
         .arena = arena,
         .gpa = comp.gpa,
         .verbose_air = comp.verbose_air,
+        .symbols = .{},
     };
+    defer c.symbols.deinit(comp.gpa);
 
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
-    for (tree.root_decls) |decl| {
-        switch (node_tags[@enumToInt(decl)]) {
+    const node_tys = tree.nodes.items(.ty);
+
+    for (tree.root_decls) |decl_node| {
+        switch (node_tags[@enumToInt(decl_node)]) {
             // these produce no code
             .static_assert,
             .typedef,
@@ -45,19 +50,30 @@ pub fn generateTree(comp: *Compilation, aro_comp: *aro.Compilation, tree: aro.Tr
             .struct_decl,
             .union_decl,
             .enum_decl,
-            => {},
+            => continue,
 
-            // define symbol
-            .fn_proto,
+            // symbol definitions
+            .fn_proto => {
+                const mod = comp.bin_file.options.module.?;
+                const name = c.tree.tokSlice(node_datas[@enumToInt(decl_node)].decl.name);
+                const fn_proto_ty = node_tys[@enumToInt(decl_node)];
+                const zig_fn_ty = try c.lowerType(fn_proto_ty);
+                const new_decl = try mod.createAnonymousDecl2(.{
+                    .ty = zig_fn_ty,
+                    .val = undefined,
+                }, name);
+                new_decl.val = try Value.Tag.extern_fn.create(c.arena, new_decl);
+                try c.symbols.put(c.gpa, name, new_decl);
+            },
+
             .static_fn_proto,
             .inline_fn_proto,
             .inline_static_fn_proto,
             .extern_var,
             .threadlocal_extern_var,
             => {
-                const name = c.tree.tokSlice(node_datas[@enumToInt(decl)].decl.name);
+                const name = c.tree.tokSlice(node_datas[@enumToInt(decl_node)].decl.name);
                 log.debug("ignoring the opportunity to define a symbol named {s}", .{name});
-                //_ = try c.obj.declareSymbol(.@"undefined", name, .Strong, .external, 0, 0);
             },
 
             // function definition
@@ -65,13 +81,13 @@ pub fn generateTree(comp: *Compilation, aro_comp: *aro.Compilation, tree: aro.Tr
             .static_fn_def,
             .inline_fn_def,
             .inline_static_fn_def,
-            => try c.genFn(decl),
+            => try c.genFn(decl_node),
 
             .@"var",
             .static_var,
             .threadlocal_var,
             .threadlocal_static_var,
-            => try c.genVar(decl),
+            => try c.genVar(decl_node),
 
             else => unreachable,
         }
@@ -213,6 +229,17 @@ const Func = struct {
         const coerced = @bitCast([]const u32, refs);
         func.air_extra.appendSliceAssumeCapacity(coerced);
     }
+
+    fn declRef(func: *Func, decl: *Module.Decl) !Air.Inst.Ref {
+        return func.addConstant(
+            try Type.ptr(func.codegen.arena, .{
+                .pointee_type = decl.ty,
+                .mutable = false,
+                .@"addrspace" = decl.@"addrspace",
+            }),
+            try Value.Tag.decl_ref.create(func.codegen.arena, decl),
+        );
+    }
 };
 
 fn genFn(c: *Codegen, decl_node: NodeIndex) !void {
@@ -282,7 +309,6 @@ fn genFn(c: *Codegen, decl_node: NodeIndex) !void {
 }
 
 fn lowerType(c: *Codegen, aro_ty: aro.Type) Allocator.Error!Type {
-    _ = c;
     switch (aro_ty.specifier) {
         .void => return Type.void,
         .bool => return Type.bool,
@@ -301,19 +327,47 @@ fn lowerType(c: *Codegen, aro_ty: aro.Type) Allocator.Error!Type {
         .double => return Type.initTag(.f64),
         .long_double => return Type.initTag(.c_longdouble),
 
+        // int foo(int bar, char baz, ...)
+        .var_args_func => {
+            const param_types = try c.arena.alloc(Type, aro_ty.data.func.params.len);
+            for (param_types) |*ty, i| {
+                ty.* = try c.lowerType(aro_ty.data.func.params[i].ty);
+            }
+
+            const zig_ty = try Type.Tag.function.create(c.arena, .{
+                .param_types = param_types,
+                .comptime_params = undefined,
+                .return_type = try c.lowerType(aro_ty.data.func.return_type),
+                .alignment = 0,
+                .cc = .C,
+                .is_var_args = true,
+                .is_generic = false,
+            });
+            return zig_ty;
+        },
+
+        .pointer => {
+            const zig_ty = try Type.ptr(c.arena, .{
+                .pointee_type = try c.lowerType(aro_ty.data.sub_type.*),
+                .@"addrspace" = .generic,
+                .mutable = !aro_ty.qual.@"const",
+                .@"volatile" = aro_ty.qual.@"volatile",
+                .@"allowzero" = true,
+                .size = .C,
+            });
+            return zig_ty;
+        },
+
         .complex_float,
         .complex_double,
         .complex_long_double,
 
         // data.sub_type
-        .pointer,
         .unspecified_variable_len_array,
         .decayed_unspecified_variable_len_array,
         // data.func
         // int foo(int bar, char baz) and int (void)
         .func,
-        // int foo(int bar, char baz, ...)
-        .var_args_func,
         // int foo(bar, baz) and int foo()
         // is also var args, but we can give warnings about incorrect amounts of parameters
         .old_style_func,
@@ -360,12 +414,18 @@ fn lowerValue(c: *Codegen, aro_ty: aro.Type, aro_val: aro.Value) Allocator.Error
     switch (aro_val.tag) {
         .unavailable => unreachable,
         .int => {
-            const is_signed = zig_ty.isSignedInt();
-            if (is_signed) @panic("TODO");
-            return TypedValue{
-                .ty = zig_ty,
-                .val = try Value.Tag.int_u64.create(c.arena, aro_val.data.int),
-            };
+            if (zig_ty.isSignedInt()) {
+                const signed_int = aro_val.signExtend(aro_ty, c.aro_comp);
+                return TypedValue{
+                    .ty = zig_ty,
+                    .val = try Value.Tag.int_i64.create(c.arena, signed_int),
+                };
+            } else {
+                return TypedValue{
+                    .ty = zig_ty,
+                    .val = try Value.Tag.int_u64.create(c.arena, aro_val.data.int),
+                };
+            }
         },
         .float => @panic("TODO"),
         .array => @panic("TODO"),
@@ -424,19 +484,13 @@ fn genNode(func: *Func, block: *Block, node: NodeIndex) Error!Air.Inst.Ref {
                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
             );
 
-            return func.addConstant(
-                try Type.ptr(func.codegen.arena, .{
-                    .pointee_type = new_decl.ty,
-                    .mutable = false,
-                    .@"addrspace" = new_decl.@"addrspace",
-                }),
-                try Value.Tag.decl_ref.create(func.codegen.arena, new_decl),
-            );
+            return func.declRef(new_decl);
         },
         .decl_ref_expr => {
             // TODO locals and arguments
             const name = tree.tokSlice(data.decl_ref);
-            std.debug.panic("TODO decl_ref_expr {s}", .{name});
+            const decl = func.codegen.symbols.get(name).?;
+            return func.declRef(decl);
         },
         .return_stmt => {
             const operand = try genNode(func, block, data.un);
