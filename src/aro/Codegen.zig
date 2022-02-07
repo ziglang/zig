@@ -58,7 +58,7 @@ pub fn generateTree(comp: *Compilation, aro_comp: *aro.Compilation, tree: aro.Tr
                 const name = c.tree.tokSlice(node_datas[@enumToInt(decl_node)].decl.name);
                 const fn_proto_ty = node_tys[@enumToInt(decl_node)];
                 const zig_fn_ty = try c.lowerType(fn_proto_ty);
-                const new_decl = try mod.createAnonymousDecl2(.{
+                const new_decl = try mod.createDecl2(.{
                     .ty = zig_fn_ty,
                     .val = undefined,
                 }, name);
@@ -287,25 +287,48 @@ fn genFn(c: *Codegen, decl_node: NodeIndex) !void {
         std.debug.print("# End Function AIR: {s}\n\n", .{name});
     }
 
-    @panic("TODO make a Decl and Fn");
-    //c.bin_file.updateFunc(module, module_fn, air, liveness) catch |err| switch (err) {
-    //    error.OutOfMemory => return error.OutOfMemory,
-    //    error.AnalysisFail => {
-    //        decl.analysis = .codegen_failure;
-    //        return;
-    //    },
-    //    else => {
-    //        try module.failed_decls.ensureUnusedCapacity(gpa, 1);
-    //        module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
-    //            gpa,
-    //            decl.srcLoc(),
-    //            "unable to codegen: {s}",
-    //            .{@errorName(err)},
-    //        ));
-    //        decl.analysis = .codegen_failure_retryable;
-    //        return;
-    //    },
-    //};
+    const node_tys = c.tree.nodes.items(.ty);
+    const aro_fn_ty = node_tys[@enumToInt(decl_node)];
+    const zig_fn_ty = try c.lowerType(aro_fn_ty);
+
+    const mod = c.bin_file.options.module.?;
+    const module_fn = try c.gpa.create(Module.Fn);
+    const fn_decl = try mod.createDecl2(.{
+        .ty = zig_fn_ty,
+        .val = try Value.Tag.function.create(c.arena, module_fn),
+    }, name);
+    //defer {
+    //    module_fn.deinit(c.gpa);
+    //    c.gpa.destroy(module_fn);
+    //}
+    module_fn.* = .{
+        .owner_decl = fn_decl,
+        .zir_body_inst = undefined,
+        .lbrace_line = 0,
+        .rbrace_line = 0,
+        .lbrace_column = 0,
+        .rbrace_column = 0,
+        .state = .success,
+    };
+
+    c.bin_file.updateFunc(mod, module_fn, air, liveness) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.AnalysisFail => {
+            fn_decl.analysis = .codegen_failure;
+            return;
+        },
+        else => {
+            try mod.failed_decls.ensureUnusedCapacity(c.gpa, 1);
+            mod.failed_decls.putAssumeCapacityNoClobber(fn_decl, try Module.ErrorMsg.create(
+                c.gpa,
+                fn_decl.srcLoc(),
+                "unable to codegen: {s}",
+                .{@errorName(err)},
+            ));
+            fn_decl.analysis = .codegen_failure_retryable;
+            return;
+        },
+    };
 }
 
 fn lowerType(c: *Codegen, aro_ty: aro.Type) Allocator.Error!Type {
@@ -328,23 +351,10 @@ fn lowerType(c: *Codegen, aro_ty: aro.Type) Allocator.Error!Type {
         .long_double => return Type.initTag(.c_longdouble),
 
         // int foo(int bar, char baz, ...)
-        .var_args_func => {
-            const param_types = try c.arena.alloc(Type, aro_ty.data.func.params.len);
-            for (param_types) |*ty, i| {
-                ty.* = try c.lowerType(aro_ty.data.func.params[i].ty);
-            }
-
-            const zig_ty = try Type.Tag.function.create(c.arena, .{
-                .param_types = param_types,
-                .comptime_params = undefined,
-                .return_type = try c.lowerType(aro_ty.data.func.return_type),
-                .alignment = 0,
-                .cc = .C,
-                .is_var_args = true,
-                .is_generic = false,
-            });
-            return zig_ty;
-        },
+        .var_args_func => return c.lowerTypeFunc(aro_ty, true),
+        // data.func
+        // int foo(int bar, char baz) and int (void)
+        .func => return c.lowerTypeFunc(aro_ty, false),
 
         .pointer => {
             const zig_ty = try Type.ptr(c.arena, .{
@@ -365,9 +375,6 @@ fn lowerType(c: *Codegen, aro_ty: aro.Type) Allocator.Error!Type {
         // data.sub_type
         .unspecified_variable_len_array,
         .decayed_unspecified_variable_len_array,
-        // data.func
-        // int foo(int bar, char baz) and int (void)
-        .func,
         // int foo(bar, baz) and int foo()
         // is also var args, but we can give warnings about incorrect amounts of parameters
         .old_style_func,
@@ -407,6 +414,24 @@ fn lowerType(c: *Codegen, aro_ty: aro.Type) Allocator.Error!Type {
         .special_va_start,
         => std.debug.panic("TODO handle {s}", .{@tagName(aro_ty.specifier)}),
     }
+}
+
+fn lowerTypeFunc(c: *Codegen, aro_ty: aro.Type, is_var_args: bool) Allocator.Error!Type {
+    const param_types = try c.arena.alloc(Type, aro_ty.data.func.params.len);
+    for (param_types) |*ty, i| {
+        ty.* = try c.lowerType(aro_ty.data.func.params[i].ty);
+    }
+
+    const zig_ty = try Type.Tag.function.create(c.arena, .{
+        .param_types = param_types,
+        .comptime_params = undefined,
+        .return_type = try c.lowerType(aro_ty.data.func.return_type),
+        .alignment = 0,
+        .cc = .C,
+        .is_var_args = is_var_args,
+        .is_generic = false,
+    });
+    return zig_ty;
 }
 
 fn lowerValue(c: *Codegen, aro_ty: aro.Type, aro_val: aro.Value) Allocator.Error!TypedValue {

@@ -4734,6 +4734,25 @@ pub fn createAnonymousDecl2(mod: *Module, typed_value: TypedValue, src_name: []c
     return new_decl;
 }
 
+pub fn createDecl2(mod: *Module, typed_value: TypedValue, name: []const u8) !*Decl {
+    const duped_name = try mod.gpa.dupeZ(u8, name);
+    const new_decl = try mod.allocateNewDecl(duped_name, undefined, 0, null);
+
+    new_decl.src_line = 0;
+    new_decl.ty = typed_value.ty;
+    new_decl.val = typed_value.val;
+    new_decl.align_val = Value.@"null";
+    new_decl.linksection_val = Value.@"null";
+    new_decl.has_tv = true;
+    new_decl.analysis = .complete;
+    new_decl.generation = mod.generation;
+    new_decl.alive = true;
+
+    try mod.comp.bin_file.allocateDeclIndexes(new_decl);
+
+    return new_decl;
+}
+
 pub fn createAnonymousDeclFromDecl(
     mod: *Module,
     src_decl: *Decl,
