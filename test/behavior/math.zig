@@ -804,7 +804,7 @@ test "float remainder division using @rem" {
 
 fn frem(comptime T: type) !void {
     const Case = struct { a: T, b: T, exp: T };
-    const cases: []const Case = &[_]Case {
+    const cases: []const Case = &[_]Case{
         .{ .a = 6.9, .b = 4.0, .exp = 2.9 },
         .{ .a = -6.9, .b = 4.0, .exp = -2.9 },
         .{ .a = -5.0, .b = 3.0, .exp = -2.0 },

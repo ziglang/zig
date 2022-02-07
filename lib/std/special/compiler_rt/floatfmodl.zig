@@ -42,8 +42,8 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
     var exp_a = @intCast(i32, (a_ptr.parts.exp_and_sign & 0x7fff));
     const exp_b = b_ptr.parts.exp_and_sign & 0x7fff;
 
-    if(b == 0 or std.math.isNan(b) or exp_a == 0x7fff) {
-        return (a*b)/(a*b);
+    if (b == 0 or std.math.isNan(b) or exp_a == 0x7fff) {
+        return (a * b) / (a * b);
     }
 
     // Remove the sign from both
@@ -51,17 +51,17 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
     b_ptr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, exp_b));
     if (amod <= bmod) {
         if (amod == bmod) {
-            return 0*a;
+            return 0 * a;
         }
         return a;
     }
 
-    if(exp_a == 0){
+    if (exp_a == 0) {
         amod *= 0x1p120;
         a_ptr.parts.exp_and_sign -= 120;
     }
 
-    if(exp_b == 0){
+    if (exp_b == 0) {
         bmod *= 0x1p120;
         b_ptr.parts.exp_and_sign -= 120;
     }
@@ -108,7 +108,7 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
         lowA = 2 * lowA;
         exp_a -= 1;
     }
-    
+
     // Overwrite the current amod with the values in highA and lowA
     a_ptr.u64s.high = highA;
     a_ptr.u64s.low = lowA;
