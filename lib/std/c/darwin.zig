@@ -6,6 +6,26 @@ const native_arch = builtin.target.cpu.arch;
 const maxInt = std.math.maxInt;
 const iovec_const = std.os.iovec_const;
 
+const arch_bits = switch (native_arch) {
+    .aarch64 => @import("darwin/aarch64.zig"),
+    .x86_64 => @import("darwin/x86_64.zig"),
+    else => struct {},
+};
+
+pub const ucontext_t = extern struct {
+    onstack: c_int,
+    sigmask: sigset_t,
+    stack: stack_t,
+    link: ?*ucontext_t,
+    mcsize: u64,
+    mcontext: *mcontext_t,
+};
+
+pub const mcontext_t = extern struct {
+    es: arch_bits.exception_state,
+    ss: arch_bits.thread_state,
+};
+
 extern "c" fn __error() *c_int;
 pub extern "c" fn NSVersionOfRunTimeLibrary(library_name: [*:0]const u8) u32;
 pub extern "c" fn _NSGetExecutablePath(buf: [*:0]u8, bufsize: *u32) c_int;
@@ -476,51 +496,6 @@ pub const SIG = struct {
     pub const USR1 = 30;
     /// user defined signal 2
     pub const USR2 = 31;
-};
-
-pub const ucontext_t = extern struct {
-    onstack: c_int,
-    sigmask: sigset_t,
-    stack: stack_t,
-    link: ?*ucontext_t,
-    mcsize: u64,
-    mcontext: *mcontext_t,
-};
-
-pub const exception_state = extern struct {
-    trapno: u16,
-    cpu: u16,
-    err: u32,
-    faultvaddr: u64,
-};
-
-pub const thread_state = extern struct {
-    rax: u64,
-    rbx: u64,
-    rcx: u64,
-    rdx: u64,
-    rdi: u64,
-    rsi: u64,
-    rbp: u64,
-    rsp: u64,
-    r8: u64,
-    r9: u64,
-    r10: u64,
-    r11: u64,
-    r12: u64,
-    r13: u64,
-    r14: u64,
-    r15: u64,
-    rip: u64,
-    rflags: u64,
-    cs: u64,
-    fs: u64,
-    gs: u64,
-};
-
-pub const mcontext_t = extern struct {
-    es: exception_state,
-    ss: thread_state,
 };
 
 pub const siginfo_t = extern struct {
