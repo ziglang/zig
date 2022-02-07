@@ -236,7 +236,7 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         mem.eql(u8, cmd, "lld-link") or
         mem.eql(u8, cmd, "wasm-ld"))
     {
-        return process.exit(try lldMain(arena, args));
+        return process.exit(try lldMain(arena, args, true));
     } else if (mem.eql(u8, cmd, "build")) {
         return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fmt")) {
@@ -4119,7 +4119,11 @@ pub fn llvmArMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}
 /// * `ld.lld` - ELF
 /// * `lld-link` - COFF
 /// * `wasm-ld` - WebAssembly
-pub fn lldMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}!u8 {
+pub fn lldMain(
+    alloc: Allocator,
+    args: []const []const u8,
+    can_exit_early: bool,
+) error{OutOfMemory}!u8 {
     if (!build_options.have_llvm)
         fatal("`zig {s}` unavailable: compiler built without LLVM extensions", .{args[0]});
 
@@ -4130,7 +4134,7 @@ pub fn lldMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}!u8
         var count: usize = 0;
     };
     if (CallCounter.count == 1) { // Issue the warning on the first repeat call
-        warn("calling lldMain repeatedly within the same process can have side effects (https://github.com/ziglang/zig/issues/3825)", .{});
+        warn("invoking LLD for the second time within the same process because the host OS ({s}) does not support spawning child processes. This sometimes activates LLD bugs", .{@tagName(builtin.os.tag)});
     }
     CallCounter.count += 1;
 
@@ -4145,11 +4149,11 @@ pub fn lldMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}!u8
         const llvm = @import("codegen/llvm/bindings.zig");
         const argc = @intCast(c_int, argv.len);
         if (mem.eql(u8, args[1], "ld.lld")) {
-            break :rc llvm.LinkELF(argc, argv.ptr, true);
+            break :rc llvm.LinkELF(argc, argv.ptr, can_exit_early);
         } else if (mem.eql(u8, args[1], "lld-link")) {
-            break :rc llvm.LinkCOFF(argc, argv.ptr, true);
+            break :rc llvm.LinkCOFF(argc, argv.ptr, can_exit_early);
         } else if (mem.eql(u8, args[1], "wasm-ld")) {
-            break :rc llvm.LinkWasm(argc, argv.ptr, true);
+            break :rc llvm.LinkWasm(argc, argv.ptr, can_exit_early);
         } else {
             unreachable;
         }

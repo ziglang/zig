@@ -1545,7 +1545,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 }
             }
         } else {
-            const exit_code = try lldMain(arena, argv.items);
+            const exit_code = try lldMain(arena, argv.items, false);
             if (exit_code != 0) {
                 if (comp.clang_passthrough_mode) {
                     std.process.exit(exit_code);
