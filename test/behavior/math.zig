@@ -791,6 +791,33 @@ fn remdiv(comptime T: type) !void {
     try expect(@as(T, 1) == @as(T, 7) % @as(T, 3));
 }
 
+test "float remainder division using @rem" {
+    comptime try frem(f16);
+    comptime try frem(f32);
+    comptime try frem(f64);
+    comptime try frem(f128);
+    try frem(f16);
+    try frem(f32);
+    try frem(f64);
+    try frem(f128);
+}
+
+fn frem(comptime T: type) !void {
+    const Case = struct { a: T, b: T, exp: T };
+    const cases: []const Case = &[_]Case {
+        .{ .a = 6.9, .b = 4.0, .exp = 2.9 },
+        .{ .a = -6.9, .b = 4.0, .exp = -2.9 },
+        .{ .a = -5.0, .b = 3.0, .exp = -2.0 },
+        .{ .a = 3.0, .b = 2.0, .exp = 1.0 },
+        .{ .a = 1.0, .b = 2.0, .exp = 1.0 },
+    };
+
+    const epsilon = 1e30;
+    for (cases) |case| {
+        try expect((@rem(case.a, case.b) - case.exp) < epsilon);
+    }
+}
+
 test "@sqrt" {
     try testSqrt(f64, 12.0);
     comptime try testSqrt(f64, 12.0);
