@@ -229,6 +229,10 @@ pub fn build(b: *Builder) !void {
     const version = if (opt_version_string) |version| version else v: {
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
+        if (!std.process.can_spawn) {
+            std.debug.print("error: version info cannot be retrieved from git. Zig version must be provided using -Dversion-string\n", .{});
+            std.process.exit(1);
+        }
         var code: u8 = undefined;
         const git_describe_untrimmed = b.execAllowFail(&[_][]const u8{
             "git", "-C", b.build_root, "describe", "--match", "*.*.*", "--tags",
@@ -542,6 +546,9 @@ fn addCxxKnownPath(
     errtxt: ?[]const u8,
     need_cpp_includes: bool,
 ) !void {
+    if (!std.process.can_spawn)
+        return error.RequiredLibraryNotFound;
+
     const path_padded = try b.exec(&[_][]const u8{
         ctx.cxx_compiler,
         b.fmt("-print-file-name={s}", .{objname}),

@@ -216,7 +216,7 @@ pub const LibCInstallation = struct {
                 self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
                 break :blk batch.wait();
             };
-        } else {
+        } else if (std.process.can_spawn) {
             try blk: {
                 var batch = Batch(FindError!void, 2, .auto_async).init();
                 errdefer batch.wait() catch {};
@@ -229,6 +229,8 @@ pub const LibCInstallation = struct {
                 }
                 break :blk batch.wait();
             };
+        } else {
+            return error.LibCRuntimeNotFound;
         }
         return self;
     }

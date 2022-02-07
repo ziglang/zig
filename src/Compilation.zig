@@ -25,6 +25,7 @@ const libunwind = @import("libunwind.zig");
 const libcxx = @import("libcxx.zig");
 const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
+const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
 const stage1 = @import("stage1.zig");
@@ -3667,55 +3668,71 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             dump_argv(argv.items);
         }
 
-        const child = try std.ChildProcess.init(argv.items, arena);
-        defer child.deinit();
+        if (std.process.can_spawn) {
+            const child = try std.ChildProcess.init(argv.items, arena);
+            defer child.deinit();
 
-        if (comp.clang_passthrough_mode) {
-            child.stdin_behavior = .Inherit;
-            child.stdout_behavior = .Inherit;
-            child.stderr_behavior = .Inherit;
+            if (comp.clang_passthrough_mode) {
+                child.stdin_behavior = .Inherit;
+                child.stdout_behavior = .Inherit;
+                child.stderr_behavior = .Inherit;
 
-            const term = child.spawnAndWait() catch |err| {
-                return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-            };
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        std.process.exit(code);
-                    }
-                    if (comp.clang_preprocessor_mode == .stdout)
-                        std.process.exit(0);
-                },
-                else => std.process.abort(),
+                const term = child.spawnAndWait() catch |err| {
+                    return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                };
+                switch (term) {
+                    .Exited => |code| {
+                        if (code != 0) {
+                            std.process.exit(code);
+                        }
+                        if (comp.clang_preprocessor_mode == .stdout)
+                            std.process.exit(0);
+                    },
+                    else => std.process.abort(),
+                }
+            } else {
+                child.stdin_behavior = .Ignore;
+                child.stdout_behavior = .Ignore;
+                child.stderr_behavior = .Pipe;
+
+                try child.spawn();
+
+                const stderr_reader = child.stderr.?.reader();
+
+                const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+
+                const term = child.wait() catch |err| {
+                    return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                };
+
+                switch (term) {
+                    .Exited => |code| {
+                        if (code != 0) {
+                            // TODO parse clang stderr and turn it into an error message
+                            // and then call failCObjWithOwnedErrorMsg
+                            log.err("clang failed with stderr: {s}", .{stderr});
+                            return comp.failCObj(c_object, "clang exited with code {d}", .{code});
+                        }
+                    },
+                    else => {
+                        log.err("clang terminated with stderr: {s}", .{stderr});
+                        return comp.failCObj(c_object, "clang terminated unexpectedly", .{});
+                    },
+                }
             }
         } else {
-            child.stdin_behavior = .Ignore;
-            child.stdout_behavior = .Ignore;
-            child.stderr_behavior = .Pipe;
-
-            try child.spawn();
-
-            const stderr_reader = child.stderr.?.reader();
-
-            const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
-
-            const term = child.wait() catch |err| {
-                return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-            };
-
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        // TODO parse clang stderr and turn it into an error message
-                        // and then call failCObjWithOwnedErrorMsg
-                        log.err("clang failed with stderr: {s}", .{stderr});
-                        return comp.failCObj(c_object, "clang exited with code {d}", .{code});
-                    }
-                },
-                else => {
-                    log.err("clang terminated with stderr: {s}", .{stderr});
-                    return comp.failCObj(c_object, "clang terminated unexpectedly", .{});
-                },
+            const exit_code = try clangMain(arena, argv.items);
+            if (exit_code != 0) {
+                if (comp.clang_passthrough_mode) {
+                    std.process.exit(exit_code);
+                } else {
+                    return comp.failCObj(c_object, "clang exited with code {d}", .{exit_code});
+                }
+            }
+            if (comp.clang_passthrough_mode and
+                comp.clang_preprocessor_mode == .stdout)
+            {
+                std.process.exit(0);
             }
         }
 

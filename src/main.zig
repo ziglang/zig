@@ -221,7 +221,7 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         mem.eql(u8, cmd, "lib") or
         mem.eql(u8, cmd, "ar"))
     {
-        return punt_to_llvm_ar(arena, args);
+        return process.exit(try llvmArMain(arena, args));
     } else if (mem.eql(u8, cmd, "cc")) {
         return buildOutputType(gpa, arena, args, .cc);
     } else if (mem.eql(u8, cmd, "c++")) {
@@ -231,12 +231,12 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     } else if (mem.eql(u8, cmd, "clang") or
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
-        return punt_to_clang(arena, args);
+        return process.exit(try clangMain(arena, args));
     } else if (mem.eql(u8, cmd, "ld.lld") or
         mem.eql(u8, cmd, "lld-link") or
         mem.eql(u8, cmd, "wasm-ld"))
     {
-        return punt_to_lld(arena, args);
+        return process.exit(try lldMain(arena, args, true));
     } else if (mem.eql(u8, cmd, "build")) {
         return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fmt")) {
@@ -1347,7 +1347,7 @@ fn buildOutputType(
                     .ignore => {},
                     .driver_punt => {
                         // Never mind what we're doing, just pass the args directly. For example --help.
-                        return punt_to_clang(arena, all_args);
+                        return process.exit(try clangMain(arena, all_args));
                     },
                     .pic => want_pic = true,
                     .no_pic => want_pic = false,
@@ -1866,7 +1866,7 @@ fn buildOutputType(
                     // An error message is generated when there is more than 1 C source file.
                     if (c_source_files.items.len != 1) {
                         // For example `zig cc` and no args should print the "no input files" message.
-                        return punt_to_clang(arena, all_args);
+                        return process.exit(try clangMain(arena, all_args));
                     }
                     if (out_path) |p| {
                         emit_bin = .{ .yes = p };
@@ -1882,7 +1882,7 @@ fn buildOutputType(
             {
                 // For example `zig cc` and no args should print the "no input files" message.
                 // There could be other reasons to punt to clang, for example, --help.
-                return punt_to_clang(arena, all_args);
+                return process.exit(try clangMain(arena, all_args));
             }
         },
     }
@@ -2881,9 +2881,9 @@ fn runOrTest(
         // execv releases the locks; no need to destroy the Compilation here.
         const err = std.process.execv(gpa, argv.items);
         try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
-        const cmd = try argvCmd(arena, argv.items);
+        const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
-    } else {
+    } else if (std.process.can_spawn) {
         const child = try std.ChildProcess.init(argv.items, gpa);
         defer child.deinit();
 
@@ -2900,7 +2900,7 @@ fn runOrTest(
 
         const term = child.spawnAndWait() catch |err| {
             try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
-            const cmd = try argvCmd(arena, argv.items);
+            const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
         };
         switch (arg_mode) {
@@ -2931,18 +2931,21 @@ fn runOrTest(
                         if (code == 0) {
                             if (!watch) return cleanExit();
                         } else {
-                            const cmd = try argvCmd(arena, argv.items);
+                            const cmd = try std.mem.join(arena, " ", argv.items);
                             fatal("the following test command failed with exit code {d}:\n{s}", .{ code, cmd });
                         }
                     },
                     else => {
-                        const cmd = try argvCmd(arena, argv.items);
+                        const cmd = try std.mem.join(arena, " ", argv.items);
                         fatal("the following test command crashed:\n{s}", .{cmd});
                     },
                 }
             },
             else => unreachable,
         }
+    } else {
+        const cmd = try std.mem.join(arena, " ", argv.items);
+        fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
     }
 }
 
@@ -3553,41 +3556,36 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
         break :argv child_argv.items;
     };
-    const child = try std.ChildProcess.init(child_argv, gpa);
-    defer child.deinit();
 
-    child.stdin_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
+    if (std.process.can_spawn) {
+        const child = try std.ChildProcess.init(child_argv, gpa);
+        defer child.deinit();
 
-    const term = try child.spawnAndWait();
-    switch (term) {
-        .Exited => |code| {
-            if (code == 0) return cleanExit();
+        child.stdin_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        child.stderr_behavior = .Inherit;
 
-            if (prominent_compile_errors) {
-                fatal("the build command failed with exit code {d}", .{code});
-            } else {
-                const cmd = try argvCmd(arena, child_argv);
-                fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
-            }
-        },
-        else => {
-            const cmd = try argvCmd(arena, child_argv);
-            fatal("the following build command crashed:\n{s}", .{cmd});
-        },
+        const term = try child.spawnAndWait();
+        switch (term) {
+            .Exited => |code| {
+                if (code == 0) return cleanExit();
+
+                if (prominent_compile_errors) {
+                    fatal("the build command failed with exit code {d}", .{code});
+                } else {
+                    const cmd = try std.mem.join(arena, " ", child_argv);
+                    fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+                }
+            },
+            else => {
+                const cmd = try std.mem.join(arena, " ", child_argv);
+                fatal("the following build command crashed:\n{s}", .{cmd});
+            },
+        }
+    } else {
+        const cmd = try std.mem.join(arena, " ", child_argv);
+        fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
     }
-}
-
-fn argvCmd(allocator: Allocator, argv: []const []const u8) ![]u8 {
-    var cmd = std.ArrayList(u8).init(allocator);
-    defer cmd.deinit();
-    for (argv[0 .. argv.len - 1]) |arg| {
-        try cmd.appendSlice(arg);
-        try cmd.append(' ');
-    }
-    try cmd.appendSlice(argv[argv.len - 1]);
-    return cmd.toOwnedSlice();
 }
 
 fn readSourceFileToEndAlloc(
@@ -4080,65 +4078,87 @@ pub const info_zen =
 extern "c" fn ZigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 extern "c" fn ZigLlvmAr_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 
-/// TODO https://github.com/ziglang/zig/issues/3257
-fn punt_to_clang(arena: Allocator, args: []const []const u8) error{OutOfMemory} {
-    if (!build_options.have_llvm)
-        fatal("`zig cc` and `zig c++` unavailable: compiler built without LLVM extensions", .{});
-    // Convert the args to the format Clang expects.
-    const argv = try arena.alloc(?[*:0]u8, args.len + 1);
+fn argsCopyZ(alloc: Allocator, args: []const []const u8) ![:null]?[*:0]u8 {
+    var argv = try alloc.allocSentinel(?[*:0]u8, args.len, null);
     for (args) |arg, i| {
-        argv[i] = try arena.dupeZ(u8, arg); // TODO If there was an argsAllocZ we could avoid this allocation.
+        argv[i] = try alloc.dupeZ(u8, arg); // TODO If there was an argsAllocZ we could avoid this allocation.
     }
-    argv[args.len] = null;
-    const exit_code = ZigClang_main(@intCast(c_int, args.len), argv[0..args.len :null].ptr);
-    process.exit(@bitCast(u8, @truncate(i8, exit_code)));
+    return argv;
 }
 
-/// TODO https://github.com/ziglang/zig/issues/3257
-fn punt_to_llvm_ar(arena: Allocator, args: []const []const u8) error{OutOfMemory} {
+pub fn clangMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}!u8 {
+    if (!build_options.have_llvm)
+        fatal("`zig cc` and `zig c++` unavailable: compiler built without LLVM extensions", .{});
+
+    var arena_instance = std.heap.ArenaAllocator.init(alloc);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    // Convert the args to the null-terminated format Clang expects.
+    const argv = try argsCopyZ(arena, args);
+    const exit_code = ZigClang_main(@intCast(c_int, argv.len), argv.ptr);
+    return @bitCast(u8, @truncate(i8, exit_code));
+}
+
+pub fn llvmArMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}!u8 {
     if (!build_options.have_llvm)
         fatal("`zig ar`, `zig dlltool`, `zig ranlib', and `zig lib` unavailable: compiler built without LLVM extensions", .{});
 
+    var arena_instance = std.heap.ArenaAllocator.init(alloc);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
     // Convert the args to the format llvm-ar expects.
-    // We subtract 1 to shave off the zig binary from args[0].
-    const argv = try arena.allocSentinel(?[*:0]u8, args.len - 1, null);
-    for (args[1..]) |arg, i| {
-        // TODO If there was an argsAllocZ we could avoid this allocation.
-        argv[i] = try arena.dupeZ(u8, arg);
-    }
-    const argc = @intCast(c_int, argv.len);
-    const exit_code = ZigLlvmAr_main(argc, argv.ptr);
-    process.exit(@bitCast(u8, @truncate(i8, exit_code)));
+    // We intentionally shave off the zig binary at args[0].
+    const argv = try argsCopyZ(arena, args[1..]);
+    const exit_code = ZigLlvmAr_main(@intCast(c_int, argv.len), argv.ptr);
+    return @bitCast(u8, @truncate(i8, exit_code));
 }
 
 /// The first argument determines which backend is invoked. The options are:
 /// * `ld.lld` - ELF
 /// * `lld-link` - COFF
 /// * `wasm-ld` - WebAssembly
-/// TODO https://github.com/ziglang/zig/issues/3257
-pub fn punt_to_lld(arena: Allocator, args: []const []const u8) error{OutOfMemory} {
+pub fn lldMain(
+    alloc: Allocator,
+    args: []const []const u8,
+    can_exit_early: bool,
+) error{OutOfMemory}!u8 {
     if (!build_options.have_llvm)
         fatal("`zig {s}` unavailable: compiler built without LLVM extensions", .{args[0]});
-    // Convert the args to the format LLD expects.
-    // We subtract 1 to shave off the zig binary from args[0].
-    const argv = try arena.allocSentinel(?[*:0]const u8, args.len - 1, null);
-    for (args[1..]) |arg, i| {
-        argv[i] = try arena.dupeZ(u8, arg); // TODO If there was an argsAllocZ we could avoid this allocation.
+
+    // Print a warning if lld is called multiple times in the same process,
+    // since it may misbehave
+    // https://github.com/ziglang/zig/issues/3825
+    const CallCounter = struct {
+        var count: usize = 0;
+    };
+    if (CallCounter.count == 1) { // Issue the warning on the first repeat call
+        warn("invoking LLD for the second time within the same process because the host OS ({s}) does not support spawning child processes. This sometimes activates LLD bugs", .{@tagName(builtin.os.tag)});
     }
+    CallCounter.count += 1;
+
+    var arena_instance = std.heap.ArenaAllocator.init(alloc);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    // Convert the args to the format llvm-ar expects.
+    // We intentionally shave off the zig binary at args[0].
+    const argv = try argsCopyZ(arena, args[1..]);
     const exit_code = rc: {
         const llvm = @import("codegen/llvm/bindings.zig");
         const argc = @intCast(c_int, argv.len);
         if (mem.eql(u8, args[1], "ld.lld")) {
-            break :rc llvm.LinkELF(argc, argv.ptr, true);
+            break :rc llvm.LinkELF(argc, argv.ptr, can_exit_early);
         } else if (mem.eql(u8, args[1], "lld-link")) {
-            break :rc llvm.LinkCOFF(argc, argv.ptr, true);
+            break :rc llvm.LinkCOFF(argc, argv.ptr, can_exit_early);
         } else if (mem.eql(u8, args[1], "wasm-ld")) {
-            break :rc llvm.LinkWasm(argc, argv.ptr, true);
+            break :rc llvm.LinkWasm(argc, argv.ptr, can_exit_early);
         } else {
             unreachable;
         }
     };
-    process.exit(@bitCast(u8, @truncate(i8, exit_code)));
+    return @bitCast(u8, @truncate(i8, exit_code));
 }
 
 const clang_args = @import("clang_options.zig").list;
