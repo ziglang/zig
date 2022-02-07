@@ -133,6 +133,11 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .lea => try emit.mirLea(inst),
             .lea_pie => try emit.mirLeaPie(inst),
 
+            .shl => try emit.mirShift(.shl, inst),
+            .sal => try emit.mirShift(.sal, inst),
+            .shr => try emit.mirShift(.shr, inst),
+            .sar => try emit.mirShift(.sar, inst),
+
             .imul_complex => try emit.mirIMulComplex(inst),
 
             .push => try emit.mirPushPop(.push, inst),
@@ -653,6 +658,31 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     return lowerToFdEnc(.mov, ops.reg1, imm, emit.code);
 }
 
+fn mirShift(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    switch (ops.flags) {
+        0b00 => {
+            // sal reg1, 1
+            // M1
+            return lowerToM1Enc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
+        },
+        0b01 => {
+            // sal reg1, .cl
+            // MC
+            return lowerToMcEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
+        },
+        0b10 => {
+            // sal reg1, imm8
+            // MI
+            const imm = @truncate(u8, emit.mir.instructions.items(.data)[inst].imm);
+            return lowerToMiImm8Enc(tag, RegisterOrMemory.reg(ops.reg1), imm, emit.code);
+        },
+        0b11 => {
+            return emit.fail("TODO unused variant: SHIFT reg1, 0b11", .{});
+        },
+    }
+}
+
 fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .imul_complex);
@@ -743,13 +773,13 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         emit.code,
     );
     const end_offset = emit.code.items.len;
-    const reloc_type = switch (ops.flags) {
-        0b00 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
-        0b01 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
-        else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
-    };
     const sym_index = emit.mir.instructions.items(.data)[inst].linker_sym_index;
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+        const reloc_type = switch (ops.flags) {
+            0b00 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
+            0b01 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
+            else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
+        };
         const decl = macho_file.active_decl.?;
         try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
             .offset = @intCast(u32, end_offset - 4),
@@ -1064,6 +1094,10 @@ const Tag = enum {
     setng,
     setnle,
     setg,
+    shl,
+    sal,
+    shr,
+    sar,
 
     fn isSetCC(tag: Tag) bool {
         return switch (tag) {
@@ -1119,8 +1153,17 @@ const Encoding = enum {
     /// OP imm32
     i,
 
+    /// OP r/m64, 1
+    m1,
+
+    /// OP r/m64, .cl
+    mc,
+
     /// OP r/m64, imm32
     mi,
+
+    /// OP r/m64, imm8
+    mi8,
 
     /// OP r/m64, r64
     mr,
@@ -1230,10 +1273,23 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .ret_far => OpCode.oneByte(0xca),
             else => null,
         },
+        .m1 => return switch (tag) {
+            .shl, .sal, .shr, .sar => OpCode.oneByte(if (is_one_byte) 0xd0 else 0xd1),
+            else => null,
+        },
+        .mc => return switch (tag) {
+            .shl, .sal, .shr, .sar => OpCode.oneByte(if (is_one_byte) 0xd2 else 0xd3),
+            else => null,
+        },
         .mi => return switch (tag) {
             .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp => OpCode.oneByte(if (is_one_byte) 0x80 else 0x81),
             .mov => OpCode.oneByte(if (is_one_byte) 0xc6 else 0xc7),
             .@"test" => OpCode.oneByte(if (is_one_byte) 0xf6 else 0xf7),
+            else => null,
+        },
+        .mi8 => return switch (tag) {
+            .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp => OpCode.oneByte(0x83),
+            .shl, .sal, .shr, .sar => OpCode.oneByte(if (is_one_byte) 0xc0 else 0xc1),
             else => null,
         },
         .mr => return switch (tag) {
@@ -1331,6 +1387,11 @@ inline fn getModRmExt(tag: Tag) ?u3 {
         .setnle,
         .setg,
         => 0x0,
+        .shl,
+        .sal,
+        => 0x4,
+        .shr => 0x5,
+        .sar => 0x7,
         else => null,
     };
 }
@@ -1528,8 +1589,8 @@ fn lowerToDEnc(tag: Tag, imm: u32, code: *std.ArrayList(u8)) InnerError!void {
     encoder.imm32(@bitCast(i32, imm));
 }
 
-fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8)) InnerError!void {
-    const opc = getOpCode(tag, .m, false).?;
+fn lowerToMxEnc(tag: Tag, reg_or_mem: RegisterOrMemory, enc: Encoding, code: *std.ArrayList(u8)) InnerError!void {
+    const opc = getOpCode(tag, enc, reg_or_mem.size() == 8).?;
     const modrm_ext = getModRmExt(tag).?;
     switch (reg_or_mem) {
         .register => |reg| {
@@ -1537,11 +1598,9 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
             if (reg.size() == 16) {
                 encoder.prefix16BitMode();
             }
+            const wide = if (tag == .jmp_near) false else setRexWRegister(reg);
             encoder.rex(.{
-                .w = switch (reg) {
-                    .ah, .bh, .ch, .dh => true,
-                    else => false,
-                },
+                .w = wide,
                 .b = reg.isExtended(),
             });
             opc.encode(encoder);
@@ -1553,8 +1612,9 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
                 encoder.prefix16BitMode();
             }
             if (mem_op.base) |base| {
+                const wide = if (tag == .jmp_near) false else mem_op.ptr_size == .qword_ptr;
                 encoder.rex(.{
-                    .w = false,
+                    .w = wide,
                     .b = base.isExtended(),
                 });
             }
@@ -1562,6 +1622,18 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
             mem_op.encode(encoder, modrm_ext);
         },
     }
+}
+
+fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8)) InnerError!void {
+    return lowerToMxEnc(tag, reg_or_mem, .m, code);
+}
+
+fn lowerToM1Enc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8)) InnerError!void {
+    return lowerToMxEnc(tag, reg_or_mem, .m1, code);
+}
+
+fn lowerToMcEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8)) InnerError!void {
+    return lowerToMxEnc(tag, reg_or_mem, .mc, code);
 }
 
 fn lowerToTdEnc(tag: Tag, moffs: u64, reg: Register, code: *std.ArrayList(u8)) InnerError!void {
@@ -1614,9 +1686,15 @@ fn lowerToOiEnc(tag: Tag, reg: Register, imm: u64, code: *std.ArrayList(u8)) Inn
     }
 }
 
-fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: u32, code: *std.ArrayList(u8)) InnerError!void {
+fn lowerToMiXEnc(
+    tag: Tag,
+    reg_or_mem: RegisterOrMemory,
+    imm: u32,
+    enc: Encoding,
+    code: *std.ArrayList(u8),
+) InnerError!void {
     const modrm_ext = getModRmExt(tag).?;
-    const opc = getOpCode(tag, .mi, reg_or_mem.size() == 8).?;
+    const opc = getOpCode(tag, enc, reg_or_mem.size() == 8).?;
     switch (reg_or_mem) {
         .register => |dst_reg| {
             const encoder = try Encoder.init(code, 7);
@@ -1632,7 +1710,7 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: u32, code: *std.Arr
             });
             opc.encode(encoder);
             encoder.modRm_direct(modrm_ext, dst_reg.lowId());
-            encodeImm(encoder, imm, dst_reg.size());
+            encodeImm(encoder, imm, if (enc == .mi8) 8 else dst_reg.size());
         },
         .memory => |dst_mem| {
             const encoder = try Encoder.init(code, 12);
@@ -1651,9 +1729,17 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: u32, code: *std.Arr
             }
             opc.encode(encoder);
             dst_mem.encode(encoder, modrm_ext);
-            encodeImm(encoder, imm, dst_mem.ptr_size.size());
+            encodeImm(encoder, imm, if (enc == .mi8) 8 else dst_mem.ptr_size.size());
         },
     }
+}
+
+fn lowerToMiImm8Enc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: u8, code: *std.ArrayList(u8)) InnerError!void {
+    return lowerToMiXEnc(tag, reg_or_mem, imm, .mi8, code);
+}
+
+fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: u32, code: *std.ArrayList(u8)) InnerError!void {
+    return lowerToMiXEnc(tag, reg_or_mem, imm, .mi, code);
 }
 
 fn lowerToRmEnc(
@@ -1902,6 +1988,9 @@ test "lower MI encoding" {
         emit.lowered(),
         "mov qword ptr [rcx*2 + 0x10000000], 0x10",
     );
+
+    try lowerToMiImm8Enc(.add, RegisterOrMemory.reg(.rax), 0x10, emit.code());
+    try expectEqualHexStrings("\x48\x83\xC0\x10", emit.lowered(), "add rax, 0x10");
 }
 
 test "lower RM encoding" {
@@ -2098,6 +2187,41 @@ test "lower M encoding" {
     try expectEqualHexStrings("\xFF\x24\x25\x10\x00\x00\x00", emit.lowered(), "jmp qword ptr [ds:0x10]");
     try lowerToMEnc(.seta, RegisterOrMemory.reg(.r11b), emit.code());
     try expectEqualHexStrings("\x41\x0F\x97\xC3", emit.lowered(), "seta r11b");
+}
+
+test "lower M1 and MC encodings" {
+    var emit = TestEmit.init();
+    defer emit.deinit();
+    try lowerToM1Enc(.sal, RegisterOrMemory.reg(.r12), emit.code());
+    try expectEqualHexStrings("\x49\xD1\xE4", emit.lowered(), "sal r12, 1");
+    try lowerToM1Enc(.sal, RegisterOrMemory.reg(.r12d), emit.code());
+    try expectEqualHexStrings("\x41\xD1\xE4", emit.lowered(), "sal r12d, 1");
+    try lowerToM1Enc(.sal, RegisterOrMemory.reg(.r12w), emit.code());
+    try expectEqualHexStrings("\x66\x41\xD1\xE4", emit.lowered(), "sal r12w, 1");
+    try lowerToM1Enc(.sal, RegisterOrMemory.reg(.r12b), emit.code());
+    try expectEqualHexStrings("\x41\xD0\xE4", emit.lowered(), "sal r12b, 1");
+    try lowerToM1Enc(.sal, RegisterOrMemory.reg(.rax), emit.code());
+    try expectEqualHexStrings("\x48\xD1\xE0", emit.lowered(), "sal rax, 1");
+    try lowerToM1Enc(.sal, RegisterOrMemory.reg(.eax), emit.code());
+    try expectEqualHexStrings("\xD1\xE0", emit.lowered(), "sal eax, 1");
+    try lowerToM1Enc(.sal, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = @bitCast(u32, @as(i32, -0x10)),
+        .base = .rbp,
+    }), emit.code());
+    try expectEqualHexStrings("\x48\xD1\x65\xF0", emit.lowered(), "sal qword ptr [rbp - 0x10], 1");
+    try lowerToM1Enc(.sal, RegisterOrMemory.mem(.dword_ptr, .{
+        .disp = @bitCast(u32, @as(i32, -0x10)),
+        .base = .rbp,
+    }), emit.code());
+    try expectEqualHexStrings("\xD1\x65\xF0", emit.lowered(), "sal dword ptr [rbp - 0x10], 1");
+
+    try lowerToMcEnc(.shr, RegisterOrMemory.reg(.r12), emit.code());
+    try expectEqualHexStrings("\x49\xD3\xEC", emit.lowered(), "shr r12, cl");
+    try lowerToMcEnc(.shr, RegisterOrMemory.reg(.rax), emit.code());
+    try expectEqualHexStrings("\x48\xD3\xE8", emit.lowered(), "shr rax, cl");
+
+    try lowerToMcEnc(.sar, RegisterOrMemory.reg(.rsi), emit.code());
+    try expectEqualHexStrings("\x48\xD3\xFE", emit.lowered(), "sar rsi, cl");
 }
 
 test "lower O encoding" {

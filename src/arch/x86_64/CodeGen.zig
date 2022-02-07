@@ -2037,17 +2037,42 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 break :result MCValue{ .stack_offset = stack_offset };
             },
             .register => |reg| {
-                // 1. Shift by struct_field_offset.
-                // 2. Mask with reg.size() - struct_field_size
-                // 3. Return in register
-
-                // TODO check if register can be re-used
                 self.register_manager.freezeRegs(&.{reg});
                 defer self.register_manager.unfreezeRegs(&.{reg});
-                const dst_mcv = try self.copyToNewRegister(inst, Type.usize, .{ .register = reg.to64() });
 
-                // TODO shift here
+                const dst_mcv = blk: {
+                    if (self.reuseOperand(inst, operand, 0, mcv)) {
+                        break :blk mcv;
+                    } else {
+                        const dst_mcv = try self.copyToNewRegister(inst, Type.usize, .{ .register = reg.to64() });
+                        break :blk dst_mcv;
+                    }
+                };
 
+                // Shift by struct_field_offset.
+                const shift_amount = @intCast(u8, struct_field_offset * 8);
+                if (shift_amount > 0) {
+                    if (shift_amount == 1) {
+                        _ = try self.addInst(.{
+                            .tag = .shr,
+                            .ops = (Mir.Ops{
+                                .reg1 = dst_mcv.register,
+                            }).encode(),
+                            .data = undefined,
+                        });
+                    } else {
+                        _ = try self.addInst(.{
+                            .tag = .shr,
+                            .ops = (Mir.Ops{
+                                .reg1 = dst_mcv.register,
+                                .flags = 0b10,
+                            }).encode(),
+                            .data = .{ .imm = shift_amount },
+                        });
+                    }
+                }
+
+                // Mask with reg.size() - struct_field_size
                 const mask_shift = @intCast(u6, (64 - struct_field_ty.bitSize(self.target.*)));
                 const mask = (~@as(u64, 0)) >> mask_shift;
                 try self.genBinMathOpMir(.@"and", Type.usize, dst_mcv, .{ .immediate = mask });
