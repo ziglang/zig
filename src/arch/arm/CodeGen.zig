@@ -1643,7 +1643,8 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
 fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
     return if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(operand);
-        const struct_ty = self.air.typeOf(operand).childType();
+        const ptr_ty = self.air.typeOf(operand);
+        const struct_ty = ptr_ty.childType();
         const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
         const struct_field_ty = struct_ty.structFieldType(index);
@@ -1651,6 +1652,28 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
         switch (mcv) {
             .ptr_stack_offset => |off| {
                 break :result MCValue{ .ptr_stack_offset = off + struct_size - struct_field_offset - struct_field_size };
+            },
+            .stack_argument_offset => {
+                const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
+                    .immediate = struct_field_offset,
+                });
+                self.register_manager.freezeRegs(&.{offset_reg});
+                defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+                const addr_reg = try self.copyToTmpRegister(ptr_ty, mcv);
+                self.register_manager.freezeRegs(&.{addr_reg});
+                defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+                const dst_reg = try self.register_manager.allocReg(inst);
+                try self.genBinOpCode(
+                    dst_reg,
+                    .{ .register = addr_reg },
+                    .{ .register = offset_reg },
+                    false,
+                    .add,
+                    .unsigned,
+                );
+                break :result MCValue{ .register = dst_reg };
             },
             else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
         }
@@ -3841,6 +3864,24 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
     _ = tv;
 }
 
+fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
+    const local_sym_index = self.bin_file.lowerUnnamedConst(tv, self.mod_fn.owner_decl) catch |err| {
+        return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
+    };
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+        const vaddr = elf_file.local_symbols.items[local_sym_index].st_value;
+        return MCValue{ .memory = vaddr };
+    } else if (self.bin_file.cast(link.File.MachO)) |_| {
+        unreachable;
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        return self.fail("TODO lower unnamed const in COFF", .{});
+    } else if (self.bin_file.cast(link.File.Plan9)) |_| {
+        return self.fail("TODO lower unnamed const in Plan9", .{});
+    } else {
+        return self.fail("TODO lower unnamed const", .{});
+    }
+}
+
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     if (typed_value.val.isUndef())
         return MCValue{ .undef = {} };
@@ -3952,6 +3993,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
 
                 return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty});
             }
+        },
+        .Struct => {
+            return self.lowerUnnamedConst(typed_value);
         },
         else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
     }
