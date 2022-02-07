@@ -252,6 +252,35 @@ pub const ChildProcess = struct {
         }
     }
 
+    const WindowsAsyncReadResult = enum {
+        pending,
+        closed,
+        full,
+    };
+
+    fn windowsAsyncRead(
+        handle: windows.HANDLE,
+        overlapped: *windows.OVERLAPPED,
+        buf: *std.ArrayList(u8),
+        bump_amt: usize,
+        max_output_bytes: usize,
+    ) !WindowsAsyncReadResult {
+        while (true) {
+            const new_capacity = std.math.min(buf.items.len + bump_amt, max_output_bytes);
+            try buf.ensureTotalCapacity(new_capacity);
+            const next_buf = buf.unusedCapacitySlice();
+            if (next_buf.len == 0) return .full;
+            var read_bytes: u32 = undefined;
+            const read_result = windows.kernel32.ReadFile(handle, next_buf.ptr, math.cast(u32, next_buf.len) catch maxInt(u32), &read_bytes, overlapped);
+            if (read_result == 0) return switch (windows.kernel32.GetLastError()) {
+                .IO_PENDING => .pending,
+                .BROKEN_PIPE => .closed,
+                else => |err| windows.unexpectedError(err),
+            };
+            buf.items.len += read_bytes;
+        }
+    }
+
     fn collectOutputWindows(child: *const ChildProcess, outs: [2]*std.ArrayList(u8), max_output_bytes: usize) !void {
         const bump_amt = 512;
         const handles = [_]windows.HANDLE{
@@ -274,15 +303,17 @@ pub const ChildProcess = struct {
 
         // Windows Async IO requires an initial call to ReadFile before waiting on the handle
         for ([_]u1{ 0, 1 }) |i| {
-            const new_capacity = std.math.min(outs[i].items.len + bump_amt, max_output_bytes);
-            try outs[i].ensureTotalCapacity(new_capacity);
-            const buf = outs[i].unusedCapacitySlice();
-            _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
-            wait_objects[wait_object_count] = handles[i];
-            wait_object_count += 1;
+            switch (try windowsAsyncRead(handles[i], &overlapped[i], outs[i], bump_amt, max_output_bytes)) {
+                .pending => {
+                    wait_objects[wait_object_count] = handles[i];
+                    wait_object_count += 1;
+                },
+                .closed => {}, // don't add to the wait_objects list
+                .full => return if (i == 0) error.StdoutStreamTooLong else error.StderrStreamTooLong,
+            }
         }
 
-        while (true) {
+        while (wait_object_count > 0) {
             const status = windows.kernel32.WaitForMultipleObjects(wait_object_count, &wait_objects, 0, windows.INFINITE);
             if (status == windows.WAIT_FAILED) {
                 switch (windows.kernel32.GetLastError()) {
@@ -306,23 +337,21 @@ pub const ChildProcess = struct {
             var read_bytes: u32 = undefined;
             if (windows.kernel32.GetOverlappedResult(handles[i], &overlapped[i], &read_bytes, 0) == 0) {
                 switch (windows.kernel32.GetLastError()) {
-                    .BROKEN_PIPE => {
-                        if (wait_object_count == 0)
-                            break;
-                        continue;
-                    },
+                    .BROKEN_PIPE => continue,
                     else => |err| return windows.unexpectedError(err),
                 }
             }
 
             outs[i].items.len += read_bytes;
-            const new_capacity = std.math.min(outs[i].items.len + bump_amt, max_output_bytes);
-            try outs[i].ensureTotalCapacity(new_capacity);
-            const buf = outs[i].unusedCapacitySlice();
-            if (buf.len == 0) return if (i == 0) error.StdoutStreamTooLong else error.StderrStreamTooLong;
-            _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
-            wait_objects[wait_object_count] = handles[i];
-            wait_object_count += 1;
+
+            switch (try windowsAsyncRead(handles[i], &overlapped[i], outs[i], bump_amt, max_output_bytes)) {
+                .pending => {
+                    wait_objects[wait_object_count] = handles[i];
+                    wait_object_count += 1;
+                },
+                .closed => {}, // don't add to the wait_objects list
+                .full => return if (i == 0) error.StdoutStreamTooLong else error.StderrStreamTooLong,
+            }
         }
     }
 
