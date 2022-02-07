@@ -1681,6 +1681,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .unwrap_errunion_payload_ptr,
         .unwrap_errunion_err_ptr,
 
+        .sqrt,
+
         .ptr_slice_len_ptr,
         .ptr_slice_ptr_ptr,
         .int_to_float,

@@ -520,6 +520,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .max             => try self.airMax(inst),
             .slice           => try self.airSlice(inst),
 
+            .sqrt            => try self.airUnaryMath(inst),
+
             .add_with_overflow => try self.airAddWithOverflow(inst),
             .sub_with_overflow => try self.airSubWithOverflow(inst),
             .mul_with_overflow => try self.airMulWithOverflow(inst),
@@ -1375,6 +1377,15 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
     _ = ty_op;
     return self.fail("TODO implement airPopcount for {}", .{self.target.cpu.arch});
     // return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        return self.fail("TODO implement airUnaryMath for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_index: Liveness.OperandInt, mcv: MCValue) bool {

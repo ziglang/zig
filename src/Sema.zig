@@ -745,19 +745,19 @@ fn analyzeBodyInner(
             .clz => try sema.zirClzCtz(block, inst, .clz, Value.clz),
             .ctz => try sema.zirClzCtz(block, inst, .ctz, Value.ctz),
 
-            .sqrt  => try sema.zirUnaryMath(block, inst),
-            .sin   => try sema.zirUnaryMath(block, inst),
-            .cos   => try sema.zirUnaryMath(block, inst),
-            .exp   => try sema.zirUnaryMath(block, inst),
-            .exp2  => try sema.zirUnaryMath(block, inst),
-            .log   => try sema.zirUnaryMath(block, inst),
-            .log2  => try sema.zirUnaryMath(block, inst),
-            .log10 => try sema.zirUnaryMath(block, inst),
-            .fabs  => try sema.zirUnaryMath(block, inst),
-            .floor => try sema.zirUnaryMath(block, inst),
-            .ceil  => try sema.zirUnaryMath(block, inst),
-            .trunc => try sema.zirUnaryMath(block, inst),
-            .round => try sema.zirUnaryMath(block, inst),
+            .sqrt  => try sema.zirUnaryMath(block, inst, .sqrt, Value.sqrt),
+            .sin   => @panic("TODO"),
+            .cos   => @panic("TODO"),
+            .exp   => @panic("TODO"),
+            .exp2  => @panic("TODO"),
+            .log   => @panic("TODO"),
+            .log2  => @panic("TODO"),
+            .log10 => @panic("TODO"),
+            .fabs  => @panic("TODO"),
+            .floor => @panic("TODO"),
+            .ceil  => @panic("TODO"),
+            .trunc => @panic("TODO"),
+            .round => @panic("TODO"),
 
             .error_set_decl      => try sema.zirErrorSetDecl(block, inst, .parent),
             .error_set_decl_anon => try sema.zirErrorSetDecl(block, inst, .anon),
@@ -11010,10 +11010,31 @@ fn zirErrorName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     return block.addUnOp(.error_name, operand);
 }
 
-fn zirUnaryMath(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirUnaryMath(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    air_tag: Air.Inst.Tag,
+    eval: fn (Value, Type, Allocator, std.Target) Allocator.Error!Value,
+) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirUnaryMath", .{});
+    const operand = sema.resolveInst(inst_data.operand);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_ty = sema.typeOf(operand);
+    try sema.checkFloatType(block, operand_src, operand_ty);
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |operand_val| {
+        if (operand_val.isUndef()) return sema.addConstUndef(operand_ty);
+        const target = sema.mod.getTarget();
+        const result_val = try eval(operand_val, operand_ty, sema.arena, target);
+        return sema.addConstant(operand_ty, result_val);
+    }
+
+    try sema.requireRuntimeBlock(block, operand_src);
+    return block.addUnOp(air_tag, operand);
 }
 
 fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

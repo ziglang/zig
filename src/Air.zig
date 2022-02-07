@@ -237,6 +237,10 @@ pub const Inst = struct {
         /// Uses the `ty_op` field.
         popcount,
 
+        /// Computes the square root of a floating point number.
+        /// Uses the `un_op` field.
+        sqrt,
+
         /// `<`. Result type is always bool.
         /// Uses the `bin_op` field.
         cmp_lt,
@@ -748,6 +752,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .min,
         .max,
         => return air.typeOf(datas[inst].bin_op.lhs),
+
+        .sqrt => return air.typeOf(datas[inst].un_op),
 
         .cmp_lt,
         .cmp_lte,

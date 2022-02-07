@@ -6996,7 +6996,7 @@ static LLVMValueRef ir_render_soft_f80_float_op(CodeGen *g, Stage1Air *executabl
     const char *func_name;
     switch (instruction->fn_id) {
         case BuiltinFnIdSqrt:
-            func_name = "__sqrt";
+            func_name = "__sqrtx";
             break;
         case BuiltinFnIdSin:
             func_name = "__sinx";

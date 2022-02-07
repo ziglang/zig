@@ -3265,6 +3265,38 @@ pub const Value = extern union {
         }
     }
 
+    pub fn sqrt(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @sqrt(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @sqrt(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @sqrt(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt __sqrtx");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @sqrt(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt sqrtq");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @sqrt(f));
+            },
+            else => unreachable,
+        }
+    }
+
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,
