@@ -100,7 +100,7 @@ pub const EnvMap = struct {
                     if (upcase(c_a) != upcase(c_b))
                         return false;
                 }
-                if (it_b.nextCodepoint()) |_| return false;
+                return if (it_b.nextCodepoint()) |_| false else true;
             }
             return std.hash_map.eqlString(a, b);
         }
@@ -232,6 +232,12 @@ test "EnvMap" {
     try testing.expect(env.get("SOMETHING_NEW") == null);
 
     try testing.expectEqual(@as(EnvMap.Size, 1), env.count());
+
+    // test Unicode case-insensitivity on Windows
+    if (builtin.os.tag == .windows) {
+        try env.put("КИРиллИЦА", "something else");
+        try testing.expectEqualStrings("something else", env.get("кириллица").?);
+    }
 }
 
 /// Returns a snapshot of the environment variables of the current process.
