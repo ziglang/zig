@@ -1423,8 +1423,10 @@ pub const Value = extern union {
             .float_16 => @rem(self.castTag(.float_16).?.data, 1) != 0,
             .float_32 => @rem(self.castTag(.float_32).?.data, 1) != 0,
             .float_64 => @rem(self.castTag(.float_64).?.data, 1) != 0,
-            .float_80 => @rem(self.castTag(.float_80).?.data, 1) != 0,
-            .float_128 => @rem(self.castTag(.float_128).?.data, 1) != 0,
+            //.float_80 => @rem(self.castTag(.float_80).?.data, 1) != 0,
+            .float_80 => @panic("TODO implement __remx in compiler-rt"),
+            //.float_128 => @rem(self.castTag(.float_128).?.data, 1) != 0,
+            .float_128 => @panic("TODO implement fmodl in compiler-rt"),
 
             else => unreachable,
         };
@@ -2819,11 +2821,17 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @rem(lhs_val, rhs_val));
             },
             80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt __remx");
+                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @rem(lhs_val, rhs_val));
             },
             128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt fmodl");
+                }
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @rem(lhs_val, rhs_val));
@@ -2850,11 +2858,17 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @mod(lhs_val, rhs_val));
             },
             80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt __modx");
+                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @mod(lhs_val, rhs_val));
             },
             128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt fmodl");
+                }
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @mod(lhs_val, rhs_val));
@@ -3113,6 +3127,9 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, lhs_val / rhs_val);
             },
             80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt __divxf3");
+                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, lhs_val / rhs_val);
@@ -3150,6 +3167,9 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @divFloor(lhs_val, rhs_val));
             },
             80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt __floorx");
+                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @divFloor(lhs_val, rhs_val));
@@ -3187,6 +3207,9 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @divTrunc(lhs_val, rhs_val));
             },
             80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt __truncx");
+                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @divTrunc(lhs_val, rhs_val));
@@ -3224,6 +3247,9 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, lhs_val * rhs_val);
             },
             80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt __mulxf3");
+                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, lhs_val * rhs_val);
