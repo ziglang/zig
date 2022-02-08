@@ -4,7 +4,7 @@ const std = @import("std");
 // fmodl - floating modulo large, returns the remainder of division for f128 types
 // Logic and flow heavily inspired by MUSL fmodl for 113 mantissa digits
 pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(builtin.is_test);
     const ReinterpretUnion = packed union {
         u64s: switch (builtin.cpu.arch.endian()) {
             .Little => extern struct {
@@ -38,7 +38,7 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
     const aPtr = @ptrCast(*ReinterpretUnion, &amod);
     const bPtr = @ptrCast(*ReinterpretUnion, &bmod);
 
-    const sign_a = aPtr.parts.exp_and_sign & 0x8000;
+    const signA = aPtr.parts.exp_and_sign & 0x8000;
     var expA = @intCast(i32, (aPtr.parts.exp_and_sign & 0x7fff));
     var expB = bPtr.parts.exp_and_sign & 0x7fff;
 
@@ -58,12 +58,12 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
 
     if (expA == 0) {
         amod *= 0x1p120;
-        expA = aPtr.parts.exp_and_sign - 120;
+        expA = aPtr.parts.exp_and_sign -% 120;
     }
 
     if (expB == 0) {
         bmod *= 0x1p120;
-        expB = bPtr.parts.exp_and_sign - 120;
+        expB = bPtr.parts.exp_and_sign -% 120;
     }
 
     // OR in extra non-stored mantissa digit
@@ -73,25 +73,25 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
     var lowB: u64 = bPtr.u64s.low;
 
     while (expA > expB) : (expA -= 1) {
-        var high = highA - highB;
-        var low = lowA - lowB;
+        var high = highA -% highB;
+        var low = lowA -% lowB;
         if (lowA < lowB) {
-            high -= 1;
+            high = highA -% 1;
         }
         if (high >> 63 == 0) {
             if ((high | low) == 0) {
                 return 0 * a;
             }
-            highA = 2 * high + (low >> 63);
-            lowA = 2 * low;
+            highA = 2 *% high + (low >> 63);
+            lowA = 2 *% low;
         } else {
-            highA = 2 * highA + (lowA >> 63);
-            lowA = 2 * lowA;
+            highA = 2 *% highA + (lowA >> 63);
+            lowA = 2 *% lowA;
         }
     }
 
-    var high: u64 = highA - highB;
-    var low: u64 = lowA - lowB;
+    var high = highA -% highB;
+    var low = lowA -% lowB;
     if (lowA < lowB) {
         high -= 1;
     }
@@ -104,9 +104,9 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
     }
 
     while (highA >> 48 == 0) {
-        highA = 2 * highA + (lowA >> 63);
-        lowA = 2 * lowA;
-        expA -= 1;
+        highA = 2 *% highA + (lowA >> 63);
+        lowA = 2 *% lowA;
+        expA = expA - 1;
     }
 
     // Overwrite the current amod with the values in highA and lowA
@@ -115,10 +115,10 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
 
     // Combine the exponent with the sign, normalize if happend to be denormalized
     if (expA <= 0) {
-        aPtr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, @intCast(u32, expA + 120) | sign_a));
+        aPtr.parts.exp_and_sign = @truncate(u16, @bitCast(u32, (expA +% 120))) | signA;
         amod *= 0x1p-120;
     } else {
-        aPtr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, @intCast(u32, expA) | sign_a));
+        aPtr.parts.exp_and_sign = @truncate(u16, @bitCast(u32, expA)) | signA;
     }
 
     return amod;
