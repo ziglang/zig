@@ -175,12 +175,27 @@ pub const Inst = struct {
             imm16: u16,
             hw: u2 = 0,
         },
+        /// A register and a condition
+        ///
+        /// Used by e.g. cset
+        r_cond: struct {
+            rd: Register,
+            cond: bits.Instruction.Condition,
+        },
         /// Two registers
         ///
         /// Used by e.g. mov_register
         rr: struct {
             rd: Register,
             rn: Register,
+        },
+        /// A register, an unsigned 12-bit immediate, and an optional shift
+        ///
+        /// Used by e.g. cmp_immediate
+        r_imm12_sh: struct {
+            rn: Register,
+            imm12: u12,
+            sh: u1 = 0,
         },
         /// Two registers, an unsigned 12-bit immediate, and an optional shift
         ///
@@ -208,15 +223,6 @@ pub const Inst = struct {
             rm: Register,
             imm6: u6,
             shift: bits.Instruction.AddSubtractShiftedRegisterShift,
-        },
-        /// Three registers and a condition
-        ///
-        /// Used by e.g. cset
-        rrr_cond: struct {
-            rd: Register,
-            rn: Register,
-            rm: Register,
-            cond: bits.Instruction.Condition,
         },
         /// Two registers and a LoadStoreOffsetImmediate
         ///

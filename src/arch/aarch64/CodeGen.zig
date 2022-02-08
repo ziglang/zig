@@ -2121,8 +2121,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
             .immediate => |imm| {
                 _ = try self.addInst(.{
                     .tag = .cmp_immediate,
-                    .data = .{ .rr_imm12_sh = .{
-                        .rd = .xzr,
+                    .data = .{ .r_imm12_sh = .{
                         .rn = lhs_mcv.register,
                         .imm12 = @intCast(u12, imm),
                     } },
@@ -2334,8 +2333,7 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
 
             _ = try self.addInst(.{
                 .tag = .cmp_immediate,
-                .data = .{ .rr_imm12_sh = .{
-                    .rd = .xzr,
+                .data = .{ .r_imm12_sh = .{
                     .rn = reg_mcv.register,
                     .imm12 = 0,
                 } },
@@ -2559,7 +2557,16 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
         const operand_mcv = try self.resolveInst(operand);
         const block_mcv = block_data.mcv;
         if (block_mcv == .none) {
-            block_data.mcv = operand_mcv;
+            block_data.mcv = switch (operand_mcv) {
+                .none, .dead, .unreach => unreachable,
+                .register, .stack_offset, .memory => operand_mcv,
+                .immediate => blk: {
+                    const new_mcv = try self.allocRegOrMem(block, true);
+                    try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
+                    break :blk new_mcv;
+                },
+                else => return self.fail("TODO implement block_data.mcv = operand_mcv for {}", .{operand_mcv}),
+            };
         } else {
             try self.setRegOrMem(self.air.typeOfIndex(block), block_mcv, operand_mcv);
         }
@@ -2845,10 +2852,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
             _ = try self.addInst(.{
                 .tag = .cset,
-                .data = .{ .rrr_cond = .{
+                .data = .{ .r_cond = .{
                     .rd = reg,
-                    .rn = .xzr,
-                    .rm = .xzr,
                     .cond = condition,
                 } },
             });
@@ -2933,7 +2938,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         } },
                     });
                 },
-                3 => return self.fail("TODO implement genSetReg types size 3", .{}),
+                3, 5, 6, 7 => return self.fail("TODO implement genSetReg types size {}", .{abi_size}),
                 else => unreachable,
             }
         },
@@ -3114,27 +3119,6 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     }
 }
 
-/// If the MCValue is an immediate, and it does not fit within this type,
-/// we put it in a register.
-/// A potential opportunity for future optimization here would be keeping track
-/// of the fact that the instruction is available both as an immediate
-/// and as a register.
-fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCValue {
-    const mcv = try self.resolveInst(operand);
-    const ti = @typeInfo(T).Int;
-    switch (mcv) {
-        .immediate => |imm| {
-            // This immediate is unsigned.
-            const U = std.meta.Int(.unsigned, ti.bits - @boolToInt(ti.signedness == .signed));
-            if (imm >= math.maxInt(U)) {
-                return MCValue{ .register = try self.copyToTmpRegister(Type.initTag(.usize), mcv) };
-            }
-        },
-        else => {},
-    }
-    return mcv;
-}
-
 fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCValue {
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
@@ -3248,19 +3232,11 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             }
         },
         .ErrorSet => {
-            switch (typed_value.val.tag()) {
-                .@"error" => {
-                    const err_name = typed_value.val.castTag(.@"error").?.data.name;
-                    const module = self.bin_file.options.module.?;
-                    const global_error_set = module.global_error_set;
-                    const error_index = global_error_set.get(err_name).?;
-                    return MCValue{ .immediate = error_index };
-                },
-                else => {
-                    // In this case we are rendering an error union which has a 0 bits payload.
-                    return MCValue{ .immediate = 0 };
-                },
-            }
+            const err_name = typed_value.val.castTag(.@"error").?.data.name;
+            const module = self.bin_file.options.module.?;
+            const global_error_set = module.global_error_set;
+            const error_index = global_error_set.get(err_name).?;
+            return MCValue{ .immediate = error_index };
         },
         .ErrorUnion => {
             const error_type = typed_value.ty.errorUnionSet();
@@ -3425,13 +3401,18 @@ fn parseRegName(name: []const u8) ?Register {
 }
 
 fn registerAlias(reg: Register, size_bytes: u32) Register {
-    _ = size_bytes;
-
-    return reg;
+    if (size_bytes == 0) {
+        unreachable; // should be comptime known
+    } else if (size_bytes <= 4) {
+        return reg.to32();
+    } else if (size_bytes <= 8) {
+        return reg.to64();
+    } else {
+        unreachable; // TODO handle floating-point registers
+    }
 }
 
-/// For most architectures this does nothing. For x86_64 it resolves any aliased registers
-/// to the 64-bit wide ones.
+/// Resolves any aliased registers to the 64-bit wide ones.
 fn toCanonicalReg(reg: Register) Register {
-    return reg;
+    return reg.to64();
 }

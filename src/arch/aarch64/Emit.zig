@@ -423,27 +423,30 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
 
 fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const rr_imm12_sh = emit.mir.instructions.items(.data)[inst].rr_imm12_sh;
-
     switch (tag) {
-        .add_immediate => try emit.writeInstruction(Instruction.add(
-            rr_imm12_sh.rd,
-            rr_imm12_sh.rn,
-            rr_imm12_sh.imm12,
-            rr_imm12_sh.sh == 1,
-        )),
-        .cmp_immediate => try emit.writeInstruction(Instruction.subs(
-            rr_imm12_sh.rd,
-            rr_imm12_sh.rn,
-            rr_imm12_sh.imm12,
-            rr_imm12_sh.sh == 1,
-        )),
-        .sub_immediate => try emit.writeInstruction(Instruction.sub(
-            rr_imm12_sh.rd,
-            rr_imm12_sh.rn,
-            rr_imm12_sh.imm12,
-            rr_imm12_sh.sh == 1,
-        )),
+        .add_immediate,
+        .sub_immediate,
+        => {
+            const rr_imm12_sh = emit.mir.instructions.items(.data)[inst].rr_imm12_sh;
+            const rd = rr_imm12_sh.rd;
+            const rn = rr_imm12_sh.rn;
+            const imm12 = rr_imm12_sh.imm12;
+            const sh = rr_imm12_sh.sh == 1;
+
+            switch (tag) {
+                .add_immediate => try emit.writeInstruction(Instruction.add(rd, rn, imm12, sh)),
+                .sub_immediate => try emit.writeInstruction(Instruction.sub(rd, rn, imm12, sh)),
+                else => unreachable,
+            }
+        },
+        .cmp_immediate => {
+            const r_imm12_sh = emit.mir.instructions.items(.data)[inst].r_imm12_sh;
+            const rn = r_imm12_sh.rn;
+            const imm12 = r_imm12_sh.imm12;
+            const sh = r_imm12_sh.sh == 1;
+
+            try emit.writeInstruction(Instruction.subs(.xzr, rn, imm12, sh));
+        },
         else => unreachable,
     }
 }
@@ -589,15 +592,11 @@ fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const rrr_cond = emit.mir.instructions.items(.data)[inst].rrr_cond;
-
     switch (tag) {
-        .cset => try emit.writeInstruction(Instruction.csinc(
-            rrr_cond.rd,
-            rrr_cond.rn,
-            rrr_cond.rm,
-            rrr_cond.cond,
-        )),
+        .cset => {
+            const r_cond = emit.mir.instructions.items(.data)[inst].r_cond;
+            try emit.writeInstruction(Instruction.csinc(r_cond.rd, .xzr, .xzr, r_cond.cond));
+        },
         else => unreachable,
     }
 }
@@ -662,20 +661,14 @@ fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirLoadStoreRegisterPair(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const load_store_register_pair = emit.mir.instructions.items(.data)[inst].load_store_register_pair;
+    const rt = load_store_register_pair.rt;
+    const rt2 = load_store_register_pair.rt2;
+    const rn = load_store_register_pair.rn;
+    const offset = load_store_register_pair.offset;
 
     switch (tag) {
-        .stp => try emit.writeInstruction(Instruction.stp(
-            load_store_register_pair.rt,
-            load_store_register_pair.rt2,
-            load_store_register_pair.rn,
-            load_store_register_pair.offset,
-        )),
-        .ldp => try emit.writeInstruction(Instruction.ldp(
-            load_store_register_pair.rt,
-            load_store_register_pair.rt2,
-            load_store_register_pair.rn,
-            load_store_register_pair.offset,
-        )),
+        .stp => try emit.writeInstruction(Instruction.stp(rt, rt2, rn, offset)),
+        .ldp => try emit.writeInstruction(Instruction.ldp(rt, rt2, rn, offset)),
         else => unreachable,
     }
 }
