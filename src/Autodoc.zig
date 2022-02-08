@@ -560,6 +560,13 @@ fn walkInstruction(
             });
             return DocData.WalkResult{ .type = self.types.items.len - 1 };
         },
+        //.block => {
+        //const pl_node = data[inst_index].pl_node;
+        //const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+        //const last_instr_index = zir.extra[extra.end..][extra.data.body_len - 1];
+        //const break_operand = data[break_index].@"break".operand;
+        //return self.walkRef(zir, parent_scope, break_operand);
+        //},
         .block_inline => {
             const pl_node = data[inst_index].pl_node;
             const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
@@ -585,21 +592,33 @@ fn walkInstruction(
                 if (tags[param_index] != .param) unreachable; // TODO: handle more param types
                 const pl_tok = data[param_index].pl_tok;
                 const extra = zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
+                const doc_comment = if (extra.data.doc_comment != 0)
+                    zir.nullTerminatedString(extra.data.doc_comment)
+                else
+                    "";
 
                 param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
                 try self.ast_nodes.append(self.arena, .{
-                    .name = zir.nullTerminatedString(zir.extra[extra.data.name]),
-                    .docs = "",
+                    .name = zir.nullTerminatedString(extra.data.name),
+                    .docs = doc_comment,
                 });
 
                 const break_index = zir.extra[extra.end..][extra.data.body_len - 1];
                 const break_operand = data[break_index].@"break".operand;
-                const walk_res = try self.walkRef(zir, parent_scope, break_operand);
+                const param_type_ref = try self.walkRef(zir, parent_scope, break_operand);
 
                 param_type_refs.appendAssumeCapacity(
-                    DocData.TypeRef.fromWalkResult(walk_res),
+                    DocData.TypeRef.fromWalkResult(param_type_ref),
                 );
             }
+
+            // ret
+            const ret_type_ref = blk: {
+                const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
+                const break_operand = data[last_instr_index].@"break".operand;
+                const wr = try self.walkRef(zir, parent_scope, break_operand);
+                break :blk DocData.TypeRef.fromWalkResult(wr);
+            };
 
             self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
             try self.types.append(self.arena, .{
@@ -607,7 +626,7 @@ fn walkInstruction(
                     .name = "todo_name func",
                     .src = self_ast_node_index,
                     .params = param_type_refs.items,
-                    .ret = .{ .type = @enumToInt(Ref.void_type) },
+                    .ret = ret_type_ref,
                 },
             });
             return DocData.WalkResult{ .type = self.types.items.len - 1 };
