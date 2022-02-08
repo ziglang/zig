@@ -35,8 +35,6 @@ fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
 }
 
 test "resolve undefined with integer" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try testResolveUndefWithInt(true, 1234);
     comptime try testResolveUndefWithInt(true, 1234);
 }
@@ -205,8 +203,6 @@ test "implicit cast from *[N]T to [*c]T" {
 }
 
 test "*usize to *void" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     var i = @as(usize, 0);
     var v = @ptrCast(*void, &i);
     v.* = {};

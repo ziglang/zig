@@ -3180,7 +3180,6 @@ fn setRegOrMem(self: *Self, ty: Type, loc: MCValue, val: MCValue) !void {
 fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
-        .ptr_stack_offset => unreachable,
         .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
@@ -3193,6 +3192,10 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 4 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
                 else => return self.fail("TODO implement memset", .{}),
             }
+        },
+        .ptr_stack_offset => {
+            const reg = try self.copyToTmpRegister(ty, mcv);
+            return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
         },
         .compare_flags_unsigned,
         .compare_flags_signed,
@@ -3858,9 +3861,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        // TODO I'm hacking my way through here by repurposing .memory for storing
-        // index to the GOT target symbol index.
-        return MCValue{ .memory = decl.link.macho.local_sym_index };
+        unreachable; // unsupported architecture for MachO
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
         const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
@@ -3929,10 +3930,19 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         },
         .Int => {
             const info = typed_value.ty.intInfo(self.target.*);
-            if (info.bits > ptr_bits or info.signedness == .signed) {
-                return self.fail("TODO const int bigger than ptr and signed int", .{});
+            if (info.bits <= ptr_bits) {
+                const unsigned = switch (info.signedness) {
+                    .signed => blk: {
+                        const signed = @intCast(i32, typed_value.val.toSignedInt());
+                        break :blk @bitCast(u32, signed);
+                    },
+                    .unsigned => @intCast(u32, typed_value.val.toUnsignedInt()),
+                };
+
+                return MCValue{ .immediate = unsigned };
+            } else {
+                return self.lowerUnnamedConst(typed_value);
             }
-            return MCValue{ .immediate = @intCast(u32, typed_value.val.toUnsignedInt()) };
         },
         .Bool => {
             return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
