@@ -150,6 +150,8 @@ pub fn generateSymbol(
     const tracy = trace(@src());
     defer tracy.end();
 
+    log.debug("generateSymbol: ty = {}, val = {}", .{ typed_value.ty, typed_value.val });
+
     if (typed_value.val.isUndefDeep()) {
         const target = bin_file.options.target;
         const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
@@ -483,6 +485,18 @@ fn lowerDeclRef(
         }
 
         return Result{ .appended = {} };
+    }
+
+    const is_fn_body = decl.ty.zigTypeTag() == .Fn;
+    if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
+        return Result{
+            .fail = try ErrorMsg.create(
+                bin_file.allocator,
+                src_loc,
+                "TODO handle void types when lowering decl ref",
+                .{},
+            ),
+        };
     }
 
     if (decl.analysis != .complete) return error.AnalysisFail;

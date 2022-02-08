@@ -711,7 +711,10 @@ pub const Value = extern union {
                 const decl = val.castTag(.decl_ref_mut).?.data.decl;
                 return out_stream.print("(decl_ref_mut '{s}')", .{decl.name});
             },
-            .decl_ref => return out_stream.writeAll("(decl ref)"),
+            .decl_ref => {
+                const decl = val.castTag(.decl_ref).?.data;
+                return out_stream.print("(decl ref '{s}')", .{decl.name});
+            },
             .elem_ptr => {
                 const elem_ptr = val.castTag(.elem_ptr).?.data;
                 try out_stream.print("&[{}] ", .{elem_ptr.index});

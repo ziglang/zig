@@ -9,7 +9,6 @@ fn getA() A {
 }
 
 test "bug 1025" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     const a = getA();
     try @import("std").testing.expect(a.B == u8);
 }

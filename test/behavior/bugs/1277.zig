@@ -13,6 +13,5 @@ fn f() i32 {
 
 test "don't emit an LLVM global for a const function when it's in an optional in a struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     try std.testing.expect(s.f.?() == 1234);
 }
