@@ -1611,11 +1611,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airStore(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const ptr = try self.resolveInst(bin_op.lhs);
-    const value = try self.resolveInst(bin_op.rhs);
-    const elem_ty = self.air.typeOf(bin_op.rhs);
+fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -1624,13 +1620,13 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
         .compare_flags_unsigned => unreachable,
         .compare_flags_signed => unreachable,
         .immediate => |imm| {
-            try self.setRegOrMem(elem_ty, .{ .memory = imm }, value);
+            try self.setRegOrMem(value_ty, .{ .memory = imm }, value);
         },
         .ptr_stack_offset => |off| {
-            try self.genSetStack(elem_ty, off, value);
+            try self.genSetStack(value_ty, off, value);
         },
         .ptr_embedded_in_code => |off| {
-            try self.setRegOrMem(elem_ty, .{ .embedded_in_code = off }, value);
+            try self.setRegOrMem(value_ty, .{ .embedded_in_code = off }, value);
         },
         .embedded_in_code => {
             return self.fail("TODO implement storing to MCValue.embedded_in_code", .{});
@@ -1638,13 +1634,24 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
         .register => {
             return self.fail("TODO implement storing to MCValue.register", .{});
         },
-        .memory => {
-            return self.fail("TODO implement storing to MCValue.memory", .{});
-        },
-        .stack_offset => {
-            return self.fail("TODO implement storing to MCValue.stack_offset", .{});
+        .memory,
+        .stack_offset,
+        => {
+            const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
+            try self.store(.{ .register = addr_reg }, value, ptr_ty, value_ty);
         },
     }
+}
+
+fn airStore(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ptr = try self.resolveInst(bin_op.lhs);
+    const value = try self.resolveInst(bin_op.rhs);
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const value_ty = self.air.typeOf(bin_op.rhs);
+
+    try self.store(ptr, value, ptr_ty, value_ty);
+
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
