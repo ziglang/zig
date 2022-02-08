@@ -970,6 +970,8 @@ pub const DeclGen = struct {
 
     /// Generates the wasm bytecode for the declaration belonging to `Context`
     fn genTypedValue(self: *DeclGen, ty: Type, val: Value) InnerError!Result {
+        log.debug("genTypedValue: ty = {}, val = {}", .{ ty, val });
+
         const writer = self.code.writer();
         if (val.isUndef()) {
             try writer.writeByteNTimes(0xaa, @intCast(usize, ty.abiSize(self.target())));

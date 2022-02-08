@@ -1973,6 +1973,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
     if (self.liveness.isUnused(inst)) {
         return MCValue.dead;
     }
+
     const mcv = try self.resolveInst(operand);
     const ptr_ty = self.air.typeOf(operand);
     const struct_ty = ptr_ty.childType();
@@ -2190,6 +2191,7 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
 }
 
 fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
+    const abi_size = dst_ty.abiSize(self.target.*);
     switch (dst_mcv) {
         .none => unreachable,
         .undef => unreachable,
@@ -2216,7 +2218,6 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                     });
                 },
                 .immediate => |imm| {
-                    const abi_size = dst_ty.abiSize(self.target.*);
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
@@ -2226,7 +2227,11 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                     });
                 },
                 .embedded_in_code, .memory => {
-                    return self.fail("TODO implement x86 ADD/SUB/CMP source memory", .{});
+                    assert(abi_size <= 8);
+                    self.register_manager.freezeRegs(&.{dst_reg});
+                    defer self.register_manager.unfreezeRegs(&.{dst_reg});
+                    const reg = try self.copyToTmpRegister(dst_ty, src_mcv);
+                    return self.genBinMathOpMir(mir_tag, dst_ty, dst_mcv, .{ .register = reg });
                 },
                 .got_load, .direct_load => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source symbol at index in linker", .{});
@@ -2235,7 +2240,6 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                     if (off > math.maxInt(i32)) {
                         return self.fail("stack offset too large", .{});
                     }
-                    const abi_size = dst_ty.abiSize(self.target.*);
                     const adj_off = off + @intCast(i32, abi_size);
                     _ = try self.addInst(.{
                         .tag = mir_tag,
@@ -2259,7 +2263,6 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
             if (off > math.maxInt(i32)) {
                 return self.fail("stack offset too large", .{});
             }
-            const abi_size = dst_ty.abiSize(self.target.*);
             if (abi_size > 8) {
                 return self.fail("TODO implement ADD/SUB/CMP for stack dst with large ABI", .{});
             }
