@@ -35,20 +35,20 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
 
     var amod = a;
     var bmod = b;
-    const a_ptr = @ptrCast(*ReinterpretUnion, &amod);
-    const b_ptr = @ptrCast(*ReinterpretUnion, &bmod);
+    const aPtr = @ptrCast(*ReinterpretUnion, &amod);
+    const bPtr = @ptrCast(*ReinterpretUnion, &bmod);
 
-    const sign_a = a_ptr.parts.exp_and_sign & 0x8000;
-    var exp_a = @intCast(i32, (a_ptr.parts.exp_and_sign & 0x7fff));
-    var exp_b = b_ptr.parts.exp_and_sign & 0x7fff;
+    const sign_a = aPtr.parts.exp_and_sign & 0x8000;
+    var expA = @intCast(i32, (aPtr.parts.exp_and_sign & 0x7fff));
+    var expB = bPtr.parts.exp_and_sign & 0x7fff;
 
-    if (b == 0 or std.math.isNan(b) or exp_a == 0x7fff) {
+    if (b == 0 or std.math.isNan(b) or expA == 0x7fff) {
         return (a * b) / (a * b);
     }
 
     // Remove the sign from both
-    a_ptr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, exp_a));
-    b_ptr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, exp_b));
+    aPtr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, expA));
+    bPtr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, expB));
     if (amod <= bmod) {
         if (amod == bmod) {
             return 0 * a;
@@ -56,23 +56,23 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
         return a;
     }
 
-    if (exp_a == 0) {
+    if (expA == 0) {
         amod *= 0x1p120;
-        exp_a = a_ptr.parts.exp_and_sign - 120;
+        expA = aPtr.parts.exp_and_sign - 120;
     }
 
-    if (exp_b == 0) {
+    if (expB == 0) {
         bmod *= 0x1p120;
-        exp_b = b_ptr.parts.exp_and_sign - 120;
+        expB = bPtr.parts.exp_and_sign - 120;
     }
 
     // OR in extra non-stored mantissa digit
-    var highA: u64 = (a_ptr.u64s.high & (std.math.maxInt(u64) >> 16)) | 1 << 48;
-    var highB: u64 = (b_ptr.u64s.high & (std.math.maxInt(u64) >> 16)) | 1 << 48;
-    var lowA: u64 = a_ptr.u64s.low;
-    var lowB: u64 = b_ptr.u64s.low;
+    var highA: u64 = (aPtr.u64s.high & (std.math.maxInt(u64) >> 16)) | 1 << 48;
+    var highB: u64 = (bPtr.u64s.high & (std.math.maxInt(u64) >> 16)) | 1 << 48;
+    var lowA: u64 = aPtr.u64s.low;
+    var lowB: u64 = bPtr.u64s.low;
 
-    while (exp_a > exp_b) : (exp_a -= 1) {
+    while (expA > expB) : (expA -= 1) {
         var high = highA - highB;
         var low = lowA - lowB;
         if (lowA < lowB) {
@@ -106,19 +106,19 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
     while (highA >> 48 == 0) {
         highA = 2 * highA + (lowA >> 63);
         lowA = 2 * lowA;
-        exp_a -= 1;
+        expA -= 1;
     }
 
     // Overwrite the current amod with the values in highA and lowA
-    a_ptr.u64s.high = highA;
-    a_ptr.u64s.low = lowA;
+    aPtr.u64s.high = highA;
+    aPtr.u64s.low = lowA;
 
     // Combine the exponent with the sign, normalize if happend to be denormalized
-    if (exp_a <= 0) {
-        a_ptr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, @intCast(u32, exp_a + 120) | sign_a));
+    if (expA <= 0) {
+        aPtr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, @intCast(u32, expA + 120) | sign_a));
         amod *= 0x1p-120;
     } else {
-        a_ptr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, @intCast(u32, exp_a) | sign_a));
+        aPtr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, @intCast(u32, expA) | sign_a));
     }
 
     return amod;
