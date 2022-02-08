@@ -93,8 +93,6 @@ test "@ptrCast preserves alignment of bigger source" {
 }
 
 test "alignstack" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(fnWithAlignedStack() == 1234);
 }
 

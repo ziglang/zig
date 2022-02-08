@@ -114,8 +114,6 @@ test "struct byval assign" {
 }
 
 test "call struct static method" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const result = StructWithNoFields.add(3, 4);
     try expect(result == 7);
 }
@@ -176,16 +174,12 @@ const MemberFnTestFoo = struct {
 };
 
 test "call member function directly" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const instance = MemberFnTestFoo{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
     try expect(result == 1234);
 }
 
 test "store member function in variable" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const instance = MemberFnTestFoo{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
@@ -193,8 +187,6 @@ test "store member function in variable" {
 }
 
 test "member functions" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const r = MemberFnRand{ .seed = 1234 };
     try expect(r.getSeed() == 1234);
 }
@@ -244,8 +236,6 @@ test "call method with mutable reference to struct with no fields" {
 }
 
 test "usingnamespace within struct scope" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const S = struct {
         usingnamespace struct {
             pub fn inner() i32 {
