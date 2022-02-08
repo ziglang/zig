@@ -803,19 +803,50 @@ test "float remainder division using @rem" {
 }
 
 fn frem(comptime T: type) !void {
-    const Case = struct { a: T, b: T, exp: T };
-    const cases: []const Case = &[_]Case{
-        .{ .a = 6.9, .b = 4.0, .exp = 2.9 },
-        .{ .a = -6.9, .b = 4.0, .exp = -2.9 },
-        .{ .a = -5.0, .b = 3.0, .exp = -2.0 },
-        .{ .a = 3.0, .b = 2.0, .exp = 1.0 },
-        .{ .a = 1.0, .b = 2.0, .exp = 1.0 },
+    const epsilon = switch (T) {
+        f16 => 1.0,
+        f32 => 0.001,
+        f64 => 0.00001,
+        f128 => 0.0000001,
+        else => unreachable,
     };
 
-    const epsilon = 1e30;
-    for (cases) |case| {
-        try expect((@rem(case.a, case.b) - case.exp) < epsilon);
-    }
+    try expect(std.math.fabs(@rem(@as(T, 6.9), @as(T, 4.0)) - @as(T, 2.9)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, -6.9), @as(T, 4.0)) - @as(T, -2.9)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, -5.0), @as(T, 3.0)) - @as(T, -2.0)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, 3.0), @as(T, 2.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, 1.0), @as(T, 2.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, 0.0), @as(T, 1.0)) - @as(T, 0.0)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, -0.0), @as(T, 1.0)) - @as(T, -0.0)) < epsilon);
+}
+
+test "float modulo division using @mod" {
+    comptime try fmod(f16);
+    comptime try fmod(f32);
+    comptime try fmod(f64);
+    comptime try fmod(f128);
+    try fmod(f16);
+    try fmod(f32);
+    try fmod(f64);
+    try fmod(f128);
+}
+
+fn fmod(comptime T: type) !void {
+    const epsilon = switch (T) {
+        f16 => 1.0,
+        f32 => 0.001,
+        f64 => 0.00001,
+        f128 => 0.0000001,
+        else => unreachable,
+    };
+
+    try expect(std.math.fabs(@mod(@as(T, 6.9), @as(T, 4.0)) - @as(T, 2.9)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, -6.9), @as(T, 4.0)) - @as(T, 1.1)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, -5.0), @as(T, 3.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, 3.0), @as(T, 2.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, 1.0), @as(T, 2.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, 0.0), @as(T, 1.0)) - @as(T, 0.0)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, -0.0), @as(T, 1.0)) - @as(T, -0.0)) < epsilon);
 }
 
 test "@sqrt" {
