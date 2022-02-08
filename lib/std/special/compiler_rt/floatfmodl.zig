@@ -40,7 +40,7 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
 
     const sign_a = a_ptr.parts.exp_and_sign & 0x8000;
     var exp_a = @intCast(i32, (a_ptr.parts.exp_and_sign & 0x7fff));
-    const exp_b = b_ptr.parts.exp_and_sign & 0x7fff;
+    var exp_b = b_ptr.parts.exp_and_sign & 0x7fff;
 
     if (b == 0 or std.math.isNan(b) or exp_a == 0x7fff) {
         return (a * b) / (a * b);
@@ -58,12 +58,12 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
 
     if (exp_a == 0) {
         amod *= 0x1p120;
-        a_ptr.parts.exp_and_sign -= 120;
+        exp_a = a_ptr.parts.exp_and_sign - 120;
     }
 
     if (exp_b == 0) {
         bmod *= 0x1p120;
-        b_ptr.parts.exp_and_sign -= 120;
+        exp_b = b_ptr.parts.exp_and_sign - 120;
     }
 
     // OR in extra non-stored mantissa digit
@@ -115,7 +115,7 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
 
     // Combine the exponent with the sign, normalize if happend to be denormalized
     if (exp_a <= 0) {
-        a_ptr.parts.exp_and_sign = @truncate(u16, @intCast(u32, exp_a + 120) | sign_a);
+        a_ptr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, @intCast(u32, exp_a + 120) | sign_a));
         amod *= 0x1p-120;
     } else {
         a_ptr.parts.exp_and_sign = @bitCast(u16, @intCast(i16, @intCast(u32, exp_a) | sign_a));
