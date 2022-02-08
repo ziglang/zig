@@ -487,19 +487,14 @@ fn lowerDeclRef(
         return Result{ .appended = {} };
     }
 
+    const target = bin_file.options.target;
+    const ptr_width = target.cpu.arch.ptrBitWidth();
     const is_fn_body = decl.ty.zigTypeTag() == .Fn;
     if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
-        return Result{
-            .fail = try ErrorMsg.create(
-                bin_file.allocator,
-                src_loc,
-                "TODO handle void types when lowering decl ref",
-                .{},
-            ),
-        };
+        try code.writer().writeByteNTimes(0xaa, @divExact(ptr_width, 8));
+        return Result{ .appended = {} };
     }
 
-    if (decl.analysis != .complete) return error.AnalysisFail;
     decl.markAlive();
     const vaddr = vaddr: {
         if (bin_file.cast(link.File.MachO)) |macho_file| {
@@ -510,8 +505,8 @@ fn lowerDeclRef(
         break :vaddr bin_file.getDeclVAddr(decl);
     };
 
-    const endian = bin_file.options.target.cpu.arch.endian();
-    switch (bin_file.options.target.cpu.arch.ptrBitWidth()) {
+    const endian = target.cpu.arch.endian();
+    switch (ptr_width) {
         16 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(u16, vaddr), endian),
         32 => mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, vaddr), endian),
         64 => mem.writeInt(u64, try code.addManyAsArray(8), vaddr, endian),

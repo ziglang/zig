@@ -13,8 +13,6 @@ const a = A{ .b_list_pointer = &b_list };
 
 test "segfault bug" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     const assert = std.debug.assert;
     const obj = B{ .a_pointer = &a };
     assert(obj.a_pointer == &a); // this makes zig crash
@@ -31,8 +29,6 @@ pub const B2 = struct {
 var b_value = B2{ .pointer_array = &[_]*A2{} };
 
 test "basic stuff" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     std.debug.assert(&b_value == &b_value);
 }
