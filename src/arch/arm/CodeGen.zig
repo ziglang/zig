@@ -1703,9 +1703,18 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
         const struct_field_ty = struct_ty.structFieldType(index);
         const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+        const adjusted_field_offset = struct_size - struct_field_offset - struct_field_size;
+
         switch (mcv) {
+            .dead, .unreach => unreachable,
+            .stack_argument_offset => |off| {
+                break :result MCValue{ .stack_argument_offset = off + adjusted_field_offset };
+            },
             .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off + struct_size - struct_field_offset - struct_field_size };
+                break :result MCValue{ .stack_offset = off + adjusted_field_offset };
+            },
+            .memory => |addr| {
+                break :result MCValue{ .memory = addr + adjusted_field_offset };
             },
             else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
         }

@@ -174,16 +174,12 @@ const MemberFnTestFoo = struct {
 };
 
 test "call member function directly" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const instance = MemberFnTestFoo{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
     try expect(result == 1234);
 }
 
 test "store member function in variable" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const instance = MemberFnTestFoo{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
