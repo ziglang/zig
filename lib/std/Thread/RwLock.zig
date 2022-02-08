@@ -129,7 +129,7 @@ pub const SingleThreadedRwLock = struct {
 };
 
 pub const PthreadRwLock = struct {
-    rwlock: std.c.pthread_rwlock_ti = .{},
+    rwlock: std.c.pthread_rwlock_t = .{},
 
     pub fn tryLock(rwl: *PthreadRwLock) bool {
         return std.c.pthread_rwlock_trywrlock(&rwl.rwlock) == .SUCCESS;
