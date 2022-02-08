@@ -4,6 +4,7 @@ const debug = std.debug;
 const os = std.os;
 const io = std.io;
 const print_zir = @import("print_zir.zig");
+const native_os = builtin.os.tag;
 
 const Module = @import("Module.zig");
 const Sema = @import("Sema.zig");
@@ -233,9 +234,15 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         },
         .aarch64 => ctx: {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.pc);
+            const ip = switch (native_os) {
+                .macos => @intCast(usize, ctx.mcontext.ss.pc),
+                else => @intCast(usize, ctx.mcontext.pc),
+            };
             // x29 is the ABI-designated frame pointer
-            const bp = @intCast(usize, ctx.mcontext.regs[29]);
+            const bp = switch (native_os) {
+                .macos => @intCast(usize, ctx.mcontext.ss.fp),
+                else => @intCast(usize, ctx.mcontext.regs[29]),
+            };
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },
         else => .not_supported,
