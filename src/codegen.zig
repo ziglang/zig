@@ -372,7 +372,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Struct => {
-            // TODO debug info
             const struct_obj = typed_value.ty.castTag(.@"struct").?.data;
             if (struct_obj.layout == .Packed) {
                 return Result{

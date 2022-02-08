@@ -142,30 +142,6 @@ pub const Inst = struct {
         rcr_scale_dst,
         rcr_scale_imm,
         rcr_mem_index_imm,
-        shl,
-        shl_mem_imm,
-        shl_scale_src,
-        shl_scale_dst,
-        shl_scale_imm,
-        shl_mem_index_imm,
-        sal,
-        sal_mem_imm,
-        sal_scale_src,
-        sal_scale_dst,
-        sal_scale_imm,
-        sal_mem_index_imm,
-        shr,
-        shr_mem_imm,
-        shr_scale_src,
-        shr_scale_dst,
-        shr_scale_imm,
-        shr_mem_index_imm,
-        sar,
-        sar_mem_imm,
-        sar_scale_src,
-        sar_scale_dst,
-        sar_scale_imm,
-        sar_mem_index_imm,
         sbb,
         sbb_mem_imm,
         sbb_scale_src,
@@ -211,6 +187,37 @@ pub const Inst = struct {
         /// Notes:
         /// * `Data` contains `linker_sym_index` 
         lea_pie,
+
+        /// ops flags: form:
+        ///      0b00  reg1, 1
+        ///      0b01  reg1, .cl
+        ///      0b10  reg1, imm8
+        /// Notes:
+        ///   * If flags == 0b10, uses `imm`.
+        shl,
+        shl_mem_imm,
+        shl_scale_src,
+        shl_scale_dst,
+        shl_scale_imm,
+        shl_mem_index_imm,
+        sal,
+        sal_mem_imm,
+        sal_scale_src,
+        sal_scale_dst,
+        sal_scale_imm,
+        sal_mem_index_imm,
+        shr,
+        shr_mem_imm,
+        shr_scale_src,
+        shr_scale_dst,
+        shr_scale_imm,
+        shr_mem_index_imm,
+        sar,
+        sar_mem_imm,
+        sar_scale_src,
+        sar_scale_dst,
+        sar_scale_imm,
+        sar_mem_index_imm,
 
         /// ops flags: form:
         ///      0bX0  reg1

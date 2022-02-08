@@ -9,7 +9,7 @@ const maxInt = std.math.maxInt;
 top_level_field: i32,
 
 test "top level fields" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var instance = @This(){
         .top_level_field = 1234,
@@ -176,7 +176,7 @@ const MemberFnTestFoo = struct {
 };
 
 test "call member function directly" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const instance = MemberFnTestFoo{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
@@ -184,7 +184,7 @@ test "call member function directly" {
 }
 
 test "store member function in variable" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const instance = MemberFnTestFoo{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
@@ -206,7 +206,7 @@ const MemberFnRand = struct {
 };
 
 test "return struct byval from function" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const bar = makeBar2(1234, 5678);
     try expect(bar.y == 5678);
