@@ -3057,8 +3057,10 @@ fn addDbgInfoType(
     var relocs = std.ArrayList(struct { ty: Type, reloc: u32 }).init(arena);
 
     switch (ty.zigTypeTag()) {
-        .Void => unreachable,
         .NoReturn => unreachable,
+        .Void => {
+            try dbg_info_buffer.append(abbrev_pad1);
+        },
         .Bool => {
             try dbg_info_buffer.appendSlice(&[_]u8{
                 abbrev_base_type,
