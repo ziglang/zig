@@ -2010,6 +2010,11 @@ fn buildOutputType(
                 _ = system_libs.orderedRemove(lib_name);
                 continue;
             }
+            if (target_util.is_compiler_rt_lib_name(target_info.target, lib_name)) {
+                std.log.warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
+                _ = system_libs.orderedRemove(lib_name);
+                continue;
+            }
             if (std.fs.path.isAbsolute(lib_name)) {
                 fatal("cannot use absolute path as a system library: {s}", .{lib_name});
             }

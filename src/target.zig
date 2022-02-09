@@ -427,6 +427,16 @@ pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
         eqlIgnoreCase(ignore_case, name, "c++abi");
 }
 
+pub fn is_compiler_rt_lib_name(target: std.Target, name: []const u8) bool {
+    if (target.abi.isGnu() and std.mem.eql(u8, name, "gcc_s")) {
+        return true;
+    }
+    if (std.mem.eql(u8, name, "compiler_rt")) {
+        return true;
+    }
+    return false;
+}
+
 pub fn hasDebugInfo(target: std.Target) bool {
     return !target.cpu.arch.isWasm();
 }
