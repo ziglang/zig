@@ -614,7 +614,7 @@ pub const TestContext = struct {
         const host = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, .{});
 
         var progress = std.Progress{};
-        const root_node = try progress.start("compiler", self.cases.items.len);
+        const root_node = progress.start("compiler", self.cases.items.len);
         defer root_node.end();
 
         var zig_lib_directory = try introspect.findZigLibDir(std.testing.allocator);

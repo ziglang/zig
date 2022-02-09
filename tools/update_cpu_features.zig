@@ -801,7 +801,7 @@ pub fn main() anyerror!void {
     defer zig_src_dir.close();
 
     var progress = std.Progress{};
-    const root_progress = try progress.start("", llvm_targets.len);
+    const root_progress = progress.start("", llvm_targets.len);
     defer root_progress.end();
 
     if (builtin.single_threaded) {

@@ -1196,7 +1196,7 @@ fn genHtml(
     do_code_tests: bool,
 ) !void {
     var progress = Progress{};
-    const root_node = try progress.start("Generating docgen examples", toc.nodes.len);
+    const root_node = progress.start("Generating docgen examples", toc.nodes.len);
     defer root_node.end();
 
     var env_map = try process.getEnvMap(allocator);
