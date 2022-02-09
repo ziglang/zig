@@ -93,6 +93,11 @@ jobs:
       Set-Variable -Name ZIGBUILDDIR -Value "$(Get-Location)\build"
       $Env:AWS_SHARED_CREDENTIALS_FILE = "$Env:DOWNLOADSECUREFILE_SECUREFILEPATH"
 
+      # Workaround Azure networking issue
+      # https://github.com/aws/aws-cli/issues/5749
+      $Env:AWS_EC2_METADATA_DISABLED = "true"
+      $Env:AWS_REGION = "us-west-2"
+
       cd "$ZIGBUILDDIR"
       mv ../LICENSE dist/
       mv ../zig-cache/langref.html dist/
