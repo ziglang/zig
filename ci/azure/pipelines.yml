@@ -91,7 +91,7 @@ jobs:
 
   - pwsh: |
       Set-Variable -Name ZIGBUILDDIR -Value "$(Get-Location)\build"
-      $Env:AWS_SHARED_CREDENTIALS_FILE = "$(aws_credentials.secureFilePath)"
+      $Env:AWS_SHARED_CREDENTIALS_FILE = "$Env:DOWNLOADSECUREFILE_SECUREFILEPATH"
 
       cd "$ZIGBUILDDIR"
       mv ../LICENSE dist/
@@ -118,7 +118,7 @@ jobs:
       Set-Variable -Name SHASUM -Value (Get-FileHash "$TARBALL" -Algorithm SHA256 | select-object -ExpandProperty Hash)
       Set-Variable -Name BYTESIZE -Value (Get-Item "$TARBALL").length
 
-      Set-Variable -Name JSONFILE -Value "windows-${GITBRANCH}.json"
+      Set-Variable -Name JSONFILE -Value "windows-${Env:BUILD_SOURCEBRANCHNAME}.json"
       echo $null > $JSONFILE
       echo ('{"tarball": "' + $TARBALL  + '",') >> $JSONFILE
       echo ('"shasum":   "' + $SHASUM   + '",') >> $JSONFILE
