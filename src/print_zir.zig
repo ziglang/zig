@@ -155,7 +155,7 @@ const Writer = struct {
 
             .alloc,
             .alloc_mut,
-            .alloc_comptime,
+            .alloc_comptime_mut,
             .indexable_ptr_len,
             .anyframe_type,
             .bit_not,
@@ -401,6 +401,7 @@ const Writer = struct {
             .alloc_inferred,
             .alloc_inferred_mut,
             .alloc_inferred_comptime,
+            .alloc_inferred_comptime_mut,
             => try self.writeNode(stream, inst),
 
             .error_value,

@@ -105,7 +105,6 @@ test {
                 _ = @import("behavior/math.zig");
                 _ = @import("behavior/maximum_minimum.zig");
                 _ = @import("behavior/merge_error_sets.zig");
-                _ = @import("behavior/null_llvm.zig");
                 _ = @import("behavior/popcount.zig");
                 _ = @import("behavior/saturating_arithmetic.zig");
                 _ = @import("behavior/sizeof_and_typeof.zig");
@@ -156,7 +155,6 @@ test {
                     _ = @import("behavior/ir_block_deps.zig");
                     _ = @import("behavior/misc.zig");
                     _ = @import("behavior/muladd.zig");
-                    _ = @import("behavior/null_stage1.zig");
                     _ = @import("behavior/optional_stage1.zig");
                     _ = @import("behavior/popcount_stage1.zig");
                     _ = @import("behavior/reflection.zig");

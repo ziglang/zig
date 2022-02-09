@@ -909,14 +909,18 @@ pub const Inst = struct {
         /// Allocates comptime-mutable memory.
         /// Uses the `un_node` union field. The operand is the type of the allocated object.
         /// The node source location points to a var decl node.
-        alloc_comptime,
+        alloc_comptime_mut,
         /// Same as `alloc` except the type is inferred.
         /// Uses the `node` union field.
         alloc_inferred,
         /// Same as `alloc_inferred` except mutable.
         alloc_inferred_mut,
-        /// Same as `alloc_comptime` except the type is inferred.
+        /// Allocates comptime const memory.
+        /// Uses the `node` union field. The type of the allocated object is inferred.
+        /// The node source location points to a var decl node.
         alloc_inferred_comptime,
+        /// Same as `alloc_comptime_mut` except the type is inferred.
+        alloc_inferred_comptime_mut,
         /// Each `store_to_inferred_ptr` puts the type of the stored value into a set,
         /// and then `resolve_inferred_alloc` triggers peer type resolution on the set.
         /// The operand is a `alloc_inferred` or `alloc_inferred_mut` instruction, which
@@ -957,10 +961,11 @@ pub const Inst = struct {
                 .add_sat,
                 .alloc,
                 .alloc_mut,
-                .alloc_comptime,
+                .alloc_comptime_mut,
                 .alloc_inferred,
                 .alloc_inferred_mut,
                 .alloc_inferred_comptime,
+                .alloc_inferred_comptime_mut,
                 .array_cat,
                 .array_mul,
                 .array_type,
@@ -1446,10 +1451,11 @@ pub const Inst = struct {
 
                 .alloc = .un_node,
                 .alloc_mut = .un_node,
-                .alloc_comptime = .un_node,
+                .alloc_comptime_mut = .un_node,
                 .alloc_inferred = .node,
                 .alloc_inferred_mut = .node,
                 .alloc_inferred_comptime = .node,
+                .alloc_inferred_comptime_mut = .node,
                 .resolve_inferred_alloc = .un_node,
 
                 .@"resume" = .un_node,

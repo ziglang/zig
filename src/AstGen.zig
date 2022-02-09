@@ -2084,10 +2084,11 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .param_anytype_comptime,
             .alloc,
             .alloc_mut,
-            .alloc_comptime,
+            .alloc_comptime_mut,
             .alloc_inferred,
             .alloc_inferred_mut,
             .alloc_inferred_comptime,
+            .alloc_inferred_comptime_mut,
             .array_cat,
             .array_mul,
             .array_type,
@@ -2613,7 +2614,7 @@ fn varDecl(
                         .type_inst = type_inst,
                         .align_inst = align_inst,
                         .is_const = true,
-                        .is_comptime = false,
+                        .is_comptime = gz.force_comptime,
                     });
                     init_scope.instructions_top = gz.instructions.items.len;
                 }
@@ -2621,14 +2622,18 @@ fn varDecl(
             } else {
                 const alloc = if (align_inst == .none) alloc: {
                     init_scope.instructions_top = gz.instructions.items.len;
-                    break :alloc try init_scope.addNode(.alloc_inferred, node);
+                    const tag: Zir.Inst.Tag = if (gz.force_comptime)
+                        .alloc_inferred_comptime
+                    else
+                        .alloc_inferred;
+                    break :alloc try init_scope.addNode(tag, node);
                 } else alloc: {
                     const ref = try gz.addAllocExtended(.{
                         .node = node,
                         .type_inst = .none,
                         .align_inst = align_inst,
                         .is_const = true,
-                        .is_comptime = false,
+                        .is_comptime = gz.force_comptime,
                     });
                     init_scope.instructions_top = gz.instructions.items.len;
                     break :alloc ref;
@@ -2716,7 +2721,10 @@ fn varDecl(
                 const type_inst = try typeExpr(gz, scope, var_decl.ast.type_node);
                 const alloc = alloc: {
                     if (align_inst == .none) {
-                        const tag: Zir.Inst.Tag = if (is_comptime) .alloc_comptime else .alloc_mut;
+                        const tag: Zir.Inst.Tag = if (is_comptime)
+                            .alloc_comptime_mut
+                        else
+                            .alloc_mut;
                         break :alloc try gz.addUnNode(tag, type_inst, node);
                     } else {
                         break :alloc try gz.addAllocExtended(.{
@@ -2732,7 +2740,10 @@ fn varDecl(
             } else a: {
                 const alloc = alloc: {
                     if (align_inst == .none) {
-                        const tag: Zir.Inst.Tag = if (is_comptime) .alloc_inferred_comptime else .alloc_inferred_mut;
+                        const tag: Zir.Inst.Tag = if (is_comptime)
+                            .alloc_inferred_comptime_mut
+                        else
+                            .alloc_inferred_mut;
                         break :alloc try gz.addNode(tag, node);
                     } else {
                         break :alloc try gz.addAllocExtended(.{
@@ -5441,7 +5452,7 @@ fn forExpr(
     const len = try parent_gz.addUnNode(.indexable_ptr_len, array_ptr, for_full.ast.cond_expr);
 
     const index_ptr = blk: {
-        const alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime else .alloc;
+        const alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime_mut else .alloc;
         const index_ptr = try parent_gz.addUnNode(alloc_tag, .usize_type, node);
         // initialize to zero
         _ = try parent_gz.addBin(.store, index_ptr, .zero_usize);

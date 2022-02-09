@@ -584,9 +584,10 @@ fn analyzeBodyInner(
             .alloc                        => try sema.zirAlloc(block, inst),
             .alloc_inferred               => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_const)),
             .alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_mut)),
-            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(inst),
+            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(inst, Type.initTag(.inferred_alloc_const)),
+            .alloc_inferred_comptime_mut  => try sema.zirAllocInferredComptime(inst, Type.initTag(.inferred_alloc_mut)),
             .alloc_mut                    => try sema.zirAllocMut(block, inst),
-            .alloc_comptime               => try sema.zirAllocComptime(block, inst),
+            .alloc_comptime_mut           => try sema.zirAllocComptime(block, inst),
             .anyframe_type                => try sema.zirAnyframeType(block, inst),
             .array_cat                    => try sema.zirArrayCat(block, inst),
             .array_mul                    => try sema.zirArrayMul(block, inst),
@@ -2368,12 +2369,16 @@ fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     return sema.analyzeComptimeAlloc(block, var_ty, 0, ty_src);
 }
 
-fn zirAllocInferredComptime(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirAllocInferredComptime(
+    sema: *Sema,
+    inst: Zir.Inst.Index,
+    inferred_alloc_ty: Type,
+) CompileError!Air.Inst.Ref {
     const src_node = sema.code.instructions.items(.data)[inst].node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
     sema.src = src;
     return sema.addConstant(
-        Type.initTag(.inferred_alloc_mut),
+        inferred_alloc_ty,
         try Value.Tag.inferred_alloc_comptime.create(sema.arena, undefined),
     );
 }
@@ -2480,6 +2485,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const final_elem_ty = try decl.ty.copy(sema.arena);
             const final_ptr_ty = try Type.ptr(sema.arena, .{
                 .pointee_type = final_elem_ty,
+                .mutable = var_is_mut,
                 .@"align" = iac.data.alignment,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
             });
@@ -2499,9 +2505,6 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
             const peer_inst_list = inferred_alloc.data.stored_inst_list.items;
             const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list, .none);
-
-            try sema.requireRuntimeBlock(block, src);
-            try sema.resolveTypeLayout(block, ty_src, final_elem_ty);
 
             const final_ptr_ty = try Type.ptr(sema.arena, .{
                 .pointee_type = final_elem_ty,
@@ -2563,6 +2566,9 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                 return;
             }
+
+            try sema.requireRuntimeBlock(block, src);
+            try sema.resolveTypeLayout(block, ty_src, final_elem_ty);
 
             // Change it to a normal alloc.
             sema.air_instructions.set(ptr_inst, .{
