@@ -116,6 +116,8 @@ pub const Inst = struct {
         strh_register,
         /// Subtract (immediate)
         sub_immediate,
+        /// Subtract (shifted register)
+        sub_shifted_register,
         /// Supervisor Call
         svc,
     };
