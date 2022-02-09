@@ -67,13 +67,21 @@ private:
       return (pint_t)((sint_t)registers.getRegister((int)prolog.cfaRegister) +
              prolog.cfaRegisterOffset);
     if (prolog.cfaExpression != 0)
-      return evaluateExpression((pint_t)prolog.cfaExpression, addressSpace, 
+      return evaluateExpression((pint_t)prolog.cfaExpression, addressSpace,
                                 registers, 0);
     assert(0 && "getCFA(): unknown location");
     __builtin_unreachable();
   }
 };
 
+
+template <typename R>
+auto getSparcWCookie(const R &r, int) -> decltype(r.getWCookie()) {
+  return r.getWCookie();
+}
+template <typename R> uint64_t getSparcWCookie(const R &, long) {
+  return 0;
+}
 
 template <typename A, typename R>
 typename A::pint_t DwarfInstructions<A, R>::getSavedRegister(
@@ -85,7 +93,7 @@ typename A::pint_t DwarfInstructions<A, R>::getSavedRegister(
 
   case CFI_Parser<A>::kRegisterInCFADecrypt: // sparc64 specific
     return addressSpace.getP(cfa + (pint_t)savedReg.value) ^
-           registers.getWCookie();
+           getSparcWCookie(registers, 0);
 
   case CFI_Parser<A>::kRegisterAtExpression:
     return (pint_t)addressSpace.getRegister(evaluateExpression(
