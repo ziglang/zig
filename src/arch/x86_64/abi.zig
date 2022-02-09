@@ -18,10 +18,34 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
         else => return .memory,
     }
     return switch (ty.zigTypeTag()) {
-        .Int, .Bool, .Enum, .Void, .NoReturn, .ErrorSet, .Struct, .Union => .integer,
-        .Optional => if (ty.isPtrLikeOptional()) return .integer else return .memory,
+        .Pointer,
+        .Int,
+        .Bool,
+        .Enum,
+        .Void,
+        .NoReturn,
+        .ErrorSet,
+        .Struct,
+        .Union,
+        .Optional,
+        .Array,
+        .ErrorUnion,
+        .AnyFrame,
+        .Frame,
+        => .integer,
+
         .Float, .Vector => .sse,
-        else => unreachable,
+
+        .Type,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Undefined,
+        .Null,
+        .BoundFn,
+        .Fn,
+        .Opaque,
+        .EnumLiteral,
+        => unreachable,
     };
 }
 

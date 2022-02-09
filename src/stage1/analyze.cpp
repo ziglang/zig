@@ -8255,23 +8255,53 @@ Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents_buf) {
 
 static X64CABIClass type_windows_abi_x86_64_class(CodeGen *g, ZigType *ty, size_t ty_size) {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
+    switch (ty_size) {
+        case 1:
+        case 2:
+        case 4:
+        case 8:
+            break;
+        case 16:
+            return (ty->id == ZigTypeIdVector) ? X64CABIClass_SSE : X64CABIClass_MEMORY;
+        default:
+            return X64CABIClass_MEMORY;
+    }
     switch (ty->id) {
-        case ZigTypeIdEnum:
+        case ZigTypeIdInvalid:
+        case ZigTypeIdMetaType:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdNull:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdEnumLiteral:
+            zig_unreachable();
+
+        case ZigTypeIdFn:
+        case ZigTypeIdPointer:
         case ZigTypeIdInt:
         case ZigTypeIdBool:
+        case ZigTypeIdEnum:
+        case ZigTypeIdVoid:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdStruct:
+        case ZigTypeIdUnion:
+        case ZigTypeIdOptional:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
             return X64CABIClass_INTEGER;
+
         case ZigTypeIdFloat:
         case ZigTypeIdVector:
             return X64CABIClass_SSE;
-        case ZigTypeIdStruct:
-        case ZigTypeIdUnion: {
-            if (ty_size <= 8)
-                return X64CABIClass_INTEGER;
-            return X64CABIClass_MEMORY;
-        }
-        default:
+
+        case ZigTypeIdArray:
             return X64CABIClass_Unknown;
     }
+    zig_unreachable();
 }
 
 static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size_t ty_size) {
@@ -8350,17 +8380,19 @@ static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size
 
 X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
     Error err;
-
     const size_t ty_size = type_size(g, ty);
+
+    if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
+        return type_windows_abi_x86_64_class(g, ty, ty_size);
+    }
+
     ZigType *ptr_type;
     if ((err = get_codegen_ptr_type(g, ty, &ptr_type))) return X64CABIClass_Unknown;
     if (ptr_type != nullptr)
         return X64CABIClass_INTEGER;
 
-    if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
-        return type_windows_abi_x86_64_class(g, ty, ty_size);
-    } else if (g->zig_target->arch == ZigLLVM_aarch64 ||
-            g->zig_target->arch == ZigLLVM_aarch64_be)
+    if (g->zig_target->arch == ZigLLVM_aarch64 ||
+        g->zig_target->arch == ZigLLVM_aarch64_be)
     {
         X64CABIClass result = type_system_V_abi_x86_64_class(g, ty, ty_size);
         return (result == X64CABIClass_MEMORY) ? X64CABIClass_MEMORY_nobyval : result;
@@ -8660,14 +8692,23 @@ static Error resolve_llvm_c_abi_type(CodeGen *g, ZigType *ty) {
                 if (ty->data.structure.fields[i]->offset >= 8) {
                     eightbyte_index = 1;
                 }
-                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields[i]->type_entry);
+                ZigType *field_ty = ty->data.structure.fields[i]->type_entry;
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, field_ty);
 
                 if (field_class == X64CABIClass_INTEGER) {
                     type_classes[eightbyte_index] = X64CABIClass_INTEGER;
                 } else if (type_classes[eightbyte_index] == X64CABIClass_Unknown) {
                     type_classes[eightbyte_index] = field_class;
                 }
-                type_sizes[eightbyte_index] += ty->data.structure.fields[i]->type_entry->abi_size;
+                if (field_ty->abi_size > 8) {
+                    assert(eightbyte_index == 0);
+                    type_sizes[0] = 8;
+                    type_sizes[1] = field_ty->abi_size - 8;
+                    type_classes[1] = type_classes[0];
+                    eightbyte_index = 1;
+                } else {
+                    type_sizes[eightbyte_index] += field_ty->abi_size;
+                }
             }
 
             LLVMTypeRef return_elem_types[] = {
@@ -8956,8 +8997,12 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         struct_type->data.structure.llvm_full_type_queue_index = SIZE_MAX;
     }
 
-    if (struct_type->abi_size <= 16 && (struct_type->data.structure.layout == ContainerLayoutExtern || struct_type->data.structure.layout == ContainerLayoutPacked))
+    if (struct_type->abi_size <= 16 &&
+        (struct_type->data.structure.layout == ContainerLayoutExtern ||
+            struct_type->data.structure.layout == ContainerLayoutPacked))
+    {
         resolve_llvm_c_abi_type(g, struct_type);
+    }
 }
 
 // This is to be used instead of void for debug info types, to avoid tripping
