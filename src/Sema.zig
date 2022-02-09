@@ -13647,6 +13647,7 @@ fn structFieldPtr(
     assert(unresolved_struct_ty.zigTypeTag() == .Struct);
 
     const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_ty);
+    try sema.resolveStructLayout(block, src, struct_ty);
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
     const field_index_big = struct_obj.fields.getIndex(field_name) orelse

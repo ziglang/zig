@@ -6,7 +6,9 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const math = std.math;
 const native_os = builtin.os.tag;
+const long_double_is_f128 = builtin.target.longDoubleIsF128();
 
 comptime {
     // When the self-hosted compiler is further along, all the logic from c_stage1.zig will
@@ -15,6 +17,9 @@ comptime {
     if (builtin.zig_backend != .stage1) {
         @export(memset, .{ .name = "memset", .linkage = .Strong });
         @export(memcpy, .{ .name = "memcpy", .linkage = .Strong });
+        @export(trunc, .{ .name = "trunc", .linkage = .Strong });
+        @export(truncf, .{ .name = "truncf", .linkage = .Strong });
+        @export(truncl, .{ .name = "truncl", .linkage = .Strong });
     } else {
         _ = @import("c_stage1.zig");
     }
@@ -73,4 +78,19 @@ fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(
     }
 
     return dest;
+}
+
+fn trunc(a: f64) f64 {
+    return math.trunc(a);
+}
+
+fn truncf(a: f32) f32 {
+    return math.trunc(a);
+}
+
+fn truncl(a: c_longdouble) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
+    return math.trunc(a);
 }
