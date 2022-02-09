@@ -245,8 +245,6 @@ test "C pointer slice access" {
 }
 
 test "comptime slices are disambiguated" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try expect(sliceSum(&[_]u8{ 1, 2 }) == 3);
     try expect(sliceSum(&[_]u8{ 3, 4 }) == 7);
 }

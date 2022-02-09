@@ -1331,12 +1331,16 @@ pub const Value = extern union {
 
             .one,
             .bool_true,
-            => {
-                const info = ty.intInfo(target);
-                return switch (info.signedness) {
-                    .signed => info.bits >= 2,
-                    .unsigned => info.bits >= 1,
-                };
+            => switch (ty.zigTypeTag()) {
+                .Int => {
+                    const info = ty.intInfo(target);
+                    return switch (info.signedness) {
+                        .signed => info.bits >= 2,
+                        .unsigned => info.bits >= 1,
+                    };
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
             },
 
             .int_u64 => switch (ty.zigTypeTag()) {
@@ -1390,13 +1394,17 @@ pub const Value = extern union {
             .decl_ref,
             .function,
             .variable,
-            => {
-                const info = ty.intInfo(target);
-                const ptr_bits = target.cpu.arch.ptrBitWidth();
-                return switch (info.signedness) {
-                    .signed => info.bits > ptr_bits,
-                    .unsigned => info.bits >= ptr_bits,
-                };
+            => switch (ty.zigTypeTag()) {
+                .Int => {
+                    const info = ty.intInfo(target);
+                    const ptr_bits = target.cpu.arch.ptrBitWidth();
+                    return switch (info.signedness) {
+                        .signed => info.bits > ptr_bits,
+                        .unsigned => info.bits >= ptr_bits,
+                    };
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
             },
 
             else => unreachable,
