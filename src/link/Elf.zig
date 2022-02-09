@@ -2,6 +2,7 @@ const Elf = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
+const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -64,6 +65,7 @@ phdr_load_rw_index: ?u16 = null,
 phdr_shdr_table: std.AutoHashMapUnmanaged(u16, u16) = .{},
 
 entry_addr: ?u64 = null,
+page_size: u16,
 
 debug_strtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
 shstrtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
@@ -334,6 +336,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     };
     const self = try gpa.create(Elf);
     errdefer gpa.destroy(self);
+    const page_size: u16 = 0x1000; // TODO ppc64le requires 64KB
 
     self.* = .{
         .base = .{
@@ -343,6 +346,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
             .file = null,
         },
         .ptr_width = ptr_width,
+        .page_size = page_size,
     };
     const use_llvm = build_options.have_llvm and options.use_llvm;
     const use_stage1 = build_options.is_stage1 and options.use_stage1;
@@ -523,10 +527,11 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         .p64 => false,
     };
     const ptr_size: u8 = self.ptrWidthBytes();
+
     if (self.phdr_load_re_index == null) {
         self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
         const file_size = self.base.options.program_code_size_hint;
-        const p_align = 0x1000;
+        const p_align = self.page_size;
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD RE free space 0x{x} to 0x{x}", .{ off, off + file_size });
         const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
@@ -544,12 +549,13 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.entry_addr = null;
         self.phdr_table_dirty = true;
     }
+
     if (self.phdr_got_index == null) {
         self.phdr_got_index = @intCast(u16, self.program_headers.items.len);
         const file_size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
         // We really only need ptr alignment but since we are using PROGBITS, linux requires
         // page align.
-        const p_align = if (self.base.options.target.os.tag == .linux) 0x1000 else @as(u16, ptr_size);
+        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD GOT free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
@@ -568,16 +574,17 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         });
         self.phdr_table_dirty = true;
     }
+
     if (self.phdr_load_ro_index == null) {
         self.phdr_load_ro_index = @intCast(u16, self.program_headers.items.len);
         // TODO Find a hint about how much data need to be in rodata ?
         const file_size = 1024;
         // Same reason as for GOT
-        const p_align = if (self.base.options.target.os.tag == .linux) 0x1000 else @as(u16, ptr_size);
+        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
         const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+        log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x5000000 else 0xa000;
+        const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
         try self.program_headers.append(self.base.allocator, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -591,16 +598,17 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         try self.atom_free_lists.putNoClobber(self.base.allocator, self.phdr_load_ro_index.?, .{});
         self.phdr_table_dirty = true;
     }
+
     if (self.phdr_load_rw_index == null) {
         self.phdr_load_rw_index = @intCast(u16, self.program_headers.items.len);
         // TODO Find a hint about how much data need to be in data ?
         const file_size = 1024;
         // Same reason as for GOT
-        const p_align = if (self.base.options.target.os.tag == .linux) 0x1000 else @as(u16, ptr_size);
+        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
         const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+        log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rwdata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x6000000 else 0xc000;
+        const rwdata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
         try self.program_headers.append(self.base.allocator, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -614,6 +622,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         try self.atom_free_lists.putNoClobber(self.base.allocator, self.phdr_load_rw_index.?, .{});
         self.phdr_table_dirty = true;
     }
+
     if (self.shstrtab_index == null) {
         self.shstrtab_index = @intCast(u16, self.sections.items.len);
         assert(self.shstrtab.items.len == 0);
@@ -635,6 +644,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shstrtab_dirty = true;
         self.shdr_table_dirty = true;
     }
+
     if (self.text_section_index == null) {
         self.text_section_index = @intCast(u16, self.sections.items.len);
         const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
@@ -648,7 +658,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .sh_size = phdr.p_filesz,
             .sh_link = 0,
             .sh_info = 0,
-            .sh_addralign = phdr.p_align,
+            .sh_addralign = 1,
             .sh_entsize = 0,
         });
         try self.phdr_shdr_table.putNoClobber(
@@ -658,6 +668,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         );
         self.shdr_table_dirty = true;
     }
+
     if (self.got_section_index == null) {
         self.got_section_index = @intCast(u16, self.sections.items.len);
         const phdr = &self.program_headers.items[self.phdr_got_index.?];
@@ -671,7 +682,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .sh_size = phdr.p_filesz,
             .sh_link = 0,
             .sh_info = 0,
-            .sh_addralign = phdr.p_align,
+            .sh_addralign = @as(u16, ptr_size),
             .sh_entsize = 0,
         });
         try self.phdr_shdr_table.putNoClobber(
@@ -681,6 +692,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         );
         self.shdr_table_dirty = true;
     }
+
     if (self.rodata_section_index == null) {
         self.rodata_section_index = @intCast(u16, self.sections.items.len);
         const phdr = &self.program_headers.items[self.phdr_load_ro_index.?];
@@ -694,7 +706,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .sh_size = phdr.p_filesz,
             .sh_link = 0,
             .sh_info = 0,
-            .sh_addralign = phdr.p_align,
+            .sh_addralign = 1,
             .sh_entsize = 0,
         });
         try self.phdr_shdr_table.putNoClobber(
@@ -704,6 +716,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         );
         self.shdr_table_dirty = true;
     }
+
     if (self.data_section_index == null) {
         self.data_section_index = @intCast(u16, self.sections.items.len);
         const phdr = &self.program_headers.items[self.phdr_load_rw_index.?];
@@ -717,7 +730,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .sh_size = phdr.p_filesz,
             .sh_link = 0,
             .sh_info = 0,
-            .sh_addralign = phdr.p_align,
+            .sh_addralign = @as(u16, ptr_size),
             .sh_entsize = 0,
         });
         try self.phdr_shdr_table.putNoClobber(
@@ -727,6 +740,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         );
         self.shdr_table_dirty = true;
     }
+
     if (self.symtab_section_index == null) {
         self.symtab_section_index = @intCast(u16, self.sections.items.len);
         const min_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);
@@ -751,6 +765,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shdr_table_dirty = true;
         try self.writeSymbol(0);
     }
+
     if (self.debug_str_section_index == null) {
         self.debug_str_section_index = @intCast(u16, self.sections.items.len);
         assert(self.debug_strtab.items.len == 0);
@@ -769,6 +784,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.debug_strtab_dirty = true;
         self.shdr_table_dirty = true;
     }
+
     if (self.debug_info_section_index == null) {
         self.debug_info_section_index = @intCast(u16, self.sections.items.len);
 
@@ -794,6 +810,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shdr_table_dirty = true;
         self.debug_info_header_dirty = true;
     }
+
     if (self.debug_abbrev_section_index == null) {
         self.debug_abbrev_section_index = @intCast(u16, self.sections.items.len);
 
@@ -819,6 +836,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shdr_table_dirty = true;
         self.debug_abbrev_section_dirty = true;
     }
+
     if (self.debug_aranges_section_index == null) {
         self.debug_aranges_section_index = @intCast(u16, self.sections.items.len);
 
@@ -844,6 +862,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shdr_table_dirty = true;
         self.debug_aranges_section_dirty = true;
     }
+
     if (self.debug_line_section_index == null) {
         self.debug_line_section_index = @intCast(u16, self.sections.items.len);
 
@@ -869,6 +888,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shdr_table_dirty = true;
         self.debug_line_header_dirty = true;
     }
+
     const shsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Shdr),
         .p64 => @sizeOf(elf.Elf64_Shdr),
@@ -881,6 +901,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shdr_table_offset = self.findFreeSpace(self.sections.items.len * shsize, shalign);
         self.shdr_table_dirty = true;
     }
+
     const phsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Phdr),
         .p64 => @sizeOf(elf.Elf64_Phdr),
@@ -893,6 +914,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.phdr_table_offset = self.findFreeSpace(self.program_headers.items.len * phsize, phalign);
         self.phdr_table_dirty = true;
     }
+
     {
         // Iterate over symbols, populating free_list and last_text_block.
         if (self.local_symbols.items.len != 1) {
@@ -2378,12 +2400,13 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
         const text_capacity = self.allocatedSize(shdr.sh_offset);
         const needed_size = (vaddr + new_block_size) - phdr.p_vaddr;
         if (needed_size > text_capacity) {
-            // Must move the entire text section.
-            const new_offset = self.findFreeSpace(needed_size, 0x1000);
+            // Must move the entire section.
+            const new_offset = self.findFreeSpace(needed_size, self.page_size);
             const text_size = if (self.atoms.get(phdr_index)) |last| blk: {
                 const sym = self.local_symbols.items[last.local_sym_index];
                 break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
             } else 0;
+            log.debug("new PT_LOAD file offset 0x{x} to 0x{x}", .{ new_offset, new_offset + text_size });
             const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, text_size);
             if (amt != text_size) return error.InputOutput;
             shdr.sh_offset = new_offset;
@@ -2407,6 +2430,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
         self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
         self.shdr_table_dirty = true; // TODO look into making only the one section dirty
     }
+    shdr.sh_addralign = math.max(shdr.sh_addralign, alignment);
 
     // This function can also reallocate a text block.
     // In this case we need to "unplug" it from its previous location before
@@ -3478,7 +3502,7 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
         const needed_size = self.offset_table.items.len * entry_size;
         if (needed_size > allocated_size) {
             // Must move the entire got section.
-            const new_offset = self.findFreeSpace(needed_size, entry_size);
+            const new_offset = self.findFreeSpace(needed_size, self.page_size);
             const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, shdr.sh_size);
             if (amt != shdr.sh_size) return error.InputOutput;
             shdr.sh_offset = new_offset;
