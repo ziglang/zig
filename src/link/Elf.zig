@@ -922,6 +922,21 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         }
         // We are starting with an empty file. The default values are correct, null and empty list.
     }
+
+    if (self.shdr_table_dirty) {
+        // We need to find out what the max file offset is according to section headers.
+        // Otherwise, we may end up with an ELF binary with file size not matching the final section's
+        // offset + it's filesize.
+        var max_file_offset: u64 = 0;
+
+        for (self.sections.items) |shdr| {
+            if (shdr.sh_offset + shdr.sh_size > max_file_offset) {
+                max_file_offset = shdr.sh_offset + shdr.sh_size;
+            }
+        }
+
+        try self.base.file.?.pwriteAll(&[_]u8{0}, max_file_offset);
+    }
 }
 
 pub const abbrev_compile_unit = 1;
