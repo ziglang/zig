@@ -775,8 +775,6 @@ test "comptime float rem int" {
 }
 
 test "remainder division" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime try remdiv(f16);
     comptime try remdiv(f32);
     comptime try remdiv(f64);
