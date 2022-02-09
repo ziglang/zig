@@ -71,8 +71,6 @@ fn testBasic() !void {
 }
 
 test "type info: pointer type info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testPointer();
     comptime try testPointer();
 }
@@ -89,8 +87,6 @@ fn testPointer() !void {
 }
 
 test "type info: unknown length pointer type info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testUnknownLenPtr();
     comptime try testUnknownLenPtr();
 }
@@ -125,8 +121,6 @@ fn testNullTerminatedPtr() !void {
 }
 
 test "type info: slice type info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testSlice();
     comptime try testSlice();
 }
@@ -306,8 +300,6 @@ const TestStruct = packed struct {
 };
 
 test "type info: opaque info" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     try testOpaque();
     comptime try testOpaque();
 }
@@ -417,8 +409,6 @@ test "type info: TypeId -> TypeInfo impl cast" {
 }
 
 test "sentinel of opaque pointer type" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const c_void_info = @typeInfo(*anyopaque);
     try expect(c_void_info.Pointer.sentinel == null);
 }

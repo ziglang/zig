@@ -9651,6 +9651,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .Pointer => {
             const info = ty.ptrInfo().data;
+            const alignment = if (info.@"align" != 0)
+                info.@"align"
+            else
+                info.pointee_type.abiAlignment(target);
+
             const field_values = try sema.arena.alloc(Value, 8);
             // size: Size,
             field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.size));
@@ -9659,7 +9664,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // is_volatile: bool,
             field_values[2] = if (info.@"volatile") Value.@"true" else Value.@"false";
             // alignment: comptime_int,
-            field_values[3] = try Value.Tag.int_u64.create(sema.arena, info.@"align");
+            field_values[3] = try Value.Tag.int_u64.create(sema.arena, alignment);
             // address_space: AddressSpace
             field_values[4] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.@"addrspace"));
             // child: type,

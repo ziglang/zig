@@ -4687,7 +4687,7 @@ pub const Type = extern union {
             pub const Data = struct {
                 pointee_type: Type,
                 sentinel: ?Value = null,
-                /// If zero use pointee_type.AbiAlign()
+                /// If zero use pointee_type.abiAlignment()
                 @"align": u32 = 0,
                 /// See src/target.zig defaultAddressSpace function for how to obtain
                 /// an appropriate value for this field.
