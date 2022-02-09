@@ -3013,7 +3013,7 @@ pub const Type = extern union {
         }
     }
 
-    /// Asserts the type is an array or vector.
+    /// Asserts the type is an array or vector or struct.
     pub fn arrayLen(ty: Type) u64 {
         return switch (ty.tag()) {
             .vector => ty.castTag(.vector).?.data.len,
@@ -3022,6 +3022,7 @@ pub const Type = extern union {
             .array_u8 => ty.castTag(.array_u8).?.data,
             .array_u8_sentinel_0 => ty.castTag(.array_u8_sentinel_0).?.data,
             .tuple => ty.castTag(.tuple).?.data.types.len,
+            .@"struct" => ty.castTag(.@"struct").?.data.fields.count(),
 
             else => unreachable,
         };

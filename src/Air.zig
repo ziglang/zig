@@ -521,7 +521,8 @@ pub const Inst = struct {
         /// Some of the elements may be comptime-known.
         /// Uses the `ty_pl` field, payload is index of an array of elements, each of which
         /// is a `Ref`. Length of the array is given by the vector type.
-        /// TODO rename this to `array_init` and make it support array values too.
+        /// TODO rename this to `aggregate_init` and make it support array values and
+        /// struct values too.
         vector_init,
 
         /// Communicates an intent to load memory.

@@ -3187,12 +3187,32 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const zir_tags = sema.code.instructions.items(.tag);
+    const zir_datas = sema.code.instructions.items(.data);
+    const inst_data = zir_datas[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const ptr = sema.resolveInst(extra.lhs);
-    const value = sema.resolveInst(extra.rhs);
-    return sema.storePtr(block, src, ptr, value);
+    const operand = sema.resolveInst(extra.rhs);
+
+    // Check for the possibility of this pattern:
+    //   %a = ret_ptr
+    //   %b = store(%a, %c)
+    // Where %c is an error union. In such case we need to add to the current function's
+    // inferred error set, if any.
+    if (sema.typeOf(operand).zigTypeTag() == .ErrorUnion and
+        sema.fn_ret_ty.zigTypeTag() == .ErrorUnion)
+    {
+        if (Zir.refToIndex(extra.lhs)) |ptr_index| {
+            if (zir_tags[ptr_index] == .extended and
+                zir_datas[ptr_index].extended.opcode == .ret_ptr)
+            {
+                try sema.addToInferredErrorSet(operand);
+            }
+        }
+    }
+
+    return sema.storePtr(block, src, ptr, operand);
 }
 
 fn zirStr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -10400,6 +10420,23 @@ fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
     return always_noreturn;
 }
 
+fn addToInferredErrorSet(sema: *Sema, uncasted_operand: Air.Inst.Ref) !void {
+    assert(sema.fn_ret_ty.zigTypeTag() == .ErrorUnion);
+
+    if (sema.fn_ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
+        const op_ty = sema.typeOf(uncasted_operand);
+        switch (op_ty.zigTypeTag()) {
+            .ErrorSet => {
+                try payload.data.addErrorSet(sema.gpa, op_ty);
+            },
+            .ErrorUnion => {
+                try payload.data.addErrorSet(sema.gpa, op_ty.errorUnionSet());
+            },
+            else => {},
+        }
+    }
+}
+
 fn analyzeRet(
     sema: *Sema,
     block: *Block,
@@ -10410,18 +10447,7 @@ fn analyzeRet(
     // add the error tag to the inferred error set of the in-scope function, so
     // that the coercion below works correctly.
     if (sema.fn_ret_ty.zigTypeTag() == .ErrorUnion) {
-        if (sema.fn_ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
-            const op_ty = sema.typeOf(uncasted_operand);
-            switch (op_ty.zigTypeTag()) {
-                .ErrorSet => {
-                    try payload.data.addErrorSet(sema.gpa, op_ty);
-                },
-                .ErrorUnion => {
-                    try payload.data.addErrorSet(sema.gpa, op_ty.errorUnionSet());
-                },
-                else => {},
-            }
-        }
+        try sema.addToInferredErrorSet(uncasted_operand);
     }
     const operand = try sema.coerce(block, sema.fn_ret_ty, uncasted_operand, src);
 
@@ -14355,9 +14381,32 @@ fn coerce(
             },
             else => {},
         },
-        .ErrorUnion => {
-            // T to E!T or E to E!T
-            return sema.wrapErrorUnion(block, dest_ty, inst, inst_src);
+        .ErrorUnion => switch (inst_ty.zigTypeTag()) {
+            .ErrorUnion => {
+                if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |inst_val| {
+                    switch (inst_val.tag()) {
+                        .undef => return sema.addConstUndef(dest_ty),
+                        .eu_payload => {
+                            const payload = try sema.addConstant(
+                                inst_ty.errorUnionPayload(),
+                                inst_val.castTag(.eu_payload).?.data,
+                            );
+                            return sema.wrapErrorUnion(block, dest_ty, payload, inst_src);
+                        },
+                        else => {
+                            const error_set = try sema.addConstant(
+                                inst_ty.errorUnionSet(),
+                                inst_val,
+                            );
+                            return sema.wrapErrorUnion(block, dest_ty, error_set, inst_src);
+                        },
+                    }
+                }
+            },
+            else => {
+                // T to E!T or E to E!T
+                return sema.wrapErrorUnion(block, dest_ty, inst, inst_src);
+            },
         },
         .Union => switch (inst_ty.zigTypeTag()) {
             .Enum, .EnumLiteral => return sema.coerceEnumToUnion(block, dest_ty, dest_ty_src, inst, inst_src),

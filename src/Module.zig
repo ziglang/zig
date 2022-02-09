@@ -3547,7 +3547,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
             .code = file.zir,
             .owner_decl = new_decl,
             .func = null,
-            .fn_ret_ty = Type.initTag(.void),
+            .fn_ret_ty = Type.void,
             .owner_func = null,
         };
         defer sema.deinit();
@@ -3628,7 +3628,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .code = zir,
         .owner_decl = decl,
         .func = null,
-        .fn_ret_ty = Type.initTag(.void),
+        .fn_ret_ty = Type.void,
         .owner_func = null,
     };
     defer sema.deinit();
