@@ -2843,7 +2843,6 @@ pub const Inst = struct {
         node: i32,
         lhs: Ref,
         rhs: Ref,
-        ptr: Ref,
     };
 
     pub const Cmpxchg = struct {

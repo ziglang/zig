@@ -7186,23 +7186,12 @@ fn builtinCall(
         .shl_with_overflow => {
             const int_type = try typeExpr(gz, scope, params[0]);
             const log2_int_type = try gz.addUnNode(.log2_int_type, int_type, params[0]);
-            const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-                .ptr_type_simple = .{
-                    .is_allowzero = false,
-                    .is_mutable = true,
-                    .is_volatile = false,
-                    .size = .One,
-                    .elem_type = int_type,
-                },
-            } });
             const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
             const rhs = try expr(gz, scope, .{ .ty = log2_int_type }, params[2]);
-            const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);
             const result = try gz.addExtendedPayload(.shl_with_overflow, Zir.Inst.OverflowArithmetic{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = lhs,
                 .rhs = rhs,
-                .ptr = ptr,
             });
             return rvalue(gz, rl, result, node);
         },
@@ -7596,23 +7585,12 @@ fn overflowArithmetic(
     tag: Zir.Inst.Extended,
 ) InnerError!Zir.Inst.Ref {
     const int_type = try typeExpr(gz, scope, params[0]);
-    const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-        .ptr_type_simple = .{
-            .is_allowzero = false,
-            .is_mutable = true,
-            .is_volatile = false,
-            .size = .One,
-            .elem_type = int_type,
-        },
-    } });
     const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
     const rhs = try expr(gz, scope, .{ .ty = int_type }, params[2]);
-    const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);
     const result = try gz.addExtendedPayload(tag, Zir.Inst.OverflowArithmetic{
         .node = gz.nodeIndexToRelative(node),
         .lhs = lhs,
         .rhs = rhs,
-        .ptr = ptr,
     });
     return rvalue(gz, rl, result, node);
 }

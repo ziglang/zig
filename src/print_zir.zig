@@ -1076,8 +1076,6 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.ptr);
         try stream.writeAll(")) ");
         try self.writeSrc(stream, src);
     }
