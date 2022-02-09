@@ -34,10 +34,7 @@ pub fn main() void {
     var progress = std.Progress{
         .dont_print_on_dumb = true,
     };
-    const root_node = progress.start("Test", test_fn_list.len) catch |err| switch (err) {
-        // TODO still run tests in this case
-        error.TimerUnsupported => @panic("timer unsupported"),
-    };
+    const root_node = progress.start("Test", test_fn_list.len);
     const have_tty = progress.terminal != null and progress.supports_ansi_escape_codes;
 
     var async_frame_buffer: []align(std.Target.stack_align) u8 = undefined;
