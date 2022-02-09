@@ -2318,7 +2318,7 @@ fn zirAllocExtended(
     else
         Type.initTag(.inferred_alloc_mut);
 
-    if (small.is_comptime) {
+    if (block.is_comptime or small.is_comptime) {
         if (small.has_type) {
             return sema.analyzeComptimeAlloc(block, var_ty, alignment, ty_src);
         } else {
@@ -2379,7 +2379,10 @@ fn zirAllocInferredComptime(
     sema.src = src;
     return sema.addConstant(
         inferred_alloc_ty,
-        try Value.Tag.inferred_alloc_comptime.create(sema.arena, undefined),
+        try Value.Tag.inferred_alloc_comptime.create(sema.arena, .{
+            .decl = undefined,
+            .alignment = 0,
+        }),
     );
 }
 
@@ -2440,7 +2443,10 @@ fn zirAllocInferred(
     if (block.is_comptime) {
         return sema.addConstant(
             inferred_alloc_ty,
-            try Value.Tag.inferred_alloc_comptime.create(sema.arena, undefined),
+            try Value.Tag.inferred_alloc_comptime.create(sema.arena, .{
+                .decl = undefined,
+                .alignment = 0,
+            }),
         );
     }
 
@@ -11341,7 +11347,14 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const operand_ty = sema.typeOf(operand);
     try sema.checkPtrType(block, dest_ty_src, dest_ty);
     try sema.checkPtrOperand(block, operand_src, operand_ty);
-    return sema.coerceCompatiblePtrs(block, dest_ty, operand, operand_src);
+    if (dest_ty.isSlice()) {
+        return sema.fail(block, dest_ty_src, "illegal pointer cast to slice", .{});
+    }
+    const ptr = if (operand_ty.isSlice())
+        try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty)
+    else
+        operand;
+    return sema.coerceCompatiblePtrs(block, dest_ty, ptr, operand_src);
 }
 
 fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13081,7 +13094,7 @@ fn fieldVal(
                         try sema.analyzeLoad(block, src, object, object_src)
                     else
                         object;
-                    return sema.analyzeSlicePtr(block, src, slice, inner_ty, object_src);
+                    return sema.analyzeSlicePtr(block, object_src, slice, inner_ty);
                 } else if (mem.eql(u8, field_name, "len")) {
                     const slice = if (is_pointer_to)
                         try sema.analyzeLoad(block, src, object, object_src)
@@ -15584,19 +15597,17 @@ fn analyzeLoad(
 fn analyzeSlicePtr(
     sema: *Sema,
     block: *Block,
-    src: LazySrcLoc,
+    slice_src: LazySrcLoc,
     slice: Air.Inst.Ref,
     slice_ty: Type,
-    slice_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const buf = try sema.arena.create(Type.SlicePtrFieldTypeBuffer);
     const result_ty = slice_ty.slicePtrFieldType(buf);
-
     if (try sema.resolveMaybeUndefVal(block, slice_src, slice)) |val| {
         if (val.isUndef()) return sema.addConstUndef(result_ty);
         return sema.addConstant(result_ty, val.slicePtr());
     }
-    try sema.requireRuntimeBlock(block, src);
+    try sema.requireRuntimeBlock(block, slice_src);
     return block.addTyOp(.slice_ptr, result_ty, slice);
 }
 
@@ -15729,7 +15740,7 @@ fn analyzeSlice(
     }
 
     const ptr = if (slice_ty.isSlice())
-        try sema.analyzeSlicePtr(block, src, ptr_or_slice, slice_ty, ptr_src)
+        try sema.analyzeSlicePtr(block, ptr_src, ptr_or_slice, slice_ty)
     else
         ptr_or_slice;
 

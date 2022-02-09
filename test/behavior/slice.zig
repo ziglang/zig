@@ -312,8 +312,6 @@ test "empty array to slice" {
 }
 
 test "@ptrCast slice to pointer" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             var array align(@alignOf(u16)) = [5]u8{ 0xff, 0xff, 0xff, 0xff, 0xff };
