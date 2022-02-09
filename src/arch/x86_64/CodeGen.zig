@@ -3482,6 +3482,8 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
         },
         .memory,
         .embedded_in_code,
+        .direct_load,
+        .got_load,
         => {
             if (abi_size <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
