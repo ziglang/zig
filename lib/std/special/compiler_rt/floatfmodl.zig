@@ -42,6 +42,16 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
     var expA = @intCast(i32, (aPtr.parts.exp_and_sign & 0x7fff));
     var expB = bPtr.parts.exp_and_sign & 0x7fff;
 
+    // There are 3 cases where the answer is undefined, check for:
+    //   - fmodl(val, 0)
+    //   - fmodl(val, NaN)
+    //   - fmodl(inf, val)
+    // The sign on checked values does not matter.
+    // Doing (a * b) / (a * b) procudes undefined results
+    // because the three cases always produce undefined calculations:
+    //   - 0 / 0
+    //   - val * NaN
+    //   - inf / inf
     if (b == 0 or std.math.isNan(b) or expA == 0x7fff) {
         return (a * b) / (a * b);
     }
