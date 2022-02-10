@@ -161,32 +161,6 @@ test "strncmp" {
     try std.testing.expect(strncmp("\xff", "\x02", 1) == 253);
 }
 
-export fn memset(dest: ?[*]u8, c: u8, n: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
-
-    var index: usize = 0;
-    while (index != n) : (index += 1)
-        dest.?[index] = c;
-
-    return dest;
-}
-
-export fn __memset(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
-    if (dest_n < n)
-        @panic("buffer overflow");
-    return memset(dest, c, n);
-}
-
-export fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
-
-    var index: usize = 0;
-    while (index != n) : (index += 1)
-        dest.?[index] = src.?[index];
-
-    return dest;
-}
-
 export fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
@@ -730,21 +704,6 @@ export fn fabs(a: f64) f64 {
 
 export fn fabsf(a: f32) f32 {
     return math.fabs(a);
-}
-
-export fn trunc(a: f64) f64 {
-    return math.trunc(a);
-}
-
-export fn truncf(a: f32) f32 {
-    return math.trunc(a);
-}
-
-export fn truncl(a: c_longdouble) c_longdouble {
-    if (!long_double_is_f128) {
-        @panic("TODO implement this");
-    }
-    return math.trunc(a);
 }
 
 export fn round(a: f64) f64 {
