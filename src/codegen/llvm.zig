@@ -809,7 +809,16 @@ pub const DeclGen = struct {
         };
     }
 
-    fn llvmType(dg: *DeclGen, t: Type) Error!*const llvm.Type {
+    fn isUnnamedType(dg: *DeclGen, ty: Type, val: *const llvm.Value) bool {
+        // Once `llvmType` succeeds, successive calls to it with the same Zig type
+        // are guaranteed to succeed. So if a call to `llvmType` fails here it means
+        // it is the first time lowering the type, which means the value can't possible
+        // have that type.
+        const llvm_ty = dg.llvmType(ty) catch return true;
+        return val.typeOf() != llvm_ty;
+    }
+
+    fn llvmType(dg: *DeclGen, t: Type) Allocator.Error!*const llvm.Type {
         const gpa = dg.gpa;
         switch (t.zigTypeTag()) {
             .Void, .NoReturn => return dg.context.voidType(),
@@ -1168,9 +1177,8 @@ pub const DeclGen = struct {
 
             .BoundFn => @panic("TODO remove BoundFn from the language"),
 
-            .Frame,
-            .AnyFrame,
-            => return dg.todo("implement llvmType for type '{}'", .{t}),
+            .Frame => @panic("TODO implement llvmType for Frame types"),
+            .AnyFrame => @panic("TODO implement llvmType for AnyFrame types"),
         }
     }
 
@@ -1299,7 +1307,8 @@ pub const DeclGen = struct {
                         llvm_u32.constInt(0, .False),
                         llvm_u32.constInt(field_ptr.field_index, .False),
                     };
-                    return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                    const uncasted = parent_ptr.constInBoundsGEP(&indices, indices.len);
+                    return uncasted.constBitCast(try dg.llvmType(tv.ty));
                 },
                 .elem_ptr => {
                     const elem_ptr = tv.val.castTag(.elem_ptr).?.data;
@@ -1463,6 +1472,7 @@ pub const DeclGen = struct {
                 var llvm_fields = try std.ArrayListUnmanaged(*const llvm.Value).initCapacity(gpa, llvm_field_count);
                 defer llvm_fields.deinit(gpa);
 
+                var make_unnamed_struct = false;
                 const struct_obj = tv.ty.castTag(.@"struct").?.data;
                 if (struct_obj.layout == .Packed) {
                     const target = dg.module.getTarget();
@@ -1558,17 +1568,30 @@ pub const DeclGen = struct {
                         const field_ty = tv.ty.structFieldType(i);
                         if (!field_ty.hasRuntimeBits()) continue;
 
-                        llvm_fields.appendAssumeCapacity(try dg.genTypedValue(.{
+                        const field_llvm_val = try dg.genTypedValue(.{
                             .ty = field_ty,
                             .val = field_val,
-                        }));
+                        });
+
+                        make_unnamed_struct = make_unnamed_struct or
+                            dg.isUnnamedType(field_ty, field_llvm_val);
+
+                        llvm_fields.appendAssumeCapacity(field_llvm_val);
                     }
                 }
 
-                return llvm_struct_ty.constNamedStruct(
-                    llvm_fields.items.ptr,
-                    @intCast(c_uint, llvm_fields.items.len),
-                );
+                if (make_unnamed_struct) {
+                    return dg.context.constStruct(
+                        llvm_fields.items.ptr,
+                        @intCast(c_uint, llvm_fields.items.len),
+                        .False,
+                    );
+                } else {
+                    return llvm_struct_ty.constNamedStruct(
+                        llvm_fields.items.ptr,
+                        @intCast(c_uint, llvm_fields.items.len),
+                    );
+                }
             },
             .Union => {
                 const llvm_union_ty = try dg.llvmType(tv.ty);

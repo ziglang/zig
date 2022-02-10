@@ -166,7 +166,6 @@ test {
                     _ = @import("behavior/tuple.zig");
                     _ = @import("behavior/type_stage1.zig");
                     _ = @import("behavior/typename.zig");
-                    _ = @import("behavior/union_stage1.zig");
                     _ = @import("behavior/union_with_members.zig");
                     _ = @import("behavior/var_args.zig");
                     _ = @import("behavior/vector.zig");
