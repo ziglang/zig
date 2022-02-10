@@ -661,7 +661,11 @@ pub const DeclGen = struct {
                     new_global.setUnnamedAddr(global.getUnnamedAddress());
                     new_global.setAlignment(global.getAlignment());
                     new_global.setInitializer(llvm_init);
-                    global.replaceAllUsesWith(new_global);
+                    // replaceAllUsesWith requires the type to be unchanged. So we bitcast
+                    // the new global to the old type and use that as the thing to replace
+                    // old uses.
+                    const new_global_ptr = new_global.constBitCast(global.typeOf());
+                    global.replaceAllUsesWith(new_global_ptr);
                     dg.object.decl_map.putAssumeCapacity(decl, new_global);
                     new_global.takeName(global);
                     global.deleteGlobal();
