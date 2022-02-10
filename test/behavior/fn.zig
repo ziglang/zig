@@ -75,6 +75,7 @@ test "return inner function which references comptime variable of outer function
 }
 
 test "discard the result of a function that returns a struct" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         fn entry() void {
             _ = func();
@@ -94,6 +95,7 @@ test "discard the result of a function that returns a struct" {
 }
 
 test "inline function call that calls optional function pointer, return pointer at callsite interacts correctly with callsite return type" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     const S = struct {
@@ -139,6 +141,7 @@ fn fnWithUnreachable() noreturn {
 }
 
 test "extern struct with stdcallcc fn pointer" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     const S = extern struct {
@@ -252,6 +255,7 @@ test "implicit cast fn call result to optional in field result" {
 }
 
 test "void parameters" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try voidFun(1, void{}, 2, {});
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) !void {
@@ -306,6 +310,7 @@ fn numberLiteralArg(a: anytype) !void {
 }
 
 test "function call with anon list literal" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             try consumeVec(.{ 9, 8, 7 });
