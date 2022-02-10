@@ -82,18 +82,18 @@ pub fn main() void {
         } else |err| switch (err) {
             error.SkipZigTest => {
                 skip_count += 1;
-                test_node.end();
                 progress.log("{s}... SKIP\n", .{test_fn.name});
                 if (!have_tty) std.debug.print("SKIP\n", .{});
+                test_node.end();
             },
             else => {
                 fail_count += 1;
-                test_node.end();
                 progress.log("{s}... FAIL ({s})\n", .{ test_fn.name, @errorName(err) });
                 if (!have_tty) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
+                test_node.end();
             },
         }
     }
