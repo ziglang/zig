@@ -3514,8 +3514,14 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 else => return self.fail("TODO implement args on stack for {} with abi size > 8", .{mcv}),
             }
         },
+        .embedded_in_code => {
+            if (abi_size <= 8) {
+                const reg = try self.copyToTmpRegister(ty, mcv);
+                return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
+            }
+            return self.fail("TODO implement args on stack for {} with abi size > 8", .{mcv});
+        },
         .memory,
-        .embedded_in_code,
         .direct_load,
         .got_load,
         => {
@@ -3523,7 +3529,58 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
-            return self.fail("TODO implement memcpy for setting args on stack from {}", .{mcv});
+
+            self.register_manager.freezeRegs(&.{ .rax, .rcx });
+            defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx });
+
+            const addr_reg: Register = blk: {
+                switch (mcv) {
+                    .got_load,
+                    .direct_load,
+                    => |sym_index| {
+                        const flags: u2 = switch (mcv) {
+                            .got_load => 0b00,
+                            .direct_load => 0b01,
+                            else => unreachable,
+                        };
+                        const addr_reg = try self.register_manager.allocReg(null);
+                        _ = try self.addInst(.{
+                            .tag = .lea_pie,
+                            .ops = (Mir.Ops{
+                                .reg1 = addr_reg.to64(),
+                                .flags = flags,
+                            }).encode(),
+                            .data = .{ .linker_sym_index = sym_index },
+                        });
+                        break :blk addr_reg;
+                    },
+                    .memory => |addr| {
+                        const addr_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = addr });
+                        break :blk addr_reg;
+                    },
+                    else => unreachable,
+                }
+            };
+
+            self.register_manager.freezeRegs(&.{addr_reg});
+            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+            const regs = try self.register_manager.allocRegs(2, .{ null, null });
+            const count_reg = regs[0];
+            const tmp_reg = regs[1];
+
+            try self.register_manager.getReg(.rax, null);
+            try self.register_manager.getReg(.rcx, null);
+
+            // TODO allow for abi_size to be u64
+            try self.genSetReg(Type.u32, count_reg, .{ .immediate = @intCast(u32, abi_size) });
+            try self.genInlineMemcpy(
+                -(stack_offset + @intCast(i32, abi_size)),
+                .rsp,
+                addr_reg.to64(),
+                count_reg.to64(),
+                tmp_reg.to8(),
+            );
         },
         .register => |reg| {
             _ = try self.addInst(.{
@@ -4488,6 +4545,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
 }
 
 fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
+    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty, tv.val });
     const local_sym_index = self.bin_file.lowerUnnamedConst(tv, self.mod_fn.owner_decl) catch |err| {
         return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
@@ -4520,23 +4578,20 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     switch (typed_value.ty.zigTypeTag()) {
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {
-                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_type = typed_value.ty.slicePtrFieldType(&buf);
-                const ptr_mcv = try self.genTypedValue(.{ .ty = ptr_type, .val = typed_value.val });
-                const slice_len = typed_value.val.sliceLen();
-                // Codegen can't handle some kinds of indirection. If the wrong union field is accessed here it may mean
-                // the Sema code needs to use anonymous Decls or alloca instructions to store data.
-                const ptr_imm = ptr_mcv.memory;
-                _ = slice_len;
-                _ = ptr_imm;
-                // We need more general support for const data being stored in memory to make this work.
-                return self.fail("TODO codegen for const slices", .{});
+                return self.lowerUnnamedConst(typed_value);
             },
             else => {
-                if (typed_value.val.tag() == .int_u64) {
-                    return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                switch (typed_value.val.tag()) {
+                    .int_u64 => {
+                        return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                    },
+                    .slice => {
+                        return self.lowerUnnamedConst(typed_value);
+                    },
+                    else => {
+                        return self.fail("TODO codegen more kinds of const pointers: {}", .{typed_value.val.tag()});
+                    },
                 }
-                return self.fail("TODO codegen more kinds of const pointers: {}", .{typed_value.val.tag()});
             },
         },
         .Int => {

@@ -230,7 +230,6 @@ pub fn generateSymbol(
                 return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output);
             },
             .slice => {
-                // TODO populate .debug_info for the slice
                 const slice = typed_value.val.castTag(.slice).?.data;
 
                 // generate ptr
