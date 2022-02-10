@@ -15069,8 +15069,74 @@ fn beginComptimePtrMutation(
                 else => unreachable,
             }
         },
-        .eu_payload_ptr => return sema.fail(block, src, "TODO comptime store to eu_payload_ptr", .{}),
-        .opt_payload_ptr => return sema.fail(block, src, "TODO comptime store opt_payload_ptr", .{}),
+        .eu_payload_ptr => {
+            const eu_ptr_val = ptr_val.castTag(.eu_payload_ptr).?.data;
+            var parent = try beginComptimePtrMutation(sema, block, src, eu_ptr_val);
+            const payload_ty = parent.ty.errorUnionPayload();
+            switch (parent.val.tag()) {
+                else => {
+                    // An error union has been initialized to undefined at comptime and now we
+                    // are for the first time setting the payload. We must change the
+                    // representation of the error union from `undef` to `opt_payload`.
+                    const arena = parent.beginArena(sema.gpa);
+                    defer parent.finishArena();
+
+                    const payload = try arena.create(Value.Payload.SubValue);
+                    payload.* = .{
+                        .base = .{ .tag = .eu_payload },
+                        .data = Value.undef,
+                    };
+
+                    parent.val.* = Value.initPayload(&payload.base);
+
+                    return ComptimePtrMutationKit{
+                        .decl_ref_mut = parent.decl_ref_mut,
+                        .val = &payload.data,
+                        .ty = payload_ty,
+                    };
+                },
+                .eu_payload => return ComptimePtrMutationKit{
+                    .decl_ref_mut = parent.decl_ref_mut,
+                    .val = &parent.val.castTag(.eu_payload).?.data,
+                    .ty = payload_ty,
+                },
+            }
+        },
+        .opt_payload_ptr => {
+            const opt_ptr_val = ptr_val.castTag(.opt_payload_ptr).?.data;
+            var parent = try beginComptimePtrMutation(sema, block, src, opt_ptr_val);
+            const payload_ty = try parent.ty.optionalChildAlloc(sema.arena);
+            switch (parent.val.tag()) {
+                .undef, .null_value => {
+                    // An optional has been initialized to undefined at comptime and now we
+                    // are for the first time setting the payload. We must change the
+                    // representation of the optional from `undef` to `opt_payload`.
+                    const arena = parent.beginArena(sema.gpa);
+                    defer parent.finishArena();
+
+                    const payload = try arena.create(Value.Payload.SubValue);
+                    payload.* = .{
+                        .base = .{ .tag = .opt_payload },
+                        .data = Value.undef,
+                    };
+
+                    parent.val.* = Value.initPayload(&payload.base);
+
+                    return ComptimePtrMutationKit{
+                        .decl_ref_mut = parent.decl_ref_mut,
+                        .val = &payload.data,
+                        .ty = payload_ty,
+                    };
+                },
+                .opt_payload => return ComptimePtrMutationKit{
+                    .decl_ref_mut = parent.decl_ref_mut,
+                    .val = &parent.val.castTag(.opt_payload).?.data,
+                    .ty = payload_ty,
+                },
+
+                else => unreachable,
+            }
+        },
         .decl_ref => unreachable, // isComptimeMutablePtr() has been checked already
         else => unreachable,
     }

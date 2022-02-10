@@ -33,7 +33,7 @@ test {
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
-    _ = @import("behavior/optional_llvm.zig");
+    _ = @import("behavior/optional.zig");
     _ = @import("behavior/prefetch.zig");
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
@@ -69,7 +69,6 @@ test {
         _ = @import("behavior/inttoptr.zig");
         _ = @import("behavior/member_func.zig");
         _ = @import("behavior/null.zig");
-        _ = @import("behavior/optional.zig");
         _ = @import("behavior/pointers.zig");
         _ = @import("behavior/ptrcast.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
@@ -154,7 +153,6 @@ test {
                     _ = @import("behavior/ir_block_deps.zig");
                     _ = @import("behavior/misc.zig");
                     _ = @import("behavior/muladd.zig");
-                    _ = @import("behavior/optional_stage1.zig");
                     _ = @import("behavior/popcount_stage1.zig");
                     _ = @import("behavior/reflection.zig");
                     _ = @import("behavior/select.zig");
