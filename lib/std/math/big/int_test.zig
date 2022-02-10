@@ -2486,3 +2486,28 @@ test "big int popcount" {
 
     try testing.expect(a.toConst().orderAgainstScalar(16) == .eq);
 }
+
+test "big int conversion read/write twos complement" {
+    var a = try Managed.initSet(testing.allocator, (1 << 493) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, (1 << 493) - 1);
+    defer b.deinit();
+    var m = b.toMutable();
+
+    var buffer1 = try testing.allocator.alloc(u8, 64);
+    defer testing.allocator.free(buffer1);
+
+    const endians = [_]std.builtin.Endian{ .Little, .Big };
+
+    for (endians) |endian| {
+        // Writing to buffer and back should not change anything
+        a.toConst().writeTwosComplement(buffer1, 493, endian);
+        m.readTwosComplement(buffer1, 493, endian, .unsigned);
+        try testing.expect(m.toConst().order(a.toConst()) == .eq);
+
+        // Equivalent to @bitCast(i493, @as(u493, intMax(u493))
+        a.toConst().writeTwosComplement(buffer1, 493, endian);
+        m.readTwosComplement(buffer1, 493, endian, .signed);
+        try testing.expect(m.toConst().orderAgainstScalar(-1) == .eq);
+    }
+}

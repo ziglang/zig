@@ -1093,8 +1093,9 @@ pub const Value = extern union {
             .Int => {
                 const int_info = ty.intInfo(target);
                 const endian = target.cpu.arch.endian();
-                // TODO use a correct amount of limbs
-                const limbs_buffer = try arena.alloc(std.math.big.Limb, 2);
+                const Limb = std.math.big.Limb;
+                const limb_count = (buffer.len + @sizeOf(Limb) - 1) / @sizeOf(Limb);
+                const limbs_buffer = try arena.alloc(Limb, limb_count);
                 var bigint = BigIntMutable.init(limbs_buffer, 0);
                 bigint.readTwosComplement(buffer, int_info.bits, endian, int_info.signedness);
                 return fromBigInt(arena, bigint.toConst());
