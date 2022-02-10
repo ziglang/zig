@@ -1,0 +1,31 @@
+UNCHANGED src/arch/aarch64/CodeGen.zig:533:14:            .add_with_overflow => try self.airAddWithOverflow(inst),
+UNCHANGED src/arch/arm/CodeGen.zig:525:14:            .add_with_overflow => try self.airAddWithOverflow(inst),
+UNCHANGED src/arch/riscv64/CodeGen.zig:512:14:            .add_with_overflow => try self.airAddWithOverflow(inst),
+UNCHANGED src/arch/wasm/CodeGen.zig:1701:10:        .add_with_overflow,
+UNCHANGED src/arch/x86_64/CodeGen.zig:604:14:            .add_with_overflow => try self.airAddWithOverflow(inst),
+UNCHANGED src/codegen/c.zig:1451:14:            .add_with_overflow => try airAddWithOverflow(f, inst),
+
+// changed from @addWithOverflow(comptime T: type, a: T, b: T, result: *T) bool
+// to 1. RetType(ST) = struct {res: T, flag: u8};
+//    2. @addWithOverflow(comptime T: type, a: T, b: T) RetType
+for add_with_overflow, sub_with_overflow, mul_with_overflow, shl_with_overflow
+DONE src/BuiltinFn.zig:150:25:                .tag = .add_with_overflow,
+DONE src/BuiltinFn.zig:4:5:    add_with_overflow,
+
+
+DONE src/AstGen.zig:7183:10:        .add_with_overflow => return overflowArithmetic(gz, scope, rl, node, params, .add_with_overflow),
+DONE src/AstGen.zig:7183:87:        .add_with_overflow => return overflowArithmetic(gz, scope, rl, node, params, .add_with_overflow),
+DONE src/Zir.zig:1566:9:        add_with_overflow,
+DONE src/print_zir.zig:462:14:            .add_with_overflow,
+UNCHANGED src/Liveness.zig:420:10:        .add_with_overflow,
+
+change the following inspirated by align_cast
+TODO src/Sema.zig:1132:10:        .add_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
+TODO src/Sema.zig:8001:14:            .add_with_overflow => {
+TODO src/Sema.zig:8112:14:            .add_with_overflow => .add_with_overflow,
+TODO src/Sema.zig:8112:36:            .add_with_overflow => .add_with_overflow,
+TODO src/codegen/llvm.zig:2042:18:                .add_with_overflow => try self.airOverflow(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
+
+DONE src/Air.zig:143:9:        add_with_overflow,
+DONE src/Air.zig:884:10:        .add_with_overflow,
+DONE? src/print_air.zig:240:14:            .add_with_overflow,

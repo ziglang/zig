@@ -7974,15 +7974,13 @@ fn zirOverflowArithmetic(
 
     const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
-    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = extra.node };
 
     const lhs = sema.resolveInst(extra.lhs);
     const rhs = sema.resolveInst(extra.rhs);
-    const ptr = sema.resolveInst(extra.ptr);
 
     const lhs_ty = sema.typeOf(lhs);
 
-    // Note, the types of lhs/rhs (also for shifting)/ptr are already correct as ensured by astgen.
+    // Note, the types of lhs/rhs (also for shifting) are already correct as ensured by astgen.
     const dest_ty = lhs_ty;
     if (dest_ty.zigTypeTag() != .Int) {
         return sema.fail(block, src, "expected integer type, found '{}'", .{dest_ty});
@@ -8117,6 +8115,8 @@ fn zirOverflowArithmetic(
         };
 
         try sema.requireRuntimeBlock(block, src);
+        // TODO DEBUG FIXME
+        // figure out how stuff below is encoded to write it correctly
         return block.addInst(.{
             .tag = air_tag,
             .data = .{ .pl_op = .{
@@ -8129,8 +8129,12 @@ fn zirOverflowArithmetic(
         });
     };
 
+    // TODO DEBUG FIXME
+    // this stuff is not needed
     try sema.storePtr2(block, src, ptr, ptr_src, result.wrapped, src, .store);
 
+    // TODO DEBUG FIXME
+    // figure out how to create the correct handle
     return switch (result.overflowed) {
         .yes => Air.Inst.Ref.bool_true,
         .no => Air.Inst.Ref.bool_false,

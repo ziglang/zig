@@ -145,9 +145,6 @@ pub const list = list: {
     @setEvalBranchQuota(3000);
     break :list std.ComptimeStringMap(@This(), .{
         .{
-            // changed from @addWithOverflow(comptime T: type, a: T, b: T, result: *T) bool //DEBUG
-            // to 1. RetType(ST) = struct {res: T, flag: u8}; //DEBUG
-            //    2. @addWithOverflow(comptime T: type, a: T, b: T) RetType //DEBUG
             "@addWithOverflow",
             .{
                 .tag = .add_with_overflow,
@@ -599,7 +596,6 @@ pub const list = list: {
             },
         },
         .{
-            // see @addWithOverflow // DEBUG
             "@mulWithOverflow",
             .{
                 .tag = .mul_with_overflow,
@@ -705,7 +701,6 @@ pub const list = list: {
             },
         },
         .{
-            // see @addWithOverflow // DEBUG
             "@shlWithOverflow",
             .{
                 .tag = .shl_with_overflow,
@@ -847,7 +842,6 @@ pub const list = list: {
             },
         },
         .{
-            // see @addWithOverflow // DEBUG
             "@subWithOverflow",
             .{
                 .tag = .sub_with_overflow,
