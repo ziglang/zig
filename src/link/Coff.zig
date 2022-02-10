@@ -726,7 +726,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+    const res = try codegen.generateSymbol(&self.base, 0, decl.srcLoc(), .{
         .ty = decl.ty,
         .val = decl.val,
     }, &code_buffer, .none);
@@ -751,7 +751,7 @@ fn finishUpdateDecl(self: *Coff, module: *Module, decl: *Module.Decl, code: []co
         const need_realloc = code.len > capacity or
             !mem.isAlignedGeneric(u32, decl.link.coff.text_offset, required_alignment);
         if (need_realloc) {
-            const curr_vaddr = self.getDeclVAddr(decl);
+            const curr_vaddr = self.text_section_virtual_address + decl.link.coff.text_offset;
             const vaddr = try self.growTextBlock(&decl.link.coff, code.len, required_alignment);
             log.debug("growing {s} from 0x{x} to 0x{x}\n", .{ decl.name, curr_vaddr, vaddr });
             if (vaddr != curr_vaddr) {
@@ -1465,7 +1465,9 @@ fn findLib(self: *Coff, arena: Allocator, name: []const u8) !?[]const u8 {
     return null;
 }
 
-pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl) u64 {
+pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
+    _ = parent_atom_index;
+    _ = offset;
     assert(self.llvm_object == null);
     return self.text_section_virtual_address + decl.link.coff.text_offset;
 }

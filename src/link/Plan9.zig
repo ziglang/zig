@@ -302,7 +302,7 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+    const res = try codegen.generateSymbol(&self.base, @intCast(u32, decl.link.plan9.sym_index.?), decl.srcLoc(), .{
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .{ .none = .{} });
@@ -749,7 +749,9 @@ pub fn allocateDeclIndexes(self: *Plan9, decl: *Module.Decl) !void {
     _ = self;
     _ = decl;
 }
-pub fn getDeclVAddr(self: *Plan9, decl: *const Module.Decl) u64 {
+pub fn getDeclVAddr(self: *Plan9, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
+    _ = parent_atom_index;
+    _ = offset;
     if (decl.ty.zigTypeTag() == .Fn) {
         var start = self.bases.text;
         var it_file = self.fn_decl_table.iterator();

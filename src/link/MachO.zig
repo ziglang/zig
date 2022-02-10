@@ -3745,19 +3745,6 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
     }
     const unnamed_consts = gop.value_ptr;
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
-        .none = .{},
-    });
-    const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_buffer.items,
-        .fail => |em| {
-            decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
-            return error.AnalysisFail;
-        },
-    };
-
     const name_str_index = blk: {
         const index = unnamed_consts.items.len;
         const name = try std.fmt.allocPrint(self.base.allocator, "__unnamed_{s}_{d}", .{ decl.name, index });
@@ -3772,12 +3759,27 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
     const match = (try self.getMatchingSection(.{
         .segname = makeStaticString("__TEXT"),
         .sectname = makeStaticString("__const"),
-        .size = code.len,
+        .size = @sizeOf(u64),
         .@"align" = math.log2(required_alignment),
     })).?;
     const local_sym_index = try self.allocateLocalSymbol();
-    const atom = try self.createEmptyAtom(local_sym_index, code.len, math.log2(required_alignment));
-    mem.copy(u8, atom.code.items, code);
+    const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), math.log2(required_alignment));
+
+    const res = try codegen.generateSymbol(&self.base, local_sym_index, decl.srcLoc(), typed_value, &code_buffer, .{
+        .none = .{},
+    });
+    const code = switch (res) {
+        .externally_managed => |x| x,
+        .appended => code_buffer.items,
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl, em);
+            return error.AnalysisFail;
+        },
+    };
+
+    atom.code.clearRetainingCapacity();
+    try atom.code.appendSlice(self.base.allocator, code);
     const addr = try self.allocateAtom(atom, code.len, required_alignment, match);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, addr });
@@ -3841,7 +3843,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     const res = if (debug_buffers) |dbg|
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+        try codegen.generateSymbol(&self.base, decl.link.elf.local_sym_index, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .{
@@ -3852,7 +3854,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             },
         })
     else
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+        try codegen.generateSymbol(&self.base, decl.link.elf.local_sym_index, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none);
@@ -4341,16 +4343,17 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
     }
 }
 
-pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
+pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
+    assert(self.llvm_object == null);
     assert(decl.link.macho.local_sym_index != 0);
-    return self.locals.items[decl.link.macho.local_sym_index].n_value;
-}
 
-pub fn getDeclVAddrWithReloc(self: *MachO, decl: *const Module.Decl, offset: u64) !u64 {
-    assert(decl.link.macho.local_sym_index != 0);
-    assert(self.active_decl != null);
+    // TODO cache local_sym_index => atom!!!
+    const atom: *Atom = blk: for (self.managed_atoms.items) |atom| {
+        if (atom.local_sym_index == parent_atom_index) {
+            break :blk atom;
+        }
+    } else unreachable;
 
-    const atom = &self.active_decl.?.link.macho;
     try atom.relocs.append(self.base.allocator, .{
         .offset = @intCast(u32, offset),
         .target = .{ .local = decl.link.macho.local_sym_index },
