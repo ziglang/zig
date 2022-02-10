@@ -8242,6 +8242,34 @@ static Stage1AirInst *ir_analyze_cast(IrAnalyze *ira, Scope *scope, AstNode *sou
         return ir_implicit_cast2(ira, scope, source_node, cast1, wanted_type);
     }
 
+    // E!T to T
+    if (actual_type->id == ZigTypeIdErrorUnion) {
+        if (types_match_const_cast_only(ira, actual_type->data.error_union.payload_type, wanted_type,
+            source_node, false).id == ConstCastResultIdOk)
+        {
+            ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
+                buf_sprintf("cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected type '%s', found '%s'",
+                    buf_ptr(&wanted_type->name),
+                    buf_ptr(&actual_type->name)));
+            report_recursive_error(ira, source_node, &const_cast_result, parent_msg);
+            return ira->codegen->invalid_inst_gen;
+        }
+    }
+
+    //?T to T
+    if (actual_type->id == ZigTypeIdOptional) {
+        if (types_match_const_cast_only(ira, actual_type->data.maybe.child_type, wanted_type,
+            source_node, false).id == ConstCastResultIdOk)
+        {
+            ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
+                buf_sprintf("cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type '%s', found '%s'",
+                    buf_ptr(&wanted_type->name),
+                    buf_ptr(&actual_type->name)));
+            report_recursive_error(ira, source_node, &const_cast_result, parent_msg);
+            return ira->codegen->invalid_inst_gen;
+        }
+    }
+
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
         buf_sprintf("expected type '%s', found '%s'",
             buf_ptr(&wanted_type->name),
