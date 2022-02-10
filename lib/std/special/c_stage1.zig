@@ -708,14 +708,6 @@ export fn exp2f(a: f32) f32 {
     return math.exp2(a);
 }
 
-export fn log(a: f64) f64 {
-    return math.ln(a);
-}
-
-export fn logf(a: f32) f32 {
-    return math.ln(a);
-}
-
 export fn log2(a: f64) f64 {
     return math.log2(a);
 }

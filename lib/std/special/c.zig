@@ -17,9 +17,13 @@ comptime {
     if (builtin.zig_backend != .stage1) {
         @export(memset, .{ .name = "memset", .linkage = .Strong });
         @export(memcpy, .{ .name = "memcpy", .linkage = .Strong });
+
         @export(trunc, .{ .name = "trunc", .linkage = .Strong });
         @export(truncf, .{ .name = "truncf", .linkage = .Strong });
         @export(truncl, .{ .name = "truncl", .linkage = .Strong });
+
+        @export(log, .{ .name = "log", .linkage = .Strong });
+        @export(logf, .{ .name = "logf", .linkage = .Strong });
     } else {
         _ = @import("c_stage1.zig");
     }
@@ -80,17 +84,25 @@ fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(
     return dest;
 }
 
-fn trunc(a: f64) f64 {
+fn trunc(a: f64) callconv(.C) f64 {
     return math.trunc(a);
 }
 
-fn truncf(a: f32) f32 {
+fn truncf(a: f32) callconv(.C) f32 {
     return math.trunc(a);
 }
 
-fn truncl(a: c_longdouble) c_longdouble {
+fn truncl(a: c_longdouble) callconv(.C) c_longdouble {
     if (!long_double_is_f128) {
         @panic("TODO implement this");
     }
     return math.trunc(a);
+}
+
+fn log(a: f64) callconv(.C) f64 {
+    return math.ln(a);
+}
+
+fn logf(a: f32) callconv(.C) f32 {
+    return math.ln(a);
 }
