@@ -945,16 +945,17 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
         return self.fail("TODO implement trunc for abi sizes larger than 8", .{});
     }
 
-    const dst_mcv = blk: {
-        const reg = switch (operand) {
-            .register => |reg| reg,
-            else => inner: {
-                const reg = try self.register_manager.allocReg(inst);
-                try self.genSetReg(src_ty, reg, operand);
-                break :inner reg;
-            },
-        };
-        break :blk .{ .register = registerAlias(reg, @intCast(u32, dst_ty_size)) };
+    operand.freezeIfRegister(&self.register_manager);
+    defer operand.unfreezeIfRegister(&self.register_manager);
+
+    const reg: Register = blk: {
+        if (operand.isRegister()) {
+            if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                break :blk operand.register;
+            }
+        }
+        const mcv = try self.copyToNewRegister(inst, src_ty, operand);
+        break :blk mcv.register.to64();
     };
 
     // when truncating a `u16` to `u5`, for example, those top 3 bits in the result
@@ -962,11 +963,31 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     const dst_bit_size = dst_ty.bitSize(self.target.*);
     const is_power_of_two = (dst_bit_size & (dst_bit_size - 1)) == 0;
     if (!is_power_of_two or dst_bit_size < 8) {
-        const mask = (~@as(u64, 0)) >> @intCast(u6, (64 - dst_ty.bitSize(self.target.*)));
-        try self.genBinMathOpMir(.@"and", dst_ty, dst_mcv, .{ .immediate = mask });
+        const shift = @intCast(u6, 64 - dst_ty.bitSize(self.target.*));
+        const mask = (~@as(u64, 0)) >> shift;
+        try self.genBinMathOpMir(.@"and", Type.usize, .{ .register = reg }, .{ .immediate = mask });
+
+        if (src_ty.intInfo(self.target.*).signedness == .signed) {
+            _ = try self.addInst(.{
+                .tag = .sal,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .flags = 0b10,
+                }).encode(),
+                .data = .{ .imm = shift },
+            });
+            _ = try self.addInst(.{
+                .tag = .sar,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .flags = 0b10,
+                }).encode(),
+                .data = .{ .imm = shift },
+            });
+        }
     }
 
-    return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
+    return self.finishAir(inst, .{ .register = reg }, .{ ty_op.operand, .none, .none });
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
