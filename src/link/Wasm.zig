@@ -428,7 +428,7 @@ pub fn addTableFunction(self: *Wasm, symbol_index: u32) !void {
 
 fn mapFunctionTable(self: *Wasm) void {
     var it = self.function_table.valueIterator();
-    var index: u32 = 0;
+    var index: u32 = 1;
     while (it.next()) |value_ptr| : (index += 1) {
         value_ptr.* = index;
     }
@@ -821,7 +821,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
         try leb.writeULEB128(writer, wasm.reftype(.funcref));
         try emitLimits(writer, .{
-            .min = @intCast(u32, self.function_table.count()),
+            .min = @intCast(u32, self.function_table.count()) + 1,
             .max = null,
         });
 
@@ -931,7 +931,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         var flags: u32 = 0x2; // Yes we have a table
         try leb.writeULEB128(writer, flags);
         try leb.writeULEB128(writer, @as(u32, 0)); // index of that table. TODO: Store synthetic symbols
-        try emitInit(writer, .{ .i32_const = 0 });
+        try emitInit(writer, .{ .i32_const = 1 }); // We start at index 1, so unresolved function pointers are invalid
         try leb.writeULEB128(writer, @as(u8, 0));
         try leb.writeULEB128(writer, @intCast(u32, self.function_table.count()));
         var symbol_it = self.function_table.keyIterator();
