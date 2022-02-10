@@ -63,7 +63,7 @@ if("${ZIG_VERSION}" STREQUAL "")
         endif()
     endif()
 endif()
-message("Configuring zig version ${ZIG_VERSION}")
+message(STATUS "Configuring zig version ${ZIG_VERSION}")
 
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
