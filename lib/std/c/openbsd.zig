@@ -363,6 +363,12 @@ pub const MAP = struct {
     pub const CONCEAL = 0x8000;
 };
 
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
+};
+
 pub const W = struct {
     pub const NOHANG = 1;
     pub const UNTRACED = 2;

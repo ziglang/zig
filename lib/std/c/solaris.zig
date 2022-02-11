@@ -534,6 +534,12 @@ pub const MAP = struct {
     pub const INITDATA = 0x0800;
 };
 
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
+};
+
 pub const MADV = struct {
     /// no further special treatment
     pub const NORMAL = 0;

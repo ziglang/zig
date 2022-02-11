@@ -412,8 +412,8 @@ pub const MSF = struct {
     pub const SYNC = 4;
 };
 
-pub fn msync(address: [*]const u8, length: usize, flags: u32) usize {
-    return syscall3(.msync, @ptrToInt(address), length, flags);
+pub fn msync(address: [*]const u8, length: usize, flags: i32) usize {
+    return syscall3(.msync, @ptrToInt(address), length, @bitCast(u32, flags));
 }
 
 pub fn munmap(address: [*]const u8, length: usize) usize {

@@ -424,24 +424,48 @@ pub const StackIterator = struct {
         return address;
     }
 
-    fn isValidMemory(address: u64) bool {
-        if (native_os != .windows) {
-            var res = true;
-            const length = 2 * mem.page_size;
-            const aligned_address = address & ~@intCast(u64, (mem.page_size - 1));
-            const aligned_memory = @intToPtr([*]align(mem.page_size) u8, aligned_address)[0..length];
+    fn isValidMemory(address: usize) bool {
+        const aligned_address = address & ~@intCast(usize, (mem.page_size - 1));
 
-            os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
-                switch (err) {
-                    os.MSyncError.UnmappedMemory => {
-                        res = false;
-                    },
-                    else => unreachable,
-                }
-            };
-            return res;
+        // If the address does not span 2 pages, query only the first one
+        const length: usize = if (aligned_address == address) mem.page_size else 2 * mem.page_size;
+
+        const aligned_memory = @intToPtr([*]align(mem.page_size) u8, aligned_address)[0..length];
+
+        if (native_os != .windows) {
+            if (native_os != .wasi) {
+                os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
+                    switch (err) {
+                        os.MSyncError.UnmappedMemory => {
+                            return false;
+                        },
+                        else => unreachable,
+                    }
+                };
+            }
+
+            return true;
         } else {
-            // TODO: Using windows memory API check if a page is mapped
+            const w = os.windows;
+            var memory_info: w.MEMORY_BASIC_INFORMATION = undefined;
+            //const memory_info_ptr = @ptrCast(w.PMEMORY_BASIC_INFORMATION, buffer);
+
+            // The only error this function can throw is ERROR_INVALID_PARAMETER.
+            // supply an address that invalid i'll be thrown.
+            const rc = w.VirtualQuery(aligned_memory.ptr, &memory_info, aligned_memory.len) catch {
+                return false;
+            };
+
+            // Result code has to be bigger than zero (number of bytes written)
+            if (rc == 0) {
+                return false;
+            }
+
+            // Free pages cannot be read, they are unmapped
+            if (memory_info.State == w.MEM_FREE) {
+                return false;
+            }
+
             return true;
         }
     }
