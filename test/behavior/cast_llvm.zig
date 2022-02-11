@@ -6,6 +6,8 @@ const maxInt = std.math.maxInt;
 const native_endian = builtin.target.cpu.arch.endian();
 
 test "pointer reinterpret const float to int" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     // The hex representation is 0x3fe3333333333303.
     const float: f64 = 5.99999999999994648725e-01;
     const float_ptr = &float;
@@ -18,6 +20,8 @@ test "pointer reinterpret const float to int" {
 }
 
 test "@floatToInt" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     try testFloatToInts();
     comptime try testFloatToInts();
 }
@@ -33,6 +37,8 @@ fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) !void {
 }
 
 test "implicit cast from [*]T to ?*anyopaque" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     var a = [_]u8{ 3, 2, 1 };
     var runtime_zero: usize = 0;
     incrementVoidPtrArray(a[runtime_zero..].ptr, 3);
@@ -49,6 +55,7 @@ fn incrementVoidPtrArray(array: ?*anyopaque, len: usize) void {
 test "compile time int to ptr of function" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try foobar(FUNCTION_CONSTANT);
 }
@@ -61,6 +68,8 @@ fn foobar(func: PFN_void) !void {
 }
 
 test "implicit ptr to *anyopaque" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     var a: u32 = 1;
     var ptr: *align(@alignOf(u32)) anyopaque = &a;
     var b: *u32 = @ptrCast(*u32, ptr);
@@ -87,6 +96,7 @@ fn returnNullLitFromOptionalTypeErrorRef() anyerror!?*A {
 }
 
 test "peer type resolution: [0]u8 and []const u8" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
     try expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
     comptime {
@@ -103,6 +113,7 @@ fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
 }
 
 test "implicitly cast from [N]T to ?[]const T" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
     comptime try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
 }
@@ -112,6 +123,7 @@ fn castToOptionalSlice() ?[]const u8 {
 }
 
 test "cast u128 to f128 and back" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     comptime try testCast128();
     try testCast128();
 }
@@ -129,6 +141,7 @@ fn cast128Float(x: u128) f128 {
 }
 
 test "implicit cast from *[N]T to ?[*]T" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     var x: ?[*]u16 = null;
     var y: [4]u16 = [4]u16{ 0, 1, 2, 3 };
 
@@ -140,6 +153,7 @@ test "implicit cast from *[N]T to ?[*]T" {
 }
 
 test "implicit cast from *T to ?*anyopaque" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     var a: u8 = 1;
     incrementVoidPtrValue(&a);
     try std.testing.expect(a == 2);
@@ -150,6 +164,7 @@ fn incrementVoidPtrValue(value: ?*anyopaque) void {
 }
 
 test "implicit cast *[0]T to E![]const u8" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     var x = @as(anyerror![]const u8, &[0]u8{});
     try expect((x catch unreachable).len == 0);
 }
@@ -160,11 +175,13 @@ test "cast from array reference to fn: comptime fn ptr" {
     try expect(@ptrToInt(f) == @ptrToInt(&global_array));
 }
 test "cast from array reference to fn: runtime fn ptr" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     var f = @ptrCast(*const fn () callconv(.C) void, &global_array);
     try expect(@ptrToInt(f) == @ptrToInt(&global_array));
 }
 
 test "*const [N]null u8 to ?[]const u8" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var a = "Hello";
@@ -196,6 +213,7 @@ test "cast between [*c]T and ?[*:0]T on fn parameter" {
 
 var global_struct: struct { f0: usize } = undefined;
 test "assignment to optional pointer result loc" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     var foo: struct { ptr: ?*anyopaque } = .{ .ptr = &global_struct };
     try expect(foo.ptr.? == @ptrCast(*anyopaque, &global_struct));
 }
@@ -217,6 +235,8 @@ fn boolToStr(b: bool) []const u8 {
 }
 
 test "cast f16 to wider types" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var x: f16 = 1234.0;
@@ -230,6 +250,9 @@ test "cast f16 to wider types" {
 }
 
 test "cast f128 to narrower types" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest() !void {
             var x: f128 = 1234.0;
@@ -243,6 +266,7 @@ test "cast f128 to narrower types" {
 }
 
 test "peer type resolution: unreachable, null, slice" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest(num: usize, word: []const u8) !void {
             const result = switch (num) {

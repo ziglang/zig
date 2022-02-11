@@ -23,6 +23,8 @@ test {
     _ = @import("behavior/bugs/1914.zig");
     _ = @import("behavior/bugs/2006.zig");
     _ = @import("behavior/bugs/2346.zig");
+    _ = @import("behavior/bugs/2578.zig");
+    _ = @import("behavior/bugs/3007.zig");
     _ = @import("behavior/bugs/3112.zig");
     _ = @import("behavior/bugs/3367.zig");
     _ = @import("behavior/bugs/6850.zig");
@@ -58,9 +60,11 @@ test {
         _ = @import("behavior/bugs/4954.zig");
         _ = @import("behavior/byval_arg_var.zig");
         _ = @import("behavior/call.zig");
+        _ = @import("behavior/cast_llvm.zig");
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/enum.zig");
         _ = @import("behavior/error.zig");
+        _ = @import("behavior/fn.zig");
         _ = @import("behavior/for.zig");
         _ = @import("behavior/generics.zig");
         _ = @import("behavior/if.zig");
@@ -93,14 +97,10 @@ test {
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
                 _ = @import("behavior/atomics.zig");
-                _ = @import("behavior/bugs/2578.zig");
-                _ = @import("behavior/bugs/3007.zig");
                 _ = @import("behavior/bugs/9584.zig");
-                _ = @import("behavior/cast_llvm.zig");
                 _ = @import("behavior/error_llvm.zig");
                 _ = @import("behavior/eval.zig");
                 _ = @import("behavior/floatop.zig");
-                _ = @import("behavior/fn.zig");
                 _ = @import("behavior/math.zig");
                 _ = @import("behavior/maximum_minimum.zig");
                 _ = @import("behavior/merge_error_sets.zig");
