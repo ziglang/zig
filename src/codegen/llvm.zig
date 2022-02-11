@@ -1371,14 +1371,24 @@ pub const DeclGen = struct {
                     const gpa = dg.gpa;
                     const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len);
                     defer gpa.free(llvm_elems);
+                    var need_unnamed = false;
                     for (elem_vals) |elem_val, i| {
                         llvm_elems[i] = try dg.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
+                        need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[i]);
                     }
-                    const llvm_elem_ty = try dg.llvmType(elem_ty);
-                    return llvm_elem_ty.constArray(
-                        llvm_elems.ptr,
-                        @intCast(c_uint, llvm_elems.len),
-                    );
+                    if (need_unnamed) {
+                        return dg.context.constStruct(
+                            llvm_elems.ptr,
+                            @intCast(c_uint, llvm_elems.len),
+                            .True,
+                        );
+                    } else {
+                        const llvm_elem_ty = try dg.llvmType(elem_ty);
+                        return llvm_elem_ty.constArray(
+                            llvm_elems.ptr,
+                            @intCast(c_uint, llvm_elems.len),
+                        );
+                    }
                 },
                 .repeated => {
                     const val = tv.val.castTag(.repeated).?.data;
@@ -1389,25 +1399,46 @@ pub const DeclGen = struct {
                     const gpa = dg.gpa;
                     const llvm_elems = try gpa.alloc(*const llvm.Value, len_including_sent);
                     defer gpa.free(llvm_elems);
-                    for (llvm_elems[0..len]) |*elem| {
-                        elem.* = try dg.genTypedValue(.{ .ty = elem_ty, .val = val });
+
+                    var need_unnamed = false;
+                    if (len != 0) {
+                        for (llvm_elems[0..len]) |*elem| {
+                            elem.* = try dg.genTypedValue(.{ .ty = elem_ty, .val = val });
+                        }
+                        need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[0]);
                     }
+
                     if (sentinel) |sent| {
                         llvm_elems[len] = try dg.genTypedValue(.{ .ty = elem_ty, .val = sent });
+                        need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[len]);
                     }
-                    const llvm_elem_ty = try dg.llvmType(elem_ty);
-                    return llvm_elem_ty.constArray(
-                        llvm_elems.ptr,
-                        @intCast(c_uint, llvm_elems.len),
-                    );
+
+                    if (need_unnamed) {
+                        return dg.context.constStruct(
+                            llvm_elems.ptr,
+                            @intCast(c_uint, llvm_elems.len),
+                            .True,
+                        );
+                    } else {
+                        const llvm_elem_ty = try dg.llvmType(elem_ty);
+                        return llvm_elem_ty.constArray(
+                            llvm_elems.ptr,
+                            @intCast(c_uint, llvm_elems.len),
+                        );
+                    }
                 },
                 .empty_array_sentinel => {
                     const elem_ty = tv.ty.elemType();
                     const sent_val = tv.ty.sentinel().?;
                     const sentinel = try dg.genTypedValue(.{ .ty = elem_ty, .val = sent_val });
                     const llvm_elems: [1]*const llvm.Value = .{sentinel};
-                    const llvm_elem_ty = try dg.llvmType(elem_ty);
-                    return llvm_elem_ty.constArray(&llvm_elems, llvm_elems.len);
+                    const need_unnamed = dg.isUnnamedType(elem_ty, llvm_elems[0]);
+                    if (need_unnamed) {
+                        return dg.context.constStruct(&llvm_elems, llvm_elems.len, .True);
+                    } else {
+                        const llvm_elem_ty = try dg.llvmType(elem_ty);
+                        return llvm_elem_ty.constArray(&llvm_elems, llvm_elems.len);
+                    }
                 },
                 else => unreachable,
             },
@@ -1495,7 +1526,7 @@ pub const DeclGen = struct {
                 var llvm_fields = try std.ArrayListUnmanaged(*const llvm.Value).initCapacity(gpa, llvm_field_count);
                 defer llvm_fields.deinit(gpa);
 
-                var make_unnamed_struct = false;
+                var need_unnamed = false;
                 const struct_obj = tv.ty.castTag(.@"struct").?.data;
                 if (struct_obj.layout == .Packed) {
                     const target = dg.module.getTarget();
@@ -1596,14 +1627,13 @@ pub const DeclGen = struct {
                             .val = field_val,
                         });
 
-                        make_unnamed_struct = make_unnamed_struct or
-                            dg.isUnnamedType(field_ty, field_llvm_val);
+                        need_unnamed = need_unnamed or dg.isUnnamedType(field_ty, field_llvm_val);
 
                         llvm_fields.appendAssumeCapacity(field_llvm_val);
                     }
                 }
 
-                if (make_unnamed_struct) {
+                if (need_unnamed) {
                     return dg.context.constStruct(
                         llvm_fields.items.ptr,
                         @intCast(c_uint, llvm_fields.items.len),
