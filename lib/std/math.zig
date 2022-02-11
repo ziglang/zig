@@ -36,7 +36,6 @@ pub const sqrt2 = 1.414213562373095048801688724209698079;
 /// 1/sqrt(2)
 pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 
-// From a small c++ [program using boost float128](https://github.com/winksaville/cpp_boost_float128)
 pub const f128_true_min = @bitCast(f128, @as(u128, 0x00000000000000000000000000000001));
 pub const f128_min = @bitCast(f128, @as(u128, 0x00010000000000000000000000000000));
 pub const f128_max = @bitCast(f128, @as(u128, 0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
@@ -44,12 +43,10 @@ pub const f128_epsilon = @bitCast(f128, @as(u128, 0x3F8F000000000000000000000000
 pub const f128_toint = 1.0 / f128_epsilon;
 
 pub const F80Repr = if (@import("builtin").cpu.arch.endian() == .Little) extern struct {
-    fraction: u64,
+    fraction: u64 align(@alignOf(f80)),
     exp: u16,
-    _pad: u32 = undefined,
 } else extern struct {
-    exp: u16,
-    _pad: u32 = undefined, // TODO verify compatibility with hardware
+    exp: u16 align(@alignOf(f80)),
     fraction: u64,
 };
 

@@ -9429,17 +9429,29 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdFloat);
+        unsigned u64_alignment = LLVMABIAlignmentOfType(g->target_data_ref, LLVMInt64Type());
+
+        if (u64_alignment >= 8) {
+            entry->size_in_bits = 128;
+            entry->abi_size = 16;
+            entry->abi_align = 16;
+        } else if (u64_alignment >= 4) {
+            entry->size_in_bits = 96;
+            entry->abi_size = 12;
+            entry->abi_align = 4;
+        } else {
+            entry->size_in_bits = 80;
+            entry->abi_size = 10;
+            entry->abi_align = 2;
+        }
         if (target_has_f80(g->zig_target)) {
             entry->llvm_type = LLVMX86FP80Type();
         } else {
-            // We use i128 here instead of x86_fp80 because on targets such as arm,
+            // We use an int here instead of x86_fp80 because on targets such as arm,
             // LLVM will give "ERROR: Cannot select" for any instructions involving
             // the x86_fp80 type.
-            entry->llvm_type = get_int_type(g, false, 128)->llvm_type;
+            entry->llvm_type = get_int_type(g, false, entry->size_in_bits)->llvm_type;
         }
-        entry->size_in_bits = 8 * 16;
-        entry->abi_size = 16; // matches LLVMABISizeOfType(LLVMX86FP80Type())
-        entry->abi_align = 16; // matches LLVMABIAlignmentOfType(LLVMX86FP80Type())
         buf_init_from_str(&entry->name, "f80");
         entry->data.floating.bit_count = 80;
 

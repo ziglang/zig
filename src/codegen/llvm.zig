@@ -1257,19 +1257,29 @@ pub const DeclGen = struct {
             },
             .Float => {
                 const llvm_ty = try dg.llvmType(tv.ty);
-                if (tv.ty.floatBits(dg.module.getTarget()) <= 64) {
-                    return llvm_ty.constReal(tv.val.toFloat(f64));
+                switch (tv.ty.floatBits(dg.module.getTarget())) {
+                    16, 32, 64 => return llvm_ty.constReal(tv.val.toFloat(f64)),
+                    80 => {
+                        const float = tv.val.toFloat(f80);
+                        const repr = @ptrCast(*const std.math.F80Repr, &float);
+                        const llvm_i80 = dg.context.intType(80);
+                        var x = llvm_i80.constInt(repr.exp, .False);
+                        x = x.constShl(llvm_i80.constInt(64, .False));
+                        x = x.constOr(llvm_i80.constInt(repr.fraction, .False));
+                        return x.constBitCast(llvm_ty);
+                    },
+                    128 => {
+                        var buf: [2]u64 = @bitCast([2]u64, tv.val.toFloat(f128));
+                        // LLVM seems to require that the lower half of the f128 be placed first
+                        // in the buffer.
+                        if (native_endian == .Big) {
+                            std.mem.swap(u64, &buf[0], &buf[1]);
+                        }
+                        const int = dg.context.intType(128).constIntOfArbitraryPrecision(buf.len, &buf);
+                        return int.constBitCast(llvm_ty);
+                    },
+                    else => unreachable,
                 }
-
-                var buf: [2]u64 = @bitCast([2]u64, tv.val.toFloat(f128));
-                // LLVM seems to require that the lower half of the f128 be placed first
-                // in the buffer.
-                if (native_endian == .Big) {
-                    std.mem.swap(u64, &buf[0], &buf[1]);
-                }
-
-                const int = dg.context.intType(128).constIntOfArbitraryPrecision(buf.len, &buf);
-                return int.constBitCast(llvm_ty);
             },
             .Pointer => switch (tv.val.tag()) {
                 .decl_ref_mut => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref_mut).?.data.decl),

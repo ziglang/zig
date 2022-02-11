@@ -1122,10 +1122,32 @@ pub const Value = extern union {
 
     fn floatReadFromMemory(comptime F: type, target: Target, buffer: []const u8) F {
         if (F == f80) {
-            // TODO: use std.math.F80Repr?
-            const int = std.mem.readInt(u128, buffer[0..16], target.cpu.arch.endian());
-            // TODO shouldn't this be a bitcast from u80 to f80 instead of u128 to f80?
-            return @bitCast(F, int);
+            switch (target.cpu.arch.endian()) {
+                .Little => {
+                    const TargetF80Repr = extern struct {
+                        fraction: u64,
+                        exp: u16,
+                    };
+                    const target_repr = @ptrCast(*align(1) const TargetF80Repr, buffer.ptr);
+                    const real_repr: std.math.F80Repr = .{
+                        .fraction = target_repr.fraction,
+                        .exp = target_repr.exp,
+                    };
+                    return @ptrCast(*const f80, &real_repr).*;
+                },
+                .Big => {
+                    const TargetF80Repr = extern struct {
+                        exp: u16,
+                        fraction: u64,
+                    };
+                    const target_repr = @ptrCast(*align(1) const TargetF80Repr, buffer.ptr);
+                    const real_repr: std.math.F80Repr = .{
+                        .fraction = target_repr.fraction,
+                        .exp = target_repr.exp,
+                    };
+                    return @ptrCast(*const f80, &real_repr).*;
+                },
+            }
         }
         const Int = @Type(.{ .Int = .{
             .signedness = .unsigned,
