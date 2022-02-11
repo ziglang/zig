@@ -8677,12 +8677,19 @@ static LLVMTypeRef llvm_int_for_size(size_t size) {
 }
 
 static LLVMTypeRef llvm_sse_for_size(size_t size) {
-    if (size > 4)
-        return LLVMDoubleType();
-    else 
-        return LLVMFloatType();
+    switch (size) {
+        case 4: // f32
+            return LLVMFloatType();
+        case 8: // f64
+            return LLVMDoubleType();
+        case 10: // f80
+            return LLVMX86FP80Type();
+        case 16: // f128
+            return LLVMFP128Type();
+        default:
+            zig_unreachable();
+    };
 }
-
 // Since it's not possible to control calling convention or register
 // allocation in LLVM, clang seems to use intermediate types to manipulate
 // LLVM into doing the right thing. It uses a float to force SSE registers,
