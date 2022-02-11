@@ -988,12 +988,14 @@ test "NaN comparison" {
     try testNanEqNan(f32);
     try testNanEqNan(f64);
     try testNanEqNan(f128);
-    if (has_f80_rt and (builtin.zig_backend == .stage1)) try testNanEqNan(f80); // TODO
     comptime try testNanEqNan(f16);
     comptime try testNanEqNan(f32);
     comptime try testNanEqNan(f64);
     comptime try testNanEqNan(f128);
-    // comptime try testNanEqNan(f80); // TODO
+
+    // TODO make this pass on all targets
+    // try testNanEqNan(f80);
+    // comptime try testNanEqNan(f80);
 }
 
 fn testNanEqNan(comptime F: type) !void {
