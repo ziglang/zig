@@ -145,6 +145,7 @@ decls: std.AutoHashMapUnmanaged(*Module.Decl, ?u16) = .{},
 /// at present owned by Module.Decl.
 /// TODO consolidate this.
 managed_atoms: std.ArrayListUnmanaged(*TextBlock) = .{},
+atom_by_index_table: std.AutoHashMapUnmanaged(u32, *TextBlock) = .{},
 
 /// Table of unnamed constants associated with a parent `Decl`.
 /// We store them here so that we can free the constants whenever the `Decl`
@@ -179,6 +180,18 @@ dbg_info_decl_free_list: std.AutoHashMapUnmanaged(*TextBlock, void) = .{},
 dbg_info_decl_first: ?*TextBlock = null,
 dbg_info_decl_last: ?*TextBlock = null,
 
+/// A table of relocations indexed by the owning them `TextBlock`.
+/// Note that once we refactor `TextBlock`'s lifetime and ownership rules,
+/// this will be a table indexed by index into the list of Atoms.
+relocs: RelocTable = .{},
+
+const Reloc = struct {
+    target: u32,
+    offset: u64,
+    prev_vaddr: u64,
+};
+
+const RelocTable = std.AutoHashMapUnmanaged(*TextBlock, std.ArrayListUnmanaged(Reloc));
 const UnnamedConstTable = std.AutoHashMapUnmanaged(*Module.Decl, std.ArrayListUnmanaged(*TextBlock));
 
 /// When allocating, the ideal_capacity is calculated by
@@ -397,12 +410,36 @@ pub fn deinit(self: *Elf) void {
         }
         self.unnamed_const_atoms.deinit(self.base.allocator);
     }
+
+    {
+        var it = self.relocs.valueIterator();
+        while (it.next()) |relocs| {
+            relocs.deinit(self.base.allocator);
+        }
+        self.relocs.deinit(self.base.allocator);
+    }
+
+    self.atom_by_index_table.deinit(self.base.allocator);
 }
 
-pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl) u64 {
+pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
     assert(self.llvm_object == null);
     assert(decl.link.elf.local_sym_index != 0);
-    return self.local_symbols.items[decl.link.elf.local_sym_index].st_value;
+
+    const target = decl.link.elf.local_sym_index;
+    const vaddr = self.local_symbols.items[target].st_value;
+    const atom = self.atom_by_index_table.get(parent_atom_index).?;
+    const gop = try self.relocs.getOrPut(self.base.allocator, atom);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(self.base.allocator, .{
+        .target = target,
+        .offset = offset,
+        .prev_vaddr = vaddr,
+    });
+
+    return vaddr;
 }
 
 fn getDebugLineProgramOff(self: Elf) u32 {
@@ -990,6 +1027,41 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
         .p32 => 4,
         .p64 => 12,
     };
+
+    {
+        var it = self.relocs.iterator();
+        while (it.next()) |entry| {
+            const atom = entry.key_ptr.*;
+            const relocs = entry.value_ptr.*;
+            const source_sym = self.local_symbols.items[atom.local_sym_index];
+            const source_shdr = self.sections.items[source_sym.st_shndx];
+
+            log.debug("relocating '{s}'", .{self.getString(source_sym.st_name)});
+
+            for (relocs.items) |*reloc| {
+                const target_sym = self.local_symbols.items[reloc.target];
+                const target_vaddr = target_sym.st_value;
+
+                if (target_vaddr == reloc.prev_vaddr) continue;
+
+                const section_offset = (source_sym.st_value + reloc.offset) - source_shdr.sh_addr;
+                const file_offset = source_shdr.sh_offset + section_offset;
+
+                log.debug("  ({x}: [() => 0x{x}] ({s}))", .{
+                    reloc.offset,
+                    target_vaddr,
+                    self.getString(target_sym.st_name),
+                });
+
+                switch (self.ptr_width) {
+                    .p32 => try self.base.file.?.pwriteAll(mem.asBytes(&@intCast(u32, target_vaddr)), file_offset),
+                    .p64 => try self.base.file.?.pwriteAll(mem.asBytes(&target_vaddr), file_offset),
+                }
+
+                reloc.prev_vaddr = target_vaddr;
+            }
+        }
+    }
 
     // Unfortunately these have to be buffered and done at the end because ELF does not allow
     // mixing local and global symbols within a symbol table.
@@ -2508,6 +2580,7 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
 
     log.debug("allocating symbol indexes for {s}", .{decl.name});
     decl.link.elf.local_sym_index = try self.allocateLocalSymbol();
+    try self.atom_by_index_table.putNoClobber(self.base.allocator, decl.link.elf.local_sym_index, &decl.link.elf);
 
     if (self.offset_table_free_list.popOrNull()) |i| {
         decl.link.elf.offset_table_index = i;
@@ -2525,6 +2598,7 @@ fn freeUnnamedConsts(self: *Elf, decl: *Module.Decl) void {
         self.freeTextBlock(atom, self.phdr_load_ro_index.?);
         self.local_symbol_free_list.append(self.base.allocator, atom.local_sym_index) catch {};
         self.local_symbols.items[atom.local_sym_index].st_info = 0;
+        _ = self.atom_by_index_table.remove(atom.local_sym_index);
     }
     unnamed_consts.clearAndFree(self.base.allocator);
 }
@@ -2543,11 +2617,11 @@ pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     if (decl.link.elf.local_sym_index != 0) {
         self.local_symbol_free_list.append(self.base.allocator, decl.link.elf.local_sym_index) catch {};
-        self.offset_table_free_list.append(self.base.allocator, decl.link.elf.offset_table_index) catch {};
-
         self.local_symbols.items[decl.link.elf.local_sym_index].st_info = 0;
-
+        _ = self.atom_by_index_table.remove(decl.link.elf.local_sym_index);
         decl.link.elf.local_sym_index = 0;
+
+        self.offset_table_free_list.append(self.base.allocator, decl.link.elf.offset_table_index) catch {};
     }
     // TODO make this logic match freeTextBlock. Maybe abstract the logic out since the same thing
     // is desired for both.
@@ -2993,7 +3067,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 
     // TODO implement .debug_info for global variables
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+    const res = try codegen.generateSymbol(&self.base, decl.link.elf.local_sym_index, decl.srcLoc(), .{
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .{
@@ -3028,19 +3102,6 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
     }
     const unnamed_consts = gop.value_ptr;
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
-        .none = .{},
-    });
-    const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_buffer.items,
-        .fail => |em| {
-            decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
-            return error.AnalysisFail;
-        },
-    };
-
     const atom = try self.base.allocator.create(TextBlock);
     errdefer self.base.allocator.destroy(atom);
     atom.* = TextBlock.empty;
@@ -3056,6 +3117,20 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
 
     log.debug("allocating symbol indexes for {s}", .{name});
     atom.local_sym_index = try self.allocateLocalSymbol();
+    try self.atom_by_index_table.putNoClobber(self.base.allocator, atom.local_sym_index, atom);
+
+    const res = try codegen.generateSymbol(&self.base, atom.local_sym_index, decl.srcLoc(), typed_value, &code_buffer, .{
+        .none = .{},
+    });
+    const code = switch (res) {
+        .externally_managed => |x| x,
+        .appended => code_buffer.items,
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl, em);
+            return error.AnalysisFail;
+        },
+    };
 
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
     const phdr_index = self.phdr_load_ro_index.?;

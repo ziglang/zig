@@ -142,6 +142,7 @@ pub fn generateFunction(
 
 pub fn generateSymbol(
     bin_file: *link.File,
+    parent_atom_index: u32,
     src_loc: Module.SrcLoc,
     typed_value: TypedValue,
     code: *std.ArrayList(u8),
@@ -177,7 +178,7 @@ pub fn generateSymbol(
                 if (typed_value.ty.sentinel()) |sentinel| {
                     try code.ensureUnusedCapacity(payload.data.len + 1);
                     code.appendSliceAssumeCapacity(payload.data);
-                    switch (try generateSymbol(bin_file, src_loc, .{
+                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
                         .ty = typed_value.ty.elemType(),
                         .val = sentinel,
                     }, code, debug_output)) {
@@ -197,7 +198,7 @@ pub fn generateSymbol(
                 const elem_vals = typed_value.val.castTag(.array).?.data;
                 const elem_ty = typed_value.ty.elemType();
                 for (elem_vals) |elem_val| {
-                    switch (try generateSymbol(bin_file, src_loc, .{
+                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
                         .ty = elem_ty,
                         .val = elem_val,
                     }, code, debug_output)) {
@@ -223,20 +224,19 @@ pub fn generateSymbol(
         .Pointer => switch (typed_value.val.tag()) {
             .variable => {
                 const decl = typed_value.val.castTag(.variable).?.data.owner_decl;
-                return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output);
+                return lowerDeclRef(bin_file, parent_atom_index, src_loc, typed_value, decl, code, debug_output);
             },
             .decl_ref => {
                 const decl = typed_value.val.castTag(.decl_ref).?.data;
-                return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output);
+                return lowerDeclRef(bin_file, parent_atom_index, src_loc, typed_value, decl, code, debug_output);
             },
             .slice => {
-                // TODO populate .debug_info for the slice
                 const slice = typed_value.val.castTag(.slice).?.data;
 
                 // generate ptr
                 var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
-                switch (try generateSymbol(bin_file, src_loc, .{
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
                     .ty = slice_ptr_field_type,
                     .val = slice.ptr,
                 }, code, debug_output)) {
@@ -248,7 +248,7 @@ pub fn generateSymbol(
                 }
 
                 // generate length
-                switch (try generateSymbol(bin_file, src_loc, .{
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
                     .ty = Type.initTag(.usize),
                     .val = slice.len,
                 }, code, debug_output)) {
@@ -392,7 +392,7 @@ pub fn generateSymbol(
                 const field_ty = typed_value.ty.structFieldType(index);
                 if (!field_ty.hasRuntimeBits()) continue;
 
-                switch (try generateSymbol(bin_file, src_loc, .{
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
                     .ty = field_ty,
                     .val = field_val,
                 }, code, debug_output)) {
@@ -447,6 +447,7 @@ pub fn generateSymbol(
 
 fn lowerDeclRef(
     bin_file: *link.File,
+    parent_atom_index: u32,
     src_loc: Module.SrcLoc,
     typed_value: TypedValue,
     decl: *Module.Decl,
@@ -457,7 +458,7 @@ fn lowerDeclRef(
         // generate ptr
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
-        switch (try generateSymbol(bin_file, src_loc, .{
+        switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
             .ty = slice_ptr_field_type,
             .val = typed_value.val,
         }, code, debug_output)) {
@@ -473,7 +474,7 @@ fn lowerDeclRef(
             .base = .{ .tag = .int_u64 },
             .data = typed_value.val.sliceLen(),
         };
-        switch (try generateSymbol(bin_file, src_loc, .{
+        switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
             .ty = Type.initTag(.usize),
             .val = Value.initPayload(&slice_len.base),
         }, code, debug_output)) {
@@ -496,15 +497,7 @@ fn lowerDeclRef(
     }
 
     decl.markAlive();
-    const vaddr = vaddr: {
-        if (bin_file.cast(link.File.MachO)) |macho_file| {
-            break :vaddr try macho_file.getDeclVAddrWithReloc(decl, code.items.len);
-        }
-        // TODO handle the dependency of this symbol on the decl's vaddr.
-        // If the decl changes vaddr, then this symbol needs to get regenerated.
-        break :vaddr bin_file.getDeclVAddr(decl);
-    };
-
+    const vaddr = try bin_file.getDeclVAddr(decl, parent_atom_index, code.items.len);
     const endian = target.cpu.arch.endian();
     switch (ptr_width) {
         16 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(u16, vaddr), endian),

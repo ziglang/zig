@@ -450,6 +450,7 @@ fn mirLea(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
 
 fn mirLeaPie(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
+    const load_reloc = print.mir.instructions.items(.data)[inst].load_reloc;
     try w.print("lea {s}, ", .{@tagName(ops.reg1)});
     switch (ops.reg1.size()) {
         8 => try w.print("byte ptr ", .{}),
@@ -459,9 +460,8 @@ fn mirLeaPie(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
         else => unreachable,
     }
     try w.print("[rip + 0x0] ", .{});
-    const sym_index = print.mir.instructions.items(.data)[inst].linker_sym_index;
     if (print.bin_file.cast(link.File.MachO)) |macho_file| {
-        const target = macho_file.locals.items[sym_index];
+        const target = macho_file.locals.items[load_reloc.sym_index];
         const target_name = macho_file.getString(target.n_strx);
         try w.print("target@{s}", .{target_name});
     } else {

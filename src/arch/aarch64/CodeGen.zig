@@ -1617,7 +1617,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
 
                 _ = try self.addInst(.{
                     .tag = .call_extern,
-                    .data = .{ .extern_fn = n_strx },
+                    .data = .{
+                        .extern_fn = .{
+                            .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
+                            .sym_name = n_strx,
+                        },
+                    },
                 });
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
@@ -2485,9 +2490,18 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             });
         },
         .memory => |addr| {
+            const owner_decl = self.mod_fn.owner_decl;
+            // TODO when refactoring LinkBlock, make this into a generic function.
+            const atom_index = switch (self.bin_file.tag) {
+                .macho => owner_decl.link.macho.local_sym_index,
+                .elf => owner_decl.link.elf.local_sym_index,
+                .plan9 => @intCast(u32, owner_decl.link.plan9.sym_index orelse 0),
+                else => return self.fail("TODO handle aarch64 load memory in {}", .{self.bin_file.tag}),
+            };
             _ = try self.addInst(.{
                 .tag = .load_memory,
                 .data = .{ .payload = try self.addExtra(Mir.LoadMemory{
+                    .atom_index = atom_index,
                     .register = @enumToInt(reg),
                     .addr = @intCast(u32, addr),
                 }) },

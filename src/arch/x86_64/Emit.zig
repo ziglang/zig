@@ -763,6 +763,7 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .lea_pie);
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const load_reloc = emit.mir.instructions.items(.data)[inst].load_reloc;
 
     // lea reg1, [rip + reloc]
     // RM
@@ -772,18 +773,19 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         RegisterOrMemory.rip(Memory.PtrSize.fromBits(ops.reg1.size()), 0),
         emit.code,
     );
+
     const end_offset = emit.code.items.len;
-    const sym_index = emit.mir.instructions.items(.data)[inst].linker_sym_index;
+
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         const reloc_type = switch (ops.flags) {
             0b00 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
             0b01 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
             else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
         };
-        const decl = macho_file.active_decl.?;
-        try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
+        const atom = macho_file.atom_by_index_table.get(load_reloc.atom_index).?;
+        try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = @intCast(u32, end_offset - 4),
-            .target = .{ .local = sym_index },
+            .target = .{ .local = load_reloc.sym_index },
             .addend = 0,
             .subtractor = null,
             .pcrel = true,
@@ -801,17 +803,20 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .call_extern);
-    const n_strx = emit.mir.instructions.items(.data)[inst].extern_fn;
+    const extern_fn = emit.mir.instructions.items(.data)[inst].extern_fn;
+
     const offset = blk: {
         // callq
         try lowerToDEnc(.call_near, 0, emit.code);
         break :blk @intCast(u32, emit.code.items.len) - 4;
     };
+
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
-        try macho_file.active_decl.?.link.macho.relocs.append(emit.bin_file.allocator, .{
+        const atom = macho_file.atom_by_index_table.get(extern_fn.atom_index).?;
+        try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset,
-            .target = .{ .global = n_strx },
+            .target = .{ .global = extern_fn.sym_name },
             .addend = 0,
             .subtractor = null,
             .pcrel = true,

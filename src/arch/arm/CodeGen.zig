@@ -3931,23 +3931,20 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     switch (typed_value.ty.zigTypeTag()) {
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {
-                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_type = typed_value.ty.slicePtrFieldType(&buf);
-                const ptr_mcv = try self.genTypedValue(.{ .ty = ptr_type, .val = typed_value.val });
-                const slice_len = typed_value.val.sliceLen();
-                // Codegen can't handle some kinds of indirection. If the wrong union field is accessed here it may mean
-                // the Sema code needs to use anonymous Decls or alloca instructions to store data.
-                const ptr_imm = ptr_mcv.memory;
-                _ = slice_len;
-                _ = ptr_imm;
-                // We need more general support for const data being stored in memory to make this work.
-                return self.fail("TODO codegen for const slices", .{});
+                return self.lowerUnnamedConst(typed_value);
             },
             else => {
-                if (typed_value.val.tag() == .int_u64) {
-                    return MCValue{ .immediate = @intCast(u32, typed_value.val.toUnsignedInt()) };
+                switch (typed_value.val.tag()) {
+                    .int_u64 => {
+                        return MCValue{ .immediate = @intCast(u32, typed_value.val.toUnsignedInt()) };
+                    },
+                    .slice => {
+                        return self.lowerUnnamedConst(typed_value);
+                    },
+                    else => {
+                        return self.fail("TODO codegen more kinds of const pointers", .{});
+                    },
                 }
-                return self.fail("TODO codegen more kinds of const pointers", .{});
             },
         },
         .Int => {
