@@ -7175,6 +7175,17 @@ static LLVMValueRef ir_render_bswap(CodeGen *g, Stage1Air *executable, Stage1Air
     return LLVMBuildTrunc(g->builder, shifted, get_llvm_type(g, expr_type), "");
 }
 
+static LLVMThreadLocalMode tls_model_for_target(const ZigTarget *target) {
+    switch (target->os) {
+        case OsSerenity:
+            return LLVMInitialExecTLSModel;
+
+        default:
+            return LLVMGeneralDynamicTLSModel;
+    }
+
+}
+
 static LLVMValueRef ir_render_extern(CodeGen *g, Stage1Air *executable,
         Stage1AirInstExtern *instruction)
 {
@@ -7190,7 +7201,7 @@ static LLVMValueRef ir_render_extern(CodeGen *g, Stage1Air *executable,
         LLVMSetLinkage(global_value, linkage);
         LLVMSetGlobalConstant(global_value, true);
         if (instruction->is_thread_local)
-            LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
+            LLVMSetThreadLocalMode(global_value, tls_model_for_target(g->zig_target));
     } else if (LLVMGetLinkage(global_value) != linkage) {
         // XXX: Handle this case better!
         zig_panic("duplicate extern symbol");
@@ -8780,7 +8791,7 @@ static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
     bool is_export = var->decl_node->data.variable_declaration.is_export;
     bool is_internal_linkage = !is_extern && !is_export;
     if (var->is_thread_local && (!g->is_single_threaded || !is_internal_linkage)) {
-        LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
+        LLVMSetThreadLocalMode(global_value, tls_model_for_target(g->zig_target));
     }
 }
 
