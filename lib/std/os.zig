@@ -88,6 +88,7 @@ pub const Kevent = system.Kevent;
 pub const LOCK = system.LOCK;
 pub const MADV = system.MADV;
 pub const MAP = system.MAP;
+pub const MSF = system.MSF;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
 pub const MMAP2_UNIT = system.MMAP2_UNIT;
 pub const MSG = system.MSG;
@@ -4012,6 +4013,19 @@ pub fn munmap(memory: []align(mem.page_size) const u8) void {
         .SUCCESS => return,
         .INVAL => unreachable, // Invalid parameters.
         .NOMEM => unreachable, // Attempted to unmap a region in the middle of an existing mapping.
+        else => unreachable,
+    }
+}
+
+pub const MSyncError = error{
+    UnmappedMemory,
+} || UnexpectedError;
+
+pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
+    switch (errno(system.msync(memory.ptr, memory.len, flags))) {
+        .SUCCESS => return,
+        .NOMEM => return error.UnmappedMemory, // Unsuccessful, provided pointer does not point mapped memory
+        .INVAL => unreachable, // Invalid parameters.
         else => unreachable,
     }
 }

@@ -424,6 +424,28 @@ pub const StackIterator = struct {
         return address;
     }
 
+    fn isValidMemory(address: u64) bool {
+        if (native_os != .windows) {
+            var res = true;
+            const length = 2 * mem.page_size;
+            const aligned_address = address & ~@intCast(u64, (mem.page_size - 1));
+            const aligned_memory = @intToPtr([*]align(mem.page_size) u8, aligned_address)[0..length];
+
+            os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
+                switch (err) {
+                    os.MSyncError.UnmappedMemory => {
+                        res = false;
+                    },
+                    else => unreachable,
+                }
+            };
+            return res;
+        } else {
+            // TODO: Using windows memory API check if a page is mapped
+            return true;
+        }
+    }
+
     fn next_internal(self: *StackIterator) ?usize {
         const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
@@ -432,7 +454,7 @@ pub const StackIterator = struct {
             math.sub(usize, self.fp, fp_offset) catch return null;
 
         // Sanity check.
-        if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)))
+        if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)) or !isValidMemory(fp))
             return null;
 
         const new_fp = math.add(usize, @intToPtr(*const usize, fp).*, fp_bias) catch return null;
