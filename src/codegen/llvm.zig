@@ -824,23 +824,24 @@ pub const DeclGen = struct {
 
     fn llvmType(dg: *DeclGen, t: Type) Allocator.Error!*const llvm.Type {
         const gpa = dg.gpa;
+        const target = dg.module.getTarget();
         switch (t.zigTypeTag()) {
             .Void, .NoReturn => return dg.context.voidType(),
             .Int => {
-                const info = t.intInfo(dg.module.getTarget());
+                const info = t.intInfo(target);
                 return dg.context.intType(info.bits);
             },
             .Enum => {
                 var buffer: Type.Payload.Bits = undefined;
                 const int_ty = t.intTagType(&buffer);
-                const bit_count = int_ty.intInfo(dg.module.getTarget()).bits;
+                const bit_count = int_ty.intInfo(target).bits;
                 return dg.context.intType(bit_count);
             },
-            .Float => switch (t.floatBits(dg.module.getTarget())) {
+            .Float => switch (t.floatBits(target)) {
                 16 => return dg.context.halfType(),
                 32 => return dg.context.floatType(),
                 64 => return dg.context.doubleType(),
-                80 => return dg.context.x86FP80Type(),
+                80 => return if (backendSupportsF80(target)) dg.context.x86FP80Type() else dg.context.intType(80),
                 128 => return dg.context.fp128Type(),
                 else => unreachable,
             },
@@ -859,7 +860,8 @@ pub const DeclGen = struct {
                 const llvm_addrspace = dg.llvmAddressSpace(t.ptrAddressSpace());
                 const elem_ty = t.childType();
                 const lower_elem_ty = switch (elem_ty.zigTypeTag()) {
-                    .Opaque, .Array, .Fn => true,
+                    .Opaque, .Fn => true,
+                    .Array => elem_ty.childType().hasRuntimeBits(),
                     else => elem_ty.hasRuntimeBits(),
                 };
                 const llvm_elem_ty = if (lower_elem_ty)
@@ -889,9 +891,11 @@ pub const DeclGen = struct {
                 else => unreachable,
             },
             .Array => {
-                const elem_type = try dg.llvmType(t.childType());
+                const elem_ty = t.childType();
+                assert(elem_ty.onePossibleValue() == null);
+                const elem_llvm_ty = try dg.llvmType(elem_ty);
                 const total_len = t.arrayLen() + @boolToInt(t.sentinel() != null);
-                return elem_type.arrayType(@intCast(c_uint, total_len));
+                return elem_llvm_ty.arrayType(@intCast(c_uint, total_len));
             },
             .Vector => {
                 const elem_type = try dg.llvmType(t.childType());
@@ -978,7 +982,6 @@ pub const DeclGen = struct {
 
                 if (struct_obj.layout == .Packed) {
                     try llvm_field_types.ensureUnusedCapacity(gpa, struct_obj.fields.count() * 2);
-                    const target = dg.module.getTarget();
                     comptime assert(Type.packed_struct_layout_version == 1);
                     var offset: u64 = 0;
                     var big_align: u32 = 0;
@@ -1073,7 +1076,6 @@ pub const DeclGen = struct {
                 gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
                 const union_obj = t.cast(Type.Payload.Union).?.data;
-                const target = dg.module.getTarget();
                 if (t.unionTagType()) |enum_tag_ty| {
                     const enum_tag_llvm_ty = try dg.llvmType(enum_tag_ty);
                     const layout = union_obj.getLayout(target, true);
@@ -1141,7 +1143,6 @@ pub const DeclGen = struct {
             },
             .Fn => {
                 const fn_info = t.fnInfo();
-                const target = dg.module.getTarget();
                 const sret = firstParamSRet(fn_info, target);
                 const return_type = fn_info.return_type;
                 const raw_llvm_ret_ty = try dg.llvmType(return_type);
@@ -1257,16 +1258,21 @@ pub const DeclGen = struct {
             },
             .Float => {
                 const llvm_ty = try dg.llvmType(tv.ty);
-                switch (tv.ty.floatBits(dg.module.getTarget())) {
+                const target = dg.module.getTarget();
+                switch (tv.ty.floatBits(target)) {
                     16, 32, 64 => return llvm_ty.constReal(tv.val.toFloat(f64)),
                     80 => {
                         const float = tv.val.toFloat(f80);
-                        const repr = @ptrCast(*const std.math.F80Repr, &float);
+                        const repr = std.math.break_f80(float);
                         const llvm_i80 = dg.context.intType(80);
                         var x = llvm_i80.constInt(repr.exp, .False);
                         x = x.constShl(llvm_i80.constInt(64, .False));
                         x = x.constOr(llvm_i80.constInt(repr.fraction, .False));
-                        return x.constBitCast(llvm_ty);
+                        if (backendSupportsF80(target)) {
+                            return x.constBitCast(llvm_ty);
+                        } else {
+                            return x;
+                        }
                     },
                     128 => {
                         var buf: [2]u64 = @bitCast([2]u64, tv.val.toFloat(f128));
@@ -5352,4 +5358,13 @@ fn isByRef(ty: Type) bool {
             return isByRef(ty.optionalChild(&buf));
         },
     }
+}
+
+/// This function returns true if we expect LLVM to lower x86_fp80 correctly
+/// and false if we expect LLVM to crash if it counters an x86_fp80 type.
+fn backendSupportsF80(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .x86_64, .i386 => true,
+        else => false,
+    };
 }

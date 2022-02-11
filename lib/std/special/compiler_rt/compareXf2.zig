@@ -147,8 +147,8 @@ pub fn __gtdf2(a: f64, b: f64) callconv(.C) i32 {
 // Comparison between f80
 
 pub inline fn cmp_f80(comptime RT: type, a: f80, b: f80) RT {
-    const a_rep = @ptrCast(*const std.math.F80Repr, &a).*;
-    const b_rep = @ptrCast(*const std.math.F80Repr, &b).*;
+    const a_rep = std.math.break_f80(a);
+    const b_rep = std.math.break_f80(b);
     const sig_bits = std.math.floatMantissaBits(f80);
     const int_bit = 0x8000000000000000;
     const sign_bit = 0x8000;

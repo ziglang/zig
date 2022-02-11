@@ -1877,9 +1877,28 @@ pub const Type = extern union {
             .f16 => return 2,
             .f32 => return 4,
             .f64 => return 8,
-            .f80 => return 16,
             .f128 => return 16,
-            .c_longdouble => return 16,
+
+            .f80 => switch (target.cpu.arch) {
+                .i386 => return 4,
+                .x86_64 => return 16,
+                else => {
+                    var payload: Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = 80,
+                    };
+                    const u80_ty = initPayload(&payload.base);
+                    return abiAlignment(u80_ty, target);
+                },
+            },
+            .c_longdouble => switch (CType.longdouble.sizeInBits(target)) {
+                16 => return abiAlignment(Type.f16, target),
+                32 => return abiAlignment(Type.f32, target),
+                64 => return abiAlignment(Type.f64, target),
+                80 => return abiAlignment(Type.f80, target),
+                128 => return abiAlignment(Type.f128, target),
+                else => unreachable,
+            },
 
             .error_set,
             .error_set_single,
@@ -2158,9 +2177,28 @@ pub const Type = extern union {
             .f16 => return 2,
             .f32 => return 4,
             .f64 => return 8,
-            .f80 => return 16,
             .f128 => return 16,
-            .c_longdouble => return 16,
+
+            .f80 => switch (target.cpu.arch) {
+                .i386 => return 12,
+                .x86_64 => return 16,
+                else => {
+                    var payload: Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = 80,
+                    };
+                    const u80_ty = initPayload(&payload.base);
+                    return abiSize(u80_ty, target);
+                },
+            },
+            .c_longdouble => switch (CType.longdouble.sizeInBits(target)) {
+                16 => return abiSize(Type.f16, target),
+                32 => return abiSize(Type.f32, target),
+                64 => return abiSize(Type.f64, target),
+                80 => return abiSize(Type.f80, target),
+                128 => return abiSize(Type.f128, target),
+                else => unreachable,
+            },
 
             .error_set,
             .error_set_single,
@@ -2349,7 +2387,7 @@ pub const Type = extern union {
             .c_ulong => return CType.ulong.sizeInBits(target),
             .c_longlong => return CType.longlong.sizeInBits(target),
             .c_ulonglong => return CType.ulonglong.sizeInBits(target),
-            .c_longdouble => 128,
+            .c_longdouble => return CType.longdouble.sizeInBits(target),
 
             .error_set,
             .error_set_single,
@@ -4772,6 +4810,13 @@ pub const Type = extern union {
     pub const @"u8" = initTag(.u8);
     pub const @"u32" = initTag(.u32);
     pub const @"u64" = initTag(.u64);
+
+    pub const @"f16" = initTag(.f16);
+    pub const @"f32" = initTag(.f32);
+    pub const @"f64" = initTag(.f64);
+    pub const @"f80" = initTag(.f80);
+    pub const @"f128" = initTag(.f128);
+
     pub const @"bool" = initTag(.bool);
     pub const @"usize" = initTag(.usize);
     pub const @"isize" = initTag(.isize);

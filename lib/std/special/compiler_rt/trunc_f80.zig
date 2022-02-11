@@ -42,7 +42,7 @@ inline fn trunc(comptime dst_t: type, a: f80) dst_t {
     const dst_nan_mask = dst_qnan - 1;
 
     // Break a into a sign and representation of the absolute value
-    var a_rep = @ptrCast(*const std.math.F80Repr, &a).*;
+    var a_rep = std.math.break_f80(a);
     const sign = a_rep.exp & 0x8000;
     a_rep.exp &= 0x7FFF;
     a_rep.fraction &= 0x7FFFFFFFFFFFFFFF;
@@ -125,7 +125,7 @@ pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
     const a_abs = a_rep & src_abs_mask;
     const sign: u16 = if (a_rep & src_sign_mask != 0) 0x8000 else 0;
 
-    var res: std.math.F80Repr align(16) = undefined;
+    var res: std.math.F80 = undefined;
 
     if (a_abs > src_inf) {
         // a is NaN.
@@ -155,5 +155,5 @@ pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
     }
 
     res.exp |= sign;
-    return @ptrCast(*const f80, &res).*;
+    return std.math.make_f80(res);
 }

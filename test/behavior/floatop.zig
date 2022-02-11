@@ -5,7 +5,10 @@ const math = std.math;
 const pi = std.math.pi;
 const e = std.math.e;
 const Vector = std.meta.Vector;
-const has_f80_rt = @import("builtin").cpu.arch == .x86_64;
+const has_f80_rt = switch (builtin.cpu.arch) {
+    .x86_64, .i386 => true,
+    else => false,
+};
 
 const epsilon_16 = 0.001;
 const epsilon = 0.000001;

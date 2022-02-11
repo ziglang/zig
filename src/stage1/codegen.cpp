@@ -8195,17 +8195,15 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                 case 64:
                     return LLVMConstReal(get_llvm_type(g, type_entry), const_val->data.x_f64);
                 case 80: {
-                    uint64_t buf[2];
-                    memcpy(&buf, &const_val->data.x_f80, 16);
-#if ZIG_BYTE_ORDER == ZIG_BIG_ENDIAN
-                    uint64_t tmp = buf[0];
-                    buf[0] = buf[1];
-                    buf[1] = tmp;
-#endif
-                    LLVMValueRef as_i128 = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2, buf);
-                    if (!target_has_f80(g->zig_target)) return as_i128;
-                    LLVMValueRef as_int = LLVMConstTrunc(as_i128, LLVMIntType(80));
-                    return LLVMConstBitCast(as_int, get_llvm_type(g, type_entry));
+                    LLVMTypeRef llvm_i80 = LLVMIntType(80);
+                    LLVMValueRef x = LLVMConstInt(llvm_i80, const_val->data.x_f80.signExp, false);
+                    x = LLVMConstShl(x, LLVMConstInt(llvm_i80, 64, false));
+                    x = LLVMConstOr(x, LLVMConstInt(llvm_i80, const_val->data.x_f80.signif, false));
+                    if (target_has_f80(g->zig_target)) {
+                        return LLVMConstBitCast(x, LLVMX86FP80Type());
+                    } else {
+                        return x;
+                    }
                 }
                 case 128:
                     {
@@ -9429,31 +9427,35 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdFloat);
-        unsigned u64_alignment = LLVMABIAlignmentOfType(g->target_data_ref, LLVMInt64Type());
+        entry->size_in_bits = 80;
 
-        if (u64_alignment >= 8) {
-            entry->size_in_bits = 128;
-            entry->abi_size = 16;
-            entry->abi_align = 16;
-        } else if (u64_alignment >= 4) {
-            entry->size_in_bits = 96;
-            entry->abi_size = 12;
-            entry->abi_align = 4;
-        } else {
-            entry->size_in_bits = 80;
-            entry->abi_size = 10;
-            entry->abi_align = 2;
-        }
-        if (target_has_f80(g->zig_target)) {
-            entry->llvm_type = LLVMX86FP80Type();
-        } else {
-            // We use an int here instead of x86_fp80 because on targets such as arm,
-            // LLVM will give "ERROR: Cannot select" for any instructions involving
-            // the x86_fp80 type.
-            entry->llvm_type = get_int_type(g, false, entry->size_in_bits)->llvm_type;
-        }
         buf_init_from_str(&entry->name, "f80");
         entry->data.floating.bit_count = 80;
+
+        switch (g->zig_target->arch) {
+            case ZigLLVM_x86_64:
+                entry->llvm_type = LLVMX86FP80Type();
+                entry->abi_size = 16;
+                entry->abi_align = 16;
+                break;
+            case ZigLLVM_x86:
+                entry->llvm_type = LLVMX86FP80Type();
+                entry->abi_size = 12;
+                entry->abi_align = 4;
+                break;
+            default: {
+                // We use an int here instead of x86_fp80 because on targets such as arm,
+                // LLVM will give "ERROR: Cannot select" for any instructions involving
+                // the x86_fp80 type.
+                ZigType *u80_ty = get_int_type(g, false, 80);
+                assert(!target_has_f80(g->zig_target));
+                assert(u80_ty->size_in_bits == entry->size_in_bits);
+                entry->llvm_type = get_llvm_type(g, u80_ty);
+                entry->abi_size = u80_ty->abi_size;
+                entry->abi_align = u80_ty->abi_align;
+                break;
+            }
+        }
 
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
             entry->size_in_bits, ZigLLVMEncoding_DW_ATE_unsigned());
