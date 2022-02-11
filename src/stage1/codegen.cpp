@@ -9432,29 +9432,40 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "f80");
         entry->data.floating.bit_count = 80;
 
-        switch (g->zig_target->arch) {
-            case ZigLLVM_x86_64:
-                entry->llvm_type = LLVMX86FP80Type();
+        if (target_has_f80(g->zig_target)) {
+            entry->llvm_type = LLVMX86FP80Type();
+
+            // Note the following u64 alignments:
+            //   x86-linux:   4
+            //   x86-windows: 8
+            // LLVM makes x86_fp80 have the following alignment and sizes regardless
+            // of operating system:
+            //   x86_64: size=16, align=16
+            //   x86:    size=12, align=4
+            // However in Zig we override x86-windows to have size=16, align=16
+            // in order for the property to hold that u80 and f80 have the same ABI size.
+            unsigned u64_alignment = LLVMABIAlignmentOfType(g->target_data_ref, LLVMInt64Type());
+
+            if (u64_alignment >= 8) {
                 entry->abi_size = 16;
                 entry->abi_align = 16;
-                break;
-            case ZigLLVM_x86:
-                entry->llvm_type = LLVMX86FP80Type();
+            } else if (u64_alignment >= 4) {
                 entry->abi_size = 12;
                 entry->abi_align = 4;
-                break;
-            default: {
-                // We use an int here instead of x86_fp80 because on targets such as arm,
-                // LLVM will give "ERROR: Cannot select" for any instructions involving
-                // the x86_fp80 type.
-                ZigType *u80_ty = get_int_type(g, false, 80);
-                assert(!target_has_f80(g->zig_target));
-                assert(u80_ty->size_in_bits == entry->size_in_bits);
-                entry->llvm_type = get_llvm_type(g, u80_ty);
-                entry->abi_size = u80_ty->abi_size;
-                entry->abi_align = u80_ty->abi_align;
-                break;
+            } else {
+                entry->abi_size = 10;
+                entry->abi_align = u64_alignment;
             }
+        } else {
+            // We use an int here instead of x86_fp80 because on targets such as arm,
+            // LLVM will give "ERROR: Cannot select" for any instructions involving
+            // the x86_fp80 type.
+            ZigType *u80_ty = get_int_type(g, false, 80);
+            assert(!target_has_f80(g->zig_target));
+            assert(u80_ty->size_in_bits == entry->size_in_bits);
+            entry->llvm_type = get_llvm_type(g, u80_ty);
+            entry->abi_size = u80_ty->abi_size;
+            entry->abi_align = u80_ty->abi_align;
         }
 
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
