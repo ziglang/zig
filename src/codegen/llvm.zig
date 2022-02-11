@@ -1858,7 +1858,11 @@ pub const DeclGen = struct {
             try self.resolveGlobalDecl(decl);
 
         const llvm_type = try self.llvmType(tv.ty);
-        return llvm_val.constBitCast(llvm_type);
+        if (tv.ty.zigTypeTag() == .Int) {
+            return llvm_val.constPtrToInt(llvm_type);
+        } else {
+            return llvm_val.constBitCast(llvm_type);
+        }
     }
 
     fn lowerPtrToVoid(dg: *DeclGen, ptr_ty: Type) !*const llvm.Value {
