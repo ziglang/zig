@@ -34,7 +34,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku, .solaris => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku, .solaris, .serenity => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -489,6 +489,62 @@ pub const Dir = struct {
                 }
             }
         },
+        .serenity => struct {
+            dir: Dir,
+            // XXX: The if guards are to prevent a weird error while building on OSes
+            //      other than Serenity.
+            dir_ptr: *if (builtin.os.tag == .serenity) os.system.DIR else opaque {},
+            entry: if (builtin.os.tag == .serenity) os.system.dirent else void = undefined,
+
+            const Self = @This();
+
+            pub const Error = IteratorError;
+
+            pub fn next(self: *Self) Error!?Entry {
+                start_over: while (true) {
+                    var result: ?*os.system.dirent = undefined;
+                    const rc = os.system.readdir_r(self.dir_ptr, &self.entry, &result);
+                    if (rc != 0) {
+                        switch (os.errno(rc)) {
+                            .OVERFLOW => unreachable,
+                            .BADF => unreachable,
+                            .NOENT => unreachable,
+                            else => |err| return os.unexpectedErrno(err),
+                        }
+                    }
+                    if (result == null) return null;
+
+                    const name = mem.sliceTo(@ptrCast([*:0]u8, &self.entry.d_name), 0);
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, ".."))
+                        continue :start_over;
+
+                    const stat_info = os.fstatat(
+                        self.dir.fd,
+                        name,
+                        os.AT.SYMLINK_NOFOLLOW,
+                    ) catch |err| switch (err) {
+                        error.NameTooLong => unreachable,
+                        error.SymLinkLoop => unreachable,
+                        error.FileNotFound => unreachable, // lost the race
+                        else => |e| return e,
+                    };
+                    const entry_kind = switch (stat_info.mode & os.S.IFMT) {
+                        os.S.IFIFO => Entry.Kind.NamedPipe,
+                        os.S.IFCHR => Entry.Kind.CharacterDevice,
+                        os.S.IFDIR => Entry.Kind.Directory,
+                        os.S.IFBLK => Entry.Kind.BlockDevice,
+                        os.S.IFREG => Entry.Kind.File,
+                        os.S.IFLNK => Entry.Kind.SymLink,
+                        os.S.IFSOCK => Entry.Kind.UnixDomainSocket,
+                        else => Entry.Kind.Unknown,
+                    };
+                    return Entry{
+                        .name = name,
+                        .kind = entry_kind,
+                    };
+                }
+            }
+        },
         .haiku => struct {
             dir: Dir,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
@@ -795,6 +851,11 @@ pub const Dir = struct {
                 .end_index = 0,
                 .buf = undefined,
                 .first_iter = true,
+            },
+            .serenity => return Iterator{
+                .dir = self,
+                // FIXME: Very small chance that this might fail
+                .dir_ptr = os.system.fdopendir(self.fd),
             },
             .linux, .haiku => return Iterator{
                 .dir = self,
@@ -2535,7 +2596,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         return out_buffer[0..real_path.len];
     }
     switch (builtin.os.tag) {
-        .linux => return os.readlinkZ("/proc/self/exe", out_buffer),
+        .linux, .serenity => return os.readlinkZ("/proc/self/exe", out_buffer),
         .solaris => return os.readlinkZ("/proc/self/path/a.out", out_buffer),
         .freebsd, .dragonfly => {
             var mib = [4]c_int{ os.CTL.KERN, os.KERN.PROC, os.KERN.PROC_PATHNAME, -1 };

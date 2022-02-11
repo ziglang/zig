@@ -4104,6 +4104,15 @@ const CsuObjects = struct {
                         if (result.crt0 != null and link_options.target.isGnuLibC()) result.crt0 = "Scrt1.o";
                     }
                 },
+                .serenity => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( "crt0_shared.o", "crti.o", null, null, "crtn.o" ),
+                    .dynamic_exe => result.set( "crt0.o",        "crti.o", null, null, "crtn.o" ),
+                    .dynamic_pie => result.set( "crt0.o",        "crti.o", null, null, "crtn.o" ),
+                    .static_exe  => result.set( "crt0.o",        "crti.o", null, null, "crtn.o" ),
+                    .static_pie  => result.set( "crt0.o",        "crti.o", null, null, "crtn.o" ),
+                    // zig fmt: on
+                },
                 .dragonfly => switch (mode) {
                     // zig fmt: off
                     .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),

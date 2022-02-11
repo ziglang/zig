@@ -715,6 +715,7 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
             .macos,
             .windows,
             .solaris,
+            .serenity,
             => return DebugInfo.init(allocator),
             else => return error.UnsupportedDebugInfo,
         }
@@ -1561,7 +1562,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
         }
     },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris => struct {
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .serenity => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,

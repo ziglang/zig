@@ -98,6 +98,7 @@ enum Os {
     OsGLSL450,
     OsVulkan,
     OsPlan9,
+    OsSerenity,
     OsOther,
 };
 

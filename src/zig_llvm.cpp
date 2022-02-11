@@ -1435,6 +1435,9 @@ static_assert((Triple::OSType)ZigLLVM_HermitCore == Triple::HermitCore, "");
 static_assert((Triple::OSType)ZigLLVM_Hurd == Triple::Hurd, "");
 static_assert((Triple::OSType)ZigLLVM_WASI == Triple::WASI, "");
 static_assert((Triple::OSType)ZigLLVM_Emscripten == Triple::Emscripten, "");
+#ifdef ZIG_SERENITY_BUILD
+static_assert((Triple::OSType)ZigLLVM_Serenity == Triple::Serenity, "");
+#endif
 static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
 
 static_assert((Triple::EnvironmentType)ZigLLVM_UnknownEnvironment == Triple::UnknownEnvironment, "");

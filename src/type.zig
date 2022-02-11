@@ -5008,6 +5008,7 @@ pub const CType = enum {
             .emscripten,
             .plan9,
             .solaris,
+            .serenity,
             => switch (self) {
                 .short,
                 .ushort,

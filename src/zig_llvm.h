@@ -416,8 +416,13 @@ enum ZigLLVM_OSType {
     ZigLLVM_Hurd,       // GNU/Hurd
     ZigLLVM_WASI,       // Experimental WebAssembly OS
     ZigLLVM_Emscripten,
+#ifdef ZIG_SERENITY_BUILD
+    ZigLLVM_Serenity,   // Well hello friends! :^)
 
-    ZigLLVM_LastOSType = ZigLLVM_Emscripten
+    ZigLLVM_LastOSType = ZigLLVM_Serenity,
+#else
+    ZigLLVM_LastOSType = ZigLLVM_Emscripten,
+#endif
 };
 
 // Synchronize with target.cpp::abi_list

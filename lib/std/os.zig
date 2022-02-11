@@ -56,7 +56,7 @@ test {
 /// When not linking libc, it is the OS-specific system interface.
 pub const system = if (@hasDecl(root, "os") and root.os != @This())
     root.os.system
-else if (builtin.link_libc or is_windows)
+else if (builtin.link_libc or is_windows or builtin.os.tag == .serenity)
     std.c
 else switch (builtin.os.tag) {
     .linux => linux,
@@ -4272,6 +4272,9 @@ pub fn sysctlbynameZ(
         @panic("unsupported"); // TODO should be compile error, not panic
     }
     if (builtin.os.tag == .haiku) {
+        @panic("unsupported"); // TODO should be compile error, not panic
+    }
+    if (builtin.os.tag == .serenity) {
         @panic("unsupported"); // TODO should be compile error, not panic
     }
 

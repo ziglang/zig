@@ -55,6 +55,7 @@ pub const Target = struct {
             glsl450,
             vulkan,
             plan9,
+            serenity,
             other,
 
             pub fn isDarwin(tag: Tag) bool {
@@ -257,6 +258,7 @@ pub const Target = struct {
                     .glsl450, // TODO: GLSL versions
                     .vulkan,
                     .plan9,
+                    .serenity,
                     .other,
                     => return .{ .none = {} },
 
@@ -401,6 +403,7 @@ pub const Target = struct {
                 .openbsd,
                 .haiku,
                 .solaris,
+                .serenity,
                 => true,
 
                 .linux,
@@ -531,6 +534,7 @@ pub const Target = struct {
                 .glsl450,
                 .vulkan,
                 .plan9, // TODO specify abi
+                .serenity,
                 => return .none,
             }
         }
@@ -1663,6 +1667,8 @@ pub const Target = struct {
 
             // TODO revisit when multi-arch for Haiku is available
             .haiku => return copy(&result, "/system/runtime_loader"),
+
+            .serenity => return copy(&result, "/usr/lib/Loader.so"),
 
             // TODO go over each item in this list and either move it to the above list, or
             // implement the standard dynamic linker path code for it.

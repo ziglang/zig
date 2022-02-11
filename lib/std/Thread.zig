@@ -584,7 +584,7 @@ const PosixThreadImpl = struct {
                 };
                 return @intCast(usize, count);
             },
-            .solaris => {
+            .solaris, .serenity => {
                 // The "proper" way to get the cpu count would be to query
                 // /dev/kstat via ioctls, and traverse a linked list for each
                 // cpu.

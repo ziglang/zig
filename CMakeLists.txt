@@ -91,6 +91,7 @@ set(ZIG_TARGET_MCPU "baseline" CACHE STRING "-mcpu parameter to output binaries 
 set(ZIG_EXECUTABLE "" CACHE STRING "(when cross compiling) path to already-built zig binary")
 set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
 set(ZIG_OMIT_STAGE2 off CACHE BOOL "omit the stage2 backend from stage1")
+set(ZIG_SERENITY_BUILD off CACHE BOOL "Build Zig for SerenityOS (requires patched LLVM)")
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     set(ZIG_ENABLE_LOGGING ON CACHE BOOL "enable logging")
@@ -713,6 +714,10 @@ if(ZIG_STATIC)
     set(EXE_CFLAGS "${EXE_CFLAGS} -DZIG_LINK_MODE=Static")
 else()
     set(EXE_CFLAGS "${EXE_CFLAGS} -DZIG_LINK_MODE=Dynamic")
+endif()
+
+if(ZIG_SERENITY_BUILD)
+    set(EXE_CFLAGS "${EXE_CFLAGS} -DZIG_SERENITY_BUILD")
 endif()
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")

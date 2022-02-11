@@ -1130,6 +1130,7 @@ pub const OSType = enum(c_int) {
     Hurd,
     WASI,
     Emscripten,
+    Serenity,
 };
 
 pub const ArchType = enum(c_int) {

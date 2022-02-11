@@ -9,6 +9,7 @@ const build_options = @import("build_options");
 const is_darwin = builtin.target.isDarwin();
 const is_windows = builtin.target.os.tag == .windows;
 const is_haiku = builtin.target.os.tag == .haiku;
+const is_serenity = builtin.target.os.tag == .serenity;
 
 const log = std.log.scoped(.libc_installation);
 
@@ -216,6 +217,14 @@ pub const LibCInstallation = struct {
                 self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
                 break :blk batch.wait();
             };
+        } else if (is_serenity) {
+            try blk: {
+                var batch = Batch(FindError!void, 1, .auto_async).init();
+                errdefer batch.wait() catch {};
+                batch.add(&async self.findNativeIncludeDirPosix(args));
+                self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib");
+                break :blk batch.wait();
+            };
         } else if (std.process.can_spawn) {
             try blk: {
                 var batch = Batch(FindError!void, 2, .auto_async).init();
@@ -324,7 +333,7 @@ pub const LibCInstallation = struct {
         const include_dir_example_file = if (is_haiku) "posix/stdlib.h" else "stdlib.h";
         const sys_include_dir_example_file = if (is_windows)
             "sys\\types.h"
-        else if (is_haiku)
+        else if (is_haiku or is_serenity)
             "errno.h"
         else
             "sys/errno.h";

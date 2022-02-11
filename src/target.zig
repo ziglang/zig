@@ -168,7 +168,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
 }
 
 pub fn requiresPIE(target: std.Target) bool {
-    return target.isAndroid() or target.isDarwin() or target.os.tag == .openbsd;
+    return target.isAndroid() or target.isDarwin() or target.os.tag == .openbsd or target.os.tag == .serenity;
 }
 
 /// This function returns whether non-pic code is completely invalid on the given target.
@@ -310,6 +310,7 @@ pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
         .hurd => .Hurd,
         .wasi => .WASI,
         .emscripten => .Emscripten,
+        .serenity => .Serenity,
     };
 }
 
@@ -487,6 +488,12 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lroot",
             "-lpthread",
             "-lc",
+        },
+        .serenity => &[_][]const u8{
+            "-lc",
+            "-lm",
+            "-ldl",
+            "-lpthread",
         },
         else => switch (target.abi) {
             .android => &[_][]const u8{

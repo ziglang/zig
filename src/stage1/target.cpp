@@ -127,6 +127,7 @@ static const Os os_list[] = {
     OsGLSL450,
     OsVulkan,
     OsPlan9,
+    OsSerenity,
     OsOther,
 };
 
@@ -218,6 +219,10 @@ Os target_os_enum(size_t index) {
 
 ZigLLVM_OSType get_llvm_os_type(Os os_type) {
     switch (os_type) {
+        case OsSerenity:
+#ifdef ZIG_SERENITY_BUILD
+            return ZigLLVM_Serenity;
+#endif
         case OsFreestanding:
         case OsOpenCL:
         case OsGLSL450:
@@ -345,6 +350,7 @@ const char *target_os_name(Os os_type) {
         case OsOpenCL:
         case OsGLSL450:
         case OsVulkan:
+        case OsSerenity:
             return ZigLLVMGetOSTypeName(get_llvm_os_type(os_type));
     }
     zig_unreachable();
@@ -682,6 +688,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsPlan9:
         case OsCUDA:
         case OsNVCL:
+        case OsSerenity:
             switch (id) {
                 case CIntTypeShort:
                 case CIntTypeUShort:
@@ -994,6 +1001,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsGLSL450:
         case OsVulkan:
         case OsPlan9:
+        case OsSerenity:
             return ZigLLVM_UnknownEnvironment;
     }
     zig_unreachable();

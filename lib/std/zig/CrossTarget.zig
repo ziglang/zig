@@ -131,6 +131,7 @@ fn updateOsVersionRange(self: *CrossTarget, os: Target.Os) void {
         .glsl450,
         .vulkan,
         .plan9,
+        .serenity,
         .other,
         => {
             self.os_version_min = .{ .none = {} };
@@ -676,6 +677,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .glsl450,
         .vulkan,
         .plan9,
+        .serenity,
         .other,
         => return error.InvalidOperatingSystemVersion,
 

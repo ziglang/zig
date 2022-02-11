@@ -885,6 +885,7 @@ pub fn getSelfExeSharedLibPaths(allocator: Allocator) error{OutOfMemory}![][:0]u
         .dragonfly,
         .openbsd,
         .solaris,
+        .serenity,
         => {
             var paths = List.init(allocator);
             errdefer {

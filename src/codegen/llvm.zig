@@ -122,6 +122,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .wasi => "wasi",
         .emscripten => "emscripten",
         .uefi => "windows",
+        .serenity => "serenity",
 
         .opencl,
         .glsl450,

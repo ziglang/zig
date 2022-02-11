@@ -133,6 +133,10 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsWASI;
         case ZigLLVM_Emscripten:
             return OsEmscripten;
+#ifdef ZIG_SERENITY_BUILD
+        case ZigLLVM_Serenity:
+            return OsSerenity;
+#endif
     }
     zig_unreachable();
 }
