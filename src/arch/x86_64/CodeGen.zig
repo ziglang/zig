@@ -2244,7 +2244,9 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                 .none => unreachable,
                 .undef => try self.genSetReg(dst_ty, dst_reg, .undef),
                 .dead, .unreach => unreachable,
-                .ptr_stack_offset => unreachable,
+                .ptr_stack_offset => |off| {
+                    return self.genBinMathOpMir(mir_tag, dst_ty, dst_mcv, .{ .immediate = @bitCast(u32, off) });
+                },
                 .ptr_embedded_in_code => unreachable,
                 .register => |src_reg| {
                     _ = try self.addInst(.{
@@ -2265,15 +2267,16 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                         .data = .{ .imm = @truncate(u32, imm) },
                     });
                 },
-                .embedded_in_code, .memory => {
+                .embedded_in_code,
+                .memory,
+                .got_load,
+                .direct_load,
+                => {
                     assert(abi_size <= 8);
                     self.register_manager.freezeRegs(&.{dst_reg});
                     defer self.register_manager.unfreezeRegs(&.{dst_reg});
                     const reg = try self.copyToTmpRegister(dst_ty, src_mcv);
                     return self.genBinMathOpMir(mir_tag, dst_ty, dst_mcv, .{ .register = reg });
-                },
-                .got_load, .direct_load => {
-                    return self.fail("TODO implement x86 ADD/SUB/CMP source symbol at index in linker", .{});
                 },
                 .stack_offset => |off| {
                     if (off > math.maxInt(i32)) {
@@ -4620,6 +4623,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     }
 
     switch (typed_value.ty.zigTypeTag()) {
+        .Array => {
+            return self.lowerUnnamedConst(typed_value);
+        },
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {
                 return self.lowerUnnamedConst(typed_value);
