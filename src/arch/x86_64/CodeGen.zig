@@ -2217,7 +2217,26 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     // Now for step 2, we assing an MIR instruction
     const air_tags = self.air.instructions.items(.tag);
     switch (air_tags[inst]) {
-        .add, .addwrap, .ptr_add => try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv),
+        .ptr_add => {
+            // TODO clean this up
+            // TODO take into account alignment
+            const elem_size = dst_ty.elemType2().abiSize(self.target.*);
+            const dst_reg = blk: {
+                switch (dst_mcv) {
+                    .register => |reg| break :blk reg,
+                    else => {
+                        src_mcv.freezeIfRegister(&self.register_manager);
+                        defer src_mcv.freezeIfRegister(&self.register_manager);
+                        const reg = try self.copyToTmpRegister(dst_ty, dst_mcv);
+                        break :blk reg;
+                    },
+                }
+            };
+            try self.genIMulOpMir(dst_ty, .{ .register = dst_reg }, .{ .immediate = elem_size });
+            dst_mcv = MCValue{ .register = dst_reg };
+            try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv);
+        },
+        .add, .addwrap => try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv),
         .bool_or, .bit_or => try self.genBinMathOpMir(.@"or", dst_ty, dst_mcv, src_mcv),
         .bool_and, .bit_and => try self.genBinMathOpMir(.@"and", dst_ty, dst_mcv, src_mcv),
         .sub, .subwrap => try self.genBinMathOpMir(.sub, dst_ty, dst_mcv, src_mcv),
@@ -2244,8 +2263,11 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                 .none => unreachable,
                 .undef => try self.genSetReg(dst_ty, dst_reg, .undef),
                 .dead, .unreach => unreachable,
-                .ptr_stack_offset => |off| {
-                    return self.genBinMathOpMir(mir_tag, dst_ty, dst_mcv, .{ .immediate = @bitCast(u32, off) });
+                .ptr_stack_offset => {
+                    self.register_manager.freezeRegs(&.{dst_reg});
+                    defer self.register_manager.unfreezeRegs(&.{dst_reg});
+                    const reg = try self.copyToTmpRegister(dst_ty, src_mcv);
+                    return self.genBinMathOpMir(mir_tag, dst_ty, dst_mcv, .{ .register = reg });
                 },
                 .ptr_embedded_in_code => unreachable,
                 .register => |src_reg| {
