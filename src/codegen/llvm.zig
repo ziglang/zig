@@ -835,6 +835,7 @@ pub const DeclGen = struct {
                 var buffer: Type.Payload.Bits = undefined;
                 const int_ty = t.intTagType(&buffer);
                 const bit_count = int_ty.intInfo(target).bits;
+                assert(bit_count != 0);
                 return dg.context.intType(bit_count);
             },
             .Float => switch (t.floatBits(target)) {
@@ -1077,10 +1078,10 @@ pub const DeclGen = struct {
 
                 const union_obj = t.cast(Type.Payload.Union).?.data;
                 if (t.unionTagType()) |enum_tag_ty| {
-                    const enum_tag_llvm_ty = try dg.llvmType(enum_tag_ty);
                     const layout = union_obj.getLayout(target, true);
 
                     if (layout.payload_size == 0) {
+                        const enum_tag_llvm_ty = try dg.llvmType(enum_tag_ty);
                         gop.value_ptr.* = enum_tag_llvm_ty;
                         return enum_tag_llvm_ty;
                     }
@@ -1111,6 +1112,7 @@ pub const DeclGen = struct {
                         llvm_union_ty.structSetBody(&llvm_fields, llvm_fields.len, .False);
                         return llvm_union_ty;
                     }
+                    const enum_tag_llvm_ty = try dg.llvmType(enum_tag_ty);
 
                     // Put the tag before or after the payload depending on which one's
                     // alignment is greater.
