@@ -2,18 +2,19 @@ const std = @import("std");
 const Autodoc = @This();
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
+const File = Module.File;
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
 
 module: *Module,
-doc_location: ?Compilation.EmitLoc,
+doc_location: Compilation.EmitLoc,
 arena: std.mem.Allocator,
 types: std.ArrayListUnmanaged(DocData.Type) = .{},
 decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
 ast_nodes: std.ArrayListUnmanaged(DocData.AstNode) = .{},
 
 var arena_allocator: std.heap.ArenaAllocator = undefined;
-pub fn init(m: *Module, doc_location: ?Compilation.EmitLoc) Autodoc {
+pub fn init(m: *Module, doc_location: Compilation.EmitLoc) Autodoc {
     arena_allocator = std.heap.ArenaAllocator.init(m.gpa);
     return .{
         .module = m,
@@ -27,11 +28,9 @@ pub fn deinit(_: *Autodoc) void {
 }
 
 pub fn generateZirData(self: *Autodoc) !void {
-    if (self.doc_location) |loc| {
-        if (loc.directory) |dir| {
-            if (dir.path) |path| {
-                std.debug.print("path: {s}\n", .{path});
-            }
+    if (self.doc_location.directory) |dir| {
+        if (dir.path) |path| {
+            std.debug.print("path: {s}\n", .{path});
         }
     }
     std.debug.print("basename: {s}\n", .{self.doc_location.basename});
@@ -45,7 +44,7 @@ pub fn generateZirData(self: *Autodoc) !void {
     const root_file_path = self.module.main_pkg.root_src_path;
     const abs_root_path = try std.fs.path.join(self.arena, &.{ dir, root_file_path });
     defer self.arena.free(abs_root_path);
-    const zir = self.module.import_table.get(abs_root_path).?.zir;
+    const file = self.module.import_table.get(abs_root_path).?;
 
     // append all the types in Zir.Inst.Ref
     {
@@ -122,7 +121,7 @@ pub fn generateZirData(self: *Autodoc) !void {
 
     var root_scope: Scope = .{ .parent = null };
     try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
-    const main_type_index = try self.walkInstruction(zir, &root_scope, Zir.main_struct_inst);
+    const main_type_index = try self.walkInstruction(file, &root_scope, Zir.main_struct_inst);
 
     var data = DocData{
         .files = &[1][]const u8{root_file_path},
@@ -467,12 +466,12 @@ const DocData = struct {
 
 fn walkInstruction(
     self: *Autodoc,
-    zir: Zir,
+    file: *File,
     parent_scope: *Scope,
     inst_index: usize,
 ) error{OutOfMemory}!DocData.WalkResult {
-    const tags = zir.instructions.items(.tag);
-    const data = zir.instructions.items(.data);
+    const tags = file.zir.instructions.items(.tag);
+    const data = file.zir.instructions.items(.data);
 
     // We assume that the topmost ast_node entry corresponds to our decl
     const self_ast_node_index = self.ast_nodes.items.len - 1;
@@ -483,6 +482,16 @@ fn walkInstruction(
                 "TODO: implement `walkInstruction` for {s}\n\n",
                 .{@tagName(tags[inst_index])},
             );
+        },
+        .import => {
+            const str_tok = data[inst_index].str_tok;
+            const path = str_tok.get(file.zir);
+            // importFile cannot error out since all files
+            // are already loaded at this point
+            const new_file = self.module.importFile(file, path) catch unreachable;
+            // TODO: cycles not handled, add file info to outuput
+            var new_scope = Scope{ .parent = null };
+            return self.walkInstruction(new_file.file, &new_scope, Zir.main_struct_inst);
         },
         .int => {
             const int = data[inst_index].int;
@@ -509,7 +518,7 @@ fn walkInstruction(
         .negate => {
             const un_node = data[inst_index].un_node;
             var operand: DocData.WalkResult = try self.walkRef(
-                zir,
+                file,
                 parent_scope,
                 un_node.operand,
             );
@@ -518,11 +527,11 @@ fn walkInstruction(
         },
         .as_node => {
             const pl_node = data[inst_index].pl_node;
-            const extra = zir.extraData(Zir.Inst.As, pl_node.payload_index);
-            const dest_type_walk = try self.walkRef(zir, parent_scope, extra.data.dest_type);
+            const extra = file.zir.extraData(Zir.Inst.As, pl_node.payload_index);
+            const dest_type_walk = try self.walkRef(file, parent_scope, extra.data.dest_type);
             const dest_type_ref = walkResultToTypeRef(dest_type_walk);
 
-            var operand = try self.walkRef(zir, parent_scope, extra.data.operand);
+            var operand = try self.walkRef(file, parent_scope, extra.data.operand);
 
             switch (operand) {
                 else => std.debug.panic(
@@ -562,20 +571,20 @@ fn walkInstruction(
         },
         //.block => {
         //const pl_node = data[inst_index].pl_node;
-        //const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
-        //const last_instr_index = zir.extra[extra.end..][extra.data.body_len - 1];
+        //const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+        //const last_instr_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
         //const break_operand = data[break_index].@"break".operand;
-        //return self.walkRef(zir, parent_scope, break_operand);
+        //return self.walkRef(file, parent_scope, break_operand);
         //},
         .block_inline => {
             const pl_node = data[inst_index].pl_node;
-            const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
-            const break_index = zir.extra[extra.end..][extra.data.body_len - 1];
+            const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+            const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
             const break_operand = data[break_index].@"break".operand;
-            return self.walkRef(zir, parent_scope, break_operand);
+            return self.walkRef(file, parent_scope, break_operand);
         },
         .func => {
-            const fn_info = zir.getFnInfo(@intCast(u32, inst_index));
+            const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
 
             // TODO: change this to a resize and change the appends accordingly
             try self.ast_nodes.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
@@ -591,21 +600,21 @@ fn walkInstruction(
             for (fn_info.param_body[0..fn_info.total_params_len]) |param_index| {
                 if (tags[param_index] != .param) unreachable; // TODO: handle more param types
                 const pl_tok = data[param_index].pl_tok;
-                const extra = zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
+                const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
                 const doc_comment = if (extra.data.doc_comment != 0)
-                    zir.nullTerminatedString(extra.data.doc_comment)
+                    file.zir.nullTerminatedString(extra.data.doc_comment)
                 else
                     "";
 
                 param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
                 try self.ast_nodes.append(self.arena, .{
-                    .name = zir.nullTerminatedString(extra.data.name),
+                    .name = file.zir.nullTerminatedString(extra.data.name),
                     .docs = doc_comment,
                 });
 
-                const break_index = zir.extra[extra.end..][extra.data.body_len - 1];
+                const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
                 const break_operand = data[break_index].@"break".operand;
-                const param_type_ref = try self.walkRef(zir, parent_scope, break_operand);
+                const param_type_ref = try self.walkRef(file, parent_scope, break_operand);
 
                 param_type_refs.appendAssumeCapacity(
                     DocData.TypeRef.fromWalkResult(param_type_ref),
@@ -616,7 +625,7 @@ fn walkInstruction(
             const ret_type_ref = blk: {
                 const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
                 const break_operand = data[last_instr_index].@"break".operand;
-                const wr = try self.walkRef(zir, parent_scope, break_operand);
+                const wr = try self.walkRef(file, parent_scope, break_operand);
                 break :blk DocData.TypeRef.fromWalkResult(wr);
             };
 
@@ -647,34 +656,34 @@ fn walkInstruction(
                     var extra_index: usize = extended.operand;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @bitCast(i32, zir.extra[extra_index]);
+                        const src_node = @bitCast(i32, file.zir.extra[extra_index]);
                         extra_index += 1;
                         break :blk src_node;
                     } else null;
                     _ = src_node;
 
                     const tag_type: ?Ref = if (small.has_tag_type) blk: {
-                        const tag_type = zir.extra[extra_index];
+                        const tag_type = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk @intToEnum(Ref, tag_type);
                     } else null;
                     _ = tag_type;
 
                     const body_len = if (small.has_body_len) blk: {
-                        const body_len = zir.extra[extra_index];
+                        const body_len = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk body_len;
                     } else 0;
 
                     const fields_len = if (small.has_fields_len) blk: {
-                        const fields_len = zir.extra[extra_index];
+                        const fields_len = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk fields_len;
                     } else 0;
                     _ = fields_len;
 
                     const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = zir.extra[extra_index];
+                        const decls_len = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk decls_len;
                     } else 0;
@@ -687,17 +696,17 @@ fn walkInstruction(
                     // Done to make sure that all decl refs can be resolved correctly,
                     // even if we haven't fully analyzed the decl yet.
                     {
-                        var it = zir.declIterator(@intCast(u32, inst_index));
+                        var it = file.zir.declIterator(@intCast(u32, inst_index));
                         try self.decls.resize(self.arena, decls_first_index + it.decls_len);
                         var decls_slot_index = decls_first_index;
                         while (it.next()) |d| : (decls_slot_index += 1) {
-                            const decl_name_index = zir.extra[d.sub_index + 5];
+                            const decl_name_index = file.zir.extra[d.sub_index + 5];
                             try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
                         }
                     }
 
                     extra_index = try self.walkDecls(
-                        zir,
+                        file,
                         &scope,
                         decls_first_index,
                         decls_len,
@@ -706,7 +715,7 @@ fn walkInstruction(
                         extra_index,
                     );
 
-                    // const body = zir.extra[extra_index..][0..body_len];
+                    // const body = file.zir.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     var field_type_refs = try std.ArrayListUnmanaged(DocData.TypeRef).initCapacity(
@@ -718,7 +727,7 @@ fn walkInstruction(
                         fields_len,
                     );
                     try self.collectUnionFieldInfo(
-                        zir,
+                        file,
                         &scope,
                         fields_len,
                         &field_type_refs,
@@ -747,34 +756,34 @@ fn walkInstruction(
                     var extra_index: usize = extended.operand;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @bitCast(i32, zir.extra[extra_index]);
+                        const src_node = @bitCast(i32, file.zir.extra[extra_index]);
                         extra_index += 1;
                         break :blk src_node;
                     } else null;
                     _ = src_node;
 
                     const tag_type: ?Ref = if (small.has_tag_type) blk: {
-                        const tag_type = zir.extra[extra_index];
+                        const tag_type = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk @intToEnum(Ref, tag_type);
                     } else null;
                     _ = tag_type;
 
                     const body_len = if (small.has_body_len) blk: {
-                        const body_len = zir.extra[extra_index];
+                        const body_len = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk body_len;
                     } else 0;
 
                     const fields_len = if (small.has_fields_len) blk: {
-                        const fields_len = zir.extra[extra_index];
+                        const fields_len = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk fields_len;
                     } else 0;
                     _ = fields_len;
 
                     const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = zir.extra[extra_index];
+                        const decls_len = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk decls_len;
                     } else 0;
@@ -787,17 +796,17 @@ fn walkInstruction(
                     // Done to make sure that all decl refs can be resolved correctly,
                     // even if we haven't fully analyzed the decl yet.
                     {
-                        var it = zir.declIterator(@intCast(u32, inst_index));
+                        var it = file.zir.declIterator(@intCast(u32, inst_index));
                         try self.decls.resize(self.arena, decls_first_index + it.decls_len);
                         var decls_slot_index = decls_first_index;
                         while (it.next()) |d| : (decls_slot_index += 1) {
-                            const decl_name_index = zir.extra[d.sub_index + 5];
+                            const decl_name_index = file.zir.extra[d.sub_index + 5];
                             try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
                         }
                     }
 
                     extra_index = try self.walkDecls(
-                        zir,
+                        file,
                         &scope,
                         decls_first_index,
                         decls_len,
@@ -806,7 +815,7 @@ fn walkInstruction(
                         extra_index,
                     );
 
-                    // const body = zir.extra[extra_index..][0..body_len];
+                    // const body = file.zir.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
@@ -818,31 +827,31 @@ fn walkInstruction(
                         var idx: usize = 0;
                         while (idx < fields_len) : (idx += 1) {
                             if (idx % 32 == 0) {
-                                cur_bit_bag = zir.extra[bit_bag_idx];
+                                cur_bit_bag = file.zir.extra[bit_bag_idx];
                                 bit_bag_idx += 1;
                             }
 
                             const has_value = @truncate(u1, cur_bit_bag) != 0;
                             cur_bit_bag >>= 1;
 
-                            const field_name_index = zir.extra[extra_index];
+                            const field_name_index = file.zir.extra[extra_index];
                             extra_index += 1;
 
-                            const doc_comment_index = zir.extra[extra_index];
+                            const doc_comment_index = file.zir.extra[extra_index];
                             extra_index += 1;
 
                             const value_ref: ?Ref = if (has_value) blk: {
-                                const value_ref = zir.extra[extra_index];
+                                const value_ref = file.zir.extra[extra_index];
                                 extra_index += 1;
                                 break :blk @intToEnum(Ref, value_ref);
                             } else null;
                             _ = value_ref;
 
-                            const field_name = zir.nullTerminatedString(field_name_index);
+                            const field_name = file.zir.nullTerminatedString(field_name_index);
 
                             try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
                             const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
-                                zir.nullTerminatedString(doc_comment_index)
+                                file.zir.nullTerminatedString(doc_comment_index)
                             else
                                 null;
                             try self.ast_nodes.append(self.arena, .{
@@ -872,27 +881,27 @@ fn walkInstruction(
                     var extra_index: usize = extended.operand;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @bitCast(i32, zir.extra[extra_index]);
+                        const src_node = @bitCast(i32, file.zir.extra[extra_index]);
                         extra_index += 1;
                         break :blk src_node;
                     } else null;
                     _ = src_node;
 
                     const body_len = if (small.has_body_len) blk: {
-                        const body_len = zir.extra[extra_index];
+                        const body_len = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk body_len;
                     } else 0;
 
                     const fields_len = if (small.has_fields_len) blk: {
-                        const fields_len = zir.extra[extra_index];
+                        const fields_len = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk fields_len;
                     } else 0;
                     _ = fields_len;
 
                     const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = zir.extra[extra_index];
+                        const decls_len = file.zir.extra[extra_index];
                         extra_index += 1;
                         break :blk decls_len;
                     } else 0;
@@ -905,17 +914,17 @@ fn walkInstruction(
                     // Done to make sure that all decl refs can be resolved correctly,
                     // even if we haven't fully analyzed the decl yet.
                     {
-                        var it = zir.declIterator(@intCast(u32, inst_index));
+                        var it = file.zir.declIterator(@intCast(u32, inst_index));
                         try self.decls.resize(self.arena, decls_first_index + it.decls_len);
                         var decls_slot_index = decls_first_index;
                         while (it.next()) |d| : (decls_slot_index += 1) {
-                            const decl_name_index = zir.extra[d.sub_index + 5];
+                            const decl_name_index = file.zir.extra[d.sub_index + 5];
                             try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
                         }
                     }
 
                     extra_index = try self.walkDecls(
-                        zir,
+                        file,
                         &scope,
                         decls_first_index,
                         decls_len,
@@ -924,13 +933,13 @@ fn walkInstruction(
                         extra_index,
                     );
 
-                    // const body = zir.extra[extra_index..][0..body_len];
+                    // const body = file.zir.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     var field_type_refs: std.ArrayListUnmanaged(DocData.TypeRef) = .{};
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
                     try self.collectStructFieldInfo(
-                        zir,
+                        file,
                         &scope,
                         fields_len,
                         &field_type_refs,
@@ -966,7 +975,7 @@ fn walkInstruction(
 /// slots in `self.decls`, which are then filled out by `walkDecls`.
 fn walkDecls(
     self: *Autodoc,
-    zir: Zir,
+    file: *File,
     scope: *Scope,
     decls_first_index: usize,
     decls_len: u32,
@@ -984,7 +993,7 @@ fn walkDecls(
         const decls_slot_index = decls_first_index + decl_i;
 
         if (decl_i % 8 == 0) {
-            cur_bit_bag = zir.extra[bit_bag_index];
+            cur_bit_bag = file.zir.extra[bit_bag_index];
             bit_bag_index += 1;
         }
         const is_pub = @truncate(u1, cur_bit_bag) != 0;
@@ -998,29 +1007,29 @@ fn walkDecls(
 
         // const sub_index = extra_index;
 
-        // const hash_u32s = zir.extra[extra_index..][0..4];
+        // const hash_u32s = file.zir.extra[extra_index..][0..4];
         extra_index += 4;
-        // const line = zir.extra[extra_index];
+        // const line = file.zir.extra[extra_index];
         extra_index += 1;
-        const decl_name_index = zir.extra[extra_index];
+        const decl_name_index = file.zir.extra[extra_index];
         extra_index += 1;
-        const decl_index = zir.extra[extra_index];
+        const decl_index = file.zir.extra[extra_index];
         extra_index += 1;
-        const doc_comment_index = zir.extra[extra_index];
+        const doc_comment_index = file.zir.extra[extra_index];
         extra_index += 1;
 
         // const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
-        //     const inst = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+        //     const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         //     extra_index += 1;
         //     break :inst inst;
         // };
         // const section_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        //     const inst = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+        //     const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         //     extra_index += 1;
         //     break :inst inst;
         // };
         // const addrspace_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        //     const inst = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+        //     const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         //     extra_index += 1;
         //     break :inst inst;
         // };
@@ -1034,9 +1043,9 @@ fn walkDecls(
             } else if (decl_name_index == 1) {
                 break :blk "test";
             } else {
-                const raw_decl_name = zir.nullTerminatedString(decl_name_index);
+                const raw_decl_name = file.zir.nullTerminatedString(decl_name_index);
                 if (raw_decl_name.len == 0) {
-                    break :blk zir.nullTerminatedString(decl_name_index + 1);
+                    break :blk file.zir.nullTerminatedString(decl_name_index + 1);
                 } else {
                     break :blk raw_decl_name;
                 }
@@ -1044,7 +1053,7 @@ fn walkDecls(
         };
 
         const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
-            zir.nullTerminatedString(doc_comment_index)
+            file.zir.nullTerminatedString(doc_comment_index)
         else
             null;
 
@@ -1061,7 +1070,7 @@ fn walkDecls(
             break :idx idx;
         };
 
-        const walk_result = try self.walkInstruction(zir, scope, decl_index);
+        const walk_result = try self.walkInstruction(file, scope, decl_index);
 
         if (is_pub) {
             try decl_indexes.append(self.arena, decls_slot_index);
@@ -1098,7 +1107,7 @@ fn walkDecls(
 
 fn collectUnionFieldInfo(
     self: *Autodoc,
-    zir: Zir,
+    file: *File,
     scope: *Scope,
     fields_len: usize,
     field_type_refs: *std.ArrayListUnmanaged(DocData.TypeRef),
@@ -1118,7 +1127,7 @@ fn collectUnionFieldInfo(
     var field_i: u32 = 0;
     while (field_i < fields_len) : (field_i += 1) {
         if (field_i % fields_per_u32 == 0) {
-            cur_bit_bag = zir.extra[bit_bag_index];
+            cur_bit_bag = file.zir.extra[bit_bag_index];
             bit_bag_index += 1;
         }
         const has_type = @truncate(u1, cur_bit_bag) != 0;
@@ -1131,12 +1140,12 @@ fn collectUnionFieldInfo(
         cur_bit_bag >>= 1;
         _ = unused;
 
-        const field_name = zir.nullTerminatedString(zir.extra[extra_index]);
+        const field_name = file.zir.nullTerminatedString(file.zir.extra[extra_index]);
         extra_index += 1;
-        const doc_comment_index = zir.extra[extra_index];
+        const doc_comment_index = file.zir.extra[extra_index];
         extra_index += 1;
         const field_type = if (has_type)
-            @intToEnum(Zir.Inst.Ref, zir.extra[extra_index])
+            @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index])
         else
             .void_type;
         extra_index += 1;
@@ -1146,7 +1155,7 @@ fn collectUnionFieldInfo(
 
         // type
         {
-            const walk_result = try self.walkRef(zir, scope, field_type);
+            const walk_result = try self.walkRef(file, scope, field_type);
             try field_type_refs.append(
                 self.arena,
                 walkResultToTypeRef(walk_result),
@@ -1157,7 +1166,7 @@ fn collectUnionFieldInfo(
         {
             try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
             const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
-                zir.nullTerminatedString(doc_comment_index)
+                file.zir.nullTerminatedString(doc_comment_index)
             else
                 null;
             try self.ast_nodes.append(self.arena, .{
@@ -1170,7 +1179,7 @@ fn collectUnionFieldInfo(
 
 fn collectStructFieldInfo(
     self: *Autodoc,
-    zir: Zir,
+    file: *File,
     scope: *Scope,
     fields_len: usize,
     field_type_refs: *std.ArrayListUnmanaged(DocData.TypeRef),
@@ -1190,7 +1199,7 @@ fn collectStructFieldInfo(
     var field_i: u32 = 0;
     while (field_i < fields_len) : (field_i += 1) {
         if (field_i % fields_per_u32 == 0) {
-            cur_bit_bag = zir.extra[bit_bag_index];
+            cur_bit_bag = file.zir.extra[bit_bag_index];
             bit_bag_index += 1;
         }
         const has_align = @truncate(u1, cur_bit_bag) != 0;
@@ -1203,11 +1212,11 @@ fn collectStructFieldInfo(
         cur_bit_bag >>= 1;
         _ = unused;
 
-        const field_name = zir.nullTerminatedString(zir.extra[extra_index]);
+        const field_name = file.zir.nullTerminatedString(file.zir.extra[extra_index]);
         extra_index += 1;
-        const field_type = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+        const field_type = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         extra_index += 1;
-        const doc_comment_index = zir.extra[extra_index];
+        const doc_comment_index = file.zir.extra[extra_index];
         extra_index += 1;
 
         if (has_align) extra_index += 1;
@@ -1215,7 +1224,7 @@ fn collectStructFieldInfo(
 
         // type
         {
-            const walk_result = try self.walkRef(zir, scope, field_type);
+            const walk_result = try self.walkRef(file, scope, field_type);
             try field_type_refs.append(
                 self.arena,
                 walkResultToTypeRef(walk_result),
@@ -1226,7 +1235,7 @@ fn collectStructFieldInfo(
         {
             try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
             const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
-                zir.nullTerminatedString(doc_comment_index)
+                file.zir.nullTerminatedString(doc_comment_index)
             else
                 null;
             try self.ast_nodes.append(self.arena, .{
@@ -1239,7 +1248,7 @@ fn collectStructFieldInfo(
 
 fn walkRef(
     self: *Autodoc,
-    zir: Zir,
+    file: *File,
     parent_scope: *Scope,
     ref: Ref,
 ) !DocData.WalkResult {
@@ -1327,7 +1336,7 @@ fn walkRef(
         }
     } else {
         const zir_index = enum_value - Ref.typed_value_map.len;
-        return self.walkInstruction(zir, parent_scope, zir_index);
+        return self.walkInstruction(file, parent_scope, zir_index);
     }
 }
 
@@ -1343,6 +1352,6 @@ fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
     };
 }
 
-//fn collectParamInfo(self: *Autodoc, zir: Zir, scope: *Scope, inst_idx: Zir.Index) void {
+//fn collectParamInfo(self: *Autodoc, file: *File, scope: *Scope, inst_idx: Zir.Index) void {
 
 //}
