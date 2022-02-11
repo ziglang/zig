@@ -216,7 +216,6 @@ test "compile time global reinterpret" {
 }
 
 test "cast undefined" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const array: [100]u8 = undefined;
@@ -678,7 +677,6 @@ test "string concatenation" {
 }
 
 test "thread local variable" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
@@ -704,7 +702,6 @@ fn maybe(x: bool) anyerror!?u32 {
 }
 
 test "pointer to thread local array" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
