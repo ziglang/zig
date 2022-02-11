@@ -38,6 +38,7 @@ test {
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/prefetch.zig");
     _ = @import("behavior/pub_enum.zig");
+    _ = @import("behavior/slice.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/truncate.zig");
@@ -76,7 +77,6 @@ test {
         _ = @import("behavior/pointers.zig");
         _ = @import("behavior/ptrcast.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
-        _ = @import("behavior/slice.zig");
         _ = @import("behavior/src.zig");
         _ = @import("behavior/this.zig");
         _ = @import("behavior/try.zig");
