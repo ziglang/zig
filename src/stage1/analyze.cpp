@@ -8338,6 +8338,11 @@ static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size
         case ZigTypeIdVector:
             return X64CABIClass_SSE;
         case ZigTypeIdStruct: {
+            // HACK: i386 System V ABI requires all structs to be returned
+            //       through memory.
+            if (g->zig_target->arch == ZigLLVM_x86)
+                return X64CABIClass_MEMORY;
+
             // "If the size of an object is larger than four eightbytes, or it contains unaligned
             // fields, it has class MEMORY"
             if (ty_size > 32)
