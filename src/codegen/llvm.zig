@@ -687,9 +687,6 @@ pub const DeclGen = struct {
         const target = dg.module.getTarget();
         const sret = firstParamSRet(fn_info, target);
 
-        const return_type = fn_info.return_type;
-        const raw_llvm_ret_ty = try dg.llvmType(return_type);
-
         const fn_type = try dg.llvmType(zig_fn_type);
 
         const fqn = try decl.getFullyQualifiedName(dg.gpa);
@@ -708,6 +705,8 @@ pub const DeclGen = struct {
         if (sret) {
             dg.addArgAttr(llvm_fn, 0, "nonnull"); // Sret pointers must not be address 0
             dg.addArgAttr(llvm_fn, 0, "noalias");
+
+            const raw_llvm_ret_ty = try dg.llvmType(fn_info.return_type);
             llvm_fn.addSretAttr(0, raw_llvm_ret_ty);
         }
 
@@ -737,7 +736,7 @@ pub const DeclGen = struct {
         // Function attributes that are independent of analysis results of the function body.
         dg.addCommonFnAttributes(llvm_fn);
 
-        if (return_type.isNoReturn()) {
+        if (fn_info.return_type.isNoReturn()) {
             dg.addFnAttr(llvm_fn, "noreturn");
         }
 
@@ -829,6 +828,7 @@ pub const DeclGen = struct {
             .Void, .NoReturn => return dg.context.voidType(),
             .Int => {
                 const info = t.intInfo(target);
+                assert(info.bits != 0);
                 return dg.context.intType(info.bits);
             },
             .Enum => {
@@ -1147,17 +1147,17 @@ pub const DeclGen = struct {
                 const fn_info = t.fnInfo();
                 const sret = firstParamSRet(fn_info, target);
                 const return_type = fn_info.return_type;
-                const raw_llvm_ret_ty = try dg.llvmType(return_type);
-                const llvm_ret_ty = if (!return_type.hasRuntimeBits() or sret)
-                    dg.context.voidType()
+                const llvm_sret_ty = if (return_type.hasRuntimeBits())
+                    try dg.llvmType(return_type)
                 else
-                    raw_llvm_ret_ty;
+                    dg.context.voidType();
+                const llvm_ret_ty = if (sret) dg.context.voidType() else llvm_sret_ty;
 
                 var llvm_params = std.ArrayList(*const llvm.Type).init(dg.gpa);
                 defer llvm_params.deinit();
 
                 if (sret) {
-                    try llvm_params.append(raw_llvm_ret_ty.pointerType(0));
+                    try llvm_params.append(llvm_sret_ty.pointerType(0));
                 }
 
                 for (fn_info.param_types) |param_ty| {
@@ -1210,6 +1210,7 @@ pub const DeclGen = struct {
                     const bigint = tv.val.toBigInt(&bigint_space);
                     const target = dg.module.getTarget();
                     const int_info = tv.ty.intInfo(target);
+                    assert(int_info.bits != 0);
                     const llvm_type = dg.context.intType(int_info.bits);
 
                     const unsigned_val = v: {
@@ -2241,7 +2242,6 @@ pub const FuncGen = struct {
         };
         const fn_info = zig_fn_ty.fnInfo();
         const return_type = fn_info.return_type;
-        const llvm_ret_ty = try self.dg.llvmType(return_type);
         const llvm_fn = try self.resolveInst(pl_op.operand);
         const target = self.dg.module.getTarget();
         const sret = firstParamSRet(fn_info, target);
@@ -2250,6 +2250,7 @@ pub const FuncGen = struct {
         defer llvm_args.deinit();
 
         const ret_ptr = if (!sret) null else blk: {
+            const llvm_ret_ty = try self.dg.llvmType(return_type);
             const ret_ptr = self.buildAlloca(llvm_ret_ty);
             ret_ptr.setAlignment(return_type.abiAlignment(target));
             try llvm_args.append(ret_ptr);
@@ -2284,6 +2285,7 @@ pub const FuncGen = struct {
         } else if (self.liveness.isUnused(inst) or !return_type.hasRuntimeBits()) {
             return null;
         } else if (sret) {
+            const llvm_ret_ty = try self.dg.llvmType(return_type);
             call.setCallSret(llvm_ret_ty);
             return ret_ptr;
         } else {
