@@ -1056,14 +1056,9 @@ pub fn isPowerOfTwo(v: anytype) bool {
 /// Returns the nearest power of two less than or equal to value, or
 /// zero if value is less than or equal to zero.
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {
-    var x = value;
-
-    comptime var i = 1;
-    inline while (@typeInfo(T).Int.bits > i) : (i *= 2) {
-        x |= (x >> i);
-    }
-
-    return x - (x >> 1);
+    const uT = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
+    if (value <= 0) return 0;
+    return @as(T, 1) << log2_int(uT, @intCast(uT, value));
 }
 
 test "math.floorPowerOfTwo" {
@@ -1075,9 +1070,15 @@ fn testFloorPowerOfTwo() !void {
     try testing.expect(floorPowerOfTwo(u32, 63) == 32);
     try testing.expect(floorPowerOfTwo(u32, 64) == 64);
     try testing.expect(floorPowerOfTwo(u32, 65) == 64);
+    try testing.expect(floorPowerOfTwo(u32, 0) == 0);
     try testing.expect(floorPowerOfTwo(u4, 7) == 4);
     try testing.expect(floorPowerOfTwo(u4, 8) == 8);
     try testing.expect(floorPowerOfTwo(u4, 9) == 8);
+    try testing.expect(floorPowerOfTwo(u4, 0) == 0);
+    try testing.expect(floorPowerOfTwo(i4, 7) == 4);
+    try testing.expect(floorPowerOfTwo(i4, -8) == 0);
+    try testing.expect(floorPowerOfTwo(i4, -1) == 0);
+    try testing.expect(floorPowerOfTwo(i4, 0) == 0);
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
