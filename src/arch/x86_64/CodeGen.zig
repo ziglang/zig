@@ -1897,7 +1897,12 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 .reg1 = addr_reg.to64(),
                                 .flags = flags,
                             }).encode(),
-                            .data = .{ .linker_sym_index = sym_index },
+                            .data = .{
+                                .load_reloc = .{
+                                    .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
+                                    .sym_index = sym_index,
+                                },
+                            },
                         });
                         break :blk addr_reg;
                     },
@@ -2670,7 +2675,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 _ = try self.addInst(.{
                     .tag = .call_extern,
                     .ops = undefined,
-                    .data = .{ .extern_fn = n_strx },
+                    .data = .{
+                        .extern_fn = .{
+                            .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
+                            .sym_name = n_strx,
+                        },
+                    },
                 });
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
@@ -3550,7 +3560,12 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                                 .reg1 = addr_reg.to64(),
                                 .flags = flags,
                             }).encode(),
-                            .data = .{ .linker_sym_index = sym_index },
+                            .data = .{
+                                .load_reloc = .{
+                                    .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
+                                    .sym_index = sym_index,
+                                },
+                            },
                         });
                         break :blk addr_reg;
                     },
@@ -3766,6 +3781,30 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
                     .memory => |addr| {
                         const reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = addr });
                         break :blk reg;
+                    },
+                    .direct_load,
+                    .got_load,
+                    => |sym_index| {
+                        const flags: u2 = switch (mcv) {
+                            .got_load => 0b00,
+                            .direct_load => 0b01,
+                            else => unreachable,
+                        };
+                        const addr_reg = try self.register_manager.allocReg(null);
+                        _ = try self.addInst(.{
+                            .tag = .lea_pie,
+                            .ops = (Mir.Ops{
+                                .reg1 = addr_reg.to64(),
+                                .flags = flags,
+                            }).encode(),
+                            .data = .{
+                                .load_reloc = .{
+                                    .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
+                                    .sym_index = sym_index,
+                                },
+                            },
+                        });
+                        break :blk addr_reg;
                     },
                     else => {
                         return self.fail("TODO implement memcpy for setting stack from {}", .{mcv});
@@ -4202,7 +4241,12 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .reg1 = reg,
                     .flags = flags,
                 }).encode(),
-                .data = .{ .linker_sym_index = sym_index },
+                .data = .{
+                    .load_reloc = .{
+                        .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
+                        .sym_index = sym_index,
+                    },
+                },
             });
             // MOV reg, [reg]
             _ = try self.addInst(.{

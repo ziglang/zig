@@ -185,7 +185,7 @@ pub const Inst = struct {
         ///      0b00  reg1, [rip + reloc] // via GOT emits X86_64_RELOC_GOT relocation
         ///      0b01  reg1, [rip + reloc] // direct load emits X86_64_RELOC_SIGNED relocation
         /// Notes:
-        /// * `Data` contains `linker_sym_index` 
+        /// * `Data` contains `load_reloc`
         lea_pie,
 
         /// ops flags: form:
@@ -350,10 +350,19 @@ pub const Inst = struct {
         /// A 32-bit immediate value.
         imm: u32,
         /// An extern function.
-        /// Index into the linker's string table.
-        extern_fn: u32,
-        /// Entry in the linker's symbol table.
-        linker_sym_index: u32,
+        extern_fn: struct {
+            /// Index of the containing atom.
+            atom_index: u32,
+            /// Index into the linker's string table.
+            sym_name: u32,
+        },
+        /// PIE load relocation.
+        load_reloc: struct {
+            /// Index of the containing atom.
+            atom_index: u32,
+            /// Index into the linker's symbol table.
+            sym_index: u32,
+        },
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         payload: u32,
     };
@@ -362,7 +371,7 @@ pub const Inst = struct {
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
     comptime {
         if (builtin.mode != .Debug) {
-            assert(@sizeOf(Inst) == 8);
+            assert(@sizeOf(Data) == 8);
         }
     }
 };

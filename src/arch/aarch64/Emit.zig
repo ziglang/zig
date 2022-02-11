@@ -537,7 +537,7 @@ fn mirDebugEpilogueBegin(self: *Emit) !void {
 
 fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
     assert(emit.mir.instructions.items(.tag)[inst] == .call_extern);
-    const n_strx = emit.mir.instructions.items(.data)[inst].extern_fn;
+    const extern_fn = emit.mir.instructions.items(.data)[inst].extern_fn;
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         const offset = blk: {
@@ -547,9 +547,10 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
             break :blk offset;
         };
         // Add relocation to the decl.
-        try macho_file.active_decl.?.link.macho.relocs.append(emit.bin_file.allocator, .{
+        const atom = macho_file.atom_by_index_table.get(extern_fn.atom_index).?;
+        try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset,
-            .target = .{ .global = n_strx },
+            .target = .{ .global = extern_fn.sym_name },
             .addend = 0,
             .subtractor = null,
             .pcrel = true,
@@ -613,10 +614,9 @@ fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
         ));
 
         if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-            // TODO I think the reloc might be in the wrong place.
-            const decl = macho_file.active_decl.?;
+            const atom = macho_file.atom_by_index_table.get(load_memory.atom_index).?;
             // Page reloc for adrp instruction.
-            try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
+            try atom.relocs.append(emit.bin_file.allocator, .{
                 .offset = offset,
                 .target = .{ .local = addr },
                 .addend = 0,
@@ -626,7 +626,7 @@ fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
                 .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
             });
             // Pageoff reloc for adrp instruction.
-            try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
+            try atom.relocs.append(emit.bin_file.allocator, .{
                 .offset = offset + 4,
                 .target = .{ .local = addr },
                 .addend = 0,

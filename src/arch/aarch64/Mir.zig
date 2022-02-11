@@ -134,7 +134,12 @@ pub const Inst = struct {
         /// An extern function
         ///
         /// Used by e.g. call_extern
-        extern_fn: u32,
+        extern_fn: struct {
+            /// Index of the containing atom.
+            atom_index: u32,
+            /// Index into the linker's string table.
+            sym_name: u32,
+        },
         /// A 16-bit immediate value.
         ///
         /// Used by e.g. svc
@@ -278,6 +283,7 @@ pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end
 }
 
 pub const LoadMemory = struct {
+    atom_index: u32,
     register: u32,
     addr: u32,
 };

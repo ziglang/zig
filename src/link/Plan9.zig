@@ -302,7 +302,9 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    const res = try codegen.generateSymbol(&self.base, @intCast(u32, decl.link.plan9.sym_index.?), decl.srcLoc(), .{
+    // TODO we need the symbol index for symbol in the table of locals for the containing atom
+    const sym_index = decl.link.plan9.sym_index orelse 0;
+    const res = try codegen.generateSymbol(&self.base, @intCast(u32, sym_index), decl.srcLoc(), .{
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .{ .none = .{} });

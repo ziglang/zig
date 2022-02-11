@@ -40,6 +40,7 @@ const StringIndexContext = std.hash_map.StringIndexContext;
 const Trie = @import("MachO/Trie.zig");
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../value.zig").Value;
 
 pub const TextBlock = Atom;
 
@@ -220,6 +221,7 @@ atoms: std.AutoHashMapUnmanaged(MatchingSection, *Atom) = .{},
 /// at present owned by Module.Decl.
 /// TODO consolidate this.
 managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
+atom_by_index_table: std.AutoHashMapUnmanaged(u32, *Atom) = .{},
 
 /// Table of unnamed constants associated with a parent `Decl`.
 /// We store them here so that we can free the constants whenever the `Decl`
@@ -247,12 +249,6 @@ unnamed_const_atoms: UnnamedConstTable = .{},
 /// memory within the atom in the incremental linker.
 /// TODO consolidate this.
 decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, ?MatchingSection) = .{},
-
-/// Currently active Module.Decl.
-/// TODO this might not be necessary if we figure out how to pass Module.Decl instance
-/// to codegen.genSetReg() or alternatively move PIE displacement for MCValue{ .memory = x }
-/// somewhere else in the codegen.
-active_decl: ?*Module.Decl = null,
 
 const Entry = struct {
     target: Atom.Relocation.Target,
@@ -3441,6 +3437,8 @@ pub fn deinit(self: *MachO) void {
         }
         self.unnamed_const_atoms.deinit(self.base.allocator);
     }
+
+    self.atom_by_index_table.deinit(self.base.allocator);
 }
 
 pub fn closeFiles(self: MachO) void {
@@ -3647,6 +3645,7 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
     if (decl.link.macho.local_sym_index != 0) return;
 
     decl.link.macho.local_sym_index = try self.allocateLocalSymbol();
+    try self.atom_by_index_table.putNoClobber(self.base.allocator, decl.link.macho.local_sym_index, &decl.link.macho);
     try self.decls.putNoClobber(self.base.allocator, decl, null);
 
     const got_target = .{ .local = decl.link.macho.local_sym_index };
@@ -3692,8 +3691,6 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
             dbg.dbg_info_type_relocs.deinit(self.base.allocator);
         }
     }
-
-    self.active_decl = decl;
 
     const res = if (debug_buffers) |dbg|
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
@@ -3756,14 +3753,9 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
     log.debug("allocating symbol indexes for {s}", .{name});
 
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
-    const match = (try self.getMatchingSection(.{
-        .segname = makeStaticString("__TEXT"),
-        .sectname = makeStaticString("__const"),
-        .size = @sizeOf(u64),
-        .@"align" = math.log2(required_alignment),
-    })).?;
     const local_sym_index = try self.allocateLocalSymbol();
     const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), math.log2(required_alignment));
+    try self.atom_by_index_table.putNoClobber(self.base.allocator, local_sym_index, atom);
 
     const res = try codegen.generateSymbol(&self.base, local_sym_index, decl.srcLoc(), typed_value, &code_buffer, .{
         .none = .{},
@@ -3780,6 +3772,8 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
 
     atom.code.clearRetainingCapacity();
     try atom.code.appendSlice(self.base.allocator, code);
+
+    const match = try self.getMatchingSectionAtom(atom, typed_value.ty, typed_value.val);
     const addr = try self.allocateAtom(atom, code.len, required_alignment, match);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, addr });
@@ -3839,11 +3833,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         }
     }
 
-    self.active_decl = decl;
-
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     const res = if (debug_buffers) |dbg|
-        try codegen.generateSymbol(&self.base, decl.link.elf.local_sym_index, decl.srcLoc(), .{
+        try codegen.generateSymbol(&self.base, decl.link.macho.local_sym_index, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .{
@@ -3854,7 +3846,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             },
         })
     else
-        try codegen.generateSymbol(&self.base, decl.link.elf.local_sym_index, decl.srcLoc(), .{
+        try codegen.generateSymbol(&self.base, decl.link.macho.local_sym_index, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none);
@@ -3908,13 +3900,11 @@ fn isElemTyPointer(ty: Type) bool {
     }
 }
 
-fn getMatchingSectionDecl(self: *MachO, decl: *Module.Decl) !MatchingSection {
-    const code = decl.link.macho.code.items;
-    const alignment = decl.ty.abiAlignment(self.base.options.target);
+fn getMatchingSectionAtom(self: *MachO, atom: *Atom, ty: Type, val: Value) !MatchingSection {
+    const code = atom.code.items;
+    const alignment = ty.abiAlignment(self.base.options.target);
     const align_log_2 = math.log2(alignment);
-    const ty = decl.ty;
     const zig_ty = ty.zigTypeTag();
-    const val = decl.val;
     const mode = self.base.options.optimize_mode;
     const match: MatchingSection = blk: {
         // TODO finish and audit this function
@@ -4023,9 +4013,11 @@ fn getMatchingSectionDecl(self: *MachO, decl: *Module.Decl) !MatchingSection {
             },
         }
     };
+    const local = self.locals.items[atom.local_sym_index];
     const seg = self.load_commands.items[match.seg].segment;
     const sect = seg.sections.items[match.sect];
-    log.debug("  allocating atom in '{s},{s}' ({d},{d})", .{
+    log.debug("  allocating atom '{s}' in '{s},{s}' ({d},{d})", .{
+        self.getString(local.n_strx),
         sect.segName(),
         sect.sectName(),
         match.seg,
@@ -4041,7 +4033,7 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
 
     const decl_ptr = self.decls.getPtr(decl).?;
     if (decl_ptr.* == null) {
-        decl_ptr.* = try self.getMatchingSectionDecl(decl);
+        decl_ptr.* = try self.getMatchingSectionAtom(&decl.link.macho, decl.ty, decl.val);
     }
     const match = decl_ptr.*.?;
 
@@ -4290,6 +4282,8 @@ fn freeUnnamedConsts(self: *MachO, decl: *Module.Decl) void {
         }, true);
         self.locals_free_list.append(self.base.allocator, atom.local_sym_index) catch {};
         self.locals.items[atom.local_sym_index].n_type = 0;
+        _ = self.atom_by_index_table.remove(atom.local_sym_index);
+        atom.local_sym_index = 0;
     }
     unnamed_consts.clearAndFree(self.base.allocator);
 }
@@ -4316,6 +4310,7 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
         }
 
         self.locals.items[decl.link.macho.local_sym_index].n_type = 0;
+        _ = self.atom_by_index_table.remove(decl.link.macho.local_sym_index);
         decl.link.macho.local_sym_index = 0;
     }
     if (self.d_sym) |*ds| {
@@ -4347,13 +4342,7 @@ pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl, parent_atom_index: u
     assert(self.llvm_object == null);
     assert(decl.link.macho.local_sym_index != 0);
 
-    // TODO cache local_sym_index => atom!!!
-    const atom: *Atom = blk: for (self.managed_atoms.items) |atom| {
-        if (atom.local_sym_index == parent_atom_index) {
-            break :blk atom;
-        }
-    } else unreachable;
-
+    const atom = self.atom_by_index_table.get(parent_atom_index).?;
     try atom.relocs.append(self.base.allocator, .{
         .offset = @intCast(u32, offset),
         .target = .{ .local = decl.link.macho.local_sym_index },
