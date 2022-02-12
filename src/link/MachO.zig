@@ -354,32 +354,31 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
         return self;
     }
 
-    // TODO Migrate DebugSymbols to the merged linker codepaths
-    // if (!options.strip and options.module != null) {
-    //     // Create dSYM bundle.
-    //     const dir = options.module.?.zig_cache_artifact_directory;
-    //     log.debug("creating {s}.dSYM bundle in {s}", .{ sub_path, dir.path });
+    if (!options.strip and options.module != null) {
+        // Create dSYM bundle.
+        const dir = options.module.?.zig_cache_artifact_directory;
+        log.debug("creating {s}.dSYM bundle in {s}", .{ emit.sub_path, dir.path });
 
-    //     const d_sym_path = try fmt.allocPrint(
-    //         allocator,
-    //         "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
-    //         .{sub_path},
-    //     );
-    //     defer allocator.free(d_sym_path);
+        const d_sym_path = try fmt.allocPrint(
+            allocator,
+            "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
+            .{emit.sub_path},
+        );
+        defer allocator.free(d_sym_path);
 
-    //     var d_sym_bundle = try dir.handle.makeOpenPath(d_sym_path, .{});
-    //     defer d_sym_bundle.close();
+        var d_sym_bundle = try dir.handle.makeOpenPath(d_sym_path, .{});
+        defer d_sym_bundle.close();
 
-    //     const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
-    //         .truncate = false,
-    //         .read = true,
-    //     });
+        const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
+            .truncate = false,
+            .read = true,
+        });
 
-    //     self.d_sym = .{
-    //         .base = self,
-    //         .file = d_sym_file,
-    //     };
-    // }
+        self.d_sym = .{
+            .base = self,
+            .file = d_sym_file,
+        };
+    }
 
     // Index 0 is always a null symbol.
     try self.locals.append(allocator, .{
@@ -393,8 +392,8 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
     try self.populateMissingMetadata();
 
-    if (self.d_sym) |*ds| {
-        try ds.populateMissingMetadata(allocator);
+    if (self.d_sym) |*d_sym| {
+        try d_sym.populateMissingMetadata(allocator);
     }
 
     return self;
@@ -1048,9 +1047,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         try self.updateSectionOrdinals();
         try self.writeLinkeditSegment();
 
-        if (self.d_sym) |*ds| {
+        if (self.d_sym) |*d_sym| {
             // Flush debug symbols bundle.
-            try ds.flushModule(self.base.allocator, self.base.options);
+            try d_sym.flushModule(self.base.allocator, self.base.options);
         }
 
         if (self.requires_adhoc_codesig) {
@@ -3374,8 +3373,8 @@ pub fn deinit(self: *MachO) void {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
     }
 
-    if (self.d_sym) |*ds| {
-        ds.deinit(self.base.allocator);
+    if (self.d_sym) |*d_sym| {
+        d_sym.deinit(self.base.allocator);
     }
 
     self.section_ordinals.deinit(self.base.allocator);
@@ -3497,13 +3496,13 @@ fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection, owns_atom: bool) 
         }
     }
 
-    if (self.d_sym) |*ds| {
-        if (ds.dbg_info_decl_first == atom) {
-            ds.dbg_info_decl_first = atom.dbg_info_next;
+    if (self.d_sym) |*d_sym| {
+        if (d_sym.dbg_info_decl_first == atom) {
+            d_sym.dbg_info_decl_first = atom.dbg_info_next;
         }
-        if (ds.dbg_info_decl_last == atom) {
+        if (d_sym.dbg_info_decl_last == atom) {
             // TODO shrink the .debug_info section size here
-            ds.dbg_info_decl_last = atom.dbg_info_prev;
+            d_sym.dbg_info_decl_last = atom.dbg_info_prev;
         }
     }
 
@@ -3675,6 +3674,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
 
     const decl = func.owner_decl;
     self.freeUnnamedConsts(decl);
+
     // TODO clearing the code and relocs buffer should probably be orchestrated
     // in a different, smarter, more automatic way somewhere else, in a more centralised
     // way than this.
@@ -3686,8 +3686,8 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     defer code_buffer.deinit();
 
     var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
-    const debug_buffers = if (self.d_sym) |*ds| blk: {
-        debug_buffers_buf = try ds.initDeclDebugBuffers(self.base.allocator, module, decl);
+    const debug_buffers = if (self.d_sym) |*d_sym| blk: {
+        debug_buffers_buf = try d_sym.initDeclDebugBuffers(self.base.allocator, module, decl);
         break :blk &debug_buffers_buf;
     } else null;
     defer {
@@ -3725,13 +3725,9 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     _ = try self.placeDecl(decl, decl.link.macho.code.items.len);
 
     if (debug_buffers) |db| {
-        try self.d_sym.?.commitDeclDebugInfo(
-            self.base.allocator,
-            module,
-            decl,
-            db,
-            self.base.options.target,
-        );
+        if (self.d_sym) |*d_sym| {
+            try d_sym.commitDeclDebugInfo(self.base.allocator, module, decl, db);
+        }
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
@@ -3827,8 +3823,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     defer code_buffer.deinit();
 
     var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
-    const debug_buffers = if (self.d_sym) |*ds| blk: {
-        debug_buffers_buf = try ds.initDeclDebugBuffers(self.base.allocator, module, decl);
+    const debug_buffers = if (self.d_sym) |*d_sym| blk: {
+        debug_buffers_buf = try d_sym.initDeclDebugBuffers(self.base.allocator, module, decl);
         break :blk &debug_buffers_buf;
     } else null;
     defer {
@@ -4125,8 +4121,8 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
 }
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {
-    if (self.d_sym) |*ds| {
-        try ds.updateDeclLineNumber(module, decl);
+    if (self.d_sym) |*d_sym| {
+        try d_sym.updateDeclLineNumber(module, decl);
     }
 }
 
@@ -4322,27 +4318,27 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
         _ = self.atom_by_index_table.remove(decl.link.macho.local_sym_index);
         decl.link.macho.local_sym_index = 0;
     }
-    if (self.d_sym) |*ds| {
+    if (self.d_sym) |*d_sym| {
         // TODO make this logic match freeAtom. Maybe abstract the logic
         // out since the same thing is desired for both.
-        _ = ds.dbg_line_fn_free_list.remove(&decl.fn_link.macho);
+        _ = d_sym.dbg_line_fn_free_list.remove(&decl.fn_link.macho);
         if (decl.fn_link.macho.prev) |prev| {
-            ds.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
+            d_sym.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
             prev.next = decl.fn_link.macho.next;
             if (decl.fn_link.macho.next) |next| {
                 next.prev = prev;
             } else {
-                ds.dbg_line_fn_last = prev;
+                d_sym.dbg_line_fn_last = prev;
             }
         } else if (decl.fn_link.macho.next) |next| {
-            ds.dbg_line_fn_first = next;
+            d_sym.dbg_line_fn_first = next;
             next.prev = null;
         }
-        if (ds.dbg_line_fn_first == &decl.fn_link.macho) {
-            ds.dbg_line_fn_first = decl.fn_link.macho.next;
+        if (d_sym.dbg_line_fn_first == &decl.fn_link.macho) {
+            d_sym.dbg_line_fn_first = decl.fn_link.macho.next;
         }
-        if (ds.dbg_line_fn_last == &decl.fn_link.macho) {
-            ds.dbg_line_fn_last = decl.fn_link.macho.prev;
+        if (d_sym.dbg_line_fn_last == &decl.fn_link.macho) {
+            d_sym.dbg_line_fn_last = decl.fn_link.macho.prev;
         }
     }
 }
