@@ -981,13 +981,19 @@ fn binOpRegister(
     if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
     if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
 
+    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+
     const lhs_reg = if (lhs_is_register) lhs.register else blk: {
         const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             break :inst Air.refToIndex(bin_op.lhs).?;
         } else null;
+
         const reg = try self.register_manager.allocReg(track_inst);
         self.register_manager.freezeRegs(&.{reg});
+
+        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
         break :blk reg;
     };
     defer self.register_manager.unfreezeRegs(&.{lhs_reg});
@@ -997,8 +1003,12 @@ fn binOpRegister(
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             break :inst Air.refToIndex(bin_op.rhs).?;
         } else null;
+
         const reg = try self.register_manager.allocReg(track_inst);
         self.register_manager.freezeRegs(&.{reg});
+
+        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
         break :blk reg;
     };
     defer self.register_manager.unfreezeRegs(&.{rhs_reg});
@@ -1077,6 +1087,8 @@ fn binOpImmediate(
 
     if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
 
+    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+
     const lhs_reg = if (lhs_is_register) lhs.register else blk: {
         const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -1084,8 +1096,12 @@ fn binOpImmediate(
                 if (lhs_and_rhs_swapped) bin_op.rhs else bin_op.lhs,
             ).?;
         } else null;
+
         const reg = try self.register_manager.allocReg(track_inst);
         self.register_manager.freezeRegs(&.{reg});
+
+        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
         break :blk reg;
     };
     defer self.register_manager.unfreezeRegs(&.{lhs_reg});
@@ -3141,7 +3157,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .tag = .cset,
                 .data = .{ .r_cond = .{
                     .rd = reg,
-                    .cond = condition,
+                    .cond = condition.negate(),
                 } },
             });
         },
