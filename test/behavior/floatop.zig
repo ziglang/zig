@@ -100,8 +100,11 @@ fn testSqrt() !void {
 
     if (builtin.zig_backend == .stage1) {
         if (has_f80_rt) {
-            var a: f80 = 25;
-            try expect(@sqrt(a) == 5);
+            // TODO https://github.com/ziglang/zig/issues/10875
+            if (builtin.os.tag != .freebsd) {
+                var a: f80 = 25;
+                try expect(@sqrt(a) == 5);
+            }
         }
         {
             const a: comptime_float = 25.0;
