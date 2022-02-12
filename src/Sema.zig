@@ -2631,9 +2631,24 @@ fn validateUnionInit(
     union_ptr: Air.Inst.Ref,
 ) CompileError!void {
     if (instrs.len != 1) {
-        // TODO add note for other field
-        // TODO add note for union declared here
-        return sema.fail(block, init_src, "only one union field can be active at once", .{});
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                init_src,
+                "cannot initialize multiple union fields at once, unions can only have one active field",
+                .{},
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            for (instrs[1..]) |inst| {
+                const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+                const inst_src: LazySrcLoc = .{ .node_offset_back2tok = inst_data.src_node };
+                try sema.errNote(block, inst_src, msg, "additional initializer here", .{});
+            }
+            try sema.mod.errNoteNonLazy(union_obj.srcLoc(), msg, "union declared here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const field_ptr = instrs[0];
