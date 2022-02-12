@@ -50,11 +50,13 @@ const InnerError = error{
 };
 
 const BranchType = enum {
+    cbz,
     b_cond,
     unconditional_branch_immediate,
 
     fn default(tag: Mir.Inst.Tag) BranchType {
         return switch (tag) {
+            .cbz => .cbz,
             .b, .bl => .unconditional_branch_immediate,
             .b_cond => .b_cond,
             else => unreachable,
@@ -82,6 +84,8 @@ pub fn emitMir(
 
             .b => try emit.mirBranch(inst),
             .bl => try emit.mirBranch(inst),
+
+            .cbz => try emit.mirCompareAndBranch(inst),
 
             .blr => try emit.mirUnconditionalBranchRegister(inst),
             .ret => try emit.mirUnconditionalBranchRegister(inst),
@@ -160,15 +164,22 @@ fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
     assert(offset & 0b11 == 0);
 
     switch (tag) {
+        .cbz => {
+            if (std.math.cast(i19, @shrExact(offset, 2))) |_| {
+                return BranchType.cbz;
+            } else |_| {
+                return emit.fail("TODO support cbz branches larger than +-1 MiB", .{});
+            }
+        },
         .b, .bl => {
-            if (std.math.cast(i26, offset >> 2)) |_| {
+            if (std.math.cast(i26, @shrExact(offset, 2))) |_| {
                 return BranchType.unconditional_branch_immediate;
             } else |_| {
-                return emit.fail("TODO support branches larger than +-128 MiB", .{});
+                return emit.fail("TODO support unconditional branches larger than +-128 MiB", .{});
             }
         },
         .b_cond => {
-            if (std.math.cast(i19, offset >> 2)) |_| {
+            if (std.math.cast(i19, @shrExact(offset, 2))) |_| {
                 return BranchType.b_cond;
             } else |_| {
                 return emit.fail("TODO support conditional branches larger than +-1 MiB", .{});
@@ -183,8 +194,10 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
 
     if (isBranch(tag)) {
         switch (emit.branch_types.get(inst).?) {
-            .unconditional_branch_immediate => return 4,
-            .b_cond => return 4,
+            .cbz,
+            .unconditional_branch_immediate,
+            .b_cond,
+            => return 4,
         }
     }
 
@@ -222,7 +235,11 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
 
 fn isBranch(tag: Mir.Inst.Tag) bool {
     return switch (tag) {
-        .b, .bl, .b_cond => true,
+        .cbz,
+        .b,
+        .bl,
+        .b_cond,
+        => true,
         else => false,
     };
 }
@@ -231,6 +248,7 @@ fn branchTarget(emit: *Emit, inst: Mir.Inst.Index) Mir.Inst.Index {
     const tag = emit.mir.instructions.items(.tag)[inst];
 
     switch (tag) {
+        .cbz => return emit.mir.instructions.items(.data)[inst].r_inst.inst,
         .b, .bl => return emit.mir.instructions.items(.data)[inst].inst,
         .b_cond => return emit.mir.instructions.items(.data)[inst].inst_cond.inst,
         else => unreachable,
@@ -488,6 +506,23 @@ fn mirBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
         .unconditional_branch_immediate => switch (tag) {
             .b => try emit.writeInstruction(Instruction.b(@intCast(i28, offset))),
             .bl => try emit.writeInstruction(Instruction.bl(@intCast(i28, offset))),
+            else => unreachable,
+        },
+        else => unreachable,
+    }
+}
+
+fn mirCompareAndBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const r_inst = emit.mir.instructions.items(.data)[inst].r_inst;
+
+    const offset = @intCast(i64, emit.code_offset_mapping.get(r_inst.inst).?) - @intCast(i64, emit.code.items.len);
+    const branch_type = emit.branch_types.get(inst).?;
+    log.debug("mirCompareAndBranch: {} offset={}", .{ inst, offset });
+
+    switch (branch_type) {
+        .cbz => switch (tag) {
+            .cbz => try emit.writeInstruction(Instruction.cbz(r_inst.rt, @intCast(i21, offset))),
             else => unreachable,
         },
         else => unreachable,

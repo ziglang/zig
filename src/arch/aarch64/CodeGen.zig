@@ -923,12 +923,12 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                 };
                 break :result r;
             },
-            else => {},
+            else => {
+                return self.fail("TODO implement NOT for {}", .{self.target.cpu.arch});
+            },
         }
-
-        return self.fail("TODO implement NOT for {}", .{self.target.cpu.arch});
     };
-    _ = result;
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airMin(self: *Self, inst: Air.Inst.Index) !void {
@@ -1411,7 +1411,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
             .dead, .unreach => unreachable,
             .register => unreachable, // a slice doesn't fit in one register
             .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off + 8 };
+                break :result MCValue{ .stack_offset = off };
             },
             .memory => |addr| {
                 break :result MCValue{ .memory = addr + 8 };
@@ -2425,7 +2425,22 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
                 },
             },
         }),
-        else => return self.fail("TODO implement condbr when condition is {s}", .{@tagName(cond)}),
+        else => blk: {
+            const reg = switch (cond) {
+                .register => |r| r,
+                else => try self.copyToTmpRegister(Type.bool, cond),
+            };
+
+            break :blk try self.addInst(.{
+                .tag = .cbz,
+                .data = .{
+                    .r_inst = .{
+                        .rt = reg,
+                        .inst = undefined, // populated later through performReloc
+                    },
+                },
+            });
+        },
     };
 
     // Capture the state of register and stack allocation state so that we can revert to it.
@@ -2770,8 +2785,9 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
     const tag = self.mir_instructions.items(.tag)[inst];
     switch (tag) {
-        .b_cond => self.mir_instructions.items(.data)[inst].inst_cond.inst = @intCast(Air.Inst.Index, self.mir_instructions.len),
-        .b => self.mir_instructions.items(.data)[inst].inst = @intCast(Air.Inst.Index, self.mir_instructions.len),
+        .cbz => self.mir_instructions.items(.data)[inst].r_inst.inst = @intCast(Mir.Inst.Index, self.mir_instructions.len),
+        .b_cond => self.mir_instructions.items(.data)[inst].inst_cond.inst = @intCast(Mir.Inst.Index, self.mir_instructions.len),
+        .b => self.mir_instructions.items(.data)[inst].inst = @intCast(Mir.Inst.Index, self.mir_instructions.len),
         else => unreachable,
     }
 }

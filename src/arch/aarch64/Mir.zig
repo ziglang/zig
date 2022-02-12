@@ -40,6 +40,8 @@ pub const Inst = struct {
         brk,
         /// Pseudo-instruction: Call extern
         call_extern,
+        /// Compare and Branch on Zero
+        cbz,
         /// Compare (immediate)
         cmp_immediate,
         /// Compare (shifted register)
@@ -183,6 +185,13 @@ pub const Inst = struct {
         r_cond: struct {
             rd: Register,
             cond: bits.Instruction.Condition,
+        },
+        /// A register and another instruction
+        ///
+        /// Used by e.g. cbz
+        r_inst: struct {
+            rt: Register,
+            inst: Index,
         },
         /// Two registers
         ///
