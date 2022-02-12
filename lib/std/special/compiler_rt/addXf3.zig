@@ -232,8 +232,8 @@ fn normalize_f80(exp: *i32, significand: *u80) void {
 }
 
 pub fn __addxf3(a: f80, b: f80) callconv(.C) f80 {
-    var a_rep align(16) = @ptrCast(*const std.math.F80Repr, &a).*;
-    var b_rep align(16) = @ptrCast(*const std.math.F80Repr, &b).*;
+    var a_rep = std.math.break_f80(a);
+    var b_rep = std.math.break_f80(b);
     var a_exp: i32 = a_rep.exp & 0x7FFF;
     var b_exp: i32 = b_rep.exp & 0x7FFF;
 
@@ -257,7 +257,7 @@ pub fn __addxf3(a: f80, b: f80) callconv(.C) f80 {
             std.debug.assert(a_rep.fraction & significand_mask != 0);
             // NaN + anything = qNaN
             a_rep.fraction |= qnan_bit;
-            return @ptrCast(*const f80, &a_rep).*;
+            return std.math.make_f80(a_rep);
         }
     }
     if (b_exp == max_exp) {
@@ -268,7 +268,7 @@ pub fn __addxf3(a: f80, b: f80) callconv(.C) f80 {
             std.debug.assert(b_rep.fraction & significand_mask != 0);
             // anything + NaN = qNaN
             b_rep.fraction |= qnan_bit;
-            return @ptrCast(*const f80, &b_rep).*;
+            return std.math.make_f80(b_rep);
         }
     }
 
@@ -279,7 +279,7 @@ pub fn __addxf3(a: f80, b: f80) callconv(.C) f80 {
         if (b_zero) {
             // but we need to get the sign right for zero + zero
             a_rep.exp &= b_rep.exp;
-            return @ptrCast(*const f80, &a_rep).*;
+            return std.math.make_f80(a_rep);
         } else {
             return b;
         }
@@ -359,7 +359,7 @@ pub fn __addxf3(a: f80, b: f80) callconv(.C) f80 {
     if (a_exp >= max_exp) {
         a_rep.exp = max_exp | result_sign;
         a_rep.fraction = int_bit; // integer bit is set for +/-inf
-        return @ptrCast(*const f80, &a_rep).*;
+        return std.math.make_f80(a_rep);
     }
 
     if (a_exp <= 0) {
@@ -387,13 +387,13 @@ pub fn __addxf3(a: f80, b: f80) callconv(.C) f80 {
 
     a_rep.fraction = @truncate(u64, a_int);
     a_rep.exp = @truncate(u16, a_int >> significand_bits);
-    return @ptrCast(*const f80, &a_rep).*;
+    return std.math.make_f80(a_rep);
 }
 
 pub fn __subxf3(a: f80, b: f80) callconv(.C) f80 {
-    var b_rep align(16) = @ptrCast(*const std.math.F80Repr, &b).*;
+    var b_rep = std.math.break_f80(b);
     b_rep.exp ^= 0x8000;
-    return __addxf3(a, @ptrCast(*const f80, &b_rep).*);
+    return __addxf3(a, std.math.make_f80(b_rep));
 }
 
 test {

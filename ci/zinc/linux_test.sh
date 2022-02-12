@@ -5,6 +5,7 @@
 ZIG=$DEBUG_STAGING/bin/zig
 
 $ZIG test test/behavior.zig -fno-stage1 -I test -fLLVM
+$ZIG test test/behavior.zig -fno-stage1 -I test -fLLVM -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
 $ZIG test test/behavior.zig -fno-stage1 -I test -ofmt=c
 $ZIG test test/behavior.zig -fno-stage1 -I test -target wasm32-wasi --test-cmd wasmtime --test-cmd-bin
 $ZIG test test/behavior.zig -fno-stage1 -I test -target   arm-linux --test-cmd qemu-arm --test-cmd-bin

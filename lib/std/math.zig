@@ -36,28 +36,17 @@ pub const sqrt2 = 1.414213562373095048801688724209698079;
 /// 1/sqrt(2)
 pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 
-// From a small c++ [program using boost float128](https://github.com/winksaville/cpp_boost_float128)
 pub const f128_true_min = @bitCast(f128, @as(u128, 0x00000000000000000000000000000001));
 pub const f128_min = @bitCast(f128, @as(u128, 0x00010000000000000000000000000000));
 pub const f128_max = @bitCast(f128, @as(u128, 0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
 pub const f128_epsilon = @bitCast(f128, @as(u128, 0x3F8F0000000000000000000000000000));
 pub const f128_toint = 1.0 / f128_epsilon;
 
-pub const F80Repr = if (@import("builtin").cpu.arch.endian() == .Little) extern struct {
-    fraction: u64,
-    exp: u16,
-    _pad: u32 = undefined,
-} else extern struct {
-    exp: u16,
-    _pad: u32 = undefined, // TODO verify compatibility with hardware
-    fraction: u64,
-};
-
 // float.h details
-pub const f80_true_min = @ptrCast(*const f80, &F80Repr{ .fraction = 1, .exp = 0 }).*;
-pub const f80_min = @ptrCast(*const f80, &F80Repr{ .fraction = 0x8000000000000000, .exp = 1 }).*;
-pub const f80_max = @ptrCast(*const f80, &F80Repr{ .fraction = 0xFFFFFFFFFFFFFFFF, .exp = 0x7FFE }).*;
-pub const f80_epsilon = @ptrCast(*const f80, &F80Repr{ .fraction = 0x8000000000000000, .exp = 0x3FC0 }).*;
+pub const f80_true_min = make_f80(.{ .fraction = 1, .exp = 0 });
+pub const f80_min = make_f80(.{ .fraction = 0x8000000000000000, .exp = 1 });
+pub const f80_max = make_f80(.{ .fraction = 0xFFFFFFFFFFFFFFFF, .exp = 0x7FFE });
+pub const f80_epsilon = make_f80(.{ .fraction = 0x8000000000000000, .exp = 0x3FC0 });
 pub const f80_toint = 1.0 / f80_epsilon;
 
 pub const f64_true_min = 4.94065645841246544177e-324;
@@ -107,9 +96,9 @@ pub const qnan_f64 = @bitCast(f64, qnan_u64);
 pub const inf_u64 = @as(u64, 0x7FF << 52);
 pub const inf_f64 = @bitCast(f64, inf_u64);
 
-pub const inf_f80 = @ptrCast(*const f80, &F80Repr{ .fraction = 0x8000000000000000, .exp = 0x7fff }).*;
-pub const nan_f80 = @ptrCast(*const f80, &F80Repr{ .fraction = 0xA000000000000000, .exp = 0x7fff }).*;
-pub const qnan_f80 = @ptrCast(*const f80, &F80Repr{ .fraction = 0xC000000000000000, .exp = 0x7fff }).*;
+pub const inf_f80 = make_f80(F80{ .fraction = 0x8000000000000000, .exp = 0x7fff });
+pub const nan_f80 = make_f80(F80{ .fraction = 0xA000000000000000, .exp = 0x7fff });
+pub const qnan_f80 = make_f80(F80{ .fraction = 0xC000000000000000, .exp = 0x7fff });
 
 pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
 pub const nan_f128 = @bitCast(f128, nan_u128);
@@ -1503,4 +1492,22 @@ test "boolMask" {
 /// Return the mod of `num` with the smallest integer type
 pub fn comptimeMod(num: anytype, denom: comptime_int) IntFittingRange(0, denom - 1) {
     return @intCast(IntFittingRange(0, denom - 1), @mod(num, denom));
+}
+
+pub const F80 = struct {
+    fraction: u64,
+    exp: u16,
+};
+
+pub fn make_f80(repr: F80) f80 {
+    const int = (@as(u80, repr.exp) << 64) | repr.fraction;
+    return @bitCast(f80, int);
+}
+
+pub fn break_f80(x: f80) F80 {
+    const int = @bitCast(u80, x);
+    return .{
+        .fraction = @truncate(u64, int),
+        .exp = @truncate(u16, int >> 64),
+    };
 }

@@ -1112,6 +1112,19 @@ pub const Value = extern union {
     }
 
     fn floatWriteToMemory(comptime F: type, f: F, target: Target, buffer: []u8) void {
+        if (F == f80) {
+            switch (target.cpu.arch) {
+                .i386, .x86_64 => {
+                    const repr = std.math.break_f80(f);
+                    std.mem.writeIntLittle(u64, buffer[0..8], repr.fraction);
+                    std.mem.writeIntLittle(u16, buffer[8..10], repr.exp);
+                    // TODO set the rest of the bytes to undefined. should we use 0xaa
+                    // or is there a different way?
+                    return;
+                },
+                else => {},
+            }
+        }
         const Int = @Type(.{ .Int = .{
             .signedness = .unsigned,
             .bits = @typeInfo(F).Float.bits,
@@ -1122,17 +1135,41 @@ pub const Value = extern union {
 
     fn floatReadFromMemory(comptime F: type, target: Target, buffer: []const u8) F {
         if (F == f80) {
-            // TODO: use std.math.F80Repr?
-            const int = std.mem.readInt(u128, buffer[0..16], target.cpu.arch.endian());
-            // TODO shouldn't this be a bitcast from u80 to f80 instead of u128 to f80?
-            return @bitCast(F, int);
+            switch (target.cpu.arch) {
+                .i386, .x86_64 => return std.math.make_f80(.{
+                    .fraction = std.mem.readIntLittle(u64, buffer[0..8]),
+                    .exp = std.mem.readIntLittle(u16, buffer[8..10]),
+                }),
+                else => {},
+            }
         }
         const Int = @Type(.{ .Int = .{
             .signedness = .unsigned,
             .bits = @typeInfo(F).Float.bits,
         } });
-        const int = std.mem.readInt(Int, buffer[0..@sizeOf(Int)], target.cpu.arch.endian());
+        const int = readInt(Int, buffer[0..@sizeOf(Int)], target.cpu.arch.endian());
         return @bitCast(F, int);
+    }
+
+    fn readInt(comptime Int: type, buffer: *const [@sizeOf(Int)]u8, endian: std.builtin.Endian) Int {
+        var result: Int = 0;
+        switch (endian) {
+            .Big => {
+                for (buffer) |byte| {
+                    result <<= 8;
+                    result |= byte;
+                }
+            },
+            .Little => {
+                var i: usize = buffer.len;
+                while (i != 0) {
+                    i -= 1;
+                    result <<= 8;
+                    result |= buffer[i];
+                }
+            },
+        }
+        return result;
     }
 
     /// Asserts that the value is a float or an integer.

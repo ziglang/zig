@@ -41,7 +41,7 @@ inline fn extendF80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(s
     const src_qnan = 1 << (src_sig_bits - 1);
     const src_nan_code = src_qnan - 1;
 
-    var dst: std.math.F80Repr align(16) = undefined;
+    var dst: std.math.F80 = undefined;
 
     // Break a into a sign and representation of the absolute value
     const a_abs = a & src_abs_mask;
@@ -83,7 +83,7 @@ inline fn extendF80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(s
     }
 
     dst.exp |= sign;
-    return @ptrCast(*const f80, &dst).*;
+    return std.math.make_f80(dst);
 }
 
 pub fn __extendxftf2(a: f80) callconv(.C) f128 {
@@ -99,7 +99,7 @@ pub fn __extendxftf2(a: f80) callconv(.C) f128 {
     const dst_min_normal = @as(u128, 1) << dst_sig_bits;
 
     // Break a into a sign and representation of the absolute value
-    var a_rep = @ptrCast(*const std.math.F80Repr, &a).*;
+    var a_rep = std.math.break_f80(a);
     const sign = a_rep.exp & 0x8000;
     a_rep.exp &= 0x7FFF;
     var abs_result: u128 = undefined;

@@ -5977,8 +5977,13 @@ fn zirIntCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         return sema.fail(block, src, "unable to cast runtime value to 'comptime_int'", .{});
     }
 
-    try sema.requireRuntimeBlock(block, operand_src);
     // TODO insert safety check to make sure the value fits in the dest type
+
+    if ((try sema.typeHasOnePossibleValue(block, dest_ty_src, dest_ty))) |opv| {
+        return sema.addConstant(dest_ty, opv);
+    }
+
+    try sema.requireRuntimeBlock(block, operand_src);
     return block.addTyOp(.intcast, dest_ty, operand);
 }
 
@@ -7537,17 +7542,21 @@ fn zirShl(
     const maybe_lhs_val = try sema.resolveMaybeUndefVal(block, lhs_src, lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefVal(block, rhs_src, rhs);
 
+    if (maybe_rhs_val) |rhs_val| {
+        if (rhs_val.isUndef()) {
+            return sema.addConstUndef(sema.typeOf(lhs));
+        }
+        if (rhs_val.compareWithZero(.eq)) {
+            return lhs;
+        }
+    }
+
     const runtime_src = if (maybe_lhs_val) |lhs_val| rs: {
         const lhs_ty = sema.typeOf(lhs);
 
         if (lhs_val.isUndef()) return sema.addConstUndef(lhs_ty);
         const rhs_val = maybe_rhs_val orelse break :rs rhs_src;
-        if (rhs_val.isUndef()) return sema.addConstUndef(lhs_ty);
 
-        // If rhs is 0, return lhs without doing any calculations.
-        if (rhs_val.compareWithZero(.eq)) {
-            return sema.addConstant(lhs_ty, lhs_val);
-        }
         const target = sema.mod.getTarget();
         const val = switch (air_tag) {
             .shl_exact => val: {
@@ -7577,12 +7586,7 @@ fn zirShl(
         };
 
         return sema.addConstant(lhs_ty, val);
-    } else rs: {
-        if (maybe_rhs_val) |rhs_val| {
-            if (rhs_val.isUndef()) return sema.addConstUndef(sema.typeOf(lhs));
-        }
-        break :rs lhs_src;
-    };
+    } else lhs_src;
 
     // TODO: insert runtime safety check for shl_exact
 

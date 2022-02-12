@@ -791,6 +791,9 @@ add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
 set_target_properties(opt_c_util PROPERTIES
     COMPILE_FLAGS "${OPTIMIZED_C_FLAGS}"
 )
+target_include_directories(opt_c_util PRIVATE
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e-prebuilt"
+)
 
 add_library(zigstage1 STATIC ${STAGE1_SOURCES})
 set_target_properties(zigstage1 PROPERTIES
