@@ -452,6 +452,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     const allow_undef = is_dyn_lib and (self.base.options.allow_shlib_undefined orelse false);
 
     const id_symlink_basename = "zld.id";
+    const cache_dir_handle = blk: {
+        if (use_stage1) {
+            break :blk directory.handle;
+        }
+        if (self.base.options.module) |module| {
+            break :blk module.zig_cache_artifact_directory.handle;
+        }
+        break :blk directory.handle;
+    };
 
     var man: Cache.Manifest = undefined;
     defer if (!self.base.options.disable_lld_caching) man.deinit();
@@ -495,7 +504,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
         var prev_digest_buf: [digest.len]u8 = undefined;
         const prev_digest: []u8 = Cache.readSmallFile(
-            directory.handle,
+            cache_dir_handle,
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
@@ -531,7 +540,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
-        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+        cache_dir_handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
             error.FileNotFound => {},
             else => |e| return e,
         };
@@ -565,7 +574,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     } else {
         if (use_stage1) {
             const sub_path = self.base.options.emit.?.sub_path;
-            self.base.file = try directory.handle.createFile(sub_path, .{
+            self.base.file = try cache_dir_handle.createFile(sub_path, .{
                 .truncate = true,
                 .read = true,
                 .mode = link.determineMode(self.base.options),
@@ -1025,7 +1034,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         if (use_stage1 and self.base.options.disable_lld_caching) break :cache;
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
+        Cache.writeSmallFile(cache_dir_handle, id_symlink_basename, &digest) catch |err| {
             log.debug("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
