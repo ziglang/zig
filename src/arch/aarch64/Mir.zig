@@ -54,6 +54,8 @@ pub const Inst = struct {
         dbg_epilogue_begin,
         /// Pseudo-instruction: Update debug line
         dbg_line,
+        /// Bitwise Exclusive OR (shifted register)
+        eor_shifted_register,
         /// Pseudo-instruction: Load memory
         ///
         /// Payload is `LoadMemory`
@@ -88,6 +90,8 @@ pub const Inst = struct {
         movz,
         /// Multiply
         mul,
+        /// Bitwise NOT
+        mvn,
         /// No Operation
         nop,
         /// Pseudo-instruction: Pop multiple registers
@@ -217,6 +221,15 @@ pub const Inst = struct {
             imm12: u12,
             sh: u1 = 0,
         },
+        /// Two registers and a shift (shift type and 6-bit amount)
+        ///
+        /// Used by e.g. mvn
+        rr_imm6_shift: struct {
+            rd: Register,
+            rm: Register,
+            imm6: u6,
+            shift: bits.Instruction.AddSubtractShiftedRegisterShift,
+        },
         /// Two registers
         ///
         /// Used by e.g. mul
@@ -234,6 +247,17 @@ pub const Inst = struct {
             rm: Register,
             imm6: u6,
             shift: bits.Instruction.AddSubtractShiftedRegisterShift,
+        },
+        /// Three registers and a shift (logical instruction version)
+        /// (shift type and 6-bit amount)
+        ///
+        /// Used by e.g. eor_shifted_register
+        rrr_imm6_logical_shift: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            imm6: u6,
+            shift: bits.Instruction.LogicalShiftedRegisterShift,
         },
         /// Two registers and a LoadStoreOffsetImmediate
         ///

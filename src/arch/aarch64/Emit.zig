@@ -106,6 +106,8 @@ pub fn emitMir(
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
 
+            .eor_shifted_register => try emit.mirLogicalShiftedRegister(inst),
+
             .load_memory => try emit.mirLoadMemory(inst),
 
             .ldp => try emit.mirLoadStoreRegisterPair(inst),
@@ -134,6 +136,7 @@ pub fn emitMir(
 
             .mov_register => try emit.mirMoveRegister(inst),
             .mov_to_from_sp => try emit.mirMoveRegister(inst),
+            .mvn => try emit.mirMoveRegister(inst),
 
             .movk => try emit.mirMoveWideImmediate(inst),
             .movz => try emit.mirMoveWideImmediate(inst),
@@ -638,6 +641,21 @@ fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
+fn mirLogicalShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rrr_imm6_logical_shift = emit.mir.instructions.items(.data)[inst].rrr_imm6_logical_shift;
+    const rd = rrr_imm6_logical_shift.rd;
+    const rn = rrr_imm6_logical_shift.rn;
+    const rm = rrr_imm6_logical_shift.rm;
+    const shift = rrr_imm6_logical_shift.shift;
+    const imm6 = rrr_imm6_logical_shift.imm6;
+
+    switch (tag) {
+        .eor_shifted_register => try emit.writeInstruction(Instruction.eor(rd, rn, rm, shift, imm6)),
+        else => unreachable,
+    }
+}
+
 fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
     assert(emit.mir.instructions.items(.tag)[inst] == .load_memory);
     const payload = emit.mir.instructions.items(.data)[inst].payload;
@@ -821,11 +839,19 @@ fn mirLoadStoreRegisterRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirMoveRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const rr = emit.mir.instructions.items(.data)[inst].rr;
-
     switch (tag) {
-        .mov_register => try emit.writeInstruction(Instruction.orr(rr.rd, .xzr, rr.rn, Instruction.Shift.none)),
-        .mov_to_from_sp => try emit.writeInstruction(Instruction.add(rr.rd, rr.rn, 0, false)),
+        .mov_register => {
+            const rr = emit.mir.instructions.items(.data)[inst].rr;
+            try emit.writeInstruction(Instruction.orr(rr.rd, .xzr, rr.rn, .lsl, 0));
+        },
+        .mov_to_from_sp => {
+            const rr = emit.mir.instructions.items(.data)[inst].rr;
+            try emit.writeInstruction(Instruction.add(rr.rd, rr.rn, 0, false));
+        },
+        .mvn => {
+            const rr_imm6_shift = emit.mir.instructions.items(.data)[inst].rr_imm6_shift;
+            try emit.writeInstruction(Instruction.orn(rr_imm6_shift.rd, .xzr, rr_imm6_shift.rm, .lsl, 0));
+        },
         else => unreachable,
     }
 }

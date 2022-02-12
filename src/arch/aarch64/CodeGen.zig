@@ -894,6 +894,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
         switch (operand) {
             .dead => unreachable,
             .unreach => unreachable,
@@ -924,7 +925,14 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                 break :result r;
             },
             else => {
-                return self.fail("TODO implement NOT for {}", .{self.target.cpu.arch});
+                switch (operand_ty.zigTypeTag()) {
+                    .Bool => {
+                        // TODO convert this to mvn + and
+                        const dest = try self.binOp(.xor, null, operand, .{ .immediate = 1 }, operand_ty, Type.bool);
+                        break :result dest;
+                    },
+                    else => return self.fail("TODO bitwise not", .{}),
+                }
             },
         }
     };
@@ -1013,12 +1021,20 @@ fn binOpRegister(
     const mir_tag: Mir.Inst.Tag = switch (tag) {
         .add => .add_shifted_register,
         .sub => .sub_shifted_register,
+        .xor => .eor_shifted_register,
         else => unreachable,
     };
     const mir_data: Mir.Inst.Data = switch (tag) {
         .add,
         .sub,
         => .{ .rrr_imm6_shift = .{
+            .rd = dest_reg,
+            .rn = lhs_reg,
+            .rm = rhs_reg,
+            .imm6 = 0,
+            .shift = .lsl,
+        } },
+        .xor => .{ .rrr_imm6_logical_shift = .{
             .rd = dest_reg,
             .rn = lhs_reg,
             .rm = rhs_reg,
@@ -1137,6 +1153,7 @@ fn binOp(
     rhs_ty: Type,
 ) !MCValue {
     switch (tag) {
+        // Arithmetic operations on integers and floats
         .add,
         .sub,
         => {
@@ -1173,6 +1190,19 @@ fn binOp(
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
+                },
+                else => unreachable,
+            }
+        },
+        // Bitwise operations on integers
+        .xor => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Vector => return self.fail("TODO binary operations on vectors", .{}),
+                .Int => return self.fail("TODO binary operations on vectors", .{}),
+                .Bool => {
+                    assert(lhs_ty.eql(rhs_ty));
+                    // TODO boolean operations with immediates
+                    return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                 },
                 else => unreachable,
             }
