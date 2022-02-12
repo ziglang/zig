@@ -3,7 +3,8 @@ const DebugSymbols = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const fs = std.fs;
-const log = std.log.scoped(.dsym);
+const log = std.log.scoped(.link);
+const leb128 = std.leb;
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
@@ -21,8 +22,6 @@ const TextBlock = MachO.TextBlock;
 const SrcFn = MachO.SrcFn;
 const makeStaticString = MachO.makeStaticString;
 const padToIdeal = MachO.padToIdeal;
-
-const page_size: u16 = 0x1000;
 
 base: *MachO,
 file: fs.File,
@@ -49,9 +48,6 @@ uuid_cmd_index: ?u16 = null,
 /// Index into __TEXT,__text section.
 text_section_index: ?u16 = null,
 
-linkedit_off: u16 = page_size,
-linkedit_size: u16 = page_size,
-
 debug_info_section_index: ?u16 = null,
 debug_abbrev_section_index: ?u16 = null,
 debug_str_section_index: ?u16 = null,
@@ -76,7 +72,6 @@ dbg_info_decl_last: ?*TextBlock = null,
 debug_string_table: std.ArrayListUnmanaged(u8) = .{},
 
 load_commands_dirty: bool = false,
-strtab_dirty: bool = false,
 debug_string_table_dirty: bool = false,
 debug_abbrev_section_dirty: bool = false,
 debug_aranges_section_dirty: bool = false,
@@ -87,8 +82,12 @@ const abbrev_compile_unit = 1;
 const abbrev_subprogram = 2;
 const abbrev_subprogram_retvoid = 3;
 const abbrev_base_type = 4;
-const abbrev_pad1 = 5;
-const abbrev_parameter = 6;
+const abbrev_ptr_type = 5;
+const abbrev_struct_type = 6;
+const abbrev_anon_struct_type = 7;
+const abbrev_struct_member = 8;
+const abbrev_pad1 = 9;
+const abbrev_parameter = 10;
 
 /// The reloc offset for the virtual address of a function in its Line Number Program.
 /// Size is a virtual address integer.
@@ -108,30 +107,21 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
         try self.load_commands.append(allocator, base_cmd);
         self.load_commands_dirty = true;
     }
+
     if (self.symtab_cmd_index == null) {
         self.symtab_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const base_cmd = self.base.load_commands.items[self.base.symtab_cmd_index.?].symtab;
-        const symtab_size = base_cmd.nsyms * @sizeOf(macho.nlist_64);
-        const symtab_off = self.findFreeSpaceLinkedit(symtab_size, @sizeOf(macho.nlist_64));
-
-        log.debug("found symbol table free space 0x{x} to 0x{x}", .{ symtab_off, symtab_off + symtab_size });
-
-        const strtab_off = self.findFreeSpaceLinkedit(base_cmd.strsize, 1);
-
-        log.debug("found string table free space 0x{x} to 0x{x}", .{ strtab_off, strtab_off + base_cmd.strsize });
-
-        try self.load_commands.append(allocator, .{
+        try self.load_commands.append(self.base.base.allocator, .{
             .symtab = .{
                 .cmdsize = @sizeOf(macho.symtab_command),
-                .symoff = @intCast(u32, symtab_off),
-                .nsyms = base_cmd.nsyms,
-                .stroff = @intCast(u32, strtab_off),
-                .strsize = base_cmd.strsize,
+                .symoff = 0,
+                .nsyms = 0,
+                .stroff = 0,
+                .strsize = 0,
             },
         });
         self.load_commands_dirty = true;
-        self.strtab_dirty = true;
     }
+
     if (self.pagezero_segment_cmd_index == null) {
         self.pagezero_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const base_cmd = self.base.load_commands.items[self.base.pagezero_segment_cmd_index.?].segment;
@@ -139,6 +129,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
         try self.load_commands.append(allocator, .{ .segment = cmd });
         self.load_commands_dirty = true;
     }
+
     if (self.text_segment_cmd_index == null) {
         self.text_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const base_cmd = self.base.load_commands.items[self.base.text_segment_cmd_index.?].segment;
@@ -146,6 +137,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
         try self.load_commands.append(allocator, .{ .segment = cmd });
         self.load_commands_dirty = true;
     }
+
     if (self.data_const_segment_cmd_index == null) outer: {
         if (self.base.data_const_segment_cmd_index == null) break :outer; // __DATA_CONST is optional
         self.data_const_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -154,6 +146,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
         try self.load_commands.append(allocator, .{ .segment = cmd });
         self.load_commands_dirty = true;
     }
+
     if (self.data_segment_cmd_index == null) outer: {
         if (self.base.data_segment_cmd_index == null) break :outer; // __DATA is optional
         self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -162,26 +155,29 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
         try self.load_commands.append(allocator, .{ .segment = cmd });
         self.load_commands_dirty = true;
     }
+
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const base_cmd = self.base.load_commands.items[self.base.linkedit_segment_cmd_index.?].segment;
         var cmd = try self.copySegmentCommand(allocator, base_cmd);
-        cmd.inner.vmsize = self.linkedit_size;
-        cmd.inner.fileoff = self.linkedit_off;
-        cmd.inner.filesize = self.linkedit_size;
+        // TODO this needs reworking
+        cmd.inner.vmsize = self.base.page_size;
+        cmd.inner.fileoff = self.base.page_size;
+        cmd.inner.filesize = self.base.page_size;
         try self.load_commands.append(allocator, .{ .segment = cmd });
         self.load_commands_dirty = true;
     }
+
     if (self.dwarf_segment_cmd_index == null) {
         self.dwarf_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
 
         const linkedit = self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
         const ideal_size: u16 = 200 + 128 + 160 + 250;
-        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), page_size);
-        const off = linkedit.inner.fileoff + linkedit.inner.filesize;
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.base.page_size);
+        const fileoff = linkedit.inner.fileoff + linkedit.inner.filesize;
         const vmaddr = linkedit.inner.vmaddr + linkedit.inner.vmsize;
 
-        log.debug("found __DWARF segment free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+        log.debug("found __DWARF segment free space 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
 
         try self.load_commands.append(allocator, .{
             .segment = .{
@@ -189,13 +185,14 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
                     .segname = makeStaticString("__DWARF"),
                     .vmaddr = vmaddr,
                     .vmsize = needed_size,
-                    .fileoff = off,
+                    .fileoff = fileoff,
                     .filesize = needed_size,
                 },
             },
         });
         self.load_commands_dirty = true;
     }
+
     if (self.debug_str_section_index == null) {
         assert(self.debug_string_table.items.len == 0);
         self.debug_str_section_index = try self.allocateSection(
@@ -205,18 +202,22 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
         );
         self.debug_string_table_dirty = true;
     }
+
     if (self.debug_info_section_index == null) {
         self.debug_info_section_index = try self.allocateSection("__debug_info", 200, 0);
         self.debug_info_header_dirty = true;
     }
+
     if (self.debug_abbrev_section_index == null) {
         self.debug_abbrev_section_index = try self.allocateSection("__debug_abbrev", 128, 0);
         self.debug_abbrev_section_dirty = true;
     }
+
     if (self.debug_aranges_section_index == null) {
         self.debug_aranges_section_index = try self.allocateSection("__debug_aranges", 160, 4);
         self.debug_aranges_section_dirty = true;
     }
+
     if (self.debug_line_section_index == null) {
         self.debug_line_section_index = try self.allocateSection("__debug_line", 250, 0);
         self.debug_line_header_dirty = true;
@@ -300,41 +301,91 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
         // we can simply append these bytes.
         const abbrev_buf = [_]u8{
             abbrev_compile_unit, DW.TAG.compile_unit, DW.CHILDREN.yes, // header
-            DW.AT.stmt_list, DW.FORM.sec_offset, // offset
-            DW.AT.low_pc,    DW.FORM.addr,
-            DW.AT.high_pc,   DW.FORM.addr,
-            DW.AT.name,      DW.FORM.strp,
-            DW.AT.comp_dir,  DW.FORM.strp,
-            DW.AT.producer,  DW.FORM.strp,
-            DW.AT.language,  DW.FORM.data2,
-            0, 0, // table sentinel
-            abbrev_subprogram, DW.TAG.subprogram, DW.CHILDREN.yes, // header
-            DW.AT.low_pc,    DW.FORM.addr, // start VM address
-            DW.AT.high_pc,   DW.FORM.data4,
-            DW.AT.type,      DW.FORM.ref4,
-            DW.AT.name,      DW.FORM.string,
-            DW.AT.decl_line, DW.FORM.data4,
-            DW.AT.decl_file, DW.FORM.data1,
+            DW.AT.stmt_list,     DW.FORM.sec_offset,  DW.AT.low_pc,
+            DW.FORM.addr,        DW.AT.high_pc,       DW.FORM.addr,
+            DW.AT.name,          DW.FORM.strp,        DW.AT.comp_dir,
+            DW.FORM.strp,        DW.AT.producer,      DW.FORM.strp,
+            DW.AT.language,      DW.FORM.data2,       0,
+            0, // table sentinel
+            abbrev_subprogram,
+            DW.TAG.subprogram,
+            DW.CHILDREN.yes, // header
+            DW.AT.low_pc,
+            DW.FORM.addr,
+            DW.AT.high_pc,
+            DW.FORM.data4,
+            DW.AT.type,
+            DW.FORM.ref4,
+            DW.AT.name,
+            DW.FORM.string,
             0,                         0, // table sentinel
             abbrev_subprogram_retvoid,
             DW.TAG.subprogram, DW.CHILDREN.yes, // header
             DW.AT.low_pc,      DW.FORM.addr,
             DW.AT.high_pc,     DW.FORM.data4,
             DW.AT.name,        DW.FORM.string,
-            DW.AT.decl_line,   DW.FORM.data4,
-            DW.AT.decl_file,   DW.FORM.data1,
-            0, 0, // table sentinel
-            abbrev_base_type, DW.TAG.base_type, DW.CHILDREN.no, // header
-            DW.AT.encoding,   DW.FORM.data1,    DW.AT.byte_size,
-            DW.FORM.data1,    DW.AT.name,       DW.FORM.string,
-            0, 0, // table sentinel
-            abbrev_pad1, DW.TAG.unspecified_type, DW.CHILDREN.no, // header
-            0, 0, // table sentinel
-            abbrev_parameter, DW.TAG.formal_parameter, DW.CHILDREN.no, // header
-            DW.AT.location,   DW.FORM.exprloc,         DW.AT.type,
-            DW.FORM.ref4,     DW.AT.name,              DW.FORM.string,
-            0, 0, // table sentinel
-            0, 0, 0, // section sentinel
+            0,
+            0, // table sentinel
+            abbrev_base_type,
+            DW.TAG.base_type,
+            DW.CHILDREN.no, // header
+            DW.AT.encoding,
+            DW.FORM.data1,
+            DW.AT.byte_size,
+            DW.FORM.data1,
+            DW.AT.name,
+            DW.FORM.string,
+            0,
+            0, // table sentinel
+            abbrev_ptr_type,
+            DW.TAG.pointer_type,
+            DW.CHILDREN.no, // header
+            DW.AT.type,
+            DW.FORM.ref4,
+            0,
+            0, // table sentinel
+            abbrev_struct_type,
+            DW.TAG.structure_type,
+            DW.CHILDREN.yes, // header
+            DW.AT.byte_size,
+            DW.FORM.sdata,
+            DW.AT.name,
+            DW.FORM.string,
+            0,
+            0, // table sentinel
+            abbrev_anon_struct_type,
+            DW.TAG.structure_type,
+            DW.CHILDREN.yes, // header
+            DW.AT.byte_size,
+            DW.FORM.sdata,
+            0,
+            0, // table sentinel
+            abbrev_struct_member,
+            DW.TAG.member,
+            DW.CHILDREN.no, // header
+            DW.AT.name,
+            DW.FORM.string,
+            DW.AT.type,
+            DW.FORM.ref4,
+            DW.AT.data_member_location,
+            DW.FORM.sdata,
+            0,
+            0, // table sentinel
+            abbrev_pad1,
+            DW.TAG.unspecified_type,
+            DW.CHILDREN.no, // header
+            0,
+            0, // table sentinel
+            abbrev_parameter,
+            DW.TAG.formal_parameter, DW.CHILDREN.no, // header
+            DW.AT.location,          DW.FORM.exprloc,
+            DW.AT.type,              DW.FORM.ref4,
+            DW.AT.name,              DW.FORM.string,
+            0,
+            0, // table sentinel
+            0,
+            0,
+            0, // section sentinel
         };
 
         const needed_size = abbrev_buf.len;
@@ -583,13 +634,12 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
         }
     }
 
-    try self.writeStringTable();
+    try self.writeLinkeditSegment();
     self.updateDwarfSegment();
     try self.writeLoadCommands(allocator);
     try self.writeHeader();
 
     assert(!self.load_commands_dirty);
-    assert(!self.strtab_dirty);
     assert(!self.debug_abbrev_section_dirty);
     assert(!self.debug_aranges_section_dirty);
     assert(!self.debug_string_table_dirty);
@@ -663,7 +713,7 @@ fn updateDwarfSegment(self: *DebugSymbols) void {
     if (file_size != dwarf_segment.inner.filesize) {
         dwarf_segment.inner.filesize = file_size;
         if (dwarf_segment.inner.vmsize < dwarf_segment.inner.filesize) {
-            dwarf_segment.inner.vmsize = mem.alignForwardGeneric(u64, dwarf_segment.inner.filesize, page_size);
+            dwarf_segment.inner.vmsize = mem.alignForwardGeneric(u64, dwarf_segment.inner.filesize, self.base.page_size);
         }
         self.load_commands_dirty = true;
     }
@@ -719,23 +769,10 @@ fn writeHeader(self: *DebugSymbols) !void {
     try self.file.pwriteAll(mem.asBytes(&header), 0);
 }
 
-fn allocatedSizeLinkedit(self: *DebugSymbols, start: u64) u64 {
-    assert(start > 0);
-    var min_pos: u64 = std.math.maxInt(u64);
-
-    if (self.symtab_cmd_index) |idx| {
-        const symtab = self.load_commands.items[idx].symtab;
-        if (symtab.symoff >= start and symtab.symoff < min_pos) min_pos = symtab.symoff;
-        if (symtab.stroff >= start and symtab.stroff < min_pos) min_pos = symtab.stroff;
-    }
-
-    return min_pos - start;
-}
-
 fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
     const seg = self.load_commands.items[self.dwarf_segment_cmd_index.?].segment;
     assert(start >= seg.inner.fileoff);
-    var min_pos: u64 = seg.inner.fileoff + seg.inner.filesize;
+    var min_pos: u64 = std.math.maxInt(u64);
     for (seg.sections.items) |section| {
         if (section.offset <= start) continue;
         if (section.offset < min_pos) min_pos = section.offset;
@@ -743,102 +780,72 @@ fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
     return min_pos - start;
 }
 
-fn detectAllocCollisionLinkedit(self: *DebugSymbols, start: u64, size: u64) ?u64 {
-    const end = start + padToIdeal(size);
-
-    if (self.symtab_cmd_index) |idx| outer: {
-        if (self.load_commands.items.len == idx) break :outer;
-        const symtab = self.load_commands.items[idx].symtab;
-        {
-            // Symbol table
-            const symsize = symtab.nsyms * @sizeOf(macho.nlist_64);
-            const increased_size = padToIdeal(symsize);
-            const test_end = symtab.symoff + increased_size;
-            if (end > symtab.symoff and start < test_end) {
-                return test_end;
-            }
-        }
-        {
-            // String table
-            const increased_size = padToIdeal(symtab.strsize);
-            const test_end = symtab.stroff + increased_size;
-            if (end > symtab.stroff and start < test_end) {
-                return test_end;
-            }
-        }
-    }
-
-    return null;
-}
-
-fn findFreeSpaceLinkedit(self: *DebugSymbols, object_size: u64, min_alignment: u16) u64 {
-    var start: u64 = self.linkedit_off;
-    while (self.detectAllocCollisionLinkedit(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u64, item_end, min_alignment);
-    }
-    return start;
-}
-
-fn relocateSymbolTable(self: *DebugSymbols) !void {
-    const symtab = &self.load_commands.items[self.symtab_cmd_index.?].symtab;
-    const nlocals = self.base.locals.items.len;
-    const nglobals = self.base.globals.items.len;
-    const nsyms = nlocals + nglobals;
-
-    if (symtab.nsyms < nsyms) {
-        const needed_size = nsyms * @sizeOf(macho.nlist_64);
-        if (needed_size > self.allocatedSizeLinkedit(symtab.symoff)) {
-            // Move the entire symbol table to a new location
-            const new_symoff = self.findFreeSpaceLinkedit(needed_size, @alignOf(macho.nlist_64));
-            const existing_size = symtab.nsyms * @sizeOf(macho.nlist_64);
-
-            assert(new_symoff + existing_size <= self.linkedit_off + self.linkedit_size); // TODO expand LINKEDIT segment.
-            log.debug("relocating symbol table from 0x{x}-0x{x} to 0x{x}-0x{x}", .{
-                symtab.symoff,
-                symtab.symoff + existing_size,
-                new_symoff,
-                new_symoff + existing_size,
-            });
-
-            const amt = try self.file.copyRangeAll(symtab.symoff, self.file, new_symoff, existing_size);
-            if (amt != existing_size) return error.InputOutput;
-            symtab.symoff = @intCast(u32, new_symoff);
-        }
-        symtab.nsyms = @intCast(u32, nsyms);
-        self.load_commands_dirty = true;
-    }
-}
-
-pub fn writeLocalSymbol(self: *DebugSymbols, index: usize) !void {
+fn writeLinkeditSegment(self: *DebugSymbols) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    try self.relocateSymbolTable();
+
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
+    seg.inner.filesize = 0;
+
+    try self.writeSymbolTable();
+    try self.writeStringTable();
+}
+
+fn writeSymbolTable(self: *DebugSymbols) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].symtab;
-    const off = symtab.symoff + @sizeOf(macho.nlist_64) * index;
-    log.debug("writing local symbol {} at 0x{x}", .{ index, off });
-    try self.file.pwriteAll(mem.asBytes(&self.base.locals.items[index]), off);
+    symtab.symoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+
+    var locals = std.ArrayList(macho.nlist_64).init(self.base.base.allocator);
+    defer locals.deinit();
+
+    for (self.base.locals.items) |sym| {
+        if (sym.n_strx == 0) continue;
+        if (self.base.symbol_resolver.get(sym.n_strx)) |_| continue;
+        try locals.append(sym);
+    }
+
+    const nlocals = locals.items.len;
+    const nexports = self.base.globals.items.len;
+
+    const locals_off = symtab.symoff;
+    const locals_size = nlocals * @sizeOf(macho.nlist_64);
+    log.debug("writing local symbols from 0x{x} to 0x{x}", .{ locals_off, locals_size + locals_off });
+    try self.file.pwriteAll(mem.sliceAsBytes(locals.items), locals_off);
+
+    const exports_off = locals_off + locals_size;
+    const exports_size = nexports * @sizeOf(macho.nlist_64);
+    log.debug("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
+    try self.file.pwriteAll(mem.sliceAsBytes(self.base.globals.items), exports_off);
+
+    symtab.nsyms = @intCast(u32, nlocals + nexports);
+    seg.inner.filesize += locals_size + exports_size;
+
+    self.load_commands_dirty = true;
 }
 
 fn writeStringTable(self: *DebugSymbols) !void {
-    if (!self.strtab_dirty) return;
-
     const tracy = trace(@src());
     defer tracy.end();
 
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].symtab;
-    const allocated_size = self.allocatedSizeLinkedit(symtab.stroff);
-    const needed_size = mem.alignForwardGeneric(u64, self.base.strtab.items.len, @alignOf(u64));
+    symtab.stroff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+    symtab.strsize = @intCast(u32, mem.alignForwardGeneric(u64, self.base.strtab.items.len, @alignOf(u64)));
+    seg.inner.filesize += symtab.strsize;
 
-    if (needed_size > allocated_size) {
-        symtab.strsize = 0;
-        symtab.stroff = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
-    }
-    symtab.strsize = @intCast(u32, needed_size);
     log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
     try self.file.pwriteAll(self.base.strtab.items, symtab.stroff);
+
+    if (symtab.strsize > self.base.strtab.items.len) {
+        // This is potentially the last section, so we need to pad it out.
+        try self.file.pwriteAll(&[_]u8{0}, seg.inner.fileoff + seg.inner.filesize - 1);
+    }
     self.load_commands_dirty = true;
-    self.strtab_dirty = false;
 }
 
 pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const Module.Decl) !void {
@@ -846,14 +853,21 @@ pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const M
     const tracy = trace(@src());
     defer tracy.end();
 
+    log.debug("updateDeclLineNumber {s}{*}", .{ decl.name, decl });
+
     const func = decl.val.castTag(.function).?.data;
-    const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
+    log.debug("  (decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d})", .{
+        decl.src_line,
+        func.lbrace_line,
+        func.rbrace_line,
+    });
+    const line = @intCast(u28, decl.src_line + func.lbrace_line);
 
     const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].segment;
     const shdr = &dwarf_segment.sections.items[self.debug_line_section_index.?];
     const file_pos = shdr.offset + decl.fn_link.macho.off + getRelocDbgLineOff();
     var data: [4]u8 = undefined;
-    leb.writeUnsignedFixed(4, &data, line_off);
+    leb.writeUnsignedFixed(4, &data, line);
     try self.file.pwriteAll(&data, file_pos);
 }
 
@@ -886,7 +900,13 @@ pub fn initDeclDebugBuffers(
             try dbg_line_buffer.ensureTotalCapacity(26);
 
             const func = decl.val.castTag(.function).?.data;
-            const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
+            log.debug("updateFunc {s}{*}", .{ decl.name, func.owner_decl });
+            log.debug("  (decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d})", .{
+                decl.src_line,
+                func.lbrace_line,
+                func.rbrace_line,
+            });
+            const line = @intCast(u28, decl.src_line + func.lbrace_line);
 
             dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
                 DW.LNS.extended_op,
@@ -902,7 +922,7 @@ pub fn initDeclDebugBuffers(
             // to this function's begin curly.
             assert(getRelocDbgLineOff() == dbg_line_buffer.items.len);
             // Here we use a ULEB128-fixed-4 to make sure this field can be overwritten later.
-            leb.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line_off);
+            leb.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line);
 
             dbg_line_buffer.appendAssumeCapacity(DW.LNS.set_file);
             assert(getRelocDbgFileIndex() == dbg_line_buffer.items.len);
@@ -917,7 +937,7 @@ pub fn initDeclDebugBuffers(
 
             // .debug_info subprogram
             const decl_name_with_null = decl.name[0 .. mem.sliceTo(decl.name, 0).len + 1];
-            try dbg_info_buffer.ensureUnusedCapacity(27 + decl_name_with_null.len);
+            try dbg_info_buffer.ensureUnusedCapacity(25 + decl_name_with_null.len);
 
             const fn_ret_type = decl.ty.fnReturnType();
             const fn_ret_has_bits = fn_ret_type.hasRuntimeBits();
@@ -945,8 +965,6 @@ pub fn initDeclDebugBuffers(
                 dbg_info_buffer.items.len += 4; // DW.AT.type,  DW.FORM.ref4
             }
             dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT.name, DW.FORM.string
-            mem.writeIntLittle(u32, dbg_info_buffer.addManyAsArrayAssumeCapacity(4), line_off + 1); // DW.AT.decl_line, DW.FORM.data4
-            dbg_info_buffer.appendAssumeCapacity(file_index); // DW.AT.decl_file, DW.FORM.data1
         },
         else => {
             // TODO implement .debug_info for global variables
@@ -966,7 +984,6 @@ pub fn commitDeclDebugInfo(
     module: *Module,
     decl: *Module.Decl,
     debug_buffers: *DeclDebugBuffers,
-    target: std.Target,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1097,14 +1114,26 @@ pub fn commitDeclDebugInfo(
     if (dbg_info_buffer.items.len == 0)
         return;
 
+    // We need this for the duration of this function only so that for composite
+    // types such as []const u32, if the type *u32 is non-existent, we create
+    // it synthetically and store the backing bytes in this arena. After we are
+    // done with the relocations, we can safely deinit the entire memory slab.
+    // TODO currently, we do not store the relocations for future use, however,
+    // if that is the case, we should move memory management to a higher scope,
+    // such as linker scope, or whatnot.
+    var dbg_type_arena = std.heap.ArenaAllocator.init(allocator);
+    defer dbg_type_arena.deinit();
+
     {
         // Now we emit the .debug_info types of the Decl. These will count towards the size of
         // the buffer, so we have to do it before computing the offset, and we can't perform the actual
         // relocations yet.
-        var it = dbg_info_type_relocs.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
-            try self.addDbgInfoType(entry.key_ptr.*, dbg_info_buffer, target);
+        var it: usize = 0;
+        while (it < dbg_info_type_relocs.count()) : (it += 1) {
+            const ty = dbg_info_type_relocs.keys()[it];
+            const value_ptr = dbg_info_type_relocs.getPtr(ty).?;
+            value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
+            try self.addDbgInfoType(dbg_type_arena.allocator(), ty, dbg_info_buffer, dbg_info_type_relocs);
         }
     }
 
@@ -1129,24 +1158,25 @@ pub fn commitDeclDebugInfo(
 /// Asserts the type has codegen bits.
 fn addDbgInfoType(
     self: *DebugSymbols,
+    arena: Allocator,
     ty: Type,
     dbg_info_buffer: *std.ArrayList(u8),
-    target: std.Target,
+    dbg_info_type_relocs: *link.File.DbgInfoTypeRelocsTable,
 ) !void {
-    _ = self;
+    const target = self.base.base.options.target;
+    var relocs = std.ArrayList(struct { ty: Type, reloc: u32 }).init(arena);
+
     switch (ty.zigTypeTag()) {
-        .Void => unreachable,
         .NoReturn => unreachable,
+        .Void => {
+            try dbg_info_buffer.append(abbrev_pad1);
+        },
         .Bool => {
             try dbg_info_buffer.appendSlice(&[_]u8{
                 abbrev_base_type,
                 DW.ATE.boolean, // DW.AT.encoding ,  DW.FORM.data1
                 1, // DW.AT.byte_size,  DW.FORM.data1
-                'b',
-                'o',
-                'o',
-                'l',
-                0, // DW.AT.name,  DW.FORM.string
+                'b', 'o', 'o', 'l', 0, // DW.AT.name,  DW.FORM.string
             });
         },
         .Int => {
@@ -1163,10 +1193,119 @@ fn addDbgInfoType(
             // DW.AT.name,  DW.FORM.string
             try dbg_info_buffer.writer().print("{}\x00", .{ty});
         },
+        .Optional => {
+            if (ty.isPtrLikeOptional()) {
+                try dbg_info_buffer.ensureUnusedCapacity(12);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
+                // DW.AT.encoding, DW.FORM.data1
+                dbg_info_buffer.appendAssumeCapacity(DW.ATE.address);
+                // DW.AT.byte_size,  DW.FORM.data1
+                dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(target)));
+                // DW.AT.name,  DW.FORM.string
+                try dbg_info_buffer.writer().print("{}\x00", .{ty});
+            } else {
+                log.debug("TODO implement .debug_info for type '{}'", .{ty});
+                try dbg_info_buffer.append(abbrev_pad1);
+            }
+        },
+        .Pointer => {
+            if (ty.isSlice()) {
+                // Slices are anonymous structs: struct { .ptr = *, .len = N }
+                try dbg_info_buffer.ensureUnusedCapacity(23);
+                // DW.AT.structure_type
+                dbg_info_buffer.appendAssumeCapacity(abbrev_anon_struct_type);
+                // DW.AT.byte_size, DW.FORM.sdata
+                dbg_info_buffer.appendAssumeCapacity(16);
+                // DW.AT.member
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("ptr");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                var index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                var buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
+                const ptr_ty = ty.slicePtrFieldType(buf);
+                try relocs.append(.{ .ty = ptr_ty, .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.member
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("len");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = Type.initTag(.usize), .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                dbg_info_buffer.appendAssumeCapacity(8);
+                // DW.AT.structure_type delimit children
+                dbg_info_buffer.appendAssumeCapacity(0);
+            } else {
+                try dbg_info_buffer.ensureUnusedCapacity(5);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_ptr_type);
+                // DW.AT.type, DW.FORM.ref4
+                const index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = ty.childType(), .reloc = @intCast(u32, index) });
+            }
+        },
+        .Struct => blk: {
+            // try dbg_info_buffer.ensureUnusedCapacity(23);
+            // DW.AT.structure_type
+            try dbg_info_buffer.append(abbrev_struct_type);
+            // DW.AT.byte_size, DW.FORM.sdata
+            const abi_size = ty.abiSize(target);
+            try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+            // DW.AT.name, DW.FORM.string
+            const struct_name = try ty.nameAlloc(arena);
+            try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
+            dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
+            dbg_info_buffer.appendAssumeCapacity(0);
+
+            const struct_obj = ty.castTag(.@"struct").?.data;
+            if (struct_obj.layout == .Packed) {
+                log.debug("TODO implement .debug_info for packed structs", .{});
+                break :blk;
+            }
+
+            const fields = ty.structFields();
+            for (fields.keys()) |field_name, field_index| {
+                const field = fields.get(field_name).?;
+                // DW.AT.member
+                try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity(field_name);
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                var index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = field.ty, .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                const field_off = ty.structFieldOffset(field_index, target);
+                try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+            }
+
+            // DW.AT.structure_type delimit children
+            try dbg_info_buffer.append(0);
+        },
         else => {
-            std.log.scoped(.compiler).err("TODO implement .debug_info for type '{}'", .{ty});
+            log.debug("TODO implement .debug_info for type '{}'", .{ty});
             try dbg_info_buffer.append(abbrev_pad1);
         },
+    }
+
+    for (relocs.items) |rel| {
+        const gop = try dbg_info_type_relocs.getOrPut(self.base.base.allocator, rel.ty);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{
+                .off = undefined,
+                .relocs = .{},
+            };
+        }
+        try gop.value_ptr.relocs.append(self.base.base.allocator, rel.reloc);
     }
 }
 
