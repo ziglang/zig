@@ -6765,8 +6765,71 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const target = sema.mod.getTarget();
 
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    switch (dest_ty.zigTypeTag()) {
+        .Type,
+        .Void,
+        .NoReturn,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Undefined,
+        .Null,
+        .Optional,
+        .ErrorUnion,
+        .ErrorSet,
+        .Opaque,
+        .Frame,
+        .AnyFrame,
+        .EnumLiteral,
+        .Union,
+        .Fn,
+        => return sema.fail(block, dest_ty_src, "invalid type '{}' for @bitCast", .{dest_ty.fmt(target)}),
+
+        .Pointer => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, dest_ty_src, "cannot @bitCast to pointer type '{}'", .{dest_ty.fmt(target)});
+                errdefer msg.destroy(sema.gpa);
+
+                const pointee_ty = dest_ty.ptrInfo().data.pointee_type;
+                try sema.errNote(block, dest_ty_src, msg, "to cast to a pointer type, use @ptrCast({}, ...)", .{dest_ty.fmt(target)});
+                try sema.errNote(block, dest_ty_src, msg, "to cast to a non-pointer type, use @bitCast({}, ...)", .{pointee_ty.fmt(target)});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
+        .Struct => {
+            if (dest_ty.containerLayout() == .Auto) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(
+                        block,
+                        dest_ty_src,
+                        "cannot @bitCast to '{}', struct does not have a specified layout",
+                        .{dest_ty.fmt(target)},
+                    );
+                    errdefer msg.destroy(sema.gpa);
+
+                    const ty_decl_src = dest_ty.declSrcLoc();
+                    try sema.mod.errNoteNonLazy(
+                        ty_decl_src,
+                        msg,
+                        "consider using 'packed struct' or 'extern struct' for a specified layout.",
+                        .{},
+                    );
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+        },
+        .BoundFn => @panic("TODO remove this type from the language and compiler"),
+        else => {},
+    }
+
+    // When bitcasting we compare the bit size of the types, so we need to
+    // fully resolve all composite types to finalize the layout.
+    try sema.resolveTypeFully(block, dest_ty_src, dest_ty);
+
     const operand = sema.resolveInst(extra.rhs);
     return sema.bitCast(block, dest_ty, operand, operand_src);
 }
@@ -18995,7 +19058,19 @@ fn bitCast(
     const old_ty = try sema.resolveTypeFields(block, inst_src, sema.typeOf(inst));
     try sema.resolveTypeLayout(block, inst_src, old_ty);
 
-    // TODO validate the type size and other compile errors
+    const target = sema.mod.getTarget();
+    var dest_bits = dest_ty.bitSize(target);
+    var old_bits = old_ty.bitSize(target);
+
+    if (old_bits != dest_bits) {
+        return sema.fail(block, inst_src, "@bitCast size mismatch: destination type '{}' has {d} bits but source type '{}' has {d} bits", .{
+            dest_ty.fmt(target),
+            dest_bits,
+            old_ty.fmt(target),
+            old_bits,
+        });
+    }
+
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
         const result_val = try sema.bitCastVal(block, inst_src, val, old_ty, dest_ty, 0);
         return sema.addConstant(dest_ty, result_val);
