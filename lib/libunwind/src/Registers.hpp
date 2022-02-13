@@ -34,6 +34,7 @@ enum {
   REGISTERS_MIPS_O32,
   REGISTERS_MIPS_NEWABI,
   REGISTERS_SPARC,
+  REGISTERS_SPARC64,
   REGISTERS_HEXAGON,
   REGISTERS_RISCV,
   REGISTERS_VE,
@@ -3545,6 +3546,192 @@ inline const char *Registers_sparc::getRegisterName(int regNum) {
   }
 }
 #endif // _LIBUNWIND_TARGET_SPARC
+
+
+#if defined(_LIBUNWIND_TARGET_SPARC64)
+/// Registers_sparc64 holds the register state of a thread in a 64-bit
+/// sparc process.
+class _LIBUNWIND_HIDDEN Registers_sparc64 {
+public:
+  Registers_sparc64() = default;
+  Registers_sparc64(const void *registers);
+
+  bool validRegister(int num) const;
+  uint64_t getRegister(int num) const;
+  void setRegister(int num, uint64_t value);
+  bool validFloatRegister(int num) const;
+  double getFloatRegister(int num) const;
+  void setFloatRegister(int num, double value);
+  bool validVectorRegister(int num) const;
+  v128 getVectorRegister(int num) const;
+  void setVectorRegister(int num, v128 value);
+  const char *getRegisterName(int num);
+  void jumpto();
+  static int lastDwarfRegNum() {
+    return _LIBUNWIND_HIGHEST_DWARF_REGISTER_SPARC64;
+  }
+  static int getArch() { return REGISTERS_SPARC64; }
+
+  uint64_t getSP() const { return _registers.__regs[UNW_SPARC_O6] + 2047; }
+  void setSP(uint64_t value) { _registers.__regs[UNW_SPARC_O6] = value - 2047; }
+  uint64_t getIP() const { return _registers.__regs[UNW_SPARC_O7]; }
+  void setIP(uint64_t value) { _registers.__regs[UNW_SPARC_O7] = value; }
+  uint64_t getWCookie() const { return _wcookie; }
+
+private:
+  struct sparc64_thread_state_t {
+    uint64_t __regs[32];
+  };
+
+  sparc64_thread_state_t _registers{};
+  uint64_t _wcookie = 0;
+};
+
+inline Registers_sparc64::Registers_sparc64(const void *registers) {
+  static_assert((check_fit<Registers_sparc64, unw_context_t>::does_fit),
+                "sparc64 registers do not fit into unw_context_t");
+  memcpy(&_registers, registers, sizeof(_registers));
+  memcpy(&_wcookie,
+         static_cast<const uint8_t *>(registers) + sizeof(_registers),
+         sizeof(_wcookie));
+}
+
+inline bool Registers_sparc64::validRegister(int regNum) const {
+  if (regNum == UNW_REG_IP)
+    return true;
+  if (regNum == UNW_REG_SP)
+    return true;
+  if (regNum < 0)
+    return false;
+  if (regNum <= UNW_SPARC_I7)
+    return true;
+  return false;
+}
+
+inline uint64_t Registers_sparc64::getRegister(int regNum) const {
+  if (regNum >= UNW_SPARC_G0 && regNum <= UNW_SPARC_I7)
+    return _registers.__regs[regNum];
+
+  switch (regNum) {
+  case UNW_REG_IP:
+    return _registers.__regs[UNW_SPARC_O7];
+  case UNW_REG_SP:
+    return _registers.__regs[UNW_SPARC_O6] + 2047;
+  }
+  _LIBUNWIND_ABORT("unsupported sparc64 register");
+}
+
+inline void Registers_sparc64::setRegister(int regNum, uint64_t value) {
+  if (regNum >= UNW_SPARC_G0 && regNum <= UNW_SPARC_I7) {
+    _registers.__regs[regNum] = value;
+    return;
+  }
+
+  switch (regNum) {
+  case UNW_REG_IP:
+    _registers.__regs[UNW_SPARC_O7] = value;
+    return;
+  case UNW_REG_SP:
+    _registers.__regs[UNW_SPARC_O6] = value - 2047;
+    return;
+  }
+  _LIBUNWIND_ABORT("unsupported sparc64 register");
+}
+
+inline bool Registers_sparc64::validFloatRegister(int) const { return false; }
+
+inline double Registers_sparc64::getFloatRegister(int) const {
+  _LIBUNWIND_ABORT("no sparc64 float registers");
+}
+
+inline void Registers_sparc64::setFloatRegister(int, double) {
+  _LIBUNWIND_ABORT("no sparc64 float registers");
+}
+
+inline bool Registers_sparc64::validVectorRegister(int) const { return false; }
+
+inline v128 Registers_sparc64::getVectorRegister(int) const {
+  _LIBUNWIND_ABORT("no sparc64 vector registers");
+}
+
+inline void Registers_sparc64::setVectorRegister(int, v128) {
+  _LIBUNWIND_ABORT("no sparc64 vector registers");
+}
+
+inline const char *Registers_sparc64::getRegisterName(int regNum) {
+  switch (regNum) {
+  case UNW_REG_IP:
+    return "pc";
+  case UNW_SPARC_G0:
+    return "g0";
+  case UNW_SPARC_G1:
+    return "g1";
+  case UNW_SPARC_G2:
+    return "g2";
+  case UNW_SPARC_G3:
+    return "g3";
+  case UNW_SPARC_G4:
+    return "g4";
+  case UNW_SPARC_G5:
+    return "g5";
+  case UNW_SPARC_G6:
+    return "g6";
+  case UNW_SPARC_G7:
+    return "g7";
+  case UNW_SPARC_O0:
+    return "o0";
+  case UNW_SPARC_O1:
+    return "o1";
+  case UNW_SPARC_O2:
+    return "o2";
+  case UNW_SPARC_O3:
+    return "o3";
+  case UNW_SPARC_O4:
+    return "o4";
+  case UNW_SPARC_O5:
+    return "o5";
+  case UNW_REG_SP:
+  case UNW_SPARC_O6:
+    return "o6";
+  case UNW_SPARC_O7:
+    return "o7";
+  case UNW_SPARC_L0:
+    return "l0";
+  case UNW_SPARC_L1:
+    return "l1";
+  case UNW_SPARC_L2:
+    return "l2";
+  case UNW_SPARC_L3:
+    return "l3";
+  case UNW_SPARC_L4:
+    return "l4";
+  case UNW_SPARC_L5:
+    return "l5";
+  case UNW_SPARC_L6:
+    return "l6";
+  case UNW_SPARC_L7:
+    return "l7";
+  case UNW_SPARC_I0:
+    return "i0";
+  case UNW_SPARC_I1:
+    return "i1";
+  case UNW_SPARC_I2:
+    return "i2";
+  case UNW_SPARC_I3:
+    return "i3";
+  case UNW_SPARC_I4:
+    return "i4";
+  case UNW_SPARC_I5:
+    return "i5";
+  case UNW_SPARC_I6:
+    return "i6";
+  case UNW_SPARC_I7:
+    return "i7";
+  default:
+    return "unknown register";
+  }
+}
+#endif // _LIBUNWIND_TARGET_SPARC64
 
 #if defined(_LIBUNWIND_TARGET_HEXAGON)
 /// Registers_hexagon holds the register state of a thread in a Hexagon QDSP6

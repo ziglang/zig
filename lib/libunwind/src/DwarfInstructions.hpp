@@ -67,13 +67,21 @@ private:
       return (pint_t)((sint_t)registers.getRegister((int)prolog.cfaRegister) +
              prolog.cfaRegisterOffset);
     if (prolog.cfaExpression != 0)
-      return evaluateExpression((pint_t)prolog.cfaExpression, addressSpace, 
+      return evaluateExpression((pint_t)prolog.cfaExpression, addressSpace,
                                 registers, 0);
     assert(0 && "getCFA(): unknown location");
     __builtin_unreachable();
   }
 };
 
+
+template <typename R>
+auto getSparcWCookie(const R &r, int) -> decltype(r.getWCookie()) {
+  return r.getWCookie();
+}
+template <typename R> uint64_t getSparcWCookie(const R &, long) {
+  return 0;
+}
 
 template <typename A, typename R>
 typename A::pint_t DwarfInstructions<A, R>::getSavedRegister(
@@ -82,6 +90,10 @@ typename A::pint_t DwarfInstructions<A, R>::getSavedRegister(
   switch (savedReg.location) {
   case CFI_Parser<A>::kRegisterInCFA:
     return (pint_t)addressSpace.getRegister(cfa + (pint_t)savedReg.value);
+
+  case CFI_Parser<A>::kRegisterInCFADecrypt: // sparc64 specific
+    return addressSpace.getP(cfa + (pint_t)savedReg.value) ^
+           getSparcWCookie(registers, 0);
 
   case CFI_Parser<A>::kRegisterAtExpression:
     return (pint_t)addressSpace.getRegister(evaluateExpression(
@@ -121,6 +133,7 @@ double DwarfInstructions<A, R>::getSavedFloatRegister(
   case CFI_Parser<A>::kRegisterUndefined:
   case CFI_Parser<A>::kRegisterOffsetFromCFA:
   case CFI_Parser<A>::kRegisterInRegister:
+  case CFI_Parser<A>::kRegisterInCFADecrypt:
     // FIX ME
     break;
   }
@@ -145,6 +158,7 @@ v128 DwarfInstructions<A, R>::getSavedVectorRegister(
   case CFI_Parser<A>::kRegisterUndefined:
   case CFI_Parser<A>::kRegisterOffsetFromCFA:
   case CFI_Parser<A>::kRegisterInRegister:
+  case CFI_Parser<A>::kRegisterInCFADecrypt:
     // FIX ME
     break;
   }
@@ -247,6 +261,12 @@ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
         if ((addressSpace.get32(returnAddress) & 0xC1C00000) == 0)
           returnAddress += 4;
       }
+#endif
+
+#if defined(_LIBUNWIND_TARGET_SPARC64)
+      // Skip call site instruction and delay slot
+      if (R::getArch() == REGISTERS_SPARC64)
+        returnAddress += 8;
 #endif
 
 #if defined(_LIBUNWIND_TARGET_PPC64)
