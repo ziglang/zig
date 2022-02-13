@@ -33,11 +33,12 @@ pub fn RegisterManager(
     assert(callee_preserved_regs.len > 0); // see note above
 
     return struct {
-        /// Tracks the AIR instruction allocated to every register or
-        /// `null` if no instruction is allocated to a register
+        /// Tracks the AIR instruction allocated to every register. If
+        /// no instruction is allocated to a register (i.e. the
+        /// register is free), the value in that slot is undefined.
         ///
         /// The key must be canonical register.
-        registers: [callee_preserved_regs.len]?Air.Inst.Index = [_]?Air.Inst.Index{null} ** callee_preserved_regs.len,
+        registers: [callee_preserved_regs.len]Air.Inst.Index = undefined,
         /// Tracks which registers are free (in which case the
         /// corresponding bit is set to 1)
         free_registers: FreeRegInt = math.maxInt(FreeRegInt),
@@ -201,14 +202,14 @@ pub fn RegisterManager(
                         if (self.isRegFree(reg)) {
                             self.markRegUsed(reg);
                         } else {
-                            const spilled_inst = self.registers[index].?;
+                            const spilled_inst = self.registers[index];
                             try self.getFunction().spillInstruction(reg, spilled_inst);
                         }
                         self.registers[index] = inst;
                     } else {
                         // Don't track the register
                         if (!self.isRegFree(reg)) {
-                            const spilled_inst = self.registers[index].?;
+                            const spilled_inst = self.registers[index];
                             try self.getFunction().spillInstruction(reg, spilled_inst);
                             self.freeReg(reg);
                         }
@@ -241,7 +242,7 @@ pub fn RegisterManager(
                 if (!self.isRegFree(reg)) {
                     // Move the instruction that was previously there to a
                     // stack allocation.
-                    const spilled_inst = self.registers[index].?;
+                    const spilled_inst = self.registers[index];
                     self.registers[index] = tracked_inst;
                     try self.getFunction().spillInstruction(reg, spilled_inst);
                 } else {
@@ -251,7 +252,7 @@ pub fn RegisterManager(
                 if (!self.isRegFree(reg)) {
                     // Move the instruction that was previously there to a
                     // stack allocation.
-                    const spilled_inst = self.registers[index].?;
+                    const spilled_inst = self.registers[index];
                     try self.getFunction().spillInstruction(reg, spilled_inst);
                     self.freeReg(reg);
                 }
@@ -265,7 +266,7 @@ pub fn RegisterManager(
             const index = reg.allocIndex() orelse return;
             self.markRegAllocated(reg);
 
-            assert(self.registers[index] == null);
+            assert(self.isRegFree(reg));
             self.registers[index] = inst;
             self.markRegUsed(reg);
         }
@@ -275,7 +276,7 @@ pub fn RegisterManager(
             const index = reg.allocIndex() orelse return;
             log.debug("freeing register {}", .{reg});
 
-            self.registers[index] = null;
+            self.registers[index] = undefined;
             self.markRegFree(reg);
         }
     };
