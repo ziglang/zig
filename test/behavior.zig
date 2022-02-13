@@ -153,7 +153,6 @@ test {
                     _ = @import("behavior/ir_block_deps.zig");
                     _ = @import("behavior/misc.zig");
                     _ = @import("behavior/muladd.zig");
-                    _ = @import("behavior/popcount_stage1.zig");
                     _ = @import("behavior/reflection.zig");
                     _ = @import("behavior/select.zig");
                     _ = @import("behavior/shuffle.zig");

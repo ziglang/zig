@@ -720,7 +720,6 @@ fn analyzeBodyInner(
             .align_cast                   => try sema.zirAlignCast(block, inst),
             .has_decl                     => try sema.zirHasDecl(block, inst),
             .has_field                    => try sema.zirHasField(block, inst),
-            .pop_count                    => try sema.zirPopCount(block, inst),
             .byte_swap                    => try sema.zirByteSwap(block, inst),
             .bit_reverse                  => try sema.zirBitReverse(block, inst),
             .bit_offset_of                => try sema.zirBitOffsetOf(block, inst),
@@ -743,8 +742,9 @@ fn analyzeBodyInner(
             .await_nosuspend              => try sema.zirAwait(block, inst, true),
             .extended                     => try sema.zirExtended(block, inst),
 
-            .clz => try sema.zirClzCtz(block, inst, .clz, Value.clz),
-            .ctz => try sema.zirClzCtz(block, inst, .ctz, Value.ctz),
+            .clz       => try sema.zirBitCount(block, inst, .clz,      Value.clz),
+            .ctz       => try sema.zirBitCount(block, inst, .ctz,      Value.ctz),
+            .pop_count => try sema.zirBitCount(block, inst, .popcount, Value.popCount),
 
             .sqrt  => try sema.zirUnaryMath(block, inst, .sqrt, Value.sqrt),
             .sin   => try sema.zirUnaryMath(block, inst, .sin, Value.sin),
@@ -11487,7 +11487,7 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     return sema.coerceCompatiblePtrs(block, dest_ty, ptr, ptr_src);
 }
 
-fn zirClzCtz(
+fn zirBitCount(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
@@ -11548,34 +11548,6 @@ fn zirClzCtz(
         },
         else => unreachable,
     }
-}
-
-fn zirPopCount(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const operand = sema.resolveInst(inst_data.operand);
-    const operand_ty = sema.typeOf(operand);
-    // TODO implement support for vectors
-    if (operand_ty.zigTypeTag() != .Int) {
-        return sema.fail(block, ty_src, "expected integer type, found '{}'", .{
-            operand_ty,
-        });
-    }
-    const target = sema.mod.getTarget();
-    const bits = operand_ty.intInfo(target).bits;
-    if (bits == 0) return Air.Inst.Ref.zero;
-
-    const result_ty = try Type.smallestUnsignedInt(sema.arena, bits);
-
-    const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
-        if (val.isUndef()) return sema.addConstUndef(result_ty);
-        const result_val = try val.popCount(operand_ty, target, sema.arena);
-        return sema.addConstant(result_ty, result_val);
-    } else operand_src;
-
-    try sema.requireRuntimeBlock(block, runtime_src);
-    return block.addTyOp(.popcount, result_ty, operand);
 }
 
 fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

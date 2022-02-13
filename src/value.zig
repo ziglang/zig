@@ -1303,6 +1303,33 @@ pub const Value = extern union {
         }
     }
 
+    pub fn popCount(val: Value, ty: Type, target: Target) u64 {
+        assert(!val.isUndef());
+        switch (val.tag()) {
+            .zero, .bool_false => return 0,
+            .one, .bool_true => return 1,
+
+            .int_u64 => return @popCount(u64, val.castTag(.int_u64).?.data),
+
+            else => {
+                const info = ty.intInfo(target);
+
+                var buffer: Value.BigIntSpace = undefined;
+                const operand_bigint = val.toBigInt(&buffer);
+
+                var limbs_buffer: [4]std.math.big.Limb = undefined;
+                var result_bigint = BigIntMutable{
+                    .limbs = &limbs_buffer,
+                    .positive = undefined,
+                    .len = undefined,
+                };
+                result_bigint.popCount(operand_bigint, info.bits);
+
+                return result_bigint.toConst().to(u64) catch unreachable;
+            },
+        }
+    }
+
     /// Asserts the value is an integer and not undefined.
     /// Returns the number of bits the value requires to represent stored in twos complement form.
     pub fn intBitCountTwosComp(self: Value, target: Target) usize {
@@ -1338,24 +1365,6 @@ pub const Value = extern union {
                 return self.toBigInt(&buffer).bitCountTwosComp();
             },
         }
-    }
-
-    pub fn popCount(val: Value, ty: Type, target: Target, arena: Allocator) !Value {
-        assert(!val.isUndef());
-
-        const info = ty.intInfo(target);
-
-        var buffer: Value.BigIntSpace = undefined;
-        const operand_bigint = val.toBigInt(&buffer);
-
-        const limbs = try arena.alloc(
-            std.math.big.Limb,
-            std.math.big.int.calcTwosCompLimbCount(info.bits),
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        result_bigint.popCount(operand_bigint, info.bits);
-
-        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.
