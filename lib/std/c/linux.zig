@@ -30,6 +30,7 @@ pub const MAP = struct {
     /// Only used by libc to communicate failure.
     pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
 };
+pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
 pub const MSG = linux.MSG;
 pub const NAME_MAX = linux.NAME_MAX;

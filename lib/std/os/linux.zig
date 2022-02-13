@@ -406,6 +406,16 @@ pub fn mprotect(address: [*]const u8, length: usize, protection: usize) usize {
     return syscall3(.mprotect, @ptrToInt(address), length, protection);
 }
 
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
+};
+
+pub fn msync(address: [*]const u8, length: usize, flags: i32) usize {
+    return syscall3(.msync, @ptrToInt(address), length, @bitCast(u32, flags));
+}
+
 pub fn munmap(address: [*]const u8, length: usize) usize {
     return syscall2(.munmap, @ptrToInt(address), length);
 }

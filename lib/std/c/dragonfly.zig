@@ -185,6 +185,12 @@ pub const MAP = struct {
     pub const SIZEALIGN = 262144;
 };
 
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
+};
+
 pub const W = struct {
     pub const NOHANG = 0x0001;
     pub const UNTRACED = 0x0002;

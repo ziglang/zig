@@ -1495,6 +1495,19 @@ pub fn VirtualFree(lpAddress: ?LPVOID, dwSize: usize, dwFreeType: DWORD) void {
     assert(kernel32.VirtualFree(lpAddress, dwSize, dwFreeType) != 0);
 }
 
+pub const VirtualQuerryError = error{Unexpected};
+
+pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQuerryError!SIZE_T {
+    const rc = kernel32.VirtualQuery(lpAddress, lpBuffer, dwLength);
+    if (rc == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+
+    return rc;
+}
+
 pub const SetConsoleTextAttributeError = error{Unexpected};
 
 pub fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) SetConsoleTextAttributeError!void {
@@ -2586,6 +2599,11 @@ pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
 pub const EVENT_ALL_ACCESS = 0x1F0003;
 pub const EVENT_MODIFY_STATE = 0x0002;
 
+// MEMORY_BASIC_INFORMATION.Type flags for VirtualQuery
+pub const MEM_IMAGE = 0x1000000;
+pub const MEM_MAPPED = 0x40000;
+pub const MEM_PRIVATE = 0x20000;
+
 pub const PROCESS_INFORMATION = extern struct {
     hProcess: HANDLE,
     hThread: HANDLE,
@@ -2661,6 +2679,7 @@ pub const HEAP_NO_SERIALIZE = 0x00000001;
 // AllocationType values
 pub const MEM_COMMIT = 0x1000;
 pub const MEM_RESERVE = 0x2000;
+pub const MEM_FREE = 0x10000;
 pub const MEM_RESET = 0x80000;
 pub const MEM_RESET_UNDO = 0x1000000;
 pub const MEM_LARGE_PAGES = 0x20000000;
@@ -2959,6 +2978,19 @@ pub const COINIT = enum(c_int) {
     COINIT_DISABLE_OLE1DDE = 4,
     COINIT_SPEED_OVER_MEMORY = 8,
 };
+
+pub const MEMORY_BASIC_INFORMATION = extern struct {
+    BaseAddress: PVOID,
+    AllocationBase: PVOID,
+    AllocationProtect: DWORD,
+    PartitionId: WORD,
+    RegionSize: SIZE_T,
+    State: DWORD,
+    Protect: DWORD,
+    Type: DWORD,
+};
+
+pub const PMEMORY_BASIC_INFORMATION = *MEMORY_BASIC_INFORMATION;
 
 /// > The maximum path of 32,767 characters is approximate, because the "\\?\"
 /// > prefix may be expanded to a longer string by the system at run time, and

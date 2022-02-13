@@ -424,6 +424,52 @@ pub const StackIterator = struct {
         return address;
     }
 
+    fn isValidMemory(address: usize) bool {
+        const aligned_address = address & ~@intCast(usize, (mem.page_size - 1));
+
+        // If the address does not span 2 pages, query only the first one
+        const length: usize = if (aligned_address == address) mem.page_size else 2 * mem.page_size;
+
+        const aligned_memory = @intToPtr([*]align(mem.page_size) u8, aligned_address)[0..length];
+
+        if (native_os != .windows) {
+            if (native_os != .wasi) {
+                os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
+                    switch (err) {
+                        os.MSyncError.UnmappedMemory => {
+                            return false;
+                        },
+                        else => unreachable,
+                    }
+                };
+            }
+
+            return true;
+        } else {
+            const w = os.windows;
+            var memory_info: w.MEMORY_BASIC_INFORMATION = undefined;
+            //const memory_info_ptr = @ptrCast(w.PMEMORY_BASIC_INFORMATION, buffer);
+
+            // The only error this function can throw is ERROR_INVALID_PARAMETER.
+            // supply an address that invalid i'll be thrown.
+            const rc = w.VirtualQuery(aligned_memory.ptr, &memory_info, aligned_memory.len) catch {
+                return false;
+            };
+
+            // Result code has to be bigger than zero (number of bytes written)
+            if (rc == 0) {
+                return false;
+            }
+
+            // Free pages cannot be read, they are unmapped
+            if (memory_info.State == w.MEM_FREE) {
+                return false;
+            }
+
+            return true;
+        }
+    }
+
     fn next_internal(self: *StackIterator) ?usize {
         const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
@@ -432,7 +478,7 @@ pub const StackIterator = struct {
             math.sub(usize, self.fp, fp_offset) catch return null;
 
         // Sanity check.
-        if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)))
+        if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)) or !isValidMemory(fp))
             return null;
 
         const new_fp = math.add(usize, @intToPtr(*const usize, fp).*, fp_bias) catch return null;
