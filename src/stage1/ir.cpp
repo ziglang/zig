@@ -3338,6 +3338,32 @@ static void float_div_floor(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
     }
 }
 
+// c = a - b * trunc(a / b)
+static float16_t zig_f16_rem(float16_t a, float16_t b) {
+    float16_t c;
+    c = f16_div(a, b);
+    c = f16_roundToInt(c, softfloat_round_minMag, false);
+    c = f16_mul(b, c);
+    c = f16_sub(a, c);
+    return c;
+}
+
+// c = a - b * trunc(a / b)
+static void zig_f128M_rem(const float128_t* a, const float128_t* b, float128_t* c) {
+    f128M_div(a, b, c);
+    f128M_roundToInt(c, softfloat_round_minMag, false, c);
+    f128M_mul(b, c, c);
+    f128M_sub(a, c, c);
+}
+
+// c = a - b * trunc(a / b)
+static void zig_extF80M_rem(const extFloat80_t* a, const extFloat80_t* b, extFloat80_t* c) {
+    extF80M_div(a, b, c);
+    extF80M_roundToInt(c, softfloat_round_minMag, false, c);
+    extF80M_mul(b, c, c);
+    extF80M_sub(a, c, c);
+}
+
 static void float_rem(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
     assert(op1->type == op2->type);
     out_val->type = op1->type;
@@ -3346,7 +3372,7 @@ static void float_rem(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
     } else if (op1->type->id == ZigTypeIdFloat) {
         switch (op1->type->data.floating.bit_count) {
             case 16:
-                out_val->data.x_f16 = f16_rem(op1->data.x_f16, op2->data.x_f16);
+                out_val->data.x_f16 = zig_f16_rem(op1->data.x_f16, op2->data.x_f16);
                 return;
             case 32:
                 out_val->data.x_f32 = fmodf(op1->data.x_f32, op2->data.x_f32);
@@ -3355,10 +3381,10 @@ static void float_rem(ZigValue *out_val, ZigValue *op1, ZigValue *op2) {
                 out_val->data.x_f64 = fmod(op1->data.x_f64, op2->data.x_f64);
                 return;
             case 80:
-                extF80M_rem(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
+                zig_extF80M_rem(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
                 return;
             case 128:
-                f128M_rem(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                zig_f128M_rem(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();

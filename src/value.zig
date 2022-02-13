@@ -1482,8 +1482,7 @@ pub const Value = extern union {
             .float_64 => @rem(self.castTag(.float_64).?.data, 1) != 0,
             //.float_80 => @rem(self.castTag(.float_80).?.data, 1) != 0,
             .float_80 => @panic("TODO implement __remx in compiler-rt"),
-            //.float_128 => @rem(self.castTag(.float_128).?.data, 1) != 0,
-            .float_128 => @panic("TODO implement fmodl in compiler-rt"),
+            .float_128 => @rem(self.castTag(.float_128).?.data, 1) != 0,
 
             else => unreachable,
         };
@@ -2888,9 +2887,6 @@ pub const Value = extern union {
                 return Value.Tag.float_80.create(arena, @rem(lhs_val, rhs_val));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt fmodl");
-                }
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @rem(lhs_val, rhs_val));
@@ -2925,9 +2921,6 @@ pub const Value = extern union {
                 return Value.Tag.float_80.create(arena, @mod(lhs_val, rhs_val));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt fmodl");
-                }
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @mod(lhs_val, rhs_val));

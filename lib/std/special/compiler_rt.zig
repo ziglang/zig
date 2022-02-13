@@ -759,6 +759,9 @@ comptime {
         @export(__unordtf2, .{ .name = "__unordkf2", .linkage = linkage });
     }
 
+    const fmodl = @import("compiler_rt/floatfmodl.zig").fmodl;
+    @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
+
     @export(floorf, .{ .name = "floorf", .linkage = linkage });
     @export(floor, .{ .name = "floor", .linkage = linkage });
     @export(floorl, .{ .name = "floorl", .linkage = linkage });

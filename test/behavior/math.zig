@@ -782,8 +782,6 @@ test "comptime float rem int" {
 }
 
 test "remainder division" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime try remdiv(f16);
     comptime try remdiv(f32);
     comptime try remdiv(f64);
@@ -796,6 +794,64 @@ test "remainder division" {
 fn remdiv(comptime T: type) !void {
     try expect(@as(T, 1) == @as(T, 1) % @as(T, 2));
     try expect(@as(T, 1) == @as(T, 7) % @as(T, 3));
+}
+
+test "float remainder division using @rem" {
+    comptime try frem(f16);
+    comptime try frem(f32);
+    comptime try frem(f64);
+    comptime try frem(f128);
+    try frem(f16);
+    try frem(f32);
+    try frem(f64);
+    try frem(f128);
+}
+
+fn frem(comptime T: type) !void {
+    const epsilon = switch (T) {
+        f16 => 1.0,
+        f32 => 0.001,
+        f64 => 0.00001,
+        f128 => 0.0000001,
+        else => unreachable,
+    };
+
+    try expect(std.math.fabs(@rem(@as(T, 6.9), @as(T, 4.0)) - @as(T, 2.9)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, -6.9), @as(T, 4.0)) - @as(T, -2.9)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, -5.0), @as(T, 3.0)) - @as(T, -2.0)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, 3.0), @as(T, 2.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, 1.0), @as(T, 2.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, 0.0), @as(T, 1.0)) - @as(T, 0.0)) < epsilon);
+    try expect(std.math.fabs(@rem(@as(T, -0.0), @as(T, 1.0)) - @as(T, -0.0)) < epsilon);
+}
+
+test "float modulo division using @mod" {
+    comptime try fmod(f16);
+    comptime try fmod(f32);
+    comptime try fmod(f64);
+    comptime try fmod(f128);
+    try fmod(f16);
+    try fmod(f32);
+    try fmod(f64);
+    try fmod(f128);
+}
+
+fn fmod(comptime T: type) !void {
+    const epsilon = switch (T) {
+        f16 => 1.0,
+        f32 => 0.001,
+        f64 => 0.00001,
+        f128 => 0.0000001,
+        else => unreachable,
+    };
+
+    try expect(std.math.fabs(@mod(@as(T, 6.9), @as(T, 4.0)) - @as(T, 2.9)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, -6.9), @as(T, 4.0)) - @as(T, 1.1)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, -5.0), @as(T, 3.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, 3.0), @as(T, 2.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, 1.0), @as(T, 2.0)) - @as(T, 1.0)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, 0.0), @as(T, 1.0)) - @as(T, 0.0)) < epsilon);
+    try expect(std.math.fabs(@mod(@as(T, -0.0), @as(T, 1.0)) - @as(T, -0.0)) < epsilon);
 }
 
 test "@sqrt" {
