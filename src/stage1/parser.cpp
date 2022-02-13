@@ -2306,7 +2306,7 @@ static Optional<PtrIndexPayload> ast_parse_ptr_index_payload(ParseContext *pc) {
     return Optional<PtrIndexPayload>::some(res);
 }
 
-// SwitchProng <- SwitchCase EQUALRARROW PtrPayload? AssignExpr
+// SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrPayload? AssignExpr
 static AstNode *ast_parse_switch_prong(ParseContext *pc) {
     AstNode *res = ast_parse_switch_case(pc);
     if (res == nullptr)
@@ -2331,9 +2331,11 @@ static AstNode *ast_parse_switch_prong(ParseContext *pc) {
 //     <- SwitchItem (COMMA SwitchItem)* COMMA?
 //      / KEYWORD_else
 static AstNode *ast_parse_switch_case(ParseContext *pc) {
+    bool is_inline = eat_token_if(pc, TokenIdKeywordInline) != 0;
     AstNode *first = ast_parse_switch_item(pc);
     if (first != nullptr) {
         AstNode *res = ast_create_node_copy_line_info(pc, NodeTypeSwitchProng, first);
+        res->data.switch_prong.is_inline = is_inline;
         res->data.switch_prong.items.append(first);
         res->data.switch_prong.any_items_are_range = first->type == NodeTypeSwitchRange;
 
@@ -2350,9 +2352,13 @@ static AstNode *ast_parse_switch_case(ParseContext *pc) {
     }
 
     TokenIndex else_token = eat_token_if(pc, TokenIdKeywordElse);
-    if (else_token != 0)
-        return ast_create_node(pc, NodeTypeSwitchProng, else_token);
+    if (else_token != 0) {
+        AstNode *res = ast_create_node(pc, NodeTypeSwitchProng, else_token);
+        res->data.switch_prong.is_inline = is_inline;
+        return res;
+    }
 
+    if (is_inline) pc->current_token -= 1;
     return nullptr;
 }
 

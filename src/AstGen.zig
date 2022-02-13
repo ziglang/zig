@@ -386,7 +386,9 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .simple_var_decl => unreachable,
         .aligned_var_decl => unreachable,
         .switch_case => unreachable,
+        .switch_case_inline => unreachable,
         .switch_case_one => unreachable,
+        .switch_case_inline_one => unreachable,
         .container_field_init => unreachable,
         .container_field_align => unreachable,
         .container_field => unreachable,
@@ -600,7 +602,9 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         .@"errdefer" => unreachable, // Handled in `blockExpr`.
 
         .switch_case => unreachable, // Handled in `switchExpr`.
+        .switch_case_inline => unreachable, // Handled in `switchExpr`.
         .switch_case_one => unreachable, // Handled in `switchExpr`.
+        .switch_case_inline_one => unreachable, // Handled in `switchExpr`.
         .switch_range => unreachable, // Handled in `switchExpr`.
 
         .asm_output => unreachable, // Handled in `asmExpr`.
@@ -6216,14 +6220,15 @@ fn switchExpr(
     var any_payload_is_ref = false;
     var scalar_cases_len: u32 = 0;
     var multi_cases_len: u32 = 0;
+    var inline_cases_len: u32 = 0;
     var special_prong: Zir.SpecialProng = .none;
     var special_node: Ast.Node.Index = 0;
     var else_src: ?Ast.TokenIndex = null;
     var underscore_src: ?Ast.TokenIndex = null;
     for (case_nodes) |case_node| {
         const case = switch (node_tags[case_node]) {
-            .switch_case_one => tree.switchCaseOne(case_node),
-            .switch_case => tree.switchCase(case_node),
+            .switch_case_one, .switch_case_inline_one => tree.switchCaseOne(case_node),
+            .switch_case, .switch_case_inline => tree.switchCase(case_node),
             else => unreachable,
         };
         if (case.payload_token) |payload_token| {
@@ -6317,6 +6322,9 @@ fn switchExpr(
             scalar_cases_len += 1;
         } else {
             multi_cases_len += 1;
+        }
+        if (case.inline_token != null) {
+            inline_cases_len += 1;
         }
     }
 
@@ -8436,7 +8444,9 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_
             .@"usingnamespace",
             .test_decl,
             .switch_case,
+            .switch_case_inline,
             .switch_case_one,
+            .switch_case_inline_one,
             .container_field_init,
             .container_field_align,
             .container_field,
@@ -8668,7 +8678,9 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .@"usingnamespace",
             .test_decl,
             .switch_case,
+            .switch_case_inline,
             .switch_case_one,
+            .switch_case_inline_one,
             .container_field_init,
             .container_field_align,
             .container_field,
@@ -8879,7 +8891,9 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .@"usingnamespace",
             .test_decl,
             .switch_case,
+            .switch_case_inline,
             .switch_case_one,
+            .switch_case_inline_one,
             .container_field_init,
             .container_field_align,
             .container_field,

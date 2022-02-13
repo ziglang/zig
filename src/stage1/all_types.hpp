@@ -1039,6 +1039,7 @@ struct AstNodeSwitchProng {
     AstNode *expr;
     bool var_is_ptr;
     bool any_items_are_range;
+    bool is_inline;
 };
 
 struct AstNodeSwitchRange {

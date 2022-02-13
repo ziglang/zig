@@ -685,8 +685,8 @@ fn renderExpression(gpa: Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index, 
             return renderToken(ais, tree, tree.lastToken(node), space); // rbrace
         },
 
-        .switch_case_one => return renderSwitchCase(gpa, ais, tree, tree.switchCaseOne(node), space),
-        .switch_case => return renderSwitchCase(gpa, ais, tree, tree.switchCase(node), space),
+        .switch_case_one, .switch_case_inline_one => return renderSwitchCase(gpa, ais, tree, tree.switchCaseOne(node), space),
+        .switch_case, .switch_case_inline => return renderSwitchCase(gpa, ais, tree, tree.switchCase(node), space),
 
         .while_simple => return renderWhile(gpa, ais, tree, tree.whileSimple(node), space),
         .while_cont => return renderWhile(gpa, ais, tree, tree.whileCont(node), space),
@@ -1508,6 +1508,11 @@ fn renderSwitchCase(
         if (switch_case.ast.values.len == 0) break :blk false;
         break :blk hasComment(tree, tree.firstToken(switch_case.ast.values[0]), switch_case.ast.arrow_token);
     };
+
+    // render inline keyword
+    if (switch_case.inline_token) |some| {
+        try renderToken(ais, tree, some, .space);
+    }
 
     // Render everything before the arrow
     if (switch_case.ast.values.len == 0) {
