@@ -1709,6 +1709,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .clz              => try airBuiltinCall(f, inst, "clz"),
             .ctz              => try airBuiltinCall(f, inst, "ctz"),
             .popcount         => try airBuiltinCall(f, inst, "popcount"),
+            .byte_swap        => try airBuiltinCall(f, inst, "byte_swap"),
+            .bit_reverse      => try airBuiltinCall(f, inst, "bit_reverse"),
             .tag_name         => try airTagName(f, inst),
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),

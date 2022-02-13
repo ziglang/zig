@@ -745,6 +745,132 @@ pub const Mutable = struct {
         rma.truncate(rma.toConst(), signedness, bit_count);
     }
 
+    /// r = @bitReverse(a) with 2s-complement semantics.
+    /// r and a may be aliases.
+    ///
+    /// Asserts the result fits in `r`. Upper bound on the number of limbs needed by
+    /// r is `calcTwosCompLimbCount(bit_count)`.
+    pub fn bitReverse(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
+        if (bit_count == 0) return;
+
+        r.copy(a);
+
+        const limbs_required = calcTwosCompLimbCount(bit_count);
+
+        if (!a.positive) {
+            r.positive = true; // Negate.
+            r.bitNotWrap(r.toConst(), .unsigned, bit_count); // Bitwise NOT.
+            r.addScalar(r.toConst(), 1); // Add one.
+        } else if (limbs_required > a.limbs.len) {
+            // Zero-extend to our output length
+            for (r.limbs[a.limbs.len..limbs_required]) |*limb| {
+                limb.* = 0;
+            }
+            r.len = limbs_required;
+        }
+
+        // 0b0..01..1000 with @log2(@sizeOf(Limb)) consecutive ones
+        const endian_mask: usize = (@sizeOf(Limb) - 1) << 3;
+
+        var bytes = std.mem.sliceAsBytes(r.limbs);
+        var bits = std.packed_int_array.PackedIntSliceEndian(u1, .Little).init(bytes, limbs_required * @bitSizeOf(Limb));
+
+        var k: usize = 0;
+        while (k < ((bit_count + 1) / 2)) : (k += 1) {
+            var i = k;
+            var rev_i = bit_count - i - 1;
+
+            // This "endian mask" remaps a low (LE) byte to the corresponding high
+            // (BE) byte in the Limb, without changing which limbs we are indexing
+            if (native_endian == .Big) {
+                i ^= endian_mask;
+                rev_i ^= endian_mask;
+            }
+
+            const bit_i = bits.get(i);
+            const bit_rev_i = bits.get(rev_i);
+            bits.set(i, bit_rev_i);
+            bits.set(rev_i, bit_i);
+        }
+
+        // Calculate signed-magnitude representation for output
+        if (signedness == .signed) {
+            const last_bit = switch (native_endian) {
+                .Little => bits.get(bit_count - 1),
+                .Big => bits.get((bit_count - 1) ^ endian_mask),
+            };
+            if (last_bit == 1) {
+                r.bitNotWrap(r.toConst(), .unsigned, bit_count); // Bitwise NOT.
+                r.addScalar(r.toConst(), 1); // Add one.
+                r.positive = false; // Negate.
+            }
+        }
+        r.normalize(r.len);
+    }
+
+    /// r = @byteSwap(a) with 2s-complement semantics.
+    /// r and a may be aliases.
+    ///
+    /// Asserts the result fits in `r`. Upper bound on the number of limbs needed by
+    /// r is `calcTwosCompLimbCount(8*byte_count)`.
+    pub fn byteSwap(r: *Mutable, a: Const, signedness: Signedness, byte_count: usize) void {
+        if (byte_count == 0) return;
+
+        r.copy(a);
+        const limbs_required = calcTwosCompLimbCount(8 * byte_count);
+
+        if (!a.positive) {
+            r.positive = true; // Negate.
+            r.bitNotWrap(r.toConst(), .unsigned, 8 * byte_count); // Bitwise NOT.
+            r.addScalar(r.toConst(), 1); // Add one.
+        } else if (limbs_required > a.limbs.len) {
+            // Zero-extend to our output length
+            for (r.limbs[a.limbs.len..limbs_required]) |*limb| {
+                limb.* = 0;
+            }
+            r.len = limbs_required;
+        }
+
+        // 0b0..01..1 with @log2(@sizeOf(Limb)) trailing ones
+        const endian_mask: usize = @sizeOf(Limb) - 1;
+
+        var bytes = std.mem.sliceAsBytes(r.limbs);
+        assert(bytes.len >= byte_count);
+
+        var k: usize = 0;
+        while (k < (byte_count + 1) / 2) : (k += 1) {
+            var i = k;
+            var rev_i = byte_count - k - 1;
+
+            // This "endian mask" remaps a low (LE) byte to the corresponding high
+            // (BE) byte in the Limb, without changing which limbs we are indexing
+            if (native_endian == .Big) {
+                i ^= endian_mask;
+                rev_i ^= endian_mask;
+            }
+
+            const byte_i = bytes[i];
+            const byte_rev_i = bytes[rev_i];
+            bytes[rev_i] = byte_i;
+            bytes[i] = byte_rev_i;
+        }
+
+        // Calculate signed-magnitude representation for output
+        if (signedness == .signed) {
+            const last_byte = switch (native_endian) {
+                .Little => bytes[byte_count - 1],
+                .Big => bytes[(byte_count - 1) ^ endian_mask],
+            };
+
+            if (last_byte & (1 << 7) != 0) { // Check sign bit of last byte
+                r.bitNotWrap(r.toConst(), .unsigned, 8 * byte_count); // Bitwise NOT.
+                r.addScalar(r.toConst(), 1); // Add one.
+                r.positive = false; // Negate.
+            }
+        }
+        r.normalize(r.len);
+    }
+
     /// r = @popCount(a) with 2s-complement semantics.
     /// r and a may be aliases.
     ///

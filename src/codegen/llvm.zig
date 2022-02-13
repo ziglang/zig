@@ -2205,7 +2205,9 @@ pub const FuncGen = struct {
                 .get_union_tag  => try self.airGetUnionTag(inst),
                 .clz            => try self.airClzCtz(inst, "llvm.ctlz"),
                 .ctz            => try self.airClzCtz(inst, "llvm.cttz"),
-                .popcount       => try self.airPopCount(inst),
+                .popcount       => try self.airBitOp(inst, "llvm.ctpop"),
+                .byte_swap      => try self.airByteSwap(inst, "llvm.bswap"),
+                .bit_reverse    => try self.airBitOp(inst, "llvm.bitreverse"),
                 .tag_name       => try self.airTagName(inst),
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
@@ -4348,7 +4350,7 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airPopCount(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airBitOp(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -4357,7 +4359,7 @@ pub const FuncGen = struct {
 
         const params = [_]*const llvm.Value{operand};
         const operand_llvm_ty = try self.dg.llvmType(operand_ty);
-        const fn_val = self.getIntrinsic("llvm.ctpop", &.{operand_llvm_ty});
+        const fn_val = self.getIntrinsic(llvm_fn_name, &.{operand_llvm_ty});
 
         const wrong_size_result = self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
         const result_ty = self.air.typeOfIndex(inst);
@@ -4365,6 +4367,44 @@ pub const FuncGen = struct {
 
         const target = self.dg.module.getTarget();
         const bits = operand_ty.intInfo(target).bits;
+        const result_bits = result_ty.intInfo(target).bits;
+        if (bits > result_bits) {
+            return self.builder.buildTrunc(wrong_size_result, result_llvm_ty, "");
+        } else if (bits < result_bits) {
+            return self.builder.buildZExt(wrong_size_result, result_llvm_ty, "");
+        } else {
+            return wrong_size_result;
+        }
+    }
+
+    fn airByteSwap(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.dg.module.getTarget();
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        var bits = operand_ty.intInfo(target).bits;
+        assert(bits % 8 == 0);
+
+        var operand = try self.resolveInst(ty_op.operand);
+        var operand_llvm_ty = try self.dg.llvmType(operand_ty);
+
+        if (bits % 16 == 8) {
+            // If not an even byte-multiple, we need zero-extend + shift-left 1 byte 
+            // The truncated result at the end will be the correct bswap
+            operand_llvm_ty = self.context.intType(bits + 8);
+            const extended = self.builder.buildZExt(operand, operand_llvm_ty, "");
+            operand = self.builder.buildShl(extended, operand_llvm_ty.constInt(8, .False), "");
+            bits = bits + 8;
+        }
+
+        const params = [_]*const llvm.Value{operand};
+        const fn_val = self.getIntrinsic(llvm_fn_name, &.{operand_llvm_ty});
+
+        const wrong_size_result = self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
+
+        const result_ty = self.air.typeOfIndex(inst);
+        const result_llvm_ty = try self.dg.llvmType(result_ty);
         const result_bits = result_ty.intInfo(target).bits;
         if (bits > result_bits) {
             return self.builder.buildTrunc(wrong_size_result, result_llvm_ty, "");

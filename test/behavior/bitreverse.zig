@@ -1,25 +1,32 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const minInt = std.math.minInt;
 
 test "@bitReverse" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     comptime try testBitReverse();
     try testBitReverse();
 }
 
 fn testBitReverse() !void {
     // using comptime_ints, unsigned
-    try expect(@bitReverse(u0, 0) == 0);
-    try expect(@bitReverse(u5, 0x12) == 0x9);
-    try expect(@bitReverse(u8, 0x12) == 0x48);
-    try expect(@bitReverse(u16, 0x1234) == 0x2c48);
-    try expect(@bitReverse(u24, 0x123456) == 0x6a2c48);
-    try expect(@bitReverse(u32, 0x12345678) == 0x1e6a2c48);
-    try expect(@bitReverse(u40, 0x123456789a) == 0x591e6a2c48);
-    try expect(@bitReverse(u48, 0x123456789abc) == 0x3d591e6a2c48);
-    try expect(@bitReverse(u56, 0x123456789abcde) == 0x7b3d591e6a2c48);
-    try expect(@bitReverse(u64, 0x123456789abcdef1) == 0x8f7b3d591e6a2c48);
-    try expect(@bitReverse(u128, 0x123456789abcdef11121314151617181) == 0x818e868a828c84888f7b3d591e6a2c48);
+    try expect(@bitReverse(u0, @as(u0, 0)) == 0);
+    try expect(@bitReverse(u5, @as(u5, 0x12)) == 0x9);
+    try expect(@bitReverse(u8, @as(u8, 0x12)) == 0x48);
+    try expect(@bitReverse(u16, @as(u16, 0x1234)) == 0x2c48);
+    try expect(@bitReverse(u24, @as(u24, 0x123456)) == 0x6a2c48);
+    try expect(@bitReverse(u32, @as(u32, 0x12345678)) == 0x1e6a2c48);
+    try expect(@bitReverse(u40, @as(u40, 0x123456789a)) == 0x591e6a2c48);
+    try expect(@bitReverse(u48, @as(u48, 0x123456789abc)) == 0x3d591e6a2c48);
+    try expect(@bitReverse(u56, @as(u56, 0x123456789abcde)) == 0x7b3d591e6a2c48);
+    try expect(@bitReverse(u64, @as(u64, 0x123456789abcdef1)) == 0x8f7b3d591e6a2c48);
+    try expect(@bitReverse(u95, @as(u95, 0x123456789abcdef111213141)) == 0x4146424447bd9eac8f351624);
+    try expect(@bitReverse(u96, @as(u96, 0x123456789abcdef111213141)) == 0x828c84888f7b3d591e6a2c48);
+    try expect(@bitReverse(u128, @as(u128, 0x123456789abcdef11121314151617181)) == 0x818e868a828c84888f7b3d591e6a2c48);
 
     // using runtime uints, unsigned
     var num0: u0 = 0;
@@ -50,11 +57,16 @@ fn testBitReverse() !void {
     try expect(@bitReverse(i8, @bitCast(i8, @as(u8, 0x92))) == @bitCast(i8, @as(u8, 0x49)));
     try expect(@bitReverse(i16, @bitCast(i16, @as(u16, 0x1234))) == @bitCast(i16, @as(u16, 0x2c48)));
     try expect(@bitReverse(i24, @bitCast(i24, @as(u24, 0x123456))) == @bitCast(i24, @as(u24, 0x6a2c48)));
+    try expect(@bitReverse(i24, @bitCast(i24, @as(u24, 0x12345f))) == @bitCast(i24, @as(u24, 0xfa2c48)));
+    try expect(@bitReverse(i24, @bitCast(i24, @as(u24, 0xf23456))) == @bitCast(i24, @as(u24, 0x6a2c4f)));
     try expect(@bitReverse(i32, @bitCast(i32, @as(u32, 0x12345678))) == @bitCast(i32, @as(u32, 0x1e6a2c48)));
+    try expect(@bitReverse(i32, @bitCast(i32, @as(u32, 0xf2345678))) == @bitCast(i32, @as(u32, 0x1e6a2c4f)));
+    try expect(@bitReverse(i32, @bitCast(i32, @as(u32, 0x1234567f))) == @bitCast(i32, @as(u32, 0xfe6a2c48)));
     try expect(@bitReverse(i40, @bitCast(i40, @as(u40, 0x123456789a))) == @bitCast(i40, @as(u40, 0x591e6a2c48)));
     try expect(@bitReverse(i48, @bitCast(i48, @as(u48, 0x123456789abc))) == @bitCast(i48, @as(u48, 0x3d591e6a2c48)));
     try expect(@bitReverse(i56, @bitCast(i56, @as(u56, 0x123456789abcde))) == @bitCast(i56, @as(u56, 0x7b3d591e6a2c48)));
     try expect(@bitReverse(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1))) == @bitCast(i64, @as(u64, 0x8f7b3d591e6a2c48)));
+    try expect(@bitReverse(i96, @bitCast(i96, @as(u96, 0x123456789abcdef111213141))) == @bitCast(i96, @as(u96, 0x828c84888f7b3d591e6a2c48)));
     try expect(@bitReverse(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181))) == @bitCast(i128, @as(u128, 0x818e868a828c84888f7b3d591e6a2c48)));
 
     // using signed, negative. Compare to runtime ints returned from llvm.

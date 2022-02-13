@@ -216,6 +216,8 @@ const Writer = struct {
             .clz,
             .ctz,
             .popcount,
+            .byte_swap,
+            .bit_reverse,
             => try w.writeTyOp(s, inst),
 
             .block,

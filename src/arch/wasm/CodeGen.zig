@@ -1687,6 +1687,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .clz,
         .ctz,
         .popcount,
+        .byte_swap,
+        .bit_reverse,
         .is_err_ptr,
         .is_non_err_ptr,
         .fptrunc,

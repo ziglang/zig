@@ -105,6 +105,8 @@ test {
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
                 _ = @import("behavior/atomics.zig");
+                _ = @import("behavior/bitreverse.zig");
+                _ = @import("behavior/byteswap.zig");
                 _ = @import("behavior/bugs/9584.zig");
                 _ = @import("behavior/eval.zig");
                 _ = @import("behavior/floatop.zig");
@@ -124,7 +126,6 @@ test {
                         _ = @import("behavior/async_fn.zig");
                     }
                     _ = @import("behavior/await_struct.zig");
-                    _ = @import("behavior/bitreverse.zig");
                     _ = @import("behavior/bugs/421.zig");
                     _ = @import("behavior/bugs/529.zig");
                     _ = @import("behavior/bugs/718.zig");
@@ -151,7 +152,6 @@ test {
                     _ = @import("behavior/bugs/7027.zig");
                     _ = @import("behavior/bugs/7047.zig");
                     _ = @import("behavior/bugs/10147.zig");
-                    _ = @import("behavior/byteswap.zig");
                     _ = @import("behavior/const_slice_child.zig");
                     _ = @import("behavior/export_self_referential_type_info.zig");
                     _ = @import("behavior/field_parent_ptr.zig");

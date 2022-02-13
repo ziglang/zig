@@ -236,6 +236,12 @@ pub const Inst = struct {
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
         popcount,
+        /// Reverse the bytes in an integer according to its representation in twos complement.
+        /// Uses the `ty_op` field.
+        byte_swap,
+        /// Reverse the bits in an integer according to its representation in twos complement.
+        /// Uses the `ty_op` field.
+        bit_reverse,
 
         /// Square root of a floating point number.
         /// Uses the `un_op` field.
@@ -874,6 +880,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .clz,
         .ctz,
         .popcount,
+        .byte_swap,
+        .bit_reverse,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,

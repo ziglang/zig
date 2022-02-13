@@ -7,6 +7,7 @@ const Limb = std.math.big.Limb;
 const SignedLimb = std.math.big.SignedLimb;
 const DoubleLimb = std.math.big.DoubleLimb;
 const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
+const calcTwosCompLimbCount = std.math.big.int.calcTwosCompLimbCount;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
@@ -2688,4 +2689,108 @@ test "big int conversion write twos complement zero" {
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
     m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
     try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+}
+
+fn bitReverseTest(comptime T: type, comptime input: comptime_int, comptime expected_output: comptime_int) !void {
+    const bit_count = @typeInfo(T).Int.bits;
+    const signedness = @typeInfo(T).Int.signedness;
+
+    var a = try Managed.initSet(testing.allocator, input);
+    defer a.deinit();
+
+    try a.ensureCapacity(calcTwosCompLimbCount(bit_count));
+    var m = a.toMutable();
+    m.bitReverse(a.toConst(), signedness, bit_count);
+    try testing.expect(m.toConst().orderAgainstScalar(expected_output) == .eq);
+}
+
+test "big int bit reverse" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    try bitReverseTest(u0, 0, 0);
+    try bitReverseTest(u5, 0x12, 0x09);
+    try bitReverseTest(u8, 0x12, 0x48);
+    try bitReverseTest(u16, 0x1234, 0x2c48);
+    try bitReverseTest(u24, 0x123456, 0x6a2c48);
+    try bitReverseTest(u32, 0x12345678, 0x1e6a2c48);
+    try bitReverseTest(u40, 0x123456789a, 0x591e6a2c48);
+    try bitReverseTest(u48, 0x123456789abc, 0x3d591e6a2c48);
+    try bitReverseTest(u56, 0x123456789abcde, 0x7b3d591e6a2c48);
+    try bitReverseTest(u64, 0x123456789abcdef1, 0x8f7b3d591e6a2c48);
+    try bitReverseTest(u95, 0x123456789abcdef111213141, 0x4146424447bd9eac8f351624);
+    try bitReverseTest(u96, 0x123456789abcdef111213141, 0x828c84888f7b3d591e6a2c48);
+    try bitReverseTest(u128, 0x123456789abcdef11121314151617181, 0x818e868a828c84888f7b3d591e6a2c48);
+
+    try bitReverseTest(i8, @bitCast(i8, @as(u8, 0x92)), @bitCast(i8, @as(u8, 0x49)));
+    try bitReverseTest(i16, @bitCast(i16, @as(u16, 0x1234)), @bitCast(i16, @as(u16, 0x2c48)));
+    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0x123456)), @bitCast(i24, @as(u24, 0x6a2c48)));
+    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0x12345f)), @bitCast(i24, @as(u24, 0xfa2c48)));
+    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0xf23456)), @bitCast(i24, @as(u24, 0x6a2c4f)));
+    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0x12345678)), @bitCast(i32, @as(u32, 0x1e6a2c48)));
+    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0xf2345678)), @bitCast(i32, @as(u32, 0x1e6a2c4f)));
+    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0x1234567f)), @bitCast(i32, @as(u32, 0xfe6a2c48)));
+    try bitReverseTest(i40, @bitCast(i40, @as(u40, 0x123456789a)), @bitCast(i40, @as(u40, 0x591e6a2c48)));
+    try bitReverseTest(i48, @bitCast(i48, @as(u48, 0x123456789abc)), @bitCast(i48, @as(u48, 0x3d591e6a2c48)));
+    try bitReverseTest(i56, @bitCast(i56, @as(u56, 0x123456789abcde)), @bitCast(i56, @as(u56, 0x7b3d591e6a2c48)));
+    try bitReverseTest(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1)), @bitCast(i64, @as(u64, 0x8f7b3d591e6a2c48)));
+    try bitReverseTest(i96, @bitCast(i96, @as(u96, 0x123456789abcdef111213141)), @bitCast(i96, @as(u96, 0x828c84888f7b3d591e6a2c48)));
+    try bitReverseTest(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181)), @bitCast(i128, @as(u128, 0x818e868a828c84888f7b3d591e6a2c48)));
+}
+
+fn byteSwapTest(comptime T: type, comptime input: comptime_int, comptime expected_output: comptime_int) !void {
+    const byte_count = @typeInfo(T).Int.bits / 8;
+    const signedness = @typeInfo(T).Int.signedness;
+
+    var a = try Managed.initSet(testing.allocator, input);
+    defer a.deinit();
+
+    try a.ensureCapacity(calcTwosCompLimbCount(8 * byte_count));
+    var m = a.toMutable();
+    m.byteSwap(a.toConst(), signedness, byte_count);
+    try testing.expect(m.toConst().orderAgainstScalar(expected_output) == .eq);
+}
+
+test "big int byte swap" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    @setEvalBranchQuota(10_000);
+
+    try byteSwapTest(u0, 0, 0);
+    try byteSwapTest(u8, 0x12, 0x12);
+    try byteSwapTest(u16, 0x1234, 0x3412);
+    try byteSwapTest(u24, 0x123456, 0x563412);
+    try byteSwapTest(u32, 0x12345678, 0x78563412);
+    try byteSwapTest(u40, 0x123456789a, 0x9a78563412);
+    try byteSwapTest(u48, 0x123456789abc, 0xbc9a78563412);
+    try byteSwapTest(u56, 0x123456789abcde, 0xdebc9a78563412);
+    try byteSwapTest(u64, 0x123456789abcdef1, 0xf1debc9a78563412);
+    try byteSwapTest(u88, 0x123456789abcdef1112131, 0x312111f1debc9a78563412);
+    try byteSwapTest(u96, 0x123456789abcdef111213141, 0x41312111f1debc9a78563412);
+    try byteSwapTest(u128, 0x123456789abcdef11121314151617181, 0x8171615141312111f1debc9a78563412);
+
+    try byteSwapTest(i8, -50, -50);
+    try byteSwapTest(i16, @bitCast(i16, @as(u16, 0x1234)), @bitCast(i16, @as(u16, 0x3412)));
+    try byteSwapTest(i24, @bitCast(i24, @as(u24, 0x123456)), @bitCast(i24, @as(u24, 0x563412)));
+    try byteSwapTest(i32, @bitCast(i32, @as(u32, 0x12345678)), @bitCast(i32, @as(u32, 0x78563412)));
+    try byteSwapTest(i40, @bitCast(i40, @as(u40, 0x123456789a)), @bitCast(i40, @as(u40, 0x9a78563412)));
+    try byteSwapTest(i48, @bitCast(i48, @as(u48, 0x123456789abc)), @bitCast(i48, @as(u48, 0xbc9a78563412)));
+    try byteSwapTest(i56, @bitCast(i56, @as(u56, 0x123456789abcde)), @bitCast(i56, @as(u56, 0xdebc9a78563412)));
+    try byteSwapTest(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1)), @bitCast(i64, @as(u64, 0xf1debc9a78563412)));
+    try byteSwapTest(i88, @bitCast(i88, @as(u88, 0x123456789abcdef1112131)), @bitCast(i88, @as(u88, 0x312111f1debc9a78563412)));
+    try byteSwapTest(i96, @bitCast(i96, @as(u96, 0x123456789abcdef111213141)), @bitCast(i96, @as(u96, 0x41312111f1debc9a78563412)));
+    try byteSwapTest(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181)), @bitCast(i128, @as(u128, 0x8171615141312111f1debc9a78563412)));
+
+    try byteSwapTest(u512, 0x80, 1 << 511);
+    try byteSwapTest(i512, 0x80, minInt(i512));
+    try byteSwapTest(i512, 0x40, 1 << 510);
+    try byteSwapTest(i512, -0x100, (1 << 504) - 1);
+    try byteSwapTest(i400, -0x100, (1 << 392) - 1);
+    try byteSwapTest(i400, -0x2, -(1 << 392) - 1);
+    try byteSwapTest(i24, @bitCast(i24, @as(u24, 0xf23456)), 0x5634f2);
+    try byteSwapTest(i24, 0x1234f6, @bitCast(i24, @as(u24, 0xf63412)));
+    try byteSwapTest(i32, @bitCast(i32, @as(u32, 0xf2345678)), 0x785634f2);
+    try byteSwapTest(i32, 0x123456f8, @bitCast(i32, @as(u32, 0xf8563412)));
+    try byteSwapTest(i48, 0x123456789abc, @bitCast(i48, @as(u48, 0xbc9a78563412)));
 }
