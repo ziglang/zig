@@ -1046,7 +1046,7 @@ pub const Value = extern union {
                 var bigint_buffer: BigIntSpace = undefined;
                 const bigint = val.toBigInt(&bigint_buffer);
                 const bits = ty.intInfo(target).bits;
-                const abi_size = ty.abiSize(target);
+                const abi_size = @intCast(usize, ty.abiSize(target));
                 bigint.writeTwosComplement(buffer, bits, abi_size, target.cpu.arch.endian());
             },
             .Enum => {
@@ -1055,7 +1055,7 @@ pub const Value = extern union {
                 var bigint_buffer: BigIntSpace = undefined;
                 const bigint = int_val.toBigInt(&bigint_buffer);
                 const bits = ty.intInfo(target).bits;
-                const abi_size = ty.abiSize(target);
+                const abi_size = @intCast(usize, ty.abiSize(target));
                 bigint.writeTwosComplement(buffer, bits, abi_size, target.cpu.arch.endian());
             },
             .Float => switch (ty.floatBits(target)) {
@@ -1098,7 +1098,7 @@ pub const Value = extern union {
                 const Limb = std.math.big.Limb;
                 const limb_count = (buffer.len + @sizeOf(Limb) - 1) / @sizeOf(Limb);
                 const limbs_buffer = try arena.alloc(Limb, limb_count);
-                const abi_size = ty.abiSize(target);
+                const abi_size = @intCast(usize, ty.abiSize(target));
                 var bigint = BigIntMutable.init(limbs_buffer, 0);
                 bigint.readTwosComplement(buffer, int_info.bits, abi_size, endian, int_info.signedness);
                 return fromBigInt(arena, bigint.toConst());
