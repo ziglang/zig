@@ -31,18 +31,23 @@ test {
     _ = @import("behavior/bugs/7250.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/comptime_memory.zig");
+    _ = @import("behavior/fn_delegation.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
+    _ = @import("behavior/ir_block_deps.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/prefetch.zig");
     _ = @import("behavior/pub_enum.zig");
+    _ = @import("behavior/reflection.zig");
     _ = @import("behavior/slice.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
-    _ = @import("behavior/type.zig");
-    _ = @import("behavior/truncate.zig");
     _ = @import("behavior/struct.zig");
+    _ = @import("behavior/truncate.zig");
+    _ = @import("behavior/tuple.zig");
+    _ = @import("behavior/type.zig");
+    _ = @import("behavior/var_args.zig");
 
     if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass (partly) for stage1, llvm backend, C backend, wasm backend.
@@ -145,21 +150,16 @@ test {
                     _ = @import("behavior/const_slice_child.zig");
                     _ = @import("behavior/export_self_referential_type_info.zig");
                     _ = @import("behavior/field_parent_ptr.zig");
-                    _ = @import("behavior/fn_delegation.zig");
-                    _ = @import("behavior/ir_block_deps.zig");
                     _ = @import("behavior/misc.zig");
                     _ = @import("behavior/muladd.zig");
-                    _ = @import("behavior/reflection.zig");
                     _ = @import("behavior/select.zig");
                     _ = @import("behavior/shuffle.zig");
                     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
                     _ = @import("behavior/struct_contains_slice_of_itself.zig");
                     _ = @import("behavior/switch_prong_err_enum.zig");
                     _ = @import("behavior/switch_prong_implicit_cast.zig");
-                    _ = @import("behavior/tuple.zig");
                     _ = @import("behavior/typename.zig");
                     _ = @import("behavior/union_with_members.zig");
-                    _ = @import("behavior/var_args.zig");
                     _ = @import("behavior/vector.zig");
                     if (builtin.target.cpu.arch == .wasm32) {
                         _ = @import("behavior/wasm.zig");
