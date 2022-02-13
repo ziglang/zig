@@ -586,7 +586,7 @@ const Parser = struct {
         const thread_local_token = p.eatToken(.keyword_threadlocal);
         const var_decl = try p.parseVarDecl();
         if (var_decl != 0) {
-            _ = try p.expectToken(.semicolon);
+            try p.expectSemicolon(.expected_semi_after_decl, false);
             return var_decl;
         }
         if (thread_local_token != null) {
@@ -614,7 +614,7 @@ const Parser = struct {
     fn expectUsingNamespace(p: *Parser) !Node.Index {
         const usingnamespace_token = p.assertToken(.keyword_usingnamespace);
         const expr = try p.expectExpr();
-        _ = try p.expectToken(.semicolon);
+        try p.expectSemicolon(.expected_semi_after_decl, false);
         return p.addNode(.{
             .tag = .@"usingnamespace",
             .main_token = usingnamespace_token,
@@ -851,7 +851,7 @@ const Parser = struct {
 
         const var_decl = try p.parseVarDecl();
         if (var_decl != 0) {
-            _ = try p.expectTokenRecoverable(.semicolon);
+            try p.expectSemicolon(.expected_semi_after_decl, true);
             return var_decl;
         }
 
@@ -915,7 +915,7 @@ const Parser = struct {
 
         const assign_expr = try p.parseAssignExpr();
         if (assign_expr != 0) {
-            _ = try p.expectTokenRecoverable(.semicolon);
+            try p.expectSemicolon(.expected_semi_after_stmt, true);
             return assign_expr;
         }
 
@@ -1205,7 +1205,7 @@ const Parser = struct {
         }
         const assign_expr = try p.parseAssignExpr();
         if (assign_expr != 0) {
-            _ = try p.expectTokenRecoverable(.semicolon);
+            try p.expectSemicolon(.expected_semi_after_stmt, true);
             return assign_expr;
         }
         return null_node;
@@ -3662,6 +3662,15 @@ const Parser = struct {
         } else {
             return p.nextToken();
         }
+    }
+
+    fn expectSemicolon(p: *Parser, tag: AstError.Tag, recoverable: bool) Error!void {
+        if (p.token_tags[p.tok_i] == .semicolon) {
+            _ = p.nextToken();
+            return;
+        }
+        try p.warnMsg(.{ .tag = tag, .token = p.tok_i - 1 });
+        if (!recoverable) return error.ParseError;
     }
 
     fn nextToken(p: *Parser) TokenIndex {

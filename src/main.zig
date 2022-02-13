@@ -4040,13 +4040,14 @@ fn printErrMsgToStdErr(
         notes_len += 1;
     }
 
+    const extra_offset = tree.errorOffset(parse_error.tag, parse_error.token);
     const message: Compilation.AllErrors.Message = .{
         .src = .{
             .src_path = path,
             .msg = text,
-            .byte_offset = @intCast(u32, start_loc.line_start),
+            .byte_offset = @intCast(u32, start_loc.line_start) + extra_offset,
             .line = @intCast(u32, start_loc.line),
-            .column = @intCast(u32, start_loc.column),
+            .column = @intCast(u32, start_loc.column) + extra_offset,
             .source_line = source_line,
             .notes = notes_buffer[0..notes_len],
         },

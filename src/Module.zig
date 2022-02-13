@@ -2995,13 +2995,14 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         const token_starts = file.tree.tokens.items(.start);
         const token_tags = file.tree.tokens.items(.tag);
 
+        const extra_offset = file.tree.errorOffset(parse_err.tag, parse_err.token);
         try file.tree.renderError(parse_err, msg.writer());
         const err_msg = try gpa.create(ErrorMsg);
         err_msg.* = .{
             .src_loc = .{
                 .file_scope = file,
                 .parent_decl_node = 0,
-                .lazy = .{ .byte_abs = token_starts[parse_err.token] },
+                .lazy = .{ .byte_abs = token_starts[parse_err.token] + extra_offset },
             },
             .msg = msg.toOwnedSlice(),
         };

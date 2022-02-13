@@ -64,6 +64,17 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void
     return @import("./render.zig").renderTree(buffer, tree);
 }
 
+/// Returns an extra offset for column and byte offset of errors that
+/// should point after the token in the error message.
+pub fn errorOffset(tree:Ast, error_tag: Error.Tag, token: TokenIndex) u32 {
+    return switch (error_tag) {
+        .expected_semi_after_decl,
+        .expected_semi_after_stmt,
+        => @intCast(u32, tree.tokenSlice(token).len),
+        else => 0,
+    };
+}
+
 pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenIndex) Location {
     var loc = Location{
         .line = 0,
@@ -304,6 +315,13 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .varargs_nonfinal => {
             return stream.writeAll("function prototype has parameter after varargs");
+        },
+
+        .expected_semi_after_decl => {
+            return stream.writeAll("expected ';' after declaration");
+        },
+        .expected_semi_after_stmt => {
+            return stream.writeAll("expected ';' after statement");
         },
 
         .expected_token => {
@@ -2494,6 +2512,10 @@ pub const Error = struct {
         same_line_doc_comment,
         unattached_doc_comment,
         varargs_nonfinal,
+
+        // these have `token` set to token after which a semicolon was expected
+        expected_semi_after_decl,
+        expected_semi_after_stmt,
 
         /// `expected_tag` is populated.
         expected_token,
