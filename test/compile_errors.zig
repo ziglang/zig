@@ -2171,7 +2171,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:7: error: expected ',', found 'align'",
+        "tmp.zig:3:6: error: expected ',' after field",
     });
 
     ctx.objErrStage1("bad alignment type",
@@ -4704,7 +4704,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:9: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - block expr",
@@ -4715,7 +4715,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:11: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - comptime statement",
@@ -4726,7 +4726,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:18: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - comptime expression",
@@ -4737,7 +4737,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:20: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - defer",
@@ -4748,7 +4748,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:15: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - if statement",
@@ -4759,7 +4759,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';' or 'else', found 'var'",
+        "tmp.zig:4:18: error: expected ';' or 'else' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - if expression",
@@ -4770,7 +4770,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:20: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - if-else statement",
@@ -4781,7 +4781,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:28: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - if-else expression",
@@ -4792,7 +4792,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:28: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - if-else-if statement",
@@ -4803,7 +4803,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';' or 'else', found 'var'",
+        "tmp.zig:4:37: error: expected ';' or 'else' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - if-else-if expression",
@@ -4814,7 +4814,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:37: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - if-else-if-else statement",
@@ -4825,7 +4825,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:47: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - if-else-if-else expression",
@@ -4836,7 +4836,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:45: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - test statement",
@@ -4847,7 +4847,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';' or 'else', found 'var'",
+        "tmp.zig:4:24: error: expected ';' or 'else' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - test expression",
@@ -4858,7 +4858,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:26: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - while statement",
@@ -4869,7 +4869,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';' or 'else', found 'var'",
+        "tmp.zig:4:21: error: expected ';' or 'else' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - while expression",
@@ -4880,7 +4880,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:23: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - while-continue statement",
@@ -4891,7 +4891,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';' or 'else', found 'var'",
+        "tmp.zig:4:26: error: expected ';' or 'else' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - while-continue expression",
@@ -4902,7 +4902,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:28: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - for statement",
@@ -4913,7 +4913,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';' or 'else', found 'var'",
+        "tmp.zig:4:24: error: expected ';' or 'else' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - for expression",
@@ -4924,7 +4924,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: expected ';', found 'var'",
+        "tmp.zig:4:26: error: expected ';' after statement",
     });
 
     ctx.objErrStage1("multiple function definitions",
