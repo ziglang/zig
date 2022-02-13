@@ -70,6 +70,13 @@ pub fn errorOffset(tree:Ast, error_tag: Error.Tag, token: TokenIndex) u32 {
     return switch (error_tag) {
         .expected_semi_after_decl,
         .expected_semi_after_stmt,
+        .expected_comma_after_field,
+        .expected_comma_after_arg,
+        .expected_comma_after_param,
+        .expected_comma_after_initializer,
+        .expected_comma_after_switch_prong,
+        .expected_semi_or_else,
+        .expected_semi_or_lbrace,
         => @intCast(u32, tree.tokenSlice(token).len),
         else => 0,
     };
@@ -227,14 +234,10 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             });
         },
         .expected_semi_or_else => {
-            return stream.print("expected ';' or 'else', found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
-            });
+            return stream.writeAll("expected ';' or 'else' after statement");
         },
         .expected_semi_or_lbrace => {
-            return stream.print("expected ';' or '{{', found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
-            });
+            return stream.writeAll("expected ';' or block after function prototype");
         },
         .expected_statement => {
             return stream.print("expected statement, found '{s}'", .{
@@ -322,6 +325,21 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_semi_after_stmt => {
             return stream.writeAll("expected ';' after statement");
+        },
+        .expected_comma_after_field => {
+            return stream.writeAll("expected ',' after field");
+        },
+        .expected_comma_after_arg => {
+            return stream.writeAll("expected ',' after argument");
+        },
+        .expected_comma_after_param => {
+            return stream.writeAll("expected ',' after parameter");
+        },
+        .expected_comma_after_initializer => {
+            return stream.writeAll("expected ',' after initializer");
+        },
+        .expected_comma_after_switch_prong => {
+            return stream.writeAll("expected ',' after switch prong");
         },
 
         .expected_token => {
@@ -2516,6 +2534,11 @@ pub const Error = struct {
         // these have `token` set to token after which a semicolon was expected
         expected_semi_after_decl,
         expected_semi_after_stmt,
+        expected_comma_after_field,
+        expected_comma_after_arg,
+        expected_comma_after_param,
+        expected_comma_after_initializer,
+        expected_comma_after_switch_prong,
 
         /// `expected_tag` is populated.
         expected_token,
