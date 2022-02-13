@@ -46,7 +46,6 @@ test {
 
     if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass (partly) for stage1, llvm backend, C backend, wasm backend.
-        _ = @import("behavior/array_llvm.zig");
         _ = @import("behavior/bitcast.zig");
         _ = @import("behavior/bugs/624.zig");
         _ = @import("behavior/bugs/704.zig");
@@ -61,7 +60,6 @@ test {
         _ = @import("behavior/bugs/4954.zig");
         _ = @import("behavior/byval_arg_var.zig");
         _ = @import("behavior/call.zig");
-        _ = @import("behavior/cast_llvm.zig");
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/enum.zig");
         _ = @import("behavior/error.zig");
@@ -98,7 +96,6 @@ test {
                 // Tests that pass for stage1 and the llvm backend.
                 _ = @import("behavior/atomics.zig");
                 _ = @import("behavior/bugs/9584.zig");
-                _ = @import("behavior/error_llvm.zig");
                 _ = @import("behavior/eval.zig");
                 _ = @import("behavior/floatop.zig");
                 _ = @import("behavior/math.zig");
@@ -107,7 +104,6 @@ test {
                 _ = @import("behavior/popcount.zig");
                 _ = @import("behavior/saturating_arithmetic.zig");
                 _ = @import("behavior/sizeof_and_typeof.zig");
-                _ = @import("behavior/struct_llvm.zig");
                 _ = @import("behavior/switch.zig");
                 _ = @import("behavior/widening.zig");
 
@@ -156,14 +152,11 @@ test {
                     _ = @import("behavior/reflection.zig");
                     _ = @import("behavior/select.zig");
                     _ = @import("behavior/shuffle.zig");
-                    _ = @import("behavior/sizeof_and_typeof_stage1.zig");
                     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
                     _ = @import("behavior/struct_contains_slice_of_itself.zig");
                     _ = @import("behavior/switch_prong_err_enum.zig");
                     _ = @import("behavior/switch_prong_implicit_cast.zig");
-                    _ = @import("behavior/truncate_stage1.zig");
                     _ = @import("behavior/tuple.zig");
-                    _ = @import("behavior/type_stage1.zig");
                     _ = @import("behavior/typename.zig");
                     _ = @import("behavior/union_with_members.zig");
                     _ = @import("behavior/var_args.zig");
