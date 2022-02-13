@@ -6,123 +6,53 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const native_endian = builtin.target.cpu.arch.endian();
 
-test "@bitCast i32 -> u32" {
-    try testBitCast_i32_u32();
-    comptime try testBitCast_i32_u32();
+test "@bitCast iX -> uX" {
+    const bit_values = [_]usize{ 8, 16, 32, 64 };
+
+    inline for (bit_values) |bits| {
+        try testBitCast(bits);
+        comptime try testBitCast(bits);
+    }
 }
 
-fn testBitCast_i32_u32() !void {
-    try expect(conv_i32(-1) == maxInt(u32));
-    try expect(conv_u32(maxInt(u32)) == -1);
-    try expect(conv_u32(0x8000_0000) == minInt(i32));
-    try expect(conv_i32(minInt(i32)) == 0x8000_0000);
-}
-
-fn conv_i32(x: i32) u32 {
-    return @bitCast(u32, x);
-}
-fn conv_u32(x: u32) i32 {
-    return @bitCast(i32, x);
-}
-
-test "@bitCast i48 -> u48" {
-    try testBitCast_i48_u48();
-    comptime try testBitCast_i48_u48();
-}
-
-fn testBitCast_i48_u48() !void {
+test "@bitCast iX -> uX exotic integers" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
-    try expect(conv_i48(-1) == maxInt(u48));
-    try expect(conv_u48(maxInt(u48)) == -1);
-    try expect(conv_u48(0x8000_0000_0000) == minInt(i48));
-    try expect(conv_i48(minInt(i48)) == 0x8000_0000_0000);
+    const bit_values = [_]usize{ 1, 48, 27, 512, 493, 293, 125, 204, 112 };
+
+    inline for (bit_values) |bits| {
+        try testBitCast(bits);
+        comptime try testBitCast(bits);
+    }
 }
 
-fn conv_i48(x: i48) u48 {
-    return @bitCast(u48, x);
+fn testBitCast(comptime N: usize) !void {
+    const iN = std.meta.Int(.signed, N);
+    const uN = std.meta.Int(.unsigned, N);
+
+    try expect(conv_iN(N, -1) == maxInt(uN));
+    try expect(conv_uN(N, maxInt(uN)) == -1);
+
+    try expect(conv_iN(N, maxInt(iN)) == maxInt(iN));
+    try expect(conv_uN(N, maxInt(iN)) == maxInt(iN));
+
+    try expect(conv_uN(N, 1 << (N - 1)) == minInt(iN));
+    try expect(conv_iN(N, minInt(iN)) == (1 << (N - 1)));
+
+    try expect(conv_uN(N, 0) == 0);
+    try expect(conv_iN(N, 0) == 0);
+
+    try expect(conv_iN(N, -0) == 0);
 }
 
-fn conv_u48(x: u48) i48 {
-    return @bitCast(i48, x);
+fn conv_iN(comptime N: usize, x: std.meta.Int(.signed, N)) std.meta.Int(.unsigned, N) {
+    return @bitCast(std.meta.Int(.unsigned, N), x);
 }
 
-test "@bitCast i27 -> u27" {
-    try testBitCast_i27_u27();
-    comptime try testBitCast_i27_u27();
-}
-
-fn testBitCast_i27_u27() !void {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
-    try expect(conv_i27(-1) == maxInt(u27));
-    try expect(conv_u27(maxInt(u27)) == -1);
-    try expect(conv_u27(0x400_0000) == minInt(i27));
-    try expect(conv_i27(minInt(i27)) == 0x400_0000);
-}
-
-fn conv_i27(x: i27) u27 {
-    return @bitCast(u27, x);
-}
-
-fn conv_u27(x: u27) i27 {
-    return @bitCast(i27, x);
-}
-
-test "@bitCast i512 -> u512" {
-    try testBitCast_i512_u512();
-    comptime try testBitCast_i512_u512();
-}
-
-fn testBitCast_i512_u512() !void {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
-    try expect(conv_i512(-1) == maxInt(u512));
-    try expect(conv_u512(maxInt(u512)) == -1);
-    try expect(conv_u512(@as(u512, 1) << 511) == minInt(i512));
-    try expect(conv_i512(minInt(i512)) == (@as(u512, 1) << 511));
-}
-
-fn conv_i512(x: i512) u512 {
-    return @bitCast(u512, x);
-}
-
-fn conv_u512(x: u512) i512 {
-    return @bitCast(i512, x);
-}
-
-test "bitcast result to _" {
-    _ = @bitCast(u8, @as(i8, 1));
-}
-
-test "@bitCast i493 -> u493" {
-    try testBitCast_i493_u493();
-    comptime try testBitCast_i493_u493();
-}
-
-fn testBitCast_i493_u493() !void {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
-    try expect(conv_i493(-1) == maxInt(u493));
-    try expect(conv_u493(maxInt(u493)) == -1);
-    try expect(conv_u493(@as(u493, 1) << 492) == minInt(i493));
-    try expect(conv_i493(minInt(i493)) == (@as(u493, 1) << 492));
-}
-
-fn conv_i493(x: i493) u493 {
-    return @bitCast(u493, x);
-}
-
-fn conv_u493(x: u493) i493 {
-    return @bitCast(i493, x);
+fn conv_uN(comptime N: usize, x: std.meta.Int(.unsigned, N)) std.meta.Int(.signed, N) {
+    return @bitCast(std.meta.Int(.signed, N), x);
 }
 
 test "nested bitcast" {
