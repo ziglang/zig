@@ -2073,41 +2073,41 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     var info = try self.resolveCallingConventionValues(fn_ty);
     defer info.deinit(self);
 
+    for (info.args) |mc_arg, arg_i| {
+        const arg = args[arg_i];
+        const arg_ty = self.air.typeOf(arg);
+        const arg_mcv = try self.resolveInst(args[arg_i]);
+
+        switch (mc_arg) {
+            .none => continue,
+            .undef => unreachable,
+            .immediate => unreachable,
+            .unreach => unreachable,
+            .dead => unreachable,
+            .embedded_in_code => unreachable,
+            .memory => unreachable,
+            .compare_flags_signed => unreachable,
+            .compare_flags_unsigned => unreachable,
+            .register => |reg| {
+                try self.register_manager.getReg(reg, null);
+                try self.genSetReg(arg_ty, reg, arg_mcv);
+            },
+            .stack_offset => {
+                return self.fail("TODO implement calling with parameters in memory", .{});
+            },
+            .ptr_stack_offset => {
+                return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+            },
+            .ptr_embedded_in_code => {
+                return self.fail("TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+            },
+        }
+    }
+
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
-    if (self.bin_file.tag == link.File.Elf.base_tag or self.bin_file.tag == link.File.Coff.base_tag) {
-        for (info.args) |mc_arg, arg_i| {
-            const arg = args[arg_i];
-            const arg_ty = self.air.typeOf(arg);
-            const arg_mcv = try self.resolveInst(args[arg_i]);
-
-            switch (mc_arg) {
-                .none => continue,
-                .undef => unreachable,
-                .immediate => unreachable,
-                .unreach => unreachable,
-                .dead => unreachable,
-                .embedded_in_code => unreachable,
-                .memory => unreachable,
-                .compare_flags_signed => unreachable,
-                .compare_flags_unsigned => unreachable,
-                .register => |reg| {
-                    try self.register_manager.getReg(reg, null);
-                    try self.genSetReg(arg_ty, reg, arg_mcv);
-                },
-                .stack_offset => {
-                    return self.fail("TODO implement calling with parameters in memory", .{});
-                },
-                .ptr_stack_offset => {
-                    return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-                },
-                .ptr_embedded_in_code => {
-                    return self.fail("TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
-                },
-            }
-        }
-
-        if (self.air.value(callee)) |func_value| {
+    if (self.air.value(callee)) |func_value| {
+        if (self.bin_file.tag == link.File.Elf.base_tag or self.bin_file.tag == link.File.Coff.base_tag) {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
@@ -2131,52 +2131,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
-        } else {
-            assert(ty.zigTypeTag() == .Pointer);
-            const mcv = try self.resolveInst(callee);
-            try self.genSetReg(Type.initTag(.usize), .x30, mcv);
-
-            _ = try self.addInst(.{
-                .tag = .blr,
-                .data = .{ .reg = .x30 },
-            });
-        }
-    } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        for (info.args) |mc_arg, arg_i| {
-            const arg = args[arg_i];
-            const arg_ty = self.air.typeOf(arg);
-            const arg_mcv = try self.resolveInst(args[arg_i]);
-            // Here we do not use setRegOrMem even though the logic is similar, because
-            // the function call will move the stack pointer, so the offsets are different.
-            switch (mc_arg) {
-                .none => continue,
-                .register => |reg| {
-                    try self.register_manager.getReg(reg, null);
-                    try self.genSetReg(arg_ty, reg, arg_mcv);
-                },
-                .stack_offset => {
-                    // Here we need to emit instructions like this:
-                    // mov     qword ptr [rsp + stack_offset], x
-                    return self.fail("TODO implement calling with parameters in memory", .{});
-                },
-                .ptr_stack_offset => {
-                    return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-                },
-                .ptr_embedded_in_code => {
-                    return self.fail("TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
-                },
-                .undef => unreachable,
-                .immediate => unreachable,
-                .unreach => unreachable,
-                .dead => unreachable,
-                .embedded_in_code => unreachable,
-                .memory => unreachable,
-                .compare_flags_signed => unreachable,
-                .compare_flags_unsigned => unreachable,
-            }
-        }
-
-        if (self.air.value(callee)) |func_value| {
+        } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 // TODO I'm hacking my way through here by repurposing .memory for storing
@@ -2212,41 +2167,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
-        } else {
-            return self.fail("TODO implement calling runtime known function pointer", .{});
-        }
-    } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-        for (info.args) |mc_arg, arg_i| {
-            const arg = args[arg_i];
-            const arg_ty = self.air.typeOf(arg);
-            const arg_mcv = try self.resolveInst(args[arg_i]);
-
-            switch (mc_arg) {
-                .none => continue,
-                .undef => unreachable,
-                .immediate => unreachable,
-                .unreach => unreachable,
-                .dead => unreachable,
-                .embedded_in_code => unreachable,
-                .memory => unreachable,
-                .compare_flags_signed => unreachable,
-                .compare_flags_unsigned => unreachable,
-                .register => |reg| {
-                    try self.register_manager.getReg(reg, null);
-                    try self.genSetReg(arg_ty, reg, arg_mcv);
-                },
-                .stack_offset => {
-                    return self.fail("TODO implement calling with parameters in memory", .{});
-                },
-                .ptr_stack_offset => {
-                    return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-                },
-                .ptr_embedded_in_code => {
-                    return self.fail("TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
-                },
-            }
-        }
-        if (self.air.value(callee)) |func_value| {
+        } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
             if (func_value.castTag(.function)) |func_payload| {
                 try p9.seeDecl(func_payload.data.owner_decl);
                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
@@ -2266,10 +2187,17 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
-        } else {
-            return self.fail("TODO implement calling runtime known function pointer", .{});
-        }
-    } else unreachable;
+        } else unreachable;
+    } else {
+        assert(ty.zigTypeTag() == .Pointer);
+        const mcv = try self.resolveInst(callee);
+        try self.genSetReg(ty, .x30, mcv);
+
+        _ = try self.addInst(.{
+            .tag = .blr,
+            .data = .{ .reg = .x30 },
+        });
+    }
 
     const result: MCValue = result: {
         switch (info.return_value) {
