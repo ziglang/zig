@@ -6,8 +6,18 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const native_endian = builtin.target.cpu.arch.endian();
 
-test "@bitCast iX -> uX" {
-    const bit_values = [_]usize{ 8, 16, 32, 64 };
+test "@bitCast iX -> uX (32, 64)" {
+    const bit_values = [_]usize{ 32, 64 };
+
+    inline for (bit_values) |bits| {
+        try testBitCast(bits);
+        comptime try testBitCast(bits);
+    }
+}
+
+test "@bitCast iX -> uX (8, 16, 128)" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    const bit_values = [_]usize{ 8, 16, 128 };
 
     inline for (bit_values) |bits| {
         try testBitCast(bits);
