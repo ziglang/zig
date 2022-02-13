@@ -3229,6 +3229,10 @@ const Parser = struct {
                         .rhs = p.nextToken(),
                     },
                 }),
+                .l_brace => {
+                    // this a misplaced `.{`, handle the error somewhere else
+                    return null_node;
+                },
                 else => {
                     p.tok_i += 1;
                     try p.warn(.expected_suffix_op);

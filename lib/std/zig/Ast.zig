@@ -66,7 +66,7 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void
 
 /// Returns an extra offset for column and byte offset of errors that
 /// should point after the token in the error message.
-pub fn errorOffset(tree:Ast, error_tag: Error.Tag, token: TokenIndex) u32 {
+pub fn errorOffset(tree: Ast, error_tag: Error.Tag, token: TokenIndex) u32 {
     return switch (error_tag) {
         .expected_semi_after_decl,
         .expected_semi_after_stmt,
