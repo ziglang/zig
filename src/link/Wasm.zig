@@ -25,6 +25,7 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Symbol = @import("Wasm/Symbol.zig");
+const Object = @import("Wasm/Object.zig");
 const types = @import("Wasm/types.zig");
 
 pub const base_tag = link.File.Tag.wasm;
@@ -73,7 +74,7 @@ func_types: std.ArrayListUnmanaged(wasm.Type) = .{},
 /// Output function section
 functions: std.ArrayListUnmanaged(wasm.Func) = .{},
 /// Output global section
-globals: std.ArrayListUnmanaged(wasm.Global) = .{},
+wasm_globals: std.ArrayListUnmanaged(wasm.Global) = .{},
 /// Memory section
 memories: wasm.Memory = .{ .limits = .{ .min = 0, .max = null } },
 
@@ -83,6 +84,17 @@ memories: wasm.Memory = .{ .limits = .{ .min = 0, .max = null } },
 ///
 /// Note: Key is symbol index, value represents the index into the table
 function_table: std.AutoHashMapUnmanaged(u32, u32) = .{},
+
+/// All object files and their data which are linked into the final binary
+objects: std.ArrayListUnmanaged(Object) = .{},
+/// Maps discarded symbols and their positions to the location of the symbol
+/// it was resolved to
+discarded: std.AutoHashMapUnmanaged(SymbolLoc, SymbolLoc) = .{},
+/// Mapping between symbol names and their respective location.
+/// This map contains all symbols that will be written into the final binary
+/// and were either defined, or resolved.
+/// TODO: Use string interning and make the key an index, rather than a unique string.
+symbol_resolver: std.StringArrayHashMapUnmanaged(SymbolLoc) = .{},
 
 pub const Segment = struct {
     alignment: u32,
@@ -96,6 +108,14 @@ pub const FnData = struct {
     pub const empty: FnData = .{
         .type_index = undefined,
     };
+};
+
+pub const SymbolLoc = struct {
+    /// The index of the symbol within the specified file
+    index: u32,
+    /// The index of the object file where the symbol resides.
+    /// When this is `null` the symbol comes from a non-object file.
+    file: ?u16,
 };
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
@@ -117,7 +137,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     try file.writeAll(&(wasm.magic ++ wasm.version));
 
     // As sym_index '0' is reserved, we use it for our stack pointer symbol
-    const global = try wasm_bin.globals.addOne(allocator);
+    const global = try wasm_bin.wasm_globals.addOne(allocator);
     global.* = .{
         .global_type = .{
             .valtype = .i32,
@@ -154,6 +174,31 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
     return self;
 }
 
+fn parseInputFiles(self: *Wasm, files: []const []const u8) !void {
+    for (files) |path| {
+        if (try self.parseObjectFile(path)) continue;
+        log.warn("Unexpected file format at path: '{s}'", .{path});
+    }
+}
+
+/// Parses the object file from given path. Returns true when the given file was an object
+/// file and parsed successfully. Returns false when file is not an object file.
+/// May return an error instead when parsing failed.
+fn parseObjectFile(self: *Wasm, path: []const u8) !bool {
+    const file = try fs.cwd().openFile(path, .{});
+    errdefer file.close();
+
+    var object = Object.init(self.base.allocator, file, path) catch |err| {
+        if (err == error.InvalidMagicByte) {
+            log.warn("Self hosted linker does not support non-object file parsing", .{});
+            return false;
+        } else return err;
+    };
+    errdefer object.deinit(self.base.allocator);
+    try self.objects.append(self.base.allocator, object);
+    return true;
+}
+
 pub fn deinit(self: *Wasm) void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
@@ -184,7 +229,7 @@ pub fn deinit(self: *Wasm) void {
     self.imports.deinit(self.base.allocator);
     self.func_types.deinit(self.base.allocator);
     self.functions.deinit(self.base.allocator);
-    self.globals.deinit(self.base.allocator);
+    self.wasm_globals.deinit(self.base.allocator);
     self.function_table.deinit(self.base.allocator);
 }
 
@@ -589,7 +634,7 @@ fn setupMemory(self: *Wasm) !void {
         memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
         memory_ptr += stack_size;
         // We always put the stack pointer global at index 0
-        self.globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
+        self.wasm_globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
     }
 
     var offset: u32 = @intCast(u32, memory_ptr);
@@ -607,7 +652,7 @@ fn setupMemory(self: *Wasm) !void {
     if (!place_stack_first) {
         memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
         memory_ptr += stack_size;
-        self.globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
+        self.wasm_globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
     }
 
     // Setup the max amount of pages
@@ -691,6 +736,25 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     _ = comp;
     const tracy = trace(@src());
     defer tracy.end();
+
+    // Used for all temporary memory allocated during flushin
+    var arena_instance = std.heap.ArenaAllocator.init(self.base.allocator);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    // Positional arguments to the linker such as object files and static archives.
+    var positionals = std.ArrayList([]const u8).init(arena);
+    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
+
+    for (self.base.options.objects) |object| {
+        positionals.appendAssumeCapacity(object.path);
+    }
+
+    for (comp.c_object_table.keys()) |c_object| {
+        try positionals.append(c_object.status.success.object_path);
+    }
+    // TODO: Also link with other objects such as compiler-rt
+    try self.parseInputFiles(positionals.items);
 
     // When we finish/error we reset the state of the linker
     // So we can rebuild the binary file on each incremental update
@@ -854,7 +918,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
-        for (self.globals.items) |global| {
+        for (self.wasm_globals.items) |global| {
             try writer.writeByte(wasm.valtype(global.global_type.valtype));
             try writer.writeByte(@boolToInt(global.global_type.mutable));
             try emitInit(writer, global.init);
@@ -865,7 +929,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             header_offset,
             .global,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.globals.items.len),
+            @intCast(u32, self.wasm_globals.items.len),
         );
     }
 
@@ -1041,7 +1105,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
         var funcs = try std.ArrayList(Name).initCapacity(self.base.allocator, self.functions.items.len + self.imported_functions_count);
         defer funcs.deinit();
-        var globals = try std.ArrayList(Name).initCapacity(self.base.allocator, self.globals.items.len);
+        var globals = try std.ArrayList(Name).initCapacity(self.base.allocator, self.wasm_globals.items.len);
         defer globals.deinit();
         var segments = try std.ArrayList(Name).initCapacity(self.base.allocator, self.data_segments.count());
         defer segments.deinit();
