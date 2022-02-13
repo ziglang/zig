@@ -2203,9 +2203,9 @@ pub const FuncGen = struct {
                 .memcpy         => try self.airMemcpy(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
-                .clz            => try self.airClzCtz(inst, "ctlz"),
-                .ctz            => try self.airClzCtz(inst, "cttz"),
-                .popcount       => try self.airPopCount(inst),
+                .clz            => try self.airBitCount(inst, "llvm.ctlz", true),
+                .ctz            => try self.airBitCount(inst, "llvm.cttz", true),
+                .popcount       => try self.airBitCount(inst, "llvm.ctpop", false),
                 .tag_name       => try self.airTagName(inst),
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
@@ -4320,79 +4320,40 @@ pub const FuncGen = struct {
         return self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
     }
 
-    fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, prefix: [*:0]const u8) !?*const llvm.Value {
+    fn airBitCount(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        llvm_fn_name: []const u8,
+        zero_poison_flag: bool,
+    ) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_ty = self.air.typeOf(ty_op.operand);
         const operand = try self.resolveInst(ty_op.operand);
         const target = self.dg.module.getTarget();
-        const bits = operand_ty.intInfo(target).bits;
-        const vec_len: ?u32 = switch (operand_ty.zigTypeTag()) {
-            .Vector => operand_ty.vectorLen(),
-            else => null,
-        };
 
-        var fn_name_buf: [100]u8 = undefined;
-        const llvm_fn_name = if (vec_len) |len|
-            std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.v{d}i{d}", .{
-                prefix, len, bits,
-            }) catch unreachable
-        else
-            std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.i{d}", .{
-                prefix, bits,
-            }) catch unreachable;
-        const llvm_i1 = self.context.intType(1);
-        const fn_val = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
-            const operand_llvm_ty = try self.dg.llvmType(operand_ty);
-            const param_types = [_]*const llvm.Type{ operand_llvm_ty, llvm_i1 };
-            const fn_type = llvm.functionType(operand_llvm_ty, &param_types, param_types.len, .False);
-            break :blk self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
-        };
-
-        const params = [_]*const llvm.Value{ operand, llvm_i1.constNull() };
-        const wrong_size_result = self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
-        const result_ty = self.air.typeOfIndex(inst);
-        const result_llvm_ty = try self.dg.llvmType(result_ty);
-        const result_bits = result_ty.intInfo(target).bits;
-        if (bits > result_bits) {
-            return self.builder.buildTrunc(wrong_size_result, result_llvm_ty, "");
-        } else if (bits < result_bits) {
-            return self.builder.buildZExt(wrong_size_result, result_llvm_ty, "");
-        } else {
-            return wrong_size_result;
+        var params = std.BoundedArray(*const llvm.Value, 2).init(0) catch unreachable;
+        params.append(operand) catch unreachable;
+        if (zero_poison_flag) {
+            const llvm_i1 = self.context.intType(1);
+            params.append(llvm_i1.constNull()) catch unreachable;
         }
-    }
 
-    fn airPopCount(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst)) return null;
-
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand_ty = self.air.typeOf(ty_op.operand);
-        const operand = try self.resolveInst(ty_op.operand);
-        const target = self.dg.module.getTarget();
-        const bits = operand_ty.intInfo(target).bits;
-        const vec_len: ?u32 = switch (operand_ty.zigTypeTag()) {
-            .Vector => operand_ty.vectorLen(),
-            else => null,
-        };
-
-        var fn_name_buf: [100]u8 = undefined;
-        const llvm_fn_name = if (vec_len) |len|
-            std.fmt.bufPrintZ(&fn_name_buf, "llvm.ctpop.v{d}i{d}", .{ len, bits }) catch unreachable
-        else
-            std.fmt.bufPrintZ(&fn_name_buf, "llvm.ctpop.i{d}", .{bits}) catch unreachable;
-        const fn_val = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
-            const operand_llvm_ty = try self.dg.llvmType(operand_ty);
-            const param_types = [_]*const llvm.Type{operand_llvm_ty};
-            const fn_type = llvm.functionType(operand_llvm_ty, &param_types, param_types.len, .False);
-            break :blk self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
-        };
-
-        const params = [_]*const llvm.Value{operand};
-        const wrong_size_result = self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
+        const operand_llvm_ty = try self.dg.llvmType(operand_ty);
+        const fn_val = self.getIntrinsic(llvm_fn_name, &.{operand_llvm_ty});
+        const wrong_size_result = self.builder.buildCall(
+            fn_val,
+            params.constSlice().ptr,
+            @intCast(c_uint, params.len),
+            .C,
+            .Auto,
+            "",
+        );
         const result_ty = self.air.typeOfIndex(inst);
         const result_llvm_ty = try self.dg.llvmType(result_ty);
+
+        const bits = operand_ty.intInfo(target).bits;
         const result_bits = result_ty.intInfo(target).bits;
         if (bits > result_bits) {
             return self.builder.buildTrunc(wrong_size_result, result_llvm_ty, "");
