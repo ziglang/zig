@@ -11086,17 +11086,57 @@ fn zirUnaryMath(
     const operand = sema.resolveInst(inst_data.operand);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_ty = sema.typeOf(operand);
-    try sema.checkFloatType(block, operand_src, operand_ty);
 
-    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |operand_val| {
-        if (operand_val.isUndef()) return sema.addConstUndef(operand_ty);
-        const target = sema.mod.getTarget();
-        const result_val = try eval(operand_val, operand_ty, sema.arena, target);
-        return sema.addConstant(operand_ty, result_val);
+    switch (operand_ty.zigTypeTag()) {
+        .ComptimeFloat, .Float => {},
+        .Vector => {
+            const scalar_ty = operand_ty.scalarType();
+            switch (scalar_ty.zigTypeTag()) {
+                .ComptimeFloat, .Float => {},
+                else => return sema.fail(block, operand_src, "expected vector of floats or float type, found '{}'", .{scalar_ty}),
+            }
+        },
+        else => return sema.fail(block, operand_src, "expected vector of floats or float type, found '{}'", .{operand_ty}),
     }
 
-    try sema.requireRuntimeBlock(block, operand_src);
-    return block.addUnOp(air_tag, operand);
+    const target = sema.mod.getTarget();
+    switch (operand_ty.zigTypeTag()) {
+        .Vector => {
+            const scalar_ty = operand_ty.scalarType();
+            const vec_len = operand_ty.vectorLen();
+            const result_ty = try Type.vector(sema.arena, vec_len, scalar_ty);
+            if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+                if (val.isUndef())
+                    return sema.addConstUndef(result_ty);
+
+                var elem_buf: Value.ElemValueBuffer = undefined;
+                const elems = try sema.arena.alloc(Value, vec_len);
+                for (elems) |*elem, i| {
+                    const elem_val = val.elemValueBuffer(i, &elem_buf);
+                    elem.* = try eval(elem_val, scalar_ty, sema.arena, target);
+                }
+                return sema.addConstant(
+                    result_ty,
+                    try Value.Tag.array.create(sema.arena, elems),
+                );
+            }
+
+            try sema.requireRuntimeBlock(block, operand_src);
+            return block.addUnOp(air_tag, operand);
+        },
+        .ComptimeFloat, .Float => {
+            if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |operand_val| {
+                if (operand_val.isUndef())
+                    return sema.addConstUndef(operand_ty);
+                const result_val = try eval(operand_val, operand_ty, sema.arena, target);
+                return sema.addConstant(operand_ty, result_val);
+            }
+
+            try sema.requireRuntimeBlock(block, operand_src);
+            return block.addUnOp(air_tag, operand);
+        },
+        else => unreachable,
+    }
 }
 
 fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

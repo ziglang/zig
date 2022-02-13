@@ -98,6 +98,15 @@ fn testSqrt() !void {
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 1.1)), 1.0488088481701516, epsilon));
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.0)), 1.4142135623730950, epsilon));
 
+    {
+        var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
+        var result = @sqrt(v);
+        try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 1.1)), result[0], epsilon));
+        try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.2)), result[1], epsilon));
+        try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 3.3)), result[2], epsilon));
+        try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 4.4)), result[3], epsilon));
+    }
+
     if (builtin.zig_backend == .stage1) {
         if (has_f80_rt) {
             // TODO https://github.com/ziglang/zig/issues/10875
@@ -116,16 +125,6 @@ fn testSqrt() !void {
         //    var a: f128 = 49;
         //try expect(@sqrt(a) == 7);
         //}
-
-        // TODO Implement Vector support for stage2
-        {
-            var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
-            var result = @sqrt(v);
-            try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 1.1)), result[0], epsilon));
-            try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.2)), result[1], epsilon));
-            try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 3.3)), result[2], epsilon));
-            try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 4.4)), result[3], epsilon));
-        }
     }
 }
 
@@ -155,26 +154,25 @@ test "@sin" {
 }
 
 fn testSin() !void {
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    // stage1 emits an incorrect compile error for `@as(ty, std.math.pi / 2)`
+    // so skip the rest of the tests.
+    if (builtin.zig_backend != .stage1) {
+        inline for ([_]type{ f16, f32, f64 }) |ty| {
+            const eps = epsForType(ty);
+            try expect(@sin(@as(ty, 0)) == 0);
+            try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi)), 0, eps));
+            try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 2)), 1, eps));
+            try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
+        }
+    }
+
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
         var result = @sin(v);
         try expect(math.approxEqAbs(f32, @sin(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @sin(@as(f32, 2.2)), result[1], epsilon));
         try expect(math.approxEqAbs(f32, @sin(@as(f32, 3.3)), result[2], epsilon));
         try expect(math.approxEqAbs(f32, @sin(@as(f32, 4.4)), result[3], epsilon));
-
-        // stage1 emits an incorrect compile error for `@as(ty, std.math.pi / 2)`
-        // so skip the rest of the tests.
-        return;
-    }
-
-    inline for ([_]type{ f16, f32, f64 }) |ty| {
-        const eps = epsForType(ty);
-        try expect(@sin(@as(ty, 0)) == 0);
-        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi)), 0, eps));
-        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 2)), 1, eps));
-        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
     }
 }
 
@@ -184,26 +182,25 @@ test "@cos" {
 }
 
 fn testCos() !void {
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    // stage1 emits an incorrect compile error for `@as(ty, std.math.pi / 2)`
+    // so skip the rest of the tests.
+    if (builtin.zig_backend != .stage1) {
+        inline for ([_]type{ f16, f32, f64 }) |ty| {
+            const eps = epsForType(ty);
+            try expect(@cos(@as(ty, 0)) == 1);
+            try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi)), -1, eps));
+            try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 2)), 0, eps));
+            try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
+        }
+    }
+
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
         var result = @cos(v);
         try expect(math.approxEqAbs(f32, @cos(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @cos(@as(f32, 2.2)), result[1], epsilon));
         try expect(math.approxEqAbs(f32, @cos(@as(f32, 3.3)), result[2], epsilon));
         try expect(math.approxEqAbs(f32, @cos(@as(f32, 4.4)), result[3], epsilon));
-
-        // stage1 emits an incorrect compile error for `@as(ty, std.math.pi / 2)`
-        // so skip the rest of the tests.
-        return;
-    }
-
-    inline for ([_]type{ f16, f32, f64 }) |ty| {
-        const eps = epsForType(ty);
-        try expect(@cos(@as(ty, 0)) == 1);
-        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi)), -1, eps));
-        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 2)), 0, eps));
-        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
     }
 }
 
@@ -220,8 +217,7 @@ fn testExp() !void {
         try expect(math.approxEqAbs(ty, @exp(@as(ty, 5)), 148.4131591025766, eps));
     }
 
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @exp(v);
         try expect(math.approxEqAbs(f32, @exp(@as(f32, 1.1)), result[0], epsilon));
@@ -244,8 +240,7 @@ fn testExp2() !void {
         try expect(math.approxEqAbs(ty, @exp2(@as(ty, 4.5)), 22.627416997969, eps));
     }
 
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @exp2(v);
         try expect(math.approxEqAbs(f32, @exp2(@as(f32, 1.1)), result[0], epsilon));
@@ -281,8 +276,7 @@ fn testLog() !void {
         try expect(math.approxEqAbs(ty, @log(@as(ty, 5)), 1.6094379124341, eps));
     }
 
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log(v);
         try expect(math.approxEqAbs(f32, @log(@as(f32, 1.1)), result[0], epsilon));
@@ -305,8 +299,7 @@ fn testLog2() !void {
         try expect(math.approxEqAbs(ty, @log2(@as(ty, 10)), 3.3219280948874, eps));
     }
 
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log2(v);
         try expect(math.approxEqAbs(f32, @log2(@as(f32, 1.1)), result[0], epsilon));
@@ -329,8 +322,7 @@ fn testLog10() !void {
         try expect(math.approxEqAbs(ty, @log10(@as(ty, 50)), 1.698970004336, eps));
     }
 
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log10(v);
         try expect(math.approxEqAbs(f32, @log10(@as(f32, 1.1)), result[0], epsilon));
@@ -362,8 +354,7 @@ fn testFabs() !void {
     //     try expect(@fabs(b) == 2.5);
     // }
 
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @fabs(v);
         try expect(math.approxEqAbs(f32, @fabs(@as(f32, 1.1)), result[0], epsilon));
@@ -390,8 +381,7 @@ fn testFloor() !void {
     //     try expect(@floor(a) == 3);
     // }
 
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @floor(v);
         try expect(math.approxEqAbs(f32, @floor(@as(f32, 1.1)), result[0], epsilon));
@@ -418,8 +408,7 @@ fn testCeil() !void {
     //     try expect(@ceil(a) == 4);
     // }
 
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @ceil(v);
         try expect(math.approxEqAbs(f32, @ceil(@as(f32, 1.1)), result[0], epsilon));
@@ -446,8 +435,7 @@ fn testTrunc() !void {
     //     try expect(@trunc(a) == -3);
     // }
 
-    // TODO: Implement Vector support for other backends
-    if (builtin.zig_backend == .stage1) {
+    {
         var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @trunc(v);
         try expect(math.approxEqAbs(f32, @trunc(@as(f32, 1.1)), result[0], epsilon));
