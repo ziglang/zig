@@ -233,7 +233,7 @@ test "zig fmt: eof after missing comma" {
     try testError(
         \\foo()
     , &[_]Error{
-        .expected_token,
+        .expected_comma_after_field,
     });
 }
 
@@ -5074,8 +5074,8 @@ test "recovery: missing comma" {
         \\    }
         \\}
     , &[_]Error{
-        .expected_token,
-        .expected_token,
+        .expected_comma_after_switch_prong,
+        .expected_comma_after_switch_prong,
         .invalid_token,
     });
 }
@@ -5156,10 +5156,10 @@ test "recovery: missing semicolon" {
         \\    @foo
         \\}
     , &[_]Error{
-        .expected_token,
-        .expected_token,
+        .expected_semi_after_stmt,
+        .expected_semi_after_stmt,
         .expected_param_list,
-        .expected_token,
+        .expected_semi_after_stmt,
     });
 }
 
@@ -5174,9 +5174,9 @@ test "recovery: invalid container members" {
         \\}
     , &[_]Error{
         .expected_expr,
-        .expected_token,
+        .expected_comma_after_field,
         .expected_container_members,
-        .expected_token,
+        .expected_semi_after_stmt,
     });
 }
 
@@ -5201,7 +5201,7 @@ test "recovery: mismatched bracket at top level" {
         \\    arr: 128]?G
         \\};
     , &[_]Error{
-        .expected_token,
+        .expected_comma_after_field,
     });
 }
 
@@ -5301,9 +5301,9 @@ test "recovery: missing comma in params" {
         \\fn bar(a: i32, b: i32 c) void { }
         \\
     , &[_]Error{
-        .expected_token,
-        .expected_token,
-        .expected_token,
+        .expected_comma_after_param,
+        .expected_comma_after_param,
+        .expected_comma_after_param,
     });
 }
 
