@@ -28,6 +28,7 @@ fn dummy(a: bool, b: i32, c: f32) i32 {
 }
 
 test "reflection: @field" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
