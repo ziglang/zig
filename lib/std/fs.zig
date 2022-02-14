@@ -2231,6 +2231,31 @@ pub const Dir = struct {
     }
 
     pub const ChownError = File.ChownError;
+
+    const Permissions = File.Permissions;
+    pub const SetPermissionsError = File.SetPermissionsError;
+
+    /// Sets permissions according to the provided `Permissions` struct.
+    /// This method is *NOT* available on WASI
+    pub fn setPermissions(self: Dir, permissions: Permissions) SetPermissionsError!void {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        try file.setPermissions(permissions);
+    }
+
+    const Metadata = File.Metadata;
+    pub const MetadataError = File.MetadataError;
+
+    /// Returns a `Metadata` struct, representing the permissions on the directory
+    pub fn metadata(self: Dir) MetadataError!Metadata {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        return try file.metadata();
+    }
 };
 
 /// Returns a handle to the current working directory. It is not opened with iteration capability.

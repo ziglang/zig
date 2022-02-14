@@ -372,14 +372,10 @@ pub const Stat = extern struct {
     uid: uid_t,
     gid: gid_t,
     rdev: i32,
-    atimesec: isize,
-    atimensec: isize,
-    mtimesec: isize,
-    mtimensec: isize,
-    ctimesec: isize,
-    ctimensec: isize,
-    birthtimesec: isize,
-    birthtimensec: isize,
+    atimespec: timespec,
+    mtimespec: timespec,
+    ctimespec: timespec,
+    birthtimespec: timespec,
     size: off_t,
     blocks: i64,
     blksize: i32,
@@ -389,24 +385,19 @@ pub const Stat = extern struct {
     qspare: [2]i64,
 
     pub fn atime(self: @This()) timespec {
-        return timespec{
-            .tv_sec = self.atimesec,
-            .tv_nsec = self.atimensec,
-        };
+        return self.atimespec;
     }
 
     pub fn mtime(self: @This()) timespec {
-        return timespec{
-            .tv_sec = self.mtimesec,
-            .tv_nsec = self.mtimensec,
-        };
+        return self.mtimespec;
     }
 
     pub fn ctime(self: @This()) timespec {
-        return timespec{
-            .tv_sec = self.ctimesec,
-            .tv_nsec = self.ctimensec,
-        };
+        return self.ctimespec;
+    }
+
+    pub fn birthtime(self: @This()) timespec {
+        return self.birthtimespec;
     }
 };
 

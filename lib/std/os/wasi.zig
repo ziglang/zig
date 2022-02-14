@@ -88,7 +88,7 @@ pub const mode_t = u32;
 
 pub const time_t = i64; // match https://github.com/CraneStation/wasi-libc
 
-pub const timespec = struct {
+pub const timespec = extern struct {
     tv_sec: time_t,
     tv_nsec: isize,
 
