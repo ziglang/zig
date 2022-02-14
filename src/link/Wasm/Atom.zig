@@ -50,7 +50,7 @@ pub fn deinit(self: *Atom, gpa: Allocator) void {
     self.relocs.deinit(gpa);
     self.code.deinit(gpa);
 
-    while (self.locals.items) |*local| {
+    for (self.locals.items) |*local| {
         local.deinit(gpa);
     }
     self.locals.deinit(gpa);
@@ -93,7 +93,7 @@ pub fn symbolAtom(self: *Atom, symbol_index: u32) *Atom {
 /// Resolves the relocations within the atom, writing the new value
 /// at the calculated offset.
 pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
-    const symbol: Symbol = wasm_bin.symbols.items[self.sym_index];
+    const symbol: Symbol = wasm_bin.managed_symbols.items[self.sym_index];
     log.debug("Resolving relocs in atom '{s}' count({d})", .{
         symbol.name,
         self.relocs.items.len,
@@ -102,7 +102,7 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
     for (self.relocs.items) |reloc| {
         const value = try relocationValue(reloc, wasm_bin);
         log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}", .{
-            wasm_bin.symbols.items[reloc.index].name,
+            wasm_bin.managed_symbols.items[reloc.index].name,
             symbol.name,
             reloc.offset,
             value,
@@ -139,7 +139,7 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
 /// All values will be represented as a `u64` as all values can fit within it.
 /// The final value must be casted to the correct size.
 fn relocationValue(relocation: types.Relocation, wasm_bin: *const Wasm) !u64 {
-    const symbol: Symbol = wasm_bin.symbols.items[relocation.index];
+    const symbol: Symbol = wasm_bin.managed_symbols.items[relocation.index];
     return switch (relocation.relocation_type) {
         .R_WASM_FUNCTION_INDEX_LEB => symbol.index,
         .R_WASM_TABLE_NUMBER_LEB => symbol.index,

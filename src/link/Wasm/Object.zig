@@ -6,14 +6,14 @@ const Object = @This();
 const Atom = @import("Atom.zig");
 const types = @import("types.zig");
 const std = @import("std");
-const Wasm = @import("Wasm.zig");
+const Wasm = @import("../Wasm.zig");
 const Symbol = @import("Symbol.zig");
 
 const Allocator = std.mem.Allocator;
 const leb = std.leb;
 const meta = std.meta;
 
-const log = std.log.scoped(.zwld);
+const log = std.log.scoped(.link);
 
 /// Wasm spec version used for this `Object`
 version: u32 = 0,
@@ -26,7 +26,7 @@ file: ?std.fs.File = null,
 /// Name (read path) of the object file.
 name: []const u8,
 /// Parsed type section
-types: []const std.wasm.Type = &.{},
+func_types: []const std.wasm.Type = &.{},
 /// A list of all imports for this module
 imports: []std.wasm.Import = &.{},
 /// Parsed function section
@@ -104,7 +104,8 @@ const RelocatableData = struct {
 pub const InitError = error{NotObjectFile} || ParseError || std.fs.File.ReadError;
 
 /// Initializes a new `Object` from a wasm object file.
-pub fn init(gpa: Allocator, file: std.fs.File, path: []const u8) InitError!Object {
+/// This also parses and verifies the object file.
+pub fn create(gpa: Allocator, file: std.fs.File, path: []const u8) InitError!Object {
     var object: Object = .{
         .file = file,
         .name = path,
@@ -161,7 +162,7 @@ pub fn getTable(self: *const Object, id: u32) *std.wasm.Table {
 /// we initialize a new table symbol that corresponds to that import and return that symbol.
 ///
 /// When the object file is *NOT* MVP, we return `null`.
-fn checkLegacyIndirectFunctionTable(self: *Object) !?Symbol {
+fn checkLegacyIndirectFunctionTable(self: *Object, gpa: Allocator) !?Symbol {
     var table_count: usize = 0;
     for (self.symtable) |sym| {
         if (sym.tag == .table) table_count += 1;
@@ -204,7 +205,7 @@ fn checkLegacyIndirectFunctionTable(self: *Object) !?Symbol {
 
     var table_symbol: Symbol = .{
         .flags = 0,
-        .name = table_import.name,
+        .name = try gpa.dupeZ(u8, table_import.name),
         .tag = .table,
         .index = 0,
     };
@@ -310,7 +311,7 @@ fn Parser(comptime ReaderType: type) type {
                         }
                     },
                     .type => {
-                        for (try readVec(&self.object.types, reader, gpa)) |*type_val| {
+                        for (try readVec(&self.object.func_types, reader, gpa)) |*type_val| {
                             if ((try reader.readByte()) != std.wasm.function_type) return error.ExpectedFuncType;
 
                             for (try readVec(&type_val.params, reader, gpa)) |*param| {
@@ -636,7 +637,7 @@ fn Parser(comptime ReaderType: type) type {
 
                     // we found all symbols, check for indirect function table
                     // in case of an MVP object file
-                    if (try self.object.checkLegacyIndirectFunctionTable()) |symbol| {
+                    if (try self.object.checkLegacyIndirectFunctionTable(gpa)) |symbol| {
                         try symbols.append(symbol);
                         log.debug("Found legacy indirect function table. Created symbol", .{});
                     }
@@ -662,7 +663,7 @@ fn Parser(comptime ReaderType: type) type {
             switch (tag) {
                 .data => {
                     const name_len = try leb.readULEB128(u32, reader);
-                    const name = try gpa.alloc(u8, name_len);
+                    const name = try gpa.allocSentinel(u8, name_len, 0);
                     try reader.readNoEof(name);
                     symbol.name = name;
 
@@ -684,16 +685,16 @@ fn Parser(comptime ReaderType: type) type {
 
                     const is_undefined = symbol.isUndefined();
                     if (is_undefined) {
-                        maybe_import = self.object.findImport(symbol.externalType(), symbol.index);
+                        maybe_import = self.object.findImport(symbol.tag.externalType(), symbol.index);
                     }
                     const explicit_name = symbol.hasFlag(.WASM_SYM_EXPLICIT_NAME);
                     if (!(is_undefined and !explicit_name)) {
                         const name_len = try leb.readULEB128(u32, reader);
-                        const name = try gpa.alloc(u8, name_len);
+                        const name = try gpa.allocSentinel(u8, name_len, 0);
                         try reader.readNoEof(name);
                         symbol.name = name;
                     } else {
-                        symbol.name = maybe_import.?.name;
+                        symbol.name = try gpa.dupeZ(u8, maybe_import.?.name);
                     }
                 },
             }
@@ -818,7 +819,6 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
             }
         }
 
-        // TODO: Replace `atom.code` from an existing slice to a pointer to the data
         try atom.code.appendSlice(gpa, relocatable_data.data[0..relocatable_data.size]);
 
         const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];

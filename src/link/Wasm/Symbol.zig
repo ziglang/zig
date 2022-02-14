@@ -38,6 +38,7 @@ pub const Tag = enum {
             .data => .memory,
             .section => unreachable, // Not an external type
             .event => unreachable, // Not an external type
+            .dead => unreachable, // Dead symbols should not be referenced
             .table => .table,
         };
     }
