@@ -655,6 +655,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/print_env.zig"
     "${CMAKE_SOURCE_DIR}/src/print_targets.zig"
     "${CMAKE_SOURCE_DIR}/src/print_zir.zig"
+    "${CMAKE_SOURCE_DIR}/src/register_manager.zig"
     "${CMAKE_SOURCE_DIR}/src/stage1.zig"
     "${CMAKE_SOURCE_DIR}/src/target.zig"
     "${CMAKE_SOURCE_DIR}/src/tracy.zig"
