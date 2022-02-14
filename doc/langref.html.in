@@ -9507,9 +9507,14 @@ test "integer truncation" {
       Provides type reflection.
       </p>
       <p>
-      For {#link|structs|struct#}, {#link|unions|union#}, {#link|enums|enum#}, and
-      {#link|error sets|Error Set Type#}, the fields are guaranteed to be in the same
-      order as declared. For declarations, the order is unspecified.
+      Type information of {#link|structs|struct#}, {#link|unions|union#}, {#link|enums|enum#}, and
+      {#link|error sets|Error Set Type#} has fields which are are guaranteed to be in the same
+      order as appearance in the source file.
+      </p>
+      <p>
+      Type information of {#link|structs|struct#}, {#link|unions|union#}, {#link|enums|enum#}, and
+      {#link|opaques|opaque#} has declarations, which are also guaranteed to be in the same
+      order as appearance in the source file.
       </p>
       {#header_close#}
 
