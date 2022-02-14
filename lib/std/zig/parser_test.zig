@@ -585,15 +585,6 @@ test "zig fmt: asm expression with comptime content" {
     );
 }
 
-test "zig fmt: anytype struct field" {
-    try testCanonical(
-        \\pub const Pointer = struct {
-        \\    sentinel: anytype,
-        \\};
-        \\
-    );
-}
-
 test "zig fmt: array types last token" {
     try testCanonical(
         \\test {
@@ -4146,6 +4137,17 @@ test "zig fmt: container doc comments" {
         \\//! Nothing here
         \\
     );
+}
+
+test "zig fmt: anytype struct field" {
+    try testError(
+        \\pub const Pointer = struct {
+        \\    sentinel: anytype,
+        \\};
+        \\
+    , &[_]Error{
+        .expected_type_expr,
+    });
 }
 
 test "zig fmt: extern without container keyword returns error" {

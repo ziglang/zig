@@ -1766,7 +1766,7 @@ fn parseInternal(
                                     }
                                 }
                                 if (field.is_comptime) {
-                                    if (!try parsesTo(field.field_type, field.default_value.?, tokens, child_options)) {
+                                    if (!try parsesTo(field.field_type, @ptrCast(*const field.field_type, field.default_value.?).*, tokens, child_options)) {
                                         return error.UnexpectedValue;
                                     }
                                 } else {
