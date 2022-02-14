@@ -10,7 +10,7 @@ const fs = std.fs;
 const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
-const zig_version = std.builtin.Version{ .major = 0, .minor = 9, .patch = 1 };
+const zig_version = std.builtin.Version{ .major = 0, .minor = 9, .patch = 2 };
 
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
