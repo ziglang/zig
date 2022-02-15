@@ -3703,6 +3703,44 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         };
     };
 
+    if (mod.comp.verbose_air) {
+        // Duplicate everything so that we can make modifications. It doesn't
+        // look like the rest of this fn uses this so we could modify it in
+        // place but this makes it more future-proof to any semaDecl changes.
+        var air_extra = try sema.air_extra.clone(gpa);
+        var air_instructions = try sema.air_instructions.clone(gpa);
+        var air_values = try sema.air_values.clone(gpa);
+        defer air_extra.deinit(gpa);
+        defer air_instructions.deinit(gpa);
+        defer air_values.deinit(gpa);
+
+        // Copy the block into place and mark that as the main block. This is
+        // required for print_air to find the "main" block of the AIR.
+        try air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+            block_scope.instructions.items.len);
+        const main_block_index = @intCast(u32, air_extra.items.len);
+        air_extra.appendAssumeCapacity(@intCast(u32, block_scope.instructions.items.len));
+        air_extra.appendSliceAssumeCapacity(block_scope.instructions.items);
+        air_extra.items[@enumToInt(Air.ExtraIndex.main_block)] = main_block_index;
+
+        var air = Air{
+            .instructions = air_instructions.toOwnedSlice(),
+            .extra = air_extra.toOwnedSlice(gpa),
+            .values = air_values.toOwnedSlice(gpa),
+        };
+        defer air.deinit(gpa);
+
+        var liveness = try @import("Liveness.zig").analyze(gpa, air, zir);
+        defer liveness.deinit(gpa);
+
+        const file = try decl.getFileScope().fullPath(gpa);
+        defer gpa.free(file);
+
+        std.debug.print("# Begin Decl AIR: {s} {s}:\n", .{ file, decl.name });
+        @import("print_air.zig").dump(gpa, air, zir, liveness);
+        std.debug.print("# End Decl AIR: {s} {s}\n\n", .{ file, decl.name });
+    }
+
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
