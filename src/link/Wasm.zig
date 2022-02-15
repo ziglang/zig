@@ -34,6 +34,8 @@ pub const base_tag = link.File.Tag.wasm;
 pub const DeclBlock = Atom;
 
 base: link.File,
+/// Output name of the file
+name: []const u8,
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
 /// When importing objects from the host environment, a name must be supplied.
@@ -156,6 +158,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     // TODO: read the file and keep valid parts instead of truncating
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
     wasm_bin.base.file = file;
+    wasm_bin.name = sub_path;
 
     try file.writeAll(&(wasm.magic ++ wasm.version));
 
@@ -170,7 +173,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     };
     const symbol = try wasm_bin.symbols.addOne(allocator);
     symbol.* = .{
-        .name = "__stack_pointer",
+        .name = try allocator.dupeZ(u8, "__stack_pointer"),
         .tag = .global,
         .flags = 0,
         .index = 0,
@@ -188,6 +191,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
             .file = null,
             .allocator = gpa,
         },
+        .name = undefined,
     };
     const use_llvm = build_options.have_llvm and options.use_llvm;
     const use_stage1 = build_options.is_stage1 and options.use_stage1;
@@ -233,6 +237,7 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             .file = object_index,
             .index = sym_index,
         };
+        const sym_name = std.mem.sliceTo(symbol.name, 0);
 
         if (symbol.isLocal()) {
             if (symbol.isUndefined()) {
@@ -247,21 +252,23 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
         // TODO: locals are allowed to have duplicate symbol names
         // TODO: Store undefined symbols so we can verify at the end if they've all been found
         // if not, emit an error (unless --allow-undefined is enabled).
-        const maybe_existing = try self.globals.getOrPut(self.base.allocator, std.mem.sliceTo(symbol.name, 0));
+        const maybe_existing = try self.globals.getOrPut(self.base.allocator, sym_name);
         if (!maybe_existing.found_existing) {
             maybe_existing.value_ptr.* = location;
-
-            try self.globals.putNoClobber(self.base.allocator, std.mem.sliceTo(symbol.name, 0), location);
             continue;
         }
 
         const existing_loc = maybe_existing.value_ptr.*;
         const existing_sym: *Symbol = existing_loc.getSymbol(self);
 
+        const existing_file_path = if (existing_loc.file) |file| blk: {
+            break :blk self.objects.items[file].name;
+        } else self.name;
+
         if (!existing_sym.isUndefined()) {
             if (!symbol.isUndefined()) {
                 log.err("symbol '{s}' defined multiple times", .{existing_sym.name});
-                log.err("  first definition in '{s}'", .{self.objects.items[existing_loc.file.?].name});
+                log.err("  first definition in '{s}'", .{existing_file_path});
                 log.err("  next definition in '{s}'", .{object.name});
                 return error.SymbolCollision;
             }
@@ -271,11 +278,11 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
 
         // simply overwrite with the new symbol
         log.info("Overwriting symbol '{s}'", .{symbol.name});
-        log.info("  first definition in '{s}'", .{self.objects.items[existing_loc.file.?].name});
-        log.info("  next definition in '{s}'", .{object.name});
+        log.info("  old definition in '{s}'", .{existing_file_path});
+        log.info("  new definition in '{s}'", .{object.name});
         try self.discarded.putNoClobber(self.base.allocator, maybe_existing.value_ptr.*, location);
         maybe_existing.value_ptr.* = location;
-        try self.globals.putNoClobber(self.base.allocator, std.mem.sliceTo(symbol.name, 0), location);
+        try self.globals.put(self.base.allocator, sym_name, location);
     }
 }
 
@@ -300,6 +307,12 @@ pub fn deinit(self: *Wasm) void {
     for (self.objects.items) |*object| {
         object.file.?.close();
         object.deinit(gpa);
+    }
+
+    for (self.symbols.items) |symbol| {
+        if (symbol.tag != .dead) {
+            gpa.free(mem.sliceTo(symbol.name, 0));
+        }
     }
 
     self.decls.deinit(gpa);
@@ -441,7 +454,7 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     const atom: *Atom = &decl.link.wasm;
     atom.size = @intCast(u32, code.len);
     atom.alignment = decl.ty.abiAlignment(self.base.options.target);
-    self.symbols.items[atom.sym_index].name = decl.name;
+    self.symbols.items[atom.sym_index].name = try self.base.allocator.dupeZ(u8, std.mem.sliceTo(decl.name, 0));
     try atom.code.appendSlice(self.base.allocator, code);
 }
 
@@ -449,8 +462,10 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
 /// and then append it as a 'contained' atom onto the Decl.
 pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type) !u32 {
     assert(ty.zigTypeTag() != .Fn); // cannot create local symbols for functions
+    const local_index = decl.link.wasm.locals.items.len;
+    const name = try std.fmt.allocPrintZ(self.base.allocator, "__unnamed_{s}_{d}", .{ decl.name, local_index });
     var symbol: Symbol = .{
-        .name = "unnamed_local",
+        .name = name,
         .flags = 0,
         .tag = .data,
         .index = undefined,
@@ -494,7 +509,7 @@ pub fn getDeclVAddr(
     const atom = decl.link.wasm.symbolAtom(symbol_index);
     const is_wasm32 = self.base.options.target.cpu.arch == .wasm32;
     if (ty.zigTypeTag() == .Fn) {
-        std.debug.assert(addend == 0); // addend not allowed for function relocations
+        assert(addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
         // They are instead stored in a function table which are called by index.
@@ -543,15 +558,13 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     self.symbols.items[atom.sym_index].tag = .dead; // to ensure it does not end in the names section
     for (atom.locals.items) |local_atom| {
         self.symbols.items[local_atom.sym_index].tag = .dead; // also for any local symbol
+        // self.base.allocator.free(mem.sliceTo(self.symbols.items[local_atom.sym_index].name, 0));
         self.symbols_free_list.append(self.base.allocator, local_atom.sym_index) catch {};
     }
+    // self.base.allocator.free(mem.sliceTo(self.symbols.items[atom.sym_index].name, 0));
 
     if (decl.isExtern()) {
-        const import = self.imports.fetchRemove(.{ .file = null, .index = atom.sym_index }).?.value;
-        switch (import.kind) {
-            .function => self.imported_functions_count -= 1,
-            else => unreachable,
-        }
+        assert(self.imports.remove(.{ .file = null, .index = atom.sym_index }));
     }
 
     atom.deinit(self.base.allocator);
@@ -577,16 +590,18 @@ fn mapFunctionTable(self: *Wasm) void {
 fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
     const symbol_index = decl.link.wasm.sym_index;
     const symbol: *Symbol = &self.symbols.items[symbol_index];
-    symbol.name = decl.name;
+    const decl_name = mem.sliceTo(decl.name, 0);
+    symbol.name = try self.base.allocator.dupeZ(u8, decl_name);
     symbol.setUndefined(true);
+    // also add it as a global so it can be resolved
+    try self.globals.put(self.base.allocator, decl_name, .{ .file = null, .index = symbol_index });
     switch (decl.ty.zigTypeTag()) {
         .Fn => {
             const gop = try self.imports.getOrPut(self.base.allocator, .{ .index = symbol_index, .file = null });
             const module_name = if (decl.getExternFn().?.lib_name) |lib_name| blk: {
-                break :blk std.mem.sliceTo(lib_name, 0);
+                break :blk mem.sliceTo(lib_name, 0);
             } else self.host_name;
             if (!gop.found_existing) {
-                self.imported_functions_count += 1;
                 gop.value_ptr.* = .{
                     .module_name = module_name,
                     .name = std.mem.span(symbol.name),
@@ -608,9 +623,8 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
     const symbol: *Symbol = &self.symbols.items[atom.sym_index];
     const final_index: u32 = switch (kind) {
         .function => |fn_data| result: {
-            const type_index = fn_data.type_index;
             const index = @intCast(u32, self.functions.items.len + self.imported_functions_count);
-            try self.functions.append(self.base.allocator, .{ .type_index = type_index });
+            try self.functions.append(self.base.allocator, .{ .type_index = fn_data.type_index });
             symbol.tag = .function;
             symbol.index = index;
 
@@ -641,6 +655,7 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
                 break :blk index;
             };
             const info_index = @intCast(u32, self.segment_info.items.len);
+            // TODO: Add mutables global decls to .bss section instead
             const segment_name = try std.mem.concat(self.base.allocator, u8, &.{
                 ".rodata.",
                 std.mem.span(symbol.name),
@@ -684,7 +699,7 @@ fn allocateAtoms(self: *Wasm) !void {
             offset = std.mem.alignForwardGeneric(u32, offset, atom.alignment);
             atom.offset = offset;
             log.debug("Atom '{s}' allocated from 0x{x:0>8} to 0x{x:0>8} size={d}", .{
-                self.symbols.items[atom.sym_index].name,
+                (SymbolLoc{ .file = atom.file, .index = atom.sym_index }).getSymbol(self).name,
                 offset,
                 offset + atom.size,
                 atom.size,
@@ -695,7 +710,7 @@ fn allocateAtoms(self: *Wasm) !void {
     }
 }
 
-fn setupImports(self: *Wasm) void {
+fn setupImports(self: *Wasm) !void {
     for (self.resolved_symbols.items) |symbol_loc| {
         if (symbol_loc.file == null) {
             // imports generated by Zig code are already in the `import` section
@@ -708,7 +723,7 @@ fn setupImports(self: *Wasm) void {
         }
 
         log.debug("Symbol '{s}' will be imported from the host", .{symbol.name});
-        const import = self.objects.items[symbol_loc.file.?].findImport(symbol.externalType(), symbol.index);
+        const import = self.objects.items[symbol_loc.file.?].findImport(symbol.tag.externalType(), symbol.index);
         // TODO: De-duplicate imports
         try self.imports.putNoClobber(self.base.allocator, symbol_loc, import);
     }
@@ -737,6 +752,9 @@ fn setupImports(self: *Wasm) void {
             else => unreachable,
         }
     }
+    self.imported_functions_count = function_index;
+    self.imported_globals_count = global_index;
+    self.imported_tables_count = table_index;
 }
 
 /// Takes the global, function and table section from each linked object file
@@ -761,12 +779,13 @@ fn mergeSections(self: *Wasm) !void {
 
         const object = self.objects.items[sym_loc.file.?];
         const symbol = &object.symtable[sym_loc.index];
-        if (symbol.isUndefined()) {
+        if (symbol.isUndefined() or (symbol.tag != .function and symbol.tag != .global and symbol.tag != .table)) {
             // Skip undefined symbols as they go in the `import` section
+            // Also skip symbols that do not need to have a section merged.
             continue;
         }
 
-        const offset = object.importedCountByKind(symbol.externalType());
+        const offset = object.importedCountByKind(symbol.tag.externalType());
         const index = symbol.index - offset;
         switch (symbol.tag) {
             .function => {
@@ -776,7 +795,7 @@ fn mergeSections(self: *Wasm) !void {
             },
             .global => {
                 const original_global = object.globals[index];
-                symbol.index = @intCast(u32, self.globals.items.len) + self.imported_globals_count;
+                symbol.index = @intCast(u32, self.wasm_globals.items.len) + self.imported_globals_count;
                 try self.wasm_globals.append(self.base.allocator, original_global);
             },
             .table => {
@@ -790,7 +809,7 @@ fn mergeSections(self: *Wasm) !void {
 
     log.debug("Merged ({d}) functions", .{self.functions.items.len});
     log.debug("Merged ({d}) globals", .{self.wasm_globals.items.len});
-    log.debug("Merged ({d}) tables", .{self.tables.tems.len});
+    log.debug("Merged ({d}) tables", .{self.tables.items.len});
 }
 
 /// Merges function types of all object files into the final
@@ -811,13 +830,13 @@ fn mergeTypes(self: *Wasm) !void {
 
         if (symbol.isUndefined()) {
             log.debug("Adding type from extern function '{s}'", .{symbol.name});
-            const import: *wasm.Import = self.imports.getPtr(sym_loc);
-            const original_type = object.types[import.kind.function];
+            const import: *wasm.Import = self.imports.getPtr(sym_loc).?;
+            const original_type = object.func_types[import.kind.function];
             import.kind.function = try self.putOrGetFuncType(original_type);
         } else {
             log.debug("Adding type from function '{s}'", .{symbol.name});
             const func = &self.functions.items[symbol.index - self.imported_functions_count];
-            func.type_index = try self.putOrGetFuncType(object.types[func.type_index]);
+            func.type_index = try self.putOrGetFuncType(object.func_types[func.type_index]);
         }
     }
     log.debug("Completed merging and deduplicating types. Total count: ({d})", .{self.func_types.items.len});
@@ -835,7 +854,11 @@ fn setupExports(self: *Wasm) !void {
         const symbol = sym_loc.getSymbol(self);
         if (!symbol.isExported()) continue;
 
-        const exp: wasm.Export = .{ .name = symbol.name, .kind = symbol.externalType(), .index = symbol.index };
+        const exp: wasm.Export = .{
+            .name = mem.sliceTo(symbol.name, 0),
+            .kind = symbol.tag.externalType(),
+            .index = symbol.index,
+        };
         log.debug("Appending export for symbol '{s}' at index: ({d})", .{ exp.name, exp.index });
         try self.exports.append(self.base.allocator, exp);
     }
@@ -948,6 +971,41 @@ fn setupMemory(self: *Wasm) !void {
     }
 }
 
+/// From a given object's index and the index of the segment, returns the corresponding
+/// index of the segment within the final data section. When the segment does not yet
+/// exist, a new one will be initialized and appended. The new index will be returned in that case.
+pub fn getMatchingSegment(self: *Wasm, object_index: u16, relocatable_index: u32) !u32 {
+    const object: Object = self.objects.items[object_index];
+    const relocatable_data = object.relocatable_data[relocatable_index];
+    const index = @intCast(u32, self.segments.items.len);
+
+    switch (relocatable_data.type) {
+        .data => {
+            const segment_info = object.segment_info[relocatable_data.index];
+            const result = try self.data_segments.getOrPut(self.base.allocator, segment_info.outputName());
+            if (!result.found_existing) {
+                result.value_ptr.* = index;
+                try self.segments.append(self.base.allocator, .{
+                    .alignment = 1,
+                    .size = 0,
+                    .offset = 0,
+                });
+                return index;
+            } else return result.value_ptr.*;
+        },
+        .code => return self.code_section_index orelse blk: {
+            self.code_section_index = index;
+            try self.segments.append(self.base.allocator, .{
+                .alignment = 1,
+                .size = 0,
+                .offset = 0,
+            });
+            break :blk index;
+        },
+        .custom => return error.@"TODO: Custom section relocations for wasm",
+    }
+}
+
 fn resetState(self: *Wasm) void {
     for (self.segment_info.items) |*segment_info| {
         self.base.allocator.free(segment_info.name);
@@ -1015,7 +1073,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     // When we finish/error we reset the state of the linker
     // So we can rebuild the binary file on each incremental update
     defer self.resetState();
-    self.setupImports();
+    try self.setupImports();
     var decl_it = self.decls.keyIterator();
     while (decl_it.next()) |decl| {
         if (decl.*.isExtern()) continue;
@@ -1050,7 +1108,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-
+        log.debug("Writing type section. Count: ({d})", .{self.func_types.items.len});
         for (self.func_types.items) |func_type| {
             try leb.writeULEB128(writer, wasm.function_type);
             try leb.writeULEB128(writer, @intCast(u32, func_type.params.len));
@@ -1095,8 +1153,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
         var it = self.imports.iterator();
         while (it.next()) |entry| {
-            const import_symbol = self.symbols.items[entry.key_ptr.*];
-            std.debug.assert(import_symbol.isUndefined());
+            assert(entry.key_ptr.*.getSymbol(self).isUndefined());
             const import = entry.value_ptr.*;
             try emitImport(writer, import);
         }
@@ -1207,7 +1264,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                     .Fn => {
                         const target = exprt.exported_decl.link.wasm.sym_index;
                         const target_symbol = self.symbols.items[target];
-                        std.debug.assert(target_symbol.tag == .function);
+                        assert(target_symbol.tag == .function);
                         // Type of the export
                         try writer.writeByte(wasm.externalKind(.function));
                         // Exported function index
@@ -1323,8 +1380,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                     try writer.writeByteNTimes(0, diff);
                     current_offset += diff;
                 }
-                std.debug.assert(current_offset == atom.offset);
-                std.debug.assert(atom.code.items.len == atom.size);
+                assert(current_offset == atom.offset);
+                assert(atom.code.items.len == atom.size);
                 try writer.writeAll(atom.code.items);
 
                 current_offset += atom.size;
@@ -1335,10 +1392,12 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                     // segments are aligned.
                     if (current_offset != segment.size) {
                         try writer.writeByteNTimes(0, segment.size - current_offset);
+                        current_offset += segment.size - current_offset;
                     }
                     break;
                 }
             }
+            assert(current_offset == segment.size);
         }
 
         try writeVecSectionHeader(
@@ -1371,8 +1430,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
         for (self.symbols.items) |symbol| {
             switch (symbol.tag) {
-                .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = std.mem.sliceTo(symbol.name, 0) }),
-                .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = std.mem.sliceTo(symbol.name, 0) }),
+                .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
+                .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
                 else => {},
             }
         }

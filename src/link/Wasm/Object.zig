@@ -131,9 +131,9 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
 
 /// Finds the import within the list of imports from a given kind and index of that kind.
 /// Asserts the import exists
-pub fn findImport(self: *const Object, import_kind: std.wasm.ExternalKind, index: u32) *std.wasm.Import {
+pub fn findImport(self: *const Object, import_kind: std.wasm.ExternalKind, index: u32) std.wasm.Import {
     var i: u32 = 0;
-    return for (self.imports) |*import| {
+    return for (self.imports) |import| {
         if (std.meta.activeTag(import.kind) == import_kind) {
             if (i == index) return import;
             i += 1;
@@ -681,7 +681,7 @@ fn Parser(comptime ReaderType: type) type {
                 },
                 else => {
                     symbol.index = try leb.readULEB128(u32, reader);
-                    var maybe_import: ?*std.wasm.Import = null;
+                    var maybe_import: ?std.wasm.Import = null;
 
                     const is_undefined = symbol.isUndefined();
                     if (is_undefined) {
@@ -791,10 +791,14 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
             .kind = relocatable_data.getSymbolKind(),
             .index = @intCast(u32, relocatable_data.index),
         }) orelse continue; // encountered a segment we do not create an atom for
-        const final_index = try wasm_bin.getMatchingSegment(gpa, object_index, @intCast(u32, index));
+        const final_index = try wasm_bin.getMatchingSegment(object_index, @intCast(u32, index));
 
-        const atom = try Atom.create(gpa);
-        errdefer atom.deinit(gpa);
+        const atom = try gpa.create(Atom);
+        atom.* = Atom.empty;
+        errdefer {
+            atom.deinit(gpa);
+            gpa.destroy(atom);
+        }
 
         try wasm_bin.managed_atoms.append(gpa, atom);
         atom.file = object_index;
@@ -803,19 +807,23 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
         atom.sym_index = sym_index;
 
         const relocations: []types.Relocation = self.relocations.get(relocatable_data.section_index) orelse &.{};
-        for (relocations) |*relocation| {
+        for (relocations) |relocation| {
             if (isInbetween(relocatable_data.offset, atom.size, relocation.offset)) {
                 // set the offset relative to the offset of the segment itself,
                 // rather than within the entire section.
-                relocation.offset -= relocatable_data.offset;
-                try atom.relocs.append(gpa, relocation.*);
+                var reloc = relocation;
+                reloc.offset -= relocatable_data.offset;
+                try atom.relocs.append(gpa, reloc);
 
-                if (relocation.isTableIndex()) {
-                    try wasm_bin.elements.appendSymbol(gpa, .{
-                        .file = object_index,
-                        .sym_index = relocation.index,
-                    });
-                }
+                // TODO: Automatically append the target symbol to the indirect
+                // function table when the relocation is a table index.
+                //
+                // if (relocation.isTableIndex()) {
+                //     try wasm_bin.elements.appendSymbol(gpa, .{
+                //         .file = object_index,
+                //         .sym_index = relocation.index,
+                //     });
+                // }
             }
         }
 
