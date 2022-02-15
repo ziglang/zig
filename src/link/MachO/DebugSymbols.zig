@@ -634,8 +634,9 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
         }
     }
 
-    try self.writeLinkeditSegment();
     self.updateDwarfSegment();
+    try self.writeLinkeditSegment();
+    try self.updateVirtualMemoryMapping();
     try self.writeLoadCommands(allocator);
     try self.writeHeader();
 
@@ -706,10 +707,25 @@ fn copySegmentCommand(
 
 fn updateDwarfSegment(self: *DebugSymbols) void {
     const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].segment;
-    var file_size: u64 = 0;
+
+    var max_offset: u64 = 0;
     for (dwarf_segment.sections.items) |sect| {
-        file_size += sect.size;
+        log.debug("  {s},{s} - 0x{x}-0x{x} - 0x{x}-0x{x}", .{
+            sect.segName(),
+            sect.sectName(),
+            sect.offset,
+            sect.offset + sect.size,
+            sect.addr,
+            sect.addr + sect.size,
+        });
+        if (sect.offset + sect.size > max_offset) {
+            max_offset = sect.offset + sect.size;
+        }
     }
+
+    const file_size = max_offset - dwarf_segment.inner.fileoff;
+    log.debug("__DWARF size 0x{x}", .{file_size});
+
     if (file_size != dwarf_segment.inner.filesize) {
         dwarf_segment.inner.filesize = file_size;
         if (dwarf_segment.inner.vmsize < dwarf_segment.inner.filesize) {
@@ -780,15 +796,59 @@ fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
     return min_pos - start;
 }
 
+fn updateVirtualMemoryMapping(self: *DebugSymbols) !void {
+    const macho_file = self.base;
+    const allocator = macho_file.base.allocator;
+
+    const IndexTuple = std.meta.Tuple(&[_]type{ *?u16, *?u16 });
+    const indices = &[_]IndexTuple{
+        .{ &macho_file.text_segment_cmd_index, &self.text_segment_cmd_index },
+        .{ &macho_file.data_const_segment_cmd_index, &self.data_const_segment_cmd_index },
+        .{ &macho_file.data_segment_cmd_index, &self.data_segment_cmd_index },
+    };
+
+    for (indices) |tuple| {
+        const orig_cmd = macho_file.load_commands.items[tuple[0].*.?].segment;
+        const cmd = try self.copySegmentCommand(allocator, orig_cmd);
+        const comp_cmd = &self.load_commands.items[tuple[1].*.?];
+        comp_cmd.deinit(allocator);
+        self.load_commands.items[tuple[1].*.?] = .{ .segment = cmd };
+    }
+
+    // TODO should we set the linkedit vmsize to that of the binary?
+    const orig_cmd = macho_file.load_commands.items[macho_file.linkedit_segment_cmd_index.?].segment;
+    const orig_vmaddr = orig_cmd.inner.vmaddr;
+    const linkedit_cmd = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
+    linkedit_cmd.inner.vmaddr = orig_vmaddr;
+
+    // Update VM address for the DWARF segment and sections including re-running relocations.
+    // TODO re-run relocations
+    const dwarf_cmd = &self.load_commands.items[self.dwarf_segment_cmd_index.?].segment;
+    const new_start_aligned = orig_vmaddr + linkedit_cmd.inner.vmsize;
+    const old_start_aligned = dwarf_cmd.inner.vmaddr;
+    const diff = new_start_aligned - old_start_aligned;
+    if (diff > 0) {
+        dwarf_cmd.inner.vmaddr = new_start_aligned;
+
+        for (dwarf_cmd.sections.items) |*sect| {
+            sect.addr += (new_start_aligned - old_start_aligned);
+        }
+    }
+
+    self.load_commands_dirty = true;
+}
+
 fn writeLinkeditSegment(self: *DebugSymbols) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
-    seg.inner.filesize = 0;
-
     try self.writeSymbolTable();
     try self.writeStringTable();
+
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
+    const aligned_size = mem.alignForwardGeneric(u64, seg.inner.filesize, self.base.page_size);
+    seg.inner.filesize = aligned_size;
+    seg.inner.vmsize = aligned_size;
 }
 
 fn writeSymbolTable(self: *DebugSymbols) !void {
@@ -797,7 +857,7 @@ fn writeSymbolTable(self: *DebugSymbols) !void {
 
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].symtab;
-    symtab.symoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+    symtab.symoff = @intCast(u32, seg.inner.fileoff);
 
     var locals = std.ArrayList(macho.nlist_64).init(self.base.base.allocator);
     defer locals.deinit();
@@ -810,19 +870,51 @@ fn writeSymbolTable(self: *DebugSymbols) !void {
 
     const nlocals = locals.items.len;
     const nexports = self.base.globals.items.len;
-
     const locals_off = symtab.symoff;
     const locals_size = nlocals * @sizeOf(macho.nlist_64);
+    const exports_off = locals_off + locals_size;
+    const exports_size = nexports * @sizeOf(macho.nlist_64);
+
+    symtab.nsyms = @intCast(u32, nlocals + nexports);
+    const needed_size = (nlocals + nexports) * @sizeOf(macho.nlist_64);
+
+    if (needed_size > seg.inner.filesize) {
+        const aligned_size = mem.alignForwardGeneric(u64, needed_size, self.base.page_size);
+        const diff = @intCast(u32, aligned_size - seg.inner.filesize);
+        const dwarf_seg = &self.load_commands.items[self.dwarf_segment_cmd_index.?].segment;
+        seg.inner.filesize = aligned_size;
+
+        try MachO.copyRangeAllOverlappingAlloc(
+            self.base.base.allocator,
+            self.file,
+            dwarf_seg.inner.fileoff,
+            dwarf_seg.inner.fileoff + diff,
+            try math.cast(usize, dwarf_seg.inner.filesize),
+        );
+
+        const old_seg_fileoff = dwarf_seg.inner.fileoff;
+        dwarf_seg.inner.fileoff += diff;
+
+        log.debug("  (moving __DWARF segment from 0x{x} to 0x{x})", .{ old_seg_fileoff, dwarf_seg.inner.fileoff });
+
+        for (dwarf_seg.sections.items) |*sect| {
+            const old_offset = sect.offset;
+            sect.offset += diff;
+
+            log.debug("  (moving {s},{s} from 0x{x} to 0x{x})", .{
+                sect.segName(),
+                sect.sectName(),
+                old_offset,
+                sect.offset,
+            });
+        }
+    }
+
     log.debug("writing local symbols from 0x{x} to 0x{x}", .{ locals_off, locals_size + locals_off });
     try self.file.pwriteAll(mem.sliceAsBytes(locals.items), locals_off);
 
-    const exports_off = locals_off + locals_size;
-    const exports_size = nexports * @sizeOf(macho.nlist_64);
     log.debug("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
     try self.file.pwriteAll(mem.sliceAsBytes(self.base.globals.items), exports_off);
-
-    symtab.nsyms = @intCast(u32, nlocals + nexports);
-    seg.inner.filesize += locals_size + exports_size;
 
     self.load_commands_dirty = true;
 }
@@ -833,18 +925,48 @@ fn writeStringTable(self: *DebugSymbols) !void {
 
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].symtab;
-    symtab.stroff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
-    symtab.strsize = @intCast(u32, mem.alignForwardGeneric(u64, self.base.strtab.items.len, @alignOf(u64)));
-    seg.inner.filesize += symtab.strsize;
+    const symtab_size = @intCast(u32, symtab.nsyms * @sizeOf(macho.nlist_64));
+    symtab.stroff = symtab.symoff + symtab_size;
+
+    const needed_size = mem.alignForwardGeneric(u64, self.base.strtab.items.len, @alignOf(u64));
+    symtab.strsize = @intCast(u32, needed_size);
+
+    if (symtab_size + needed_size > seg.inner.filesize) {
+        const aligned_size = mem.alignForwardGeneric(u64, symtab_size + needed_size, self.base.page_size);
+        const diff = @intCast(u32, aligned_size - seg.inner.filesize);
+        const dwarf_seg = &self.load_commands.items[self.dwarf_segment_cmd_index.?].segment;
+        seg.inner.filesize = aligned_size;
+
+        try MachO.copyRangeAllOverlappingAlloc(
+            self.base.base.allocator,
+            self.file,
+            dwarf_seg.inner.fileoff,
+            dwarf_seg.inner.fileoff + diff,
+            try math.cast(usize, dwarf_seg.inner.filesize),
+        );
+
+        const old_seg_fileoff = dwarf_seg.inner.fileoff;
+        dwarf_seg.inner.fileoff += diff;
+
+        log.debug("  (moving __DWARF segment from 0x{x} to 0x{x})", .{ old_seg_fileoff, dwarf_seg.inner.fileoff });
+
+        for (dwarf_seg.sections.items) |*sect| {
+            const old_offset = sect.offset;
+            sect.offset += diff;
+
+            log.debug("  (moving {s},{s} from 0x{x} to 0x{x})", .{
+                sect.segName(),
+                sect.sectName(),
+                old_offset,
+                sect.offset,
+            });
+        }
+    }
 
     log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
     try self.file.pwriteAll(self.base.strtab.items, symtab.stroff);
 
-    if (symtab.strsize > self.base.strtab.items.len) {
-        // This is potentially the last section, so we need to pad it out.
-        try self.file.pwriteAll(&[_]u8{0}, seg.inner.fileoff + seg.inner.filesize - 1);
-    }
     self.load_commands_dirty = true;
 }
 
@@ -1088,8 +1210,14 @@ pub fn commitDeclDebugInfo(
                         new_offset,
                     });
 
-                    const amt = try self.file.copyRangeAll(debug_line_sect.offset, self.file, new_offset, existing_size);
-                    if (amt != existing_size) return error.InputOutput;
+                    try MachO.copyRangeAllOverlappingAlloc(
+                        self.base.base.allocator,
+                        self.file,
+                        debug_line_sect.offset,
+                        new_offset,
+                        existing_size,
+                    );
+
                     debug_line_sect.offset = @intCast(u32, new_offset);
                     debug_line_sect.addr = dwarf_segment.inner.vmaddr + new_offset - dwarf_segment.inner.fileoff;
                 }
@@ -1390,8 +1518,14 @@ fn writeDeclDebugInfo(self: *DebugSymbols, text_block: *TextBlock, dbg_info_buf:
                 new_offset,
             });
 
-            const amt = try self.file.copyRangeAll(debug_info_sect.offset, self.file, new_offset, existing_size);
-            if (amt != existing_size) return error.InputOutput;
+            try MachO.copyRangeAllOverlappingAlloc(
+                self.base.base.allocator,
+                self.file,
+                debug_info_sect.offset,
+                new_offset,
+                existing_size,
+            );
+
             debug_info_sect.offset = @intCast(u32, new_offset);
             debug_info_sect.addr = dwarf_segment.inner.vmaddr + new_offset - dwarf_segment.inner.fileoff;
         }
