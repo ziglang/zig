@@ -2042,21 +2042,6 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     return error.Unexpected;
 }
 
-pub fn SetThreadDescription(hThread: HANDLE, lpThreadDescription: LPCWSTR) !void {
-    if (kernel32.SetThreadDescription(hThread, lpThreadDescription) == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-pub fn GetThreadDescription(hThread: HANDLE, ppszThreadDescription: *LPWSTR) !void {
-    if (kernel32.GetThreadDescription(hThread, ppszThreadDescription) == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
 pub const Win32Error = @import("windows/win32error.zig").Win32Error;
 pub const NTSTATUS = @import("windows/ntstatus.zig").NTSTATUS;
 pub const LANG = @import("windows/lang.zig");
