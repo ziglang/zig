@@ -1876,15 +1876,15 @@ fn parseInternal(
                         .String => |stringToken| {
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                            const len = stringToken.decodedLength();
+                            const output = try allocator.alloc(u8, len + 1);
+                            errdefer allocator.free(output);
                             switch (stringToken.escapes) {
-                                .None => return allocator.dupe(u8, source_slice),
-                                .Some => {
-                                    const output = try allocator.alloc(u8, stringToken.decodedLength());
-                                    errdefer allocator.free(output);
-                                    try unescapeValidString(output, source_slice);
-                                    return output;
-                                },
+                                .None => mem.copy(u8, output, source_slice),
+                                .Some => try unescapeValidString(output, source_slice),
                             }
+                            output[len] = 0;
+                            return output;
                         },
                         else => return error.UnexpectedToken,
                     }
