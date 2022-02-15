@@ -12,6 +12,7 @@ arena: std.mem.Allocator,
 types: std.ArrayListUnmanaged(DocData.Type) = .{},
 decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
 ast_nodes: std.ArrayListUnmanaged(DocData.AstNode) = .{},
+comptimeExprs: std.ArrayListUnmanaged(DocData.ComptimeExpr) = .{},
 
 var arena_allocator: std.heap.ArenaAllocator = undefined;
 pub fn init(m: *Module, doc_location: Compilation.EmitLoc) Autodoc {
@@ -48,9 +49,11 @@ pub fn generateZirData(self: *Autodoc) !void {
 
     // append all the types in Zir.Inst.Ref
     {
-
-        // TODO: we don't want to add .none, but the index math has to check out
-        var i: u32 = 0;
+        try self.types.append(self.arena, .{
+            .ComptimeExpr = .{ .name = "ComptimeExpr" },
+        });
+        // this skipts Ref.none but it's ok becuse we replaced it with ComptimeExpr
+        var i: u32 = 1;
         while (i <= @enumToInt(Ref.anyerror_void_error_union_type)) : (i += 1) {
             var tmpbuf = std.ArrayList(u8).init(self.arena);
             try Ref.typed_value_map[i].val.format("", .{}, tmpbuf.writer());
@@ -128,6 +131,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         .types = self.types.items,
         .decls = self.decls.items,
         .astNodes = self.ast_nodes.items,
+        .comptimeExprs = self.comptimeExprs.items,
     };
 
     data.packages[0].main = main_type_index.type;
@@ -196,7 +200,7 @@ const Scope = struct {
 };
 
 const DocData = struct {
-    typeKinds: []const []const u8 = std.meta.fieldNames(std.builtin.TypeId),
+    typeKinds: []const []const u8 = std.meta.fieldNames(DocTypeKinds),
     rootPkg: u32 = 0,
     params: struct {
         zigId: []const u8 = "arst",
@@ -208,7 +212,6 @@ const DocData = struct {
         },
     } = .{},
     packages: [1]Package = .{.{}},
-    fns: []struct {} = &.{},
     errors: []struct {} = &.{},
     calls: []struct {} = &.{},
 
@@ -217,11 +220,27 @@ const DocData = struct {
     files: []const []const u8,
     types: []Type,
     decls: []Decl,
+    comptimeExprs: []ComptimeExpr,
 
+    const DocTypeKinds = blk: {
+        var info = @typeInfo(std.builtin.TypeId);
+        info.Enum.fields = info.Enum.fields ++ [1]std.builtin.TypeInfo.EnumField{
+            .{
+                .name = "ComptimeExpr",
+                .value = info.Enum.fields.len,
+            },
+        };
+        break :blk @Type(info);
+    };
+
+    const ComptimeExpr = struct {
+        code: []const u8,
+        typeRef: TypeRef,
+    };
     const Package = struct {
         name: []const u8 = "root",
-        file: usize = 0, // index into files
-        main: usize = 0, // index into decls
+        file: usize = 0, // index into `files`
+        main: usize = 0, // index into `decls`
         table: struct { root: usize } = .{
             .root = 0,
         },
@@ -244,7 +263,7 @@ const DocData = struct {
         fields: ?[]usize = null, // index into astNodes
     };
 
-    const Type = union(std.builtin.TypeId) {
+    const Type = union(DocTypeKinds) {
         Type: struct { name: []const u8 },
         Void: struct { name: []const u8 },
         Bool: struct { name: []const u8 },
@@ -260,6 +279,7 @@ const DocData = struct {
             pubDecls: ?[]usize = null, // index into decls
             fields: ?[]TypeRef = null, // (use src->fields to find names)
         },
+        ComptimeExpr: struct { name: []const u8 },
         ComptimeFloat: struct { name: []const u8 },
         ComptimeInt: struct { name: []const u8 },
         Undefined: struct { name: []const u8 },
@@ -309,6 +329,7 @@ const DocData = struct {
                 .Array => |v| try printTypeBody(v, options, w),
                 .Bool => |v| try printTypeBody(v, options, w),
                 .Void => |v| try printTypeBody(v, options, w),
+                .ComptimeExpr => |v| try printTypeBody(v, options, w),
                 .ComptimeInt => |v| try printTypeBody(v, options, w),
                 .ComptimeFloat => |v| try printTypeBody(v, options, w),
                 .Null => |v| try printTypeBody(v, options, w),
@@ -355,6 +376,7 @@ const DocData = struct {
         unspecified,
         declRef: usize, // index in `decls`
         type: usize, // index in `types`
+        comptimeExpr: usize, // index in `comptimeExprs`
 
         pub fn fromWalkResult(wr: WalkResult) TypeRef {
             return switch (wr) {
@@ -376,7 +398,7 @@ const DocData = struct {
                     , .{});
                 },
 
-                .declRef, .type => |v| {
+                .declRef, .type, .comptimeExpr => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
@@ -386,6 +408,7 @@ const DocData = struct {
     };
 
     const WalkResult = union(enum) {
+        comptimeExpr: usize, // index in `comptimeExprs`
         void,
         @"unreachable",
         @"null": TypeRef,
@@ -421,7 +444,7 @@ const DocData = struct {
                         \\{{ "{s}":{{}} }}
                     , .{@tagName(self)});
                 },
-                .type, .declRef => |v| {
+                .type, .declRef, .comptimeExpr => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
@@ -493,6 +516,14 @@ fn walkInstruction(
             var new_scope = Scope{ .parent = null };
             return self.walkInstruction(new_file.file, &new_scope, Zir.main_struct_inst);
         },
+        .block => {
+            const res = DocData.WalkResult{ .comptimeExpr = self.comptimeExprs.items.len };
+            try self.comptimeExprs.append(self.arena, .{
+                .code = "if(banana) 1 else 0",
+                .typeRef = .{ .type = 0 },
+            });
+            return res;
+        },
         .int => {
             const int = data[inst_index].int;
             return DocData.WalkResult{
@@ -545,7 +576,9 @@ fn walkInstruction(
                 // and we don't want to toss away the
                 // decl_val information (eg by replacing it with
                 // a WalkResult.type).
-
+                .comptimeExpr => {
+                    self.comptimeExprs.items[operand.comptimeExpr].typeRef = dest_type_ref;
+                },
                 .int => operand.int.typeRef = dest_type_ref,
                 .@"struct" => operand.@"struct".typeRef = dest_type_ref,
                 .@"undefined" => operand.@"undefined" = dest_type_ref,
