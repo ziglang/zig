@@ -5082,22 +5082,18 @@ fn growSegment(self: *MachO, seg_id: u16, new_size: u64) !void {
         seg.inner.vmaddr + seg.inner.vmsize,
     });
 
-    // TODO We should probably nop the expanded by distance, or put 0s.
-
-    // TODO copyRangeAll doesn't automatically extend the file on macOS.
-    const ledit_seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
-    const new_filesize = offset_amt + ledit_seg.inner.fileoff + ledit_seg.inner.filesize;
-    try self.base.file.?.pwriteAll(&[_]u8{0}, new_filesize - 1);
-
     var next: usize = seg_id + 1;
     while (next < self.linkedit_segment_cmd_index.? + 1) : (next += 1) {
         const next_seg = &self.load_commands.items[next].segment;
-        _ = try self.base.file.?.copyRangeAll(
-            next_seg.inner.fileoff,
+
+        try MachO.copyRangeAllOverlappingAlloc(
+            self.base.allocator,
             self.base.file.?,
+            next_seg.inner.fileoff,
             next_seg.inner.fileoff + offset_amt,
-            next_seg.inner.filesize,
+            try math.cast(usize, next_seg.inner.filesize),
         );
+
         next_seg.inner.fileoff += offset_amt;
         next_seg.inner.vmaddr += offset_amt;
 
@@ -5174,11 +5170,13 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
         // the required amount and update their header offsets.
         const next_sect = seg.sections.items[match.sect + 1];
         const total_size = last_sect_off - next_sect.offset;
-        _ = try self.base.file.?.copyRangeAll(
-            next_sect.offset,
+
+        try MachO.copyRangeAllOverlappingAlloc(
+            self.base.allocator,
             self.base.file.?,
+            next_sect.offset,
             next_sect.offset + offset_amt,
-            total_size,
+            try math.cast(usize, total_size),
         );
 
         var next = match.sect + 1;
@@ -6737,4 +6735,20 @@ fn logSectionOrdinals(self: MachO) void {
             sect.sectName(),
         });
     }
+}
+
+/// Since `os.copy_file_range` cannot be used when copying overlapping ranges within the same file,
+/// and since `File.copyRangeAll` uses `os.copy_file_range` under-the-hood, we use heap allocated
+/// buffers on all hosts except Linux (if `copy_file_range` syscall is available).
+pub fn copyRangeAllOverlappingAlloc(
+    allocator: Allocator,
+    file: std.fs.File,
+    in_offset: u64,
+    out_offset: u64,
+    len: usize,
+) !void {
+    const buf = try allocator.alloc(u8, len);
+    defer allocator.free(buf);
+    _ = try file.preadAll(buf, in_offset);
+    try file.pwriteAll(buf, out_offset);
 }
