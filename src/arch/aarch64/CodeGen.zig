@@ -115,6 +115,14 @@ const MCValue = union(enum) {
     /// The value is in memory at a hard-coded address.
     /// If the type is a pointer, it means the pointer address is at this memory location.
     memory: u64,
+    /// The value is in memory referenced indirectly via a GOT entry index.
+    /// If the type is a pointer, it means the pointer is referenced indirectly via GOT.
+    /// When lowered, linker will emit relocations of type ARM64_RELOC_GOT_LOAD_PAGE21 and ARM64_RELOC_GOT_LOAD_PAGEOFF12.
+    got_load: u32,
+    /// The value is in memory referenced directly via symbol index.
+    /// If the type is a pointer, it means the pointer is referenced directly via symbol index.
+    /// When lowered, linker will emit a relocation of type ARM64_RELOC_PAGE21 and ARM64_RELOC_PAGEOFF12.
+    direct_load: u32,
     /// The value is one of the stack variables.
     /// If the type is a pointer, it means the pointer address is in the stack at this offset.
     stack_offset: u32,
@@ -1802,6 +1810,8 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         },
         .memory,
         .stack_offset,
+        .got_load,
+        .direct_load,
         => {
             const reg = try self.register_manager.allocReg(null);
             self.register_manager.freezeRegs(&.{reg});
@@ -1945,6 +1955,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         => {
             const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
             try self.store(.{ .register = addr_reg }, value, ptr_ty, value_ty);
+        },
+        .got_load,
+        .direct_load,
+        => {
+            return self.fail("TODO implement storing to {}", .{ptr});
         },
     }
 }
@@ -2114,6 +2129,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             .memory => unreachable,
             .compare_flags_signed => unreachable,
             .compare_flags_unsigned => unreachable,
+            .got_load => unreachable,
+            .direct_load => unreachable,
             .register => |reg| {
                 try self.register_manager.getReg(reg, null);
                 try self.genSetReg(arg_ty, reg, arg_mcv);
@@ -2160,10 +2177,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
         } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
-                // TODO I'm hacking my way through here by repurposing .memory for storing
-                // index to the GOT target symbol index.
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
-                    .memory = func.owner_decl.link.macho.local_sym_index,
+                    .got_load = func.owner_decl.link.macho.local_sym_index,
                 });
                 // blr x30
                 _ = try self.addInst(.{
@@ -3015,6 +3030,12 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 else => return self.fail("TODO implement storing other types abi_size={}", .{abi_size}),
             }
         },
+        .got_load,
+        .direct_load,
+        => |sym_index| {
+            _ = sym_index;
+            return self.fail("TODO implement set stack variable from {}", .{mcv});
+        },
         .memory => |vaddr| {
             _ = vaddr;
             return self.fail("TODO implement set stack variable from memory vaddr", .{});
@@ -3151,22 +3172,34 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .data = .{ .rr = .{ .rd = reg, .rn = src_reg } },
             });
         },
-        .memory => |addr| {
-            const owner_decl = self.mod_fn.owner_decl;
-            // TODO when refactoring LinkBlock, make this into a generic function.
-            const atom_index = switch (self.bin_file.tag) {
-                .macho => owner_decl.link.macho.local_sym_index,
-                .elf => owner_decl.link.elf.local_sym_index,
-                .plan9 => @intCast(u32, owner_decl.link.plan9.sym_index orelse 0),
-                else => return self.fail("TODO handle aarch64 load memory in {}", .{self.bin_file.tag}),
+        .got_load,
+        .direct_load,
+        => |sym_index| {
+            const tag: Mir.Inst.Tag = switch (mcv) {
+                .got_load => .load_memory_got,
+                .direct_load => .load_memory_direct,
+                else => unreachable,
             };
             _ = try self.addInst(.{
+                .tag = tag,
+                .data = .{
+                    .payload = try self.addExtra(Mir.LoadMemoryPie{
+                        .register = @enumToInt(reg),
+                        .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
+                        .sym_index = sym_index,
+                    }),
+                },
+            });
+        },
+        .memory => |addr| {
+            _ = try self.addInst(.{
                 .tag = .load_memory,
-                .data = .{ .payload = try self.addExtra(Mir.LoadMemory{
-                    .atom_index = atom_index,
-                    .register = @enumToInt(reg),
-                    .addr = @intCast(u32, addr),
-                }) },
+                .data = .{
+                    .load_memory = .{
+                        .register = @enumToInt(reg),
+                        .addr = @intCast(u32, addr),
+                    },
+                },
             });
         },
         .stack_offset => |unadjusted_off| {
@@ -3385,9 +3418,9 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        // TODO I'm hacking my way through here by repurposing .memory for storing
-        // index to the GOT target symbol index.
-        return MCValue{ .memory = decl.link.macho.local_sym_index };
+        // Because MachO is PIE-always-on, we defer memory address resolution until
+        // the linker has enough info to perform relocations.
+        return MCValue{ .got_load = decl.link.macho.local_sym_index };
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
         const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
@@ -3399,6 +3432,25 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});
     }
     _ = tv;
+}
+
+fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
+    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty, tv.val });
+    const local_sym_index = self.bin_file.lowerUnnamedConst(tv, self.mod_fn.owner_decl) catch |err| {
+        return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
+    };
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+        const vaddr = elf_file.local_symbols.items[local_sym_index].st_value;
+        return MCValue{ .memory = vaddr };
+    } else if (self.bin_file.cast(link.File.MachO)) |_| {
+        return MCValue{ .direct_load = local_sym_index };
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        return self.fail("TODO lower unnamed const in COFF", .{});
+    } else if (self.bin_file.cast(link.File.Plan9)) |_| {
+        return self.fail("TODO lower unnamed const in Plan9", .{});
+    } else {
+        return self.fail("TODO lower unnamed const", .{});
+    }
 }
 
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
@@ -3416,23 +3468,20 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     switch (typed_value.ty.zigTypeTag()) {
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {
-                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_type = typed_value.ty.slicePtrFieldType(&buf);
-                const ptr_mcv = try self.genTypedValue(.{ .ty = ptr_type, .val = typed_value.val });
-                const slice_len = typed_value.val.sliceLen();
-                // Codegen can't handle some kinds of indirection. If the wrong union field is accessed here it may mean
-                // the Sema code needs to use anonymous Decls or alloca instructions to store data.
-                const ptr_imm = ptr_mcv.memory;
-                _ = slice_len;
-                _ = ptr_imm;
-                // We need more general support for const data being stored in memory to make this work.
-                return self.fail("TODO codegen for const slices", .{});
+                return self.lowerUnnamedConst(typed_value);
             },
             else => {
-                if (typed_value.val.tag() == .int_u64) {
-                    return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                switch (typed_value.val.tag()) {
+                    .int_u64 => {
+                        return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                    },
+                    .slice => {
+                        return self.lowerUnnamedConst(typed_value);
+                    },
+                    else => {
+                        return self.fail("TODO codegen more kinds of const pointers: {}", .{typed_value.val.tag()});
+                    },
                 }
-                return self.fail("TODO codegen more kinds of const pointers", .{});
             },
         },
         .Int => {
@@ -3515,6 +3564,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
 
                 return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty});
             }
+        },
+        .Struct => {
+            return self.lowerUnnamedConst(typed_value);
         },
         else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
     }

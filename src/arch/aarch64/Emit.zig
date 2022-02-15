@@ -109,6 +109,8 @@ pub fn emitMir(
             .eor_shifted_register => try emit.mirLogicalShiftedRegister(inst),
 
             .load_memory => try emit.mirLoadMemory(inst),
+            .load_memory_got => try emit.mirLoadMemoryPie(inst),
+            .load_memory_direct => try emit.mirLoadMemoryPie(inst),
 
             .ldp => try emit.mirLoadStoreRegisterPair(inst),
             .stp => try emit.mirLoadStoreRegisterPair(inst),
@@ -205,21 +207,18 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
     }
 
     switch (tag) {
+        .load_memory_got,
+        .load_memory_direct,
+        => return 2 * 4,
         .load_memory => {
-            if (emit.bin_file.options.pie) {
-                // adrp, ldr
-                return 2 * 4;
-            } else {
-                const payload = emit.mir.instructions.items(.data)[inst].payload;
-                const load_memory = emit.mir.extraData(Mir.LoadMemory, payload).data;
-                const addr = load_memory.addr;
+            const load_memory = emit.mir.instructions.items(.data)[inst].load_memory;
+            const addr = load_memory.addr;
 
-                // movz, [movk, ...], ldr
-                if (addr <= math.maxInt(u16)) return 2 * 4;
-                if (addr <= math.maxInt(u32)) return 3 * 4;
-                if (addr <= math.maxInt(u48)) return 4 * 4;
-                return 5 * 4;
-            }
+            // movz, [movk, ...], ldr
+            if (addr <= math.maxInt(u16)) return 2 * 4;
+            if (addr <= math.maxInt(u32)) return 3 * 4;
+            if (addr <= math.maxInt(u48)) return 4 * 4;
+            return 5 * 4;
         },
         .pop_regs, .push_regs => {
             const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
@@ -658,58 +657,69 @@ fn mirLogicalShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
     assert(emit.mir.instructions.items(.tag)[inst] == .load_memory);
-    const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const load_memory = emit.mir.extraData(Mir.LoadMemory, payload).data;
+    const load_memory = emit.mir.instructions.items(.data)[inst].load_memory;
     const reg = @intToEnum(Register, load_memory.register);
     const addr = load_memory.addr;
+    // The value is in memory at a hard-coded address.
+    // If the type is a pointer, it means the pointer address is at this memory location.
+    try emit.moveImmediate(reg, addr);
+    try emit.writeInstruction(Instruction.ldr(
+        reg,
+        reg,
+        Instruction.LoadStoreOffset.none,
+    ));
+}
 
-    if (emit.bin_file.options.pie) {
-        // PC-relative displacement to the entry in the GOT table.
-        // adrp
-        const offset = @intCast(u32, emit.code.items.len);
-        try emit.writeInstruction(Instruction.adrp(reg, 0));
+fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const payload = emit.mir.instructions.items(.data)[inst].payload;
+    const data = emit.mir.extraData(Mir.LoadMemoryPie, payload).data;
+    const reg = @intToEnum(Register, data.register);
 
-        // ldr reg, reg, offset
-        try emit.writeInstruction(Instruction.ldr(
-            reg,
-            reg,
-            Instruction.LoadStoreOffset.imm(0),
-        ));
+    // PC-relative displacement to the entry in the GOT table.
+    // adrp
+    const offset = @intCast(u32, emit.code.items.len);
+    try emit.writeInstruction(Instruction.adrp(reg, 0));
 
-        if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-            const atom = macho_file.atom_by_index_table.get(load_memory.atom_index).?;
-            // Page reloc for adrp instruction.
-            try atom.relocs.append(emit.bin_file.allocator, .{
-                .offset = offset,
-                .target = .{ .local = addr },
-                .addend = 0,
-                .subtractor = null,
-                .pcrel = true,
-                .length = 2,
-                .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
-            });
-            // Pageoff reloc for adrp instruction.
-            try atom.relocs.append(emit.bin_file.allocator, .{
-                .offset = offset + 4,
-                .target = .{ .local = addr },
-                .addend = 0,
-                .subtractor = null,
-                .pcrel = false,
-                .length = 2,
-                .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
-            });
-        } else {
-            return emit.fail("TODO implement load_memory for PIE GOT indirection on this platform", .{});
-        }
+    // ldr reg, reg, offset
+    try emit.writeInstruction(Instruction.ldr(
+        reg,
+        reg,
+        Instruction.LoadStoreOffset.imm(0),
+    ));
+
+    if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+        const atom = macho_file.atom_by_index_table.get(data.atom_index).?;
+        // Page reloc for adrp instruction.
+        try atom.relocs.append(emit.bin_file.allocator, .{
+            .offset = offset,
+            .target = .{ .local = data.sym_index },
+            .addend = 0,
+            .subtractor = null,
+            .pcrel = true,
+            .length = 2,
+            .@"type" = switch (tag) {
+                .load_memory_got => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
+                .load_memory_direct => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGE21),
+                else => unreachable,
+            },
+        });
+        // Pageoff reloc for adrp instruction.
+        try atom.relocs.append(emit.bin_file.allocator, .{
+            .offset = offset + 4,
+            .target = .{ .local = data.sym_index },
+            .addend = 0,
+            .subtractor = null,
+            .pcrel = false,
+            .length = 2,
+            .@"type" = switch (tag) {
+                .load_memory_got => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
+                .load_memory_direct => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGEOFF12),
+                else => unreachable,
+            },
+        });
     } else {
-        // The value is in memory at a hard-coded address.
-        // If the type is a pointer, it means the pointer address is at this memory location.
-        try emit.moveImmediate(reg, addr);
-        try emit.writeInstruction(Instruction.ldr(
-            reg,
-            reg,
-            Instruction.LoadStoreOffset.none,
-        ));
+        return emit.fail("TODO implement load_memory for PIE GOT indirection on this platform", .{});
     }
 }
 
