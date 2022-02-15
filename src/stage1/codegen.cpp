@@ -1620,13 +1620,23 @@ static LLVMValueRef gen_soft_f80_widen_or_shorten(CodeGen *g, ZigType *actual_ty
     LLVMTypeRef return_type;
     const char *func_name;
 
+    LLVMValueRef result;
+    bool castTruncatedToF16 = false;
+
     if (actual_bits == wanted_bits) {
         return expr_val;
     } else if (actual_bits == 80) {
         param_type = g->builtin_types.entry_f80->llvm_type;
         switch (wanted_bits) {
             case 16:
-                return_type = g->builtin_types.entry_f16->llvm_type;
+                // Only Arm has a native f16 type, other platforms soft-implement it
+                // using u16 instead.
+                if (target_is_arm(g->zig_target)) {
+                    return_type = g->builtin_types.entry_f16->llvm_type;
+                } else {
+                    return_type = g->builtin_types.entry_u16->llvm_type;
+                    castTruncatedToF16 = true;
+                }
                 func_name = "__truncxfhf2";
                 break;
             case 32:
@@ -1648,7 +1658,14 @@ static LLVMValueRef gen_soft_f80_widen_or_shorten(CodeGen *g, ZigType *actual_ty
         return_type = g->builtin_types.entry_f80->llvm_type;
         switch (actual_bits) {
             case 16:
-                param_type = g->builtin_types.entry_f16->llvm_type;
+                // Only Arm has a native f16 type, other platforms soft-implement it
+                // using u16 instead.
+                if (target_is_arm(g->zig_target)) {
+                    param_type = g->builtin_types.entry_f16->llvm_type;
+                } else {
+                    param_type = g->builtin_types.entry_u16->llvm_type;
+                    expr_val = LLVMBuildBitCast(g->builder, expr_val, param_type, "");
+                }
                 func_name = "__extendhfxf2";
                 break;
             case 32:
@@ -1676,7 +1693,14 @@ static LLVMValueRef gen_soft_f80_widen_or_shorten(CodeGen *g, ZigType *actual_ty
         func_ref = LLVMAddFunction(g->module, func_name, fn_type);
     }
 
-    return LLVMBuildCall(g->builder, func_ref, &expr_val, 1, "");
+    result = LLVMBuildCall(g->builder, func_ref, &expr_val, 1, "");
+
+    // On non-Arm platforms we need to bitcast __truncxfhf2 result back to f16
+    if (castTruncatedToF16) {
+        result = LLVMBuildBitCast(g->builder, result, g->builtin_types.entry_f16->llvm_type, "");
+    }
+
+    return result;
 }
 
 static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, ZigType *actual_type,
@@ -10475,7 +10499,7 @@ void codegen_build_object(CodeGen *g) {
 
     codegen_add_time_event(g, "Done");
     codegen_switch_sub_prog_node(g, nullptr);
-   
+
     // append all export symbols to stage2 so we can provide them to the linker
     if (target_is_wasm(g->zig_target)){
         Error err;
