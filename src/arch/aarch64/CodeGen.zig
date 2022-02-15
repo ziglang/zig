@@ -3434,6 +3434,25 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
     _ = tv;
 }
 
+fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
+    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty, tv.val });
+    const local_sym_index = self.bin_file.lowerUnnamedConst(tv, self.mod_fn.owner_decl) catch |err| {
+        return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
+    };
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+        const vaddr = elf_file.local_symbols.items[local_sym_index].st_value;
+        return MCValue{ .memory = vaddr };
+    } else if (self.bin_file.cast(link.File.MachO)) |_| {
+        return MCValue{ .direct_load = local_sym_index };
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        return self.fail("TODO lower unnamed const in COFF", .{});
+    } else if (self.bin_file.cast(link.File.Plan9)) |_| {
+        return self.fail("TODO lower unnamed const in Plan9", .{});
+    } else {
+        return self.fail("TODO lower unnamed const", .{});
+    }
+}
+
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     if (typed_value.val.isUndef())
         return MCValue{ .undef = {} };
@@ -3449,23 +3468,20 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     switch (typed_value.ty.zigTypeTag()) {
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {
-                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_type = typed_value.ty.slicePtrFieldType(&buf);
-                const ptr_mcv = try self.genTypedValue(.{ .ty = ptr_type, .val = typed_value.val });
-                const slice_len = typed_value.val.sliceLen();
-                // Codegen can't handle some kinds of indirection. If the wrong union field is accessed here it may mean
-                // the Sema code needs to use anonymous Decls or alloca instructions to store data.
-                const ptr_imm = ptr_mcv.memory;
-                _ = slice_len;
-                _ = ptr_imm;
-                // We need more general support for const data being stored in memory to make this work.
-                return self.fail("TODO codegen for const slices", .{});
+                return self.lowerUnnamedConst(typed_value);
             },
             else => {
-                if (typed_value.val.tag() == .int_u64) {
-                    return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                switch (typed_value.val.tag()) {
+                    .int_u64 => {
+                        return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                    },
+                    .slice => {
+                        return self.lowerUnnamedConst(typed_value);
+                    },
+                    else => {
+                        return self.fail("TODO codegen more kinds of const pointers: {}", .{typed_value.val.tag()});
+                    },
                 }
-                return self.fail("TODO codegen more kinds of const pointers", .{});
             },
         },
         .Int => {
@@ -3548,6 +3564,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
 
                 return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty});
             }
+        },
+        .Struct => {
+            return self.lowerUnnamedConst(typed_value);
         },
         else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
     }
