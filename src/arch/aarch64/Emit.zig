@@ -50,11 +50,13 @@ const InnerError = error{
 };
 
 const BranchType = enum {
+    cbz,
     b_cond,
     unconditional_branch_immediate,
 
     fn default(tag: Mir.Inst.Tag) BranchType {
         return switch (tag) {
+            .cbz => .cbz,
             .b, .bl => .unconditional_branch_immediate,
             .b_cond => .b_cond,
             else => unreachable,
@@ -83,6 +85,8 @@ pub fn emitMir(
             .b => try emit.mirBranch(inst),
             .bl => try emit.mirBranch(inst),
 
+            .cbz => try emit.mirCompareAndBranch(inst),
+
             .blr => try emit.mirUnconditionalBranchRegister(inst),
             .ret => try emit.mirUnconditionalBranchRegister(inst),
 
@@ -91,7 +95,9 @@ pub fn emitMir(
 
             .call_extern => try emit.mirCallExtern(inst),
 
+            .add_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
             .cmp_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
+            .sub_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
 
             .cset => try emit.mirConditionalSelect(inst),
 
@@ -99,6 +105,8 @@ pub fn emitMir(
 
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
+
+            .eor_shifted_register => try emit.mirLogicalShiftedRegister(inst),
 
             .load_memory => try emit.mirLoadMemory(inst),
 
@@ -128,9 +136,12 @@ pub fn emitMir(
 
             .mov_register => try emit.mirMoveRegister(inst),
             .mov_to_from_sp => try emit.mirMoveRegister(inst),
+            .mvn => try emit.mirMoveRegister(inst),
 
             .movk => try emit.mirMoveWideImmediate(inst),
             .movz => try emit.mirMoveWideImmediate(inst),
+
+            .mul => try emit.mirDataProcessing3Source(inst),
 
             .nop => try emit.mirNop(),
 
@@ -156,15 +167,22 @@ fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
     assert(offset & 0b11 == 0);
 
     switch (tag) {
+        .cbz => {
+            if (std.math.cast(i19, @shrExact(offset, 2))) |_| {
+                return BranchType.cbz;
+            } else |_| {
+                return emit.fail("TODO support cbz branches larger than +-1 MiB", .{});
+            }
+        },
         .b, .bl => {
-            if (std.math.cast(i26, offset >> 2)) |_| {
+            if (std.math.cast(i26, @shrExact(offset, 2))) |_| {
                 return BranchType.unconditional_branch_immediate;
             } else |_| {
-                return emit.fail("TODO support branches larger than +-128 MiB", .{});
+                return emit.fail("TODO support unconditional branches larger than +-128 MiB", .{});
             }
         },
         .b_cond => {
-            if (std.math.cast(i19, offset >> 2)) |_| {
+            if (std.math.cast(i19, @shrExact(offset, 2))) |_| {
                 return BranchType.b_cond;
             } else |_| {
                 return emit.fail("TODO support conditional branches larger than +-1 MiB", .{});
@@ -179,8 +197,10 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
 
     if (isBranch(tag)) {
         switch (emit.branch_types.get(inst).?) {
-            .unconditional_branch_immediate => return 4,
-            .b_cond => return 4,
+            .cbz,
+            .unconditional_branch_immediate,
+            .b_cond,
+            => return 4,
         }
     }
 
@@ -201,6 +221,12 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
                 return 5 * 4;
             }
         },
+        .pop_regs, .push_regs => {
+            const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
+            const number_of_regs = @popCount(u32, reg_list);
+            const number_of_insts = std.math.divCeil(u6, number_of_regs, 2) catch unreachable;
+            return number_of_insts * 4;
+        },
         .call_extern => return 4,
         .dbg_line,
         .dbg_epilogue_begin,
@@ -212,7 +238,11 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
 
 fn isBranch(tag: Mir.Inst.Tag) bool {
     return switch (tag) {
-        .b, .bl, .b_cond => true,
+        .cbz,
+        .b,
+        .bl,
+        .b_cond,
+        => true,
         else => false,
     };
 }
@@ -221,6 +251,7 @@ fn branchTarget(emit: *Emit, inst: Mir.Inst.Index) Mir.Inst.Index {
     const tag = emit.mir.instructions.items(.tag)[inst];
 
     switch (tag) {
+        .cbz => return emit.mir.instructions.items(.data)[inst].r_inst.inst,
         .b, .bl => return emit.mir.instructions.items(.data)[inst].inst,
         .b_cond => return emit.mir.instructions.items(.data)[inst].inst_cond.inst,
         else => unreachable,
@@ -414,27 +445,30 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
 
 fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const rr_imm12_sh = emit.mir.instructions.items(.data)[inst].rr_imm12_sh;
-
     switch (tag) {
-        .add_immediate => try emit.writeInstruction(Instruction.add(
-            rr_imm12_sh.rd,
-            rr_imm12_sh.rn,
-            rr_imm12_sh.imm12,
-            rr_imm12_sh.sh == 1,
-        )),
-        .cmp_immediate => try emit.writeInstruction(Instruction.subs(
-            rr_imm12_sh.rd,
-            rr_imm12_sh.rn,
-            rr_imm12_sh.imm12,
-            rr_imm12_sh.sh == 1,
-        )),
-        .sub_immediate => try emit.writeInstruction(Instruction.sub(
-            rr_imm12_sh.rd,
-            rr_imm12_sh.rn,
-            rr_imm12_sh.imm12,
-            rr_imm12_sh.sh == 1,
-        )),
+        .add_immediate,
+        .sub_immediate,
+        => {
+            const rr_imm12_sh = emit.mir.instructions.items(.data)[inst].rr_imm12_sh;
+            const rd = rr_imm12_sh.rd;
+            const rn = rr_imm12_sh.rn;
+            const imm12 = rr_imm12_sh.imm12;
+            const sh = rr_imm12_sh.sh == 1;
+
+            switch (tag) {
+                .add_immediate => try emit.writeInstruction(Instruction.add(rd, rn, imm12, sh)),
+                .sub_immediate => try emit.writeInstruction(Instruction.sub(rd, rn, imm12, sh)),
+                else => unreachable,
+            }
+        },
+        .cmp_immediate => {
+            const r_imm12_sh = emit.mir.instructions.items(.data)[inst].r_imm12_sh;
+            const rn = r_imm12_sh.rn;
+            const imm12 = r_imm12_sh.imm12;
+            const sh = r_imm12_sh.sh == 1;
+
+            try emit.writeInstruction(Instruction.subs(.xzr, rn, imm12, sh));
+        },
         else => unreachable,
     }
 }
@@ -475,6 +509,23 @@ fn mirBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
         .unconditional_branch_immediate => switch (tag) {
             .b => try emit.writeInstruction(Instruction.b(@intCast(i28, offset))),
             .bl => try emit.writeInstruction(Instruction.bl(@intCast(i28, offset))),
+            else => unreachable,
+        },
+        else => unreachable,
+    }
+}
+
+fn mirCompareAndBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const r_inst = emit.mir.instructions.items(.data)[inst].r_inst;
+
+    const offset = @intCast(i64, emit.code_offset_mapping.get(r_inst.inst).?) - @intCast(i64, emit.code.items.len);
+    const branch_type = emit.branch_types.get(inst).?;
+    log.debug("mirCompareAndBranch: {} offset={}", .{ inst, offset });
+
+    switch (branch_type) {
+        .cbz => switch (tag) {
+            .cbz => try emit.writeInstruction(Instruction.cbz(r_inst.rt, @intCast(i21, offset))),
             else => unreachable,
         },
         else => unreachable,
@@ -565,30 +616,42 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const rrr_imm6_shift = emit.mir.instructions.items(.data)[inst].rrr_imm6_shift;
+    const rd = rrr_imm6_shift.rd;
+    const rn = rrr_imm6_shift.rn;
+    const rm = rrr_imm6_shift.rm;
+    const shift = rrr_imm6_shift.shift;
+    const imm6 = rrr_imm6_shift.imm6;
 
     switch (tag) {
-        .cmp_shifted_register => try emit.writeInstruction(Instruction.subsShiftedRegister(
-            rrr_imm6_shift.rd,
-            rrr_imm6_shift.rn,
-            rrr_imm6_shift.rm,
-            rrr_imm6_shift.shift,
-            rrr_imm6_shift.imm6,
-        )),
+        .add_shifted_register => try emit.writeInstruction(Instruction.addShiftedRegister(rd, rn, rm, shift, imm6)),
+        .cmp_shifted_register => try emit.writeInstruction(Instruction.subsShiftedRegister(rd, rn, rm, shift, imm6)),
+        .sub_shifted_register => try emit.writeInstruction(Instruction.subShiftedRegister(rd, rn, rm, shift, imm6)),
         else => unreachable,
     }
 }
 
 fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const rrr_cond = emit.mir.instructions.items(.data)[inst].rrr_cond;
+    switch (tag) {
+        .cset => {
+            const r_cond = emit.mir.instructions.items(.data)[inst].r_cond;
+            try emit.writeInstruction(Instruction.csinc(r_cond.rd, .xzr, .xzr, r_cond.cond));
+        },
+        else => unreachable,
+    }
+}
+
+fn mirLogicalShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rrr_imm6_logical_shift = emit.mir.instructions.items(.data)[inst].rrr_imm6_logical_shift;
+    const rd = rrr_imm6_logical_shift.rd;
+    const rn = rrr_imm6_logical_shift.rn;
+    const rm = rrr_imm6_logical_shift.rm;
+    const shift = rrr_imm6_logical_shift.shift;
+    const imm6 = rrr_imm6_logical_shift.imm6;
 
     switch (tag) {
-        .cset => try emit.writeInstruction(Instruction.csinc(
-            rrr_cond.rd,
-            rrr_cond.rn,
-            rrr_cond.rm,
-            rrr_cond.cond,
-        )),
+        .eor_shifted_register => try emit.writeInstruction(Instruction.eor(rd, rn, rm, shift, imm6)),
         else => unreachable,
     }
 }
@@ -653,20 +716,14 @@ fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirLoadStoreRegisterPair(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const load_store_register_pair = emit.mir.instructions.items(.data)[inst].load_store_register_pair;
+    const rt = load_store_register_pair.rt;
+    const rt2 = load_store_register_pair.rt2;
+    const rn = load_store_register_pair.rn;
+    const offset = load_store_register_pair.offset;
 
     switch (tag) {
-        .stp => try emit.writeInstruction(Instruction.stp(
-            load_store_register_pair.rt,
-            load_store_register_pair.rt2,
-            load_store_register_pair.rn,
-            load_store_register_pair.offset,
-        )),
-        .ldp => try emit.writeInstruction(Instruction.ldp(
-            load_store_register_pair.rt,
-            load_store_register_pair.rt2,
-            load_store_register_pair.rn,
-            load_store_register_pair.offset,
-        )),
+        .stp => try emit.writeInstruction(Instruction.stp(rt, rt2, rn, offset)),
+        .ldp => try emit.writeInstruction(Instruction.ldp(rt, rt2, rn, offset)),
         else => unreachable,
     }
 }
@@ -782,11 +839,19 @@ fn mirLoadStoreRegisterRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirMoveRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const rr = emit.mir.instructions.items(.data)[inst].rr;
-
     switch (tag) {
-        .mov_register => try emit.writeInstruction(Instruction.orr(rr.rd, .xzr, rr.rn, Instruction.Shift.none)),
-        .mov_to_from_sp => try emit.writeInstruction(Instruction.add(rr.rd, rr.rn, 0, false)),
+        .mov_register => {
+            const rr = emit.mir.instructions.items(.data)[inst].rr;
+            try emit.writeInstruction(Instruction.orr(rr.rd, .xzr, rr.rn, .lsl, 0));
+        },
+        .mov_to_from_sp => {
+            const rr = emit.mir.instructions.items(.data)[inst].rr;
+            try emit.writeInstruction(Instruction.add(rr.rd, rr.rn, 0, false));
+        },
+        .mvn => {
+            const rr_imm6_shift = emit.mir.instructions.items(.data)[inst].rr_imm6_shift;
+            try emit.writeInstruction(Instruction.orn(rr_imm6_shift.rd, .xzr, rr_imm6_shift.rm, .lsl, 0));
+        },
         else => unreachable,
     }
 }
@@ -798,6 +863,16 @@ fn mirMoveWideImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .movz => try emit.writeInstruction(Instruction.movz(r_imm16_sh.rd, r_imm16_sh.imm16, @as(u6, r_imm16_sh.hw) << 4)),
         .movk => try emit.writeInstruction(Instruction.movk(r_imm16_sh.rd, r_imm16_sh.imm16, @as(u6, r_imm16_sh.hw) << 4)),
+        else => unreachable,
+    }
+}
+
+fn mirDataProcessing3Source(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rrr = emit.mir.instructions.items(.data)[inst].rrr;
+
+    switch (tag) {
+        .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
         else => unreachable,
     }
 }
