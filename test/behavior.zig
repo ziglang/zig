@@ -6,6 +6,8 @@ test {
     _ = @import("behavior/array.zig");
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bit_shifting.zig");
+    _ = @import("behavior/bitreverse.zig");
+    _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/655.zig");
@@ -105,8 +107,6 @@ test {
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
                 _ = @import("behavior/atomics.zig");
-                _ = @import("behavior/bitreverse.zig");
-                _ = @import("behavior/byteswap.zig");
                 _ = @import("behavior/bugs/9584.zig");
                 _ = @import("behavior/eval.zig");
                 _ = @import("behavior/floatop.zig");

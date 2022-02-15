@@ -4390,7 +4390,7 @@ pub const FuncGen = struct {
         var operand_llvm_ty = try self.dg.llvmType(operand_ty);
 
         if (bits % 16 == 8) {
-            // If not an even byte-multiple, we need zero-extend + shift-left 1 byte 
+            // If not an even byte-multiple, we need zero-extend + shift-left 1 byte
             // The truncated result at the end will be the correct bswap
             operand_llvm_ty = self.context.intType(bits + 8);
             const extended = self.builder.buildZExt(operand, operand_llvm_ty, "");
