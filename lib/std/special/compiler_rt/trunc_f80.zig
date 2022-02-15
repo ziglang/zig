@@ -10,7 +10,7 @@ pub fn __truncxfhf2(a: f80) callconv(.C) F16T {
     return @bitCast(F16T, trunc(f16, a));
 }
 
-pub fn __truncxfff2(a: f80) callconv(.C) f32 {
+pub fn __truncxfsf2(a: f80) callconv(.C) f32 {
     return trunc(f32, a);
 }
 

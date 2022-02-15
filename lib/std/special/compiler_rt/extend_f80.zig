@@ -11,7 +11,7 @@ pub fn __extendhfxf2(a: F16T) callconv(.C) f80 {
     return extendF80(f16, @bitCast(u16, a));
 }
 
-pub fn __extendffxf2(a: f32) callconv(.C) f80 {
+pub fn __extendsfxf2(a: f32) callconv(.C) f80 {
     return extendF80(f32, @bitCast(u32, a));
 }
 
