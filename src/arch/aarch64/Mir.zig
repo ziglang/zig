@@ -58,8 +58,12 @@ pub const Inst = struct {
         eor_shifted_register,
         /// Pseudo-instruction: Load memory
         ///
-        /// Payload is `LoadMemory`
+        /// Payload is `load_memory`
         load_memory,
+        /// Payload is `LoadMemoryPie`
+        load_memory_got,
+        /// Payload is `LoadMemoryPie`
+        load_memory_direct,
         /// Load Pair of Registers
         ldp,
         /// Pseudo-instruction: Load from stack
@@ -157,8 +161,6 @@ pub const Inst = struct {
         /// Used by e.g. svc
         imm16: u16,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
-        ///
-        /// Used by e.g. load_memory
         payload: u32,
         /// A register
         ///
@@ -298,6 +300,10 @@ pub const Inst = struct {
             line: u32,
             column: u32,
         },
+        load_memory: struct {
+            register: u32,
+            addr: u32,
+        },
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
@@ -335,8 +341,10 @@ pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end
     };
 }
 
-pub const LoadMemory = struct {
-    atom_index: u32,
+pub const LoadMemoryPie = struct {
     register: u32,
-    addr: u32,
+    /// Index of the containing atom.
+    atom_index: u32,
+    /// Index into the linker's symbol table.
+    sym_index: u32,
 };
