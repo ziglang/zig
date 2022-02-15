@@ -41,8 +41,8 @@ comptime {
 
     const __extendhfxf2 = @import("compiler_rt/extend_f80.zig").__extendhfxf2;
     @export(__extendhfxf2, .{ .name = "__extendhfxf2", .linkage = linkage });
-    const __extendffxf2 = @import("compiler_rt/extend_f80.zig").__extendffxf2;
-    @export(__extendffxf2, .{ .name = "__extendffxf2", .linkage = linkage });
+    const __extendsfxf2 = @import("compiler_rt/extend_f80.zig").__extendsfxf2;
+    @export(__extendsfxf2, .{ .name = "__extendsfxf2", .linkage = linkage });
     const __extenddfxf2 = @import("compiler_rt/extend_f80.zig").__extenddfxf2;
     @export(__extenddfxf2, .{ .name = "__extenddfxf2", .linkage = linkage });
     const __extendxftf2 = @import("compiler_rt/extend_f80.zig").__extendxftf2;
@@ -104,26 +104,6 @@ comptime {
         @export(__letf2, .{ .name = "__netf2", .linkage = linkage });
         @export(__extendhfsf2, .{ .name = "__gnu_h2f_ieee", .linkage = linkage });
     }
-
-    // Integral arithmetic which returns if overflow
-    const __addosi4 = @import("compiler_rt/addo.zig").__addosi4;
-    @export(__addosi4, .{ .name = "__addosi4", .linkage = linkage });
-    const __addodi4 = @import("compiler_rt/addo.zig").__addodi4;
-    @export(__addodi4, .{ .name = "__addodi4", .linkage = linkage });
-    const __addoti4 = @import("compiler_rt/addo.zig").__addoti4;
-    @export(__addoti4, .{ .name = "__addoti4", .linkage = linkage });
-    const __subosi4 = @import("compiler_rt/subo.zig").__subosi4;
-    @export(__subosi4, .{ .name = "__subosi4", .linkage = linkage });
-    const __subodi4 = @import("compiler_rt/subo.zig").__subodi4;
-    @export(__subodi4, .{ .name = "__subodi4", .linkage = linkage });
-    const __suboti4 = @import("compiler_rt/subo.zig").__suboti4;
-    @export(__suboti4, .{ .name = "__suboti4", .linkage = linkage });
-    const __mulosi4 = @import("compiler_rt/mulo.zig").__mulosi4;
-    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = linkage });
-    const __mulodi4 = @import("compiler_rt/mulo.zig").__mulodi4;
-    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
-    const __muloti4 = @import("compiler_rt/mulo.zig").__muloti4;
-    @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
 
     if (builtin.os.tag == .windows) {
         // Default stack-probe functions emitted by LLVM
@@ -214,8 +194,8 @@ comptime {
 
     const __truncxfhf2 = @import("compiler_rt/trunc_f80.zig").__truncxfhf2;
     @export(__truncxfhf2, .{ .name = "__truncxfhf2", .linkage = linkage });
-    const __truncxfff2 = @import("compiler_rt/trunc_f80.zig").__truncxfff2;
-    @export(__truncxfff2, .{ .name = "__truncxfff2", .linkage = linkage });
+    const __truncxfsf2 = @import("compiler_rt/trunc_f80.zig").__truncxfsf2;
+    @export(__truncxfsf2, .{ .name = "__truncxfsf2", .linkage = linkage });
     const __truncxfdf2 = @import("compiler_rt/trunc_f80.zig").__truncxfdf2;
     @export(__truncxfdf2, .{ .name = "__truncxfdf2", .linkage = linkage });
     const __trunctfxf2 = @import("compiler_rt/trunc_f80.zig").__trunctfxf2;
@@ -274,20 +254,7 @@ comptime {
     const __divtf3 = @import("compiler_rt/divtf3.zig").__divtf3;
     @export(__divtf3, .{ .name = "__divtf3", .linkage = linkage });
 
-    // Integral bit manipulation
-    const __ashldi3 = @import("compiler_rt/shift.zig").__ashldi3;
-    @export(__ashldi3, .{ .name = "__ashldi3", .linkage = linkage });
-    const __ashlti3 = @import("compiler_rt/shift.zig").__ashlti3;
-    @export(__ashlti3, .{ .name = "__ashlti3", .linkage = linkage });
-    const __ashrdi3 = @import("compiler_rt/shift.zig").__ashrdi3;
-    @export(__ashrdi3, .{ .name = "__ashrdi3", .linkage = linkage });
-    const __ashrti3 = @import("compiler_rt/shift.zig").__ashrti3;
-    @export(__ashrti3, .{ .name = "__ashrti3", .linkage = linkage });
-    const __lshrdi3 = @import("compiler_rt/shift.zig").__lshrdi3;
-    @export(__lshrdi3, .{ .name = "__lshrdi3", .linkage = linkage });
-    const __lshrti3 = @import("compiler_rt/shift.zig").__lshrti3;
-    @export(__lshrti3, .{ .name = "__lshrti3", .linkage = linkage });
-
+    // Integer Bit operations
     const __clzsi2 = @import("compiler_rt/count0bits.zig").__clzsi2;
     @export(__clzsi2, .{ .name = "__clzsi2", .linkage = linkage });
     const __clzdi2 = @import("compiler_rt/count0bits.zig").__clzdi2;
@@ -306,21 +273,18 @@ comptime {
     @export(__ffsdi2, .{ .name = "__ffsdi2", .linkage = linkage });
     const __ffsti2 = @import("compiler_rt/count0bits.zig").__ffsti2;
     @export(__ffsti2, .{ .name = "__ffsti2", .linkage = linkage });
-
     const __paritysi2 = @import("compiler_rt/parity.zig").__paritysi2;
     @export(__paritysi2, .{ .name = "__paritysi2", .linkage = linkage });
     const __paritydi2 = @import("compiler_rt/parity.zig").__paritydi2;
     @export(__paritydi2, .{ .name = "__paritydi2", .linkage = linkage });
     const __parityti2 = @import("compiler_rt/parity.zig").__parityti2;
     @export(__parityti2, .{ .name = "__parityti2", .linkage = linkage });
-
     const __popcountsi2 = @import("compiler_rt/popcount.zig").__popcountsi2;
     @export(__popcountsi2, .{ .name = "__popcountsi2", .linkage = linkage });
     const __popcountdi2 = @import("compiler_rt/popcount.zig").__popcountdi2;
     @export(__popcountdi2, .{ .name = "__popcountdi2", .linkage = linkage });
     const __popcountti2 = @import("compiler_rt/popcount.zig").__popcountti2;
     @export(__popcountti2, .{ .name = "__popcountti2", .linkage = linkage });
-
     const __bswapsi2 = @import("compiler_rt/bswap.zig").__bswapsi2;
     @export(__bswapsi2, .{ .name = "__bswapsi2", .linkage = linkage });
     const __bswapdi2 = @import("compiler_rt/bswap.zig").__bswapdi2;
@@ -429,13 +393,26 @@ comptime {
         @export(__isPlatformVersionAtLeast, .{ .name = "__isPlatformVersionAtLeast", .linkage = linkage });
     }
 
-    // Integral arithmetic
+    // Integer Arithmetic
+    const __ashldi3 = @import("compiler_rt/shift.zig").__ashldi3;
+    @export(__ashldi3, .{ .name = "__ashldi3", .linkage = linkage });
+    const __ashlti3 = @import("compiler_rt/shift.zig").__ashlti3;
+    @export(__ashlti3, .{ .name = "__ashlti3", .linkage = linkage });
+    const __ashrdi3 = @import("compiler_rt/shift.zig").__ashrdi3;
+    @export(__ashrdi3, .{ .name = "__ashrdi3", .linkage = linkage });
+    const __ashrti3 = @import("compiler_rt/shift.zig").__ashrti3;
+    @export(__ashrti3, .{ .name = "__ashrti3", .linkage = linkage });
+    const __lshrdi3 = @import("compiler_rt/shift.zig").__lshrdi3;
+    @export(__lshrdi3, .{ .name = "__lshrdi3", .linkage = linkage });
+    const __lshrti3 = @import("compiler_rt/shift.zig").__lshrti3;
+    @export(__lshrti3, .{ .name = "__lshrti3", .linkage = linkage });
     const __negsi2 = @import("compiler_rt/negXi2.zig").__negsi2;
     @export(__negsi2, .{ .name = "__negsi2", .linkage = linkage });
     const __negdi2 = @import("compiler_rt/negXi2.zig").__negdi2;
     @export(__negdi2, .{ .name = "__negdi2", .linkage = linkage });
     const __negti2 = @import("compiler_rt/negXi2.zig").__negti2;
     @export(__negti2, .{ .name = "__negti2", .linkage = linkage });
+
     const __mulsi3 = @import("compiler_rt/int.zig").__mulsi3;
     @export(__mulsi3, .{ .name = "__mulsi3", .linkage = linkage });
     const __muldi3 = @import("compiler_rt/muldi3.zig").__muldi3;
@@ -463,7 +440,7 @@ comptime {
     const __udivmodsi4 = @import("compiler_rt/int.zig").__udivmodsi4;
     @export(__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = linkage });
 
-    // Integral arithmetic with trapping overflow
+    // Integer Arithmetic with trapping overflow
     const __absvsi2 = @import("compiler_rt/absv.zig").__absvsi2;
     @export(__absvsi2, .{ .name = "__absvsi2", .linkage = linkage });
     const __absvdi2 = @import("compiler_rt/absv.zig").__absvdi2;
@@ -477,9 +454,27 @@ comptime {
     const __negvti2 = @import("compiler_rt/negv.zig").__negvti2;
     @export(__negvti2, .{ .name = "__negvti2", .linkage = linkage });
 
-    // missing: Integral arithmetic which returns if overflow
+    // Integer arithmetic which returns if overflow
+    const __addosi4 = @import("compiler_rt/addo.zig").__addosi4;
+    @export(__addosi4, .{ .name = "__addosi4", .linkage = linkage });
+    const __addodi4 = @import("compiler_rt/addo.zig").__addodi4;
+    @export(__addodi4, .{ .name = "__addodi4", .linkage = linkage });
+    const __addoti4 = @import("compiler_rt/addo.zig").__addoti4;
+    @export(__addoti4, .{ .name = "__addoti4", .linkage = linkage });
+    const __subosi4 = @import("compiler_rt/subo.zig").__subosi4;
+    @export(__subosi4, .{ .name = "__subosi4", .linkage = linkage });
+    const __subodi4 = @import("compiler_rt/subo.zig").__subodi4;
+    @export(__subodi4, .{ .name = "__subodi4", .linkage = linkage });
+    const __suboti4 = @import("compiler_rt/subo.zig").__suboti4;
+    @export(__suboti4, .{ .name = "__suboti4", .linkage = linkage });
+    const __mulosi4 = @import("compiler_rt/mulo.zig").__mulosi4;
+    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = linkage });
+    const __mulodi4 = @import("compiler_rt/mulo.zig").__mulodi4;
+    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
+    const __muloti4 = @import("compiler_rt/mulo.zig").__muloti4;
+    @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
 
-    // Integral comparison
+    // Integer Comparison
     // (a <  b) => 0
     // (a == b) => 1
     // (a >  b) => 2

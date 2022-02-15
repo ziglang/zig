@@ -1641,7 +1641,7 @@ static LLVMValueRef gen_soft_f80_widen_or_shorten(CodeGen *g, ZigType *actual_ty
                 break;
             case 32:
                 return_type = g->builtin_types.entry_f32->llvm_type;
-                func_name = "__truncxfff2";
+                func_name = "__truncxfsf2";
                 break;
             case 64:
                 return_type = g->builtin_types.entry_f64->llvm_type;
@@ -1670,7 +1670,7 @@ static LLVMValueRef gen_soft_f80_widen_or_shorten(CodeGen *g, ZigType *actual_ty
                 break;
             case 32:
                 param_type = g->builtin_types.entry_f32->llvm_type;
-                func_name = "__extendffxf2";
+                func_name = "__extendsfxf2";
                 break;
             case 64:
                 param_type = g->builtin_types.entry_f64->llvm_type;
