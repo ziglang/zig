@@ -1499,31 +1499,10 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         const tmp_reg = regs[3];
 
                         // sub dst_reg, fp, #off
-                        const adj_off = off + elem_size;
-                        const offset_op: Instruction.Operand = if (Instruction.Operand.fromU32(adj_off)) |x| x else {
-                            return self.fail("TODO load: set reg to stack offset with all possible offsets", .{});
-                        };
-                        _ = try self.addInst(.{
-                            .tag = .sub,
-                            .data = .{ .rr_op = .{
-                                .rd = dst_reg,
-                                .rn = .fp,
-                                .op = offset_op,
-                            } },
-                        });
+                        try self.genSetReg(ptr_ty, dst_reg, .{ .ptr_stack_offset = off });
 
                         // mov len, #elem_size
-                        const len_op: Instruction.Operand = if (Instruction.Operand.fromU32(elem_size)) |x| x else {
-                            return self.fail("TODO load: set reg to elem_size with all possible sizes", .{});
-                        };
-                        _ = try self.addInst(.{
-                            .tag = .mov,
-                            .data = .{ .rr_op = .{
-                                .rd = len_reg,
-                                .rn = .r0,
-                                .op = len_op,
-                            } },
-                        });
+                        try self.genSetReg(Type.usize, len_reg, .{ .immediate = elem_size });
 
                         // memcpy(src, dst, len)
                         try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
@@ -3342,17 +3321,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 });
 
                 // mov len, #abi_size
-                const len_op: Instruction.Operand = if (Instruction.Operand.fromU32(abi_size)) |x| x else {
-                    return self.fail("TODO load: set reg to elem_size with all possible sizes", .{});
-                };
-                _ = try self.addInst(.{
-                    .tag = .mov,
-                    .data = .{ .rr_op = .{
-                        .rd = len_reg,
-                        .rn = .r0,
-                        .op = len_op,
-                    } },
-                });
+                try self.genSetReg(Type.usize, len_reg, .{ .immediate = abi_size });
 
                 // memcpy(src, dst, len)
                 try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
@@ -3738,17 +3707,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 });
 
                 // mov len, #abi_size
-                const len_op: Instruction.Operand = if (Instruction.Operand.fromU32(abi_size)) |x| x else {
-                    return self.fail("TODO load: set reg to elem_size with all possible sizes", .{});
-                };
-                _ = try self.addInst(.{
-                    .tag = .mov,
-                    .data = .{ .rr_op = .{
-                        .rd = len_reg,
-                        .rn = .r0,
-                        .op = len_op,
-                    } },
-                });
+                try self.genSetReg(Type.usize, len_reg, .{ .immediate = abi_size });
 
                 // memcpy(src, dst, len)
                 try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
