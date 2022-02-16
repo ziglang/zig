@@ -301,7 +301,7 @@ fn Parser(comptime ReaderType: type) type {
 
                         if (std.mem.eql(u8, name, "linking")) {
                             is_object_file.* = true;
-                            try self.parseMetadata(gpa, reader.context.bytes_left);
+                            try self.parseMetadata(gpa, @intCast(usize, reader.context.bytes_left));
                         } else if (std.mem.startsWith(u8, name, "reloc")) {
                             try self.parseRelocations(gpa);
                         } else if (std.mem.eql(u8, name, "target_features")) {
