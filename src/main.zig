@@ -4063,9 +4063,9 @@ fn printErrMsgToStdErr(
     var notes_buffer: [1]Compilation.AllErrors.Message = undefined;
     var notes_len: usize = 0;
 
-    if (token_tags[parse_error.token] == .invalid) {
-        const bad_off = @intCast(u32, tree.tokenSlice(parse_error.token).len);
-        const byte_offset = @intCast(u32, start_loc.line_start) + bad_off;
+    if (token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)] == .invalid) {
+        const bad_off = @intCast(u32, tree.tokenSlice(parse_error.token + @boolToInt(parse_error.token_is_prev)).len);
+        const byte_offset = @intCast(u32, start_loc.line_start) + @intCast(u32, start_loc.column) + bad_off;
         notes_buffer[notes_len] = .{
             .src = .{
                 .src_path = path,
@@ -4081,7 +4081,7 @@ fn printErrMsgToStdErr(
         notes_len += 1;
     }
 
-    const extra_offset = tree.errorOffset(parse_error.tag, parse_error.token);
+    const extra_offset = tree.errorOffset(parse_error);
     const message: Compilation.AllErrors.Message = .{
         .src = .{
             .src_path = path,

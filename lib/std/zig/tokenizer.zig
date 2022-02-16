@@ -322,7 +322,18 @@ pub const Token = struct {
         }
 
         pub fn symbol(tag: Tag) []const u8 {
-            return tag.lexeme() orelse @tagName(tag);
+            return tag.lexeme() orelse switch (tag) {
+                .invalid => "invalid bytes",
+                .identifier => "an identifier",
+                .string_literal, .multiline_string_literal_line => "a string literal",
+                .char_literal => "a character literal",
+                .eof => "EOF",
+                .builtin => "a builtin function",
+                .integer_literal => "an integer literal",
+                .float_literal => "a floating point literal",
+                .doc_comment, .container_doc_comment => "a document comment",
+                else => unreachable,
+            };
         }
     };
 };

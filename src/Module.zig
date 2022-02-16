@@ -2995,7 +2995,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         const token_starts = file.tree.tokens.items(.start);
         const token_tags = file.tree.tokens.items(.tag);
 
-        const extra_offset = file.tree.errorOffset(parse_err.tag, parse_err.token);
+        const extra_offset = file.tree.errorOffset(parse_err);
         try file.tree.renderError(parse_err, msg.writer());
         const err_msg = try gpa.create(ErrorMsg);
         err_msg.* = .{
@@ -3006,9 +3006,9 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             },
             .msg = msg.toOwnedSlice(),
         };
-        if (token_tags[parse_err.token] == .invalid) {
-            const bad_off = @intCast(u32, file.tree.tokenSlice(parse_err.token).len);
-            const byte_abs = token_starts[parse_err.token] + bad_off;
+        if (token_tags[parse_err.token + @boolToInt(parse_err.token_is_prev)] == .invalid) {
+            const bad_off = @intCast(u32, file.tree.tokenSlice(parse_err.token + @boolToInt(parse_err.token_is_prev)).len);
+            const byte_abs = token_starts[parse_err.token + @boolToInt(parse_err.token_is_prev)] + bad_off;
             try mod.errNoteNonLazy(.{
                 .file_scope = file,
                 .parent_decl_node = 0,

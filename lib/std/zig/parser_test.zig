@@ -5057,7 +5057,9 @@ test "recovery: block statements" {
         \\    inline;
         \\}
     , &[_]Error{
-        .invalid_token,
+        .expected_expr,
+        .expected_semi_after_stmt,
+        .expected_statement,
         .expected_inlinable,
     });
 }
@@ -5076,7 +5078,7 @@ test "recovery: missing comma" {
     , &[_]Error{
         .expected_comma_after_switch_prong,
         .expected_comma_after_switch_prong,
-        .invalid_token,
+        .expected_expr,
     });
 }
 
