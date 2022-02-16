@@ -3715,15 +3715,54 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
             if (stack_offset > math.maxInt(i32)) {
                 return self.fail("stack offset too large", .{});
             }
-            _ = try self.addInst(.{
-                .tag = .mov,
-                .ops = (Mir.Ops{
-                    .reg1 = .rbp,
-                    .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
-                    .flags = 0b10,
-                }).encode(),
-                .data = .{ .imm = @bitCast(u32, -stack_offset) },
-            });
+
+            const is_power_of_two = (abi_size % 2) == 0;
+            if (!is_power_of_two) {
+                self.register_manager.freezeRegs(&.{reg});
+                defer self.register_manager.unfreezeRegs(&.{reg});
+
+                const tmp_reg = try self.copyToTmpRegister(ty, mcv);
+
+                var next_offset = stack_offset;
+                var remainder = abi_size;
+                while (remainder > 0) {
+                    const closest_power_of_two = @as(u6, 1) << @intCast(u3, math.log2(remainder));
+
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .ops = (Mir.Ops{
+                            .reg1 = .rbp,
+                            .reg2 = registerAlias(tmp_reg, closest_power_of_two),
+                            .flags = 0b10,
+                        }).encode(),
+                        .data = .{ .imm = @bitCast(u32, -next_offset) },
+                    });
+
+                    if (closest_power_of_two > 1) {
+                        _ = try self.addInst(.{
+                            .tag = .shr,
+                            .ops = (Mir.Ops{
+                                .reg1 = tmp_reg,
+                                .flags = 0b10,
+                            }).encode(),
+                            .data = .{ .imm = closest_power_of_two * 8 },
+                        });
+                    }
+
+                    remainder -= closest_power_of_two;
+                    next_offset -= closest_power_of_two;
+                }
+            } else {
+                _ = try self.addInst(.{
+                    .tag = .mov,
+                    .ops = (Mir.Ops{
+                        .reg1 = .rbp,
+                        .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
+                        .flags = 0b10,
+                    }).encode(),
+                    .data = .{ .imm = @bitCast(u32, -stack_offset) },
+                });
+            }
         },
         .memory,
         .embedded_in_code,
