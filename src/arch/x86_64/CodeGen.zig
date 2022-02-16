@@ -1071,10 +1071,21 @@ fn airMax(self: *Self, inst: Air.Inst.Index) !void {
 fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement slice for {}", .{self.target.cpu.arch});
+
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
+    const ptr = try self.resolveInst(bin_op.lhs);
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const len = try self.resolveInst(bin_op.rhs);
+    const len_ty = self.air.typeOf(bin_op.rhs);
+
+    const stack_offset = @intCast(i32, try self.allocMem(inst, 16, 16));
+    try self.genSetStack(ptr_ty, stack_offset + 8, ptr);
+    try self.genSetStack(len_ty, stack_offset, len);
+    const result = MCValue{ .stack_offset = stack_offset };
+
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
