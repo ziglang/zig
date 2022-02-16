@@ -1792,14 +1792,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         });
 
                         // mov len, #elem_size
-                        const len_imm = math.cast(u16, elem_size) catch return self.fail("TODO load: larger stack offsets", .{});
-                        _ = try self.addInst(.{
-                            .tag = .movk,
-                            .data = .{ .r_imm16_sh = .{
-                                .rd = len_reg,
-                                .imm16 = len_imm,
-                            } },
-                        });
+                        try self.genSetReg(Type.usize, len_reg, .{ .immediate = elem_size });
 
                         // memcpy(src, dst, len)
                         try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
@@ -1831,9 +1824,9 @@ fn genInlineMemcpy(
     count: Register,
     tmp: Register,
 ) !void {
-    // movk count, #0
+    // movz count, #0
     _ = try self.addInst(.{
-        .tag = .movk,
+        .tag = .movz,
         .data = .{ .r_imm16_sh = .{
             .rd = count,
             .imm16 = 0,
@@ -2973,6 +2966,7 @@ fn setRegOrMem(self: *Self, ty: Type, loc: MCValue, val: MCValue) !void {
 }
 
 fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
+    const abi_size = ty.abiSize(self.target.*);
     switch (mcv) {
         .dead => unreachable,
         .ptr_stack_offset => unreachable,
@@ -3002,7 +2996,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             return self.fail("TODO implement set stack variable from embedded_in_code", .{});
         },
         .register => |reg| {
-            const abi_size = ty.abiSize(self.target.*);
             const adj_off = stack_offset + abi_size;
 
             switch (abi_size) {
@@ -3046,7 +3039,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 
             const ptr_bits = self.target.cpu.arch.ptrBitWidth();
             const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-            if (ty.abiSize(self.target.*) <= ptr_bytes) {
+            if (abi_size <= ptr_bytes) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             } else {
@@ -3062,7 +3055,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 const tmp_reg = regs[4];
 
                 // sub src_reg, fp, #off
-                const adj_src_offset = off + @intCast(u32, ty.abiSize(self.target.*));
+                const adj_src_offset = off + abi_size;
                 const src_offset = math.cast(u12, adj_src_offset) catch return self.fail("TODO load: larger stack offsets", .{});
                 _ = try self.addInst(.{
                     .tag = .sub_immediate,
@@ -3074,7 +3067,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 });
 
                 // sub dst_reg, fp, #stack_offset
-                const adj_dst_off = stack_offset + @intCast(u32, ty.abiSize(self.target.*));
+                const adj_dst_off = stack_offset + abi_size;
                 const dst_offset = math.cast(u12, adj_dst_off) catch return self.fail("TODO load: larger stack offsets", .{});
                 _ = try self.addInst(.{
                     .tag = .sub_immediate,
@@ -3085,16 +3078,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     } },
                 });
 
-                // mov len, #elem_size
-                const elem_size = @intCast(u32, ty.abiSize(self.target.*));
-                const len_imm = math.cast(u16, elem_size) catch return self.fail("TODO load: larger stack offsets", .{});
-                _ = try self.addInst(.{
-                    .tag = .movk,
-                    .data = .{ .r_imm16_sh = .{
-                        .rd = len_reg,
-                        .imm16 = len_imm,
-                    } },
-                });
+                // mov len, #abi_size
+                try self.genSetReg(Type.usize, len_reg, .{ .immediate = abi_size });
 
                 // memcpy(src, dst, len)
                 try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
