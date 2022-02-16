@@ -712,6 +712,14 @@ fn buildOutputType(
     var link_objects = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer link_objects.deinit();
 
+    // This map is a flag per link_objects item, used to represent the
+    // `-l :file.so` syntax from gcc/clang.
+    // This is only exposed from the `zig cc` interface. It means that the `path`
+    // field from the corresponding `link_objects` element is a suffix, and is
+    // to be tried against each library path as a prefix until an existing file is found.
+    // This map remains empty for the main CLI.
+    var link_objects_lib_search_paths: std.AutoHashMapUnmanaged(u32, void) = .{};
+
     var framework_dirs = std.ArrayList([]const u8).init(gpa);
     defer framework_dirs.deinit();
 
@@ -1338,7 +1346,16 @@ fn buildOutputType(
                         // -l
                         // We don't know whether this library is part of libc or libc++ until
                         // we resolve the target, so we simply append to the list for now.
-                        if (force_static_libs) {
+                        if (mem.startsWith(u8, it.only_arg, ":")) {
+                            // This "feature" of gcc/clang means to treat this as a positional
+                            // link object, but using the library search directories as a prefix.
+                            try link_objects.append(.{
+                                .path = it.only_arg[1..],
+                                .must_link = must_link,
+                            });
+                            const index = @intCast(u32, link_objects.items.len - 1);
+                            try link_objects_lib_search_paths.put(arena, index, {});
+                        } else if (force_static_libs) {
                             try static_libs.append(it.only_arg);
                         } else {
                             try system_libs.put(it.only_arg, .{ .needed = needed });
@@ -2133,6 +2150,30 @@ fn buildOutputType(
                 fatal("static library '{s}' not found. search paths: {s}", .{
                     static_lib, search_paths.items,
                 });
+            }
+        }
+    }
+
+    // Resolve `-l :file.so` syntax from `zig cc`. We use a separate map for this data
+    // since this is an uncommon case.
+    {
+        var it = link_objects_lib_search_paths.iterator();
+        while (it.next()) |item| {
+            const link_object_i = item.key_ptr.*;
+            const suffix = link_objects.items[link_object_i].path;
+
+            for (lib_dirs.items) |lib_dir_path| {
+                const test_path = try fs.path.join(arena, &.{ lib_dir_path, suffix });
+                fs.cwd().access(test_path, .{}) catch |err| switch (err) {
+                    error.FileNotFound => continue,
+                    else => |e| fatal("unable to search for library '{s}': {s}", .{
+                        test_path, @errorName(e),
+                    }),
+                };
+                link_objects.items[link_object_i].path = test_path;
+                break;
+            } else {
+                fatal("library '{s}' not found", .{suffix});
             }
         }
     }
