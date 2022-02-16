@@ -291,6 +291,19 @@ pub const Function = struct {
         }
     }
 
+    fn writeCValueDeref(f: *Function, w: anytype, c_value: CValue) !void {
+        switch (c_value) {
+            .constant => |inst| {
+                const ty = f.air.typeOf(inst);
+                const val = f.air.value(inst).?;
+                try w.writeAll("(*");
+                try f.object.dg.renderValue(w, ty, val);
+                return w.writeByte(')');
+            },
+            else => return f.object.dg.writeCValueDeref(w, c_value),
+        }
+    }
+
     fn fail(f: *Function, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         return f.object.dg.fail(format, args);
     }
@@ -1259,6 +1272,28 @@ pub const DeclGen = struct {
         }
     }
 
+    fn writeCValueDeref(dg: DeclGen, w: anytype, c_value: CValue) !void {
+        switch (c_value) {
+            .none => unreachable,
+            .local => |i| return w.print("(*t{d})", .{i}),
+            .local_ref => |i| return w.print("t{d}", .{i}),
+            .constant => unreachable,
+            .arg => |i| return w.print("(*a{d})", .{i}),
+            .decl => |decl| {
+                try w.writeAll("(*");
+                try dg.renderDeclName(decl, w);
+                return w.writeByte(')');
+            },
+            .decl_ref => |decl| return dg.renderDeclName(decl, w),
+            .identifier => |ident| return w.print("(*{ })", .{fmtIdent(ident)}),
+            .bytes => |bytes| {
+                try w.writeAll("(*");
+                try w.writeAll(bytes);
+                return w.writeByte(')');
+            },
+        }
+    }
+
     fn renderDeclName(dg: DeclGen, decl: *Decl, writer: anytype) !void {
         if (dg.module.decl_exports.get(decl)) |exports| {
             return writer.writeAll(exports[0].options.name);
@@ -1493,10 +1528,10 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .optional_payload_ptr     => try airOptionalPayload(f, inst),
             .optional_payload_ptr_set => try airOptionalPayloadPtrSet(f, inst),
 
-            .is_err          => try airIsErr(f, inst, "", ".", "!="),
-            .is_non_err      => try airIsErr(f, inst, "", ".", "=="),
-            .is_err_ptr      => try airIsErr(f, inst, "*", "->", "!="),
-            .is_non_err_ptr  => try airIsErr(f, inst, "*", "->", "=="),
+            .is_err          => try airIsErr(f, inst, false, "!="),
+            .is_non_err      => try airIsErr(f, inst, false, "=="),
+            .is_err_ptr      => try airIsErr(f, inst, true, "!="),
+            .is_non_err_ptr  => try airIsErr(f, inst, true, "=="),
 
             .is_null         => try airIsNull(f, inst, "==", ""),
             .is_non_null     => try airIsNull(f, inst, "!=", ""),
@@ -1800,8 +1835,8 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.writeCValue(writer, local);
                 try writer.writeAll("));\n");
             } else {
-                try writer.writeAll(" = *");
-                try f.writeCValue(writer, operand);
+                try writer.writeAll(" = ");
+                try f.writeCValueDeref(writer, operand);
                 try writer.writeAll(";\n");
             }
         },
@@ -1916,33 +1951,15 @@ fn airStoreUndefined(f: *Function, dest_ptr: CValue, dest_child_type: Type) !CVa
         return CValue.none;
 
     const writer = f.object.writer();
-    switch (dest_ptr) {
-        .local_ref => |i| {
-            const dest: CValue = .{ .local = i };
-            try writer.writeAll("memset(&");
-            try f.writeCValue(writer, dest);
-            try writer.writeAll(", 0xaa, sizeof(");
-            try f.writeCValue(writer, dest);
-            try writer.writeAll("));\n");
-        },
-        .decl_ref => |decl| {
-            const dest: CValue = .{ .decl = decl };
-            try writer.writeAll("memset(&");
-            try f.writeCValue(writer, dest);
-            try writer.writeAll(", 0xaa, sizeof(");
-            try f.writeCValue(writer, dest);
-            try writer.writeAll("));\n");
-        },
-        else => {
-            const indirection = if (dest_child_type.zigTypeTag() == .Array) "" else "*";
-
-            try writer.writeAll("memset(");
-            try f.writeCValue(writer, dest_ptr);
-            try writer.print(", 0xaa, sizeof({s}", .{indirection});
-            try f.writeCValue(writer, dest_ptr);
-            try writer.writeAll("));\n");
-        },
+    try writer.writeAll("memset(");
+    try f.writeCValue(writer, dest_ptr);
+    try writer.writeAll(", 0xaa, sizeof(");
+    if (dest_child_type.zigTypeTag() == .Array) {
+        try f.writeCValue(writer, dest_ptr);
+    } else {
+        try f.writeCValueDeref(writer, dest_ptr);
     }
+    try writer.writeAll("));\n");
     return CValue.none;
 }
 
@@ -2004,8 +2021,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.writeCValue(writer, array_src);
                 try writer.writeAll("));\n");
             } else {
-                try writer.writeAll("*");
-                try f.writeCValue(writer, dest_ptr);
+                try f.writeCValueDeref(writer, dest_ptr);
                 try writer.writeAll(" = ");
                 try f.writeCValue(writer, src_val);
                 try writer.writeAll(";\n");
@@ -2852,16 +2868,15 @@ fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
         return operand;
     }
 
-    try writer.writeAll("(");
-    try f.writeCValue(writer, operand);
-    try writer.writeAll(")->is_null = false;\n");
+    try f.writeCValueDeref(writer, operand);
+    try writer.writeAll(".is_null = false;\n");
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = &(");
-    try f.writeCValue(writer, operand);
+    try writer.writeAll(" = &");
+    try f.writeCValueDeref(writer, operand);
 
-    try writer.writeAll(")->payload;\n");
+    try writer.writeAll(".payload;\n");
     return local;
 }
 
@@ -2912,18 +2927,10 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
-    switch (struct_ptr) {
-        .local_ref => |i| {
-            try writer.print(" = {s}t{d}.{s}{ };\n", .{
-                addrof, i, payload, fmtIdent(field_name),
-            });
-        },
-        else => {
-            try writer.print(" = {s}", .{addrof});
-            try f.writeCValue(writer, struct_ptr);
-            try writer.print("->{s}{ };\n", .{ payload, fmtIdent(field_name) });
-        },
-    }
+
+    try writer.print(" = {s}", .{addrof});
+    try f.writeCValueDeref(writer, struct_ptr);
+    try writer.print(".{s}{ };\n", .{ payload, fmtIdent(field_name) });
     return local;
 }
 
@@ -2975,13 +2982,14 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
         }
     }
 
-    const maybe_deref = if (operand_ty.zigTypeTag() == .Pointer) "->" else ".";
-
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = (");
-    try f.writeCValue(writer, operand);
-
-    try writer.print("){s}error;\n", .{maybe_deref});
+    try writer.writeAll(" = ");
+    if (operand_ty.zigTypeTag() == .Pointer) {
+        try f.writeCValueDeref(writer, operand);
+    } else {
+        try f.writeCValue(writer, operand);
+    }
+    try writer.writeAll(".error;\n");
     return local;
 }
 
@@ -3069,8 +3077,7 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airIsErr(
     f: *Function,
     inst: Air.Inst.Index,
-    deref_prefix: [*:0]const u8,
-    deref_suffix: [*:0]const u8,
+    is_ptr: bool,
     op_str: [*:0]const u8,
 ) !CValue {
     if (f.liveness.isUnused(inst))
@@ -3082,15 +3089,16 @@ fn airIsErr(
     const operand_ty = f.air.typeOf(un_op);
     const local = try f.allocLocal(Type.initTag(.bool), .Const);
     const payload_ty = operand_ty.errorUnionPayload();
-    if (!payload_ty.hasRuntimeBits()) {
-        try writer.print(" = {s}", .{deref_prefix});
-        try f.writeCValue(writer, operand);
-        try writer.print(" {s} 0;\n", .{op_str});
+    try writer.writeAll(" = ");
+    if (is_ptr) {
+        try f.writeCValueDeref(writer, operand);
     } else {
-        try writer.writeAll(" = ");
         try f.writeCValue(writer, operand);
-        try writer.print("{s}error {s} 0;\n", .{ deref_suffix, op_str });
     }
+    if (payload_ty.hasRuntimeBits()) {
+        try writer.writeAll(".error");
+    }
+    try writer.print(" {s} 0;\n", .{op_str});
     return local;
 }
 
