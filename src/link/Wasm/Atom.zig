@@ -97,6 +97,7 @@ pub fn symbolAtom(self: *Atom, symbol_index: u32) *Atom {
 /// Resolves the relocations within the atom, writing the new value
 /// at the calculated offset.
 pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
+    if (self.relocs.items.len == 0) return;
     const loc: Wasm.SymbolLoc = .{ .file = self.file, .index = self.sym_index };
     const symbol = loc.getSymbol(wasm_bin).*;
     log.debug("Resolving relocs in atom '{s}' count({d})", .{
@@ -172,7 +173,13 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             const atom_index = wasm_bin.data_segments.get(segment_name).?;
             var target_atom = wasm_bin.atoms.getPtr(atom_index).?.*.getFirst();
             while (true) {
-                if (target_atom.sym_index == relocation.index) break;
+                // TODO: Can we simplify this by providing the ability to find and atom
+                // based on a symbol location.
+                if (target_atom.sym_index == relocation.index) {
+                    if (target_atom.file) |file| {
+                        if (self.file != null and self.file.? == file) break;
+                    } else if (self.file == null) break;
+                }
                 target_atom = target_atom.next orelse break;
             }
             const segment = wasm_bin.segments.items[atom_index];
