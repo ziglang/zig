@@ -175,7 +175,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     };
     const symbol = try wasm_bin.symbols.addOne(allocator);
     symbol.* = .{
-        .name = try allocator.dupeZ(u8, "__stack_pointer"),
+        .name = "__stack_pointer",
         .tag = .global,
         .flags = 0,
         .index = 0,
@@ -300,6 +300,10 @@ pub fn deinit(self: *Wasm) void {
     var decl_it = self.decls.keyIterator();
     while (decl_it.next()) |decl_ptr| {
         const decl = decl_ptr.*;
+        const atom: *Atom = &decl.link.wasm;
+        for (atom.locals.items) |local| {
+            gpa.free(mem.sliceTo(self.symbols.items[local.sym_index].name, 0));
+        }
         decl.link.wasm.deinit(gpa);
     }
 
@@ -312,12 +316,6 @@ pub fn deinit(self: *Wasm) void {
     for (self.objects.items) |*object| {
         object.file.?.close();
         object.deinit(gpa);
-    }
-
-    for (self.symbols.items) |symbol| {
-        if (symbol.tag != .dead) {
-            gpa.free(mem.sliceTo(symbol.name, 0));
-        }
     }
 
     self.decls.deinit(gpa);
@@ -465,7 +463,7 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     atom.size = @intCast(u32, code.len);
     atom.alignment = decl.ty.abiAlignment(self.base.options.target);
     const symbol = &self.symbols.items[atom.sym_index];
-    symbol.name = try self.base.allocator.dupeZ(u8, std.mem.sliceTo(decl.name, 0));
+    symbol.name = decl.name;
     symbol.setFlag(.WASM_SYM_BINDING_LOCAL);
     try atom.code.appendSlice(self.base.allocator, code);
 }
@@ -567,13 +565,13 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     const atom = &decl.link.wasm;
     self.symbols_free_list.append(self.base.allocator, atom.sym_index) catch {};
     _ = self.decls.remove(decl);
-    self.symbols.items[atom.sym_index].tag = .dead; // to ensure it does not end in the names section
+    self.symbols.items[atom.sym_index].tag = .dead;
     for (atom.locals.items) |local_atom| {
-        self.symbols.items[local_atom.sym_index].tag = .dead; // also for any local symbol
-        // self.base.allocator.free(mem.sliceTo(self.symbols.items[local_atom.sym_index].name, 0));
+        const local_symbol = &self.symbols.items[local_atom.sym_index];
+        local_symbol.tag = .dead; // also for any local symbol
+        self.base.allocator.free(mem.sliceTo(local_symbol.name, 0));
         self.symbols_free_list.append(self.base.allocator, local_atom.sym_index) catch {};
     }
-    // self.base.allocator.free(mem.sliceTo(self.symbols.items[atom.sym_index].name, 0));
 
     if (decl.isExtern()) {
         assert(self.imports.remove(.{ .file = null, .index = atom.sym_index }));
@@ -602,11 +600,14 @@ fn mapFunctionTable(self: *Wasm) void {
 fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
     const symbol_index = decl.link.wasm.sym_index;
     const symbol: *Symbol = &self.symbols.items[symbol_index];
-    const decl_name = mem.sliceTo(decl.name, 0);
-    symbol.name = try self.base.allocator.dupeZ(u8, decl_name);
+    symbol.name = decl.name;
     symbol.setUndefined(true);
     // also add it as a global so it can be resolved
-    try self.globals.putNoClobber(self.base.allocator, decl_name, .{ .file = null, .index = symbol_index });
+    try self.globals.putNoClobber(
+        self.base.allocator,
+        mem.sliceTo(symbol.name, 0),
+        .{ .file = null, .index = symbol_index },
+    );
     switch (decl.ty.zigTypeTag()) {
         .Fn => {
             const gop = try self.imports.getOrPut(self.base.allocator, .{ .index = symbol_index, .file = null });
@@ -616,7 +617,7 @@ fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .module_name = module_name,
-                    .name = std.mem.span(symbol.name),
+                    .name = mem.sliceTo(symbol.name, 0),
                     .kind = .{ .function = decl.fn_link.wasm.type_index },
                 };
             }
