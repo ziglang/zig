@@ -299,15 +299,14 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         return createEmpty(allocator, options);
     }
 
+    const self = try createEmpty(allocator, options);
+    errdefer self.base.destroy();
+
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
     });
-    errdefer file.close();
-
-    const self = try createEmpty(allocator, options);
-    errdefer self.base.destroy();
 
     self.base.file = file;
     self.shdr_table_dirty = true;

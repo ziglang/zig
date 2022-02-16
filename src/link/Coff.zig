@@ -134,16 +134,14 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         return createEmpty(allocator, options);
     }
 
+    const self = try createEmpty(allocator, options);
+    errdefer self.base.destroy();
+
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
     });
-    errdefer file.close();
-
-    const self = try createEmpty(allocator, options);
-    errdefer self.base.destroy();
-
     self.base.file = file;
 
     // TODO Write object specific relocations, COFF symbol table, then enable object file output.

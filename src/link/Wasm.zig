@@ -105,13 +105,11 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         return createEmpty(allocator, options);
     }
 
-    // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
-    errdefer file.close();
-
     const wasm_bin = try createEmpty(allocator, options);
     errdefer wasm_bin.base.destroy();
 
+    // TODO: read the file and keep valid parts instead of truncating
+    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
     wasm_bin.base.file = file;
 
     try file.writeAll(&(wasm.magic ++ wasm.version));
