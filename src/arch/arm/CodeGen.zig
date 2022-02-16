@@ -508,7 +508,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub, .ptr_sub   => try self.airBinOp(inst),
             .subwrap         => try self.airSubWrap(inst),
             .sub_sat         => try self.airSubSat(inst),
-            .mul             => try self.airMul(inst),
+            .mul             => try self.airBinOp(inst),
             .mulwrap         => try self.airMulWrap(inst),
             .mul_sat         => try self.airMulSat(inst),
             .rem             => try self.airRem(inst),
@@ -979,12 +979,6 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airMul(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genMul(inst, bin_op.lhs, bin_op.rhs);
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
 fn airMulWrap(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement mulwrap for {}", .{self.target.cpu.arch});
@@ -1252,7 +1246,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
         const slice_ty = self.air.typeOf(bin_op.lhs);
         const elem_ty = slice_ty.childType();
-        const elem_size = elem_ty.abiSize(self.target.*);
+        const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
 
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
@@ -1307,7 +1301,14 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
             else => {
                 const dst_mcv = try self.allocRegOrMem(inst, true);
 
-                const offset_mcv = try self.genMulConstant(bin_op.rhs, @intCast(u32, elem_size));
+                const offset_mcv = try self.binOp(
+                    .mul,
+                    null,
+                    index_mcv,
+                    .{ .immediate = elem_size },
+                    Type.usize,
+                    Type.usize,
+                );
                 assert(offset_mcv == .register); // result of multiplication should always be register
                 self.register_manager.freezeRegs(&.{offset_mcv.register});
 
@@ -1768,6 +1769,7 @@ fn binOpRegister(
     const mir_tag: Mir.Inst.Tag = switch (tag) {
         .add, .ptr_add => .add,
         .sub, .ptr_sub => .sub,
+        .mul => .mul,
         else => unreachable,
     };
     const mir_data: Mir.Inst.Data = switch (tag) {
@@ -1779,6 +1781,11 @@ fn binOpRegister(
             .rd = dest_reg,
             .rn = lhs_reg,
             .op = Instruction.Operand.reg(rhs_reg, Instruction.Operand.Shift.none),
+        } },
+        .mul => .{ .rrr = .{
+            .rd = dest_reg,
+            .rn = lhs_reg,
+            .rm = rhs_reg,
         } },
         else => unreachable,
     };
@@ -1931,6 +1938,25 @@ fn binOp(
                         } else {
                             return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                         }
+                    } else {
+                        return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        .mul => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO ARM binary operations on floats", .{}),
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                .Int => {
+                    assert(lhs_ty.eql(rhs_ty));
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 32) {
+                        // TODO add optimisations for multiplication
+                        // with immediates, for example a * 2 can be
+                        // lowered to a << 1
+                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
                     }
@@ -2217,132 +2243,6 @@ fn genBinOpCode(
         },
         else => unreachable, // not a binary instruction
     }
-}
-
-fn genMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref) !MCValue {
-    const lhs = try self.resolveInst(op_lhs);
-    const rhs = try self.resolveInst(op_rhs);
-
-    const lhs_is_register = lhs == .register;
-    const rhs_is_register = rhs == .register;
-    const reuse_lhs = lhs_is_register and self.reuseOperand(inst, op_lhs, 0, lhs);
-    const reuse_rhs = !reuse_lhs and rhs_is_register and self.reuseOperand(inst, op_rhs, 1, rhs);
-
-    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
-    defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
-    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
-    defer if (rhs_is_register) self.register_manager.unfreezeRegs(&.{rhs.register});
-
-    // Destination must be a register
-    // LHS must be a register
-    // RHS must be a register
-    var dst_mcv: MCValue = undefined;
-    var lhs_mcv: MCValue = lhs;
-    var rhs_mcv: MCValue = rhs;
-
-    // Allocate registers for operands and/or destination
-    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-    if (reuse_lhs) {
-        // Allocate 0 or 1 registers
-        if (!rhs_is_register) {
-            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_rhs).?) };
-            branch.inst_table.putAssumeCapacity(Air.refToIndex(op_rhs).?, rhs_mcv);
-        }
-        dst_mcv = lhs;
-    } else if (reuse_rhs) {
-        // Allocate 0 or 1 registers
-        if (!lhs_is_register) {
-            lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_lhs).?) };
-            branch.inst_table.putAssumeCapacity(Air.refToIndex(op_lhs).?, lhs_mcv);
-        }
-        dst_mcv = rhs;
-    } else {
-        // Allocate 1 or 2 registers
-        if (lhs_is_register and rhs_is_register) {
-            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-        } else if (lhs_is_register) {
-            // Move RHS to register
-            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-            rhs_mcv = dst_mcv;
-        } else if (rhs_is_register) {
-            // Move LHS to register
-            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-            lhs_mcv = dst_mcv;
-        } else {
-            // Move LHS and RHS to register
-            const regs = try self.register_manager.allocRegs(2, .{ inst, Air.refToIndex(op_rhs).? });
-            lhs_mcv = MCValue{ .register = regs[0] };
-            rhs_mcv = MCValue{ .register = regs[1] };
-            dst_mcv = lhs_mcv;
-
-            branch.inst_table.putAssumeCapacity(Air.refToIndex(op_rhs).?, rhs_mcv);
-        }
-    }
-
-    // Move the operands to the newly allocated registers
-    if (!lhs_is_register) {
-        try self.genSetReg(self.air.typeOf(op_lhs), lhs_mcv.register, lhs);
-    }
-    if (!rhs_is_register) {
-        try self.genSetReg(self.air.typeOf(op_rhs), rhs_mcv.register, rhs);
-    }
-
-    _ = try self.addInst(.{
-        .tag = .mul,
-        .data = .{ .rrr = .{
-            .rd = dst_mcv.register,
-            .rn = lhs_mcv.register,
-            .rm = rhs_mcv.register,
-        } },
-    });
-    return dst_mcv;
-}
-
-fn genMulConstant(self: *Self, op: Air.Inst.Ref, imm: u32) !MCValue {
-    const lhs = try self.resolveInst(op);
-    const rhs = MCValue{ .immediate = imm };
-
-    const lhs_is_register = lhs == .register;
-
-    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
-    defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
-
-    // Destination must be a register
-    // LHS must be a register
-    // RHS must be a register
-    var dst_mcv: MCValue = undefined;
-    var lhs_mcv: MCValue = lhs;
-    var rhs_mcv: MCValue = rhs;
-
-    // Allocate registers for operands and/or destination
-    // Allocate 1 or 2 registers
-    if (lhs_is_register) {
-        // Move RHS to register
-        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(null) };
-        rhs_mcv = dst_mcv;
-    } else {
-        // Move LHS and RHS to register
-        const regs = try self.register_manager.allocRegs(2, .{ null, null });
-        lhs_mcv = MCValue{ .register = regs[0] };
-        rhs_mcv = MCValue{ .register = regs[1] };
-        dst_mcv = lhs_mcv;
-    }
-
-    // Move the operands to the newly allocated registers
-    if (!lhs_is_register) {
-        try self.genSetReg(self.air.typeOf(op), lhs_mcv.register, lhs);
-    }
-    try self.genSetReg(Type.initTag(.usize), rhs_mcv.register, rhs);
-
-    _ = try self.addInst(.{
-        .tag = .mul,
-        .data = .{ .rrr = .{
-            .rd = dst_mcv.register,
-            .rn = lhs_mcv.register,
-            .rm = rhs_mcv.register,
-        } },
-    });
-    return dst_mcv;
 }
 
 fn genLdrRegister(self: *Self, dest_reg: Register, addr_reg: Register, abi_size: u32) !void {
