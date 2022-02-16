@@ -3,11 +3,60 @@
 set -x
 set -e
 
-if [ "${BUILD_REASON}" != "PullRequest" ]; then
-  cd "$ZIGBUILDDIR"
+pacman -Suy --needed --noconfirm
+pacman -S --needed --noconfirm wget p7zip python3-pip git
+pip install s3cmd
 
-  mv ../LICENSE dist/
-  mv ../zig-cache/langref.html dist/
+ZIGDIR="$(pwd)"
+ARCH="x86_64"
+TARGET="$ARCH-windows-gnu"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.9.1"
+PREFIX="$HOME/$CACHE_BASENAME"
+ZIG="$PREFIX/bin/zig.exe"
+
+rm -rf $PREFIX
+cd $HOME
+
+wget -nv "https://ziglang.org/deps/$CACHE_BASENAME.zip"
+7z x "$CACHE_BASENAME.zip"
+
+cd $ZIGDIR
+
+# Make the `zig version` number consistent.
+# This will affect the `zig build` command below.
+git config core.abbrev 9
+git fetch --unshallow || true
+git fetch --tags
+
+# The dev kit zip file that we have here is old, and may be incompatible with
+# the build.zig script of master branch. So we keep an old version of build.zig
+# here in the CI directory.
+mv build.zig build.zig.master
+mv ci/azure/build.zig build.zig
+
+# stage2 is omitted until we resolve https://github.com/ziglang/zig/issues/6485
+$ZIG build \
+  --prefix dist \
+  --search-prefix "$PREFIX" \
+  -Dstage1 \
+  -Domit-stage2 \
+  -Dstatic-llvm \
+  -Drelease \
+  -Dstrip \
+  -Duse-zig-libcxx \
+  -Dtarget=$TARGET
+
+# Now that we have built an up-to-date zig.exe, we restore the original
+# build script from master branch.
+mv build.zig.master build.zig
+
+dist/bin/zig.exe build test-toolchain -Dskip-non-native -Dskip-stage2-tests
+dist/bin/zig.exe build test-std -Dskip-non-native
+dist/bin/zig.exe build docs
+
+if [ "${BUILD_REASON}" != "PullRequest" ]; then
+  mv LICENSE dist/
+  mv zig-cache/langref.html dist/
   mv dist/bin/zig.exe dist/
   rmdir dist/bin
 
@@ -22,7 +71,6 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv dist "$DIRNAME"
   7z a "$TARBALL" "$DIRNAME"
 
-  # mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd -c "$DOWNLOADSECUREFILE_SECUREFILEPATH" put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
 
   SHASUM=$(sha256sum $TARBALL | cut '-d ' -f1)
