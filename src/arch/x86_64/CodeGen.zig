@@ -582,10 +582,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
         switch (air_tags[inst]) {
             // zig fmt: off
-            .add, .ptr_add   => try self.airAdd(inst),
+            .add             => try self.airAdd(inst),
             .addwrap         => try self.airAddWrap(inst),
             .add_sat         => try self.airAddSat(inst),
-            .sub, .ptr_sub   => try self.airSub(inst),
+            .sub             => try self.airSub(inst),
             .subwrap         => try self.airSubWrap(inst),
             .sub_sat         => try self.airSubSat(inst),
             .mul             => try self.airMul(inst),
@@ -597,6 +597,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .shl_sat         => try self.airShlSat(inst),
             .min             => try self.airMin(inst),
             .max             => try self.airMax(inst),
+            .ptr_add         => try self.airPtrAdd(inst),
+            .ptr_sub         => try self.airPtrSub(inst),
             .slice           => try self.airSlice(inst),
 
             .sqrt,
@@ -1066,6 +1068,70 @@ fn airMax(self: *Self, inst: Air.Inst.Index) !void {
     else
         return self.fail("TODO implement max for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airPtrAdd(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
+    const mcvs = try self.mcvsForBinMathOp(inst, bin_op.lhs, bin_op.rhs);
+    var dst_mcv = mcvs.dst;
+    const src_mcv = mcvs.src;
+
+    // TODO clean this up
+    // TODO take into account alignment
+    const dst_ty = self.air.typeOfIndex(inst);
+    const elem_size = dst_ty.elemType2().abiSize(self.target.*);
+    const dst_reg = blk: {
+        switch (dst_mcv) {
+            .register => |reg| break :blk reg,
+            else => {
+                src_mcv.freezeIfRegister(&self.register_manager);
+                defer src_mcv.freezeIfRegister(&self.register_manager);
+                const reg = try self.copyToTmpRegister(dst_ty, dst_mcv);
+                break :blk reg;
+            },
+        }
+    };
+    try self.genIMulOpMir(dst_ty, .{ .register = dst_reg }, .{ .immediate = elem_size });
+    dst_mcv = .{ .register = dst_reg };
+    try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv);
+
+    return self.finishAir(inst, dst_mcv, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airPtrSub(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
+    const mcvs = try self.mcvsForBinMathOp(inst, bin_op.lhs, bin_op.rhs);
+    var dst_mcv = mcvs.dst;
+    const src_mcv = mcvs.src;
+
+    // TODO clean this up
+    // TODO take into account alignment
+    const dst_ty = self.air.typeOfIndex(inst);
+    const elem_size = dst_ty.elemType2().abiSize(self.target.*);
+    const dst_reg = blk: {
+        switch (dst_mcv) {
+            .register => |reg| break :blk reg,
+            else => {
+                src_mcv.freezeIfRegister(&self.register_manager);
+                defer src_mcv.freezeIfRegister(&self.register_manager);
+                const reg = try self.copyToTmpRegister(dst_ty, dst_mcv);
+                break :blk reg;
+            },
+        }
+    };
+    try self.genIMulOpMir(dst_ty, .{ .register = dst_reg }, .{ .immediate = elem_size });
+    dst_mcv = .{ .register = dst_reg };
+    try self.genBinMathOpMir(.sub, dst_ty, dst_mcv, src_mcv);
+
+    return self.finishAir(inst, dst_mcv, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
@@ -2148,18 +2214,17 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
-/// Perform "binary" operators, excluding comparisons.
-/// Currently, the following ops are supported:
-/// ADD, SUB, XOR, OR, AND
-fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref) !MCValue {
-    // We'll handle these ops in two steps.
-    // 1) Prepare an output location (register or memory)
-    //    This location will be the location of the operand that dies (if one exists)
-    //    or just a temporary register (if one doesn't exist)
-    // 2) Perform the op with the other argument
-    // 3) Sometimes, the output location is memory but the op doesn't support it.
-    //    In this case, copy that location to a register, then perform the op to that register instead.
-    //
+const BinMathOpMCValuePair = struct {
+    dst: MCValue,
+    src: MCValue,
+};
+
+fn mcvsForBinMathOp(
+    self: *Self,
+    inst: Air.Inst.Index,
+    op_lhs: Air.Inst.Ref,
+    op_rhs: Air.Inst.Ref,
+) !BinMathOpMCValuePair {
     // TODO: make this algorithm less bad
     const lhs = try self.resolveInst(op_lhs);
     const rhs = try self.resolveInst(op_rhs);
@@ -2218,35 +2283,26 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
                 dst_mcv.freezeIfRegister(&self.register_manager);
                 defer dst_mcv.unfreezeIfRegister(&self.register_manager);
 
-                const tmp_reg = try self.copyToTmpRegister(Type.u64, src_mcv);
-                src_mcv = MCValue{ .register = tmp_reg };
+                src_mcv = try self.copyToNewRegister(inst, Type.u64, src_mcv);
             }
         },
         else => {},
     }
 
-    // Now for step 2, we assing an MIR instruction
-    const air_tags = self.air.instructions.items(.tag);
-    switch (air_tags[inst]) {
-        .ptr_add => {
-            // TODO clean this up
-            // TODO take into account alignment
-            const elem_size = dst_ty.elemType2().abiSize(self.target.*);
-            const dst_reg = blk: {
-                switch (dst_mcv) {
-                    .register => |reg| break :blk reg,
-                    else => {
-                        src_mcv.freezeIfRegister(&self.register_manager);
-                        defer src_mcv.freezeIfRegister(&self.register_manager);
-                        const reg = try self.copyToTmpRegister(dst_ty, dst_mcv);
-                        break :blk reg;
-                    },
-                }
-            };
-            try self.genIMulOpMir(dst_ty, .{ .register = dst_reg }, .{ .immediate = elem_size });
-            dst_mcv = MCValue{ .register = dst_reg };
-            try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv);
-        },
+    return BinMathOpMCValuePair{ .dst = dst_mcv, .src = src_mcv };
+}
+
+/// Perform "binary" operators, excluding comparisons.
+/// Currently, the following ops are supported:
+/// ADD, SUB, XOR, OR, AND
+fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref) !MCValue {
+    const dst_ty = self.air.typeOfIndex(inst);
+    const mcvs = try self.mcvsForBinMathOp(inst, op_lhs, op_rhs);
+    const dst_mcv = mcvs.dst;
+    const src_mcv = mcvs.src;
+    log.warn("dst_mcv = {}, src_mcv = {}", .{ dst_mcv, src_mcv });
+    const tag = self.air.instructions.items(.tag)[inst];
+    switch (tag) {
         .add, .addwrap => try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv),
         .bool_or, .bit_or => try self.genBinMathOpMir(.@"or", dst_ty, dst_mcv, src_mcv),
         .bool_and, .bit_and => try self.genBinMathOpMir(.@"and", dst_ty, dst_mcv, src_mcv),
@@ -2255,7 +2311,6 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
         .mul, .mulwrap => try self.genIMulOpMir(dst_ty, dst_mcv, src_mcv),
         else => unreachable,
     }
-
     return dst_mcv;
 }
 
