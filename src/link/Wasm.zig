@@ -109,7 +109,7 @@ globals: std.StringHashMapUnmanaged(SymbolLoc) = .{},
 discarded: std.AutoHashMapUnmanaged(SymbolLoc, SymbolLoc) = .{},
 /// List of all symbol locations which have been resolved by the linker and will be emit
 /// into the final binary.
-resolved_symbols: std.ArrayListUnmanaged(SymbolLoc) = .{},
+resolved_symbols: std.AutoArrayHashMapUnmanaged(SymbolLoc, void) = .{},
 
 pub const Segment = struct {
     alignment: u32,
@@ -134,10 +134,10 @@ pub const SymbolLoc = struct {
 
     /// From a given location, returns the corresponding symbol in the wasm binary
     pub fn getSymbol(self: SymbolLoc, wasm_bin: *const Wasm) *Symbol {
+        if (wasm_bin.discarded.get(self)) |new_loc| {
+            return new_loc.getSymbol(wasm_bin);
+        }
         if (self.file) |object_index| {
-            if (wasm_bin.discarded.get(self)) |old_loc| {
-                return old_loc.getSymbol(wasm_bin);
-            }
             const object = wasm_bin.objects.items[object_index];
             return &object.symtable[self.index];
         }
@@ -245,7 +245,7 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
                 log.err("  symbol '{s}' defined in '{s}'", .{ symbol.name, object.name });
                 return error.undefinedLocal;
             }
-            try self.resolved_symbols.append(self.base.allocator, location);
+            try self.resolved_symbols.putNoClobber(self.base.allocator, location, {});
             continue;
         }
 
@@ -255,6 +255,7 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
         const maybe_existing = try self.globals.getOrPut(self.base.allocator, sym_name);
         if (!maybe_existing.found_existing) {
             maybe_existing.value_ptr.* = location;
+            try self.resolved_symbols.putNoClobber(self.base.allocator, location, {});
             continue;
         }
 
@@ -277,12 +278,14 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
         }
 
         // simply overwrite with the new symbol
-        log.info("Overwriting symbol '{s}'", .{symbol.name});
-        log.info("  old definition in '{s}'", .{existing_file_path});
-        log.info("  new definition in '{s}'", .{object.name});
+        log.debug("Overwriting symbol '{s}'", .{symbol.name});
+        log.debug("  old definition in '{s}'", .{existing_file_path});
+        log.debug("  new definition in '{s}'", .{object.name});
         try self.discarded.putNoClobber(self.base.allocator, maybe_existing.value_ptr.*, location);
         maybe_existing.value_ptr.* = location;
         try self.globals.put(self.base.allocator, sym_name, location);
+        try self.resolved_symbols.put(self.base.allocator, location, {});
+        assert(self.resolved_symbols.swapRemove(existing_loc));
     }
 }
 
@@ -360,6 +363,11 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
         atom.sym_index = @intCast(u32, self.symbols.items.len);
         self.symbols.appendAssumeCapacity(symbol);
     }
+
+    try self.resolved_symbols.putNoClobber(self.base.allocator, .{
+        .index = atom.sym_index,
+        .file = null,
+    }, {});
 }
 
 pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -454,7 +462,9 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     const atom: *Atom = &decl.link.wasm;
     atom.size = @intCast(u32, code.len);
     atom.alignment = decl.ty.abiAlignment(self.base.options.target);
-    self.symbols.items[atom.sym_index].name = try self.base.allocator.dupeZ(u8, std.mem.sliceTo(decl.name, 0));
+    const symbol = &self.symbols.items[atom.sym_index];
+    symbol.name = try self.base.allocator.dupeZ(u8, std.mem.sliceTo(decl.name, 0));
+    symbol.setFlag(.WASM_SYM_BINDING_LOCAL);
     try atom.code.appendSlice(self.base.allocator, code);
 }
 
@@ -566,7 +576,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     if (decl.isExtern()) {
         assert(self.imports.remove(.{ .file = null, .index = atom.sym_index }));
     }
-
+    assert(self.resolved_symbols.swapRemove(.{ .index = atom.sym_index, .file = null }));
     atom.deinit(self.base.allocator);
 }
 
@@ -594,7 +604,7 @@ fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
     symbol.name = try self.base.allocator.dupeZ(u8, decl_name);
     symbol.setUndefined(true);
     // also add it as a global so it can be resolved
-    try self.globals.put(self.base.allocator, decl_name, .{ .file = null, .index = symbol_index });
+    try self.globals.putNoClobber(self.base.allocator, decl_name, .{ .file = null, .index = symbol_index });
     switch (decl.ty.zigTypeTag()) {
         .Fn => {
             const gop = try self.imports.getOrPut(self.base.allocator, .{ .index = symbol_index, .file = null });
@@ -620,7 +630,7 @@ const Kind = union(enum) {
 
 /// Parses an Atom and inserts its metadata into the corresponding sections.
 fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
-    const symbol: *Symbol = &self.symbols.items[atom.sym_index];
+    const symbol = (SymbolLoc{ .file = null, .index = atom.sym_index }).getSymbol(self);
     const final_index: u32 = switch (kind) {
         .function => |fn_data| result: {
             const index = @intCast(u32, self.functions.items.len + self.imported_functions_count);
@@ -711,7 +721,19 @@ fn allocateAtoms(self: *Wasm) !void {
 }
 
 fn setupImports(self: *Wasm) !void {
-    for (self.resolved_symbols.items) |symbol_loc| {
+    log.debug("Merging imports", .{});
+    var discarded_it = self.discarded.keyIterator();
+    while (discarded_it.next()) |discarded| {
+        if (discarded.file == null) {
+            // remove an import if it was resolved
+            if (self.imports.remove(discarded.*)) {
+                log.debug("Removed symbol '{s}' as an import", .{
+                    discarded.getSymbol(self).name,
+                });
+            }
+        }
+    }
+    for (self.resolved_symbols.keys()) |symbol_loc| {
         if (symbol_loc.file == null) {
             // imports generated by Zig code are already in the `import` section
             continue;
@@ -755,6 +777,12 @@ fn setupImports(self: *Wasm) !void {
     self.imported_functions_count = function_index;
     self.imported_globals_count = global_index;
     self.imported_tables_count = table_index;
+
+    log.debug("Merged ({d}) functions, ({d}) globals, and ({d}) tables into import section", .{
+        function_index,
+        global_index,
+        table_index,
+    });
 }
 
 /// Takes the global, function and table section from each linked object file
@@ -770,7 +798,7 @@ fn mergeSections(self: *Wasm) !void {
         try self.tables.append(self.base.allocator, table);
     }
 
-    for (self.resolved_symbols.items) |sym_loc| {
+    for (self.resolved_symbols.keys()) |sym_loc| {
         if (sym_loc.file == null) {
             // Zig code-generated symbols are already within the sections and do not
             // require to be merged
@@ -816,7 +844,7 @@ fn mergeSections(self: *Wasm) !void {
 /// 'types' section, while assigning the type index to the representing
 /// section (import, export, function).
 fn mergeTypes(self: *Wasm) !void {
-    for (self.resolved_symbols.items) |sym_loc| {
+    for (self.resolved_symbols.keys()) |sym_loc| {
         if (sym_loc.file == null) {
             // zig code-generated symbols are already present in final type section
             continue;
@@ -850,7 +878,7 @@ fn setupExports(self: *Wasm) !void {
         try self.exports.append(self.base.allocator, .{ .name = "memory", .kind = .memory, .index = 0 });
     }
 
-    for (self.resolved_symbols.items) |sym_loc| {
+    for (self.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(self);
         if (!symbol.isExported()) continue;
 
@@ -1067,7 +1095,6 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     var object_index: u16 = 0;
     while (object_index < self.objects.items.len) : (object_index += 1) {
         try self.resolveSymbolsInObject(object_index);
-        try self.objects.items[object_index].parseIntoAtoms(self.base.allocator, object_index, self);
     }
 
     // When we finish/error we reset the state of the linker
@@ -1088,6 +1115,11 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         for (atom.locals.items) |*local_atom| {
             try self.parseAtom(local_atom, .data);
         }
+    }
+
+    while (object_index > 0) {
+        object_index -= 1;
+        try self.objects.items[object_index].parseIntoAtoms(self.base.allocator, object_index, self);
     }
 
     try self.setupMemory();
@@ -1428,7 +1460,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         var segments = try std.ArrayList(Name).initCapacity(self.base.allocator, self.data_segments.count());
         defer segments.deinit();
 
-        for (self.symbols.items) |symbol| {
+        for (self.resolved_symbols.keys()) |sym_loc| {
+            const symbol = sym_loc.getSymbol(self).*;
             switch (symbol.tag) {
                 .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
                 .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
