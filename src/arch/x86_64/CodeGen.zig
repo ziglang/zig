@@ -966,7 +966,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     const reg: Register = blk: {
         if (operand.isRegister()) {
             if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
-                break :blk operand.register;
+                break :blk operand.register.to64();
             }
         }
         const mcv = try self.copyToNewRegister(inst, src_ty, operand);
@@ -2300,7 +2300,6 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     const mcvs = try self.mcvsForBinMathOp(inst, op_lhs, op_rhs);
     const dst_mcv = mcvs.dst;
     const src_mcv = mcvs.src;
-    log.warn("dst_mcv = {}, src_mcv = {}", .{ dst_mcv, src_mcv });
     const tag = self.air.instructions.items(.tag)[inst];
     switch (tag) {
         .add, .addwrap => try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv),
