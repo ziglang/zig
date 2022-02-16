@@ -291,11 +291,6 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .invalid_bit_range => {
             return stream.writeAll("bit range not allowed on slices and arrays");
         },
-        .invalid_token => {
-            return stream.print("invalid token: '{s}'", .{
-                token_tags[parse_error.token].symbol(),
-            });
-        },
         .same_line_doc_comment => {
             return stream.writeAll("same line documentation comment");
         },
@@ -2515,7 +2510,6 @@ pub const Error = struct {
         extra_volatile_qualifier,
         ptr_mod_on_array_child_type,
         invalid_bit_range,
-        invalid_token,
         same_line_doc_comment,
         unattached_doc_comment,
         varargs_nonfinal,

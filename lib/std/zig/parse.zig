@@ -1437,7 +1437,8 @@ const Parser = struct {
             }
             const rhs = try p.parseExprPrecedence(info.prec + 1);
             if (rhs == 0) {
-                return p.fail(.invalid_token);
+                try p.warn(.expected_expr);
+                return node;
             }
 
             node = try p.addNode(.{
@@ -1916,7 +1917,7 @@ const Parser = struct {
 
     /// IfExpr <- IfPrefix Expr (KEYWORD_else Payload? Expr)?
     fn parseIfExpr(p: *Parser) !Node.Index {
-        return p.parseIf(parseExpr);
+        return p.parseIf(expectExpr);
     }
 
     /// Block <- LBRACE Statement* RBRACE
@@ -2384,7 +2385,7 @@ const Parser = struct {
 
             .builtin => return p.parseBuiltinCall(),
             .keyword_fn => return p.parseFnProto(),
-            .keyword_if => return p.parseIf(parseTypeExpr),
+            .keyword_if => return p.parseIf(expectTypeExpr),
             .keyword_switch => return p.expectSwitchExpr(),
 
             .keyword_extern,
@@ -3577,7 +3578,7 @@ const Parser = struct {
         _ = try p.parsePtrPayload();
 
         const then_expr = try bodyParseFn(p);
-        if (then_expr == 0) return p.fail(.invalid_token);
+        assert(then_expr != 0);
 
         _ = p.eatToken(.keyword_else) orelse return p.addNode(.{
             .tag = .if_simple,
@@ -3589,7 +3590,7 @@ const Parser = struct {
         });
         _ = try p.parsePayload();
         const else_expr = try bodyParseFn(p);
-        if (else_expr == 0) return p.fail(.invalid_token);
+        assert(then_expr != 0);
 
         return p.addNode(.{
             .tag = .@"if",
