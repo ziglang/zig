@@ -502,10 +502,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
         switch (air_tags[inst]) {
             // zig fmt: off
-            .add, .ptr_add   => try self.airAdd(inst),
+            .add, .ptr_add   => try self.airBinOp(inst),
             .addwrap         => try self.airAddWrap(inst),
             .add_sat         => try self.airAddSat(inst),
-            .sub, .ptr_sub   => try self.airSub(inst),
+            .sub, .ptr_sub   => try self.airBinOp(inst),
             .subwrap         => try self.airSubWrap(inst),
             .sub_sat         => try self.airSubSat(inst),
             .mul             => try self.airMul(inst),
@@ -943,9 +943,15 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airAdd(self: *Self, inst: Air.Inst.Index) !void {
+fn airBinOp(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[inst];
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .add);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.binOp(tag, inst, lhs, rhs, lhs_ty, rhs_ty);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -958,12 +964,6 @@ fn airAddWrap(self: *Self, inst: Air.Inst.Index) !void {
 fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement add_sat for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airSub(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .sub);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1311,18 +1311,14 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                 assert(offset_mcv == .register); // result of multiplication should always be register
                 self.register_manager.freezeRegs(&.{offset_mcv.register});
 
-                const addr_reg = try self.register_manager.allocReg(null);
-                self.register_manager.freezeRegs(&.{addr_reg});
-                defer self.register_manager.unfreezeRegs(&.{addr_reg});
-
-                try self.genBinOpCode(addr_reg, base_mcv, offset_mcv, false, .add, .unsigned);
+                const addr_mcv = try self.binOp(.add, null, base_mcv, offset_mcv, Type.usize, Type.usize);
 
                 // At this point in time, neither the base register
                 // nor the offset register contains any valuable data
                 // anymore.
                 self.register_manager.unfreezeRegs(&.{ base_mcv.register, offset_mcv.register });
 
-                try self.load(dst_mcv, .{ .register = addr_reg }, slice_ptr_field_type);
+                try self.load(dst_mcv, addr_mcv, slice_ptr_field_type);
 
                 break :result dst_mcv;
             },
@@ -1652,16 +1648,16 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                 self.register_manager.freezeRegs(&.{addr_reg});
                 defer self.register_manager.unfreezeRegs(&.{addr_reg});
 
-                const dst_reg = try self.register_manager.allocReg(inst);
-                try self.genBinOpCode(
-                    dst_reg,
+                const dest = try self.binOp(
+                    .add,
+                    null,
                     .{ .register = addr_reg },
                     .{ .register = offset_reg },
-                    false,
-                    .add,
-                    .unsigned,
+                    Type.usize,
+                    Type.usize,
                 );
-                break :result MCValue{ .register = dst_reg };
+
+                break :result dest;
             },
         }
     };
@@ -1699,6 +1695,273 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
+/// Don't call this function directly. Use binOp instead.
+///
+/// Calling this function signals an intention to generate a Mir
+/// instruction of the form
+///
+///     op dest, lhs, rhs
+///
+/// Asserts that generating an instruction of that form is possible.
+fn binOpRegister(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) !MCValue {
+    const lhs_is_register = lhs == .register;
+    const rhs_is_register = rhs == .register;
+
+    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+
+    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+
+    const lhs_reg = if (lhs_is_register) lhs.register else blk: {
+        const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            break :inst Air.refToIndex(bin_op.lhs).?;
+        } else null;
+
+        const reg = try self.register_manager.allocReg(track_inst);
+        self.register_manager.freezeRegs(&.{reg});
+
+        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
+        break :blk reg;
+    };
+    defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+
+    const rhs_reg = if (rhs_is_register) rhs.register else blk: {
+        const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            break :inst Air.refToIndex(bin_op.rhs).?;
+        } else null;
+
+        const reg = try self.register_manager.allocReg(track_inst);
+        self.register_manager.freezeRegs(&.{reg});
+
+        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
+        break :blk reg;
+    };
+    defer self.register_manager.unfreezeRegs(&.{rhs_reg});
+
+    const dest_reg = if (maybe_inst) |inst| blk: {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
+        if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
+            break :blk lhs_reg;
+        } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
+            break :blk rhs_reg;
+        } else {
+            break :blk try self.register_manager.allocReg(inst);
+        }
+    } else try self.register_manager.allocReg(null);
+
+    if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+    if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
+
+    const mir_tag: Mir.Inst.Tag = switch (tag) {
+        .add, .ptr_add => .add,
+        .sub, .ptr_sub => .sub,
+        else => unreachable,
+    };
+    const mir_data: Mir.Inst.Data = switch (tag) {
+        .add,
+        .sub,
+        .ptr_add,
+        .ptr_sub,
+        => .{ .rr_op = .{
+            .rd = dest_reg,
+            .rn = lhs_reg,
+            .op = Instruction.Operand.reg(rhs_reg, Instruction.Operand.Shift.none),
+        } },
+        else => unreachable,
+    };
+
+    _ = try self.addInst(.{
+        .tag = mir_tag,
+        .data = mir_data,
+    });
+
+    return MCValue{ .register = dest_reg };
+}
+
+/// Don't call this function directly. Use binOp instead.
+///
+/// Calling this function signals an intention to generate a Mir
+/// instruction of the form
+///
+///     op dest, lhs, #rhs_imm
+///
+/// Set lhs_and_rhs_swapped to true iff inst.bin_op.lhs corresponds to
+/// rhs and vice versa. This parameter is only used when maybe_inst !=
+/// null.
+///
+/// Asserts that generating an instruction of that form is possible.
+fn binOpImmediate(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    lhs_and_rhs_swapped: bool,
+) !MCValue {
+    const lhs_is_register = lhs == .register;
+
+    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+
+    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+
+    const lhs_reg = if (lhs_is_register) lhs.register else blk: {
+        const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            break :inst Air.refToIndex(
+                if (lhs_and_rhs_swapped) bin_op.rhs else bin_op.lhs,
+            ).?;
+        } else null;
+
+        const reg = try self.register_manager.allocReg(track_inst);
+        self.register_manager.freezeRegs(&.{reg});
+
+        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
+        break :blk reg;
+    };
+    defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+
+    const dest_reg = if (maybe_inst) |inst| blk: {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
+        if (lhs_is_register and self.reuseOperand(
+            inst,
+            if (lhs_and_rhs_swapped) bin_op.rhs else bin_op.lhs,
+            if (lhs_and_rhs_swapped) 1 else 0,
+            lhs,
+        )) {
+            break :blk lhs_reg;
+        } else {
+            break :blk try self.register_manager.allocReg(inst);
+        }
+    } else try self.register_manager.allocReg(null);
+
+    if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+
+    const mir_tag: Mir.Inst.Tag = switch (tag) {
+        .add => .add,
+        .sub => .sub,
+        else => unreachable,
+    };
+    const mir_data: Mir.Inst.Data = switch (tag) {
+        .add,
+        .sub,
+        => .{ .rr_op = .{
+            .rd = dest_reg,
+            .rn = lhs_reg,
+            .op = Instruction.Operand.fromU32(rhs.immediate).?,
+        } },
+        else => unreachable,
+    };
+
+    _ = try self.addInst(.{
+        .tag = mir_tag,
+        .data = mir_data,
+    });
+
+    return MCValue{ .register = dest_reg };
+}
+
+/// For all your binary operation needs, this function will generate
+/// the corresponding Mir instruction(s). Returns the location of the
+/// result.
+///
+/// If the binary operation itself happens to be an Air instruction,
+/// pass the corresponding index in the inst parameter. That helps
+/// this function do stuff like reusing operands.
+///
+/// This function does not do any lowering to Mir itself, but instead
+/// looks at the lhs and rhs and determines which kind of lowering
+/// would be best suitable and then delegates the lowering to other
+/// functions.
+fn binOp(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) !MCValue {
+    switch (tag) {
+        .add,
+        .sub,
+        => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO ARM binary operations on floats", .{}),
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                .Int => {
+                    assert(lhs_ty.eql(rhs_ty));
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 32) {
+                        // Only say yes if the operation is
+                        // commutative, i.e. we can swap both of the
+                        // operands
+                        const lhs_immediate_ok = switch (tag) {
+                            .add => lhs == .immediate and Instruction.Operand.fromU32(lhs.immediate) != null,
+                            .sub => false,
+                            else => unreachable,
+                        };
+                        const rhs_immediate_ok = switch (tag) {
+                            .add,
+                            .sub,
+                            => rhs == .immediate and Instruction.Operand.fromU32(rhs.immediate) != null,
+                            else => unreachable,
+                        };
+
+                        if (rhs_immediate_ok) {
+                            return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                        } else if (lhs_immediate_ok) {
+                            // swap lhs and rhs
+                            return try self.binOpImmediate(tag, maybe_inst, rhs, lhs, rhs_ty, true);
+                        } else {
+                            return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        }
+                    } else {
+                        return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        .ptr_add,
+        .ptr_sub,
+        => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Pointer => {
+                    const ptr_ty = lhs_ty;
+                    const pointee_ty = switch (ptr_ty.ptrSize()) {
+                        .One => ptr_ty.childType().childType(), // ptr to array, so get array element type
+                        else => ptr_ty.childType(),
+                    };
+
+                    if (pointee_ty.abiSize(self.target.*) > 1) {
+                        return self.fail("TODO ptr_add, ptr_sub with more element sizes", .{});
+                    }
+
+                    return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                },
+                else => unreachable,
+            }
+        },
+        else => unreachable,
+    }
+}
+
 fn armOperandShouldBeRegister(self: *Self, mcv: MCValue) !bool {
     return switch (mcv) {
         .none => unreachable,
@@ -1730,8 +1993,6 @@ fn genBinOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air
     const ty = self.air.typeOf(op_lhs);
 
     switch (ty.zigTypeTag()) {
-        .Float => return self.fail("TODO ARM binary operations on floats", .{}),
-        .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
         .Bool => {
             return self.genBinIntOp(inst, op_lhs, op_rhs, op, 1, .unsigned);
         },
@@ -1896,7 +2157,6 @@ fn genBinOpCode(
     };
 
     switch (op) {
-        .add,
         .bool_and,
         .bit_and,
         .bool_or,
@@ -1905,24 +2165,11 @@ fn genBinOpCode(
         .xor,
         => {
             const tag: Mir.Inst.Tag = switch (op) {
-                .add => .add,
                 .bool_and, .bit_and => .@"and",
                 .bool_or, .bit_or => .orr,
                 .not, .xor => .eor,
                 else => unreachable,
             };
-
-            _ = try self.addInst(.{
-                .tag = tag,
-                .data = .{ .rr_op = .{
-                    .rd = dst_reg,
-                    .rn = op1,
-                    .op = operand,
-                } },
-            });
-        },
-        .sub => {
-            const tag: Mir.Inst.Tag = if (swap_lhs_and_rhs) .rsb else .sub;
 
             _ = try self.addInst(.{
                 .tag = tag,
