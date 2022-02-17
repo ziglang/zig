@@ -104,13 +104,11 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForSpirV; // TODO: LLVM Doesn't support SpirV at all.
     if (options.use_lld) return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
 
-    // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
-    errdefer file.close();
-
     const spirv = try createEmpty(allocator, options);
     errdefer spirv.base.destroy();
 
+    // TODO: read the file and keep valid parts instead of truncating
+    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
     spirv.base.file = file;
     return spirv;
 }
