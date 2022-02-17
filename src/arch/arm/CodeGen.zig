@@ -548,11 +548,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_gt  => try self.airCmp(inst, .gt),
             .cmp_neq => try self.airCmp(inst, .neq),
 
-            .bool_and        => try self.airBoolOp(inst),
-            .bool_or         => try self.airBoolOp(inst),
-            .bit_and         => try self.airBitAnd(inst),
-            .bit_or          => try self.airBitOr(inst),
-            .xor             => try self.airXor(inst),
+            .bool_and        => try self.airBinOp(inst),
+            .bool_or         => try self.airBinOp(inst),
+            .bit_and         => try self.airBinOp(inst),
+            .bit_or          => try self.airBinOp(inst),
+            .xor             => try self.airBinOp(inst),
             .shr, .shr_exact => try self.airShr(inst),
 
             .alloc           => try self.airAlloc(inst),
@@ -1026,24 +1026,6 @@ fn airRem(self: *Self, inst: Air.Inst.Index) !void {
 fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement mod for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airBitAnd(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .bit_and);
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airBitOr(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .bit_or);
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airXor(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .xor);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1770,11 +1752,23 @@ fn binOpRegister(
         .add, .ptr_add => .add,
         .sub, .ptr_sub => .sub,
         .mul => .mul,
+        .bit_and,
+        .bool_and,
+        => .@"and",
+        .bit_or,
+        .bool_or,
+        => .orr,
+        .xor => .eor,
         else => unreachable,
     };
     const mir_data: Mir.Inst.Data = switch (tag) {
         .add,
         .sub,
+        .bit_and,
+        .bool_and,
+        .bit_or,
+        .bool_or,
+        .xor,
         .ptr_add,
         .ptr_sub,
         => .{ .rr_op = .{
@@ -1862,11 +1856,23 @@ fn binOpImmediate(
     const mir_tag: Mir.Inst.Tag = switch (tag) {
         .add => .add,
         .sub => .sub,
+        .bit_and,
+        .bool_and,
+        => .@"and",
+        .bit_or,
+        .bool_or,
+        => .orr,
+        .xor => .eor,
         else => unreachable,
     };
     const mir_data: Mir.Inst.Data = switch (tag) {
         .add,
         .sub,
+        .bit_and,
+        .bool_and,
+        .bit_or,
+        .bool_or,
+        .xor,
         => .{ .rr_op = .{
             .rd = dest_reg,
             .rn = lhs_reg,
@@ -1959,6 +1965,54 @@ fn binOp(
                         return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        .bit_and,
+        .bit_or,
+        .xor,
+        => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                .Int => {
+                    assert(lhs_ty.eql(rhs_ty));
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 32) {
+                        const lhs_immediate_ok = lhs == .immediate and Instruction.Operand.fromU32(lhs.immediate) != null;
+                        const rhs_immediate_ok = rhs == .immediate and Instruction.Operand.fromU32(rhs.immediate) != null;
+
+                        if (rhs_immediate_ok) {
+                            return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                        } else if (lhs_immediate_ok) {
+                            // swap lhs and rhs
+                            return try self.binOpImmediate(tag, maybe_inst, rhs, lhs, rhs_ty, true);
+                        } else {
+                            return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        }
+                    } else {
+                        return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        .bool_and,
+        .bool_or,
+        => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Bool => {
+                    const lhs_immediate_ok = lhs == .immediate;
+                    const rhs_immediate_ok = rhs == .immediate;
+
+                    if (rhs_immediate_ok) {
+                        return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                    } else if (lhs_immediate_ok) {
+                        // swap lhs and rhs
+                        return try self.binOpImmediate(tag, maybe_inst, rhs, lhs, rhs_ty, true);
+                    } else {
+                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     }
                 },
                 else => unreachable,
@@ -2183,17 +2237,9 @@ fn genBinOpCode(
     };
 
     switch (op) {
-        .bool_and,
-        .bit_and,
-        .bool_or,
-        .bit_or,
-        .not,
-        .xor,
-        => {
+        .not => {
             const tag: Mir.Inst.Tag = switch (op) {
-                .bool_and, .bit_and => .@"and",
-                .bool_or, .bit_or => .orr,
-                .not, .xor => .eor,
+                .not => .eor,
                 else => unreachable,
             };
 
@@ -3152,17 +3198,6 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
     const branch = self.air.instructions.items(.data)[inst].br;
     try self.br(branch.block_inst, branch.operand);
     return self.finishAir(inst, .dead, .{ branch.operand, .none, .none });
-}
-
-fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const air_tags = self.air.instructions.items(.tag);
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (air_tags[inst]) {
-        .bool_and => try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .bool_and),
-        .bool_or => try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .bool_or),
-        else => unreachable, // Not a boolean operation
-    };
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
