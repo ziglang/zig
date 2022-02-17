@@ -413,6 +413,7 @@ pub const DbgLineColumn = struct {
 pub const ArgDbgInfo = struct {
     air_inst: Air.Inst.Index,
     arg_index: u32,
+    max_stack: u32,
 };
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
