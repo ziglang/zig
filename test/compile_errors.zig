@@ -877,6 +877,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:6:5: error: declarations are not allowed between container fields",
+        "tmp.zig:5:5: note: field before declarations here",
+        "tmp.zig:9:5: note: field after declarations here",
     });
 
     ctx.objErrStage1("non-extern function with var args",

@@ -329,6 +329,13 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("expected field initializer");
         },
 
+        .previous_field => {
+            return stream.writeAll("field before declarations here");
+        },
+        .next_field => {
+            return stream.writeAll("field after declarations here");
+        },
+
         .expected_token => {
             const found_tag = token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)];
             const expected_symbol = parse_error.extra.expected_tag.symbol();
@@ -2470,6 +2477,7 @@ pub const full = struct {
 
 pub const Error = struct {
     tag: Tag,
+    is_note: bool = false,
     /// True if `token` points to the token before the token causing an issue.
     token_is_prev: bool = false,
     token: TokenIndex,
@@ -2526,6 +2534,9 @@ pub const Error = struct {
         expected_comma_after_initializer,
         expected_comma_after_switch_prong,
         expected_initializer,
+
+        previous_field,
+        next_field,
 
         /// `expected_tag` is populated.
         expected_token,

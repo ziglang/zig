@@ -226,6 +226,8 @@ test "zig fmt: decl between fields" {
         \\};
     , &[_]Error{
         .decl_between_fields,
+        .previous_field,
+        .next_field,
     });
 }
 

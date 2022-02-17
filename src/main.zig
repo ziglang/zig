@@ -3769,9 +3769,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
         };
         defer tree.deinit(gpa);
 
-        for (tree.errors) |parse_error| {
-            try printErrMsgToStdErr(gpa, arena, parse_error, tree, "<stdin>", color);
-        }
+        try printErrsMsgToStdErr(gpa, arena, tree.errors, tree, "<stdin>", color);
         var has_ast_error = false;
         if (check_ast_flag) {
             const Module = @import("Module.zig");
@@ -3959,9 +3957,7 @@ fn fmtPathFile(
     var tree = try std.zig.parse(fmt.gpa, source_code);
     defer tree.deinit(fmt.gpa);
 
-    for (tree.errors) |parse_error| {
-        try printErrMsgToStdErr(fmt.gpa, fmt.arena, parse_error, tree, file_path, fmt.color);
-    }
+    try printErrsMsgToStdErr(fmt.gpa, fmt.arena, tree.errors, tree, file_path, fmt.color);
     if (tree.errors.len != 0) {
         fmt.any_error = true;
         return;
@@ -4041,66 +4037,95 @@ fn fmtPathFile(
     }
 }
 
-fn printErrMsgToStdErr(
+fn printErrsMsgToStdErr(
     gpa: mem.Allocator,
     arena: mem.Allocator,
-    parse_error: Ast.Error,
+    parse_errors: []const Ast.Error,
     tree: Ast,
     path: []const u8,
     color: Color,
 ) !void {
-    const lok_token = parse_error.token;
-    const token_tags = tree.tokens.items(.tag);
-    const start_loc = tree.tokenLocation(0, lok_token);
-    const source_line = tree.source[start_loc.line_start..start_loc.line_end];
+    var i: usize = 0;
+    while (i < parse_errors.len) : (i += 1) {
+        const parse_error = parse_errors[i];
+        const lok_token = parse_error.token;
+        const token_tags = tree.tokens.items(.tag);
+        const start_loc = tree.tokenLocation(0, lok_token);
+        const source_line = tree.source[start_loc.line_start..start_loc.line_end];
 
-    var text_buf = std.ArrayList(u8).init(gpa);
-    defer text_buf.deinit();
-    const writer = text_buf.writer();
-    try tree.renderError(parse_error, writer);
-    const text = text_buf.items;
+        var text_buf = std.ArrayList(u8).init(gpa);
+        defer text_buf.deinit();
+        const writer = text_buf.writer();
+        try tree.renderError(parse_error, writer);
+        const text = text_buf.items;
 
-    var notes_buffer: [1]Compilation.AllErrors.Message = undefined;
-    var notes_len: usize = 0;
+        var notes_buffer: [2]Compilation.AllErrors.Message = undefined;
+        var notes_len: usize = 0;
 
-    if (token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)] == .invalid) {
-        const bad_off = @intCast(u32, tree.tokenSlice(parse_error.token + @boolToInt(parse_error.token_is_prev)).len);
-        const byte_offset = @intCast(u32, start_loc.line_start) + @intCast(u32, start_loc.column) + bad_off;
-        notes_buffer[notes_len] = .{
+        if (token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)] == .invalid) {
+            const bad_off = @intCast(u32, tree.tokenSlice(parse_error.token + @boolToInt(parse_error.token_is_prev)).len);
+            const byte_offset = @intCast(u32, start_loc.line_start) + @intCast(u32, start_loc.column) + bad_off;
+            notes_buffer[notes_len] = .{
+                .src = .{
+                    .src_path = path,
+                    .msg = try std.fmt.allocPrint(arena, "invalid byte: '{'}'", .{
+                        std.zig.fmtEscapes(tree.source[byte_offset..][0..1]),
+                    }),
+                    .byte_offset = byte_offset,
+                    .line = @intCast(u32, start_loc.line),
+                    .column = @intCast(u32, start_loc.column) + bad_off,
+                    .source_line = source_line,
+                },
+            };
+            notes_len += 1;
+        } else if (parse_error.tag == .decl_between_fields) {
+            const prev_loc = tree.tokenLocation(0, parse_errors[i + 1].token);
+            notes_buffer[0] = .{
+                .src = .{
+                    .src_path = path,
+                    .msg = "field before declarations here",
+                    .byte_offset = @intCast(u32, prev_loc.line_start),
+                    .line = @intCast(u32, prev_loc.line),
+                    .column = @intCast(u32, prev_loc.column),
+                    .source_line = tree.source[prev_loc.line_start..prev_loc.line_end],
+                },
+            };
+            const next_loc = tree.tokenLocation(0, parse_errors[i + 2].token);
+            notes_buffer[1] = .{
+                .src = .{
+                    .src_path = path,
+                    .msg = "field after declarations here",
+                    .byte_offset = @intCast(u32, next_loc.line_start),
+                    .line = @intCast(u32, next_loc.line),
+                    .column = @intCast(u32, next_loc.column),
+                    .source_line = tree.source[next_loc.line_start..next_loc.line_end],
+                },
+            };
+            notes_len = 2;
+            i += 2;
+        }
+
+        const extra_offset = tree.errorOffset(parse_error);
+        const message: Compilation.AllErrors.Message = .{
             .src = .{
                 .src_path = path,
-                .msg = try std.fmt.allocPrint(arena, "invalid byte: '{'}'", .{
-                    std.zig.fmtEscapes(tree.source[byte_offset..][0..1]),
-                }),
-                .byte_offset = byte_offset,
+                .msg = text,
+                .byte_offset = @intCast(u32, start_loc.line_start) + extra_offset,
                 .line = @intCast(u32, start_loc.line),
-                .column = @intCast(u32, start_loc.column) + bad_off,
+                .column = @intCast(u32, start_loc.column) + extra_offset,
                 .source_line = source_line,
+                .notes = notes_buffer[0..notes_len],
             },
         };
-        notes_len += 1;
+
+        const ttyconf: std.debug.TTY.Config = switch (color) {
+            .auto => std.debug.detectTTYConfig(),
+            .on => .escape_codes,
+            .off => .no_color,
+        };
+
+        message.renderToStdErr(ttyconf);
     }
-
-    const extra_offset = tree.errorOffset(parse_error);
-    const message: Compilation.AllErrors.Message = .{
-        .src = .{
-            .src_path = path,
-            .msg = text,
-            .byte_offset = @intCast(u32, start_loc.line_start) + extra_offset,
-            .line = @intCast(u32, start_loc.line),
-            .column = @intCast(u32, start_loc.column) + extra_offset,
-            .source_line = source_line,
-            .notes = notes_buffer[0..notes_len],
-        },
-    };
-
-    const ttyconf: std.debug.TTY.Config = switch (color) {
-        .auto => std.debug.detectTTYConfig(),
-        .on => .escape_codes,
-        .off => .no_color,
-    };
-
-    message.renderToStdErr(ttyconf);
 }
 
 pub const info_zen =
@@ -4658,9 +4683,7 @@ pub fn cmdAstCheck(
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
-    for (file.tree.errors) |parse_error| {
-        try printErrMsgToStdErr(gpa, arena, parse_error, file.tree, file.sub_file_path, color);
-    }
+    try printErrsMsgToStdErr(gpa, arena, file.tree.errors, file.tree, file.sub_file_path, color);
     if (file.tree.errors.len != 0) {
         process.exit(1);
     }
@@ -4786,9 +4809,7 @@ pub fn cmdChangelist(
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
-    for (file.tree.errors) |parse_error| {
-        try printErrMsgToStdErr(gpa, arena, parse_error, file.tree, old_source_file, .auto);
-    }
+    try printErrsMsgToStdErr(gpa, arena, file.tree.errors, file.tree, old_source_file, .auto);
     if (file.tree.errors.len != 0) {
         process.exit(1);
     }
@@ -4825,9 +4846,7 @@ pub fn cmdChangelist(
     var new_tree = try std.zig.parse(gpa, new_source);
     defer new_tree.deinit(gpa);
 
-    for (new_tree.errors) |parse_error| {
-        try printErrMsgToStdErr(gpa, arena, parse_error, new_tree, new_source_file, .auto);
-    }
+    try printErrsMsgToStdErr(gpa, arena, new_tree.errors, new_tree, new_source_file, .auto);
     if (new_tree.errors.len != 0) {
         process.exit(1);
     }
