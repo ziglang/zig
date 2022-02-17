@@ -1604,6 +1604,12 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
                     .stack_offset => |off| {
                         break :inner off;
                     },
+                    .memory,
+                    .got_load,
+                    .direct_load,
+                    => {
+                        break :blk try self.loadMemPtrIntoRegister(Type.usize, array);
+                    },
                     else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
                 }
             };
@@ -1844,6 +1850,42 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn loadMemPtrIntoRegister(self: *Self, ptr_ty: Type, ptr: MCValue) InnerError!Register {
+    switch (ptr) {
+        .got_load,
+        .direct_load,
+        => |sym_index| {
+            const flags: u2 = switch (ptr) {
+                .got_load => 0b00,
+                .direct_load => 0b01,
+                else => unreachable,
+            };
+            const reg = try self.register_manager.allocReg(null);
+            _ = try self.addInst(.{
+                .tag = .lea_pie,
+                .ops = (Mir.Ops{
+                    .reg1 = reg.to64(),
+                    .flags = flags,
+                }).encode(),
+                .data = .{
+                    .load_reloc = .{
+                        .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
+                        .sym_index = sym_index,
+                    },
+                },
+            });
+            return reg.to64();
+        },
+        .memory => |addr| {
+            // TODO: in case the address fits in an imm32 we can use [ds:imm32]
+            // instead of wasting an instruction copying the address to a register
+            const reg = try self.copyToTmpRegister(ptr_ty, .{ .immediate = addr });
+            return reg.to64();
+        },
+        else => unreachable,
+    }
+}
+
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
     _ = ptr_ty;
     const abi_size = value_ty.abiSize(self.target.*);
@@ -1946,41 +1988,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             value.freezeIfRegister(&self.register_manager);
             defer value.unfreezeIfRegister(&self.register_manager);
 
-            const addr_reg: Register = blk: {
-                switch (ptr) {
-                    .got_load,
-                    .direct_load,
-                    => |sym_index| {
-                        const flags: u2 = switch (ptr) {
-                            .got_load => 0b00,
-                            .direct_load => 0b01,
-                            else => unreachable,
-                        };
-                        const addr_reg = try self.register_manager.allocReg(null);
-                        _ = try self.addInst(.{
-                            .tag = .lea_pie,
-                            .ops = (Mir.Ops{
-                                .reg1 = addr_reg.to64(),
-                                .flags = flags,
-                            }).encode(),
-                            .data = .{
-                                .load_reloc = .{
-                                    .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
-                                    .sym_index = sym_index,
-                                },
-                            },
-                        });
-                        break :blk addr_reg;
-                    },
-                    .memory => |addr| {
-                        // TODO: in case the address fits in an imm32 we can use [ds:imm32]
-                        // instead of wasting an instruction copying the address to a register
-                        const addr_reg = try self.copyToTmpRegister(ptr_ty, .{ .immediate = addr });
-                        break :blk addr_reg;
-                    },
-                    else => unreachable,
-                }
-            };
+            const addr_reg = try self.loadMemPtrIntoRegister(ptr_ty, ptr);
 
             // to get the actual address of the value we want to modify we have to go through the GOT
             // mov reg, [reg]
@@ -3808,33 +3816,11 @@ fn genInlineMemcpy(self: *Self, stack_offset: i32, stack_reg: Register, ty: Type
 
     const addr_reg: Register = blk: {
         switch (val) {
-            .memory => |addr| {
-                const reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = addr });
-                break :blk reg;
-            },
+            .memory,
             .direct_load,
             .got_load,
-            => |sym_index| {
-                const flags: u2 = switch (val) {
-                    .got_load => 0b00,
-                    .direct_load => 0b01,
-                    else => unreachable,
-                };
-                const addr_reg = (try self.register_manager.allocReg(null)).to64();
-                _ = try self.addInst(.{
-                    .tag = .lea_pie,
-                    .ops = (Mir.Ops{
-                        .reg1 = addr_reg,
-                        .flags = flags,
-                    }).encode(),
-                    .data = .{
-                        .load_reloc = .{
-                            .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
-                            .sym_index = sym_index,
-                        },
-                    },
-                });
-                break :blk addr_reg;
+            => {
+                break :blk try self.loadMemPtrIntoRegister(Type.usize, val);
             },
             .stack_offset => |off| {
                 const addr_reg = (try self.register_manager.allocReg(null)).to64();

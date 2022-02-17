@@ -153,7 +153,7 @@ test "void arrays" {
 
 test "nested arrays" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const array_of_strings = [_][]const u8{ "hello", "this", "is", "my", "thing" };
     for (array_of_strings) |s, i| {
@@ -525,8 +525,8 @@ test "zero-sized array with recursive type definition" {
 test "type coercion of anon struct literal to array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         const U = union {
@@ -543,8 +543,8 @@ test "type coercion of anon struct literal to array" {
             try expect(arr1[1] == 56);
             try expect(arr1[2] == 54);
 
-            if (@import("builtin").zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
-            if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+            if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+            if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
             var x2: U = .{ .a = 42 };
             const t2 = .{ x2, .{ .b = true }, .{ .c = "hello" } };
