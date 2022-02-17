@@ -138,6 +138,8 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .shr => try emit.mirShift(.shr, inst),
             .sar => try emit.mirShift(.sar, inst),
 
+            .imul => try emit.mirIMulIDiv(.imul, inst),
+            .idiv => try emit.mirIMulIDiv(.idiv, inst),
             .imul_complex => try emit.mirIMulComplex(inst),
 
             .push => try emit.mirPushPop(.push, inst),
@@ -683,6 +685,27 @@ fn mirShift(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
+fn mirIMulIDiv(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    if (ops.reg1 != .none) {
+        assert(ops.reg2 == .none);
+        return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
+    }
+    assert(ops.reg1 == .none);
+    assert(ops.reg2 != .none);
+    const imm = emit.mir.instructions.items(.data)[inst].imm;
+    const ptr_size: Memory.PtrSize = switch (ops.flags) {
+        0b00 => .byte_ptr,
+        0b01 => .word_ptr,
+        0b10 => .dword_ptr,
+        0b11 => .qword_ptr,
+    };
+    return lowerToMEnc(tag, RegisterOrMemory.mem(ptr_size, .{
+        .disp = imm,
+        .base = ops.reg2,
+    }), emit.code);
+}
+
 fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .imul_complex);
@@ -1048,6 +1071,7 @@ const Tag = enum {
     brk,
     nop,
     imul,
+    idiv,
     syscall,
     ret_near,
     ret_far,
@@ -1276,6 +1300,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .setnl, .setge => OpCode.twoByte(0x0f, 0x9d),
             .setle, .setng => OpCode.twoByte(0x0f, 0x9e),
             .setnle, .setg => OpCode.twoByte(0x0f, 0x9f),
+            .idiv, .imul => OpCode.oneByte(if (is_one_byte) 0xf6 else 0xf7),
             else => null,
         },
         .o => return switch (tag) {
@@ -1409,6 +1434,8 @@ inline fn getModRmExt(tag: Tag) ?u3 {
         => 0x4,
         .shr => 0x5,
         .sar => 0x7,
+        .imul => 0x5,
+        .idiv => 0x7,
         else => null,
     };
 }
@@ -2204,6 +2231,10 @@ test "lower M encoding" {
     try expectEqualHexStrings("\xFF\x24\x25\x10\x00\x00\x00", emit.lowered(), "jmp qword ptr [ds:0x10]");
     try lowerToMEnc(.seta, RegisterOrMemory.reg(.r11b), emit.code());
     try expectEqualHexStrings("\x41\x0F\x97\xC3", emit.lowered(), "seta r11b");
+    try lowerToMEnc(.idiv, RegisterOrMemory.reg(.rax), emit.code());
+    try expectEqualHexStrings("\x48\xF7\xF8", emit.lowered(), "idiv rax");
+    try lowerToMEnc(.imul, RegisterOrMemory.reg(.al), emit.code());
+    try expectEqualHexStrings("\xF6\xE8", emit.lowered(), "imul al");
 }
 
 test "lower M1 and MC encodings" {

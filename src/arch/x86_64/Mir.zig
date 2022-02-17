@@ -220,8 +220,11 @@ pub const Inst = struct {
         sar_mem_index_imm,
 
         /// ops flags: form:
-        ///      0bX0  reg1
-        ///      0bX1  [reg1 + imm32]
+        ///      0b00  reg1
+        ///      0b00  byte ptr [reg2 + imm32]
+        ///      0b01  word ptr [reg2 + imm32]
+        ///      0b10  dword ptr [reg2 + imm32]
+        ///      0b11  qword ptr [reg2 + imm32]
         imul,
         idiv,
 
