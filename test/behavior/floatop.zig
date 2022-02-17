@@ -251,8 +251,8 @@ fn testExp2() !void {
 }
 
 test "@log" {
-    // Old musl (and glibc?), and our current math.ln implementation do not return 1
-    // so also accept those values.
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+
     comptime try testLog();
     try testLog();
 }
@@ -287,6 +287,8 @@ fn testLog() !void {
 }
 
 test "@log2" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+
     comptime try testLog2();
     try testLog2();
 }
@@ -310,6 +312,8 @@ fn testLog2() !void {
 }
 
 test "@log10" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+
     comptime try testLog10();
     try testLog10();
 }

@@ -28,6 +28,24 @@ comptime {
 
     @export(log, .{ .name = "log", .linkage = .Strong });
     @export(logf, .{ .name = "logf", .linkage = .Strong });
+
+    @export(sin, .{ .name = "sin", .linkage = .Strong });
+    @export(sinf, .{ .name = "sinf", .linkage = .Strong });
+
+    @export(cos, .{ .name = "cos", .linkage = .Strong });
+    @export(cosf, .{ .name = "cosf", .linkage = .Strong });
+
+    @export(exp, .{ .name = "exp", .linkage = .Strong });
+    @export(expf, .{ .name = "expf", .linkage = .Strong });
+
+    @export(exp2, .{ .name = "exp2", .linkage = .Strong });
+    @export(exp2f, .{ .name = "exp2f", .linkage = .Strong });
+
+    @export(log2, .{ .name = "log2", .linkage = .Strong });
+    @export(log2f, .{ .name = "log2f", .linkage = .Strong });
+
+    @export(log10, .{ .name = "log10", .linkage = .Strong });
+    @export(log10f, .{ .name = "log10f", .linkage = .Strong });
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
@@ -112,4 +130,52 @@ fn log(a: f64) callconv(.C) f64 {
 
 fn logf(a: f32) callconv(.C) f32 {
     return math.ln(a);
+}
+
+fn sin(a: f64) callconv(.C) f64 {
+    return math.sin(a);
+}
+
+fn sinf(a: f32) callconv(.C) f32 {
+    return math.sin(a);
+}
+
+fn cos(a: f64) callconv(.C) f64 {
+    return math.cos(a);
+}
+
+fn cosf(a: f32) callconv(.C) f32 {
+    return math.cos(a);
+}
+
+fn exp(a: f64) callconv(.C) f64 {
+    return math.exp(a);
+}
+
+fn expf(a: f32) callconv(.C) f32 {
+    return math.exp(a);
+}
+
+fn exp2(a: f64) callconv(.C) f64 {
+    return math.exp2(a);
+}
+
+fn exp2f(a: f32) callconv(.C) f32 {
+    return math.exp2(a);
+}
+
+fn log2(a: f64) callconv(.C) f64 {
+    return math.log2(a);
+}
+
+fn log2f(a: f32) callconv(.C) f32 {
+    return math.log2(a);
+}
+
+fn log10(a: f64) callconv(.C) f64 {
+    return math.log10(a);
+}
+
+fn log10f(a: f32) callconv(.C) f32 {
+    return math.log10(a);
 }
