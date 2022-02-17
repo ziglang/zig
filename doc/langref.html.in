@@ -10405,7 +10405,7 @@ pub fn main() !void {
       <p>String literals such as {#syntax#}"foo"{#endsyntax#} are in the global constant data section.
       This is why it is an error to pass a string literal to a mutable slice, like this:
       </p>
-      {#code_begin|test_err|expected type '[]u8'#}
+      {#code_begin|test_err|cannot cast pointer to array literal to slice type '[]u8'#}
 fn foo(s: []u8) void {
     _ = s;
 }

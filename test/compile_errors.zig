@@ -86,9 +86,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = c;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:31: error: expected type '[][]const u8', found '*const struct:2:31'",
-        "tmp.zig:6:33: error: expected type '*[2][]const u8', found '*const struct:6:33'",
+        "tmp.zig:2:31: error: cannot cast pointer to array literal to slice type '[][]const u8'",
+        "tmp.zig:2:31: note: cast discards const qualifier",
+        "tmp.zig:6:33: error: cannot cast pointer to array literal to '*[2][]const u8'",
+        "tmp.zig:6:33: note: cast discards const qualifier",
         "tmp.zig:11:21: error: expected type '*S', found '*const struct:11:21'",
+        "tmp.zig:11:21: note: cast discards const qualifier",
     });
 
     ctx.objErrStage1("@Type() union payload is undefined",
@@ -1962,7 +1965,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = geo_data;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:30: error: array literal requires address-of operator to coerce to slice type '[][2]f32'",
+        "tmp.zig:4:30: error: array literal requires address-of operator (&) to coerce to slice type '[][2]f32'",
     });
 
     ctx.objErrStage1("slicing of global undefined pointer",
@@ -2537,7 +2540,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: array literal requires address-of operator to coerce to slice type '[]u8'",
+        "tmp.zig:2:15: error: array literal requires address-of operator (&) to coerce to slice type '[]u8'",
     });
 
     ctx.objErrStage1("slice passed as array init type",
@@ -2546,7 +2549,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: array literal requires address-of operator to coerce to slice type '[]u8'",
+        "tmp.zig:2:15: error: array literal requires address-of operator (&) to coerce to slice type '[]u8'",
     });
 
     ctx.objErrStage1("inferred array size invalid here",
@@ -3493,7 +3496,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = sliceA;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:27: error: expected type '[]u8', found '*const [1]u8'",
+        "tmp.zig:3:27: error: cannot cast pointer to array literal to slice type '[]u8'",
+        "tmp.zig:3:27: note: cast discards const qualifier",
     });
 
     ctx.objErrStage1("deref slice and get len field",
@@ -8717,7 +8721,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    comptime ignore(@typeInfo(MyStruct).Struct.fields[0]);
         \\}
     , &[_][]const u8{
-        ":5:28: error: expected type '[]u8', found '*const [3:0]u8'",
+        ":5:28: error: cannot cast pointer to array literal to slice type '[]u8'",
+        ":5:28: note: cast discards const qualifier",
     });
 
     ctx.objErrStage1("integer underflow error",

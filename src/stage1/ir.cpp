@@ -7843,7 +7843,7 @@ static Stage1AirInst *ir_analyze_cast(IrAnalyze *ira, Scope *scope, AstNode *sou
         bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
                 || !actual_type->data.pointer.is_const);
 
-        if (const_ok && types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
+        if (types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
             array_type->data.array.child_type, source_node,
             !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk &&
             (slice_ptr_type->data.pointer.sentinel == nullptr ||
@@ -7851,6 +7851,14 @@ static Stage1AirInst *ir_analyze_cast(IrAnalyze *ira, Scope *scope, AstNode *sou
               const_values_equal(ira->codegen, array_type->data.array.sentinel,
                   slice_ptr_type->data.pointer.sentinel))))
         {
+            if (!const_ok) {
+                ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                    buf_sprintf("cannot cast pointer to array literal to slice type '%s'",
+                        buf_ptr(&wanted_type->name)));
+                add_error_note(ira->codegen, msg, source_node,
+                    buf_sprintf("cast discards const qualifier"));
+                return ira->codegen->invalid_inst_gen;
+            }
             // If the pointers both have ABI align, it works.
             // Or if the array length is 0, alignment doesn't matter.
             bool ok_align = array_type->data.array.len == 0 ||
@@ -8208,8 +8216,16 @@ static Stage1AirInst *ir_analyze_cast(IrAnalyze *ira, Scope *scope, AstNode *sou
             ZigType *wanted_child = wanted_type->data.pointer.child_type;
             bool const_ok = (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const);
             if (wanted_child->id == ZigTypeIdArray && (is_array_init || field_count == 0) &&
-                wanted_child->data.array.len == field_count && (const_ok || field_count == 0))
+                wanted_child->data.array.len == field_count)
             {
+                if (!const_ok && field_count != 0) {
+                    ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                        buf_sprintf("cannot cast pointer to array literal to '%s'",
+                            buf_ptr(&wanted_type->name)));
+                    add_error_note(ira->codegen, msg, source_node,
+                        buf_sprintf("cast discards const qualifier"));
+                    return ira->codegen->invalid_inst_gen;
+                }
                 Stage1AirInst *res = ir_analyze_struct_literal_to_array(ira, scope, source_node, value, anon_type, wanted_child);
                 if (res->value->type->id == ZigTypeIdPointer)
                     return res;
@@ -8241,6 +8257,13 @@ static Stage1AirInst *ir_analyze_cast(IrAnalyze *ira, Scope *scope, AstNode *sou
                     res = ir_get_ref(ira, scope, source_node, res, actual_type->data.pointer.is_const, actual_type->data.pointer.is_volatile);
 
                 return ir_resolve_ptr_of_array_to_slice(ira, scope, source_node, res, wanted_type, nullptr);
+            } else if (!slice_type->data.pointer.is_const && actual_type->data.pointer.is_const && field_count != 0) {
+                ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                    buf_sprintf("cannot cast pointer to array literal to slice type '%s'",
+                        buf_ptr(&wanted_type->name)));
+                add_error_note(ira->codegen, msg, source_node,
+                    buf_sprintf("cast discards const qualifier"));
+                return ira->codegen->invalid_inst_gen;
             }
         }
     }
@@ -15068,7 +15091,7 @@ static Stage1AirInst *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, Stage1ZirI
                         return ira->codegen->invalid_inst_gen;
                     if (actual_array_type->id != ZigTypeIdArray) {
                         ir_add_error_node(ira, elem_ptr_instruction->init_array_type_source_node,
-                            buf_sprintf("array literal requires address-of operator to coerce to slice type '%s'",
+                            buf_sprintf("array literal requires address-of operator (&) to coerce to slice type '%s'",
                                 buf_ptr(&actual_array_type->name)));
                         return ira->codegen->invalid_inst_gen;
                     }
@@ -17473,7 +17496,7 @@ static Stage1AirInst *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
 
     if (is_slice(container_type)) {
         ir_add_error_node(ira, instruction->init_array_type_source_node,
-            buf_sprintf("array literal requires address-of operator to coerce to slice type '%s'",
+            buf_sprintf("array literal requires address-of operator (&) to coerce to slice type '%s'",
                 buf_ptr(&container_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
