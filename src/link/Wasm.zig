@@ -2049,6 +2049,7 @@ fn emitLinkSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
     // For each subsection type (found in types.Subsection) we can emit a section.
     // Currently, we only support emitting segment info and the symbol table.
     try self.emitSymbolTable(file, arena);
+    try self.emitSegmentInfo(file, arena);
 
     const size = @intCast(u32, (try file.getPos()) - offset - 6);
     try writeCustomSectionHeader(file, offset, size);
@@ -2064,7 +2065,6 @@ fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator) !void {
     try leb.writeULEB128(file.writer(), @enumToInt(types.SubsectionType.WASM_SYMBOL_TABLE));
 
     var symbol_count: u32 = 0;
-
     var atom_it = self.atoms.valueIterator();
     while (atom_it.next()) |next_atom| {
         var atom: ?*Atom = next_atom.*.getFirst();
@@ -2073,6 +2073,7 @@ fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator) !void {
             const symbol = sym_loc.getSymbol(self).*;
             if (symbol.tag == .dead) continue; // Do not emit dead symbols
             symbol_count += 1;
+            log.debug("Emit symbol: {}", .{symbol});
             try leb.writeULEB128(writer, @enumToInt(symbol.tag));
             try leb.writeULEB128(writer, symbol.flags);
 
@@ -2109,6 +2110,31 @@ fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator) !void {
     try payload.insertSlice(0, &buf);
     try leb.writeULEB128(file.writer(), @intCast(u32, payload.items.len));
 
+    const iovec: std.os.iovec_const = .{
+        .iov_base = payload.items.ptr,
+        .iov_len = payload.items.len,
+    };
+    try file.writevAll(&.{iovec});
+}
+
+fn emitSegmentInfo(self: *Wasm, file: fs.File, arena: Allocator) !void {
+    var payload = std.ArrayList(u8).init(arena);
+    const writer = payload.writer();
+    try leb.writeULEB128(file.writer(), @enumToInt(types.SubsectionType.WASM_SEGMENT_INFO));
+    try leb.writeULEB128(writer, @intCast(u32, self.segment_info.items.len));
+    for (self.segment_info.items) |segment_info| {
+        log.debug("Emit segment: {s} align({d}) flags({b})", .{
+            segment_info.name,
+            @ctz(u32, segment_info.alignment),
+            segment_info.flags,
+        });
+        try leb.writeULEB128(writer, @intCast(u32, segment_info.name.len));
+        try writer.writeAll(segment_info.name);
+        try leb.writeULEB128(writer, @ctz(u32, segment_info.alignment));
+        try leb.writeULEB128(writer, segment_info.flags);
+    }
+
+    try leb.writeULEB128(file.writer(), @intCast(u32, payload.items.len));
     const iovec: std.os.iovec_const = .{
         .iov_base = payload.items.ptr,
         .iov_len = payload.items.len,
