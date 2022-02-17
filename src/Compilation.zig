@@ -2771,6 +2771,8 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                 sema_frame.end();
                 sema_frame_ended = true;
 
+                if (comp.bin_file.options.emit == null) return;
+
                 const liveness_frame = tracy.namedFrame("liveness");
                 var liveness_frame_ended = false;
                 errdefer if (!liveness_frame_ended) liveness_frame.end();

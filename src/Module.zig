@@ -5266,7 +5266,11 @@ pub fn populateTestFunctions(mod: *Module) !void {
 }
 
 pub fn linkerUpdateDecl(mod: *Module, decl: *Decl) !void {
-    mod.comp.bin_file.updateDecl(mod, decl) catch |err| switch (err) {
+    const comp = mod.comp;
+
+    if (comp.bin_file.options.emit == null) return;
+
+    comp.bin_file.updateDecl(mod, decl) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.AnalysisFail => {
             decl.analysis = .codegen_failure;
