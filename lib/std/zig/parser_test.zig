@@ -5018,6 +5018,25 @@ test "zig fmt: make single-line if no trailing comma" {
     );
 }
 
+test "zig fmt: while continue expr" {
+    try testCanonical(
+        \\test {
+        \\    while (i > 0)
+        \\        (i * 2);
+        \\}
+        \\
+    );
+    try testError(
+        \\test {
+        \\    while (i > 0) (i -= 1) {
+        \\        print("test123", .{});
+        \\    }
+        \\}
+    , &[_]Error{
+        .expected_continue_expr,
+    });
+}
+
 test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: []align(0:0:0)u8 = bar;

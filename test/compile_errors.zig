@@ -4869,11 +4869,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() void {
         \\    while(true) {}
         \\    var good = {};
-        \\    while(true) ({})
+        \\    while(true) 1
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:21: error: expected ';' or 'else' after statement",
+        "tmp.zig:4:18: error: expected ';' or 'else' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - while expression",

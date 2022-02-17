@@ -2943,7 +2943,12 @@ const Parser = struct {
 
     /// WhileContinueExpr <- COLON LPAREN AssignExpr RPAREN
     fn parseWhileContinueExpr(p: *Parser) !Node.Index {
-        _ = p.eatToken(.colon) orelse return null_node;
+        _ = p.eatToken(.colon) orelse {
+            if (p.token_tags[p.tok_i] == .l_paren and
+                p.tokensOnSameLine(p.tok_i - 1, p.tok_i))
+                return p.fail(.expected_continue_expr);
+            return null_node;
+        };
         _ = try p.expectToken(.l_paren);
         const node = try p.parseAssignExpr();
         if (node == 0) return p.fail(.expected_expr_or_assignment);

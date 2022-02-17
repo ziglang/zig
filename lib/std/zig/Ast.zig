@@ -300,6 +300,9 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .varargs_nonfinal => {
             return stream.writeAll("function prototype has parameter after varargs");
         },
+        .expected_continue_expr => {
+            return stream.writeAll("expected ':' before while continue expression");
+        },
 
         .expected_semi_after_decl => {
             return stream.writeAll("expected ';' after declaration");
@@ -2467,6 +2470,7 @@ pub const full = struct {
 
 pub const Error = struct {
     tag: Tag,
+    /// True if `token` points to the token before the token causing an issue.
     token_is_prev: bool = false,
     token: TokenIndex,
     extra: union {
@@ -2513,8 +2517,7 @@ pub const Error = struct {
         same_line_doc_comment,
         unattached_doc_comment,
         varargs_nonfinal,
-
-        // these have `token` set to token after which a semicolon was expected
+        expected_continue_expr,
         expected_semi_after_decl,
         expected_semi_after_stmt,
         expected_comma_after_field,
