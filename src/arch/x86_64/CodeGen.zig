@@ -1589,21 +1589,37 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
         self.register_manager.freezeRegs(&.{offset_reg});
         defer self.register_manager.unfreezeRegs(&.{offset_reg});
 
-        const addr_reg = try self.register_manager.allocReg(null);
-        switch (array) {
-            .stack_offset => |off| {
-                // lea reg, [rbp]
-                _ = try self.addInst(.{
-                    .tag = .lea,
-                    .ops = (Mir.Ops{
-                        .reg1 = addr_reg.to64(),
-                        .reg2 = .rbp,
-                    }).encode(),
-                    .data = .{ .imm = @bitCast(u32, -off) },
-                });
-            },
-            else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
-        }
+        const addr_reg = blk: {
+            const off = inner: {
+                switch (array) {
+                    .register => {
+                        const off = @intCast(i32, try self.allocMem(
+                            inst,
+                            @intCast(u32, array_ty.abiSize(self.target.*)),
+                            array_ty.abiAlignment(self.target.*),
+                        ));
+                        try self.genSetStack(array_ty, off, array);
+                        break :inner off;
+                    },
+                    .stack_offset => |off| {
+                        break :inner off;
+                    },
+                    else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
+                }
+            };
+            const addr_reg = try self.register_manager.allocReg(null);
+            // lea reg, [rbp]
+            _ = try self.addInst(.{
+                .tag = .lea,
+                .ops = (Mir.Ops{
+                    .reg1 = addr_reg.to64(),
+                    .reg2 = .rbp,
+                }).encode(),
+                .data = .{ .imm = @bitCast(u32, -off) },
+            });
+            break :blk addr_reg.to64();
+        };
+
         // TODO we could allocate register here, but need to expect addr register and potentially
         // offset register.
         const dst_mcv = try self.allocRegOrMem(inst, false);
