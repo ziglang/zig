@@ -883,7 +883,8 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// Allocates a new register and copies `mcv` into it.
 /// `reg_owner` is the instruction that gets associated with the register in the register table.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
-fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, ty: Type, mcv: MCValue) !MCValue {
+/// WARNING make sure that the allocated register matches the returned MCValue from an instruction!
+fn copyToRegisterWithInstTracking(self: *Self, reg_owner: Air.Inst.Index, ty: Type, mcv: MCValue) !MCValue {
     const reg = try self.register_manager.allocReg(reg_owner);
     try self.genSetReg(ty, reg, mcv);
     return MCValue{ .register = reg };
@@ -939,7 +940,7 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
         operand.freezeIfRegister(&self.register_manager);
         defer operand.unfreezeIfRegister(&self.register_manager);
 
-        break :blk try self.copyToNewRegister(inst, dest_ty, operand);
+        break :blk try self.copyToRegisterWithInstTracking(inst, dest_ty, operand);
     };
 
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
@@ -970,7 +971,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk operand.register.to64();
             }
         }
-        const mcv = try self.copyToNewRegister(inst, src_ty, operand);
+        const mcv = try self.copyToRegisterWithInstTracking(inst, src_ty, operand);
         break :blk mcv.register.to64();
     };
 
@@ -1088,7 +1089,7 @@ fn genPtrBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_r
         if (self.reuseOperand(inst, op_lhs, 0, ptr)) {
             if (ptr.isMemory() or ptr.isRegister()) break :blk ptr;
         }
-        break :blk try self.copyToNewRegister(inst, dst_ty, ptr);
+        break :blk try self.copyToRegisterWithInstTracking(inst, dst_ty, ptr);
     };
 
     const offset_mcv = blk: {
@@ -1338,7 +1339,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
         if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
             break :result operand;
         }
-        break :result try self.copyToNewRegister(inst, self.air.typeOfIndex(inst), operand);
+        break :result try self.copyToRegisterWithInstTracking(inst, self.air.typeOfIndex(inst), operand);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -1666,7 +1667,7 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
         self.register_manager.freezeRegs(&.{offset_reg});
         defer self.register_manager.unfreezeRegs(&.{offset_reg});
 
-        const dst_mcv = try self.copyToNewRegister(inst, ptr_ty, ptr);
+        const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ptr_ty, ptr);
         try self.genBinMathOpMir(.add, ptr_ty, dst_mcv, .{ .register = offset_reg });
         break :result dst_mcv;
     };
@@ -2113,7 +2114,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                 self.register_manager.freezeRegs(&.{offset_reg});
                 defer self.register_manager.unfreezeRegs(&.{offset_reg});
 
-                const dst_mcv = try self.copyToNewRegister(inst, ptr_ty, mcv);
+                const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ptr_ty, mcv);
                 try self.genBinMathOpMir(.add, ptr_ty, dst_mcv, .{ .register = offset_reg });
                 break :result dst_mcv;
             },
@@ -2174,7 +2175,9 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                     if (self.reuseOperand(inst, operand, 0, mcv)) {
                         break :blk mcv;
                     } else {
-                        const dst_mcv = try self.copyToNewRegister(inst, Type.usize, .{ .register = reg.to64() });
+                        const dst_mcv = try self.copyToRegisterWithInstTracking(inst, Type.usize, .{
+                            .register = reg.to64(),
+                        });
                         break :blk dst_mcv;
                     }
                 };
@@ -2237,7 +2240,7 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
         // LHS dies; use it as the destination.
         // Both operands cannot be memory.
         if (lhs.isMemory() and rhs.isMemory()) {
-            dst_mcv = try self.copyToNewRegister(inst, dst_ty, lhs);
+            dst_mcv = try self.copyToRegisterWithInstTracking(inst, dst_ty, lhs);
             src_mcv = rhs;
         } else {
             dst_mcv = lhs;
@@ -2247,7 +2250,7 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
         // RHS dies; use it as the destination.
         // Both operands cannot be memory.
         if (lhs.isMemory() and rhs.isMemory()) {
-            dst_mcv = try self.copyToNewRegister(inst, dst_ty, rhs);
+            dst_mcv = try self.copyToRegisterWithInstTracking(inst, dst_ty, rhs);
             src_mcv = lhs;
         } else {
             dst_mcv = rhs;
@@ -2258,13 +2261,13 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
             rhs.freezeIfRegister(&self.register_manager);
             defer rhs.unfreezeIfRegister(&self.register_manager);
 
-            dst_mcv = try self.copyToNewRegister(inst, dst_ty, lhs);
+            dst_mcv = try self.copyToRegisterWithInstTracking(inst, dst_ty, lhs);
             src_mcv = rhs;
         } else {
             lhs.freezeIfRegister(&self.register_manager);
             defer lhs.unfreezeIfRegister(&self.register_manager);
 
-            dst_mcv = try self.copyToNewRegister(inst, dst_ty, rhs);
+            dst_mcv = try self.copyToRegisterWithInstTracking(inst, dst_ty, rhs);
             src_mcv = lhs;
         }
     }
@@ -2837,7 +2840,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             .register => |reg| {
                 if (Register.allocIndex(reg) == null) {
                     // Save function return value in a callee saved register
-                    break :result try self.copyToNewRegister(inst, self.air.typeOfIndex(inst), info.return_value);
+                    break :result try self.copyToRegisterWithInstTracking(
+                        inst,
+                        self.air.typeOfIndex(inst),
+                        info.return_value,
+                    );
                 }
             },
             else => {},
