@@ -1724,7 +1724,13 @@ fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
-fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_index: Liveness.OperandInt, mcv: MCValue) bool {
+fn reuseOperand(
+    self: *Self,
+    inst: Air.Inst.Index,
+    operand: Air.Inst.Ref,
+    op_index: Liveness.OperandInt,
+    mcv: MCValue,
+) bool {
     if (!self.liveness.operandDies(inst, op_index))
         return false;
 
@@ -2267,13 +2273,14 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     // A potential opportunity for future optimization here would be keeping track
     // of the fact that the instruction is available both as an immediate
     // and as a register.
+    // TODO consolidate with limitImmediateType() function
     switch (src_mcv) {
         .immediate => |imm| {
             if (imm > math.maxInt(u31)) {
                 dst_mcv.freezeIfRegister(&self.register_manager);
                 defer dst_mcv.unfreezeIfRegister(&self.register_manager);
 
-                src_mcv = try self.copyToNewRegister(inst, Type.u64, src_mcv);
+                src_mcv = MCValue{ .register = try self.copyToTmpRegister(Type.usize, src_mcv) };
             }
         },
         else => {},
@@ -2907,7 +2914,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         // Either one, but not both, can be a memory operand.
         // Source operand can be an immediate, 8 bits or 32 bits.
         const dst_mcv = if (lhs.isImmediate() or (lhs.isMemory() and rhs.isMemory()))
-            try self.copyToNewRegister(inst, ty, lhs)
+            MCValue{ .register = try self.copyToTmpRegister(ty, lhs) }
         else
             lhs;
         // This instruction supports only signed 32-bit immediates at most.
