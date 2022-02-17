@@ -4,13 +4,20 @@
 
 ZIG=$DEBUG_STAGING/bin/zig
 
-$ZIG test test/behavior.zig -fno-stage1 -I test -fLLVM
-$ZIG test test/behavior.zig -fno-stage1 -I test -fLLVM -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
-$ZIG test test/behavior.zig -fno-stage1 -I test -ofmt=c
-$ZIG test test/behavior.zig -fno-stage1 -I test -target   wasm32-wasi --test-cmd wasmtime     --test-cmd-bin
-$ZIG test test/behavior.zig -fno-stage1 -I test -target     arm-linux --test-cmd qemu-arm     --test-cmd-bin
-$ZIG test test/behavior.zig -fno-stage1 -I test -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
-$ZIG test test/behavior.zig -fno-stage1 -I test
+# Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
+$ZIG build -p stage2 -Denable-llvm
+
+stage2/bin/zig test test/behavior.zig -I test -fLLVM
+stage2/bin/zig test test/behavior.zig -I test
+stage2/bin/zig test test/behavior.zig -I test -fLLVM -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test        -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test -ofmt=c
+stage2/bin/zig test test/behavior.zig -I test        -target  wasm32-wasi  --test-cmd wasmtime     --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test        -target     arm-linux --test-cmd qemu-arm     --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test -fLLVM -target aarch64-macos --test-no-exec
+stage2/bin/zig test test/behavior.zig -I test        -target aarch64-macos --test-no-exec
+stage2/bin/zig test test/behavior.zig -I test -fLLVM -target  x86_64-macos --test-no-exec
+stage2/bin/zig test test/behavior.zig -I test        -target  x86_64-macos --test-no-exec
 
 $ZIG build test-behavior         -fqemu -fwasmtime
 $ZIG build test-compiler-rt      -fqemu -fwasmtime
