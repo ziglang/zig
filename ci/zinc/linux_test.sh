@@ -2,10 +2,53 @@
 
 . ./ci/zinc/linux_base.sh
 
-ZIG=$DEBUG_STAGING/bin/zig
+ZIG="$DEPS_LOCAL/bin/zig"
+TARGET="${ARCH}-linux-musl"
+MCPU="baseline"
+
+# Make the `zig version` number consistent.
+# This will affect the cmake command below.
+git config core.abbrev 9
+
+echo "BUILD debug zig with zig:$($ZIG version)"
+
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+
+mkdir _debug
+cd _debug
+cmake .. \
+  -DCMAKE_INSTALL_PREFIX="$DEBUG_STAGING" \
+  -DCMAKE_PREFIX_PATH="$DEPS_LOCAL" \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
+  -DZIG_STATIC=ON \
+  -GNinja
+
+# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
+# so that installation and testing do not get affected by them.
+unset CC
+unset CXX
+
+ninja install
+
+ZIG="$DEBUG_STAGING/bin/zig"
+
+# Here we rebuild zig but this time using the Zig binary we just now produced to
+# build zig1.o rather than relying on the one built with stage0. See
+# https://github.com/ziglang/zig/issues/6830 for more details.
+cmake .. -DZIG_EXECUTABLE="$ZIG"
+ninja install
+
+cd $WORKSPACE
+
+# Look for non-conforming code formatting.
+# Formatting errors can be fixed by running `zig fmt` on the files printed here.
+$ZIG fmt --check .
 
 # Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
-$ZIG build -p stage2 -Denable-llvm
+$ZIG build -p stage2 -Denable-llvm -Dstatic-llvm -Duse-zig-libcxx
 
 stage2/bin/zig test test/behavior.zig -I test -fLLVM
 stage2/bin/zig test test/behavior.zig -I test
@@ -38,7 +81,7 @@ $ZIG build test-fmt              -fqemu -fwasmtime
 $ZIG build test-stage2           -fqemu -fwasmtime
 
 # Produce the experimental std lib documentation.
-mkdir -p $RELEASE_STAGING/docs/std
+mkdir -p "$RELEASE_STAGING/docs/std"
 $ZIG test lib/std/std.zig \
   --zig-lib-dir lib \
   -femit-docs=$RELEASE_STAGING/docs/std \
@@ -46,6 +89,18 @@ $ZIG test lib/std/std.zig \
 
 # Look for HTML errors.
 tidy --drop-empty-elements no -qe zig-cache/langref.html
+
+# Build release zig.
+$ZIG build
+  --prefix "RELEASE_STAGING" \
+  --search-prefix "$DEPS_LOCAL" \
+  -Denable-llvm \
+  -Dstatic-llvm \
+  -Drelease \
+  -Dstrip \
+  -Duse-zig-libcxx \
+  -Dtarget="$TARGET" \
+  -Dstage1
 
 # Explicit exit helps show last command duration.
 exit
