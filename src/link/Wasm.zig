@@ -1132,6 +1132,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
     const file = self.base.file.?;
     const header_size = 5 + 1;
+    const is_obj = self.base.options.output_mode == .Obj;
 
     // No need to rewrite the magic/version header
     try file.setEndPos(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
@@ -1443,7 +1444,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Custom section "name" which contains symbol names
-    {
+    if (!is_obj) {
         const Name = struct {
             index: u32,
             name: []const u8,
@@ -1491,6 +1492,10 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             header_offset,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
         );
+    }
+
+    if (is_obj) {
+        try self.emitLinkSection(file, arena);
     }
 }
 
@@ -2028,6 +2033,87 @@ fn writeCustomSectionHeader(file: fs.File, offset: u64, size: u32) !void {
     buf[0] = 0; // 0 = 'custom' section
     leb.writeUnsignedFixed(5, buf[1..6], size);
     try file.pwriteAll(&buf, offset);
+}
+
+fn emitLinkSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
+    const offset = try reserveCustomSectionHeader(file);
+    const writer = file.writer();
+    // emit "linking" custom section name
+    const section_name = "linking";
+    try leb.writeULEB128(writer, section_name.len);
+    try writer.writeAll(section_name);
+
+    // meta data version, which is currently '2'
+    try leb.writeULEB128(writer, @as(u32, 2));
+
+    // For each subsection type (found in types.Subsection) we can emit a section.
+    // Currently, we only support emitting segment info and the symbol table.
+    try self.emitSymbolTable(file, arena);
+
+    const size = @intCast(u32, (try file.getPos()) - offset - 6);
+    try writeCustomSectionHeader(file, offset, size);
+}
+
+fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator) !void {
+    // After emitting the subtype, we must emit the subsection's length
+    // so first write it to a temporary arraylist to calculate the length
+    // and then write all data at once.
+    var payload = std.ArrayList(u8).init(arena);
+    const writer = payload.writer();
+
+    try leb.writeULEB128(file.writer(), @enumToInt(types.SubsectionType.WASM_SYMBOL_TABLE));
+
+    var symbol_count: u32 = 0;
+
+    var atom_it = self.atoms.valueIterator();
+    while (atom_it.next()) |next_atom| {
+        var atom: ?*Atom = next_atom.*.getFirst();
+        while (atom) |current_atom| {
+            const sym_loc: SymbolLoc = .{ .file = current_atom.file, .index = current_atom.sym_index };
+            const symbol = sym_loc.getSymbol(self).*;
+            if (symbol.tag == .dead) continue; // Do not emit dead symbols
+            symbol_count += 1;
+            try leb.writeULEB128(writer, @enumToInt(symbol.tag));
+            try leb.writeULEB128(writer, symbol.flags);
+
+            switch (symbol.tag) {
+                .data => {
+                    const name = mem.sliceTo(symbol.name, 0);
+                    try leb.writeULEB128(writer, @intCast(u32, name.len));
+                    try writer.writeAll(name);
+
+                    if (symbol.isDefined()) {
+                        try leb.writeULEB128(writer, symbol.index);
+                        try leb.writeULEB128(writer, @as(u32, current_atom.offset));
+                        try leb.writeULEB128(writer, @as(u32, current_atom.size));
+                    }
+                },
+                .section => {
+                    try leb.writeULEB128(writer, symbol.index);
+                },
+                else => {
+                    try leb.writeULEB128(writer, symbol.index);
+                    if (symbol.isDefined()) {
+                        const name = mem.sliceTo(symbol.name, 0);
+                        try leb.writeULEB128(writer, @intCast(u32, name.len));
+                        try writer.writeAll(name);
+                    }
+                },
+            }
+            atom = current_atom.next orelse break;
+        }
+    }
+
+    var buf: [5]u8 = undefined;
+    leb.writeUnsignedFixed(5, &buf, symbol_count);
+    try payload.insertSlice(0, &buf);
+    try leb.writeULEB128(file.writer(), @intCast(u32, payload.items.len));
+
+    const iovec: std.os.iovec_const = .{
+        .iov_base = payload.items.ptr,
+        .iov_len = payload.items.len,
+    };
+    try file.writevAll(&.{iovec});
 }
 
 /// Searches for an a matching function signature, when not found
