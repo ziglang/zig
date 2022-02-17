@@ -4139,13 +4139,9 @@ static LLVMValueRef ir_render_binary_not(CodeGen *g, Stage1Air *executable,
 static LLVMValueRef ir_gen_soft_f80_neg(CodeGen *g, ZigType *op_type, LLVMValueRef operand) {
     uint32_t vector_len = op_type->id == ZigTypeIdVector ? op_type->data.vector.len : 0;
 
-    uint64_t buf[2] = {0, 0};
-    if (g->is_big_endian != native_is_big_endian) {
-        buf[1] = 0x8000000000000000;
-    } else {
-        buf[1] = 0x8000;
-    }
-    LLVMValueRef sign_mask = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2, buf);
+    LLVMTypeRef llvm_i80 = LLVMIntType(80);
+    LLVMValueRef sign_mask = LLVMConstInt(llvm_i80, 1, false);
+    sign_mask = LLVMConstShl(sign_mask, LLVMConstInt(llvm_i80, 79, false));
 
     LLVMValueRef result;
     if (vector_len == 0) {

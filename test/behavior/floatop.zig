@@ -448,3 +448,21 @@ fn testTrunc() !void {
         try expect(math.approxEqAbs(f32, @trunc(@as(f32, -0.4)), result[3], epsilon));
     }
 }
+
+test "negation" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() !void {
+            inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
+                var a: T = 1;
+                a = -a;
+                try expect(a == -1);
+            }
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
