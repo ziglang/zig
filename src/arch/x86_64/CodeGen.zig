@@ -1500,52 +1500,60 @@ fn elemOffset(self: *Self, index_ty: Type, index: MCValue, elem_size: u64) !Regi
     return reg;
 }
 
+fn genSliceElemPtr(self: *Self, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref) !MCValue {
+    const slice_ty = self.air.typeOf(lhs);
+    const slice_mcv = try self.resolveInst(lhs);
+    slice_mcv.freezeIfRegister(&self.register_manager);
+    defer slice_mcv.unfreezeIfRegister(&self.register_manager);
+
+    const elem_ty = slice_ty.childType();
+    const elem_size = elem_ty.abiSize(self.target.*);
+    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+    const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
+
+    const index_ty = self.air.typeOf(rhs);
+    const index_mcv = try self.resolveInst(rhs);
+    index_mcv.freezeIfRegister(&self.register_manager);
+    defer index_mcv.unfreezeIfRegister(&self.register_manager);
+
+    const offset_reg = try self.elemOffset(index_ty, index_mcv, elem_size);
+    self.register_manager.freezeRegs(&.{offset_reg});
+    defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+    const addr_reg = try self.register_manager.allocReg(null);
+    switch (slice_mcv) {
+        .stack_offset => |off| {
+            // mov reg, [rbp - 8]
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = addr_reg.to64(),
+                    .reg2 = .rbp,
+                    .flags = 0b01,
+                }).encode(),
+                .data = .{ .imm = @bitCast(u32, -@intCast(i32, off)) },
+            });
+        },
+        else => return self.fail("TODO implement slice_elem_ptr when slice is {}", .{slice_mcv}),
+    }
+    // TODO we could allocate register here, but need to expect addr register and potentially
+    // offset register.
+    try self.genBinMathOpMir(.add, slice_ptr_field_type, .{ .register = addr_reg.to64() }, .{
+        .register = offset_reg.to64(),
+    });
+    return MCValue{ .register = addr_reg.to64() };
+}
+
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else result: {
         const slice_ty = self.air.typeOf(bin_op.lhs);
-        const slice_mcv = try self.resolveInst(bin_op.lhs);
-        slice_mcv.freezeIfRegister(&self.register_manager);
-        defer slice_mcv.unfreezeIfRegister(&self.register_manager);
-
-        const elem_ty = slice_ty.childType();
-        const elem_size = elem_ty.abiSize(self.target.*);
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
-
-        const index_ty = self.air.typeOf(bin_op.rhs);
-        const index_mcv = try self.resolveInst(bin_op.rhs);
-        index_mcv.freezeIfRegister(&self.register_manager);
-        defer index_mcv.unfreezeIfRegister(&self.register_manager);
-
-        const offset_reg = try self.elemOffset(index_ty, index_mcv, elem_size);
-        self.register_manager.freezeRegs(&.{offset_reg});
-        defer self.register_manager.unfreezeRegs(&.{offset_reg});
-
-        const addr_reg = try self.register_manager.allocReg(null);
-        switch (slice_mcv) {
-            .stack_offset => |off| {
-                // mov reg, [rbp - 8]
-                _ = try self.addInst(.{
-                    .tag = .mov,
-                    .ops = (Mir.Ops{
-                        .reg1 = addr_reg.to64(),
-                        .reg2 = .rbp,
-                        .flags = 0b01,
-                    }).encode(),
-                    .data = .{ .imm = @bitCast(u32, -@intCast(i32, off)) },
-                });
-            },
-            else => return self.fail("TODO implement slice_elem_val when slice is {}", .{slice_mcv}),
-        }
-        // TODO we could allocate register here, but need to expect addr register and potentially
-        // offset register.
+        const elem_ptr = try self.genSliceElemPtr(bin_op.lhs, bin_op.rhs);
         const dst_mcv = try self.allocRegOrMem(inst, false);
-        try self.genBinMathOpMir(.add, slice_ptr_field_type, .{ .register = addr_reg.to64() }, .{
-            .register = offset_reg.to64(),
-        });
-        try self.load(dst_mcv, .{ .register = addr_reg.to64() }, slice_ptr_field_type);
+        try self.load(dst_mcv, elem_ptr, slice_ptr_field_type);
         break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -1557,7 +1565,7 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        return self.fail("TODO implement slice_elem_ptr for {}", .{self.target.cpu.arch});
+        try self.genSliceElemPtr(extra.lhs, extra.rhs);
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
@@ -1571,6 +1579,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
         const elem_ty = array_ty.childType();
         const elem_abi_size = elem_ty.abiSize(self.target.*);
+
         const index_ty = self.air.typeOf(bin_op.rhs);
         const index = try self.resolveInst(bin_op.rhs);
         index.freezeIfRegister(&self.register_manager);
