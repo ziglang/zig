@@ -2008,28 +2008,34 @@ fn buildOutputType(
     // are part of libc or libc++. We remove them from the list and communicate their
     // existence via flags instead.
     {
+        // Similarly, if any libs in this list are statically provided, we remove
+        // them from this list and populate the link_objects array instead.
+        const sep = fs.path.sep_str;
+        var test_path = std.ArrayList(u8).init(gpa);
+        defer test_path.deinit();
+
         var i: usize = 0;
-        while (i < system_libs.count()) {
+        syslib: while (i < system_libs.count()) {
             const lib_name = system_libs.keys()[i];
 
             if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
                 link_libc = true;
-                _ = system_libs.orderedRemove(lib_name);
+                system_libs.orderedRemoveAt(i);
                 continue;
             }
             if (target_util.is_libcpp_lib_name(target_info.target, lib_name)) {
                 link_libcpp = true;
-                _ = system_libs.orderedRemove(lib_name);
+                system_libs.orderedRemoveAt(i);
                 continue;
             }
             if (mem.eql(u8, lib_name, "unwind")) {
                 link_libunwind = true;
-                _ = system_libs.orderedRemove(lib_name);
+                system_libs.orderedRemoveAt(i);
                 continue;
             }
             if (target_util.is_compiler_rt_lib_name(target_info.target, lib_name)) {
                 std.log.warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
-                _ = system_libs.orderedRemove(lib_name);
+                system_libs.orderedRemoveAt(i);
                 continue;
             }
             if (std.fs.path.isAbsolute(lib_name)) {
@@ -2038,10 +2044,30 @@ fn buildOutputType(
             if (target_info.target.os.tag == .wasi) {
                 if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |crt_file| {
                     try wasi_emulated_libs.append(crt_file);
-                    _ = system_libs.orderedRemove(lib_name);
+                    system_libs.orderedRemoveAt(i);
                     continue;
                 }
             }
+
+            for (lib_dirs.items) |lib_dir_path| {
+                test_path.clearRetainingCapacity();
+                try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
+                    lib_dir_path,
+                    target_info.target.libPrefix(),
+                    lib_name,
+                    target_info.target.staticLibSuffix(),
+                });
+                fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+                    error.FileNotFound => continue,
+                    else => |e| fatal("unable to search for static library '{s}': {s}", .{
+                        test_path.items, @errorName(e),
+                    }),
+                };
+                try link_objects.append(.{ .path = try arena.dupe(u8, test_path.items) });
+                system_libs.orderedRemoveAt(i);
+                continue :syslib;
+            }
+
             i += 1;
         }
     }
@@ -2068,7 +2094,9 @@ fn buildOutputType(
             want_native_include_dirs = true;
     }
 
-    if (sysroot == null and cross_target.isNativeOs() and (system_libs.count() != 0 or want_native_include_dirs)) {
+    if (sysroot == null and cross_target.isNativeOs() and
+        (system_libs.count() != 0 or want_native_include_dirs))
+    {
         const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
             fatal("unable to detect native system paths: {s}", .{@errorName(err)});
         };

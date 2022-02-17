@@ -502,9 +502,7 @@ fn addCmakeCfgOptionsToExe(
     }
 }
 
-fn addStaticLlvmOptionsToExe(
-    exe: *std.build.LibExeObjStep,
-) !void {
+fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
