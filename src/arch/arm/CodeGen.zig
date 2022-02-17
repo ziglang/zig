@@ -887,6 +887,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
         switch (operand) {
             .dead => unreachable,
             .unreach => unreachable,
@@ -917,7 +918,68 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                 break :result r;
             },
             else => {
-                break :result try self.genBinOp(inst, ty_op.operand, .bool_true, .not);
+                switch (operand_ty.zigTypeTag()) {
+                    .Bool => {
+                        const op_reg = switch (operand) {
+                            .register => |r| r,
+                            else => try self.copyToTmpRegister(operand_ty, operand),
+                        };
+                        self.register_manager.freezeRegs(&.{op_reg});
+                        defer self.register_manager.unfreezeRegs(&.{op_reg});
+
+                        const dest_reg = blk: {
+                            if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                                break :blk op_reg;
+                            }
+
+                            break :blk try self.register_manager.allocReg(null);
+                        };
+
+                        _ = try self.addInst(.{
+                            .tag = .eor,
+                            .data = .{ .rr_op = .{
+                                .rd = dest_reg,
+                                .rn = op_reg,
+                                .op = Instruction.Operand.fromU32(1).?,
+                            } },
+                        });
+
+                        break :result MCValue{ .register = dest_reg };
+                    },
+                    .Int => {
+                        const int_info = operand_ty.intInfo(self.target.*);
+                        if (int_info.bits <= 32) {
+                            const op_reg = switch (operand) {
+                                .register => |r| r,
+                                else => try self.copyToTmpRegister(operand_ty, operand),
+                            };
+                            self.register_manager.freezeRegs(&.{op_reg});
+                            defer self.register_manager.unfreezeRegs(&.{op_reg});
+
+                            const dest_reg = blk: {
+                                if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                                    break :blk op_reg;
+                                }
+
+                                break :blk try self.register_manager.allocReg(null);
+                            };
+
+                            _ = try self.addInst(.{
+                                .tag = .mvn,
+                                .data = .{ .rr_op = .{
+                                    .rd = dest_reg,
+                                    .rn = undefined,
+                                    .op = Instruction.Operand.reg(op_reg, Instruction.Operand.Shift.none),
+                                } },
+                            });
+
+                            break :result MCValue{ .register = dest_reg };
+                        } else {
+                            return self.fail("TODO ARM not on integers > u32/i32", .{});
+                        }
+                    },
+                    else => unreachable,
+                }
             },
         }
     };
@@ -2073,9 +2135,6 @@ fn genBinOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air
     const ty = self.air.typeOf(op_lhs);
 
     switch (ty.zigTypeTag()) {
-        .Bool => {
-            return self.genBinIntOp(inst, op_lhs, op_rhs, op, 1, .unsigned);
-        },
         .Int => {
             const int_info = ty.intInfo(self.target.*);
             return self.genBinIntOp(inst, op_lhs, op_rhs, op, int_info.bits, int_info.signedness);
@@ -2237,21 +2296,6 @@ fn genBinOpCode(
     };
 
     switch (op) {
-        .not => {
-            const tag: Mir.Inst.Tag = switch (op) {
-                .not => .eor,
-                else => unreachable,
-            };
-
-            _ = try self.addInst(.{
-                .tag = tag,
-                .data = .{ .rr_op = .{
-                    .rd = dst_reg,
-                    .rn = op1,
-                    .op = operand,
-                } },
-            });
-        },
         .cmp_eq => {
             _ = try self.addInst(.{
                 .tag = .cmp,
