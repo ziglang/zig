@@ -15068,7 +15068,7 @@ static Stage1AirInst *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, Stage1ZirI
                         return ira->codegen->invalid_inst_gen;
                     if (actual_array_type->id != ZigTypeIdArray) {
                         ir_add_error_node(ira, elem_ptr_instruction->init_array_type_source_node,
-                            buf_sprintf("array literal requires address-of operator to coerce to slice type '%s'",
+                            buf_sprintf("array literal requires address-of operator (&) to coerce to slice type '%s'",
                                 buf_ptr(&actual_array_type->name)));
                         return ira->codegen->invalid_inst_gen;
                     }
@@ -17473,7 +17473,7 @@ static Stage1AirInst *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
 
     if (is_slice(container_type)) {
         ir_add_error_node(ira, instruction->init_array_type_source_node,
-            buf_sprintf("array literal requires address-of operator to coerce to slice type '%s'",
+            buf_sprintf("array literal requires address-of operator (&) to coerce to slice type '%s'",
                 buf_ptr(&container_type->name)));
         return ira->codegen->invalid_inst_gen;
     }

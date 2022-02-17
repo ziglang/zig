@@ -1962,7 +1962,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = geo_data;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:30: error: array literal requires address-of operator to coerce to slice type '[][2]f32'",
+        "tmp.zig:4:30: error: array literal requires address-of operator (&) to coerce to slice type '[][2]f32'",
     });
 
     ctx.objErrStage1("slicing of global undefined pointer",
@@ -2537,7 +2537,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: array literal requires address-of operator to coerce to slice type '[]u8'",
+        "tmp.zig:2:15: error: array literal requires address-of operator (&) to coerce to slice type '[]u8'",
     });
 
     ctx.objErrStage1("slice passed as array init type",
@@ -2546,7 +2546,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: array literal requires address-of operator to coerce to slice type '[]u8'",
+        "tmp.zig:2:15: error: array literal requires address-of operator (&) to coerce to slice type '[]u8'",
     });
 
     ctx.objErrStage1("inferred array size invalid here",
