@@ -249,26 +249,38 @@ fn testUnion() !void {
 }
 
 test "type info: struct info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testStruct();
     comptime try testStruct();
 }
 
 fn testStruct() !void {
-    const unpacked_struct_info = @typeInfo(TestUnpackedStruct);
+    const unpacked_struct_info = @typeInfo(TestStruct);
     try expect(unpacked_struct_info.Struct.is_tuple == false);
     try expect(unpacked_struct_info.Struct.fields[0].alignment == @alignOf(u32));
     try expect(@ptrCast(*const u32, unpacked_struct_info.Struct.fields[0].default_value.?).* == 4);
-    try expectEqualStrings("foobar", @ptrCast(*const *const [6:0]u8, unpacked_struct_info.Struct.fields[1].default_value.?).*);
+    try expect(mem.eql(u8, "foobar", @ptrCast(*const *const [6:0]u8, unpacked_struct_info.Struct.fields[1].default_value.?).*));
+}
 
-    const struct_info = @typeInfo(TestStruct);
+const TestStruct = struct {
+    fieldA: u32 = 4,
+    fieldB: *const [6:0]u8 = "foobar",
+};
+
+test "type info: packed struct info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try testPackedStruct();
+    comptime try testPackedStruct();
+}
+
+fn testPackedStruct() !void {
+    const struct_info = @typeInfo(TestPackedStruct);
     try expect(struct_info == .Struct);
     try expect(struct_info.Struct.is_tuple == false);
     try expect(struct_info.Struct.layout == .Packed);
     try expect(struct_info.Struct.fields.len == 4);
     try expect(struct_info.Struct.fields[0].alignment == 2 * @alignOf(usize));
-    try expect(struct_info.Struct.fields[2].field_type == *TestStruct);
+    try expect(struct_info.Struct.fields[2].field_type == *TestPackedStruct);
     try expect(struct_info.Struct.fields[2].default_value == null);
     try expect(@ptrCast(*const u32, struct_info.Struct.fields[3].default_value.?).* == 4);
     try expect(struct_info.Struct.fields[3].alignment == 1);
@@ -276,12 +288,7 @@ fn testStruct() !void {
     try expect(struct_info.Struct.decls[0].is_pub);
 }
 
-const TestUnpackedStruct = struct {
-    fieldA: u32 = 4,
-    fieldB: *const [6:0]u8 = "foobar",
-};
-
-const TestStruct = packed struct {
+const TestPackedStruct = packed struct {
     fieldA: usize align(2 * @alignOf(usize)),
     fieldB: void,
     fieldC: *Self,
@@ -329,18 +336,16 @@ fn testFunction() !void {
     const fn_aligned_info = @typeInfo(@TypeOf(fooAligned));
     try expect(fn_aligned_info.Fn.alignment == 4);
 
-    const test_instance: TestStruct = undefined;
+    const test_instance: TestPackedStruct = undefined;
     const bound_fn_info = @typeInfo(@TypeOf(test_instance.foo));
     try expect(bound_fn_info == .BoundFn);
-    try expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestStruct);
+    try expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestPackedStruct);
 }
 
 extern fn foo(a: usize, b: bool, ...) callconv(.C) usize;
 extern fn fooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
 
 test "typeInfo with comptime parameter in struct fn def" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         pub fn func(comptime x: f32) void {
             _ = x;
@@ -408,8 +413,6 @@ test "sentinel of opaque pointer type" {
 }
 
 test "@typeInfo does not force declarations into existence" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         x: i32,
 
@@ -436,8 +439,6 @@ test "type info for async frames" {
 }
 
 test "Declarations are returned in declaration order" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         const a = 1;
         const b = 2;
@@ -461,16 +462,12 @@ test "Struct.is_tuple" {
 }
 
 test "StructField.is_comptime" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const info = @typeInfo(struct { x: u8 = 3, comptime y: u32 = 5 }).Struct;
     try expect(!info.fields[0].is_comptime);
     try expect(info.fields[1].is_comptime);
 }
 
 test "typeInfo resolves usingnamespace declarations" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const A = struct {
         pub const f1 = 42;
     };

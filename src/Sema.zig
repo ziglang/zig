@@ -9958,7 +9958,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // layout: ContainerLayout,
                 try Value.Tag.enum_field_index.create(
                     sema.arena,
-                    @enumToInt(std.builtin.TypeInfo.ContainerLayout.Auto),
+                    @enumToInt(union_ty.containerLayout()),
                 ),
 
                 // tag_type: ?type,
@@ -9977,12 +9977,111 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 }),
             );
         },
-        .Struct => return sema.fail(block, src, "TODO: implement zirTypeInfo for Struct", .{}),
-        .Opaque => {
+        .Struct => {
             // TODO: look into memoizing this result.
 
             var fields_anon_decl = try block.startAnonDecl(src);
             defer fields_anon_decl.deinit();
+
+            const struct_field_ty = t: {
+                const struct_field_ty_decl = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    type_info_ty.getNamespace().?,
+                    "StructField",
+                )).?;
+                try sema.mod.declareDeclDependency(sema.owner_decl, struct_field_ty_decl);
+                try sema.ensureDeclAnalyzed(struct_field_ty_decl);
+                var buffer: Value.ToTypeBuffer = undefined;
+                break :t try struct_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
+            };
+
+            const struct_ty = try sema.resolveTypeFields(block, src, ty);
+            const struct_fields = struct_ty.structFields();
+            const struct_field_vals = try fields_anon_decl.arena().alloc(Value, struct_fields.count());
+            const layout = struct_ty.containerLayout();
+
+            for (struct_field_vals) |*field_val, i| {
+                const field = struct_fields.values()[i];
+                const name = struct_fields.keys()[i];
+                const name_val = v: {
+                    var anon_decl = try block.startAnonDecl(src);
+                    defer anon_decl.deinit();
+                    const bytes = try anon_decl.arena().dupeZ(u8, name);
+                    const new_decl = try anon_decl.finish(
+                        try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
+                        try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                    );
+                    break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                };
+
+                const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
+                const opt_default_val = if (field.default_val.tag() == .unreachable_value)
+                    null
+                else
+                    field.default_val;
+                const default_val_ptr = try sema.optRefValue(block, src, field.ty, opt_default_val);
+                const alignment = switch (layout) {
+                    .Auto, .Extern => field.normalAlignment(target),
+                    .Packed => field.packedAlignment(),
+                };
+
+                struct_field_fields.* = .{
+                    // name: []const u8,
+                    name_val,
+                    // field_type: type,
+                    try Value.Tag.ty.create(fields_anon_decl.arena(), field.ty),
+                    // default_value: ?*const anyopaque,
+                    try default_val_ptr.copy(fields_anon_decl.arena()),
+                    // is_comptime: bool,
+                    Value.makeBool(field.is_comptime),
+                    // alignment: comptime_int,
+                    try Value.Tag.int_u64.create(fields_anon_decl.arena(), alignment),
+                };
+                field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), struct_field_fields);
+            }
+
+            const fields_val = v: {
+                const new_decl = try fields_anon_decl.finish(
+                    try Type.Tag.array.create(fields_anon_decl.arena(), .{
+                        .len = struct_field_vals.len,
+                        .elem_type = struct_field_ty,
+                    }),
+                    try Value.Tag.array.create(
+                        fields_anon_decl.arena(),
+                        try fields_anon_decl.arena().dupe(Value, struct_field_vals),
+                    ),
+                );
+                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+            };
+
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, struct_ty.getNamespace());
+
+            const field_values = try sema.arena.create([4]Value);
+            field_values.* = .{
+                // layout: ContainerLayout,
+                try Value.Tag.enum_field_index.create(
+                    sema.arena,
+                    @enumToInt(layout),
+                ),
+                // fields: []const StructField,
+                fields_val,
+                // decls: []const Declaration,
+                decls_val,
+                // is_tuple: bool,
+                Value.makeBool(struct_ty.isTuple()),
+            };
+
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Struct)),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                }),
+            );
+        },
+        .Opaque => {
+            // TODO: look into memoizing this result.
 
             const opaque_ty = try sema.resolveTypeFields(block, src, ty);
             const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, opaque_ty.getNamespace());
