@@ -129,6 +129,7 @@ pub fn build(b: *Builder) !void {
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
+    const use_zig0 = b.option(bool, "zig0", "Bootstrap using zig0") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
         if (strip) break :blk @as(u32, 0);
@@ -136,7 +137,11 @@ pub fn build(b: *Builder) !void {
         break :blk 4;
     };
 
-    const main_file: []const u8 = if (is_stage1) "src/stage1.zig" else "src/main.zig";
+    const main_file: ?[]const u8 = mf: {
+        if (!is_stage1) break :mf "src/main.zig";
+        if (use_zig0) break :mf null;
+        break :mf "src/stage1.zig";
+    };
 
     const exe = b.addExecutable("zig", main_file);
     exe.strip = strip;
@@ -245,17 +250,76 @@ pub fn build(b: *Builder) !void {
             softfloat.addCSourceFiles(&softfloat_sources, &[_][]const u8{ "-std=c99", "-O3" });
             softfloat.single_threaded = single_threaded;
 
-            exe.addIncludePath("src");
-            exe.addIncludePath("deps/SoftFloat-3e/source/include");
-            exe.addIncludePath("deps/SoftFloat-3e-prebuilt");
+            const zig0 = b.addExecutable("zig0", null);
+            zig0.addCSourceFiles(&.{"src/stage1/zig0.cpp"}, &exe_cflags);
+            zig0.addIncludePath("zig-cache/tmp"); // for config.h
+            zig0.defineCMacro("ZIG_VERSION_MAJOR", b.fmt("{d}", .{zig_version.major}));
+            zig0.defineCMacro("ZIG_VERSION_MINOR", b.fmt("{d}", .{zig_version.minor}));
+            zig0.defineCMacro("ZIG_VERSION_PATCH", b.fmt("{d}", .{zig_version.patch}));
+            zig0.defineCMacro("ZIG_VERSION_STRING", b.fmt("\"{s}\"", .{version}));
 
-            exe.defineCMacro("ZIG_LINK_MODE", "Static");
+            for ([_]*std.build.LibExeObjStep{ zig0, exe, test_stage2 }) |artifact| {
+                artifact.addIncludePath("src");
+                artifact.addIncludePath("deps/SoftFloat-3e/source/include");
+                artifact.addIncludePath("deps/SoftFloat-3e-prebuilt");
 
-            exe.addCSourceFiles(&stage1_sources, &exe_cflags);
-            exe.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
+                artifact.defineCMacro("ZIG_LINK_MODE", "Static");
 
-            exe.linkLibrary(softfloat);
-            exe.linkLibCpp();
+                artifact.addCSourceFiles(&stage1_sources, &exe_cflags);
+                artifact.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
+
+                artifact.linkLibrary(softfloat);
+                artifact.linkLibCpp();
+            }
+
+            try addStaticLlvmOptionsToExe(zig0);
+
+            const zig1_obj_ext = target.getObjectFormat().fileExt(target.getCpuArch());
+            const zig1_obj_path = b.pathJoin(&.{ "zig-cache", "tmp", b.fmt("zig1{s}", .{zig1_obj_ext}) });
+            const zig1_compiler_rt_path = b.pathJoin(&.{ b.pathFromRoot("lib"), "std", "special", "compiler_rt.zig" });
+
+            const zig1_obj = zig0.run();
+            zig1_obj.addArgs(&.{
+                "src/stage1.zig",
+                "-target",
+                try target.zigTriple(b.allocator),
+                "-mcpu=baseline",
+                "--name",
+                "zig1",
+                "--zig-lib-dir",
+                b.pathFromRoot("lib"),
+                b.fmt("-femit-bin={s}", .{b.pathFromRoot(zig1_obj_path)}),
+                "-fcompiler-rt",
+                "-lc",
+            });
+            {
+                zig1_obj.addArgs(&.{ "--pkg-begin", "build_options" });
+                zig1_obj.addFileSourceArg(exe_options.getSource());
+                zig1_obj.addArgs(&.{ "--pkg-end", "--pkg-begin", "compiler_rt", zig1_compiler_rt_path, "--pkg-end" });
+            }
+            switch (mode) {
+                .Debug => {},
+                .ReleaseFast => {
+                    zig1_obj.addArg("-OReleaseFast");
+                    zig1_obj.addArg("--strip");
+                },
+                .ReleaseSafe => {
+                    zig1_obj.addArg("-OReleaseSafe");
+                    zig1_obj.addArg("--strip");
+                },
+                .ReleaseSmall => {
+                    zig1_obj.addArg("-OReleaseSmall");
+                    zig1_obj.addArg("--strip");
+                },
+            }
+            if (single_threaded orelse false) {
+                zig1_obj.addArg("-fsingle-threaded");
+            }
+
+            if (use_zig0) {
+                exe.step.dependOn(&zig1_obj.step);
+                exe.addObjectFile(zig1_obj_path);
+            }
 
             // This is intentionally a dummy path. stage1.zig tries to @import("compiler_rt") in case
             // of being built by cmake. But when built by zig it's gonna get a compiler_rt so that
