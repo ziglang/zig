@@ -163,14 +163,6 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     try file.writeAll(&(wasm.magic ++ wasm.version));
 
     // As sym_index '0' is reserved, we use it for our stack pointer symbol
-    const global = try wasm_bin.wasm_globals.addOne(allocator);
-    global.* = .{
-        .global_type = .{
-            .valtype = .i32,
-            .mutable = true,
-        },
-        .init = .{ .i32_const = 0 },
-    };
     const symbol = try wasm_bin.symbols.addOne(allocator);
     symbol.* = .{
         .name = "__stack_pointer",
@@ -178,6 +170,28 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         .flags = 0,
         .index = 0,
     };
+    // For object files we will import the stack pointer symbol
+    if (options.output_mode == .Obj) {
+        symbol.setUndefined(true);
+        try wasm_bin.imports.putNoClobber(
+            allocator,
+            .{ .file = null, .index = 0 },
+            .{
+                .module_name = wasm_bin.host_name,
+                .name = "__stack_pointer",
+                .kind = .{ .global = .{ .valtype = .i32, .mutable = true } },
+            },
+        );
+    } else {
+        const global = try wasm_bin.wasm_globals.addOne(allocator);
+        global.* = .{
+            .global_type = .{
+                .valtype = .i32,
+                .mutable = true,
+            },
+            .init = .{ .i32_const = 0 },
+        };
+    }
     return wasm_bin;
 }
 
@@ -651,11 +665,37 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
             break :result self.code_section_index.?;
         },
         .data => result: {
-            const gop = try self.data_segments.getOrPut(self.base.allocator, ".rodata");
-            const atom_index = if (gop.found_existing) blk: {
-                self.segments.items[gop.value_ptr.*].size += atom.size;
-                break :blk gop.value_ptr.*;
-            } else blk: {
+            // TODO: Add mutables global decls to .bss section instead
+            const segment_name = try std.mem.concat(self.base.allocator, u8, &.{
+                ".rodata.",
+                std.mem.span(symbol.name),
+            });
+            errdefer self.base.allocator.free(segment_name);
+            const segment_info: types.Segment = .{
+                .name = segment_name,
+                .alignment = atom.alignment,
+                .flags = 0,
+            };
+            symbol.tag = .data;
+
+            const should_merge = self.base.options.output_mode != .Obj;
+            const gop = try self.data_segments.getOrPut(self.base.allocator, segment_info.outputName(should_merge));
+            if (gop.found_existing) {
+                const index = gop.value_ptr.*;
+                self.segments.items[index].size += atom.size;
+
+                // segment indexes can be off by 1 due to also containing a segment
+                // for the code section, so we must check if the existing segment
+                // is larger than that of the code section, and substract the index by 1 in such case.
+                const info_add = if (self.code_section_index) |idx| blk: {
+                    if (idx < index) break :blk @as(u32, 1);
+                    break :blk 0;
+                } else @as(u32, 0);
+                symbol.index = index - info_add;
+                // segment info already exists, so free its memory
+                self.base.allocator.free(segment_name);
+                break :result index;
+            } else {
                 const index = @intCast(u32, self.segments.items.len);
                 try self.segments.append(self.base.allocator, .{
                     .alignment = atom.alignment,
@@ -663,24 +703,12 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
                     .offset = 0,
                 });
                 gop.value_ptr.* = index;
-                break :blk index;
-            };
-            const info_index = @intCast(u32, self.segment_info.items.len);
-            // TODO: Add mutables global decls to .bss section instead
-            const segment_name = try std.mem.concat(self.base.allocator, u8, &.{
-                ".rodata.",
-                std.mem.span(symbol.name),
-            });
-            errdefer self.base.allocator.free(segment_name);
-            try self.segment_info.append(self.base.allocator, .{
-                .name = segment_name,
-                .alignment = atom.alignment,
-                .flags = 0,
-            });
-            symbol.tag = .data;
-            symbol.index = info_index;
 
-            break :result atom_index;
+                const info_index = @intCast(u32, self.segment_info.items.len);
+                try self.segment_info.append(self.base.allocator, segment_info);
+                symbol.index = info_index;
+                break :result index;
+            }
         },
     };
 
@@ -932,7 +960,9 @@ fn setupMemory(self: *Wasm) !void {
         break :blk base;
     } else 0;
 
-    if (place_stack_first) {
+    const is_obj = self.base.options.output_mode == .Obj;
+
+    if (place_stack_first and !is_obj) {
         memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
         memory_ptr += stack_size;
         // We always put the stack pointer global at index 0
@@ -951,7 +981,7 @@ fn setupMemory(self: *Wasm) !void {
         offset += segment.size;
     }
 
-    if (!place_stack_first) {
+    if (!place_stack_first and !is_obj) {
         memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
         memory_ptr += stack_size;
         self.wasm_globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
@@ -1011,7 +1041,8 @@ pub fn getMatchingSegment(self: *Wasm, object_index: u16, relocatable_index: u32
     switch (relocatable_data.type) {
         .data => {
             const segment_info = object.segment_info[relocatable_data.index];
-            const result = try self.data_segments.getOrPut(self.base.allocator, segment_info.outputName());
+            const merge_segment = self.base.options.output_mode != .Obj;
+            const result = try self.data_segments.getOrPut(self.base.allocator, segment_info.outputName(merge_segment));
             if (!result.found_existing) {
                 result.value_ptr.* = index;
                 try self.segments.append(self.base.allocator, .{
@@ -1368,7 +1399,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const writer = file.writer();
         var atom: *Atom = self.atoms.get(code_index).?.getFirst();
         while (true) {
-            try atom.resolveRelocs(self);
+            if (!is_obj) {
+                try atom.resolveRelocs(self);
+            }
             try leb.writeULEB128(writer, atom.size);
             try writer.writeAll(atom.code.items);
             atom = atom.next orelse break;
@@ -1390,8 +1423,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         var it = self.data_segments.iterator();
         var segment_count: u32 = 0;
         while (it.next()) |entry| {
-            // do not output 'bss' section
-            if (std.mem.eql(u8, entry.key_ptr.*, ".bss")) continue;
+            // do not output 'bss' section unless we import memory and therefore
+            // want to guarantee the data is zero initialized
+            if (std.mem.eql(u8, entry.key_ptr.*, ".bss") and !import_memory) continue;
             segment_count += 1;
             const atom_index = entry.value_ptr.*;
             var atom: *Atom = self.atoms.getPtr(atom_index).?.*.getFirst();
@@ -1406,7 +1440,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             // fill in the offset table and the data segments
             var current_offset: u32 = 0;
             while (true) {
-                try atom.resolveRelocs(self);
+                if (!is_obj) {
+                    try atom.resolveRelocs(self);
+                }
 
                 // Pad with zeroes to ensure all segments are aligned
                 if (current_offset != atom.offset) {
@@ -1443,60 +1479,58 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         );
     }
 
-    // Custom section "name" which contains symbol names
-    if (!is_obj) {
-        const Name = struct {
-            index: u32,
-            name: []const u8,
-
-            fn lessThan(context: void, lhs: @This(), rhs: @This()) bool {
-                _ = context;
-                return lhs.index < rhs.index;
-            }
-        };
-
-        var funcs = try std.ArrayList(Name).initCapacity(self.base.allocator, self.functions.items.len + self.imported_functions_count);
-        defer funcs.deinit();
-        var globals = try std.ArrayList(Name).initCapacity(self.base.allocator, self.wasm_globals.items.len);
-        defer globals.deinit();
-        var segments = try std.ArrayList(Name).initCapacity(self.base.allocator, self.data_segments.count());
-        defer segments.deinit();
-
-        for (self.resolved_symbols.keys()) |sym_loc| {
-            const symbol = sym_loc.getSymbol(self).*;
-            switch (symbol.tag) {
-                .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
-                .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
-                else => {},
-            }
-        }
-        // data segments are already 'ordered'
-        for (self.data_segments.keys()) |key, index| {
-            segments.appendAssumeCapacity(.{ .index = @intCast(u32, index), .name = key });
-        }
-
-        std.sort.sort(Name, funcs.items, {}, Name.lessThan);
-        std.sort.sort(Name, globals.items, {}, Name.lessThan);
-
-        const header_offset = try reserveCustomSectionHeader(file);
-        const writer = file.writer();
-        try leb.writeULEB128(writer, @intCast(u32, "name".len));
-        try writer.writeAll("name");
-
-        try self.emitNameSubsection(.function, funcs.items, writer);
-        try self.emitNameSubsection(.global, globals.items, writer);
-        try self.emitNameSubsection(.data_segment, segments.items, writer);
-
-        try writeCustomSectionHeader(
-            file,
-            header_offset,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
-        );
-    }
-
     if (is_obj) {
         try self.emitLinkSection(file, arena);
+    } else {
+        try self.emitNameSection(file, arena);
     }
+}
+
+fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
+    const Name = struct {
+        index: u32,
+        name: []const u8,
+
+        fn lessThan(context: void, lhs: @This(), rhs: @This()) bool {
+            _ = context;
+            return lhs.index < rhs.index;
+        }
+    };
+
+    var funcs = try std.ArrayList(Name).initCapacity(arena, self.functions.items.len + self.imported_functions_count);
+    var globals = try std.ArrayList(Name).initCapacity(arena, self.wasm_globals.items.len);
+    var segments = try std.ArrayList(Name).initCapacity(arena, self.data_segments.count());
+
+    for (self.resolved_symbols.keys()) |sym_loc| {
+        const symbol = sym_loc.getSymbol(self).*;
+        switch (symbol.tag) {
+            .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
+            .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
+            else => {},
+        }
+    }
+    // data segments are already 'ordered'
+    for (self.data_segments.keys()) |key, index| {
+        segments.appendAssumeCapacity(.{ .index = @intCast(u32, index), .name = key });
+    }
+
+    std.sort.sort(Name, funcs.items, {}, Name.lessThan);
+    std.sort.sort(Name, globals.items, {}, Name.lessThan);
+
+    const header_offset = try reserveCustomSectionHeader(file);
+    const writer = file.writer();
+    try leb.writeULEB128(writer, @intCast(u32, "name".len));
+    try writer.writeAll("name");
+
+    try self.emitNameSubsection(.function, funcs.items, writer);
+    try self.emitNameSubsection(.global, globals.items, writer);
+    try self.emitNameSubsection(.data_segment, segments.items, writer);
+
+    try writeCustomSectionHeader(
+        file,
+        header_offset,
+        @intCast(u32, (try file.getPos()) - header_offset - 6),
+    );
 }
 
 fn emitNameSubsection(self: *Wasm, section_id: std.wasm.NameSubsection, names: anytype, writer: anytype) !void {

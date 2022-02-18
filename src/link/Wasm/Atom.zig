@@ -147,33 +147,34 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
 fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) !u64 {
     const target_loc: Wasm.SymbolLoc = .{ .file = self.file, .index = relocation.index };
     const symbol = target_loc.getSymbol(wasm_bin).*;
-    return switch (relocation.relocation_type) {
-        .R_WASM_FUNCTION_INDEX_LEB => symbol.index,
-        .R_WASM_TABLE_NUMBER_LEB => symbol.index,
+    switch (relocation.relocation_type) {
+        .R_WASM_FUNCTION_INDEX_LEB => return symbol.index,
+        .R_WASM_TABLE_NUMBER_LEB => return symbol.index,
         .R_WASM_TABLE_INDEX_I32,
         .R_WASM_TABLE_INDEX_I64,
         .R_WASM_TABLE_INDEX_SLEB,
         .R_WASM_TABLE_INDEX_SLEB64,
         => return wasm_bin.function_table.get(relocation.index) orelse 0,
-        .R_WASM_TYPE_INDEX_LEB => wasm_bin.functions.items[symbol.index].type_index,
+        .R_WASM_TYPE_INDEX_LEB => return wasm_bin.functions.items[symbol.index].type_index,
         .R_WASM_GLOBAL_INDEX_I32,
         .R_WASM_GLOBAL_INDEX_LEB,
-        => symbol.index,
+        => return symbol.index,
         .R_WASM_MEMORY_ADDR_I32,
         .R_WASM_MEMORY_ADDR_I64,
         .R_WASM_MEMORY_ADDR_LEB,
         .R_WASM_MEMORY_ADDR_LEB64,
         .R_WASM_MEMORY_ADDR_SLEB,
         .R_WASM_MEMORY_ADDR_SLEB64,
-        => blk: {
+        => {
             if (symbol.isUndefined() and (symbol.tag == .data or symbol.isWeak())) {
                 return 0;
             }
-            const segment_name = wasm_bin.segment_info.items[symbol.index].outputName();
+            const merge_segment = wasm_bin.base.options.output_mode != .Obj;
+            const segment_name = wasm_bin.segment_info.items[symbol.index].outputName(merge_segment);
             const atom_index = wasm_bin.data_segments.get(segment_name).?;
             var target_atom = wasm_bin.atoms.getPtr(atom_index).?.*.getFirst();
             while (true) {
-                // TODO: Can we simplify this by providing the ability to find and atom
+                // TODO: Can we simplify this by providing the ability to find an atom
                 // based on a symbol location.
                 if (target_atom.sym_index == relocation.index) {
                     if (target_atom.file) |file| {
@@ -183,11 +184,11 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
                 target_atom = target_atom.next orelse break;
             }
             const segment = wasm_bin.segments.items[atom_index];
-            break :blk target_atom.offset + segment.offset + (relocation.addend orelse 0);
+            return target_atom.offset + segment.offset + (relocation.addend orelse 0);
         },
-        .R_WASM_EVENT_INDEX_LEB => symbol.index,
+        .R_WASM_EVENT_INDEX_LEB => return symbol.index,
         .R_WASM_SECTION_OFFSET_I32,
         .R_WASM_FUNCTION_OFFSET_I32,
-        => relocation.offset,
-    };
+        => return relocation.offset,
+    }
 }
