@@ -10015,10 +10015,6 @@ fn typeInfoDecls(
     type_info_ty: Type,
     opt_namespace: ?*Module.Namespace,
 ) CompileError!Value {
-    const namespace = opt_namespace orelse return Value.initTag(.empty_array);
-    const decls_len = namespace.decls.count();
-    if (decls_len == 0) return Value.initTag(.empty_array);
-
     var decls_anon_decl = try block.startAnonDecl(src);
     defer decls_anon_decl.deinit();
 
@@ -10035,10 +10031,11 @@ fn typeInfoDecls(
         break :t try declaration_ty_decl.val.toType(&buffer).copy(decls_anon_decl.arena());
     };
 
+    const decls_len = if (opt_namespace) |ns| ns.decls.count() else 0;
     const decls_vals = try decls_anon_decl.arena().alloc(Value, decls_len);
     for (decls_vals) |*decls_val, i| {
-        const decl = namespace.decls.values()[i];
-        const name = namespace.decls.keys()[i];
+        const decl = opt_namespace.?.decls.values()[i];
+        const name = opt_namespace.?.decls.keys()[i];
         const name_val = v: {
             var anon_decl = try block.startAnonDecl(src);
             defer anon_decl.deinit();

@@ -186,8 +186,6 @@ fn testErrorSet() !void {
 }
 
 test "type info: enum info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testEnum();
     comptime try testEnum();
 }
