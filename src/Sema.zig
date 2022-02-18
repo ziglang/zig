@@ -134,6 +134,7 @@ pub const Block = struct {
         /// `noreturn` means `anytype`.
         ty: Type,
         is_comptime: bool,
+        name: []const u8,
     };
 
     /// This `Block` maps a block ZIR instruction to the corresponding
@@ -284,13 +285,10 @@ pub const Block = struct {
         });
     }
 
-    fn addArg(block: *Block, ty: Type, name: u32) error{OutOfMemory}!Air.Inst.Ref {
+    fn addArg(block: *Block, ty: Type) error{OutOfMemory}!Air.Inst.Ref {
         return block.addInst(.{
             .tag = .arg,
-            .data = .{ .ty_str = .{
-                .ty = try block.sema.addType(ty),
-                .str = name,
-            } },
+            .data = .{ .ty = ty },
         });
     }
 
@@ -4645,7 +4643,7 @@ fn analyzeCall(
                     } else {
                         // We insert into the map an instruction which is runtime-known
                         // but has the type of the argument.
-                        const child_arg = try child_block.addArg(arg_ty, 0);
+                        const child_arg = try child_block.addArg(arg_ty);
                         child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
                     }
                 }
@@ -5712,6 +5710,11 @@ fn funcCommon(
         break :blk if (sema.comptime_args.len == 0) null else sema.comptime_args.ptr;
     } else null;
 
+    const param_names = try sema.gpa.alloc([:0]const u8, block.params.items.len);
+    for (param_names) |*param_name, i| {
+        param_name.* = try sema.gpa.dupeZ(u8, block.params.items[i].name);
+    }
+
     const fn_payload = try sema.arena.create(Value.Payload.Function);
     new_func.* = .{
         .state = anal_state,
@@ -5722,6 +5725,7 @@ fn funcCommon(
         .rbrace_line = src_locs.rbrace_line,
         .lbrace_column = @truncate(u16, src_locs.columns),
         .rbrace_column = @truncate(u16, src_locs.columns >> 16),
+        .param_names = param_names,
     };
     if (maybe_inferred_error_set_node) |node| {
         new_func.inferred_error_sets.prepend(node);
@@ -5745,10 +5749,6 @@ fn zirParam(
     const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index);
     const param_name = sema.code.nullTerminatedString(extra.data.name);
     const body = sema.code.extra[extra.end..][0..extra.data.body_len];
-
-    // TODO check if param_name shadows a Decl. This only needs to be done if
-    // usingnamespace is implemented.
-    _ = param_name;
 
     // We could be in a generic function instantiation, or we could be evaluating a generic
     // function without any comptime args provided.
@@ -5776,6 +5776,7 @@ fn zirParam(
                 try block.params.append(sema.gpa, .{
                     .ty = Type.initTag(.generic_poison),
                     .is_comptime = comptime_syntax,
+                    .name = param_name,
                 });
                 try sema.inst_map.putNoClobber(sema.gpa, inst, .generic_poison);
                 return;
@@ -5801,6 +5802,7 @@ fn zirParam(
     try block.params.append(sema.gpa, .{
         .ty = param_ty,
         .is_comptime = is_comptime,
+        .name = param_name,
     });
     const result = try sema.addConstant(param_ty, Value.initTag(.generic_poison));
     try sema.inst_map.putNoClobber(sema.gpa, inst, result);
@@ -5816,10 +5818,6 @@ fn zirParamAnytype(
     const src = inst_data.src();
     const param_name = inst_data.get(sema.code);
 
-    // TODO check if param_name shadows a Decl. This only needs to be done if
-    // usingnamespace is implemented.
-    _ = param_name;
-
     if (sema.inst_map.get(inst)) |air_ref| {
         const param_ty = sema.typeOf(air_ref);
         if (comptime_syntax or try sema.typeRequiresComptime(block, src, param_ty)) {
@@ -5831,6 +5829,7 @@ fn zirParamAnytype(
         try block.params.append(sema.gpa, .{
             .ty = param_ty,
             .is_comptime = false,
+            .name = param_name,
         });
         return;
     }
@@ -5840,6 +5839,7 @@ fn zirParamAnytype(
     try block.params.append(sema.gpa, .{
         .ty = Type.initTag(.generic_poison),
         .is_comptime = comptime_syntax,
+        .name = param_name,
     });
     try sema.inst_map.put(sema.gpa, inst, .generic_poison);
 }

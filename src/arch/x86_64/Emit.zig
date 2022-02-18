@@ -946,15 +946,13 @@ fn mirArgDbgInfo(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const arg_dbg_info = emit.mir.extraData(Mir.ArgDbgInfo, payload).data;
     const mcv = emit.mir.function.args[arg_dbg_info.arg_index];
-    try emit.genArgDbgInfo(arg_dbg_info.air_inst, mcv, arg_dbg_info.max_stack);
+    try emit.genArgDbgInfo(arg_dbg_info.air_inst, mcv, arg_dbg_info.max_stack, arg_dbg_info.arg_index);
 }
 
-fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, max_stack: u32) !void {
-    const ty_str = emit.mir.function.air.instructions.items(.data)[inst].ty_str;
-    const zir = &emit.mir.function.mod_fn.owner_decl.getFileScope().zir;
-    const name = zir.nullTerminatedString(ty_str.str);
+fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, max_stack: u32, arg_index: u32) !void {
+    const ty = emit.mir.function.air.instructions.items(.data)[inst].ty;
+    const name = emit.mir.function.mod_fn.getParamName(arg_index);
     const name_with_null = name.ptr[0 .. name.len + 1];
-    const ty = emit.mir.function.air.getRefType(ty_str.ty);
 
     switch (mcv) {
         .register => |reg| {

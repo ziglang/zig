@@ -1370,6 +1370,14 @@ pub const Fn = struct {
     /// ZIR instruction.
     zir_body_inst: Zir.Inst.Index,
 
+    /// Prefer to use `getParamName` to access this because of the future improvement
+    /// we want to do mentioned in the TODO below.
+    /// Stored in gpa.
+    /// TODO: change param ZIR instructions to be embedded inside the function
+    /// ZIR instruction instead of before it, so that `zir_body_inst` can be used to
+    /// determine param names rather than redundantly storing them here.
+    param_names: []const [:0]const u8,
+
     /// Relative to owner Decl.
     lbrace_line: u32,
     /// Relative to owner Decl.
@@ -1466,6 +1474,18 @@ pub const Fn = struct {
             gpa.destroy(node);
             it = next;
         }
+
+        for (func.param_names) |param_name| {
+            gpa.free(param_name);
+        }
+        gpa.free(func.param_names);
+    }
+
+    pub fn getParamName(func: Fn, index: u32) [:0]const u8 {
+        // TODO rework ZIR of parameters so that this function looks up
+        // param names in ZIR instead of redundantly saving them into Fn.
+        // const zir = func.owner_decl.getFileScope().zir;
+        return func.param_names[index];
     }
 };
 
@@ -4606,15 +4626,11 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             runtime_param_index += 1;
             continue;
         }
-        const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
         sema.air_instructions.appendAssumeCapacity(.{
             .tag = .arg,
-            .data = .{ .ty_str = .{
-                .ty = ty_ref,
-                .str = param.name,
-            } },
+            .data = .{ .ty = param_type },
         });
         sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
         total_param_index += 1;

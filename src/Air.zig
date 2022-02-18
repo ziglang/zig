@@ -32,8 +32,7 @@ pub const Inst = struct {
         /// The first N instructions in the main block must be one arg instruction per
         /// function parameter. This makes function parameters participate in
         /// liveness analysis without any special handling.
-        /// Uses the `ty_str` field.
-        /// The string is the parameter name.
+        /// Uses the `ty` field.
         arg,
         /// Float or integer addition. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
@@ -615,11 +614,6 @@ pub const Inst = struct {
             // Index into a different array.
             payload: u32,
         },
-        ty_str: struct {
-            ty: Ref,
-            // ZIR string table index.
-            str: u32,
-        },
         br: struct {
             block_inst: Index,
             operand: Ref,
@@ -759,8 +753,6 @@ pub fn typeOf(air: Air, inst: Air.Inst.Ref) Type {
 pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
     const datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst]) {
-        .arg => return air.getRefType(datas[inst].ty_str.ty),
-
         .add,
         .addwrap,
         .add_sat,
@@ -827,6 +819,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .alloc,
         .ret_ptr,
+        .arg,
         => return datas[inst].ty,
 
         .assembly,

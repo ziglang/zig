@@ -1340,12 +1340,10 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
 }
 
-fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const ty_str = self.air.instructions.items(.data)[inst].ty_str;
-    const zir = &self.mod_fn.owner_decl.getFileScope().zir;
-    const name = zir.nullTerminatedString(ty_str.str);
+fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {
+    const ty = self.air.instructions.items(.data)[inst].ty;
+    const name = self.mod_fn.getParamName(arg_index);
     const name_with_null = name.ptr[0 .. name.len + 1];
-    const ty = self.air.getRefType(ty_str.ty);
 
     switch (mcv) {
         .register => |reg| {
@@ -1388,7 +1386,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     // TODO support stack-only arguments
     // TODO Copy registers to the stack
     const mcv = result;
-    try self.genArgDbgInfo(inst, mcv);
+    try self.genArgDbgInfo(inst, mcv, @intCast(u32, arg_index));
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();

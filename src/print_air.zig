@@ -100,8 +100,6 @@ const Writer = struct {
         const tag = tags[inst];
         try s.print("= {s}(", .{@tagName(tags[inst])});
         switch (tag) {
-            .arg => try w.writeTyStr(s, inst),
-
             .add,
             .addwrap,
             .add_sat,
@@ -181,6 +179,7 @@ const Writer = struct {
             .const_ty,
             .alloc,
             .ret_ptr,
+            .arg,
             => try w.writeTy(s, inst),
 
             .not,
@@ -255,12 +254,6 @@ const Writer = struct {
             .shl_with_overflow,
             => try w.writeOverflow(s, inst),
         }
-    }
-
-    fn writeTyStr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_str = w.air.instructions.items(.data)[inst].ty_str;
-        const name = w.zir.nullTerminatedString(ty_str.str);
-        try s.print("\"{}\", {}", .{ std.zig.fmtEscapes(name), w.air.getRefType(ty_str.ty) });
     }
 
     fn writeBinOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
