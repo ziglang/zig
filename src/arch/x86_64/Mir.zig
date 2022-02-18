@@ -286,6 +286,13 @@ pub const Inst = struct {
         cond_jmp_eq_ne,
         cond_set_byte_eq_ne,
 
+        /// ops flags:
+        ///     0b00 reg1, reg2,
+        ///     0b01 reg1, word ptr  [reg2 + imm]
+        ///     0b10 reg1, dword ptr [reg2 + imm]
+        ///     0b11 reg1, qword ptr [reg2 + imm]
+        cond_mov_eq,
+
         /// ops flags:  form:
         ///       0b00   reg1
         ///       0b01   [reg1 + imm32]
