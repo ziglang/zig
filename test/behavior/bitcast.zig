@@ -3,27 +3,66 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const maxInt = std.math.maxInt;
+const minInt = std.math.minInt;
 const native_endian = builtin.target.cpu.arch.endian();
 
-test "@bitCast i32 -> u32" {
-    try testBitCast_i32_u32();
-    comptime try testBitCast_i32_u32();
+test "@bitCast iX -> uX (32, 64)" {
+    const bit_values = [_]usize{ 32, 64 };
+
+    inline for (bit_values) |bits| {
+        try testBitCast(bits);
+        comptime try testBitCast(bits);
+    }
 }
 
-fn testBitCast_i32_u32() !void {
-    try expect(conv(-1) == maxInt(u32));
-    try expect(conv2(maxInt(u32)) == -1);
+test "@bitCast iX -> uX (8, 16, 128)" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    const bit_values = [_]usize{ 8, 16, 128 };
+
+    inline for (bit_values) |bits| {
+        try testBitCast(bits);
+        comptime try testBitCast(bits);
+    }
 }
 
-fn conv(x: i32) u32 {
-    return @bitCast(u32, x);
-}
-fn conv2(x: u32) i32 {
-    return @bitCast(i32, x);
+test "@bitCast iX -> uX exotic integers" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const bit_values = [_]usize{ 1, 48, 27, 512, 493, 293, 125, 204, 112 };
+
+    inline for (bit_values) |bits| {
+        try testBitCast(bits);
+        comptime try testBitCast(bits);
+    }
 }
 
-test "bitcast result to _" {
-    _ = @bitCast(u8, @as(i8, 1));
+fn testBitCast(comptime N: usize) !void {
+    const iN = std.meta.Int(.signed, N);
+    const uN = std.meta.Int(.unsigned, N);
+
+    try expect(conv_iN(N, -1) == maxInt(uN));
+    try expect(conv_uN(N, maxInt(uN)) == -1);
+
+    try expect(conv_iN(N, maxInt(iN)) == maxInt(iN));
+    try expect(conv_uN(N, maxInt(iN)) == maxInt(iN));
+
+    try expect(conv_uN(N, 1 << (N - 1)) == minInt(iN));
+    try expect(conv_iN(N, minInt(iN)) == (1 << (N - 1)));
+
+    try expect(conv_uN(N, 0) == 0);
+    try expect(conv_iN(N, 0) == 0);
+
+    try expect(conv_iN(N, -0) == 0);
+}
+
+fn conv_iN(comptime N: usize, x: std.meta.Int(.signed, N)) std.meta.Int(.unsigned, N) {
+    return @bitCast(std.meta.Int(.unsigned, N), x);
+}
+
+fn conv_uN(comptime N: usize, x: std.meta.Int(.unsigned, N)) std.meta.Int(.signed, N) {
+    return @bitCast(std.meta.Int(.signed, N), x);
 }
 
 test "nested bitcast" {

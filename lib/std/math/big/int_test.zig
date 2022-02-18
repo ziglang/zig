@@ -2486,3 +2486,206 @@ test "big int popcount" {
 
     try testing.expect(a.toConst().orderAgainstScalar(16) == .eq);
 }
+
+test "big int conversion read/write twos complement" {
+    var a = try Managed.initSet(testing.allocator, (1 << 493) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, (1 << 493) - 1);
+    defer b.deinit();
+    var m = b.toMutable();
+
+    var buffer1 = try testing.allocator.alloc(u8, 64);
+    defer testing.allocator.free(buffer1);
+
+    const endians = [_]std.builtin.Endian{ .Little, .Big };
+    const abi_size = 64;
+
+    for (endians) |endian| {
+        // Writing to buffer and back should not change anything
+        a.toConst().writeTwosComplement(buffer1, 493, abi_size, endian);
+        m.readTwosComplement(buffer1, 493, abi_size, endian, .unsigned);
+        try testing.expect(m.toConst().order(a.toConst()) == .eq);
+
+        // Equivalent to @bitCast(i493, @as(u493, intMax(u493))
+        a.toConst().writeTwosComplement(buffer1, 493, abi_size, endian);
+        m.readTwosComplement(buffer1, 493, abi_size, endian, .signed);
+        try testing.expect(m.toConst().orderAgainstScalar(-1) == .eq);
+    }
+}
+
+test "big int conversion read twos complement with padding" {
+    var a = try Managed.initSet(testing.allocator, 0x01_02030405_06070809_0a0b0c0d);
+    defer a.deinit();
+
+    var buffer1 = try testing.allocator.alloc(u8, 16);
+    defer testing.allocator.free(buffer1);
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+
+    // writeTwosComplement:
+    // (1) should not write beyond buffer[0..abi_size]
+    // (2) should correctly order bytes based on the provided endianness
+    // (3) should sign-extend any bits from bit_count to 8 * abi_size
+
+    var bit_count: usize = 12 * 8 + 1;
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0x0, 0x0, 0x0 }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x0, 0x0, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd }));
+
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    try a.set(-0x01_02030405_06070809_0a0b0c0d);
+    bit_count = 12 * 8 + 2;
+
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff, 0xff, 0xff }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xff, 0xff, 0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 }));
+}
+
+test "big int write twos complement +/- zero" {
+    var a = try Managed.initSet(testing.allocator, 0x0);
+    defer a.deinit();
+    var m = a.toMutable();
+
+    var buffer1 = try testing.allocator.alloc(u8, 16);
+    defer testing.allocator.free(buffer1);
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+
+    var bit_count: usize = 0;
+
+    // Test zero
+
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    m.positive = false;
+
+    // Test negative zero
+
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+}
+
+test "big int conversion write twos complement with padding" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    var m = a.toMutable();
+
+    // readTwosComplement:
+    // (1) should not read beyond buffer[0..abi_size]
+    // (2) should correctly interpret bytes based on the provided endianness
+    // (3) should ignore any bits from bit_count to 8 * abi_size
+
+    var bit_count: usize = 12 * 8 + 1;
+    var buffer: []const u8 = undefined;
+
+    // Test 0x01_02030405_06070809_0a0b0c0d
+
+    buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xb };
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xb, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xab, 0xaa, 0xaa, 0xaa };
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0xab, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    bit_count = 12 * 8 + 2;
+
+    // Test -0x01_02030405_06070809_0a0b0c0d
+
+    buffer = &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0x02 };
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0x02, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 };
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0x02, 0xaa, 0xaa, 0xaa };
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0x02, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 };
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    // Test 0
+
+    buffer = &([_]u8{0} ** 16);
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+
+    bit_count = 0;
+    buffer = &([_]u8{0xaa} ** 16);
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+}
+
+test "big int conversion write twos complement zero" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    var m = a.toMutable();
+
+    // readTwosComplement:
+    // (1) should not read beyond buffer[0..abi_size]
+    // (2) should correctly interpret bytes based on the provided endianness
+    // (3) should ignore any bits from bit_count to 8 * abi_size
+
+    var bit_count: usize = 12 * 8 + 1;
+    var buffer: []const u8 = undefined;
+
+    buffer = &([_]u8{0} ** 13);
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+
+    buffer = &([_]u8{0} ** 16);
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+}
