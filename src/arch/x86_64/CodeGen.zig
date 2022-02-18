@@ -2581,16 +2581,10 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     self.arg_index += 1;
 
     const mcv = self.args[arg_index];
-    const max_stack = loop: for (self.args) |arg| {
-        switch (arg) {
-            .stack_offset => |last| break :loop last,
-            else => {},
-        }
-    } else 0;
     const payload = try self.addExtra(Mir.ArgDbgInfo{
         .air_inst = inst,
         .arg_index = arg_index,
-        .max_stack = @intCast(u32, max_stack),
+        .max_stack = self.max_end_stack,
     });
     _ = try self.addInst(.{
         .tag = .arg_dbg_info,
@@ -2607,7 +2601,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk mcv;
             },
             .stack_offset => |off| {
-                const offset = max_stack - off + 16;
+                const offset = @intCast(i32, self.max_end_stack) - off + 16;
                 break :blk MCValue{ .stack_offset = -offset };
             },
             else => return self.fail("TODO implement arg for {}", .{mcv}),
@@ -2651,7 +2645,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     var info = try self.resolveCallingConventionValues(fn_ty);
     defer info.deinit(self);
 
-    var stack_adjustment: ?u32 = null;
     for (args) |arg, arg_i| {
         const mc_arg = info.args[arg_i];
         const arg_ty = self.air.typeOf(arg);
@@ -2666,9 +2659,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             },
             .stack_offset => |off| {
                 try self.genSetStackArg(arg_ty, off, arg_mcv);
-                if (stack_adjustment == null) {
-                    stack_adjustment = @intCast(u32, off);
-                }
             },
             .ptr_stack_offset => {
                 return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
@@ -2689,14 +2679,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
         }
     }
 
-    if (stack_adjustment) |off| {
+    if (info.stack_byte_count > 0) {
         // Adjust the stack
         _ = try self.addInst(.{
             .tag = .sub,
             .ops = (Mir.Ops{
                 .reg1 = .rsp,
             }).encode(),
-            .data = .{ .imm = off },
+            .data = .{ .imm = info.stack_byte_count },
         });
     }
 
@@ -2824,14 +2814,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
         }
     } else unreachable;
 
-    if (stack_adjustment) |off| {
+    if (info.stack_byte_count > 0) {
         // Readjust the stack
         _ = try self.addInst(.{
             .tag = .add,
             .ops = (Mir.Ops{
                 .reg1 = .rsp,
             }).encode(),
-            .data = .{ .imm = off },
+            .data = .{ .imm = info.stack_byte_count },
         });
     }
 
@@ -4847,8 +4837,8 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 }
             }
 
-            result.stack_byte_count = next_stack_offset;
             result.stack_align = 16;
+            result.stack_byte_count = mem.alignForwardGeneric(u32, next_stack_offset, result.stack_align);
         },
         else => return self.fail("TODO implement function parameters for {} on x86_64", .{cc}),
     }
