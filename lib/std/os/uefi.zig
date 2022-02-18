@@ -23,6 +23,18 @@ pub var system_table: *tables.SystemTable = undefined;
 /// A handle to an event structure.
 pub const Event = *opaque {};
 
+pub const MacAddress = extern struct {
+    address: [32]u8,
+};
+
+pub const Ipv4Address = extern struct {
+    address: [4]u8,
+};
+
+pub const Ipv6Address = extern struct {
+    address: [16]u8,
+};
+
 /// GUIDs must be align(8)
 pub const Guid = extern struct {
     time_low: u32,
@@ -86,7 +98,6 @@ pub const Time = extern struct {
 
     /// 0 - 59
     second: u8,
-    _pad1: u8,
 
     /// 0 - 999999999
     nanosecond: u32,
@@ -103,7 +114,6 @@ pub const Time = extern struct {
         /// If true, the time is affected by daylight savings time.
         adjust_daylight: bool,
     },
-    _pad2: u8,
 
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;

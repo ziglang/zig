@@ -48,7 +48,7 @@ pub const NarrowGlyph = extern struct {
     attributes: packed struct {
         non_spacing: bool,
         wide: bool,
-        _pad: u6,
+        _pad: u6 = 0,
     },
     glyph_col_1: [19]u8,
 };
@@ -62,7 +62,7 @@ pub const WideGlyph = extern struct {
     },
     glyph_col_1: [19]u8,
     glyph_col_2: [19]u8,
-    _pad: [3]u8,
+    _pad: [3]u8 = [_]u8{0} ** 3,
 };
 
 pub const HIIStringPackage = extern struct {

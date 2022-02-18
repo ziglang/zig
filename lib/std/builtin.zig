@@ -758,7 +758,52 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
             std.os.abort();
         },
         .uefi => {
-            // TODO look into using the debug info and logging helpful messages
+            const uefi = std.os.uefi;
+
+            const ExitData = struct {
+                pub fn create_exit_data(exit_msg: []const u8, exit_size: *usize) ![*:0]u16 {
+                    // Need boot services for pool allocation
+                    if (uefi.system_table.boot_services == null) {
+                        return error.BootServicesUnavailable;
+                    }
+
+                    // ExitData buffer must be allocated using boot_services.allocatePool
+                    var utf16: []u16 = try uefi.raw_pool_allocator.alloc(u16, 256);
+                    errdefer uefi.raw_pool_allocator.free(utf16);
+
+                    if (exit_msg.len > 255) {
+                        return error.MessageTooLong;
+                    }
+
+                    var fmt: [256]u8 = undefined;
+                    var slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
+
+                    var len = try std.unicode.utf8ToUtf16Le(utf16, slice);
+
+                    utf16[len] = 0;
+
+                    exit_size.* = 256;
+
+                    return @ptrCast([*:0]u16, utf16.ptr);
+                }
+            };
+
+            var exit_size: usize = 0;
+            var exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
+
+            if (exit_data) |data| {
+                if (uefi.system_table.std_err) |out| {
+                    _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.red);
+                    _ = out.outputString(data);
+                    _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.white);
+                }
+            }
+
+            if (uefi.system_table.boot_services) |bs| {
+                _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
+            }
+
+            // Didn't have boot_services, just fallback to whatever.
             std.os.abort();
         },
         else => {
