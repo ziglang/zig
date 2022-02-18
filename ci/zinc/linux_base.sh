@@ -17,7 +17,6 @@ set -x
 set -e
 
 ARCH="$(uname -m)"
-JOBS="-j$(nproc)"
 
 DEPS_LOCAL="/deps/local"
 WORKSPACE="$DRONE_WORKSPACE"

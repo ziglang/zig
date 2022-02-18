@@ -129,6 +129,7 @@ pub fn build(b: *Builder) !void {
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
+    const use_zig0 = b.option(bool, "zig0", "Bootstrap using zig0") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
         if (strip) break :blk @as(u32, 0);
@@ -136,7 +137,11 @@ pub fn build(b: *Builder) !void {
         break :blk 4;
     };
 
-    const main_file: ?[]const u8 = if (is_stage1) null else "src/main.zig";
+    const main_file: ?[]const u8 = mf: {
+        if (!is_stage1) break :mf "src/main.zig";
+        if (use_zig0) break :mf null;
+        break :mf "src/stage1.zig";
+    };
 
     const exe = b.addExecutable("zig", main_file);
     exe.strip = strip;
@@ -311,8 +316,10 @@ pub fn build(b: *Builder) !void {
                 zig1_obj.addArg("-fsingle-threaded");
             }
 
-            exe.step.dependOn(&zig1_obj.step);
-            exe.addObjectFile(zig1_obj_path);
+            if (use_zig0) {
+                exe.step.dependOn(&zig1_obj.step);
+                exe.addObjectFile(zig1_obj_path);
+            }
 
             // This is intentionally a dummy path. stage1.zig tries to @import("compiler_rt") in case
             // of being built by cmake. But when built by zig it's gonna get a compiler_rt so that
@@ -559,9 +566,7 @@ fn addCmakeCfgOptionsToExe(
     }
 }
 
-fn addStaticLlvmOptionsToExe(
-    exe: *std.build.LibExeObjStep,
-) !void {
+fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling

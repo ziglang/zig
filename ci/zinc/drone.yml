@@ -9,19 +9,7 @@ workspace:
   path: /workspace
 
 steps:
-- name: probe
-  image: ci/debian-amd64:11.1-3
-  commands:
-  - ./ci/zinc/linux_probe.sh
-
-- name: build
-  image: ci/debian-amd64:11.1-3
-  commands:
-  - ./ci/zinc/linux_build.sh
-
 - name: test
-  depends_on:
-  - build
   image: ci/debian-amd64:11.1-3
   commands:
   - ./ci/zinc/linux_test.sh
