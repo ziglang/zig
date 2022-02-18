@@ -1252,37 +1252,54 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     return self.fail("TODO implement airShlWithOverflow for {}", .{self.target.cpu.arch});
 }
 
-fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const dst_ty = self.air.typeOfIndex(inst);
-        const tag = self.air.instructions.items(.tag)[inst];
-        switch (tag) {
-            .div_exact => {},
-            .div_trunc, .div_floor, .div_float => return self.fail("TODO implement {}", .{tag}),
-            else => unreachable,
-        }
+/// Perform signed and unsigned integer division.
+/// TODO it might be wise to split some functionality into integer and floating-point
+/// specialised functions.
+/// Supports AIR tag:
+/// .div_exact, .div_trunc, .div_floor, .mod, .rem
+fn genDivOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref) !MCValue {
+    const dst_ty = self.air.typeOfIndex(inst);
+    const tag = self.air.instructions.items(.tag)[inst];
 
-        if (dst_ty.zigTypeTag() != .Int) {
-            return self.fail("TODO implement {} for operands of type {}", .{ tag, dst_ty.zigTypeTag() });
-        }
+    switch (tag) {
+        .div_exact, .div_trunc, .div_floor, .mod, .rem => {},
+        .div_float => return self.fail("TODO implement genDivOp for {}", .{tag}),
+        else => unreachable,
+    }
 
-        const signedness = dst_ty.intInfo(self.target.*).signedness;
-        const ty = if (signedness == .signed) Type.isize else dst_ty;
-        const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+    if (dst_ty.zigTypeTag() != .Int) {
+        return self.fail("TODO implement {} for operands of type {}", .{ tag, dst_ty.zigTypeTag() });
+    }
+    if (dst_ty.abiSize(self.target.*) > 8) {
+        return self.fail("TODO implement {} for ABI size larger than 8", .{tag});
+    }
 
-        const lhs = try self.resolveInst(bin_op.lhs);
-        blk: {
-            switch (lhs) {
-                .register => |reg| {
-                    if (reg.to64() == .rax) break :blk;
-                },
-                else => {},
-            }
-            try self.register_manager.getReg(.rax, inst); // track inst -> rax in register manager
-            try self.genSetReg(ty, .rax, lhs);
+    const signedness = dst_ty.intInfo(self.target.*).signedness;
+    const tmp_ty = switch (signedness) {
+        .signed => Type.isize,
+        .unsigned => dst_ty,
+    };
+    const abi_size = @intCast(u32, tmp_ty.abiSize(self.target.*));
+
+    const lhs = try self.resolveInst(op_lhs);
+    blk: {
+        switch (lhs) {
+            .register => |reg| {
+                if (reg.to64() == .rax) break :blk;
+            },
+            else => {},
         }
-        if (signedness == .signed) {
+        try self.register_manager.getReg(.rax, inst); // track inst -> rax in register manager
+        try self.genSetReg(tmp_ty, .rax, lhs);
+    }
+
+    try self.register_manager.getReg(.rdx, null);
+    self.register_manager.freezeRegs(&.{ .rax, .rdx });
+    defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
+
+    // Prep rdx for the op
+    switch (signedness) {
+        .signed => {
             _ = try self.addInst(.{
                 .tag = .cwd,
                 .ops = (Mir.Ops{
@@ -1290,56 +1307,76 @@ fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
                 }).encode(),
                 .data = undefined,
             });
-        }
-        const dst_mcv = MCValue{ .register = registerAlias(.rax, abi_size) };
+        },
+        .unsigned => {
+            _ = try self.addInst(.{
+                .tag = .xor,
+                .ops = (Mir.Ops{
+                    .reg1 = .rdx,
+                    .reg2 = .rdx,
+                }).encode(),
+                .data = undefined,
+            });
+        },
+    }
 
-        try self.register_manager.getReg(.rdx, null);
-        self.register_manager.freezeRegs(&.{ .rax, .rdx });
-        defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
-
-        const rhs = try self.resolveInst(bin_op.rhs);
-        const divisor = blk: {
-            switch (rhs) {
-                .register, .stack_offset => break :blk rhs,
-                else => {
-                    const reg = try self.copyToTmpRegister(ty, rhs);
-                    break :blk MCValue{ .register = reg };
-                },
-            }
-        };
-
-        switch (divisor) {
-            .register => |reg| {
-                _ = try self.addInst(.{
-                    .tag = .idiv,
-                    .ops = (Mir.Ops{
-                        .reg1 = registerAlias(reg, abi_size),
-                    }).encode(),
-                    .data = undefined,
-                });
+    const rhs = try self.resolveInst(op_rhs);
+    const divisor = blk: {
+        switch (rhs) {
+            .register, .stack_offset => break :blk rhs,
+            else => {
+                const reg = try self.copyToTmpRegister(tmp_ty, rhs);
+                break :blk MCValue{ .register = reg };
             },
-            .stack_offset => |off| {
-                const flags: u2 = switch (abi_size) {
-                    1 => 0b00,
-                    2 => 0b01,
-                    4 => 0b10,
-                    8 => 0b11,
-                    else => unreachable,
-                };
-                _ = try self.addInst(.{
-                    .tag = .idiv,
-                    .ops = (Mir.Ops{
-                        .reg2 = .rbp,
-                        .flags = flags,
-                    }).encode(),
-                    .data = .{ .imm = @bitCast(u32, -off) },
-                });
-            },
-            else => unreachable,
         }
-
-        break :result dst_mcv;
     };
+    const op_tag: Mir.Inst.Tag = switch (signedness) {
+        .signed => .idiv,
+        .unsigned => .div,
+    };
+
+    switch (divisor) {
+        .register => |reg| {
+            _ = try self.addInst(.{
+                .tag = op_tag,
+                .ops = (Mir.Ops{
+                    .reg1 = registerAlias(reg, abi_size),
+                }).encode(),
+                .data = undefined,
+            });
+        },
+        .stack_offset => |off| {
+            _ = try self.addInst(.{
+                .tag = op_tag,
+                .ops = (Mir.Ops{
+                    .reg2 = .rbp,
+                    .flags = switch (abi_size) {
+                        1 => 0b00,
+                        2 => 0b01,
+                        4 => 0b10,
+                        8 => 0b11,
+                        else => unreachable,
+                    },
+                }).encode(),
+                .data = .{ .imm = @bitCast(u32, -off) },
+            });
+        },
+        else => unreachable,
+    }
+
+    return switch (tag) {
+        .mod, .div_exact, .div_trunc, .div_floor => MCValue{ .register = .rax },
+        .rem => MCValue{ .register = .rdx },
+        else => unreachable,
+    };
+}
+
+fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        try self.genDivOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1348,7 +1385,7 @@ fn airRem(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        return self.fail("TODO implement rem for {}", .{self.target.cpu.arch});
+        try self.genDivOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1357,7 +1394,7 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        return self.fail("TODO implement mod for {}", .{self.target.cpu.arch});
+        try self.genDivOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 

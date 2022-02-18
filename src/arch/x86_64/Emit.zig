@@ -138,8 +138,9 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .shr => try emit.mirShift(.shr, inst),
             .sar => try emit.mirShift(.sar, inst),
 
-            .imul => try emit.mirIMulIDiv(.imul, inst),
-            .idiv => try emit.mirIMulIDiv(.idiv, inst),
+            .imul => try emit.mirMulDiv(.imul, inst),
+            .idiv => try emit.mirMulDiv(.idiv, inst),
+            .div => try emit.mirMulDiv(.div, inst),
             .imul_complex => try emit.mirIMulComplex(inst),
 
             .cwd => try emit.mirCwd(inst),
@@ -687,7 +688,7 @@ fn mirShift(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
-fn mirIMulIDiv(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirMulDiv(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     if (ops.reg1 != .none) {
         assert(ops.reg2 == .none);
@@ -1085,6 +1086,7 @@ const Tag = enum {
     nop,
     imul,
     idiv,
+    div,
     syscall,
     ret_near,
     ret_far,
@@ -1319,7 +1321,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .setnl, .setge => OpCode.twoByte(0x0f, 0x9d),
             .setle, .setng => OpCode.twoByte(0x0f, 0x9e),
             .setnle, .setg => OpCode.twoByte(0x0f, 0x9f),
-            .idiv, .imul => OpCode.oneByte(if (is_one_byte) 0xf6 else 0xf7),
+            .idiv, .div, .imul => OpCode.oneByte(if (is_one_byte) 0xf6 else 0xf7),
             else => null,
         },
         .o => return switch (tag) {
@@ -1455,6 +1457,7 @@ inline fn getModRmExt(tag: Tag) ?u3 {
         .sar => 0x7,
         .imul => 0x5,
         .idiv => 0x7,
+        .div => 0x6,
         else => null,
     };
 }
