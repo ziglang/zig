@@ -128,6 +128,7 @@ pub const EnvMap = struct {
     /// Same as `put` but the key and value become owned by the EnvMap rather
     /// than being copied.
     /// If `putMove` fails, the ownership of key and value does not transfer.
+    /// On Windows `key` must be a valid UTF-8 string.
     pub fn putMove(self: *EnvMap, key: []u8, value: []u8) !void {
         const get_or_put = try self.hash_map.getOrPut(key);
         if (get_or_put.found_existing) {
@@ -139,6 +140,7 @@ pub const EnvMap = struct {
     }
 
     /// `key` and `value` are copied into the EnvMap.
+    /// On Windows `key` must be a valid UTF-8 string.
     pub fn put(self: *EnvMap, key: []const u8, value: []const u8) !void {
         const value_copy = try self.copy(value);
         errdefer self.free(value_copy);
@@ -156,6 +158,7 @@ pub const EnvMap = struct {
 
     /// Find the address of the value associated with a key.
     /// The returned pointer is invalidated if the map resizes.
+    /// On Windows `key` must be a valid UTF-8 string.
     pub fn getPtr(self: EnvMap, key: []const u8) ?*[]const u8 {
         return self.hash_map.getPtr(key);
     }
@@ -163,12 +166,14 @@ pub const EnvMap = struct {
     /// Return the map's copy of the value associated with
     /// a key.  The returned string is invalidated if this
     /// key is removed from the map.
+    /// On Windows `key` must be a valid UTF-8 string.
     pub fn get(self: EnvMap, key: []const u8) ?[]const u8 {
         return self.hash_map.get(key);
     }
 
     /// Removes the item from the map and frees its value.
     /// This invalidates the value returned by get() for this key.
+    /// On Windows `key` must be a valid UTF-8 string.
     pub fn remove(self: *EnvMap, key: []const u8) void {
         const kv = self.hash_map.fetchRemove(key) orelse return;
         self.free(kv.key);
