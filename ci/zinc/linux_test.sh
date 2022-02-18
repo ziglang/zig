@@ -48,7 +48,7 @@ cd $WORKSPACE
 $ZIG fmt --check .
 
 # Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
-$ZIG build -p stage2 -Dstatic-llvm -Duse-zig-libcxx
+$ZIG build -p stage2 -Denable-llvm -Duse-zig-libcxx
 
 stage2/bin/zig test test/behavior.zig -I test -fLLVM
 stage2/bin/zig test test/behavior.zig -I test
@@ -91,13 +91,13 @@ $ZIG test lib/std/std.zig \
 tidy --drop-empty-elements no -qe zig-cache/langref.html
 
 # Build release zig.
-$ZIG build
-  --prefix "RELEASE_STAGING" \
+$ZIG build \
+  --prefix "$RELEASE_STAGING" \
   --search-prefix "$DEPS_LOCAL" \
-  -Dstatic-llvm \
+  -Denable-llvm \
+  -Duse-zig-libcxx \
   -Drelease \
   -Dstrip \
-  -Duse-zig-libcxx \
   -Dtarget="$TARGET" \
   -Dstage1
 

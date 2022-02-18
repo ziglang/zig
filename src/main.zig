@@ -2068,6 +2068,8 @@ fn buildOutputType(
                 continue :syslib;
             }
 
+            std.log.scoped(.cli).debug("depending on system for -l{s}", .{lib_name});
+
             i += 1;
         }
     }
