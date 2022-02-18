@@ -3971,6 +3971,10 @@ pub const Value = extern union {
     pub const @"null" = initTag(.null_value);
     pub const @"false" = initTag(.bool_false);
     pub const @"true" = initTag(.bool_true);
+
+    pub fn makeBool(x: bool) Value {
+        return if (x) Value.@"true" else Value.@"false";
+    }
 };
 
 var negative_one_payload: Value.Payload.I64 = .{

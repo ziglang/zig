@@ -9640,9 +9640,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // alignment: comptime_int,
             field_values[1] = try Value.Tag.int_u64.create(sema.arena, ty.abiAlignment(target));
             // is_generic: bool,
-            field_values[2] = if (info.is_generic) Value.@"true" else Value.@"false";
+            field_values[2] = Value.makeBool(info.is_generic);
             // is_var_args: bool,
-            field_values[3] = if (info.is_var_args) Value.@"true" else Value.@"false";
+            field_values[3] = Value.makeBool(info.is_var_args);
             // return_type: ?type,
             field_values[4] = try Value.Tag.ty.create(sema.arena, ty.fnReturnType());
             // args: []const FnArg,
@@ -9699,9 +9699,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // size: Size,
             field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.size));
             // is_const: bool,
-            field_values[1] = if (!info.mutable) Value.@"true" else Value.@"false";
+            field_values[1] = Value.makeBool(!info.mutable);
             // is_volatile: bool,
-            field_values[2] = if (info.@"volatile") Value.@"true" else Value.@"false";
+            field_values[2] = Value.makeBool(info.@"volatile");
             // alignment: comptime_int,
             field_values[3] = try Value.Tag.int_u64.create(sema.arena, alignment);
             // address_space: AddressSpace
@@ -9709,9 +9709,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // child: type,
             field_values[5] = try Value.Tag.ty.create(sema.arena, info.pointee_type);
             // is_allowzero: bool,
-            field_values[6] = if (info.@"allowzero") Value.@"true" else Value.@"false";
-            // sentinel: anytype,
-            field_values[7] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.@"null";
+            field_values[6] = Value.makeBool(info.@"allowzero");
+            // sentinel: ?*const anyopaque,
+            field_values[7] = try sema.optRefValue(block, src, info.pointee_type, info.sentinel);
 
             return sema.addConstant(
                 type_info_ty,
@@ -9728,8 +9728,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             field_values[0] = try Value.Tag.int_u64.create(sema.arena, info.len);
             // child: type,
             field_values[1] = try Value.Tag.ty.create(sema.arena, info.elem_type);
-            // sentinel: anytype,
-            field_values[2] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.@"null";
+            // sentinel: ?*const anyopaque,
+            field_values[2] = try sema.optRefValue(block, src, info.elem_type, info.sentinel);
 
             return sema.addConstant(
                 type_info_ty,
@@ -9788,7 +9788,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             var int_tag_type_buffer: Type.Payload.Bits = undefined;
             const int_tag_ty = try ty.intTagType(&int_tag_type_buffer).copy(sema.arena);
 
-            const is_exhaustive = if (ty.isNonexhaustiveEnum()) Value.@"false" else Value.@"true";
+            const is_exhaustive = Value.makeBool(!ty.isNonexhaustiveEnum());
 
             var fields_anon_decl = try block.startAnonDecl(src);
             defer fields_anon_decl.deinit();
@@ -10050,14 +10050,12 @@ fn typeInfoDecls(
             break :v try Value.Tag.decl_ref.create(decls_anon_decl.arena(), new_decl);
         };
 
-        const is_pub = if (decl.is_pub) Value.@"true" else Value.@"false";
-
         const fields = try decls_anon_decl.arena().create([2]Value);
         fields.* = .{
             //name: []const u8,
             name_val,
             //is_pub: bool,
-            is_pub,
+            Value.makeBool(decl.is_pub),
         };
         decls_val.* = try Value.Tag.@"struct".create(decls_anon_decl.arena(), fields);
     }
@@ -15658,6 +15656,24 @@ fn ensureDeclAnalyzed(sema: *Sema, decl: *Decl) CompileError!void {
         }
         return err;
     };
+}
+
+fn refValue(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type, val: Value) !Value {
+    var anon_decl = try block.startAnonDecl(src);
+    defer anon_decl.deinit();
+    const decl = try anon_decl.finish(
+        try ty.copy(anon_decl.arena()),
+        try val.copy(anon_decl.arena()),
+    );
+    try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+    return try Value.Tag.decl_ref.create(sema.arena, decl);
+}
+
+fn optRefValue(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type, opt_val: ?Value) !Value {
+    const val = opt_val orelse return Value.@"null";
+    const ptr_val = try refValue(sema, block, src, ty, val);
+    const result = try Value.Tag.opt_payload.create(sema.arena, ptr_val);
+    return result;
 }
 
 fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {

@@ -103,8 +103,6 @@ fn testUnknownLenPtr() !void {
 }
 
 test "type info: null terminated pointer type info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testNullTerminatedPtr();
     comptime try testNullTerminatedPtr();
 }
@@ -136,8 +134,6 @@ fn testSlice() !void {
 }
 
 test "type info: array type info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testArray();
     comptime try testArray();
 }
