@@ -27,13 +27,13 @@ pub fn fabs(x: anytype) @TypeOf(x) {
 
 fn fabs16(x: f16) f16 {
     var u = @bitCast(u16, x);
-    u &= 0x7FFF;
+    u &= maxInt(u16) >> 1;
     return @bitCast(f16, u);
 }
 
 fn fabs32(x: f32) f32 {
     var u = @bitCast(u32, x);
-    u &= 0x7FFFFFFF;
+    u &= maxInt(u32) >> 1;
     return @bitCast(f32, u);
 }
 
