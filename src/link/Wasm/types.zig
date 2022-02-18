@@ -93,7 +93,8 @@ pub const Segment = struct {
     /// Bitfield containing flags for a segment
     flags: u32,
 
-    pub fn outputName(self: Segment) []const u8 {
+    pub fn outputName(self: Segment, merge_segments: bool) []const u8 {
+        if (!merge_segments) return self.name;
         if (std.mem.startsWith(u8, self.name, ".rodata.")) {
             return ".rodata";
         } else if (std.mem.startsWith(u8, self.name, ".text.")) {
