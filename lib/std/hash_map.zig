@@ -629,7 +629,8 @@ pub fn HashMap(
         }
 
         /// If there is an `Entry` with a matching key, it is deleted from
-        /// the hash map, and then returned from this function.
+        /// the hash map, and this function returns true.  Otherwise this
+        /// function returns false.
         pub fn remove(self: *Self, key: K) bool {
             return self.unmanaged.removeContext(key, self.ctx);
         }
