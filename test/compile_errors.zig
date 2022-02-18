@@ -86,9 +86,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = c;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:31: error: expected type '[][]const u8', found '*const struct:2:31'",
-        "tmp.zig:6:33: error: expected type '*[2][]const u8', found '*const struct:6:33'",
+        "tmp.zig:2:31: error: cannot cast pointer to array literal to slice type '[][]const u8'",
+        "tmp.zig:2:31: note: cast discards const qualifier",
+        "tmp.zig:6:33: error: cannot cast pointer to array literal to '*[2][]const u8'",
+        "tmp.zig:6:33: note: cast discards const qualifier",
         "tmp.zig:11:21: error: expected type '*S', found '*const struct:11:21'",
+        "tmp.zig:11:21: note: cast discards const qualifier",
     });
 
     ctx.objErrStage1("@Type() union payload is undefined",
@@ -874,6 +877,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:6:5: error: declarations are not allowed between container fields",
+        "tmp.zig:5:5: note: field before declarations here",
+        "tmp.zig:9:5: note: field after declarations here",
     });
 
     ctx.objErrStage1("non-extern function with var args",
@@ -1540,7 +1545,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    std.debug.assert(bad_float < 1.0);
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:29: error: invalid token: '.'",
+        "tmp.zig:5:29: error: expected expression, found '.'",
     });
 
     ctx.objErrStage1("invalid exponent in float literal - 1",
@@ -1549,7 +1554,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:28: note: invalid byte: 'a'",
     });
 
@@ -1559,7 +1564,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:29: note: invalid byte: 'F'",
     });
 
@@ -1569,7 +1574,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:23: note: invalid byte: '_'",
     });
 
@@ -1579,7 +1584,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:23: note: invalid byte: '.'",
     });
 
@@ -1589,7 +1594,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:25: note: invalid byte: ';'",
     });
 
@@ -1599,7 +1604,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:25: note: invalid byte: '_'",
     });
 
@@ -1609,7 +1614,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:26: note: invalid byte: '_'",
     });
 
@@ -1619,7 +1624,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:26: note: invalid byte: '_'",
     });
 
@@ -1629,7 +1634,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:28: note: invalid byte: ';'",
     });
 
@@ -1639,7 +1644,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:23: note: invalid byte: '_'",
     });
 
@@ -1649,7 +1654,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:25: note: invalid byte: '_'",
     });
 
@@ -1659,7 +1664,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:28: note: invalid byte: '_'",
     });
 
@@ -1669,7 +1674,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:23: note: invalid byte: 'x'",
     });
 
@@ -1679,7 +1684,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:23: note: invalid byte: '_'",
     });
 
@@ -1689,7 +1694,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:27: note: invalid byte: 'p'",
     });
 
@@ -1699,7 +1704,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:26: note: invalid byte: ';'",
     });
 
@@ -1709,7 +1714,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:28: note: invalid byte: ';'",
     });
 
@@ -1719,7 +1724,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:28: note: invalid byte: ';'",
     });
 
@@ -1729,7 +1734,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected expression, found 'invalid'",
+        "tmp.zig:2:21: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:28: note: invalid byte: ';'",
     });
 
@@ -1962,7 +1967,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = geo_data;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:30: error: array literal requires address-of operator to coerce to slice type '[][2]f32'",
+        "tmp.zig:4:30: error: array literal requires address-of operator (&) to coerce to slice type '[][2]f32'",
     });
 
     ctx.objErrStage1("slicing of global undefined pointer",
@@ -2171,7 +2176,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:6: error: expected ',' after field",
+        "tmp.zig:3:7: error: expected ',' after field",
     });
 
     ctx.objErrStage1("bad alignment type",
@@ -2537,7 +2542,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: array literal requires address-of operator to coerce to slice type '[]u8'",
+        "tmp.zig:2:15: error: array literal requires address-of operator (&) to coerce to slice type '[]u8'",
     });
 
     ctx.objErrStage1("slice passed as array init type",
@@ -2546,7 +2551,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: array literal requires address-of operator to coerce to slice type '[]u8'",
+        "tmp.zig:2:15: error: array literal requires address-of operator (&) to coerce to slice type '[]u8'",
     });
 
     ctx.objErrStage1("inferred array size invalid here",
@@ -3493,7 +3498,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = sliceA;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:27: error: expected type '[]u8', found '*const [1]u8'",
+        "tmp.zig:3:27: error: cannot cast pointer to array literal to slice type '[]u8'",
+        "tmp.zig:3:27: note: cast discards const qualifier",
     });
 
     ctx.objErrStage1("deref slice and get len field",
@@ -4865,11 +4871,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() void {
         \\    while(true) {}
         \\    var good = {};
-        \\    while(true) ({})
+        \\    while(true) 1
         \\    var bad = {};
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:21: error: expected ';' or 'else' after statement",
+        "tmp.zig:4:18: error: expected ';' or 'else' after statement",
     });
 
     ctx.objErrStage1("implicit semicolon - while expression",
@@ -5733,7 +5739,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\const foo = "a
         \\b";
     , &[_][]const u8{
-        "tmp.zig:1:13: error: expected expression, found 'invalid'",
+        "tmp.zig:1:13: error: expected expression, found 'invalid bytes'",
         "tmp.zig:1:15: note: invalid byte: '\\n'",
     });
 
@@ -7638,7 +7644,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    const a = '\U1234';
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: expected expression, found 'invalid'",
+        "tmp.zig:2:15: error: expected expression, found 'invalid bytes'",
         "tmp.zig:2:18: note: invalid byte: '1'",
     });
 
@@ -7654,7 +7660,7 @@ pub fn addCases(ctx: *TestContext) !void {
         "fn foo() bool {\r\n" ++
         "    return true;\r\n" ++
         "}\r\n", &[_][]const u8{
-        "tmp.zig:1:1: error: expected test, comptime, var decl, or container field, found 'invalid'",
+        "tmp.zig:1:1: error: expected test, comptime, var decl, or container field, found 'invalid bytes'",
         "tmp.zig:1:1: note: invalid byte: '\\xff'",
     });
 
@@ -8717,7 +8723,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    comptime ignore(@typeInfo(MyStruct).Struct.fields[0]);
         \\}
     , &[_][]const u8{
-        ":5:28: error: expected type '[]u8', found '*const [3:0]u8'",
+        ":5:28: error: cannot cast pointer to array literal to slice type '[]u8'",
+        ":5:28: note: cast discards const qualifier",
     });
 
     ctx.objErrStage1("integer underflow error",
