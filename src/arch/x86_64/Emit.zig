@@ -691,11 +691,26 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         0b00 => {
             return lowerToRmEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
         },
+        0b01 => {
+            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            const src_reg: ?Register = if (ops.reg2 == .none) null else ops.reg2;
+            return lowerToRmEnc(.imul, ops.reg1, RegisterOrMemory.mem(.qword_ptr, .{
+                .disp = imm,
+                .base = src_reg,
+            }), emit.code);
+        },
         0b10 => {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
             return lowerToRmiEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), imm, emit.code);
         },
-        else => return emit.fail("TODO implement imul", .{}),
+        0b11 => {
+            const payload = emit.mir.instructions.items(.data)[inst].payload;
+            const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+            return lowerToRmiEnc(.imul, ops.reg1, RegisterOrMemory.mem(.qword_ptr, .{
+                .disp = imm_pair.dest_off,
+                .base = ops.reg2,
+            }), imm_pair.operand, emit.code);
+        },
     }
 }
 
