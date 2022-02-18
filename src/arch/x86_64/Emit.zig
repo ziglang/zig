@@ -142,6 +142,8 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .idiv => try emit.mirIMulIDiv(.idiv, inst),
             .imul_complex => try emit.mirIMulComplex(inst),
 
+            .cwd => try emit.mirCwd(inst),
+
             .push => try emit.mirPushPop(.push, inst),
             .pop => try emit.mirPushPop(.pop, inst),
 
@@ -737,6 +739,17 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
+fn mirCwd(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const tag: Tag = switch (ops.flags) {
+        0b00 => .cbw,
+        0b01 => .cwd,
+        0b10 => .cdq,
+        0b11 => .cqo,
+    };
+    return lowerToZoEnc(tag, emit.code);
+}
+
 fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .lea);
@@ -1139,6 +1152,10 @@ const Tag = enum {
     sal,
     shr,
     sar,
+    cbw,
+    cwd,
+    cdq,
+    cqo,
 
     fn isSetCC(tag: Tag) bool {
         return switch (tag) {
@@ -1258,6 +1275,8 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .brk => OpCode.oneByte(0xcc),
             .nop => OpCode.oneByte(0x90),
             .syscall => OpCode.twoByte(0x0f, 0x05),
+            .cbw => OpCode.oneByte(0x98),
+            .cwd, .cdq, .cqo => OpCode.oneByte(0x99),
             else => null,
         },
         .d => return switch (tag) {
@@ -1592,7 +1611,15 @@ const RegisterOrMemory = union(enum) {
 
 fn lowerToZoEnc(tag: Tag, code: *std.ArrayList(u8)) InnerError!void {
     const opc = getOpCode(tag, .zo, false).?;
-    const encoder = try Encoder.init(code, 1);
+    const encoder = try Encoder.init(code, 2);
+    switch (tag) {
+        .cqo => {
+            encoder.rex(.{
+                .w = true,
+            });
+        },
+        else => {},
+    }
     opc.encode(encoder);
 }
 

@@ -228,6 +228,13 @@ pub const Inst = struct {
         imul,
         idiv,
 
+        /// ops flags: form:
+        ///      0b00  AX      <- AL
+        ///      0b01  DX:AX   <- AX
+        ///      0b10  EDX:EAX <- EAX
+        ///      0b11  RDX:RAX <- RAX
+        cwd,
+
         /// ops flags:  form:
         ///      0b00  reg1, reg2
         ///      0b01  reg1, [reg2 + imm32]
