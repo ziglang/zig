@@ -466,13 +466,6 @@ test {
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
-        if (decl.is_pub) {
-            const decl_value = @field(T, decl.name);
-            const type_of_decl = @TypeOf(decl_value);
-            if (type_of_decl == type and @typeInfo(type_of_decl) == .Struct) {
-                _ = @hasDecl(decl_value, "foo");
-            }
-        }
-        _ = decl;
+        if (decl.is_pub) _ = @field(T, decl.name);
     }
 }
