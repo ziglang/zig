@@ -253,7 +253,7 @@ pub fn build(b: *Builder) !void {
             zig0.defineCMacro("ZIG_VERSION_PATCH", b.fmt("{d}", .{zig_version.patch}));
             zig0.defineCMacro("ZIG_VERSION_STRING", b.fmt("\"{s}\"", .{version}));
 
-            for ([_]*std.build.LibExeObjStep{ zig0, exe }) |artifact| {
+            for ([_]*std.build.LibExeObjStep{ zig0, exe, test_stage2 }) |artifact| {
                 artifact.addIncludePath("src");
                 artifact.addIncludePath("deps/SoftFloat-3e/source/include");
                 artifact.addIncludePath("deps/SoftFloat-3e-prebuilt");
@@ -328,9 +328,11 @@ pub fn build(b: *Builder) !void {
             }
 
             try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
+            try addCmakeCfgOptionsToExe(b, cfg, test_stage2, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
             try addStaticLlvmOptionsToExe(exe);
+            try addStaticLlvmOptionsToExe(test_stage2);
         }
     }
 
