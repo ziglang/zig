@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const mem = std.mem;
 
@@ -12,6 +13,10 @@ fn initStaticArray() [10]i32 {
 }
 const static_array = initStaticArray();
 test "init static array to undefined" {
+    // This test causes `initStaticArray()` to be codegen'd, and the
+    // C backend does not yet support returning arrays, so it fails
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     try expect(static_array[0] == 1);
     try expect(static_array[4] == 2);
     try expect(static_array[7] == 3);
