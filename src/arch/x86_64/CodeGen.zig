@@ -3112,6 +3112,15 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     );
                 }
             },
+            .stack_offset => {
+                // TODO what a waste...
+                const ret_ty = fn_ty.fnReturnType();
+                const ret_abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                const ret_abi_align = @intCast(u32, ret_ty.abiAlignment(self.target.*));
+                const stack_offset = @intCast(i32, try self.allocMem(inst, ret_abi_size, ret_abi_align));
+                try self.genInlineMemcpyTODO(stack_offset, .rbp, ret_ty, info.return_value);
+                break :result MCValue{ .stack_offset = stack_offset };
+            },
             else => {},
         }
         break :result info.return_value;
@@ -3133,7 +3142,17 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
 
 fn ret(self: *Self, mcv: MCValue) !void {
     const ret_ty = self.fn_type.fnReturnType();
-    try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
+    const ret_mcv = blk: {
+        switch (self.ret_mcv) {
+            .stack_offset => |off| {
+                // Adjust the stack offset
+                const offset = @intCast(i32, self.max_end_stack) - off + 16;
+                break :blk MCValue{ .stack_offset = -offset };
+            },
+            else => break :blk self.ret_mcv,
+        }
+    };
+    try self.setRegOrMem(ret_ty, ret_mcv, mcv);
     // TODO when implementing defer, this will need to jump to the appropriate defer expression.
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
@@ -4131,6 +4150,155 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
     }
 }
 
+fn genInlineMemcpyTODO(self: *Self, stack_offset: i32, stack_reg: Register, ty: Type, val: MCValue) InnerError!void {
+    const abi_size = ty.abiSize(self.target.*);
+
+    try self.register_manager.getReg(.rax, null);
+    try self.register_manager.getReg(.rcx, null);
+
+    self.register_manager.freezeRegs(&.{ .rax, .rcx, .rbp });
+    defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx, .rbp });
+
+    const addr_reg: Register = blk: {
+        switch (val) {
+            .memory,
+            .direct_load,
+            .got_load,
+            => {
+                break :blk try self.loadMemPtrIntoRegister(Type.usize, val);
+            },
+            .stack_offset => |off| {
+                const addr_reg = (try self.register_manager.allocReg(null)).to64();
+                _ = try self.addInst(.{
+                    .tag = .lea,
+                    .ops = (Mir.Ops{
+                        .reg1 = addr_reg,
+                        .reg2 = .rsp,
+                    }).encode(),
+                    .data = .{ .imm = @bitCast(u32, -off) },
+                });
+                break :blk addr_reg;
+            },
+            .register => |reg| {
+                const addr_reg = try self.register_manager.allocReg(null);
+                _ = try self.addInst(.{
+                    .tag = .mov,
+                    .ops = (Mir.Ops{
+                        .reg1 = registerAlias(addr_reg, @divExact(reg.size(), 8)),
+                        .reg2 = reg,
+                    }).encode(),
+                    .data = undefined,
+                });
+                break :blk addr_reg.to64();
+            },
+            else => {
+                return self.fail("TODO implement memcpy for setting stack from {}", .{val});
+            },
+        }
+    };
+
+    self.register_manager.freezeRegs(&.{addr_reg});
+    defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+    const regs = try self.register_manager.allocRegs(2, .{ null, null });
+    const count_reg = regs[0].to64();
+    const tmp_reg = regs[1].to8();
+
+    try self.genSetReg(Type.u32, count_reg, .{ .immediate = @intCast(u32, abi_size) });
+
+    // mov rcx, 0
+    _ = try self.addInst(.{
+        .tag = .mov,
+        .ops = (Mir.Ops{
+            .reg1 = .rcx,
+        }).encode(),
+        .data = .{ .imm = 0 },
+    });
+
+    // mov rax, 0
+    _ = try self.addInst(.{
+        .tag = .mov,
+        .ops = (Mir.Ops{
+            .reg1 = .rax,
+        }).encode(),
+        .data = .{ .imm = 0 },
+    });
+
+    // loop:
+    // cmp count, 0
+    const loop_start = try self.addInst(.{
+        .tag = .cmp,
+        .ops = (Mir.Ops{
+            .reg1 = count_reg,
+        }).encode(),
+        .data = .{ .imm = 0 },
+    });
+
+    // je end
+    const loop_reloc = try self.addInst(.{
+        .tag = .cond_jmp_eq_ne,
+        .ops = (Mir.Ops{ .flags = 0b01 }).encode(),
+        .data = .{ .inst = undefined },
+    });
+
+    // mov tmp, [addr + rcx]
+    _ = try self.addInst(.{
+        .tag = .mov_scale_src,
+        .ops = (Mir.Ops{
+            .reg1 = tmp_reg.to8(),
+            .reg2 = addr_reg,
+        }).encode(),
+        .data = .{ .imm = 0 },
+    });
+
+    // mov [stack_offset + rax], tmp
+    _ = try self.addInst(.{
+        .tag = .mov_scale_dst,
+        .ops = (Mir.Ops{
+            .reg1 = stack_reg,
+            .reg2 = tmp_reg.to8(),
+        }).encode(),
+        .data = .{ .imm = @bitCast(u32, -stack_offset) },
+    });
+
+    // add rcx, 1
+    _ = try self.addInst(.{
+        .tag = .add,
+        .ops = (Mir.Ops{
+            .reg1 = .rcx,
+        }).encode(),
+        .data = .{ .imm = 1 },
+    });
+
+    // add rax, 1
+    _ = try self.addInst(.{
+        .tag = .add,
+        .ops = (Mir.Ops{
+            .reg1 = .rax,
+        }).encode(),
+        .data = .{ .imm = 1 },
+    });
+
+    // sub count, 1
+    _ = try self.addInst(.{
+        .tag = .sub,
+        .ops = (Mir.Ops{
+            .reg1 = count_reg,
+        }).encode(),
+        .data = .{ .imm = 1 },
+    });
+
+    // jmp loop
+    _ = try self.addInst(.{
+        .tag = .jmp,
+        .ops = (Mir.Ops{ .flags = 0b00 }).encode(),
+        .data = .{ .inst = loop_start },
+    });
+
+    // end:
+    try self.performReloc(loop_reloc);
+}
+
 fn genInlineMemcpy(self: *Self, stack_offset: i32, stack_reg: Register, ty: Type, val: MCValue) InnerError!void {
     const abi_size = ty.abiSize(self.target.*);
 
@@ -5061,26 +5229,6 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
     const ret_ty = fn_ty.fnReturnType();
 
-    // Return values
-    if (ret_ty.zigTypeTag() == .NoReturn) {
-        result.return_value = .{ .unreach = {} };
-    } else if (!ret_ty.hasRuntimeBits()) {
-        result.return_value = .{ .none = {} };
-    } else switch (cc) {
-        .Naked => unreachable,
-        .Unspecified, .C => {
-            const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
-            if (ret_ty_size <= 8) {
-                const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
-                result.return_value = .{ .register = aliased_reg };
-            } else {
-                return self.fail("TODO support more return types for x86_64 backend", .{});
-            }
-        },
-        else => return self.fail("TODO implement function return values for {}", .{cc}),
-    }
-
-    // Input params
     switch (cc) {
         .Naked => {
             assert(result.args.len == 0);
@@ -5090,9 +5238,31 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             return result;
         },
         .Unspecified, .C => {
+            // Return values
+            if (ret_ty.zigTypeTag() == .NoReturn) {
+                result.return_value = .{ .unreach = {} };
+            } else if (!ret_ty.hasRuntimeBits()) {
+                result.return_value = .{ .none = {} };
+            } else {
+                const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                if (ret_ty_size <= 8) {
+                    const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
+                    result.return_value = .{ .register = aliased_reg };
+                } else {
+                    // TODO save the stack location in `.rdi` for C ABI compatible extern calls.
+                    const ret_ty_align = @intCast(u32, ret_ty.abiAlignment(self.target.*));
+                    const offset = mem.alignForwardGeneric(u32, ret_ty_size, ret_ty_align);
+                    result.return_value = .{ .stack_offset = @intCast(i32, offset) };
+                }
+            }
+
+            // Input params
             // First, split into args that can be passed via registers.
             // This will make it easier to then push the rest of args in reverse
             // order on the stack.
+            // TODO if we want to be C ABI compatible (well, SysV compatible), passing return value
+            // on the stack requires consuming `.rdi` set with the stack location where to save
+            // the return value.
             var next_int_reg: usize = 0;
             var by_reg = std.AutoHashMap(usize, usize).init(self.bin_file.allocator);
             defer by_reg.deinit();
@@ -5133,7 +5303,10 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 }
             }
 
-            var next_stack_offset: u32 = 0;
+            var next_stack_offset: u32 = switch (result.return_value) {
+                .stack_offset => |off| @intCast(u32, off),
+                else => 0,
+            };
             var count: usize = param_types.len;
             while (count > 0) : (count -= 1) {
                 const i = count - 1;
@@ -5163,7 +5336,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             // alignment padding | args ... | ret addr | $rbp |
             result.stack_byte_count = mem.alignForwardGeneric(u32, next_stack_offset, result.stack_align);
         },
-        else => return self.fail("TODO implement function parameters for {} on x86_64", .{cc}),
+        else => return self.fail("TODO implement function parameters and return values for {} on x86_64", .{cc}),
     }
 
     return result;
