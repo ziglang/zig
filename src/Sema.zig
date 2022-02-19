@@ -1124,7 +1124,7 @@ fn zirExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .frame_address      => return sema.zirFrameAddress(      block, extended),
         .alloc              => return sema.zirAllocExtended(     block, extended),
         .builtin_extern     => return sema.zirBuiltinExtern(     block, extended),
-        .@"asm"             => return sema.zirAsm(               block, extended, inst),
+        .@"asm"             => return sema.zirAsm(               block, extended),
         .typeof_peer        => return sema.zirTypeofPeer(        block, extended),
         .compile_log        => return sema.zirCompileLog(        block, extended),
         .add_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
@@ -9083,7 +9083,6 @@ fn zirAsm(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
-    inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -9094,6 +9093,7 @@ fn zirAsm(
     const outputs_len = @truncate(u5, extended.small);
     const inputs_len = @truncate(u5, extended.small >> 5);
     const clobbers_len = @truncate(u5, extended.small >> 10);
+    const is_volatile = @truncate(u1, extended.small >> 15) != 0;
 
     if (extra.data.asm_source == 0) {
         // This can move to become an AstGen error after inline assembly improvements land
@@ -9107,6 +9107,7 @@ fn zirAsm(
 
     var extra_i = extra.end;
     var output_type_bits = extra.data.output_type_bits;
+    var needed_capacity: usize = @typeInfo(Air.Asm).Struct.fields.len + outputs_len + inputs_len;
 
     const Output = struct { constraint: []const u8, ty: Type };
     const output: ?Output = if (outputs_len == 0) null else blk: {
@@ -9121,6 +9122,8 @@ fn zirAsm(
         }
 
         const constraint = sema.code.nullTerminatedString(output.data.constraint);
+        needed_capacity += constraint.len / 4 + 1;
+
         break :blk Output{
             .constraint = constraint,
             .ty = try sema.resolveType(block, ret_ty_src, output.data.operand),
@@ -9138,28 +9141,65 @@ fn zirAsm(
         _ = name; // TODO: use the name
 
         arg.* = sema.resolveInst(input.data.operand);
-        inputs[arg_i] = sema.code.nullTerminatedString(input.data.constraint);
+        const constraint = sema.code.nullTerminatedString(input.data.constraint);
+        needed_capacity += constraint.len / 4 + 1;
+        inputs[arg_i] = constraint;
     }
 
     const clobbers = try sema.arena.alloc([]const u8, clobbers_len);
     for (clobbers) |*name| {
         name.* = sema.code.nullTerminatedString(sema.code.extra[extra_i]);
         extra_i += 1;
+
+        needed_capacity += name.*.len / 4 + 1;
     }
 
-    try sema.requireRuntimeBlock(block, src);
+    const asm_source = sema.code.nullTerminatedString(extra.data.asm_source);
+    needed_capacity += (asm_source.len + 3) / 4;
+
     const gpa = sema.gpa;
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Asm).Struct.fields.len + args.len);
+    try sema.requireRuntimeBlock(block, src);
+    try sema.air_extra.ensureUnusedCapacity(gpa, needed_capacity);
     const asm_air = try block.addInst(.{
         .tag = .assembly,
         .data = .{ .ty_pl = .{
             .ty = if (output) |o| try sema.addType(o.ty) else Air.Inst.Ref.void_type,
             .payload = sema.addExtraAssumeCapacity(Air.Asm{
-                .zir_index = inst,
+                .source_len = @intCast(u32, asm_source.len),
+                .outputs_len = outputs_len,
+                .inputs_len = @intCast(u32, args.len),
+                .flags = (@as(u32, @boolToInt(is_volatile)) << 31) | @intCast(u32, clobbers.len),
             }),
         } },
     });
+    if (output != null) {
+        // Indicate the output is the asm instruction return value.
+        sema.air_extra.appendAssumeCapacity(@enumToInt(Air.Inst.Ref.none));
+    }
     sema.appendRefsAssumeCapacity(args);
+    if (output) |o| {
+        const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
+        mem.copy(u8, buffer, o.constraint);
+        buffer[o.constraint.len] = 0;
+        sema.air_extra.items.len += o.constraint.len / 4 + 1;
+    }
+    for (inputs) |constraint| {
+        const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
+        mem.copy(u8, buffer, constraint);
+        buffer[constraint.len] = 0;
+        sema.air_extra.items.len += constraint.len / 4 + 1;
+    }
+    for (clobbers) |clobber| {
+        const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
+        mem.copy(u8, buffer, clobber);
+        buffer[clobber.len] = 0;
+        sema.air_extra.items.len += clobber.len / 4 + 1;
+    }
+    {
+        const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
+        mem.copy(u8, buffer, asm_source);
+        sema.air_extra.items.len += (asm_source.len + 3) / 4;
+    }
     return asm_air;
 }
 

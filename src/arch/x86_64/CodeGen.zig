@@ -26,7 +26,6 @@ const Target = std.Target;
 const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
 const Value = @import("../../value.zig").Value;
-const Zir = @import("../../Zir.zig");
 
 const InnerError = error{
     OutOfMemory,
@@ -3415,41 +3414,39 @@ fn brVoid(self: *Self, block: Air.Inst.Index) !void {
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
-    const air_datas = self.air.instructions.items(.data);
-    const air_extra = self.air.extraData(Air.Asm, air_datas[inst].ty_pl.payload);
-    const zir = self.mod_fn.owner_decl.getFileScope().zir;
-    const extended = zir.instructions.items(.data)[air_extra.data.zir_index].extended;
-    const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
-    const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);
-    const outputs_len = @truncate(u5, extended.small);
-    const args_len = @truncate(u5, extended.small >> 5);
-    const clobbers_len = @truncate(u5, extended.small >> 10);
-    _ = clobbers_len; // TODO honor these
-    const is_volatile = @truncate(u1, extended.small >> 15) != 0;
-    const args = @bitCast([]const Air.Inst.Ref, self.air.extra[air_extra.end..][0..args_len]);
-
-    if (outputs_len > 1) {
-        return self.fail("TODO implement codegen for asm with more than 1 output", .{});
-    }
-    var extra_i: usize = zir_extra.end;
-    const output_constraint: ?[]const u8 = out: {
-        var i: usize = 0;
-        while (i < outputs_len) : (i += 1) {
-            const output = zir.extraData(Zir.Inst.Asm.Output, extra_i);
-            extra_i = output.end;
-            break :out zir.nullTerminatedString(output.data.constraint);
-        }
-        break :out null;
-    };
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Asm, ty_pl.payload);
+    const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
+    const clobbers_len = @truncate(u31, extra.data.flags);
+    var extra_i: usize = extra.end;
+    const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
+    extra_i += outputs.len;
+    const inputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
+    extra_i += inputs.len;
 
     const dead = !is_volatile and self.liveness.isUnused(inst);
-    const result: MCValue = if (dead)
-        .dead
-    else result: {
-        for (args) |arg| {
-            const input = zir.extraData(Zir.Inst.Asm.Input, extra_i);
-            extra_i = input.end;
-            const constraint = zir.nullTerminatedString(input.data.constraint);
+    const result: MCValue = if (dead) .dead else result: {
+        if (outputs.len > 1) {
+            return self.fail("TODO implement codegen for asm with more than 1 output", .{});
+        }
+
+        const output_constraint: ?[]const u8 = for (outputs) |output| {
+            if (output != .none) {
+                return self.fail("TODO implement codegen for non-expr asm", .{});
+            }
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += constraint.len / 4 + 1;
+
+            break constraint;
+        } else null;
+
+        for (inputs) |input| {
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += constraint.len / 4 + 1;
 
             if (constraint.len < 3 or constraint[0] != '{' or constraint[constraint.len - 1] != '}') {
                 return self.fail("unrecognized asm input constraint: '{s}'", .{constraint});
@@ -3458,10 +3455,24 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             const reg = parseRegName(reg_name) orelse
                 return self.fail("unrecognized register: '{s}'", .{reg_name});
 
-            const arg_mcv = try self.resolveInst(arg);
+            const arg_mcv = try self.resolveInst(input);
             try self.register_manager.getReg(reg, null);
-            try self.genSetReg(self.air.typeOf(arg), reg, arg_mcv);
+            try self.genSetReg(self.air.typeOf(input), reg, arg_mcv);
         }
+
+        {
+            var clobber_i: u32 = 0;
+            while (clobber_i < clobbers_len) : (clobber_i += 1) {
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                // This equation accounts for the fact that even if we have exactly 4 bytes
+                // for the string, we still use the next u32 for the null terminator.
+                extra_i += clobber.len / 4 + 1;
+
+                // TODO honor these
+            }
+        }
+
+        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
 
         {
             var iter = std.mem.tokenize(u8, asm_source, "\n\r");
@@ -3529,14 +3540,29 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             break :result MCValue{ .none = {} };
         }
     };
-    if (args.len <= Liveness.bpi - 1) {
+
+    simple: {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
-        std.mem.copy(Air.Inst.Ref, &buf, args);
+        var buf_index: usize = 0;
+        for (outputs) |output| {
+            if (output == .none) continue;
+
+            if (buf_index >= buf.len) break :simple;
+            buf[buf_index] = output;
+            buf_index += 1;
+        }
+        if (buf_index + inputs.len > buf.len) break :simple;
+        std.mem.copy(Air.Inst.Ref, buf[buf_index..], inputs);
         return self.finishAir(inst, result, buf);
     }
-    var bt = try self.iterateBigTomb(inst, args.len);
-    for (args) |arg| {
-        bt.feed(arg);
+    var bt = try self.iterateBigTomb(inst, outputs.len + inputs.len);
+    for (outputs) |output| {
+        if (output == .none) continue;
+
+        bt.feed(output);
+    }
+    for (inputs) |input| {
+        bt.feed(input);
     }
     return bt.finishAir(result);
 }
@@ -3615,7 +3641,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                     const reg = try self.copyToTmpRegister(ty, mcv);
                     return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
                 },
-                else => return self.fail("TODO implement args on stack for {} with abi size > 8", .{mcv}),
+                else => return self.fail("TODO implement inputs on stack for {} with abi size > 8", .{mcv}),
             }
         },
         .embedded_in_code => {
@@ -3623,7 +3649,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
-            return self.fail("TODO implement args on stack for {} with abi size > 8", .{mcv});
+            return self.fail("TODO implement inputs on stack for {} with abi size > 8", .{mcv});
         },
         .memory,
         .direct_load,

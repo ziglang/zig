@@ -697,11 +697,25 @@ pub const Bin = struct {
 /// Trailing:
 /// 0. `Inst.Ref` for every outputs_len
 /// 1. `Inst.Ref` for every inputs_len
+/// 2. for every outputs_len
+///    - constraint: memory at this position is reinterpreted as a null
+///      terminated string. pad to the next u32 after the null byte.
+/// 3. for every inputs_len
+///    - constraint: memory at this position is reinterpreted as a null
+///      terminated string. pad to the next u32 after the null byte.
+/// 4. for every clobbers_len
+///    - clobber_name: memory at this position is reinterpreted as a null
+///      terminated string. pad to the next u32 after the null byte.
+/// 5. A number of u32 elements follow according to the equation `(source_len + 3) / 4`.
+///    Memory starting at this position is reinterpreted as the source bytes.
 pub const Asm = struct {
-    /// Index to the corresponding ZIR instruction.
-    /// `asm_source`, `outputs_len`, `inputs_len`, `clobbers_len`, `is_volatile`, and
-    /// clobbers are found via here.
-    zir_index: u32,
+    /// Length of the assembly source in bytes.
+    source_len: u32,
+    outputs_len: u32,
+    inputs_len: u32,
+    /// The MSB is `is_volatile`.
+    /// The rest of the bits are `clobbers_len`.
+    flags: u32,
 };
 
 pub const Cmpxchg = struct {

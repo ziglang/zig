@@ -2,24 +2,21 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Compilation = @import("../Compilation.zig");
-const llvm = @import("llvm/bindings.zig");
-const link = @import("../link.zig");
 const log = std.log.scoped(.codegen);
 const math = std.math;
 const native_endian = builtin.cpu.arch.endian();
 
+const llvm = @import("llvm/bindings.zig");
+const link = @import("../link.zig");
+const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
 const Module = @import("../Module.zig");
 const TypedValue = @import("../TypedValue.zig");
-const Zir = @import("../Zir.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const target_util = @import("../target.zig");
-
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
-
 const LazySrcLoc = Module.LazySrcLoc;
 
 const Error = error{ OutOfMemory, CodegenFail };
@@ -2893,33 +2890,21 @@ pub const FuncGen = struct {
         // as stage1.
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-        const air_asm = self.air.extraData(Air.Asm, ty_pl.payload);
-        const zir = self.dg.decl.getFileScope().zir;
-        const extended = zir.instructions.items(.data)[air_asm.data.zir_index].extended;
-        const is_volatile = @truncate(u1, extended.small >> 15) != 0;
-        if (!is_volatile and self.liveness.isUnused(inst)) {
-            return null;
-        }
-        const outputs_len = @truncate(u5, extended.small);
-        if (outputs_len > 1) {
+        const extra = self.air.extraData(Air.Asm, ty_pl.payload);
+        const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
+        const clobbers_len = @truncate(u31, extra.data.flags);
+        var extra_i: usize = extra.end;
+
+        if (!is_volatile and self.liveness.isUnused(inst)) return null;
+
+        const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
+        extra_i += outputs.len;
+        const inputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
+        extra_i += inputs.len;
+
+        if (outputs.len > 1) {
             return self.todo("implement llvm codegen for asm with more than 1 output", .{});
         }
-        const args_len = @truncate(u5, extended.small >> 5);
-        const clobbers_len = @truncate(u5, extended.small >> 10);
-        const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
-        const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);
-        const args = @bitCast([]const Air.Inst.Ref, self.air.extra[air_asm.end..][0..args_len]);
-
-        var extra_i: usize = zir_extra.end;
-        const output_constraint: ?[]const u8 = out: {
-            var i: usize = 0;
-            while (i < outputs_len) : (i += 1) {
-                const output = zir.extraData(Zir.Inst.Asm.Output, extra_i);
-                extra_i = output.end;
-                break :out zir.nullTerminatedString(output.data.constraint);
-            }
-            break :out null;
-        };
 
         var llvm_constraints: std.ArrayListUnmanaged(u8) = .{};
         defer llvm_constraints.deinit(self.gpa);
@@ -2928,14 +2913,21 @@ pub const FuncGen = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const llvm_params_len = args.len;
+        const llvm_params_len = inputs.len;
         const llvm_param_types = try arena.alloc(*const llvm.Type, llvm_params_len);
         const llvm_param_values = try arena.alloc(*const llvm.Value, llvm_params_len);
-
         var llvm_param_i: usize = 0;
         var total_i: usize = 0;
 
-        if (output_constraint) |constraint| {
+        for (outputs) |output| {
+            if (output != .none) {
+                return self.todo("implement inline asm with non-returned output", .{});
+            }
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += constraint.len / 4 + 1;
+
             try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 1);
             if (total_i != 0) {
                 llvm_constraints.appendAssumeCapacity(',');
@@ -2946,11 +2938,13 @@ pub const FuncGen = struct {
             total_i += 1;
         }
 
-        for (args) |arg| {
-            const input = zir.extraData(Zir.Inst.Asm.Input, extra_i);
-            extra_i = input.end;
-            const constraint = zir.nullTerminatedString(input.data.constraint);
-            const arg_llvm_value = try self.resolveInst(arg);
+        for (inputs) |input| {
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += constraint.len / 4 + 1;
+
+            const arg_llvm_value = try self.resolveInst(input);
 
             llvm_param_values[llvm_param_i] = arg_llvm_value;
             llvm_param_types[llvm_param_i] = arg_llvm_value.typeOf();
@@ -2965,19 +2959,26 @@ pub const FuncGen = struct {
             total_i += 1;
         }
 
-        const clobbers = zir.extra[extra_i..][0..clobbers_len];
-        for (clobbers) |clobber_index| {
-            const clobber = zir.nullTerminatedString(clobber_index);
-            try llvm_constraints.ensureUnusedCapacity(self.gpa, clobber.len + 4);
-            if (total_i != 0) {
-                llvm_constraints.appendAssumeCapacity(',');
-            }
-            llvm_constraints.appendSliceAssumeCapacity("~{");
-            llvm_constraints.appendSliceAssumeCapacity(clobber);
-            llvm_constraints.appendSliceAssumeCapacity("}");
+        {
+            var clobber_i: u32 = 0;
+            while (clobber_i < clobbers_len) : (clobber_i += 1) {
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                // This equation accounts for the fact that even if we have exactly 4 bytes
+                // for the string, we still use the next u32 for the null terminator.
+                extra_i += clobber.len / 4 + 1;
 
-            total_i += 1;
+                try llvm_constraints.ensureUnusedCapacity(self.gpa, clobber.len + 4);
+                if (total_i != 0) {
+                    llvm_constraints.appendAssumeCapacity(',');
+                }
+                llvm_constraints.appendSliceAssumeCapacity("~{");
+                llvm_constraints.appendSliceAssumeCapacity(clobber);
+                llvm_constraints.appendSliceAssumeCapacity("}");
+
+                total_i += 1;
+            }
         }
+        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
 
         const ret_ty = self.air.typeOfIndex(inst);
         const ret_llvm_ty = try self.dg.llvmType(ret_ty);
