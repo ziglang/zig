@@ -3165,8 +3165,9 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
-        const err_union_ty = self.air.typeOf(ty_op.operand);
-        const payload_ty = err_union_ty.errorUnionPayload();
+        const result_ty = self.air.getRefType(ty_op.ty);
+        const payload_ty = if (operand_is_ptr) result_ty.childType() else result_ty;
+
         if (!payload_ty.hasRuntimeBits()) return null;
         if (operand_is_ptr or isByRef(payload_ty)) {
             return self.builder.buildStructGEP(operand, 1, "");
@@ -3185,14 +3186,15 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.air.typeOf(ty_op.operand);
+        const err_set_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
 
-        const payload_ty = operand_ty.errorUnionPayload();
+        const payload_ty = err_set_ty.errorUnionPayload();
         if (!payload_ty.hasRuntimeBits()) {
             if (!operand_is_ptr) return operand;
             return self.builder.buildLoad(operand, "");
         }
 
-        if (operand_is_ptr or isByRef(payload_ty)) {
+        if (operand_is_ptr or isByRef(err_set_ty)) {
             const err_field_ptr = self.builder.buildStructGEP(operand, 0, "");
             return self.builder.buildLoad(err_field_ptr, "");
         }
