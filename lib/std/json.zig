@@ -1871,19 +1871,33 @@ fn parseInternal(
                                 const v = try parseInternal(ptrInfo.child, tok, tokens, options);
                                 arraylist.appendAssumeCapacity(v);
                             }
+
+                            if (ptrInfo.sentinel) |some| {
+                                const char = @ptrCast(*const u8, some).*;
+                                try arraylist.append(char);
+                                const output = arraylist.toOwnedSlice();
+                                return output[0 .. output.len - 1 :char];
+                            }
+
                             return arraylist.toOwnedSlice();
                         },
                         .String => |stringToken| {
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                             const len = stringToken.decodedLength();
-                            const output = try allocator.alloc(u8, len + 1);
+                            const output = try allocator.alloc(u8, len + @boolToInt(ptrInfo.sentinel != null));
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
                                 .None => mem.copy(u8, output, source_slice),
                                 .Some => try unescapeValidString(output, source_slice),
                             }
-                            output[len] = 0;
+
+                            if (ptrInfo.sentinel) |some| {
+                                const char = @ptrCast(*const u8, some).*;
+                                output[len] = char;
+                                return output[0..len :char];
+                            }
+
                             return output;
                         },
                         else => return error.UnexpectedToken,
@@ -2215,6 +2229,32 @@ test "parse into struct with misc fields" {
     try testing.expectEqualSlices(u8, "zig", r.veryComplex[0].foo);
     try testing.expectEqualSlices(u8, "rocks", r.veryComplex[1].foo);
     try testing.expectEqual(T.Union{ .float = 100000 }, r.a_union);
+}
+
+test "parse into struct with strings and arrays with sentinels" {
+    @setEvalBranchQuota(10000);
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const T = struct {
+        language: [:0]const u8,
+        data: [:99]const i32,
+        simple_data: []const i32,
+    };
+    const r = try parse(T, &TokenStream.init(
+        \\{
+        \\  "language": "zig",
+        \\  "data": [1, 2, 3],
+        \\  "simple_data": [4, 5, 6]
+        \\}
+    ), options);
+    defer parseFree(T, r, options);
+
+    try testing.expectEqualSlicesSentinel("zig", r.language);
+
+    const data = [_:99]i32{ 1, 2, 3 };
+    const simple_data = [_]i32{ 4, 5, 6 };
+
+    try testing.expectEqualSlicesSentinel(data[0..data.len], r.data);
+    try testing.expectEqualSlicesSentinel(simple_data, r.simple_data);
 }
 
 test "parse into struct with duplicate field" {

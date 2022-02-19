@@ -299,6 +299,41 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     }
 }
 
+/// This function is intended to be used only in tests. Checks that two slices or two arrays are equal,
+/// including that their sentinel (if any) are the same. Will error if given another type.
+pub fn expectEqualSlicesSentinel(expected: anytype, actual: anytype) !void {
+    if (expected.len != actual.len) {
+        std.debug.print("slice lengths differ. expected {d}, found {d}\n", .{ expected.len, actual.len });
+        return error.TestExpectedEqual;
+    }
+    var i: usize = 0;
+    while (i < expected.len) : (i += 1) {
+        if (!std.meta.eql(expected[i], actual[i])) {
+            std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{ i, expected[i], actual[i] });
+            return error.TestExpectedEqual;
+        }
+    }
+
+    const expected_sentinel = std.meta.sentinel(@TypeOf(expected));
+    const actual_sentinel = std.meta.sentinel(@TypeOf(actual));
+
+    if (!std.meta.eql(expected_sentinel, actual_sentinel)) {
+        std.debug.print("slice sentinel not equal in the type information. expected {}, found {}\n", .{ expected_sentinel, actual_sentinel });
+        return error.TestExpectedEqual;
+    }
+
+    switch (@typeInfo(@TypeOf(expected))) {
+        .Pointer => {
+            if (expected_sentinel != null and expected[expected.len] != actual[actual.len]) {
+                std.debug.print("slice sentinel not equal in memory. expected {}, found {}\n", .{ expected[expected.len], actual[actual.len] });
+                return error.TestExpectedEqual;
+            }
+        },
+        .Array => {},
+        else => @compileError("expectEqualSlicesSentinel got a value of a different type than pointer or an array. This function only works on pointer or array types."),
+    }
+}
+
 /// This function is intended to be used only in tests. When `ok` is false, the test fails.
 /// A message is printed to stderr and then abort is called.
 pub fn expect(ok: bool) !void {
