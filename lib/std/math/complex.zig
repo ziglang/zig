@@ -166,7 +166,7 @@ test "complex.neg" {
     const a = Complex(f32).init(5, 3);
     const c = a.neg();
 
-    try testing.expect(c.re == -5 and c.im == 3);
+    try testing.expect(c.re == -5 and c.im == -3);
 }
 
 test "complex.mulbyi" {
