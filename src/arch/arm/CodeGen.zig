@@ -513,7 +513,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .mul_sat         => try self.airMulSat(inst),
             .rem             => try self.airRem(inst),
             .mod             => try self.airMod(inst),
-            .shl, .shl_exact => try self.airShl(inst),
+            .shl, .shl_exact => try self.airBinOp(inst),
             .shl_sat         => try self.airShlSat(inst),
             .min             => try self.airMin(inst),
             .max             => try self.airMax(inst),
@@ -553,7 +553,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bit_and         => try self.airBinOp(inst),
             .bit_or          => try self.airBinOp(inst),
             .xor             => try self.airBinOp(inst),
-            .shr, .shr_exact => try self.airShr(inst),
+            .shr, .shr_exact => try self.airBinOp(inst),
 
             .alloc           => try self.airAlloc(inst),
             .ret_ptr         => try self.airRetPtr(inst),
@@ -1091,21 +1091,9 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airShl(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .shl);
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airShr(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, .shr);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1820,6 +1808,15 @@ fn binOpRegister(
         .bit_or,
         .bool_or,
         => .orr,
+        .shl,
+        .shl_exact,
+        => .lsl,
+        .shr,
+        .shr_exact,
+        => switch (lhs_ty.intInfo(self.target.*).signedness) {
+            .signed => Mir.Inst.Tag.asr,
+            .unsigned => Mir.Inst.Tag.lsr,
+        },
         .xor => .eor,
         else => unreachable,
     };
@@ -1837,6 +1834,15 @@ fn binOpRegister(
             .rd = dest_reg,
             .rn = lhs_reg,
             .op = Instruction.Operand.reg(rhs_reg, Instruction.Operand.Shift.none),
+        } },
+        .shl,
+        .shl_exact,
+        .shr,
+        .shr_exact,
+        => .{ .rr_shift = .{
+            .rd = dest_reg,
+            .rm = lhs_reg,
+            .shift_amount = Instruction.ShiftAmount.reg(rhs_reg),
         } },
         .mul => .{ .rrr = .{
             .rd = dest_reg,
@@ -1924,6 +1930,15 @@ fn binOpImmediate(
         .bit_or,
         .bool_or,
         => .orr,
+        .shl,
+        .shl_exact,
+        => .lsl,
+        .shr,
+        .shr_exact,
+        => switch (lhs_ty.intInfo(self.target.*).signedness) {
+            .signed => Mir.Inst.Tag.asr,
+            .unsigned => Mir.Inst.Tag.lsr,
+        },
         .xor => .eor,
         else => unreachable,
     };
@@ -1939,6 +1954,15 @@ fn binOpImmediate(
             .rd = dest_reg,
             .rn = lhs_reg,
             .op = Instruction.Operand.fromU32(rhs.immediate).?,
+        } },
+        .shl,
+        .shl_exact,
+        .shr,
+        .shr_exact,
+        => .{ .rr_shift = .{
+            .rd = dest_reg,
+            .rm = lhs_reg,
+            .shift_amount = Instruction.ShiftAmount.imm(@intCast(u5, rhs.immediate)),
         } },
         else => unreachable,
     };
@@ -2060,6 +2084,28 @@ fn binOp(
                 else => unreachable,
             }
         },
+        .shl,
+        .shr,
+        => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                .Int => {
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 32) {
+                        const rhs_immediate_ok = rhs == .immediate;
+
+                        if (rhs_immediate_ok) {
+                            return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                        } else {
+                            return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        }
+                    } else {
+                        return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
         .bool_and,
         .bool_or,
         => {
@@ -2127,212 +2173,6 @@ fn armOperandShouldBeRegister(self: *Self, mcv: MCValue) !bool {
         .memory,
         => true,
     };
-}
-
-fn genBinOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref, op: Air.Inst.Tag) !MCValue {
-    // In the case of bitshifts, the type of rhs is different
-    // from the resulting type
-    const ty = self.air.typeOf(op_lhs);
-
-    switch (ty.zigTypeTag()) {
-        .Int => {
-            const int_info = ty.intInfo(self.target.*);
-            return self.genBinIntOp(inst, op_lhs, op_rhs, op, int_info.bits, int_info.signedness);
-        },
-        else => unreachable,
-    }
-}
-
-fn genBinIntOp(
-    self: *Self,
-    inst: Air.Inst.Index,
-    op_lhs: Air.Inst.Ref,
-    op_rhs: Air.Inst.Ref,
-    op: Air.Inst.Tag,
-    bits: u16,
-    signedness: std.builtin.Signedness,
-) !MCValue {
-    if (bits > 32) {
-        return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
-    }
-
-    const lhs = try self.resolveInst(op_lhs);
-    const rhs = try self.resolveInst(op_rhs);
-
-    const lhs_is_register = lhs == .register;
-    const rhs_is_register = rhs == .register;
-    const lhs_should_be_register = switch (op) {
-        .shr, .shl => true,
-        else => try self.armOperandShouldBeRegister(lhs),
-    };
-    const rhs_should_be_register = try self.armOperandShouldBeRegister(rhs);
-    const reuse_lhs = lhs_is_register and self.reuseOperand(inst, op_lhs, 0, lhs);
-    const reuse_rhs = !reuse_lhs and rhs_is_register and self.reuseOperand(inst, op_rhs, 1, rhs);
-    const can_swap_lhs_and_rhs = switch (op) {
-        .shr, .shl => false,
-        else => true,
-    };
-
-    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
-    defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
-    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
-    defer if (rhs_is_register) self.register_manager.unfreezeRegs(&.{rhs.register});
-
-    // Destination must be a register
-    var dst_mcv: MCValue = undefined;
-    var lhs_mcv = lhs;
-    var rhs_mcv = rhs;
-    var swap_lhs_and_rhs = false;
-
-    // Allocate registers for operands and/or destination
-    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-    if (reuse_lhs) {
-        // Allocate 0 or 1 registers
-        if (!rhs_is_register and rhs_should_be_register) {
-            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_rhs).?) };
-            branch.inst_table.putAssumeCapacity(Air.refToIndex(op_rhs).?, rhs_mcv);
-        }
-        dst_mcv = lhs;
-    } else if (reuse_rhs and can_swap_lhs_and_rhs) {
-        // Allocate 0 or 1 registers
-        if (!lhs_is_register and lhs_should_be_register) {
-            lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_lhs).?) };
-            branch.inst_table.putAssumeCapacity(Air.refToIndex(op_lhs).?, lhs_mcv);
-        }
-        dst_mcv = rhs;
-
-        swap_lhs_and_rhs = true;
-    } else {
-        // Allocate 1 or 2 registers
-        if (lhs_should_be_register and rhs_should_be_register) {
-            if (lhs_is_register and rhs_is_register) {
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-            } else if (lhs_is_register) {
-                // Move RHS to register
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-                rhs_mcv = dst_mcv;
-            } else if (rhs_is_register) {
-                // Move LHS to register
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-                lhs_mcv = dst_mcv;
-            } else {
-                // Move LHS and RHS to register
-                const regs = try self.register_manager.allocRegs(2, .{ inst, Air.refToIndex(op_rhs).? });
-                lhs_mcv = MCValue{ .register = regs[0] };
-                rhs_mcv = MCValue{ .register = regs[1] };
-                dst_mcv = lhs_mcv;
-
-                branch.inst_table.putAssumeCapacity(Air.refToIndex(op_rhs).?, rhs_mcv);
-            }
-        } else if (lhs_should_be_register) {
-            // RHS is immediate
-            if (lhs_is_register) {
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-            } else {
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-                lhs_mcv = dst_mcv;
-            }
-        } else if (rhs_should_be_register and can_swap_lhs_and_rhs) {
-            // LHS is immediate
-            if (rhs_is_register) {
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-            } else {
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst) };
-                rhs_mcv = dst_mcv;
-            }
-
-            swap_lhs_and_rhs = true;
-        } else unreachable; // binary operation on two immediates
-    }
-
-    // Move the operands to the newly allocated registers
-    if (lhs_mcv == .register and !lhs_is_register) {
-        try self.genSetReg(self.air.typeOf(op_lhs), lhs_mcv.register, lhs);
-    }
-    if (rhs_mcv == .register and !rhs_is_register) {
-        try self.genSetReg(self.air.typeOf(op_rhs), rhs_mcv.register, rhs);
-    }
-
-    try self.genBinOpCode(
-        dst_mcv.register,
-        lhs_mcv,
-        rhs_mcv,
-        swap_lhs_and_rhs,
-        op,
-        signedness,
-    );
-    return dst_mcv;
-}
-
-fn genBinOpCode(
-    self: *Self,
-    dst_reg: Register,
-    lhs_mcv: MCValue,
-    rhs_mcv: MCValue,
-    swap_lhs_and_rhs: bool,
-    op: Air.Inst.Tag,
-    signedness: std.builtin.Signedness,
-) !void {
-    assert(lhs_mcv == .register or rhs_mcv == .register);
-
-    const op1 = if (swap_lhs_and_rhs) rhs_mcv.register else lhs_mcv.register;
-    const op2 = if (swap_lhs_and_rhs) lhs_mcv else rhs_mcv;
-
-    const operand = switch (op2) {
-        .none => unreachable,
-        .undef => unreachable,
-        .dead, .unreach => unreachable,
-        .compare_flags_unsigned => unreachable,
-        .compare_flags_signed => unreachable,
-        .ptr_stack_offset => unreachable,
-        .ptr_embedded_in_code => unreachable,
-        .immediate => |imm| Instruction.Operand.fromU32(@intCast(u32, imm)).?,
-        .register => |reg| Instruction.Operand.reg(reg, Instruction.Operand.Shift.none),
-        .stack_offset,
-        .stack_argument_offset,
-        .embedded_in_code,
-        .memory,
-        => unreachable,
-    };
-
-    switch (op) {
-        .cmp_eq => {
-            _ = try self.addInst(.{
-                .tag = .cmp,
-                .data = .{ .rr_op = .{
-                    .rd = .r0,
-                    .rn = op1,
-                    .op = operand,
-                } },
-            });
-        },
-        .shl, .shr => {
-            assert(!swap_lhs_and_rhs);
-            const shift_amount = switch (operand) {
-                .register => |reg_op| Instruction.ShiftAmount.reg(@intToEnum(Register, reg_op.rm)),
-                .immediate => |imm_op| Instruction.ShiftAmount.imm(@intCast(u5, imm_op.imm)),
-            };
-
-            const tag: Mir.Inst.Tag = switch (op) {
-                .shl => .lsl,
-                .shr => switch (signedness) {
-                    .signed => Mir.Inst.Tag.asr,
-                    .unsigned => Mir.Inst.Tag.lsr,
-                },
-                else => unreachable,
-            };
-
-            _ = try self.addInst(.{
-                .tag = tag,
-                .data = .{ .rr_shift = .{
-                    .rd = dst_reg,
-                    .rm = op1,
-                    .shift_amount = shift_amount,
-                } },
-            });
-        },
-        else => unreachable, // not a binary instruction
-    }
 }
 
 fn genLdrRegister(self: *Self, dest_reg: Register, addr_reg: Register, abi_size: u32) !void {
@@ -2769,9 +2609,18 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
             branch.inst_table.putAssumeCapacity(Air.refToIndex(bin_op.rhs).?, rhs);
         }
 
-        // The destination register is not present in the cmp instruction
-        // The signedness of the integer does not matter for the cmp instruction
-        try self.genBinOpCode(undefined, lhs_mcv, rhs_mcv, false, .cmp_eq, undefined);
+        _ = try self.addInst(.{
+            .tag = .cmp,
+            .data = .{ .rr_op = .{
+                .rd = undefined,
+                .rn = lhs_mcv.register,
+                .op = switch (rhs_mcv) {
+                    .immediate => |imm| Instruction.Operand.fromU32(@intCast(u32, imm)).?,
+                    .register => |reg| Instruction.Operand.reg(reg, Instruction.Operand.Shift.none),
+                    else => unreachable,
+                },
+            } },
+        });
 
         break :result switch (signedness) {
             .signed => MCValue{ .compare_flags_signed = op },
@@ -3003,7 +2852,14 @@ fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
             else => .{ .register = try self.copyToTmpRegister(ty, operand) },
         };
 
-        try self.genBinOpCode(undefined, reg_mcv, .{ .immediate = 0 }, false, .cmp_eq, undefined);
+        _ = try self.addInst(.{
+            .tag = .cmp,
+            .data = .{ .rr_op = .{
+                .rd = undefined,
+                .rn = reg_mcv.register,
+                .op = Instruction.Operand.fromU32(0).?,
+            } },
+        });
 
         return MCValue{ .compare_flags_unsigned = .eq };
     } else {
@@ -3033,7 +2889,14 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
                 else => .{ .register = try self.copyToTmpRegister(error_type, operand) },
             };
 
-            try self.genBinOpCode(undefined, reg_mcv, .{ .immediate = 0 }, false, .cmp_eq, undefined);
+            _ = try self.addInst(.{
+                .tag = .cmp,
+                .data = .{ .rr_op = .{
+                    .rd = undefined,
+                    .rn = reg_mcv.register,
+                    .op = Instruction.Operand.fromU32(0).?,
+                } },
+            });
 
             return MCValue{ .compare_flags_unsigned = .gt };
         } else {
