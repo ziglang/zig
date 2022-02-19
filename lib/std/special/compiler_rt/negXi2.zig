@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 // neg - negate (the number)
-// - negXi2_generic for unoptimized little and big endian
+// - negXi2 for unoptimized little and big endian
 
 // sfffffff = 2^31-1
 // two's complement inverting bits and add 1 would result in -INT_MIN == 0
@@ -11,20 +11,22 @@ const builtin = @import("builtin");
 // * size optimized builds
 // * machines that dont support carry operations
 
-fn negXi2_generic(comptime T: type) fn (a: T) callconv(.C) T {
-    return struct {
-        fn f(a: T) callconv(.C) T {
-            @setRuntimeSafety(builtin.is_test);
-            return -a;
-        }
-    }.f;
+inline fn negXi2(comptime T: type, a: T) T {
+    @setRuntimeSafety(builtin.is_test);
+    return -a;
 }
 
-pub const __negsi2 = negXi2_generic(i32);
+pub fn __negsi2(a: i32) callconv(.C) i32 {
+    return negXi2(i32, a);
+}
 
-pub const __negdi2 = negXi2_generic(i64);
+pub fn __negdi2(a: i64) callconv(.C) i64 {
+    return negXi2(i64, a);
+}
 
-pub const __negti2 = negXi2_generic(i128);
+pub fn __negti2(a: i128) callconv(.C) i128 {
+    return negXi2(i128, a);
+}
 
 test {
     _ = @import("negsi2_test.zig");

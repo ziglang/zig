@@ -1604,6 +1604,246 @@ pub fn addCases(ctx: *TestContext) !void {
                 ":2:28: error: cannot set address space of local variable 'foo'",
             });
         }
+
+        {
+            var case = ctx.exe("saving vars of different ABI size to stack", target);
+
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    assert(callMe(2) == 24);
+                \\}
+                \\
+                \\fn callMe(a: u8) u8 {
+                \\    var b: u8 = a + 10;
+                \\    const c = 2 * b;
+                \\    return c;
+                \\}
+                \\
+                \\pub fn assert(ok: bool) void {
+                \\    if (!ok) unreachable; // assertion failure
+                \\}
+            ,
+                "",
+            );
+
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    assert(callMe(2) == 24);
+                \\}
+                \\
+                \\fn callMe(a: u16) u16 {
+                \\    var b: u16 = a + 10;
+                \\    const c = 2 * b;
+                \\    return c;
+                \\}
+                \\
+                \\pub fn assert(ok: bool) void {
+                \\    if (!ok) unreachable; // assertion failure
+                \\}
+            ,
+                "",
+            );
+
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    assert(callMe(2) == 24);
+                \\}
+                \\
+                \\fn callMe(a: u32) u32 {
+                \\    var b: u32 = a + 10;
+                \\    const c = 2 * b;
+                \\    return c;
+                \\}
+                \\
+                \\pub fn assert(ok: bool) void {
+                \\    if (!ok) unreachable; // assertion failure
+                \\}
+            ,
+                "",
+            );
+        }
+        {
+            var case = ctx.exe("issue 7187: miscompilation with bool return type", target);
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: usize = 1;
+                \\    var y: bool = getFalse();
+                \\    _ = y;
+                \\
+                \\    assert(x == 1);
+                \\}
+                \\
+                \\fn getFalse() bool {
+                \\    return false;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+        }
+
+        {
+            var case = ctx.exe("load-store via pointer deref", target);
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: u32 = undefined;
+                \\    set(&x);
+                \\    assert(x == 123);
+                \\}
+                \\
+                \\fn set(x: *u32) void {
+                \\    x.* = 123;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: u16 = undefined;
+                \\    set(&x);
+                \\    assert(x == 123);
+                \\}
+                \\
+                \\fn set(x: *u16) void {
+                \\    x.* = 123;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: u8 = undefined;
+                \\    set(&x);
+                \\    assert(x == 123);
+                \\}
+                \\
+                \\fn set(x: *u8) void {
+                \\    x.* = 123;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+        }
+
+        {
+            var case = ctx.exe("optional payload", target);
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: u32 = undefined;
+                \\    const maybe_x = byPtr(&x);
+                \\    assert(maybe_x != null);
+                \\    maybe_x.?.* = 123;
+                \\    assert(x == 123);
+                \\}
+                \\
+                \\fn byPtr(x: *u32) ?*u32 {
+                \\    return x;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: u32 = undefined;
+                \\    const maybe_x = byPtr(&x);
+                \\    assert(maybe_x == null);
+                \\}
+                \\
+                \\fn byPtr(x: *u32) ?*u32 {
+                \\    _ = x;
+                \\    return null;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: u8 = undefined;
+                \\    const maybe_x = byPtr(&x);
+                \\    assert(maybe_x != null);
+                \\    maybe_x.?.* = 255;
+                \\    assert(x == 255);
+                \\}
+                \\
+                \\fn byPtr(x: *u8) ?*u8 {
+                \\    return x;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: i8 = undefined;
+                \\    const maybe_x = byPtr(&x);
+                \\    assert(maybe_x != null);
+                \\    maybe_x.?.* = -1;
+                \\    assert(x == -1);
+                \\}
+                \\
+                \\fn byPtr(x: *i8) ?*i8 {
+                \\    return x;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+        }
+
+        {
+            var case = ctx.exe("unwrap error union - simple errors", target);
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    maybeErr() catch unreachable;
+                \\}
+                \\
+                \\fn maybeErr() !void {
+                \\    return;
+                \\}
+            , "");
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    maybeErr() catch return;
+                \\    unreachable;
+                \\}
+                \\
+                \\fn maybeErr() !void {
+                \\    return error.NoWay;
+                \\}
+            , "");
+        }
+
+        {
+            var case = ctx.exe("access slice element by index - slice_elem_val", target);
+            case.addCompareOutput(
+                \\var array = [_]usize{ 0, 42, 123, 34 };
+                \\var slice: []const usize = &array;
+                \\
+                \\pub fn main() void {
+                \\    assert(slice[0] == 0);
+                \\    assert(slice[1] == 42);
+                \\    assert(slice[2] == 123);
+                \\    assert(slice[3] == 34);
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+        }
     }
 }
 

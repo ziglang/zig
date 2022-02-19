@@ -636,5 +636,163 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "Hello, World!\n",
         );
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    foo() catch |err| {
+            \\        assert(err == error.Foo);
+            \\        assert(err != error.Bar);
+            \\        assert(err != error.Baz);
+            \\    };
+            \\    bar() catch |err| {
+            \\        assert(err != error.Foo);
+            \\        assert(err == error.Bar);
+            \\        assert(err != error.Baz);
+            \\    };
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn foo() anyerror!void {
+            \\    return error.Foo;
+            \\}
+            \\
+            \\fn bar() anyerror!void {
+            \\    return error.Bar;
+            \\}
+        ,
+            "",
+        );
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    foo() catch unreachable;
+            \\}
+            \\
+            \\fn foo() anyerror!void {
+            \\    try bar();
+            \\}
+            \\
+            \\fn bar() anyerror!void {}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("slices", linux_arm);
+        case.addCompareOutput(
+            \\var array = [_]u32{ 0, 42, 123, 69 };
+            \\var s: []const u32 = &array;
+            \\
+            \\pub fn main() void {
+            \\    assert(s[0] == 0);
+            \\    assert(s[1] == 42);
+            \\    assert(s[2] == 123);
+            \\    assert(s[3] == 69);
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("structs", linux_arm);
+        case.addCompareOutput(
+            \\var array = [_]SomeStruct{
+            \\    .{ .a = 0, .b = 42, .c = 69 },
+            \\    .{ .a = 1, .b = 2, .c = 3 },
+            \\    .{ .a = 123, .b = 456, .c = 789 },
+            \\};
+            \\var s: []const SomeStruct = &array;
+            \\
+            \\var some_struct: SomeStruct = .{
+            \\    .a = 0,
+            \\    .b = 42,
+            \\    .c = 69,
+            \\};
+            \\
+            \\const SomeStruct = struct {
+            \\    a: u32,
+            \\    b: u32,
+            \\    c: u32,
+            \\};
+            \\
+            \\pub fn main() void {
+            \\    assert(some_struct.a == 0);
+            \\    assert(some_struct.b == 42);
+            \\    assert(some_struct.c == 69);
+            \\
+            \\    assert(s[0].a == 0);
+            \\    assert(s[0].b == 42);
+            \\    assert(s[0].c == 69);
+            \\    assert(s[1].a == 1);
+            \\    assert(s[1].b == 2);
+            \\    assert(s[1].c == 3);
+            \\    assert(s[2].a == 123);
+            \\    assert(s[2].b == 456);
+            \\    assert(s[2].c == 789);
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("function pointers", linux_arm);
+        case.addCompareOutput(
+            \\const PrintFn = *const fn () void;
+            \\
+            \\pub fn main() void {
+            \\    var printFn: PrintFn = stopSayingThat;
+            \\    var i: u32 = 0;
+            \\    while (i < 4) : (i += 1) printFn();
+            \\
+            \\    printFn = moveEveryZig;
+            \\    printFn();
+            \\}
+            \\
+            \\fn stopSayingThat() void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("Hello, my name is Inigo Montoya; you killed my father, prepare to die.\n")),
+            \\          [arg3] "{r2}" ("Hello, my name is Inigo Montoya; you killed my father, prepare to die.\n".len),
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn moveEveryZig() void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("All your codebase are belong to us\n")),
+            \\          [arg3] "{r2}" ("All your codebase are belong to us\n".len),
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+        ,
+            \\Hello, my name is Inigo Montoya; you killed my father, prepare to die.
+            \\Hello, my name is Inigo Montoya; you killed my father, prepare to die.
+            \\Hello, my name is Inigo Montoya; you killed my father, prepare to die.
+            \\Hello, my name is Inigo Montoya; you killed my father, prepare to die.
+            \\All your codebase are belong to us
+            \\
+            ,
+        );
     }
 }

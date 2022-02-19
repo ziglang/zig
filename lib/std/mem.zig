@@ -275,7 +275,9 @@ pub fn zeroes(comptime T: type) T {
             } else {
                 var structure: T = undefined;
                 inline for (struct_info.fields) |field| {
-                    @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
+                    if (!field.is_comptime) {
+                        @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
+                    }
                 }
                 return structure;
             }
@@ -342,6 +344,8 @@ test "mem.zeroes" {
     try testing.expect(a.y == 10);
 
     const ZigStruct = struct {
+        comptime comptime_field: u8 = 5,
+
         integral_types: struct {
             integer_0: i0,
             integer_8: i8,
@@ -376,6 +380,7 @@ test "mem.zeroes" {
     };
 
     const b = zeroes(ZigStruct);
+    try testing.expectEqual(@as(u8, 5), b.comptime_field);
     try testing.expectEqual(@as(i8, 0), b.integral_types.integer_0);
     try testing.expectEqual(@as(i8, 0), b.integral_types.integer_8);
     try testing.expectEqual(@as(i16, 0), b.integral_types.integer_16);
@@ -715,7 +720,7 @@ fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
     @compileError("invalid type given to std.mem.sliceTo: " ++ @typeName(T));
 }
 
-/// Takes a pointer to an array, an array, a sentinel-terminated pointer, or a slice and
+/// Takes an array, a pointer to an array, a sentinel-terminated pointer, or a slice and
 /// iterates searching for the first occurrence of `end`, returning the scanned slice.
 /// If `end` is not found, the full length of the array/slice/sentinel terminated pointer is returned.
 /// If the pointer type is sentinel terminated and `end` matches that terminator, the

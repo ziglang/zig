@@ -113,7 +113,7 @@ pub fn osArchName(target: std.Target) [:0]const u8 {
     return switch (target.os.tag) {
         .linux => switch (target.cpu.arch) {
             .arm, .armeb, .thumb, .thumbeb => "arm",
-            .aarch64, .aarch64_be, .aarch64_32 => "arm64",
+            .aarch64, .aarch64_be, .aarch64_32 => "aarch64",
             .mips, .mipsel, .mips64, .mips64el => "mips",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
             .riscv32, .riscv64 => "riscv",
@@ -636,4 +636,13 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
         //TODO add ARM, Mips, and PowerPC
         else => return null,
     }
+}
+
+pub fn defaultFunctionAlignment(target: std.Target) u32 {
+    return switch (target.cpu.arch) {
+        .arm, .armeb => 4,
+        .aarch64, .aarch64_32, .aarch64_be => 4,
+        .riscv64 => 2,
+        else => 1,
+    };
 }

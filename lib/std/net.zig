@@ -636,17 +636,35 @@ pub fn connectUnixSocket(path: []const u8) !Stream {
 }
 
 fn if_nametoindex(name: []const u8) !u32 {
-    var ifr: os.ifreq = undefined;
-    var sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
-    defer os.closeSocket(sockfd);
+    if (builtin.target.os.tag == .linux) {
+        var ifr: os.ifreq = undefined;
+        var sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
+        defer os.closeSocket(sockfd);
 
-    std.mem.copy(u8, &ifr.ifrn.name, name);
-    ifr.ifrn.name[name.len] = 0;
+        std.mem.copy(u8, &ifr.ifrn.name, name);
+        ifr.ifrn.name[name.len] = 0;
 
-    // TODO investigate if this needs to be integrated with evented I/O.
-    try os.ioctl_SIOCGIFINDEX(sockfd, &ifr);
+        // TODO investigate if this needs to be integrated with evented I/O.
+        try os.ioctl_SIOCGIFINDEX(sockfd, &ifr);
 
-    return @bitCast(u32, ifr.ifru.ivalue);
+        return @bitCast(u32, ifr.ifru.ivalue);
+    }
+
+    if (comptime builtin.target.os.tag.isDarwin()) {
+        if (name.len >= os.IFNAMESIZE)
+            return error.NameTooLong;
+
+        var if_name: [os.IFNAMESIZE:0]u8 = undefined;
+        std.mem.copy(u8, &if_name, name);
+        if_name[name.len] = 0;
+        const if_slice = if_name[0..name.len :0];
+        const index = os.system.if_nametoindex(if_slice);
+        if (index == 0)
+            return error.InterfaceNotFound;
+        return @bitCast(u32, index);
+    }
+
+    @compileError("std.net.if_nametoindex unimplemented for this OS");
 }
 
 pub const AddressList = struct {
@@ -719,7 +737,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
-        const port_c = try std.fmt.allocPrint(allocator, "{}\x00", .{port});
+        const port_c = try std.fmt.allocPrintZ(allocator, "{}", .{port});
         defer allocator.free(port_c);
 
         const sys = if (builtin.target.os.tag == .windows) os.windows.ws2_32 else os.system;
@@ -734,7 +752,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
             .next = null,
         };
         var res: *os.addrinfo = undefined;
-        const rc = sys.getaddrinfo(name_c.ptr, std.meta.assumeSentinel(port_c.ptr, 0), &hints, &res);
+        const rc = sys.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res);
         if (builtin.target.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
             @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
             .WSATRY_AGAIN => return error.TemporaryNameServerFailure,

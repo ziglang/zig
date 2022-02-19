@@ -20,15 +20,14 @@ pub fn GzipStream(comptime ReaderType: type) type {
         const Self = @This();
 
         pub const Error = ReaderType.Error ||
-            deflate.InflateStream(ReaderType).Error ||
+            deflate.Decompressor(ReaderType).Error ||
             error{ CorruptedData, WrongChecksum };
         pub const Reader = io.Reader(*Self, Error, read);
 
         allocator: mem.Allocator,
-        inflater: deflate.InflateStream(ReaderType),
+        inflater: deflate.Decompressor(ReaderType),
         in_reader: ReaderType,
         hasher: std.hash.Crc32,
-        window_slice: []u8,
         read_amt: usize,
 
         info: struct {
@@ -93,16 +92,11 @@ pub fn GzipStream(comptime ReaderType: type) type {
                 _ = try source.readIntLittle(u16);
             }
 
-            // The RFC doesn't say anything about the DEFLATE window size to be
-            // used, default to 32K.
-            var window_slice = try allocator.alloc(u8, 32 * 1024);
-
             return Self{
                 .allocator = allocator,
-                .inflater = deflate.inflateStream(source, window_slice),
+                .inflater = try deflate.decompressor(allocator, source, null),
                 .in_reader = source,
                 .hasher = std.hash.Crc32.init(),
-                .window_slice = window_slice,
                 .info = .{
                     .filename = filename,
                     .comment = comment,
@@ -113,7 +107,7 @@ pub fn GzipStream(comptime ReaderType: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.allocator.free(self.window_slice);
+            self.inflater.deinit();
             if (self.info.filename) |filename|
                 self.allocator.free(filename);
             if (self.info.comment) |comment|
@@ -165,21 +159,9 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
     // Read and decompress the whole file
     const buf = try gzip_stream.reader().readAllAlloc(testing.allocator, std.math.maxInt(usize));
     defer testing.allocator.free(buf);
-    // Calculate its SHA256 hash and check it against the reference
-    var hash: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(buf, hash[0..], .{});
 
-    try assertEqual(expected, &hash);
-}
-
-// Assert `expected` == `input` where `input` is a bytestring.
-pub fn assertEqual(comptime expected: []const u8, input: []const u8) !void {
-    var expected_bytes: [expected.len / 2]u8 = undefined;
-    for (expected_bytes) |*r, i| {
-        r.* = std.fmt.parseInt(u8, expected[2 * i .. 2 * i + 2], 16) catch unreachable;
-    }
-
-    try testing.expectEqualSlices(u8, &expected_bytes, input);
+    // Check against the reference
+    try testing.expectEqualSlices(u8, buf, expected);
 }
 
 // All the test cases are obtained by compressing the RFC1952 text
@@ -189,7 +171,7 @@ pub fn assertEqual(comptime expected: []const u8, input: []const u8) !void {
 test "compressed data" {
     try testReader(
         @embedFile("rfc1952.txt.gz"),
-        "164ef0897b4cbec63abf1b57f069f3599bd0fb7c72c2a4dee21bd7e03ec9af67",
+        @embedFile("rfc1952.txt"),
     );
 }
 

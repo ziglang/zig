@@ -203,6 +203,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             const sub_compilation = try Compilation.create(comp.gpa, .{
                 .local_cache_directory = comp.global_cache_directory,
                 .global_cache_directory = comp.global_cache_directory,
+                .cache_mode = .whole,
                 .zig_lib_directory = comp.zig_lib_directory,
                 .target = target,
                 .root_name = "c",

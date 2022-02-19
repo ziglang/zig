@@ -4,7 +4,7 @@ const maxInt = std.math.maxInt;
 
 const implicitBit = @as(u64, 1) << 52;
 
-pub fn __floatunsidf(arg: u32) callconv(.C) f64 {
+inline fn floatunsidf(arg: u32) f64 {
     @setRuntimeSafety(builtin.is_test);
 
     if (arg == 0) return 0.0;
@@ -18,9 +18,12 @@ pub fn __floatunsidf(arg: u32) callconv(.C) f64 {
     return @bitCast(f64, mant | (exp + 1023) << 52);
 }
 
+pub fn __floatunsidf(arg: u32) callconv(.C) f64 {
+    return floatunsidf(arg);
+}
+
 pub fn __aeabi_ui2d(arg: u32) callconv(.AAPCS) f64 {
-    @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __floatunsidf, .{arg});
+    return floatunsidf(arg);
 }
 
 fn test_one_floatunsidf(a: u32, expected: u64) !void {

@@ -12,6 +12,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const bits = @import("bits.zig");
+const Air = @import("../../Air.zig");
 const Register = bits.Register;
 
 instructions: std.MultiArrayList(Inst).Slice,
@@ -20,7 +21,7 @@ extra: []const u32,
 
 pub const Inst = struct {
     tag: Tag,
-    cond: bits.Condition,
+    cond: bits.Condition = .al,
     /// The meaning of this depends on `tag`.
     data: Data,
 
@@ -41,6 +42,8 @@ pub const Inst = struct {
         bx,
         /// Compare
         cmp,
+        /// Pseudo-instruction: Argument
+        dbg_arg,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
@@ -194,6 +197,13 @@ pub const Inst = struct {
         dbg_line_column: struct {
             line: u32,
             column: u32,
+        },
+        /// Debug info: argument
+        ///
+        /// Used by e.g. dbg_arg
+        dbg_arg_info: struct {
+            air_inst: Air.Inst.Index,
+            arg_index: u32,
         },
     };
 

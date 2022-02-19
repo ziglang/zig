@@ -1,24 +1,22 @@
 const std = @import("../std.zig");
+
 const io = std.io;
+const mem = std.mem;
 
 pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) type {
     return struct {
         unbuffered_writer: WriterType,
-        fifo: FifoType = FifoType.init(),
+        buf: [buffer_size]u8 = undefined,
+        end: usize = 0,
 
         pub const Error = WriterType.Error;
         pub const Writer = io.Writer(*Self, Error, write);
 
         const Self = @This();
-        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
 
         pub fn flush(self: *Self) !void {
-            while (true) {
-                const slice = self.fifo.readableSlice(0);
-                if (slice.len == 0) break;
-                try self.unbuffered_writer.writeAll(slice);
-                self.fifo.discard(slice.len);
-            }
+            try self.unbuffered_writer.writeAll(self.buf[0..self.end]);
+            self.end = 0;
         }
 
         pub fn writer(self: *Self) Writer {
@@ -26,11 +24,14 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
         }
 
         pub fn write(self: *Self, bytes: []const u8) Error!usize {
-            if (bytes.len >= self.fifo.writableLength()) {
+            if (self.end + bytes.len > self.buf.len) {
                 try self.flush();
-                return self.unbuffered_writer.write(bytes);
+                if (bytes.len > self.buf.len)
+                    return self.unbuffered_writer.write(bytes);
             }
-            self.fifo.writeAssumeCapacity(bytes);
+
+            mem.copy(u8, self.buf[self.end..], bytes);
+            self.end += bytes.len;
             return bytes.len;
         }
     };

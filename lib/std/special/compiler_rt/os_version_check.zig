@@ -22,12 +22,11 @@ inline fn constructVersion(major: u32, minor: u32, subminor: u32) u32 {
 
 // Darwin-only
 pub fn __isPlatformVersionAtLeast(platform: u32, major: u32, minor: u32, subminor: u32) callconv(.C) i32 {
-    return @boolToInt(_availability_version_check(1, &[_]dyld_build_version_t{
-        .{
-            .platform = platform,
-            .version = constructVersion(major, minor, subminor),
-        },
-    }));
+    const build_version = dyld_build_version_t{
+        .platform = platform,
+        .version = constructVersion(major, minor, subminor),
+    };
+    return @boolToInt(_availability_version_check(1, &[_]dyld_build_version_t{build_version}));
 }
 
 // _availability_version_check darwin API support.

@@ -412,6 +412,18 @@ const known_options = [_]KnownOpt{
         .name = "emit-llvm",
         .ident = "emit_llvm",
     },
+    .{
+        .name = "sysroot",
+        .ident = "sysroot",
+    },
+    .{
+        .name = "entry",
+        .ident = "entry",
+    },
+    .{
+        .name = "e",
+        .ident = "entry",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

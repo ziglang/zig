@@ -1,8 +1,9 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
-const native_endian = @import("builtin").target.cpu.arch.endian();
+const native_endian = builtin.target.cpu.arch.endian();
 
 test "pointer reinterpret const float to int" {
     // The hex representation is 0x3fe3333333333303.
@@ -46,11 +47,14 @@ fn incrementVoidPtrArray(array: ?*anyopaque, len: usize) void {
 }
 
 test "compile time int to ptr of function" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) return error.SkipZigTest; // TODO
+
     try foobar(FUNCTION_CONSTANT);
 }
 
 pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, maxInt(usize));
-pub const PFN_void = fn (*anyopaque) callconv(.C) void;
+pub const PFN_void = *const fn (*anyopaque) callconv(.C) void;
 
 fn foobar(func: PFN_void) !void {
     try std.testing.expect(@ptrToInt(func) == maxInt(usize));
@@ -151,8 +155,12 @@ test "implicit cast *[0]T to E![]const u8" {
 }
 
 var global_array: [4]u8 = undefined;
-test "cast from array reference to fn" {
-    const f = @ptrCast(fn () callconv(.C) void, &global_array);
+test "cast from array reference to fn: comptime fn ptr" {
+    const f = @ptrCast(*const fn () callconv(.C) void, &global_array);
+    try expect(@ptrToInt(f) == @ptrToInt(&global_array));
+}
+test "cast from array reference to fn: runtime fn ptr" {
+    var f = @ptrCast(*const fn () callconv(.C) void, &global_array);
     try expect(@ptrToInt(f) == @ptrToInt(&global_array));
 }
 
@@ -196,4 +204,72 @@ test "cast between *[N]void and []void" {
     var a: [4]void = undefined;
     var b: []void = &a;
     try expect(b.len == 4);
+}
+
+test "peer resolve arrays of different size to const slice" {
+    try expect(mem.eql(u8, boolToStr(true), "true"));
+    try expect(mem.eql(u8, boolToStr(false), "false"));
+    comptime try expect(mem.eql(u8, boolToStr(true), "true"));
+    comptime try expect(mem.eql(u8, boolToStr(false), "false"));
+}
+fn boolToStr(b: bool) []const u8 {
+    return if (b) "true" else "false";
+}
+
+test "cast f16 to wider types" {
+    const S = struct {
+        fn doTheTest() !void {
+            var x: f16 = 1234.0;
+            try expect(@as(f32, 1234.0) == x);
+            try expect(@as(f64, 1234.0) == x);
+            try expect(@as(f128, 1234.0) == x);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "cast f128 to narrower types" {
+    const S = struct {
+        fn doTheTest() !void {
+            var x: f128 = 1234.0;
+            try expect(@as(f16, 1234.0) == @floatCast(f16, x));
+            try expect(@as(f32, 1234.0) == @floatCast(f32, x));
+            try expect(@as(f64, 1234.0) == @floatCast(f64, x));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "peer type resolution: unreachable, null, slice" {
+    const S = struct {
+        fn doTheTest(num: usize, word: []const u8) !void {
+            const result = switch (num) {
+                0 => null,
+                1 => word,
+                else => unreachable,
+            };
+            try expect(mem.eql(u8, result.?, "hi"));
+        }
+    };
+    try S.doTheTest(1, "hi");
+}
+
+test "cast i8 fn call peers to i32 result" {
+    const S = struct {
+        fn doTheTest() !void {
+            var cond = true;
+            const value: i32 = if (cond) smallBoi() else bigBoi();
+            try expect(value == 123);
+        }
+        fn smallBoi() i8 {
+            return 123;
+        }
+        fn bigBoi() i16 {
+            return 1234;
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

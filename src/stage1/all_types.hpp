@@ -1192,7 +1192,6 @@ struct AstNodeAnyFrameType {
 struct AstNode {
     enum NodeType type;
     TokenIndex main_token;
-    bool already_traced_this_node;
     ZigType *owner;
     union {
         AstNodeFnDef fn_def;

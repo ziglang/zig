@@ -23,7 +23,7 @@ fn processArgs() void {
 }
 
 pub fn main() void {
-    if (builtin.zig_is_stage2) {
+    if (builtin.zig_backend != .stage1) {
         return main2() catch @panic("test failure");
     }
     processArgs();
@@ -132,16 +132,45 @@ pub fn log(
 }
 
 pub fn main2() anyerror!void {
-    var bad = false;
+    var skipped: usize = 0;
+    var failed: usize = 0;
     // Simpler main(), exercising fewer language features, so that stage2 can handle it.
     for (builtin.test_functions) |test_fn| {
         test_fn.func() catch |err| {
             if (err != error.SkipZigTest) {
-                bad = true;
+                failed += 1;
+            } else {
+                skipped += 1;
             }
         };
     }
-    if (bad) {
+    if (builtin.zig_backend == .stage2_llvm) {
+        const passed = builtin.test_functions.len - skipped - failed;
+        const stderr = std.io.getStdErr();
+        writeInt(stderr, passed) catch {};
+        stderr.writeAll(" passed; ") catch {};
+        writeInt(stderr, skipped) catch {};
+        stderr.writeAll(" skipped; ") catch {};
+        writeInt(stderr, failed) catch {};
+        stderr.writeAll(" failed.\n") catch {};
+    }
+    if (failed != 0) {
         return error.TestsFailed;
     }
+}
+
+fn writeInt(stderr: std.fs.File, int: usize) anyerror!void {
+    const base = 10;
+    var buf: [100]u8 = undefined;
+    var a: usize = int;
+    var index: usize = buf.len;
+    while (true) {
+        const digit = a % base;
+        index -= 1;
+        buf[index] = std.fmt.digitToChar(@intCast(u8, digit), .lower);
+        a /= base;
+        if (a == 0) break;
+    }
+    const slice = buf[index..];
+    try stderr.writeAll(slice);
 }

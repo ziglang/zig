@@ -184,6 +184,9 @@ pub const Value = opaque {
     pub const setValueName2 = LLVMSetValueName2;
     extern fn LLVMSetValueName2(Val: *const Value, Name: [*]const u8, NameLen: usize) void;
 
+    pub const takeName = ZigLLVMTakeName;
+    extern fn ZigLLVMTakeName(new_owner: *const Value, victim: *const Value) void;
+
     pub const deleteFunction = LLVMDeleteFunction;
     extern fn LLVMDeleteFunction(Fn: *const Value) void;
 
@@ -201,6 +204,26 @@ pub const Value = opaque {
 
     pub const addCase = LLVMAddCase;
     extern fn LLVMAddCase(Switch: *const Value, OnVal: *const Value, Dest: *const BasicBlock) void;
+
+    pub inline fn isPoison(Val: *const Value) bool {
+        return LLVMIsPoison(Val).toBool();
+    }
+    extern fn LLVMIsPoison(Val: *const Value) Bool;
+
+    pub const replaceAllUsesWith = LLVMReplaceAllUsesWith;
+    extern fn LLVMReplaceAllUsesWith(OldVal: *const Value, NewVal: *const Value) void;
+
+    pub const globalGetValueType = LLVMGlobalGetValueType;
+    extern fn LLVMGlobalGetValueType(Global: *const Value) *const Type;
+
+    pub const getLinkage = LLVMGetLinkage;
+    extern fn LLVMGetLinkage(Global: *const Value) Linkage;
+
+    pub const getUnnamedAddress = LLVMGetUnnamedAddress;
+    extern fn LLVMGetUnnamedAddress(Global: *const Value) Bool;
+
+    pub const getAlignment = LLVMGetAlignment;
+    extern fn LLVMGetAlignment(V: *const Value) c_uint;
 };
 
 pub const Type = opaque {
@@ -785,7 +808,25 @@ pub const Builder = opaque {
 
     pub const buildExactSDiv = LLVMBuildExactSDiv;
     extern fn LLVMBuildExactSDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const zigSetCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation;
+    extern fn ZigLLVMSetCurrentDebugLocation(builder: *const Builder, line: c_int, column: c_int, scope: *DIScope) void;
+
+    pub const clearCurrentDebugLocation = ZigLLVMClearCurrentDebugLocation;
+    extern fn ZigLLVMClearCurrentDebugLocation(builder: *const Builder) void;
+
+    pub const getCurrentDebugLocation2 = LLVMGetCurrentDebugLocation2;
+    extern fn LLVMGetCurrentDebugLocation2(Builder: *const Builder) *Metadata;
+
+    pub const setCurrentDebugLocation2 = LLVMSetCurrentDebugLocation2;
+    extern fn LLVMSetCurrentDebugLocation2(Builder: *const Builder, Loc: *Metadata) void;
+
+    pub const buildShuffleVector = LLVMBuildShuffleVector;
+    extern fn LLVMBuildShuffleVector(*const Builder, V1: *const Value, V2: *const Value, Mask: *const Value, Name: [*:0]const u8) *const Value;
 };
+
+pub const DIScope = opaque {};
+pub const Metadata = opaque {};
 
 pub const IntPredicate = enum(c_uint) {
     EQ = 32,

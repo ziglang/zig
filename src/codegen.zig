@@ -150,6 +150,13 @@ pub fn generateSymbol(
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (typed_value.val.isUndefDeep()) {
+        const target = bin_file.options.target;
+        const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
+        try code.appendNTimes(0xaa, abi_size);
+        return Result{ .appended = {} };
+    }
+
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             return Result{
@@ -161,9 +168,10 @@ pub fn generateSymbol(
                 ),
             };
         },
-        .Array => {
-            // TODO populate .debug_info for the array
-            if (typed_value.val.castTag(.bytes)) |payload| {
+        .Array => switch (typed_value.val.tag()) {
+            .bytes => {
+                // TODO populate .debug_info for the array
+                const payload = typed_value.val.castTag(.bytes).?;
                 if (typed_value.ty.sentinel()) |sentinel| {
                     try code.ensureUnusedCapacity(payload.data.len + 1);
                     code.appendSliceAssumeCapacity(payload.data);
@@ -181,62 +189,83 @@ pub fn generateSymbol(
                 } else {
                     return Result{ .externally_managed = payload.data };
                 }
-            }
-            return Result{
+            },
+            .array => {
+                // TODO populate .debug_info for the array
+                const elem_vals = typed_value.val.castTag(.array).?.data;
+                const elem_ty = typed_value.ty.elemType();
+                for (elem_vals) |elem_val| {
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = elem_ty,
+                        .val = elem_val,
+                    }, code, debug_output)) {
+                        .appended => {},
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                            return Result{ .appended = {} };
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                }
+                return Result{ .appended = {} };
+            },
+            else => return Result{
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,
                     src_loc,
-                    "TODO implement generateSymbol for more kinds of arrays",
-                    .{},
+                    "TODO implement generateSymbol for array type value: {s}",
+                    .{@tagName(typed_value.val.tag())},
                 ),
-            };
-        },
-        .Pointer => switch (typed_value.ty.ptrSize()) {
-            .Slice => {
-                return Result{
-                    .fail = try ErrorMsg.create(
-                        bin_file.allocator,
-                        src_loc,
-                        "TODO implement generateSymbol for slice {}",
-                        .{typed_value.val},
-                    ),
-                };
             },
-            else => {
-                // TODO populate .debug_info for the pointer
-                if (typed_value.val.castTag(.decl_ref)) |payload| {
-                    const decl = payload.data;
-                    if (decl.analysis != .complete) return error.AnalysisFail;
-                    decl.alive = true;
-                    // TODO handle the dependency of this symbol on the decl's vaddr.
-                    // If the decl changes vaddr, then this symbol needs to get regenerated.
-                    const vaddr = bin_file.getDeclVAddr(decl);
-                    const endian = bin_file.options.target.cpu.arch.endian();
-                    switch (bin_file.options.target.cpu.arch.ptrBitWidth()) {
-                        16 => {
-                            try code.resize(2);
-                            mem.writeInt(u16, code.items[0..2], @intCast(u16, vaddr), endian);
-                        },
-                        32 => {
-                            try code.resize(4);
-                            mem.writeInt(u32, code.items[0..4], @intCast(u32, vaddr), endian);
-                        },
-                        64 => {
-                            try code.resize(8);
-                            mem.writeInt(u64, code.items[0..8], vaddr, endian);
-                        },
-                        else => unreachable,
-                    }
-                    return Result{ .appended = {} };
+        },
+        .Pointer => switch (typed_value.val.tag()) {
+            .variable => {
+                const decl = typed_value.val.castTag(.variable).?.data.owner_decl;
+                return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output);
+            },
+            .decl_ref => {
+                const decl = typed_value.val.castTag(.decl_ref).?.data;
+                return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output);
+            },
+            .slice => {
+                // TODO populate .debug_info for the slice
+                const slice = typed_value.val.castTag(.slice).?.data;
+
+                // generate ptr
+                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
+                switch (try generateSymbol(bin_file, src_loc, .{
+                    .ty = slice_ptr_field_type,
+                    .val = slice.ptr,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
                 }
-                return Result{
-                    .fail = try ErrorMsg.create(
-                        bin_file.allocator,
-                        src_loc,
-                        "TODO implement generateSymbol for pointer {}",
-                        .{typed_value.val},
-                    ),
-                };
+
+                // generate length
+                switch (try generateSymbol(bin_file, src_loc, .{
+                    .ty = Type.initTag(.usize),
+                    .val = slice.len,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+
+                return Result{ .appended = {} };
+            },
+            else => return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src_loc,
+                    "TODO implement generateSymbol for pointer type value: '{s}'",
+                    .{@tagName(typed_value.val.tag())},
+                ),
             },
         },
         .Int => {
@@ -343,11 +372,40 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Struct => {
+            // TODO debug info
+            // TODO padding of struct members
             const field_vals = typed_value.val.castTag(.@"struct").?.data;
-            _ = field_vals; // TODO write the fields for real
+            for (field_vals) |field_val, index| {
+                const field_ty = typed_value.ty.structFieldType(index);
+                if (!field_ty.hasRuntimeBits()) continue;
+                switch (try generateSymbol(bin_file, src_loc, .{
+                    .ty = field_ty,
+                    .val = field_val,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+            }
+
+            return Result{ .appended = {} };
+        },
+        .Union => {
+            // TODO generateSymbol for unions
             const target = bin_file.options.target;
             const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
             try code.writer().writeByteNTimes(0xaa, abi_size);
+
+            return Result{ .appended = {} };
+        },
+        .Optional => {
+            // TODO generateSymbol for optionals
+            const target = bin_file.options.target;
+            const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
+            try code.writer().writeByteNTimes(0xaa, abi_size);
+
             return Result{ .appended = {} };
         },
         else => |t| {
@@ -361,4 +419,68 @@ pub fn generateSymbol(
             };
         },
     }
+}
+
+fn lowerDeclRef(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    typed_value: TypedValue,
+    decl: *Module.Decl,
+    code: *std.ArrayList(u8),
+    debug_output: DebugInfoOutput,
+) GenerateSymbolError!Result {
+    if (typed_value.ty.isSlice()) {
+        // generate ptr
+        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+        const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
+        switch (try generateSymbol(bin_file, src_loc, .{
+            .ty = slice_ptr_field_type,
+            .val = typed_value.val,
+        }, code, debug_output)) {
+            .appended => {},
+            .externally_managed => |external_slice| {
+                code.appendSliceAssumeCapacity(external_slice);
+            },
+            .fail => |em| return Result{ .fail = em },
+        }
+
+        // generate length
+        var slice_len: Value.Payload.U64 = .{
+            .base = .{ .tag = .int_u64 },
+            .data = typed_value.val.sliceLen(),
+        };
+        switch (try generateSymbol(bin_file, src_loc, .{
+            .ty = Type.initTag(.usize),
+            .val = Value.initPayload(&slice_len.base),
+        }, code, debug_output)) {
+            .appended => {},
+            .externally_managed => |external_slice| {
+                code.appendSliceAssumeCapacity(external_slice);
+            },
+            .fail => |em| return Result{ .fail = em },
+        }
+
+        return Result{ .appended = {} };
+    }
+
+    if (decl.analysis != .complete) return error.AnalysisFail;
+    decl.markAlive();
+    const vaddr = vaddr: {
+        if (bin_file.cast(link.File.MachO)) |macho_file| {
+            break :vaddr try macho_file.getDeclVAddrWithReloc(decl, code.items.len);
+        }
+        // TODO handle the dependency of this symbol on the decl's vaddr.
+        // If the decl changes vaddr, then this symbol needs to get regenerated.
+        break :vaddr bin_file.getDeclVAddr(decl);
+    };
+
+    const endian = bin_file.options.target.cpu.arch.endian();
+    switch (bin_file.options.target.cpu.arch.ptrBitWidth()) {
+        16 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(u16, vaddr), endian),
+        32 => mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, vaddr), endian),
+        64 => mem.writeInt(u64, try code.addManyAsArray(8), vaddr, endian),
+        else => unreachable,
+    }
+
+    return Result{ .appended = {} };
 }

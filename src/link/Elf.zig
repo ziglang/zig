@@ -241,11 +241,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     assert(options.object_format == .elf);
 
     if (build_options.have_llvm and options.use_llvm) {
-        const self = try createEmpty(allocator, options);
-        errdefer self.base.destroy();
-
-        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
-        return self;
+        return createEmpty(allocator, options);
     }
 
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
@@ -297,6 +293,8 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         else => return error.UnsupportedELFArchitecture,
     };
     const self = try gpa.create(Elf);
+    errdefer gpa.destroy(self);
+
     self.* = .{
         .base = .{
             .tag = .elf,
@@ -306,6 +304,11 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         },
         .ptr_width = ptr_width,
     };
+    const use_llvm = build_options.have_llvm and options.use_llvm;
+    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    if (use_llvm and !use_stage1) {
+        self.llvm_object = try LlvmObject.create(gpa, options);
+    }
     return self;
 }
 
@@ -780,18 +783,28 @@ pub const abbrev_compile_unit = 1;
 pub const abbrev_subprogram = 2;
 pub const abbrev_subprogram_retvoid = 3;
 pub const abbrev_base_type = 4;
-pub const abbrev_pad1 = 5;
-pub const abbrev_parameter = 6;
+pub const abbrev_ptr_type = 5;
+pub const abbrev_anon_struct_type = 6;
+pub const abbrev_struct_member = 7;
+pub const abbrev_pad1 = 8;
+pub const abbrev_parameter = 9;
 
 pub fn flush(self: *Elf, comp: *Compilation) !void {
-    if (build_options.have_llvm and self.base.options.use_lld) {
-        return self.linkWithLLD(comp);
-    } else {
-        switch (self.base.options.effectiveOutputMode()) {
-            .Exe, .Obj => {},
-            .Lib => return error.TODOImplementWritingLibFiles,
+    if (self.base.options.emit == null) {
+        if (build_options.have_llvm) {
+            if (self.llvm_object) |llvm_object| {
+                return try llvm_object.flushModule(comp);
+            }
         }
-        return self.flushModule(comp);
+        return;
+    }
+    const use_lld = build_options.have_llvm and self.base.options.use_lld;
+    if (use_lld) {
+        return self.linkWithLLD(comp);
+    }
+    switch (self.base.options.output_mode) {
+        .Exe, .Obj => return self.flushModule(comp),
+        .Lib => return error.TODOImplementWritingLibFiles,
     }
 }
 
@@ -799,8 +812,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm)
-        if (self.llvm_object) |llvm_object| return try llvm_object.flushModule(comp);
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| {
+            return try llvm_object.flushModule(comp);
+        }
+    }
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
@@ -858,9 +874,39 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
             DW.AT.byte_size,
             DW.FORM.data1,
             DW.AT.name,
-            DW.FORM.string, 0, 0, // table sentinel
-            abbrev_pad1, DW.TAG.unspecified_type, DW.CHILDREN.no, // header
-            0,                0, // table sentinel
+            DW.FORM.string,
+            0,
+            0, // table sentinel
+            abbrev_ptr_type,
+            DW.TAG.pointer_type,
+            DW.CHILDREN.no, // header
+            DW.AT.type,
+            DW.FORM.ref4,
+            0,
+            0, // table sentinel
+            abbrev_anon_struct_type,
+            DW.TAG.structure_type,
+            DW.CHILDREN.yes, // header
+            DW.AT.byte_size,
+            DW.FORM.sdata,
+            0,
+            0, // table sentinel
+            abbrev_struct_member,
+            DW.TAG.member,
+            DW.CHILDREN.no, // header
+            DW.AT.name,
+            DW.FORM.string,
+            DW.AT.type,
+            DW.FORM.ref4,
+            DW.AT.data_member_location,
+            DW.FORM.sdata,
+            0,
+            0, // table sentinel
+            abbrev_pad1,
+            DW.TAG.unspecified_type,
+            DW.CHILDREN.no, // header
+            0,
+            0, // table sentinel
             abbrev_parameter,
             DW.TAG.formal_parameter, DW.CHILDREN.no, // header
             DW.AT.location,          DW.FORM.exprloc,
@@ -1298,6 +1344,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const arena = arena_allocator.allocator();
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -1309,15 +1356,24 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = module.zig_cache_artifact_directory;
-            const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
-            break :blk full_obj_path;
+            switch (self.base.options.cache_mode) {
+                .incremental => break :blk try module.zig_cache_artifact_directory.join(
+                    arena,
+                    &[_][]const u8{obj_basename},
+                ),
+                .whole => break :blk try fs.path.join(arena, &.{
+                    fs.path.dirname(full_out_path).?, obj_basename,
+                }),
+            }
         }
 
         try self.flushModule(comp);
-        const obj_basename = self.base.intermediary_basename.?;
-        const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
-        break :blk full_obj_path;
+
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
+        } else {
+            break :blk self.base.intermediary_basename.?;
+        }
     } else null;
 
     const is_obj = self.base.options.output_mode == .Obj;
@@ -1357,9 +1413,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
+        comptime assert(Compilation.link_hash_implementation_version == 2);
+
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
-        try man.addListOfFiles(self.base.options.objects);
+        for (self.base.options.objects) |obj| {
+            _ = try man.addFile(obj.path, null);
+            man.hash.add(obj.must_link);
+        }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
@@ -1368,6 +1429,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
+        man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.add(stack_size);
         man.hash.addOptional(self.base.options.image_base_override);
         man.hash.add(gc_sections);
@@ -1385,6 +1447,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(self.base.options.z_noexecstack);
         man.hash.add(self.base.options.z_now);
         man.hash.add(self.base.options.z_relro);
+        man.hash.add(self.base.options.hash_style);
+        // strip does not need to go into the linker hash because it is part of the hash namespace
         if (self.base.options.link_libc) {
             man.hash.add(self.base.options.libc_installation != null);
             if (self.base.options.libc_installation) |libc_installation| {
@@ -1432,18 +1496,19 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         };
     }
 
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-
-    // Due to a deficiency in LLD, we need to special-case BPF to a simple file copy when generating
-    // relocatables. Normally, we would expect `lld -r` to work. However, because LLD wants to resolve
-    // BPF relocations which it shouldn't, it fails before even generating the relocatable.
-    if (self.base.options.output_mode == .Obj and (self.base.options.lto or target.isBpfFreestanding())) {
+    // Due to a deficiency in LLD, we need to special-case BPF to a simple file
+    // copy when generating relocatables. Normally, we would expect `lld -r` to work.
+    // However, because LLD wants to resolve BPF relocations which it shouldn't, it fails
+    // before even generating the relocatable.
+    if (self.base.options.output_mode == .Obj and
+        (self.base.options.lto or target.isBpfFreestanding()))
+    {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
             if (self.base.options.objects.len != 0)
-                break :blk self.base.options.objects[0];
+                break :blk self.base.options.objects[0].path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -1461,7 +1526,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(self.base.allocator);
         defer argv.deinit();
@@ -1489,6 +1553,17 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append(try std.fmt.allocPrint(arena, "-O{d}", .{
             self.base.options.linker_optimization,
         }));
+
+        if (self.base.options.entry) |entry| {
+            try argv.append("--entry");
+            try argv.append(entry);
+        }
+
+        switch (self.base.options.hash_style) {
+            .gnu => try argv.append("--hash-style=gnu"),
+            .sysv => try argv.append("--hash-style=sysv"),
+            .both => {}, // this is the default
+        }
 
         if (self.base.options.output_mode == .Exe) {
             try argv.append("-z");
@@ -1518,6 +1593,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
         if (self.base.options.rdynamic) {
             try argv.append("--export-dynamic");
+        }
+
+        if (self.base.options.strip) {
+            try argv.append("-s");
         }
 
         if (self.base.options.z_nodelete) {
@@ -1653,7 +1732,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         }
 
         // Positional arguments to the linker such as object files.
-        try argv.appendSlice(self.base.options.objects);
+        try argv.ensureUnusedCapacity(self.base.options.objects.len);
+        for (self.base.options.objects) |obj| {
+            argv.appendAssumeCapacity(obj.path);
+        }
 
         for (comp.c_object_table.keys()) |key| {
             try argv.append(key.status.success.object_path);
@@ -2081,7 +2163,7 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
             const sym = self.local_symbols.items[big_block.local_sym_index];
             const capacity = big_block.capacity(self.*);
             const ideal_capacity = padToIdeal(capacity);
-            const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
+            const ideal_capacity_end_vaddr = std.math.add(u64, sym.st_value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = sym.st_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
             const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
@@ -2267,8 +2349,7 @@ pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
 }
 
 fn deinitRelocs(gpa: Allocator, table: *File.DbgInfoTypeRelocsTable) void {
-    var it = table.valueIterator();
-    while (it.next()) |value| {
+    for (table.values()) |*value| {
         value.relocs.deinit(gpa);
     }
     table.deinit(gpa);
@@ -2341,14 +2422,26 @@ fn finishUpdateDecl(
     dbg_info_type_relocs: *File.DbgInfoTypeRelocsTable,
     dbg_info_buffer: *std.ArrayList(u8),
 ) !void {
+    // We need this for the duration of this function only so that for composite
+    // types such as []const u32, if the type *u32 is non-existent, we create
+    // it synthetically and store the backing bytes in this arena. After we are
+    // done with the relocations, we can safely deinit the entire memory slab.
+    // TODO currently, we do not store the relocations for future use, however,
+    // if that is the case, we should move memory management to a higher scope,
+    // such as linker scope, or whatnot.
+    var dbg_type_arena = std.heap.ArenaAllocator.init(self.base.allocator);
+    defer dbg_type_arena.deinit();
+
     // Now we emit the .debug_info types of the Decl. These will count towards the size of
     // the buffer, so we have to do it before computing the offset, and we can't perform the actual
     // relocations yet.
     {
-        var it = dbg_info_type_relocs.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
-            try self.addDbgInfoType(entry.key_ptr.*, dbg_info_buffer);
+        var it: usize = 0;
+        while (it < dbg_info_type_relocs.count()) : (it += 1) {
+            const ty = dbg_info_type_relocs.keys()[it];
+            const value_ptr = dbg_info_type_relocs.getPtr(ty).?;
+            value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
+            try self.addDbgInfoType(dbg_type_arena.allocator(), ty, dbg_info_buffer, dbg_info_type_relocs);
         }
     }
 
@@ -2359,8 +2452,7 @@ fn finishUpdateDecl(
 
     {
         // Now that we have the offset assigned we can finally perform type relocations.
-        var it = dbg_info_type_relocs.valueIterator();
-        while (it.next()) |value| {
+        for (dbg_info_type_relocs.values()) |value| {
             for (value.relocs.items) |off| {
                 mem.writeInt(
                     u32,
@@ -2439,7 +2531,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     try dbg_info_buffer.ensureUnusedCapacity(25 + decl_name_with_null.len);
 
     const fn_ret_type = decl.ty.fnReturnType();
-    const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
+    const fn_ret_has_bits = fn_ret_type.hasRuntimeBits();
     if (fn_ret_has_bits) {
         dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram);
     } else {
@@ -2664,7 +2756,15 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 }
 
 /// Asserts the type has codegen bits.
-fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !void {
+fn addDbgInfoType(
+    self: *Elf,
+    arena: Allocator,
+    ty: Type,
+    dbg_info_buffer: *std.ArrayList(u8),
+    dbg_info_type_relocs: *File.DbgInfoTypeRelocsTable,
+) error{OutOfMemory}!void {
+    var relocs = std.ArrayList(struct { ty: Type, reloc: u32 }).init(arena);
+
     switch (ty.zigTypeTag()) {
         .Void => unreachable,
         .NoReturn => unreachable,
@@ -2705,10 +2805,64 @@ fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !vo
                 try dbg_info_buffer.append(abbrev_pad1);
             }
         },
+        .Pointer => {
+            if (ty.isSlice()) {
+                // Slices are anonymous structs: struct { .ptr = *, .len = N }
+                try dbg_info_buffer.ensureUnusedCapacity(23);
+                // DW.AT.structure_type
+                dbg_info_buffer.appendAssumeCapacity(abbrev_anon_struct_type);
+                // DW.AT.byte_size, DW.FORM.sdata
+                dbg_info_buffer.appendAssumeCapacity(16);
+                // DW.AT.member
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("ptr");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                var index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                var buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
+                const ptr_ty = ty.slicePtrFieldType(buf);
+                try relocs.append(.{ .ty = ptr_ty, .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.member
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("len");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = Type.initTag(.usize), .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                dbg_info_buffer.appendAssumeCapacity(8);
+                // DW.AT.structure_type delimit children
+                dbg_info_buffer.appendAssumeCapacity(0);
+            } else {
+                try dbg_info_buffer.ensureUnusedCapacity(5);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_ptr_type);
+                // DW.AT.type, DW.FORM.ref4
+                const index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = ty.childType(), .reloc = @intCast(u32, index) });
+            }
+        },
         else => {
             log.debug("TODO implement .debug_info for type '{}'", .{ty});
             try dbg_info_buffer.append(abbrev_pad1);
         },
+    }
+
+    for (relocs.items) |rel| {
+        const gop = try dbg_info_type_relocs.getOrPut(self.base.allocator, rel.ty);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{
+                .off = undefined,
+                .relocs = .{},
+            };
+        }
+        try gop.value_ptr.relocs.append(self.base.allocator, rel.reloc);
     }
 }
 
@@ -2852,7 +3006,8 @@ pub fn updateDeclExports(
         const stb_bits: u8 = switch (exp.options.linkage) {
             .Internal => elf.STB_LOCAL,
             .Strong => blk: {
-                if (mem.eql(u8, exp.options.name, "_start")) {
+                const entry_name = self.base.options.entry orelse "_start";
+                if (mem.eql(u8, exp.options.name, entry_name)) {
                     self.entry_addr = decl_sym.st_value;
                 }
                 break :blk elf.STB_GLOBAL;

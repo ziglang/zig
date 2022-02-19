@@ -72,6 +72,79 @@ fn testOneClz(comptime T: type, x: T) u32 {
     return @clz(T, x);
 }
 
+test "@clz vectors" {
+    try testClzVectors();
+    comptime try testClzVectors();
+}
+
+fn testClzVectors() !void {
+    @setEvalBranchQuota(10_000);
+    try testOneClzVector(u8, 64, @splat(64, @as(u8, 0b10001010)), @splat(64, @as(u4, 0)));
+    try testOneClzVector(u8, 64, @splat(64, @as(u8, 0b00001010)), @splat(64, @as(u4, 4)));
+    try testOneClzVector(u8, 64, @splat(64, @as(u8, 0b00011010)), @splat(64, @as(u4, 3)));
+    try testOneClzVector(u8, 64, @splat(64, @as(u8, 0b00000000)), @splat(64, @as(u4, 8)));
+    try testOneClzVector(u128, 64, @splat(64, @as(u128, 0xffffffffffffffff)), @splat(64, @as(u8, 64)));
+    try testOneClzVector(u128, 64, @splat(64, @as(u128, 0x10000000000000000)), @splat(64, @as(u8, 63)));
+}
+
+fn testOneClzVector(
+    comptime T: type,
+    comptime len: u32,
+    x: @Vector(len, T),
+    expected: @Vector(len, u32),
+) !void {
+    try expectVectorsEqual(@clz(T, x), expected);
+}
+
+fn expectVectorsEqual(a: anytype, b: anytype) !void {
+    const len_a = @typeInfo(@TypeOf(a)).Vector.len;
+    const len_b = @typeInfo(@TypeOf(b)).Vector.len;
+    try expect(len_a == len_b);
+
+    var i: usize = 0;
+    while (i < len_a) : (i += 1) {
+        try expect(a[i] == b[i]);
+    }
+}
+
+test "@ctz" {
+    try testCtz();
+    comptime try testCtz();
+}
+
+fn testCtz() !void {
+    try expect(testOneCtz(u8, 0b10100000) == 5);
+    try expect(testOneCtz(u8, 0b10001010) == 1);
+    try expect(testOneCtz(u8, 0b00000000) == 8);
+    try expect(testOneCtz(u16, 0b00000000) == 16);
+}
+
+fn testOneCtz(comptime T: type, x: T) u32 {
+    return @ctz(T, x);
+}
+
+test "@ctz vectors" {
+    try testCtzVectors();
+    comptime try testCtzVectors();
+}
+
+fn testCtzVectors() !void {
+    @setEvalBranchQuota(10_000);
+    try testOneCtzVector(u8, 64, @splat(64, @as(u8, 0b10100000)), @splat(64, @as(u4, 5)));
+    try testOneCtzVector(u8, 64, @splat(64, @as(u8, 0b10001010)), @splat(64, @as(u4, 1)));
+    try testOneCtzVector(u8, 64, @splat(64, @as(u8, 0b00000000)), @splat(64, @as(u4, 8)));
+    try testOneCtzVector(u16, 64, @splat(64, @as(u16, 0b00000000)), @splat(64, @as(u5, 16)));
+}
+
+fn testOneCtzVector(
+    comptime T: type,
+    comptime len: u32,
+    x: @Vector(len, T),
+    expected: @Vector(len, u32),
+) !void {
+    try expectVectorsEqual(@ctz(T, x), expected);
+}
+
 test "const number literal" {
     const one = 1;
     const eleven = ten + one;

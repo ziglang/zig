@@ -244,6 +244,9 @@ pub extern "c" fn sem_trywait(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_timedwait(sem: *c.sem_t, abs_timeout: *const c.timespec) c_int;
 pub extern "c" fn sem_getvalue(sem: *c.sem_t, sval: *c_int) c_int;
 
+pub extern "c" fn shm_open(name: [*:0]const u8, flag: c_int, mode: c.mode_t) c_int;
+pub extern "c" fn shm_unlink(name: [*:0]const u8) c_int;
+
 pub extern "c" fn kqueue() c_int;
 pub extern "c" fn kevent(
     kq: c_int,
@@ -356,6 +359,8 @@ pub extern "c" fn syslog(priority: c_int, message: [*:0]const u8, ...) void;
 pub extern "c" fn openlog(ident: [*:0]const u8, logopt: c_int, facility: c_int) void;
 pub extern "c" fn closelog() void;
 pub extern "c" fn setlogmask(maskpri: c_int) c_int;
+
+pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
 pub const max_align_t = if (builtin.abi == .msvc)
     f64

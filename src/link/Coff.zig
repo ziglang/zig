@@ -129,11 +129,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     assert(options.object_format == .coff);
 
     if (build_options.have_llvm and options.use_llvm) {
-        const self = try createEmpty(allocator, options);
-        errdefer self.base.destroy();
-
-        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
-        return self;
+        return createEmpty(allocator, options);
     }
 
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
@@ -403,6 +399,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
         else => return error.UnsupportedCOFFArchitecture,
     };
     const self = try gpa.create(Coff);
+    errdefer gpa.destroy(self);
     self.* = .{
         .base = .{
             .tag = .coff,
@@ -412,6 +409,12 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
         },
         .ptr_width = ptr_width,
     };
+
+    const use_llvm = build_options.have_llvm and options.use_llvm;
+    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    if (use_llvm and !use_stage1) {
+        self.llvm_object = try LlvmObject.create(gpa, options);
+    }
     return self;
 }
 
@@ -817,6 +820,14 @@ pub fn updateDeclExports(
 }
 
 pub fn flush(self: *Coff, comp: *Compilation) !void {
+    if (self.base.options.emit == null) {
+        if (build_options.have_llvm) {
+            if (self.llvm_object) |llvm_object| {
+                return try llvm_object.flushModule(comp);
+            }
+        }
+        return;
+    }
     if (build_options.have_llvm and self.base.options.use_lld) {
         return self.linkWithLLD(comp);
     } else {
@@ -880,6 +891,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     const arena = arena_allocator.allocator();
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -891,15 +903,24 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = module.zig_cache_artifact_directory;
-            const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
-            break :blk full_obj_path;
+            switch (self.base.options.cache_mode) {
+                .incremental => break :blk try module.zig_cache_artifact_directory.join(
+                    arena,
+                    &[_][]const u8{obj_basename},
+                ),
+                .whole => break :blk try fs.path.join(arena, &.{
+                    fs.path.dirname(full_out_path).?, obj_basename,
+                }),
+            }
         }
 
         try self.flushModule(comp);
-        const obj_basename = self.base.intermediary_basename.?;
-        const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
-        break :blk full_obj_path;
+
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
+        } else {
+            break :blk self.base.intermediary_basename.?;
+        }
     } else null;
 
     const is_lib = self.base.options.output_mode == .Lib;
@@ -920,11 +941,17 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        try man.addListOfFiles(self.base.options.objects);
+        comptime assert(Compilation.link_hash_implementation_version == 2);
+
+        for (self.base.options.objects) |obj| {
+            _ = try man.addFile(obj.path, null);
+            man.hash.add(obj.must_link);
+        }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
+        man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.addOptional(self.base.options.image_base_override);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
@@ -945,6 +972,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         man.hash.add(self.base.options.tsaware);
         man.hash.add(self.base.options.nxcompat);
         man.hash.add(self.base.options.dynamicbase);
+        // strip does not need to go into the linker hash because it is part of the hash namespace
         man.hash.addOptional(self.base.options.major_subsystem_version);
         man.hash.addOptional(self.base.options.minor_subsystem_version);
 
@@ -976,14 +1004,13 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         };
     }
 
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
     if (self.base.options.output_mode == .Obj) {
         // LLD's COFF driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
             if (self.base.options.objects.len != 0)
-                break :blk self.base.options.objects[0];
+                break :blk self.base.options.objects[0].path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -1045,6 +1072,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             try argv.append("-DLL");
         }
 
+        if (self.base.options.entry) |entry| {
+            try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{entry}));
+        }
+
         if (self.base.options.tsaware) {
             try argv.append("-tsaware");
         }
@@ -1088,7 +1119,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{lib_dir}));
         }
 
-        try argv.appendSlice(self.base.options.objects);
+        try argv.ensureUnusedCapacity(self.base.options.objects.len);
+        for (self.base.options.objects) |obj| {
+            argv.appendAssumeCapacity(obj.path);
+        }
 
         for (comp.c_object_table.keys()) |key| {
             try argv.append(key.status.success.object_path);

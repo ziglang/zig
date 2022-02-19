@@ -47,9 +47,15 @@ pub const hasher_init: Hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
 pub const File = struct {
     path: ?[]const u8,
     max_file_size: ?usize,
-    stat: fs.File.Stat,
+    stat: Stat,
     bin_digest: BinDigest,
     contents: ?[]const u8,
+
+    pub const Stat = struct {
+        inode: fs.File.INode,
+        size: u64,
+        mtime: i128,
+    };
 
     pub fn deinit(self: *File, allocator: Allocator) void {
         if (self.path) |owned_slice| {
@@ -424,7 +430,11 @@ pub const Manifest = struct {
             if (!size_match or !mtime_match or !inode_match) {
                 self.manifest_dirty = true;
 
-                cache_hash_file.stat = actual_stat;
+                cache_hash_file.stat = .{
+                    .size = actual_stat.size,
+                    .mtime = actual_stat.mtime,
+                    .inode = actual_stat.inode,
+                };
 
                 if (self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
                     // The actual file has an unreliable timestamp, force it to be hashed
@@ -530,7 +540,12 @@ pub const Manifest = struct {
         const file = try fs.cwd().openFile(ch_file.path.?, .{});
         defer file.close();
 
-        ch_file.stat = try file.stat();
+        const actual_stat = try file.stat();
+        ch_file.stat = .{
+            .size = actual_stat.size,
+            .mtime = actual_stat.mtime,
+            .inode = actual_stat.inode,
+        };
 
         if (self.isProblematicTimestamp(ch_file.stat.mtime)) {
             // The actual file has an unreliable timestamp, force it to be hashed
@@ -613,6 +628,42 @@ pub const Manifest = struct {
         errdefer self.files.shrinkRetainingCapacity(self.files.items.len - 1);
 
         try self.populateFileHash(new_ch_file);
+    }
+
+    /// Like `addFilePost` but when the file contents have already been loaded from disk.
+    /// On success, cache takes ownership of `resolved_path`.
+    pub fn addFilePostContents(
+        self: *Manifest,
+        resolved_path: []const u8,
+        bytes: []const u8,
+        stat: File.Stat,
+    ) error{OutOfMemory}!void {
+        assert(self.manifest_file != null);
+
+        const ch_file = try self.files.addOne(self.cache.gpa);
+        errdefer self.files.shrinkRetainingCapacity(self.files.items.len - 1);
+
+        ch_file.* = .{
+            .path = resolved_path,
+            .max_file_size = null,
+            .stat = stat,
+            .bin_digest = undefined,
+            .contents = null,
+        };
+
+        if (self.isProblematicTimestamp(ch_file.stat.mtime)) {
+            // The actual file has an unreliable timestamp, force it to be hashed
+            ch_file.stat.mtime = 0;
+            ch_file.stat.inode = 0;
+        }
+
+        {
+            var hasher = hasher_init;
+            hasher.update(bytes);
+            hasher.final(&ch_file.bin_digest);
+        }
+
+        self.hash.hasher.update(&ch_file.bin_digest);
     }
 
     pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {

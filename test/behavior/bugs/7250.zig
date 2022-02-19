@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const nrfx_uart_t = extern struct {
     p_reg: [*c]u32,
     drv_inst_idx: u8,
@@ -13,5 +14,8 @@ threadlocal var g_uart0 = nrfx_uart_t{
 };
 
 test "reference a global threadlocal variable" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     _ = nrfx_uart_rx(&g_uart0);
 }

@@ -920,7 +920,7 @@ pub fn initDeclDebugBuffers(
             try dbg_info_buffer.ensureUnusedCapacity(27 + decl_name_with_null.len);
 
             const fn_ret_type = decl.ty.fnReturnType();
-            const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
+            const fn_ret_has_bits = fn_ret_type.hasRuntimeBits();
             if (fn_ret_has_bits) {
                 dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram);
             } else {
@@ -1112,8 +1112,7 @@ pub fn commitDeclDebugInfo(
 
     {
         // Now that we have the offset assigned we can finally perform type relocations.
-        var it = dbg_info_type_relocs.valueIterator();
-        while (it.next()) |value| {
+        for (dbg_info_type_relocs.values()) |value| {
             for (value.relocs.items) |off| {
                 mem.writeIntLittle(
                     u32,

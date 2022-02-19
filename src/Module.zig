@@ -33,7 +33,7 @@ const build_options = @import("build_options");
 gpa: Allocator,
 comp: *Compilation,
 
-/// Where our incremental compilation metadata serialization will go.
+/// Where build artifacts and incremental compilation metadata serialization go.
 zig_cache_artifact_directory: Compilation.Directory,
 /// Pointer to externally managed resource.
 root_pkg: *Package,
@@ -558,14 +558,14 @@ pub const Decl = struct {
         if (!decl.has_align) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope().zir;
-        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 7]);
+        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 8]);
     }
 
     pub fn zirLinksectionRef(decl: Decl) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope().zir;
-        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align);
+        const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align);
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
@@ -573,7 +573,7 @@ pub const Decl = struct {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope().zir;
-        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align) + 1;
+        const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align) + 1;
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
@@ -783,6 +783,16 @@ pub const Decl = struct {
             return decl.ty.abiAlignment(target);
         }
     }
+
+    pub fn markAlive(decl: *Decl) void {
+        if (decl.alive) return;
+        decl.alive = true;
+
+        // This is the first time we are marking this Decl alive. We must
+        // therefore recurse into its value and mark any Decl it references
+        // as also alive, so that any Decl referenced does not get garbage collected.
+        decl.val.markReferencedDeclsAlive();
+    }
 };
 
 /// This state is attached to every Decl when Module emit_h is non-null.
@@ -811,6 +821,8 @@ pub const ErrorSet = struct {
     }
 };
 
+pub const RequiresComptime = enum { no, yes, unknown, wip };
+
 /// Represents the data that a struct declaration provides.
 pub const Struct = struct {
     /// The Decl that corresponds to the struct itself.
@@ -831,10 +843,17 @@ pub const Struct = struct {
         have_field_types,
         layout_wip,
         have_layout,
+        fully_resolved_wip,
+        // The types and all its fields have had their layout resolved. Even through pointer,
+        // which `have_layout` does not ensure.
+        fully_resolved,
     },
-    /// If true, definitely nonzero size at runtime. If false, resolving the fields
-    /// is necessary to determine whether it has bits at runtime.
-    known_has_bits: bool,
+    /// If true, has more than one possible value. However it may still be non-runtime type
+    /// if it is a comptime-only type.
+    /// If false, resolving the fields is necessary to determine whether the type has only
+    /// one possible value.
+    known_non_opv: bool,
+    requires_comptime: RequiresComptime = .unknown,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
@@ -881,6 +900,47 @@ pub const Struct = struct {
         };
     }
 
+    pub fn fieldSrcLoc(s: Struct, gpa: Allocator, query: FieldSrcQuery) SrcLoc {
+        @setCold(true);
+        const tree = s.owner_decl.getFileScope().getTree(gpa) catch |err| {
+            // In this case we emit a warning + a less precise source location.
+            log.warn("unable to load {s}: {s}", .{
+                s.owner_decl.getFileScope().sub_file_path, @errorName(err),
+            });
+            return s.srcLoc();
+        };
+        const node = s.owner_decl.relativeToNodeIndex(s.node_offset);
+        const node_tags = tree.nodes.items(.tag);
+        const file = s.owner_decl.getFileScope();
+        switch (node_tags[node]) {
+            .container_decl,
+            .container_decl_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
+            .container_decl_two, .container_decl_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
+            },
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
+
+            .tagged_union,
+            .tagged_union_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnion(node)),
+            .tagged_union_two, .tagged_union_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.taggedUnionTwo(&buffer, node));
+            },
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
+
+            .root => return queryFieldSrc(tree.*, query, file, tree.containerDeclRoot()),
+
+            else => unreachable,
+        }
+    }
+
     pub fn haveFieldTypes(s: Struct) bool {
         return switch (s.status) {
             .none,
@@ -889,6 +949,22 @@ pub const Struct = struct {
             .have_field_types,
             .layout_wip,
             .have_layout,
+            .fully_resolved_wip,
+            .fully_resolved,
+            => true,
+        };
+    }
+
+    pub fn haveLayout(s: Struct) bool {
+        return switch (s.status) {
+            .none,
+            .field_types_wip,
+            .have_field_types,
+            .layout_wip,
+            => false,
+            .have_layout,
+            .fully_resolved_wip,
+            .fully_resolved,
             => true,
         };
     }
@@ -1003,7 +1079,12 @@ pub const Union = struct {
         have_field_types,
         layout_wip,
         have_layout,
+        fully_resolved_wip,
+        // The types and all its fields have had their layout resolved. Even through pointer,
+        // which `have_layout` does not ensure.
+        fully_resolved,
     },
+    requires_comptime: RequiresComptime = .unknown,
 
     pub const Field = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.
@@ -1025,6 +1106,33 @@ pub const Union = struct {
         };
     }
 
+    pub fn fieldSrcLoc(u: Union, gpa: Allocator, query: FieldSrcQuery) SrcLoc {
+        @setCold(true);
+        const tree = u.owner_decl.getFileScope().getTree(gpa) catch |err| {
+            // In this case we emit a warning + a less precise source location.
+            log.warn("unable to load {s}: {s}", .{
+                u.owner_decl.getFileScope().sub_file_path, @errorName(err),
+            });
+            return u.srcLoc();
+        };
+        const node = u.owner_decl.relativeToNodeIndex(u.node_offset);
+        const node_tags = tree.nodes.items(.tag);
+        const file = u.owner_decl.getFileScope();
+        switch (node_tags[node]) {
+            .container_decl,
+            .container_decl_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
+            .container_decl_two, .container_decl_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
+            },
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
+            else => unreachable,
+        }
+    }
+
     pub fn haveFieldTypes(u: Union) bool {
         return switch (u.status) {
             .none,
@@ -1033,6 +1141,8 @@ pub const Union = struct {
             .have_field_types,
             .layout_wip,
             .have_layout,
+            .fully_resolved_wip,
+            .fully_resolved,
             => true,
         };
     }
@@ -1040,7 +1150,7 @@ pub const Union = struct {
     pub fn hasAllZeroBitFieldTypes(u: Union) bool {
         assert(u.haveFieldTypes());
         for (u.fields.values()) |field| {
-            if (field.ty.hasCodeGenBits()) return false;
+            if (field.ty.hasRuntimeBits()) return false;
         }
         return true;
     }
@@ -1050,7 +1160,7 @@ pub const Union = struct {
         var most_alignment: u32 = 0;
         var most_index: usize = undefined;
         for (u.fields.values()) |field, i| {
-            if (!field.ty.hasCodeGenBits()) continue;
+            if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
                 if (field.abi_align.tag() == .abi_align_default) {
@@ -1071,7 +1181,7 @@ pub const Union = struct {
         var max_align: u32 = 0;
         if (have_tag) max_align = u.tag_ty.abiAlignment(target);
         for (u.fields.values()) |field| {
-            if (!field.ty.hasCodeGenBits()) continue;
+            if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
                 if (field.abi_align.tag() == .abi_align_default) {
@@ -1102,18 +1212,29 @@ pub const Union = struct {
         tag_size: u64,
     };
 
-    pub fn getLayout(u: Union, target: Target, have_tag: bool) Layout {
-        assert(u.status == .have_layout);
-        const is_packed = u.layout == .Packed;
-        if (is_packed) @panic("TODO packed unions");
+    pub fn haveLayout(u: Union) bool {
+        return switch (u.status) {
+            .none,
+            .field_types_wip,
+            .have_field_types,
+            .layout_wip,
+            => false,
+            .have_layout,
+            .fully_resolved_wip,
+            .fully_resolved,
+            => true,
+        };
+    }
 
-        var most_aligned_field: usize = undefined;
+    pub fn getLayout(u: Union, target: Target, have_tag: bool) Layout {
+        assert(u.haveLayout());
+        var most_aligned_field: u32 = undefined;
         var most_aligned_field_size: u64 = undefined;
-        var biggest_field: usize = undefined;
+        var biggest_field: u32 = undefined;
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
         for (u.fields.values()) |field, i| {
-            if (!field.ty.hasCodeGenBits()) continue;
+            if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
                 if (field.abi_align.tag() == .abi_align_default) {
@@ -1125,20 +1246,21 @@ pub const Union = struct {
             const field_size = field.ty.abiSize(target);
             if (field_size > payload_size) {
                 payload_size = field_size;
-                biggest_field = i;
+                biggest_field = @intCast(u32, i);
             }
             if (field_align > payload_align) {
                 payload_align = field_align;
-                most_aligned_field = i;
+                most_aligned_field = @intCast(u32, i);
                 most_aligned_field_size = field_size;
             }
         }
+        payload_align = @maximum(payload_align, 1);
         if (!have_tag) return .{
             .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
             .abi_align = payload_align,
-            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field = most_aligned_field,
             .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = @intCast(u32, biggest_field),
+            .biggest_field = biggest_field,
             .payload_size = payload_size,
             .payload_align = payload_align,
             .tag_align = 0,
@@ -1147,7 +1269,7 @@ pub const Union = struct {
         // Put the tag before or after the payload depending on which one's
         // alignment is greater.
         const tag_size = u.tag_ty.abiSize(target);
-        const tag_align = u.tag_ty.abiAlignment(target);
+        const tag_align = @maximum(1, u.tag_ty.abiAlignment(target));
         var size: u64 = 0;
         if (tag_align >= payload_align) {
             // {Tag, Payload}
@@ -1165,9 +1287,9 @@ pub const Union = struct {
         return .{
             .abi_size = size,
             .abi_align = @maximum(tag_align, payload_align),
-            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field = most_aligned_field,
             .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = @intCast(u32, biggest_field),
+            .biggest_field = biggest_field,
             .payload_size = payload_size,
             .payload_align = payload_align,
             .tag_align = tag_align,
@@ -1465,11 +1587,7 @@ pub const File = struct {
     /// Whether this is populated depends on `source_loaded`.
     source: [:0]const u8,
     /// Whether this is populated depends on `status`.
-    stat_size: u64,
-    /// Whether this is populated depends on `status`.
-    stat_inode: std.fs.File.INode,
-    /// Whether this is populated depends on `status`.
-    stat_mtime: i128,
+    stat: Cache.File.Stat,
     /// Whether this is populated or not depends on `tree_loaded`.
     tree: Ast,
     /// Whether this is populated or not depends on `zir_loaded`.
@@ -1537,8 +1655,16 @@ pub const File = struct {
         file.* = undefined;
     }
 
-    pub fn getSource(file: *File, gpa: Allocator) ![:0]const u8 {
-        if (file.source_loaded) return file.source;
+    pub const Source = struct {
+        bytes: [:0]const u8,
+        stat: Cache.File.Stat,
+    };
+
+    pub fn getSource(file: *File, gpa: Allocator) !Source {
+        if (file.source_loaded) return Source{
+            .bytes = file.source,
+            .stat = file.stat,
+        };
 
         const root_dir_path = file.pkg.root_src_directory.path orelse ".";
         log.debug("File.getSource, not cached. pkgdir={s} sub_file_path={s}", .{
@@ -1567,14 +1693,21 @@ pub const File = struct {
 
         file.source = source;
         file.source_loaded = true;
-        return source;
+        return Source{
+            .bytes = source,
+            .stat = .{
+                .size = stat.size,
+                .inode = stat.inode,
+                .mtime = stat.mtime,
+            },
+        };
     }
 
     pub fn getTree(file: *File, gpa: Allocator) !*const Ast {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try std.zig.parse(gpa, source);
+        file.tree = try std.zig.parse(gpa, source.bytes);
         file.tree_loaded = true;
         return &file.tree;
     }
@@ -1614,6 +1747,11 @@ pub const File = struct {
         return file.pkg.root_src_directory.join(ally, &[_][]const u8{file.sub_file_path});
     }
 
+    /// Returns the full path to this file relative to its package.
+    pub fn fullPathZ(file: File, ally: Allocator) ![:0]u8 {
+        return file.pkg.root_src_directory.joinZ(ally, &[_][]const u8{file.sub_file_path});
+    }
+
     pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
         const loc = std.zig.findLineColumn(file.source.bytes, src);
         std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
@@ -1633,9 +1771,7 @@ pub const EmbedFile = struct {
     /// Memory is stored in gpa, owned by EmbedFile.
     sub_file_path: []const u8,
     bytes: [:0]const u8,
-    stat_size: u64,
-    stat_inode: std.fs.File.INode,
-    stat_mtime: i128,
+    stat: Cache.File.Stat,
     /// Package that this file is a part of, managed externally.
     pkg: *Package,
     /// The Decl that was created from the `@embedFile` to own this resource.
@@ -2424,6 +2560,9 @@ pub const CompileError = error{
     /// In a comptime scope, a return instruction was encountered. This error is only seen when
     /// doing a comptime function call.
     ComptimeReturn,
+    /// In a comptime scope, a break instruction was encountered. This error is only seen when
+    /// evaluating a comptime block.
+    ComptimeBreak,
 };
 
 pub fn deinit(mod: *Module) void {
@@ -2706,9 +2845,11 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             keep_zir = true;
             file.zir = zir;
             file.zir_loaded = true;
-            file.stat_size = header.stat_size;
-            file.stat_inode = header.stat_inode;
-            file.stat_mtime = header.stat_mtime;
+            file.stat = .{
+                .size = header.stat_size,
+                .inode = header.stat_inode,
+                .mtime = header.stat_mtime,
+            };
             file.status = .success_zir;
             log.debug("AstGen cached success: {s}", .{file.sub_file_path});
 
@@ -2726,9 +2867,9 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         },
         .parse_failure, .astgen_failure, .success_zir => {
             const unchanged_metadata =
-                stat.size == file.stat_size and
-                stat.mtime == file.stat_mtime and
-                stat.inode == file.stat_inode;
+                stat.size == file.stat.size and
+                stat.mtime == file.stat.mtime and
+                stat.inode == file.stat.inode;
 
             if (unchanged_metadata) {
                 log.debug("unmodified metadata of file: {s}", .{file.sub_file_path});
@@ -2789,9 +2930,11 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     if (amt != stat.size)
         return error.UnexpectedEndOfFile;
 
-    file.stat_size = stat.size;
-    file.stat_inode = stat.inode;
-    file.stat_mtime = stat.mtime;
+    file.stat = .{
+        .size = stat.size,
+        .inode = stat.inode,
+        .mtime = stat.mtime,
+    };
     file.source = source;
     file.source_loaded = true;
 
@@ -3071,9 +3214,11 @@ pub fn populateBuiltinFile(mod: *Module) !void {
 
             try writeBuiltinFile(file, builtin_pkg);
         } else {
-            file.stat_size = stat.size;
-            file.stat_inode = stat.inode;
-            file.stat_mtime = stat.mtime;
+            file.stat = .{
+                .size = stat.size,
+                .inode = stat.inode,
+                .mtime = stat.mtime,
+            };
         }
     } else |err| switch (err) {
         error.BadPathName => unreachable, // it's always "builtin.zig"
@@ -3101,9 +3246,11 @@ pub fn writeBuiltinFile(file: *File, builtin_pkg: *Package) !void {
     try af.file.writeAll(file.source);
     try af.finish();
 
-    file.stat_size = file.source.len;
-    file.stat_inode = 0; // dummy value
-    file.stat_mtime = 0; // dummy value
+    file.stat = .{
+        .size = file.source.len,
+        .inode = 0, // dummy value
+        .mtime = 0, // dummy value
+    };
 }
 
 pub fn mapOldZirToNew(
@@ -3314,7 +3461,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .zir_index = undefined, // set below
         .layout = .Auto,
         .status = .none,
-        .known_has_bits = undefined,
+        .known_non_opv = undefined,
         .namespace = .{
             .parent = null,
             .ty = struct_ty,
@@ -3381,6 +3528,19 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         } else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {},
+        }
+
+        if (mod.comp.whole_cache_manifest) |man| {
+            const source = file.getSource(gpa) catch |err| {
+                try reportRetryableFileError(mod, file, "unable to load source: {s}", .{@errorName(err)});
+                return error.AnalysisFail;
+            };
+            const resolved_path = try file.pkg.root_src_directory.join(gpa, &.{
+                file.sub_file_path,
+            });
+            errdefer gpa.free(resolved_path);
+
+            try man.addFilePostContents(resolved_path, source.bytes, source.stat);
         }
     } else {
         new_decl.analysis = .file_failure;
@@ -3538,7 +3698,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             var type_changed = true;
 
             if (decl.has_tv) {
-                prev_type_has_bits = decl.ty.hasCodeGenBits();
+                prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits();
                 type_changed = !decl.ty.eql(decl_tv.ty);
                 if (decl.getFunction()) |prev_func| {
                     prev_is_inline = prev_func.state == .inline_only;
@@ -3558,8 +3718,9 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             decl.analysis = .complete;
             decl.generation = mod.generation;
 
-            const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
-            if (!is_inline and decl_tv.ty.hasCodeGenBits()) {
+            const has_runtime_bits = try sema.fnHasRuntimeBits(&block_scope, src, decl.ty);
+
+            if (has_runtime_bits) {
                 // We don't fully codegen the decl until later, but we do need to reserve a global
                 // offset table index for it. This allows us to codegen decls out of dependency
                 // order, increasing how many computations can be done in parallel.
@@ -3572,6 +3733,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
                 mod.comp.bin_file.freeDecl(decl);
             }
 
+            const is_inline = decl.ty.fnCallingConvention() == .Inline;
             if (decl.is_exported) {
                 const export_src = src; // TODO make this point at `export` token
                 if (is_inline) {
@@ -3592,6 +3754,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     decl.owns_tv = false;
     var queue_linker_work = false;
+    var is_extern = false;
     switch (decl_tv.val.tag()) {
         .variable => {
             const variable = decl_tv.val.castTag(.variable).?.data;
@@ -3608,6 +3771,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             if (decl == owner_decl) {
                 decl.owns_tv = true;
                 queue_linker_work = true;
+                is_extern = true;
             }
         },
 
@@ -3633,7 +3797,10 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     decl.analysis = .complete;
     decl.generation = mod.generation;
 
-    if (queue_linker_work and decl.ty.hasCodeGenBits()) {
+    const has_runtime_bits = is_extern or
+        (queue_linker_work and try sema.typeHasRuntimeBits(&block_scope, src, decl.ty));
+
+    if (has_runtime_bits) {
         log.debug("queue linker work for {*} ({s})", .{ decl, decl.name });
 
         try mod.comp.bin_file.allocateDeclIndexes(decl);
@@ -3712,9 +3879,7 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
         .source_loaded = false,
         .tree_loaded = false,
         .zir_loaded = false,
-        .stat_size = undefined,
-        .stat_inode = undefined,
-        .stat_mtime = undefined,
+        .stat = undefined,
         .tree = undefined,
         .zir = undefined,
         .status = .never_loaded,
@@ -3782,9 +3947,7 @@ pub fn importFile(
         .source_loaded = false,
         .tree_loaded = false,
         .zir_loaded = false,
-        .stat_size = undefined,
-        .stat_inode = undefined,
-        .stat_mtime = undefined,
+        .stat = undefined,
         .tree = undefined,
         .zir = undefined,
         .status = .never_loaded,
@@ -3829,8 +3992,13 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     var file = try cur_file.pkg.root_src_directory.handle.openFile(sub_file_path, .{});
     defer file.close();
 
-    const stat = try file.stat();
-    const size_usize = try std.math.cast(usize, stat.size);
+    const actual_stat = try file.stat();
+    const stat: Cache.File.Stat = .{
+        .size = actual_stat.size,
+        .inode = actual_stat.inode,
+        .mtime = actual_stat.mtime,
+    };
+    const size_usize = try std.math.cast(usize, actual_stat.size);
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     errdefer gpa.free(bytes);
 
@@ -3838,14 +4006,18 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
         resolved_root_path, resolved_path, sub_file_path, rel_file_path,
     });
 
+    if (mod.comp.whole_cache_manifest) |man| {
+        const copied_resolved_path = try gpa.dupe(u8, resolved_path);
+        errdefer gpa.free(copied_resolved_path);
+        try man.addFilePostContents(copied_resolved_path, bytes, stat);
+    }
+
     keep_resolved_path = true; // It's now owned by embed_table.
     gop.value_ptr.* = new_file;
     new_file.* = .{
         .sub_file_path = sub_file_path,
         .bytes = bytes,
-        .stat_size = stat.size,
-        .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat = stat,
         .pkg = cur_file.pkg,
         .owner_decl = undefined, // Set by Sema immediately after this function returns.
     };
@@ -3859,9 +4031,9 @@ pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
     const stat = try file.stat();
 
     const unchanged_metadata =
-        stat.size == embed_file.stat_size and
-        stat.mtime == embed_file.stat_mtime and
-        stat.inode == embed_file.stat_inode;
+        stat.size == embed_file.stat.size and
+        stat.mtime == embed_file.stat.mtime and
+        stat.inode == embed_file.stat.inode;
 
     if (unchanged_metadata) return;
 
@@ -3870,9 +4042,11 @@ pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     gpa.free(embed_file.bytes);
     embed_file.bytes = bytes;
-    embed_file.stat_size = stat.size;
-    embed_file.stat_mtime = stat.mtime;
-    embed_file.stat_inode = stat.inode;
+    embed_file.stat = .{
+        .size = stat.size,
+        .mtime = stat.mtime,
+        .inode = stat.inode,
+    };
 
     mod.comp.mutex.lock();
     defer mod.comp.mutex.unlock();
@@ -3914,7 +4088,7 @@ pub fn scanNamespace(
         cur_bit_bag >>= 4;
 
         const decl_sub_index = extra_index;
-        extra_index += 7; // src_hash(4) + line(1) + name(1) + value(1)
+        extra_index += 8; // src_hash(4) + line(1) + name(1) + value(1) + doc_comment(1)
         extra_index += @truncate(u1, flags >> 2); // Align
         extra_index += @as(u2, @truncate(u1, flags >> 3)) * 2; // Link section or address space, consists of 2 Refs
 
@@ -4127,7 +4301,7 @@ pub fn clearDecl(
     mod.deleteDeclExports(decl);
 
     if (decl.has_tv) {
-        if (decl.ty.hasCodeGenBits()) {
+        if (decl.ty.isFnOrHasRuntimeBits()) {
             mod.comp.bin_file.freeDecl(decl);
 
             // TODO instead of a union, put this memory trailing Decl objects,
@@ -4180,7 +4354,7 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
     switch (mod.comp.bin_file.tag) {
         .c => {}, // this linker backend has already migrated to the new API
         else => if (decl.has_tv) {
-            if (decl.ty.hasCodeGenBits()) {
+            if (decl.ty.isFnOrHasRuntimeBits()) {
                 mod.comp.bin_file.freeDecl(decl);
             }
         },
@@ -4327,16 +4501,16 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
     var runtime_param_index: usize = 0;
     var total_param_index: usize = 0;
     for (fn_info.param_body) |inst| {
-        const name = switch (zir_tags[inst]) {
+        const param: struct { name: u32, src: LazySrcLoc } = switch (zir_tags[inst]) {
             .param, .param_comptime => blk: {
-                const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
-                const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index).data;
-                break :blk extra.name;
+                const pl_tok = sema.code.instructions.items(.data)[inst].pl_tok;
+                const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index).data;
+                break :blk .{ .name = extra.name, .src = pl_tok.src() };
             },
 
             .param_anytype, .param_anytype_comptime => blk: {
                 const str_tok = sema.code.instructions.items(.data)[inst].str_tok;
-                break :blk str_tok.start;
+                break :blk .{ .name = str_tok.start, .src = str_tok.src() };
             },
 
             else => continue,
@@ -4352,6 +4526,20 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             }
         }
         const param_type = fn_ty.fnParamType(runtime_param_index);
+        const opt_opv = sema.typeHasOnePossibleValue(&inner_block, param.src, param_type) catch |err| switch (err) {
+            error.NeededSourceLocation => unreachable,
+            error.GenericPoison => unreachable,
+            error.ComptimeReturn => unreachable,
+            error.ComptimeBreak => unreachable,
+            else => |e| return e,
+        };
+        if (opt_opv) |opv| {
+            const arg = try sema.addConstant(param_type, opv);
+            sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
+            total_param_index += 1;
+            runtime_param_index += 1;
+            continue;
+        }
         const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
@@ -4359,7 +4547,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             .tag = .arg,
             .data = .{ .ty_str = .{
                 .ty = ty_ref,
-                .str = name,
+                .str = param.name,
             } },
         });
         sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
@@ -4375,6 +4563,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
         error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
         error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
+        error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
         else => |e| return e,
     };
 
@@ -4550,8 +4739,8 @@ pub fn createAnonymousDeclFromDeclNamed(
     new_decl.src_line = src_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
-    new_decl.align_val = Value.initTag(.null_value);
-    new_decl.linksection_val = Value.initTag(.null_value);
+    new_decl.align_val = Value.@"null";
+    new_decl.linksection_val = Value.@"null";
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
@@ -4562,7 +4751,7 @@ pub fn createAnonymousDeclFromDeclNamed(
     // if the Decl is referenced by an instruction or another constant. Otherwise,
     // the Decl will be garbage collected by the `codegen_decl` task instead of sent
     // to the linker.
-    if (typed_value.ty.hasCodeGenBits()) {
+    if (typed_value.ty.isFnOrHasRuntimeBits()) {
         try mod.comp.bin_file.allocateDeclIndexes(new_decl);
         try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = new_decl });
     }
@@ -4793,6 +4982,55 @@ pub const PeerTypeCandidateSrc = union(enum) {
     }
 };
 
+const FieldSrcQuery = struct {
+    index: usize,
+    range: enum { name, type, value, alignment },
+};
+
+fn queryFieldSrc(
+    tree: Ast,
+    query: FieldSrcQuery,
+    file_scope: *File,
+    container_decl: Ast.full.ContainerDecl,
+) SrcLoc {
+    const node_tags = tree.nodes.items(.tag);
+    var field_index: usize = 0;
+    for (container_decl.ast.members) |member_node| {
+        const field = switch (node_tags[member_node]) {
+            .container_field_init => tree.containerFieldInit(member_node),
+            .container_field_align => tree.containerFieldAlign(member_node),
+            .container_field => tree.containerField(member_node),
+            else => continue,
+        };
+        if (field_index == query.index) {
+            return switch (query.range) {
+                .name => .{
+                    .file_scope = file_scope,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .token_abs = field.ast.name_token },
+                },
+                .type => .{
+                    .file_scope = file_scope,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .node_abs = field.ast.type_expr },
+                },
+                .value => .{
+                    .file_scope = file_scope,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .node_abs = field.ast.value_expr },
+                },
+                .alignment => .{
+                    .file_scope = file_scope,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .node_abs = field.ast.align_expr },
+                },
+            };
+        }
+        field_index += 1;
+    }
+    unreachable;
+}
+
 /// Called from `performAllTheWork`, after all AstGen workers have finished,
 /// and before the main semantic analysis loop begins.
 pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
@@ -4990,4 +5228,36 @@ pub fn linkerUpdateDecl(mod: *Module, decl: *Decl) !void {
             return;
         },
     };
+}
+
+fn reportRetryableFileError(
+    mod: *Module,
+    file: *File,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    file.status = .retryable_failure;
+
+    const err_msg = try ErrorMsg.create(
+        mod.gpa,
+        .{
+            .file_scope = file,
+            .parent_decl_node = 0,
+            .lazy = .entire_file,
+        },
+        format,
+        args,
+    );
+    errdefer err_msg.destroy(mod.gpa);
+
+    mod.comp.mutex.lock();
+    defer mod.comp.mutex.unlock();
+
+    const gop = try mod.failed_files.getOrPut(mod.gpa, file);
+    if (gop.found_existing) {
+        if (gop.value_ptr.*) |old_err_msg| {
+            old_err_msg.destroy(mod.gpa);
+        }
+    }
+    gop.value_ptr.* = err_msg;
 }

@@ -26,6 +26,15 @@
 #define ZIG_RESTRICT
 #endif
 
+#if __STDC_VERSION__ >= 201112L
+#include <stdalign.h>
+#define ZIG_ALIGN(alignment) alignas(alignment)
+#elif defined(__GNUC__)
+#define ZIG_ALIGN(alignment) __attribute__((aligned(alignment)))
+#else
+#define ZIG_ALIGN(alignment) zig_compile_error("the C compiler being used does not support aligning variables")
+#endif
+
 #if __STDC_VERSION__ >= 199901L
 #include <stdbool.h>
 #else
@@ -72,6 +81,12 @@
 #define zig_frame_address() __builtin_frame_address(0)
 #else
 #define zig_frame_address() 0
+#endif
+
+#if defined(__GNUC__)
+#define zig_prefetch(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
+#else
+#define zig_prefetch(addr, rw, locality)
 #endif
 
 #if __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)

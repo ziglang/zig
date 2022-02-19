@@ -521,69 +521,73 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub const LoadStoreOffsetImmediate = union(enum) {
+        post_index: i9,
+        pre_index: i9,
+        unsigned: u12,
+    };
+
+    pub const LoadStoreOffsetRegister = struct {
+        rm: u5,
+        shift: union(enum) {
+            uxtw: u2,
+            lsl: u2,
+            sxtw: u2,
+            sxtx: u2,
+        },
+    };
+
     /// Represents the offset operand of a load or store instruction.
     /// Data can be loaded from memory with either an immediate offset
     /// or an offset that is stored in some register.
     pub const LoadStoreOffset = union(enum) {
-        Immediate: union(enum) {
-            PostIndex: i9,
-            PreIndex: i9,
-            Unsigned: u12,
-        },
-        Register: struct {
-            rm: u5,
-            shift: union(enum) {
-                Uxtw: u2,
-                Lsl: u2,
-                Sxtw: u2,
-                Sxtx: u2,
-            },
-        },
+        immediate: LoadStoreOffsetImmediate,
+        register: LoadStoreOffsetRegister,
 
         pub const none = LoadStoreOffset{
-            .Immediate = .{ .Unsigned = 0 },
+            .immediate = .{ .unsigned = 0 },
         };
 
         pub fn toU12(self: LoadStoreOffset) u12 {
             return switch (self) {
-                .Immediate => |imm_type| switch (imm_type) {
-                    .PostIndex => |v| (@intCast(u12, @bitCast(u9, v)) << 2) + 1,
-                    .PreIndex => |v| (@intCast(u12, @bitCast(u9, v)) << 2) + 3,
-                    .Unsigned => |v| v,
+                .immediate => |imm_type| switch (imm_type) {
+                    .post_index => |v| (@intCast(u12, @bitCast(u9, v)) << 2) + 1,
+                    .pre_index => |v| (@intCast(u12, @bitCast(u9, v)) << 2) + 3,
+                    .unsigned => |v| v,
                 },
-                .Register => |r| switch (r.shift) {
-                    .Uxtw => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 16 + 2050,
-                    .Lsl => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 24 + 2050,
-                    .Sxtw => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 48 + 2050,
-                    .Sxtx => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 56 + 2050,
+                .register => |r| switch (r.shift) {
+                    .uxtw => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 16 + 2050,
+                    .lsl => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 24 + 2050,
+                    .sxtw => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 48 + 2050,
+                    .sxtx => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 56 + 2050,
                 },
             };
         }
 
         pub fn imm(offset: u12) LoadStoreOffset {
             return .{
-                .Immediate = .{ .Unsigned = offset },
+                .immediate = .{ .unsigned = offset },
             };
         }
 
         pub fn imm_post_index(offset: i9) LoadStoreOffset {
             return .{
-                .Immediate = .{ .PostIndex = offset },
+                .immediate = .{ .post_index = offset },
             };
         }
 
         pub fn imm_pre_index(offset: i9) LoadStoreOffset {
             return .{
-                .Immediate = .{ .PreIndex = offset },
+                .immediate = .{ .pre_index = offset },
             };
         }
 
         pub fn reg(rm: Register) LoadStoreOffset {
             return .{
-                .Register = .{
+                .register = .{
                     .rm = rm.id(),
                     .shift = .{
-                        .Lsl = 0,
+                        .lsl = 0,
                     },
                 },
             };
@@ -592,10 +596,10 @@ pub const Instruction = union(enum) {
         pub fn reg_uxtw(rm: Register, shift: u2) LoadStoreOffset {
             assert(rm.size() == 32 and (shift == 0 or shift == 2));
             return .{
-                .Register = .{
+                .register = .{
                     .rm = rm.id(),
                     .shift = .{
-                        .Uxtw = shift,
+                        .uxtw = shift,
                     },
                 },
             };
@@ -604,10 +608,10 @@ pub const Instruction = union(enum) {
         pub fn reg_lsl(rm: Register, shift: u2) LoadStoreOffset {
             assert(rm.size() == 64 and (shift == 0 or shift == 3));
             return .{
-                .Register = .{
+                .register = .{
                     .rm = rm.id(),
                     .shift = .{
-                        .Lsl = shift,
+                        .lsl = shift,
                     },
                 },
             };
@@ -616,10 +620,10 @@ pub const Instruction = union(enum) {
         pub fn reg_sxtw(rm: Register, shift: u2) LoadStoreOffset {
             assert(rm.size() == 32 and (shift == 0 or shift == 2));
             return .{
-                .Register = .{
+                .register = .{
                     .rm = rm.id(),
                     .shift = .{
-                        .Sxtw = shift,
+                        .sxtw = shift,
                     },
                 },
             };
@@ -628,10 +632,10 @@ pub const Instruction = union(enum) {
         pub fn reg_sxtx(rm: Register, shift: u2) LoadStoreOffset {
             assert(rm.size() == 64 and (shift == 0 or shift == 3));
             return .{
-                .Register = .{
+                .register = .{
                     .rm = rm.id(),
                     .shift = .{
-                        .Sxtx = shift,
+                        .sxtx = shift,
                     },
                 },
             };
@@ -663,8 +667,8 @@ pub const Instruction = union(enum) {
         const off = offset.toU12();
         const op1: u2 = blk: {
             switch (offset) {
-                .Immediate => |imm| switch (imm) {
-                    .Unsigned => break :blk 0b01,
+                .immediate => |imm| switch (imm) {
+                    .unsigned => break :blk 0b01,
                     else => {},
                 },
                 else => {},
@@ -1023,26 +1027,26 @@ pub const Instruction = union(enum) {
 
     pub const LoadStorePairOffset = struct {
         encoding: enum(u2) {
-            PostIndex = 0b01,
-            Signed = 0b10,
-            PreIndex = 0b11,
+            post_index = 0b01,
+            signed = 0b10,
+            pre_index = 0b11,
         },
         offset: i9,
 
         pub fn none() LoadStorePairOffset {
-            return .{ .encoding = .Signed, .offset = 0 };
+            return .{ .encoding = .signed, .offset = 0 };
         }
 
         pub fn post_index(imm: i9) LoadStorePairOffset {
-            return .{ .encoding = .PostIndex, .offset = imm };
+            return .{ .encoding = .post_index, .offset = imm };
         }
 
         pub fn pre_index(imm: i9) LoadStorePairOffset {
-            return .{ .encoding = .PreIndex, .offset = imm };
+            return .{ .encoding = .pre_index, .offset = imm };
         }
 
         pub fn signed(imm: i9) LoadStorePairOffset {
-            return .{ .encoding = .Signed, .offset = imm };
+            return .{ .encoding = .signed, .offset = imm };
         }
     };
 

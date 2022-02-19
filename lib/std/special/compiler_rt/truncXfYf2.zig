@@ -7,23 +7,23 @@ const native_arch = builtin.cpu.arch;
 pub const F16T = if (native_arch.isAARCH64()) f16 else u16;
 
 pub fn __truncsfhf2(a: f32) callconv(.C) F16T {
-    return @bitCast(F16T, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f32, a }));
+    return @bitCast(F16T, truncXfYf2(f16, f32, a));
 }
 
 pub fn __truncdfhf2(a: f64) callconv(.C) F16T {
-    return @bitCast(F16T, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f64, a }));
+    return @bitCast(F16T, truncXfYf2(f16, f64, a));
 }
 
 pub fn __trunctfhf2(a: f128) callconv(.C) F16T {
-    return @bitCast(F16T, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f128, a }));
+    return @bitCast(F16T, truncXfYf2(f16, f128, a));
 }
 
 pub fn __trunctfsf2(a: f128) callconv(.C) f32 {
-    return @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f32, f128, a });
+    return truncXfYf2(f32, f128, a);
 }
 
 pub fn __trunctfdf2(a: f128) callconv(.C) f64 {
-    return @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f64, f128, a });
+    return truncXfYf2(f64, f128, a);
 }
 
 pub fn __trunctfxf2(a: f128) callconv(.C) c_longdouble {
@@ -32,25 +32,25 @@ pub fn __trunctfxf2(a: f128) callconv(.C) c_longdouble {
 }
 
 pub fn __truncdfsf2(a: f64) callconv(.C) f32 {
-    return @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f32, f64, a });
+    return truncXfYf2(f32, f64, a);
 }
 
 pub fn __aeabi_d2f(a: f64) callconv(.AAPCS) f32 {
     @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __truncdfsf2, .{a});
+    return truncXfYf2(f32, f64, a);
 }
 
 pub fn __aeabi_d2h(a: f64) callconv(.AAPCS) u16 {
     @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __truncdfhf2, .{a});
+    return @bitCast(F16T, truncXfYf2(f16, f64, a));
 }
 
 pub fn __aeabi_f2h(a: f32) callconv(.AAPCS) u16 {
     @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __truncsfhf2, .{a});
+    return @bitCast(F16T, truncXfYf2(f16, f32, a));
 }
 
-fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
+inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
     const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits);
     const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);

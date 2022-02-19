@@ -188,7 +188,7 @@ pub fn MultiArrayList(comptime S: type) type {
         /// after and including the specified index back by one and
         /// sets the given index to the specified element.  May reallocate
         /// and invalidate iterators.
-        pub fn insert(self: *Self, gpa: Allocator, index: usize, elem: S) void {
+        pub fn insert(self: *Self, gpa: Allocator, index: usize, elem: S) !void {
             try self.ensureUnusedCapacity(gpa, 1);
             self.insertAssumeCapacity(index, elem);
         }
@@ -601,4 +601,23 @@ test "ensure capacity on empty list" {
 
     try testing.expectEqualSlices(u32, &[_]u32{ 9, 11 }, list.items(.a));
     try testing.expectEqualSlices(u8, &[_]u8{ 10, 12 }, list.items(.b));
+}
+
+test "insert elements" {
+    const ally = testing.allocator;
+
+    const Foo = struct {
+        a: u8,
+        b: u32,
+    };
+
+    var list = MultiArrayList(Foo){};
+    defer list.deinit(ally);
+
+    try list.insert(ally, 0, .{ .a = 1, .b = 2 });
+    try list.ensureUnusedCapacity(ally, 1);
+    list.insertAssumeCapacity(1, .{ .a = 2, .b = 3 });
+
+    try testing.expectEqualSlices(u8, &[_]u8{ 1, 2 }, list.items(.a));
+    try testing.expectEqualSlices(u32, &[_]u32{ 2, 3 }, list.items(.b));
 }

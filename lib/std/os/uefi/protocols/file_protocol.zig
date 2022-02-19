@@ -127,15 +127,6 @@ pub const FileProtocol = extern struct {
         return self._flush(self);
     }
 
-    pub const guid align(8) = Guid{
-        .time_low = 0x09576e92,
-        .time_mid = 0x6d3f,
-        .time_high_and_version = 0x11d2,
-        .clock_seq_high_and_reserved = 0x8e,
-        .clock_seq_low = 0x39,
-        .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
-    };
-
     pub const efi_file_mode_read: u64 = 0x0000000000000001;
     pub const efi_file_mode_write: u64 = 0x0000000000000002;
     pub const efi_file_mode_create: u64 = 0x8000000000000000;
@@ -171,4 +162,35 @@ pub const FileInfo = extern struct {
     pub const efi_file_directory: u64 = 0x0000000000000010;
     pub const efi_file_archive: u64 = 0x0000000000000020;
     pub const efi_file_valid_attr: u64 = 0x0000000000000037;
+
+    pub const guid align(8) = Guid{
+        .time_low = 0x09576e92,
+        .time_mid = 0x6d3f,
+        .time_high_and_version = 0x11d2,
+        .clock_seq_high_and_reserved = 0x8e,
+        .clock_seq_low = 0x39,
+        .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
+    };
+};
+
+pub const FileSystemInfo = extern struct {
+    size: u64,
+    read_only: bool,
+    volume_size: u64,
+    free_space: u64,
+    block_size: u32,
+    _volume_label: u16,
+
+    pub fn getVolumeLabel(self: *const FileSystemInfo) [*:0]const u16 {
+        return @ptrCast([*:0]const u16, &self._volume_label);
+    }
+
+    pub const guid align(8) = Guid{
+        .time_low = 0x09576e93,
+        .time_mid = 0x6d3f,
+        .time_high_and_version = 0x11d2,
+        .clock_seq_high_and_reserved = 0x8e,
+        .clock_seq_low = 0x39,
+        .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
+    };
 };

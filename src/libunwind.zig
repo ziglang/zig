@@ -101,6 +101,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .cache_mode = .whole,
         .target = target,
         .root_name = root_name,
         .main_pkg = null,
@@ -141,11 +142,11 @@ pub fn buildStaticLib(comp: *Compilation) !void {
     try sub_compilation.updateSubCompilation();
 
     assert(comp.libunwind_static_lib == null);
+
     comp.libunwind_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(
-            comp.gpa,
-            &[_][]const u8{basename},
-        ),
+        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
+            sub_compilation.bin_file.options.emit.?.sub_path,
+        }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
 }

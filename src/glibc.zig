@@ -182,6 +182,10 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
+    const target = comp.getTarget();
+    const target_ver = target.os.version_range.linux.glibc;
+    const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33 }) != .gt;
+
     switch (crt_file) {
         .crti_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -225,7 +229,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             });
         },
         .scrt1_o => {
-            const start_os: Compilation.CSourceFile = blk: {
+            const start_o: Compilation.CSourceFile = blk: {
                 var args = std.ArrayList([]const u8).init(arena);
                 try add_include_dirs(comp, arena, &args);
                 try args.appendSlice(&[_][]const u8{
@@ -242,8 +246,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-DASSEMBLER",
                     "-Wa,--noexecstack",
                 });
+                const src_path = if (start_old_init_fini) "start-2.33.S" else "start.S";
                 break :blk .{
-                    .src_path = try start_asm_path(comp, arena, "start.S"),
+                    .src_path = try start_asm_path(comp, arena, src_path),
                     .extra_flags = args.items,
                 };
             };
@@ -266,10 +271,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             };
-            return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_os, abi_note_o });
+            return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_o, abi_note_o });
         },
         .libc_nonshared_a => {
-            const target = comp.getTarget();
             const s = path.sep_str;
             const linux_prefix = lib_libc_glibc ++
                 "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s;
@@ -277,6 +281,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             const Dep = struct {
                 path: []const u8,
                 flavor: Flavor = .shared,
+                exclude: bool = false,
             };
             const deps = [_]Dep{
                 .{
@@ -296,6 +301,10 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .flavor = .nonshared,
                 },
                 .{ .path = lib_libc_glibc ++ "csu" ++ s ++ "errno.c" },
+                .{
+                    .path = lib_libc_glibc ++ "csu" ++ s ++ "elf-init-2.33.c",
+                    .exclude = !start_old_init_fini,
+                },
                 .{ .path = linux_prefix ++ "stat.c" },
                 .{ .path = linux_prefix ++ "fstat.c" },
                 .{ .path = linux_prefix ++ "lstat.c" },
@@ -309,9 +318,12 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .{ .path = linux_prefix ++ "stat_t64_cp.c" },
             };
 
-            var c_source_files: [deps.len]Compilation.CSourceFile = undefined;
+            var files_buf: [deps.len]Compilation.CSourceFile = undefined;
+            var files_index: usize = 0;
 
-            for (deps) |dep, i| {
+            for (deps) |dep| {
+                if (dep.exclude) continue;
+
                 var args = std.ArrayList([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
                     "-std=gnu11",
@@ -353,12 +365,14 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     shared_def,
                     "-DTOP_NAMESPACE=glibc",
                 });
-                c_source_files[i] = .{
+                files_buf[files_index] = .{
                     .src_path = try lib_path(comp, arena, dep.path),
                     .extra_flags = args.items,
                 };
+                files_index += 1;
             }
-            return comp.build_crt_file("c_nonshared", .Lib, &c_source_files);
+            const files = files_buf[0..files_index];
+            return comp.build_crt_file("c_nonshared", .Lib, files);
         },
     }
 }
@@ -1062,6 +1076,7 @@ fn buildSharedLib(
         .local_cache_directory = zig_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .cache_mode = .whole,
         .target = comp.getTarget(),
         .root_name = lib.name,
         .main_pkg = null,

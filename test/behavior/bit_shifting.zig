@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const builtin = @import("builtin");
 
 fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime V: type) type {
     const key_bits = @typeInfo(Key).Int.bits;
@@ -60,6 +61,9 @@ fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, compt
 }
 
 test "sharded table" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     // realistic 16-way sharding
     try testShardedTable(u32, 4, 8);
 
@@ -72,6 +76,7 @@ test "sharded table" {
 
     try testShardedTable(u0, 0, 1);
 }
+
 fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime node_count: comptime_int) !void {
     const Table = ShardedTable(Key, mask_bit_count, void);
 

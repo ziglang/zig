@@ -106,7 +106,7 @@ pub const AtomicCondition = struct {
                     .linux => {
                         switch (linux.getErrno(linux.futex_wait(
                             &cond.futex,
-                            linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAIT,
+                            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAIT,
                             0,
                             null,
                         ))) {
@@ -128,7 +128,7 @@ pub const AtomicCondition = struct {
                 .linux => {
                     switch (linux.getErrno(linux.futex_wake(
                         &cond.futex,
-                        linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
+                        linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAKE,
                         1,
                     ))) {
                         .SUCCESS => {},

@@ -73,7 +73,6 @@ ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, TokenIndex token, Buf *msg
 }
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    node->already_traced_this_node = true;
     return add_token_error(g, node->owner, node->main_token, msg);
 }
 
@@ -4473,11 +4472,6 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
             break;
         }
     }
-
-    if (g->trace_err != nullptr && source_node != nullptr && !source_node->already_traced_this_node) {
-        g->trace_err = add_error_note(g, g->trace_err, source_node, buf_create_from_str("referenced here"));
-        source_node->already_traced_this_node = true;
-    }
 }
 
 void resolve_container_usingnamespace_decls(CodeGen *g, ScopeDecls *decls_scope) {
@@ -5876,49 +5870,7 @@ static bool can_mutate_comptime_var_state(ZigValue *value) {
     zig_unreachable();
 }
 
-static bool return_type_is_cacheable(ZigType *return_type) {
-    switch (return_type->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-        case ZigTypeIdMetaType:
-        case ZigTypeIdVoid:
-        case ZigTypeIdBool:
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdFn:
-        case ZigTypeIdOpaque:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdEnum:
-        case ZigTypeIdPointer:
-        case ZigTypeIdVector:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            return true;
-
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdUnion:
-            return false;
-
-        case ZigTypeIdOptional:
-            return return_type_is_cacheable(return_type->data.maybe.child_type);
-
-        case ZigTypeIdErrorUnion:
-            return return_type_is_cacheable(return_type->data.error_union.payload_type);
-    }
-    zig_unreachable();
-}
-
 bool fn_eval_cacheable(Scope *scope, ZigType *return_type) {
-    if (!return_type_is_cacheable(return_type))
-        return false;
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
@@ -9004,7 +8956,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         struct_type->data.structure.llvm_full_type_queue_index = SIZE_MAX;
     }
 
-    if (struct_type->abi_size <= 16 && struct_type->data.structure.layout == ContainerLayoutExtern)
+    if (struct_type->abi_size <= 16 && (struct_type->data.structure.layout == ContainerLayoutExtern || struct_type->data.structure.layout == ContainerLayoutPacked))
         resolve_llvm_c_abi_type(g, struct_type);
 }
 

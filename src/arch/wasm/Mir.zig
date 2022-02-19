@@ -19,6 +19,9 @@ extra: []const u32,
 pub const Inst = struct {
     /// The opcode that represents this instruction
     tag: Tag,
+    /// This opcode will be set when `tag` represents an extended
+    /// instruction with prefix 0xFC, or a simd instruction with prefix 0xFD.
+    secondary: u8 = 0,
     /// Data is determined by the set `tag`.
     /// For example, `data` will be an i32 for when `tag` is 'i32_const'.
     data: Data,
@@ -324,6 +327,10 @@ pub const Inst = struct {
         /// Uses `tag`
         i32_div_u = 0x6E,
         /// Uses `tag`
+        i32_rem_s = 0x6F,
+        /// Uses `tag`
+        i32_rem_u = 0x70,
+        /// Uses `tag`
         i32_and = 0x71,
         /// Uses `tag`
         i32_or = 0x72,
@@ -346,6 +353,10 @@ pub const Inst = struct {
         /// Uses `tag`
         i64_div_u = 0x80,
         /// Uses `tag`
+        i64_rem_s = 0x81,
+        /// Uses `tag`
+        i64_rem_u = 0x82,
+        /// Uses `tag`
         i64_and = 0x83,
         /// Uses `tag`
         i64_or = 0x84,
@@ -360,9 +371,33 @@ pub const Inst = struct {
         /// Uses `tag`
         i32_wrap_i64 = 0xA7,
         /// Uses `tag`
+        i32_trunc_f32_s = 0xA8,
+        /// Uses `tag`
+        i32_trunc_f32_u = 0xA9,
+        /// Uses `tag`
+        i32_trunc_f64_s = 0xAA,
+        /// Uses `tag`
+        i32_trunc_f64_u = 0xAB,
+        /// Uses `tag`
         i64_extend_i32_s = 0xAC,
         /// Uses `tag`
         i64_extend_i32_u = 0xAD,
+        /// Uses `tag`
+        i64_trunc_f32_s = 0xAE,
+        /// Uses `tag`
+        i64_trunc_f32_u = 0xAF,
+        /// Uses `tag`
+        i64_trunc_f64_s = 0xB0,
+        /// Uses `tag`
+        i64_trunc_f64_u = 0xB1,
+        /// Uses `tag`
+        i32_reinterpret_f32 = 0xBC,
+        /// Uses `tag`
+        i64_reinterpret_f64 = 0xBD,
+        /// Uses `tag`
+        f32_reinterpret_i32 = 0xBE,
+        /// Uses `tag`
+        f64_reinterpret_i64 = 0xBF,
         /// Uses `tag`
         i32_extend8_s = 0xC0,
         /// Uses `tag`
@@ -373,6 +408,11 @@ pub const Inst = struct {
         i64_extend16_s = 0xC3,
         /// Uses `tag`
         i64_extend32_s = 0xC4,
+        /// The instruction consists of an extension opcode
+        /// set in `secondary`
+        ///
+        /// The `data` field depends on the extension instruction
+        extended = 0xFC,
         /// Contains a symbol to a function pointer
         /// uses `label`
         ///

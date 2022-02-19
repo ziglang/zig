@@ -88,7 +88,7 @@ test "128-bit cmpxchg" {
 }
 
 fn test_u128_cmpxchg() !void {
-    if (builtin.zig_is_stage2) {
+    if (builtin.zig_backend != .stage1) {
         if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
         if (!builtin.stage2_x86_cx16) return error.SkipZigTest;
     } else {
@@ -115,6 +115,13 @@ fn test_u128_cmpxchg() !void {
 var a_global_variable = @as(u32, 1234);
 
 test "cmpxchg on a global variable" {
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .aarch64)
+    {
+        // https://github.com/ziglang/zig/issues/10627
+        return error.SkipZigTest;
+    }
+
     _ = @cmpxchgWeak(u32, &a_global_variable, 1234, 42, .Acquire, .Monotonic);
     try expect(a_global_variable == 42);
 }
@@ -153,6 +160,12 @@ fn testAtomicStore() !void {
 }
 
 test "atomicrmw with floats" {
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .aarch64)
+    {
+        // https://github.com/ziglang/zig/issues/10627
+        return error.SkipZigTest;
+    }
     try testAtomicRmwFloat();
     comptime try testAtomicRmwFloat();
 }

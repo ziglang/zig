@@ -19,7 +19,7 @@ fn checkSize(comptime T: type) usize {
 test "simple generic fn" {
     try expect(max(i32, 3, -1) == 3);
     try expect(max(u8, 1, 100) == 100);
-    if (!builtin.zig_is_stage2) {
+    if (builtin.zig_backend == .stage1) {
         // TODO: stage2 is incorrectly emitting the following:
         // error: cast of value 1.23e-01 to type 'f32' loses information
         try expect(max(f32, 0.123, 0.456) == 0.456);
@@ -162,4 +162,50 @@ test "generic fn keeps non-generic parameter types" {
     // `x` type not affect `s` parameter type.
     var x: [16]u8 align(A) = undefined;
     try S.f(u8, &x);
+}
+
+test "array of generic fns" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    try expect(foos[0](true));
+    try expect(!foos[1](true));
+}
+
+const foos = [_]fn (anytype) bool{
+    foo1,
+    foo2,
+};
+
+fn foo1(arg: anytype) bool {
+    return arg;
+}
+fn foo2(arg: anytype) bool {
+    return !arg;
+}
+
+test "generic struct" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    var a1 = GenNode(i32){
+        .value = 13,
+        .next = null,
+    };
+    var b1 = GenNode(bool){
+        .value = true,
+        .next = null,
+    };
+    try expect(a1.value == 13);
+    try expect(a1.value == a1.getVal());
+    try expect(b1.getVal());
+}
+fn GenNode(comptime T: type) type {
+    return struct {
+        value: T,
+        next: ?*GenNode(T),
+        fn getVal(n: *const GenNode(T)) T {
+            return n.value;
+        }
+    };
 }

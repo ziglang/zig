@@ -7,6 +7,13 @@ pub const protocols = @import("uefi/protocols.zig");
 pub const Status = @import("uefi/status.zig").Status;
 pub const tables = @import("uefi/tables.zig");
 
+/// The memory type to allocate when using the pool
+/// Defaults to .LoaderData, the default data allocation type
+/// used by UEFI applications to allocate pool memory.
+pub var efi_pool_memory_type: tables.MemoryType = .LoaderData;
+pub const pool_allocator = @import("uefi/pool_allocator.zig").pool_allocator;
+pub const raw_pool_allocator = @import("uefi/pool_allocator.zig").raw_pool_allocator;
+
 /// The EFI image's handle that is passed to its entry point.
 pub var handle: Handle = undefined;
 

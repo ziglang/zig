@@ -2,6 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
+const builtin = @import("builtin");
 
 test "uint128" {
     var buff: u128 = maxInt(u128);
@@ -21,10 +22,7 @@ test "undefined 128 bit int" {
     @setRuntimeSafety(true);
 
     // TODO implement @setRuntimeSafety in stage2
-    if (@import("builtin").zig_is_stage2 and
-        @import("builtin").mode != .Debug and
-        @import("builtin").mode != .ReleaseSafe)
-    {
+    if (builtin.zig_backend != .stage1 and builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
         return error.SkipZigTest;
     }
 

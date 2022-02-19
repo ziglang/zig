@@ -1,8 +1,10 @@
-const expect = @import("std").testing.expect;
+const builtin = @import("builtin");
+const std = @import("std");
+const expect = std.testing.expect;
 
 const HasFuncs = struct {
     state: u32,
-    func_field: fn (u32) u32,
+    func_field: *const fn (u32) u32,
 
     fn inc(self: *HasFuncs) void {
         self.state += 1;
@@ -25,6 +27,8 @@ const HasFuncs = struct {
 };
 
 test "standard field calls" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     try expect(HasFuncs.one(0) == 1);
     try expect(HasFuncs.two(0) == 2);
 
@@ -64,6 +68,8 @@ test "standard field calls" {
 }
 
 test "@field field calls" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     try expect(@field(HasFuncs, "one")(0) == 1);
     try expect(@field(HasFuncs, "two")(0) == 2);
 

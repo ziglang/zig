@@ -33,7 +33,7 @@ pub fn __divtf3(a: f128, b: f128) callconv(.C) f128 {
     var scale: i32 = 0;
 
     // Detect if a or b is zero, denormal, infinity, or NaN.
-    if (aExponent -% 1 >= maxExponent -% 1 or bExponent -% 1 >= maxExponent -% 1) {
+    if (aExponent -% 1 >= maxExponent - 1 or bExponent -% 1 >= maxExponent - 1) {
         const aAbs: Z = @bitCast(Z, a) & absMask;
         const bAbs: Z = @bitCast(Z, b) & absMask;
 

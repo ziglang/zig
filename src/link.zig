@@ -22,6 +22,8 @@ pub const SystemLib = struct {
     needed: bool = false,
 };
 
+pub const CacheMode = enum { incremental, whole };
+
 pub fn hashAddSystemLibs(
     hh: *Cache.HashHelper,
     hm: std.StringArrayHashMapUnmanaged(SystemLib),
@@ -41,13 +43,27 @@ pub const Emit = struct {
     directory: Compilation.Directory,
     /// Path to the output file, relative to `directory`.
     sub_path: []const u8,
+
+    /// Returns the full path to `basename` if it were in the same directory as the
+    /// `Emit` sub_path.
+    pub fn basenamePath(emit: Emit, arena: Allocator, basename: [:0]const u8) ![:0]const u8 {
+        const full_path = if (emit.directory.path) |p|
+            try fs.path.join(arena, &[_][]const u8{ p, emit.sub_path })
+        else
+            emit.sub_path;
+
+        if (fs.path.dirname(full_path)) |dirname| {
+            return try fs.path.joinZ(arena, &.{ dirname, basename });
+        } else {
+            return basename;
+        }
+    }
 };
 
 pub const Options = struct {
-    /// This is `null` when -fno-emit-bin is used. When `openPath` or `flush` is called,
-    /// it will have already been null-checked.
+    /// This is `null` when `-fno-emit-bin` is used.
     emit: ?Emit,
-    /// This is `null` not building a Windows DLL, or when -fno-emit-implib is used.
+    /// This is `null` not building a Windows DLL, or when `-fno-emit-implib` is used.
     implib_emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
@@ -68,8 +84,10 @@ pub const Options = struct {
     /// the binary file does not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
     entry_addr: ?u64 = null,
+    entry: ?[]const u8,
     stack_size_override: ?u64,
     image_base_override: ?u64,
+    cache_mode: CacheMode,
     include_compiler_rt: bool,
     /// Set to `true` to omit debug info.
     strip: bool,
@@ -128,6 +146,7 @@ pub const Options = struct {
     disable_lld_caching: bool,
     is_test: bool,
     use_stage1: bool,
+    hash_style: HashStyle,
     major_subsystem_version: ?u32,
     minor_subsystem_version: ?u32,
     gc_sections: ?bool = null,
@@ -138,7 +157,7 @@ pub const Options = struct {
     soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
 
-    objects: []const []const u8,
+    objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
     frameworks: []const []const u8,
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
@@ -165,7 +184,15 @@ pub const Options = struct {
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }
+
+    pub fn move(self: *Options) Options {
+        const copied_state = self.*;
+        self.system_libs = .{};
+        return copied_state;
+    }
 };
+
+pub const HashStyle = enum { sysv, gnu, both };
 
 pub const File = struct {
     tag: Tag,
@@ -211,7 +238,12 @@ pub const File = struct {
     };
 
     /// For DWARF .debug_info.
-    pub const DbgInfoTypeRelocsTable = std.HashMapUnmanaged(Type, DbgInfoTypeReloc, Type.HashContext64, std.hash_map.default_max_load_percentage);
+    pub const DbgInfoTypeRelocsTable = std.ArrayHashMapUnmanaged(
+        Type,
+        DbgInfoTypeReloc,
+        Type.HashContext32,
+        true,
+    );
 
     /// For DWARF .debug_info.
     pub const DbgInfoTypeReloc = struct {
@@ -525,9 +557,8 @@ pub const File = struct {
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
     pub fn flush(base: *File, comp: *Compilation) !void {
-        const emit = base.options.emit orelse return; // -fno-emit-bin
-
         if (comp.clang_preprocessor_mode == .yes) {
+            const emit = base.options.emit orelse return; // -fno-emit-bin
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same
             // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
@@ -621,10 +652,49 @@ pub const File = struct {
             .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl),
-            .plan9 => @panic("GET VADDR"),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl),
             .c => unreachable,
             .wasm => unreachable,
             .spirv => unreachable,
+        }
+    }
+
+    /// This function is called by the frontend before flush(). It communicates that
+    /// `options.bin_file.emit` directory needs to be renamed from
+    /// `[zig-cache]/tmp/[random]` to `[zig-cache]/o/[digest]`.
+    /// The frontend would like to simply perform a file system rename, however,
+    /// some linker backends care about the file paths of the objects they are linking.
+    /// So this function call tells linker backends to rename the paths of object files
+    /// to observe the new directory path.
+    /// Linker backends which do not have this requirement can fall back to the simple
+    /// implementation at the bottom of this function.
+    /// This function is only called when CacheMode is `whole`.
+    pub fn renameTmpIntoCache(
+        base: *File,
+        cache_directory: Compilation.Directory,
+        tmp_dir_sub_path: []const u8,
+        o_sub_path: []const u8,
+    ) !void {
+        // So far, none of the linker backends need to respond to this event, however,
+        // it makes sense that they might want to. So we leave this mechanism here
+        // for now. Once the linker backends get more mature, if it turns out this
+        // is not needed we can refactor this into having the frontend do the rename
+        // directly, and remove this function from link.zig.
+        _ = base;
+        while (true) {
+            std.fs.rename(
+                cache_directory.handle,
+                tmp_dir_sub_path,
+                cache_directory.handle,
+                o_sub_path,
+            ) catch |err| switch (err) {
+                error.PathAlreadyExists => {
+                    try cache_directory.handle.deleteTree(o_sub_path);
+                    continue;
+                },
+                else => |e| return e,
+            };
+            break;
         }
     }
 
@@ -637,9 +707,11 @@ pub const File = struct {
         const arena = arena_allocator.allocator();
 
         const directory = base.options.emit.?.directory; // Just an alias to make it shorter to type.
+        const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
+        const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
-        // If there is no Zig code to compile, then we should skip flushing the output file because it
-        // will not be part of the linker line anyway.
+        // If there is no Zig code to compile, then we should skip flushing the output file
+        // because it will not be part of the linker line anyway.
         const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
             const use_stage1 = build_options.is_stage1 and base.options.use_stage1;
             if (use_stage1) {
@@ -648,19 +720,27 @@ pub const File = struct {
                     .target = base.options.target,
                     .output_mode = .Obj,
                 });
-                const o_directory = module.zig_cache_artifact_directory;
-                const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
-                break :blk full_obj_path;
+                switch (base.options.cache_mode) {
+                    .incremental => break :blk try module.zig_cache_artifact_directory.join(
+                        arena,
+                        &[_][]const u8{obj_basename},
+                    ),
+                    .whole => break :blk try fs.path.join(arena, &.{
+                        fs.path.dirname(full_out_path_z).?, obj_basename,
+                    }),
+                }
             }
             if (base.options.object_format == .macho) {
                 try base.cast(MachO).?.flushObject(comp);
             } else {
                 try base.flushModule(comp);
             }
-            const obj_basename = base.intermediary_basename.?;
-            const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
-            break :blk full_obj_path;
+            break :blk try fs.path.join(arena, &.{
+                fs.path.dirname(full_out_path_z).?, base.intermediary_basename.?,
+            });
         } else null;
+
+        log.debug("module_obj_path={s}", .{if (module_obj_path) |s| s else "(null)"});
 
         const compiler_rt_path: ?[]const u8 = if (base.options.include_compiler_rt)
             comp.compiler_rt_obj.?.full_object_path
@@ -684,7 +764,10 @@ pub const File = struct {
             // We are about to obtain this lock, so here we give other processes a chance first.
             base.releaseLock();
 
-            try man.addListOfFiles(base.options.objects);
+            for (base.options.objects) |obj| {
+                _ = try man.addFile(obj.path, null);
+                man.hash.add(obj.must_link);
+            }
             for (comp.c_object_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.object_path, null);
             }
@@ -721,8 +804,8 @@ pub const File = struct {
         var object_files = try std.ArrayList([*:0]const u8).initCapacity(base.allocator, num_object_files);
         defer object_files.deinit();
 
-        for (base.options.objects) |obj_path| {
-            object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj_path));
+        for (base.options.objects) |obj| {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj.path));
         }
         for (comp.c_object_table.keys()) |key| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.object_path));
@@ -733,9 +816,6 @@ pub const File = struct {
         if (compiler_rt_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         }
-
-        const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
-        const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
         if (base.options.verbose_link) {
             std.debug.print("ar rcs {s}", .{full_out_path_z});

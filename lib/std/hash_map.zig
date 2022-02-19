@@ -629,6 +629,13 @@ pub fn HashMap(
             return self.unmanaged.removeAdapted(key, ctx);
         }
 
+        /// Delete the entry with key pointed to by keyPtr from the hash map.
+        /// keyPtr is assumed to be a valid pointer to a key that is present
+        /// in the hash map.
+        pub fn removeByPtr(self: *Self, keyPtr: *K) void {
+            self.unmanaged.removeByPtr(keyPtr);
+        }
+
         /// Creates a copy of this map, using the same allocator
         pub fn clone(self: Self) !Self {
             var other = try self.unmanaged.cloneContext(self.allocator, self.ctx);
@@ -750,12 +757,19 @@ pub fn HashMapUnmanaged(
             fingerprint: FingerPrint = free,
             used: u1 = 0,
 
+            const slot_free = @bitCast(u8, Metadata{ .fingerprint = free });
+            const slot_tombstone = @bitCast(u8, Metadata{ .fingerprint = tombstone });
+
             pub fn isUsed(self: Metadata) bool {
                 return self.used == 1;
             }
 
             pub fn isTombstone(self: Metadata) bool {
-                return !self.isUsed() and self.fingerprint == tombstone;
+                return @bitCast(u8, self) == slot_tombstone;
+            }
+
+            pub fn isFree(self: Metadata) bool {
+                return @bitCast(u8, self) == slot_free;
             }
 
             pub fn takeFingerprint(hash: Hash) FingerPrint {
@@ -1115,7 +1129,7 @@ pub fn HashMapUnmanaged(
             var idx = @truncate(usize, hash & mask);
 
             var metadata = self.metadata.? + idx;
-            while ((metadata[0].isUsed() or metadata[0].isTombstone()) and limit != 0) {
+            while (!metadata[0].isFree() and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
                     // If you get a compile error on this line, it means that your generic eql
@@ -1294,7 +1308,7 @@ pub fn HashMapUnmanaged(
 
             var first_tombstone_idx: usize = self.capacity(); // invalid index
             var metadata = self.metadata.? + idx;
-            while ((metadata[0].isUsed() or metadata[0].isTombstone()) and limit != 0) {
+            while (!metadata[0].isFree() and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
                     // If you get a compile error on this line, it means that your generic eql
@@ -1370,6 +1384,14 @@ pub fn HashMapUnmanaged(
             return self.getIndex(key, ctx) != null;
         }
 
+        fn removeByIndex(self: *Self, idx: usize) void {
+            self.metadata.?[idx].remove();
+            self.keys()[idx] = undefined;
+            self.values()[idx] = undefined;
+            self.size -= 1;
+            self.available += 1;
+        }
+
         /// If there is an `Entry` with a matching key, it is deleted from
         /// the hash map, and this function returns true.  Otherwise this
         /// function returns false.
@@ -1383,15 +1405,27 @@ pub fn HashMapUnmanaged(
         }
         pub fn removeAdapted(self: *Self, key: anytype, ctx: anytype) bool {
             if (self.getIndex(key, ctx)) |idx| {
-                self.metadata.?[idx].remove();
-                self.keys()[idx] = undefined;
-                self.values()[idx] = undefined;
-                self.size -= 1;
-                self.available += 1;
+                self.removeByIndex(idx);
                 return true;
             }
 
             return false;
+        }
+
+        /// Delete the entry with key pointed to by keyPtr from the hash map.
+        /// keyPtr is assumed to be a valid pointer to a key that is present
+        /// in the hash map.
+        pub fn removeByPtr(self: *Self, keyPtr: *K) void {
+            // TODO: replace with pointer subtraction once supported by zig
+            // if @sizeOf(K) == 0 then there is at most one item in the hash
+            // map, which is assumed to exist as keyPtr must be valid.  This
+            // item must be at index 0.
+            const idx = if (@sizeOf(K) > 0)
+                (@ptrToInt(keyPtr) - @ptrToInt(self.keys())) / @sizeOf(K)
+            else
+                0;
+
+            self.removeByIndex(idx);
         }
 
         fn initMetadatas(self: *Self) void {
@@ -2074,4 +2108,48 @@ test "std.hash_map ensureUnusedCapacity" {
     // Repeated ensureUnusedCapacity() calls with no insertions between
     // should not change the capacity.
     try testing.expectEqual(capacity, map.capacity());
+}
+
+test "std.hash_map removeByPtr" {
+    var map = AutoHashMap(i32, u64).init(testing.allocator);
+    defer map.deinit();
+
+    var i: i32 = undefined;
+
+    i = 0;
+    while (i < 10) : (i += 1) {
+        try map.put(i, 0);
+    }
+
+    try testing.expect(map.count() == 10);
+
+    i = 0;
+    while (i < 10) : (i += 1) {
+        const keyPtr = map.getKeyPtr(i);
+        try testing.expect(keyPtr != null);
+
+        if (keyPtr) |ptr| {
+            map.removeByPtr(ptr);
+        }
+    }
+
+    try testing.expect(map.count() == 0);
+}
+
+test "std.hash_map removeByPtr 0 sized key" {
+    var map = AutoHashMap(u0, u64).init(testing.allocator);
+    defer map.deinit();
+
+    try map.put(0, 0);
+
+    try testing.expect(map.count() == 1);
+
+    const keyPtr = map.getKeyPtr(0);
+    try testing.expect(keyPtr != null);
+
+    if (keyPtr) |ptr| {
+        map.removeByPtr(ptr);
+    }
+
+    try testing.expect(map.count() == 0);
 }

@@ -88,5 +88,5 @@ pub const DarwinSDK = struct {
 };
 
 test "" {
-    _ = @import("darwin/macos.zig");
+    _ = macos;
 }

@@ -19,7 +19,7 @@ const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const wasi_libc = @import("../wasi_libc.zig");
 const Cache = @import("../Cache.zig");
-const TypedValue = @import("../TypedValue.zig");
+const Type = @import("../type.zig").Type;
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
@@ -101,11 +101,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     assert(options.object_format == .wasm);
 
     if (build_options.have_llvm and options.use_llvm) {
-        const self = try createEmpty(allocator, options);
-        errdefer self.base.destroy();
-
-        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
-        return self;
+        return createEmpty(allocator, options);
     }
 
     // TODO: read the file and keep valid parts instead of truncating
@@ -139,8 +135,9 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
-    const wasm_bin = try gpa.create(Wasm);
-    wasm_bin.* = .{
+    const self = try gpa.create(Wasm);
+    errdefer gpa.destroy(self);
+    self.* = .{
         .base = .{
             .tag = .wasm,
             .options = options,
@@ -148,7 +145,12 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
             .allocator = gpa,
         },
     };
-    return wasm_bin;
+    const use_llvm = build_options.have_llvm and options.use_llvm;
+    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    if (use_llvm and !use_stage1) {
+        self.llvm_object = try LlvmObject.create(gpa, options);
+    }
+    return self;
 }
 
 pub fn deinit(self: *Wasm) void {
@@ -232,12 +234,12 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
         .locals = .{},
         .target = self.base.options.target,
         .bin_file = self,
-        .global_error_set = self.base.options.module.?.global_error_set,
+        .module = module,
     };
     defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = codegen.genFunc() catch |err| switch (err) {
+    codegen.genFunc() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
@@ -245,7 +247,7 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
         },
         else => |e| return e,
     };
-    return self.finishUpdateDecl(decl, result, &codegen);
+    return self.finishUpdateDecl(decl, codegen.code.items);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -257,44 +259,42 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl);
     }
+    if (!decl.ty.hasRuntimeBits()) return;
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
     decl.link.wasm.clear();
 
-    var codegen: CodeGen = .{
+    var code_writer = std.ArrayList(u8).init(self.base.allocator);
+    defer code_writer.deinit();
+    var decl_gen: CodeGen.DeclGen = .{
         .gpa = self.base.allocator,
-        .air = undefined,
-        .liveness = undefined,
-        .values = .{},
-        .code = std.ArrayList(u8).init(self.base.allocator),
         .decl = decl,
-        .err_msg = undefined,
-        .locals = .{},
-        .target = self.base.options.target,
+        .symbol_index = decl.link.wasm.sym_index,
         .bin_file = self,
-        .global_error_set = self.base.options.module.?.global_error_set,
+        .err_msg = undefined,
+        .code = &code_writer,
+        .module = module,
     };
-    defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = codegen.genDecl() catch |err| switch (err) {
+    const result = decl_gen.genDecl() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
+            try module.failed_decls.put(module.gpa, decl, decl_gen.err_msg);
             return;
         },
         else => |e| return e,
     };
 
-    return self.finishUpdateDecl(decl, result, &codegen);
-}
-
-fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, codegen: *CodeGen) !void {
-    const code: []const u8 = switch (result) {
-        .appended => @as([]const u8, codegen.code.items),
-        .externally_managed => |payload| payload,
+    const code = switch (result) {
+        .externally_managed => |data| data,
+        .appended => code_writer.items,
     };
 
+    return self.finishUpdateDecl(decl, code);
+}
+
+fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     if (decl.isExtern()) {
         try self.addOrUpdateImport(decl);
         return;
@@ -303,7 +303,73 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, cod
     if (code.len == 0) return;
     const atom: *Atom = &decl.link.wasm;
     atom.size = @intCast(u32, code.len);
+    atom.alignment = decl.ty.abiAlignment(self.base.options.target);
+    self.symbols.items[atom.sym_index].name = decl.name;
     try atom.code.appendSlice(self.base.allocator, code);
+}
+
+/// Creates a new local symbol for a given type (and its bytes it's represented by)
+/// and then append it as a 'contained' atom onto the Decl.
+pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type) !u32 {
+    assert(ty.zigTypeTag() != .Fn); // cannot create local symbols for functions
+    var symbol: Symbol = .{
+        .name = "unnamed_local",
+        .flags = 0,
+        .tag = .data,
+        .index = undefined,
+    };
+    symbol.setFlag(.WASM_SYM_BINDING_LOCAL);
+    symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+
+    var atom = Atom.empty;
+    atom.alignment = ty.abiAlignment(self.base.options.target);
+    try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
+
+    if (self.symbols_free_list.popOrNull()) |index| {
+        atom.sym_index = index;
+        self.symbols.items[index] = symbol;
+    } else {
+        atom.sym_index = @intCast(u32, self.symbols.items.len);
+        self.symbols.appendAssumeCapacity(symbol);
+    }
+
+    try decl.link.wasm.locals.append(self.base.allocator, atom);
+    return atom.sym_index;
+}
+
+pub fn updateLocalSymbolCode(self: *Wasm, decl: *Module.Decl, symbol_index: u32, code: []const u8) !void {
+    const atom = decl.link.wasm.symbolAtom(symbol_index);
+    atom.size = @intCast(u32, code.len);
+    try atom.code.appendSlice(self.base.allocator, code);
+}
+
+/// For a given decl, find the given symbol index's atom, and create a relocation for the type.
+/// Returns the given pointer address
+pub fn getDeclVAddr(self: *Wasm, decl: *Module.Decl, ty: Type, symbol_index: u32, target_symbol_index: u32, offset: u32) !u32 {
+    const atom = decl.link.wasm.symbolAtom(symbol_index);
+    const is_wasm32 = self.base.options.target.cpu.arch == .wasm32;
+    if (ty.zigTypeTag() == .Fn) {
+        // We found a function pointer, so add it to our table,
+        // as function pointers are not allowed to be stored inside the data section.
+        // They are instead stored in a function table which are called by index.
+        try self.addTableFunction(target_symbol_index);
+        try atom.relocs.append(self.base.allocator, .{
+            .index = target_symbol_index,
+            .offset = offset,
+            .relocation_type = if (is_wasm32) .R_WASM_TABLE_INDEX_I32 else .R_WASM_TABLE_INDEX_I64,
+        });
+    } else {
+        try atom.relocs.append(self.base.allocator, .{
+            .index = target_symbol_index,
+            .offset = offset,
+            .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
+        });
+    }
+    // we do not know the final address at this point,
+    // as atom allocation will determine the address and relocations
+    // will calculate and rewrite this. Therefore, we simply return the symbol index
+    // that was targeted.
+    return target_symbol_index;
 }
 
 pub fn updateDeclExports(
@@ -326,9 +392,12 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     }
     const atom = &decl.link.wasm;
     self.symbols_free_list.append(self.base.allocator, atom.sym_index) catch {};
-    atom.deinit(self.base.allocator);
     _ = self.decls.remove(decl);
     self.symbols.items[atom.sym_index].tag = .dead; // to ensure it does not end in the names section
+    for (atom.locals.items) |local_atom| {
+        self.symbols.items[local_atom.sym_index].tag = .dead; // also for any local symbol
+    }
+    atom.deinit(self.base.allocator);
 
     if (decl.isExtern()) {
         const import = self.imports.fetchRemove(decl.link.wasm.sym_index).?.value;
@@ -374,14 +443,16 @@ fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
     }
 }
 
-fn parseDeclIntoAtom(self: *Wasm, decl: *Module.Decl) !void {
-    const atom: *Atom = &decl.link.wasm;
+const Kind = union(enum) {
+    data: void,
+    function: FnData,
+};
+
+/// Parses an Atom and inserts its metadata into the corresponding sections.
+fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
     const symbol: *Symbol = &self.symbols.items[atom.sym_index];
-    symbol.name = decl.name;
-    atom.alignment = decl.ty.abiAlignment(self.base.options.target);
-    const final_index: u32 = switch (decl.ty.zigTypeTag()) {
-        .Fn => result: {
-            const fn_data = decl.fn_link.wasm;
+    const final_index: u32 = switch (kind) {
+        .function => |fn_data| result: {
             const type_index = fn_data.type_index;
             const index = @intCast(u32, self.functions.items.len + self.imported_functions_count);
             try self.functions.append(self.base.allocator, .{ .type_index = type_index });
@@ -399,7 +470,7 @@ fn parseDeclIntoAtom(self: *Wasm, decl: *Module.Decl) !void {
 
             break :result self.code_section_index.?;
         },
-        else => result: {
+        .data => result: {
             const gop = try self.data_segments.getOrPut(self.base.allocator, ".rodata");
             const atom_index = if (gop.found_existing) blk: {
                 self.segments.items[gop.value_ptr.*].size += atom.size;
@@ -427,7 +498,6 @@ fn parseDeclIntoAtom(self: *Wasm, decl: *Module.Decl) !void {
             });
             symbol.tag = .data;
             symbol.index = info_index;
-            atom.alignment = decl.ty.abiAlignment(self.base.options.target);
 
             break :result atom_index;
         },
@@ -491,9 +561,21 @@ fn setupMemory(self: *Wasm) !void {
     log.debug("Setting up memory layout", .{});
     const page_size = 64 * 1024;
     const stack_size = self.base.options.stack_size_override orelse page_size * 1;
-    const stack_alignment = 16;
-    var memory_ptr: u64 = self.base.options.global_base orelse 1024;
-    memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
+    const stack_alignment = 16; // wasm's stack alignment as specified by tool-convention
+    // Always place the stack at the start by default
+    // unless the user specified the global-base flag
+    var place_stack_first = true;
+    var memory_ptr: u64 = if (self.base.options.global_base) |base| blk: {
+        place_stack_first = false;
+        break :blk base;
+    } else 0;
+
+    if (place_stack_first) {
+        memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
+        memory_ptr += stack_size;
+        // We always put the stack pointer global at index 0
+        self.globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
+    }
 
     var offset: u32 = @intCast(u32, memory_ptr);
     for (self.segments.items) |*segment, i| {
@@ -507,8 +589,11 @@ fn setupMemory(self: *Wasm) !void {
         offset += segment.size;
     }
 
-    memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
-    memory_ptr += stack_size;
+    if (!place_stack_first) {
+        memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
+        memory_ptr += stack_size;
+        self.globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
+    }
 
     // Setup the max amount of pages
     // For now we only support wasm32 by setting the maximum allowed memory size 2^32-1
@@ -551,9 +636,6 @@ fn setupMemory(self: *Wasm) !void {
         self.memories.limits.max = @intCast(u32, max_memory / page_size);
         log.debug("Maximum memory pages: {d}", .{self.memories.limits.max});
     }
-
-    // We always put the stack pointer global at index 0
-    self.globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
 }
 
 fn resetState(self: *Wasm) void {
@@ -575,6 +657,14 @@ fn resetState(self: *Wasm) void {
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation) !void {
+    if (self.base.options.emit == null) {
+        if (build_options.have_llvm) {
+            if (self.llvm_object) |llvm_object| {
+                return try llvm_object.flushModule(comp);
+            }
+        }
+        return;
+    }
     if (build_options.have_llvm and self.base.options.use_lld) {
         return self.linkWithLLD(comp);
     } else {
@@ -594,7 +684,17 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     var decl_it = self.decls.keyIterator();
     while (decl_it.next()) |decl| {
         if (decl.*.isExtern()) continue;
-        try self.parseDeclIntoAtom(decl.*);
+        const atom = &decl.*.link.wasm;
+        if (decl.*.ty.zigTypeTag() == .Fn) {
+            try self.parseAtom(atom, .{ .function = decl.*.fn_link.wasm });
+        } else {
+            try self.parseAtom(atom, .data);
+        }
+
+        // also parse atoms for a decl's locals
+        for (atom.locals.items) |*local_atom| {
+            try self.parseAtom(local_atom, .data);
+        }
     }
 
     try self.setupMemory();
@@ -645,7 +745,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 .kind = .{
                     .table = .{
                         .limits = .{
-                            .min = @intCast(u32, self.imports.count()),
+                            .min = @intCast(u32, self.function_table.count()),
                             .max = null,
                         },
                         .reftype = .funcref,
@@ -677,7 +777,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             header_offset,
             .import,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.imports.count() + @boolToInt(import_memory)),
+            @intCast(u32, self.imports.count() + @boolToInt(import_memory) + @boolToInt(import_table)),
         );
     }
 
@@ -700,7 +800,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
     // Table section
     const export_table = self.base.options.export_table;
-    if (!import_table and (self.function_table.count() > 0 or export_table)) {
+    if (!import_table) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
@@ -1049,6 +1149,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
     const arena = arena_allocator.allocator();
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -1060,15 +1161,24 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = module.zig_cache_artifact_directory;
-            const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
-            break :blk full_obj_path;
+            switch (self.base.options.cache_mode) {
+                .incremental => break :blk try module.zig_cache_artifact_directory.join(
+                    arena,
+                    &[_][]const u8{obj_basename},
+                ),
+                .whole => break :blk try fs.path.join(arena, &.{
+                    fs.path.dirname(full_out_path).?, obj_basename,
+                }),
+            }
         }
 
         try self.flushModule(comp);
-        const obj_basename = self.base.intermediary_basename.?;
-        const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
-        break :blk full_obj_path;
+
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
+        } else {
+            break :blk self.base.intermediary_basename.?;
+        }
     } else null;
 
     const is_obj = self.base.options.output_mode == .Obj;
@@ -1093,12 +1203,18 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        try man.addListOfFiles(self.base.options.objects);
+        comptime assert(Compilation.link_hash_implementation_version == 2);
+
+        for (self.base.options.objects) |obj| {
+            _ = try man.addFile(obj.path, null);
+            man.hash.add(obj.must_link);
+        }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
+        man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.add(self.base.options.import_memory);
         man.hash.add(self.base.options.import_table);
@@ -1107,6 +1223,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         man.hash.addOptional(self.base.options.max_memory);
         man.hash.addOptional(self.base.options.global_base);
         man.hash.add(self.base.options.export_symbol_names.len);
+        // strip does not need to go into the linker hash because it is part of the hash namespace
         for (self.base.options.export_symbol_names) |symbol_name| {
             man.hash.addBytes(symbol_name);
         }
@@ -1140,15 +1257,13 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         };
     }
 
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-
-    if (self.base.options.output_mode == .Obj) {
+    if (is_obj) {
         // LLD's WASM driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
             if (self.base.options.objects.len != 0)
-                break :blk self.base.options.objects[0];
+                break :blk self.base.options.objects[0].path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -1197,6 +1312,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             try argv.append("--export-table");
         }
 
+        if (self.base.options.strip) {
+            try argv.append("-s");
+        }
+
         if (self.base.options.initial_memory) |initial_memory| {
             const arg = try std.fmt.allocPrint(arena, "--initial-memory={d}", .{initial_memory});
             try argv.append(arg);
@@ -1210,16 +1329,58 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         if (self.base.options.global_base) |global_base| {
             const arg = try std.fmt.allocPrint(arena, "--global-base={d}", .{global_base});
             try argv.append(arg);
+        } else {
+            // We prepend it by default, so when a stack overflow happens the runtime will trap correctly,
+            // rather than silently overwrite all global declarations. See https://github.com/ziglang/zig/issues/4496
+            //
+            // The user can overwrite this behavior by setting the global-base
+            try argv.append("--stack-first");
         }
 
+        var auto_export_symbols = true;
         // Users are allowed to specify which symbols they want to export to the wasm host.
         for (self.base.options.export_symbol_names) |symbol_name| {
             const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
             try argv.append(arg);
+            auto_export_symbols = false;
         }
 
         if (self.base.options.rdynamic) {
             try argv.append("--export-dynamic");
+            auto_export_symbols = false;
+        }
+
+        if (auto_export_symbols) {
+            if (self.base.options.module) |module| {
+                // when we use stage1, we use the exports that stage1 provided us.
+                // For stage2, we can directly retrieve them from the module.
+                const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+                if (use_stage1) {
+                    for (comp.export_symbol_names.items) |symbol_name| {
+                        try argv.append(try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name}));
+                    }
+                } else {
+                    const skip_export_non_fn = target.os.tag == .wasi and
+                        self.base.options.wasi_exec_model == .command;
+                    for (module.decl_exports.values()) |exports| {
+                        for (exports) |exprt| {
+                            if (skip_export_non_fn and exprt.exported_decl.ty.zigTypeTag() != .Fn) {
+                                // skip exporting symbols when we're building a WASI command
+                                // and the symbol is not a function
+                                continue;
+                            }
+                            const symbol_name = exprt.exported_decl.name;
+                            const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
+                            try argv.append(arg);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (self.base.options.entry) |entry| {
+            try argv.append("--entry");
+            try argv.append(entry);
         }
 
         if (self.base.options.output_mode == .Exe) {
@@ -1230,31 +1391,15 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
             try argv.append(arg);
 
-            // Put stack before globals so that stack overflow results in segfault immediately
-            // before corrupting globals. See https://github.com/ziglang/zig/issues/4496
-            try argv.append("--stack-first");
-
             if (self.base.options.wasi_exec_model == .reactor) {
                 // Reactor execution model does not have _start so lld doesn't look for it.
                 try argv.append("--no-entry");
-                // Make sure "_initialize" and other used-defined functions are exported if this is WASI reactor.
-                // If rdynamic is true, it will already be appended, so only verify if the user did not specify
-                // the flag in which case, we ensure `--export-dynamic` is called.
-                if (!self.base.options.rdynamic) {
-                    try argv.append("--export-dynamic");
-                }
             }
         } else {
             if (self.base.options.stack_size_override) |stack_size| {
                 try argv.append("-z");
                 const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
                 try argv.append(arg);
-            }
-
-            // Only when the user has not specified how they want to export the symbols, do we want
-            // to export all symbols.
-            if (self.base.options.export_symbol_names.len == 0 and !self.base.options.rdynamic) {
-                try argv.append("--export-all");
             }
             try argv.append("--no-entry"); // So lld doesn't look for _start.
         }
@@ -1292,7 +1437,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         }
 
         // Positional arguments to the linker such as object files.
-        try argv.appendSlice(self.base.options.objects);
+        try argv.ensureUnusedCapacity(self.base.options.objects.len);
+        for (self.base.options.objects) |obj| {
+            argv.appendAssumeCapacity(obj.path);
+        }
 
         for (comp.c_object_table.keys()) |key| {
             try argv.append(key.status.success.object_path);

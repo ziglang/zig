@@ -419,6 +419,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                     .X86_64_RELOC_BRANCH => {
                         // TODO rewrite relocation
                         try addStub(target, context);
+                        addend = mem.readIntLittle(i32, self.code.items[offset..][0..4]);
                     },
                     .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => {
                         // TODO rewrite relocation
@@ -1003,7 +1004,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                     .X86_64_RELOC_BRANCH => {
                         const displacement = try math.cast(
                             i32,
-                            @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4,
+                            @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4 + rel.addend,
                         );
                         mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
                     },

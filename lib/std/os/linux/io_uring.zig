@@ -300,9 +300,10 @@ pub const IO_Uring = struct {
     /// A convenience method for `copy_cqes()` for when you don't need to batch or peek.
     pub fn copy_cqe(ring: *IO_Uring) !io_uring_cqe {
         var cqes: [1]io_uring_cqe = undefined;
-        const count = try ring.copy_cqes(&cqes, 1);
-        assert(count == 1);
-        return cqes[0];
+        while (true) {
+            const count = try ring.copy_cqes(&cqes, 1);
+            if (count > 0) return cqes[0];
+        }
     }
 
     /// Matches the implementation of cq_ring_needs_flush() in liburing.
@@ -2471,7 +2472,7 @@ test "renameat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement renameat (kernel version < 5.11)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2533,7 +2534,7 @@ test "unlinkat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement unlinkat (kernel version < 5.11)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2579,7 +2580,7 @@ test "mkdirat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement mkdirat (kernel version < 5.15)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2628,7 +2629,7 @@ test "symlinkat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement symlinkat (kernel version < 5.15)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2683,7 +2684,7 @@ test "linkat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement linkat (kernel version < 5.15)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{

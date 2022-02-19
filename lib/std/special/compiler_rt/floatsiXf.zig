@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const maxInt = std.math.maxInt;
 
-fn floatsiXf(comptime T: type, a: i32) T {
+inline fn floatsiXf(comptime T: type, a: i32) T {
     @setRuntimeSafety(builtin.is_test);
 
     const bits = @typeInfo(T).Float.bits;
@@ -56,27 +56,27 @@ fn floatsiXf(comptime T: type, a: i32) T {
 
 pub fn __floatsisf(arg: i32) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);
-    return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f32, arg });
+    return floatsiXf(f32, arg);
 }
 
 pub fn __floatsidf(arg: i32) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
-    return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f64, arg });
+    return floatsiXf(f64, arg);
 }
 
 pub fn __floatsitf(arg: i32) callconv(.C) f128 {
     @setRuntimeSafety(builtin.is_test);
-    return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f128, arg });
+    return floatsiXf(f128, arg);
 }
 
 pub fn __aeabi_i2d(arg: i32) callconv(.AAPCS) f64 {
     @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __floatsidf, .{arg});
+    return floatsiXf(f64, arg);
 }
 
 pub fn __aeabi_i2f(arg: i32) callconv(.AAPCS) f32 {
     @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __floatsisf, .{arg});
+    return floatsiXf(f32, arg);
 }
 
 fn test_one_floatsitf(a: i32, expected: u128) !void {

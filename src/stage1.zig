@@ -458,9 +458,20 @@ export fn stage2_fetch_file(
     const comp = @intToPtr(*Compilation, stage1.userdata);
     const file_path = path_ptr[0..path_len];
     const max_file_size = std.math.maxInt(u32);
-    const contents = comp.stage1_cache_manifest.addFilePostFetch(file_path, max_file_size) catch return null;
+    const contents = if (comp.whole_cache_manifest) |man|
+        man.addFilePostFetch(file_path, max_file_size) catch return null
+    else
+        std.fs.cwd().readFileAlloc(comp.gpa, file_path, max_file_size) catch return null;
     result_len.* = contents.len;
     // TODO https://github.com/ziglang/zig/issues/3328#issuecomment-716749475
     if (contents.len == 0) return @intToPtr(?[*]const u8, 0x1);
     return contents.ptr;
+}
+
+export fn stage2_append_symbol(stage1: *Module, name_ptr: [*c]const u8, name_len: usize) Error {
+    if (name_len == 0) return Error.None;
+    const comp = @intToPtr(*Compilation, stage1.userdata);
+    const sym_name = comp.gpa.dupe(u8, name_ptr[0..name_len]) catch return Error.OutOfMemory;
+    comp.export_symbol_names.append(comp.gpa, sym_name) catch return Error.OutOfMemory;
+    return Error.None;
 }

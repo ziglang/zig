@@ -173,6 +173,7 @@ fn putFn(self: *Plan9, decl: *Module.Decl, out: FnDeclOutput) !void {
         fn_map_res.value_ptr.* = .{
             .sym_index = blk: {
                 try self.syms.append(gpa, undefined);
+                try self.syms.append(gpa, undefined);
                 break :blk @intCast(u32, self.syms.items.len - 1);
             },
         };
@@ -194,10 +195,16 @@ fn putFn(self: *Plan9, decl: *Module.Decl, out: FnDeclOutput) !void {
         // null terminate
         try a.append(0);
         const final = a.toOwnedSlice();
-        self.syms.items[fn_map_res.value_ptr.sym_index] = .{
+        self.syms.items[fn_map_res.value_ptr.sym_index - 1] = .{
             .type = .z,
             .value = 1,
             .name = final,
+        };
+        self.syms.items[fn_map_res.value_ptr.sym_index] = .{
+            .type = .z,
+            // just put a giant number, no source file will have this many newlines
+            .value = std.math.maxInt(u31),
+            .name = &.{ 0, 0 },
         };
     }
 }
@@ -705,7 +712,8 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
         var it_file = self.fn_decl_table.iterator();
         while (it_file.next()) |fentry| {
             var symidx_and_submap = fentry.value_ptr;
-            // write the z symbol
+            // write the z symbols
+            try self.writeSym(writer, self.syms.items[symidx_and_submap.sym_index - 1]);
             try self.writeSym(writer, self.syms.items[symidx_and_submap.sym_index]);
 
             // write all the decls come from the file of the z symbol
@@ -731,4 +739,27 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
 pub fn allocateDeclIndexes(self: *Plan9, decl: *Module.Decl) !void {
     _ = self;
     _ = decl;
+}
+pub fn getDeclVAddr(self: *Plan9, decl: *const Module.Decl) u64 {
+    if (decl.ty.zigTypeTag() == .Fn) {
+        var start = self.bases.text;
+        var it_file = self.fn_decl_table.iterator();
+        while (it_file.next()) |fentry| {
+            var symidx_and_submap = fentry.value_ptr;
+            var submap_it = symidx_and_submap.functions.iterator();
+            while (submap_it.next()) |entry| {
+                if (entry.key_ptr.* == decl) return start;
+                start += entry.value_ptr.code.len;
+            }
+        }
+        unreachable;
+    } else {
+        var start = self.bases.data + self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
+        var it = self.data_decl_table.iterator();
+        while (it.next()) |kv| {
+            if (decl == kv.key_ptr.*) return start;
+            start += kv.value_ptr.len;
+        }
+        unreachable;
+    }
 }

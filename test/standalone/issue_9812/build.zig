@@ -8,7 +8,7 @@ pub fn build(b: *std.build.Builder) !void {
         "-std=c99",
         "-fno-sanitize=undefined",
     });
-    zip_add.addIncludeDir("vendor/kuba-zip");
+    zip_add.addIncludePath("vendor/kuba-zip");
     zip_add.linkLibC();
 
     const test_step = b.step("test", "Test it");

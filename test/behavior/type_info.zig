@@ -8,18 +8,6 @@ const TypeId = std.builtin.TypeId;
 const expect = std.testing.expect;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
-test "type info: tag type, void info" {
-    try testBasic();
-    comptime try testBasic();
-}
-
-fn testBasic() !void {
-    try expect(@typeInfo(TypeInfo).Union.tag_type == TypeId);
-    const void_info = @typeInfo(void);
-    try expect(void_info == TypeId.Void);
-    try expect(void_info.Void == {});
-}
-
 test "type info: integer, floating point type info" {
     try testIntFloat();
     comptime try testIntFloat();
@@ -36,52 +24,15 @@ fn testIntFloat() !void {
     try expect(f64_info.Float.bits == 64);
 }
 
-test "type info: pointer type info" {
-    try testPointer();
-    comptime try testPointer();
+test "type info: optional type info" {
+    try testOptional();
+    comptime try testOptional();
 }
 
-fn testPointer() !void {
-    const u32_ptr_info = @typeInfo(*u32);
-    try expect(u32_ptr_info == .Pointer);
-    try expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.One);
-    try expect(u32_ptr_info.Pointer.is_const == false);
-    try expect(u32_ptr_info.Pointer.is_volatile == false);
-    try expect(u32_ptr_info.Pointer.alignment == @alignOf(u32));
-    try expect(u32_ptr_info.Pointer.child == u32);
-    try expect(u32_ptr_info.Pointer.sentinel == null);
-}
-
-test "type info: unknown length pointer type info" {
-    try testUnknownLenPtr();
-    comptime try testUnknownLenPtr();
-}
-
-fn testUnknownLenPtr() !void {
-    const u32_ptr_info = @typeInfo([*]const volatile f64);
-    try expect(u32_ptr_info == .Pointer);
-    try expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
-    try expect(u32_ptr_info.Pointer.is_const == true);
-    try expect(u32_ptr_info.Pointer.is_volatile == true);
-    try expect(u32_ptr_info.Pointer.sentinel == null);
-    try expect(u32_ptr_info.Pointer.alignment == @alignOf(f64));
-    try expect(u32_ptr_info.Pointer.child == f64);
-}
-
-test "type info: null terminated pointer type info" {
-    try testNullTerminatedPtr();
-    comptime try testNullTerminatedPtr();
-}
-
-fn testNullTerminatedPtr() !void {
-    const ptr_info = @typeInfo([*:0]u8);
-    try expect(ptr_info == .Pointer);
-    try expect(ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
-    try expect(ptr_info.Pointer.is_const == false);
-    try expect(ptr_info.Pointer.is_volatile == false);
-    try expect(ptr_info.Pointer.sentinel.? == 0);
-
-    try expect(@typeInfo([:0]u8).Pointer.sentinel != null);
+fn testOptional() !void {
+    const null_info = @typeInfo(?void);
+    try expect(null_info == .Optional);
+    try expect(null_info.Optional.child == void);
 }
 
 test "type info: C pointer type info" {
@@ -99,7 +50,83 @@ fn testCPtr() !void {
     try expect(ptr_info.Pointer.child == i8);
 }
 
+test "type info: value is correctly copied" {
+    comptime {
+        var ptrInfo = @typeInfo([]u32);
+        ptrInfo.Pointer.size = .One;
+        try expect(@typeInfo([]u32).Pointer.size == .Slice);
+    }
+}
+
+test "type info: tag type, void info" {
+    try testBasic();
+    comptime try testBasic();
+}
+
+fn testBasic() !void {
+    try expect(@typeInfo(TypeInfo).Union.tag_type == TypeId);
+    const void_info = @typeInfo(void);
+    try expect(void_info == TypeId.Void);
+    try expect(void_info.Void == {});
+}
+
+test "type info: pointer type info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try testPointer();
+    comptime try testPointer();
+}
+
+fn testPointer() !void {
+    const u32_ptr_info = @typeInfo(*u32);
+    try expect(u32_ptr_info == .Pointer);
+    try expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.One);
+    try expect(u32_ptr_info.Pointer.is_const == false);
+    try expect(u32_ptr_info.Pointer.is_volatile == false);
+    try expect(u32_ptr_info.Pointer.alignment == @alignOf(u32));
+    try expect(u32_ptr_info.Pointer.child == u32);
+    try expect(u32_ptr_info.Pointer.sentinel == null);
+}
+
+test "type info: unknown length pointer type info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try testUnknownLenPtr();
+    comptime try testUnknownLenPtr();
+}
+
+fn testUnknownLenPtr() !void {
+    const u32_ptr_info = @typeInfo([*]const volatile f64);
+    try expect(u32_ptr_info == .Pointer);
+    try expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
+    try expect(u32_ptr_info.Pointer.is_const == true);
+    try expect(u32_ptr_info.Pointer.is_volatile == true);
+    try expect(u32_ptr_info.Pointer.sentinel == null);
+    try expect(u32_ptr_info.Pointer.alignment == @alignOf(f64));
+    try expect(u32_ptr_info.Pointer.child == f64);
+}
+
+test "type info: null terminated pointer type info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try testNullTerminatedPtr();
+    comptime try testNullTerminatedPtr();
+}
+
+fn testNullTerminatedPtr() !void {
+    const ptr_info = @typeInfo([*:0]u8);
+    try expect(ptr_info == .Pointer);
+    try expect(ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
+    try expect(ptr_info.Pointer.is_const == false);
+    try expect(ptr_info.Pointer.is_volatile == false);
+    try expect(ptr_info.Pointer.sentinel.? == 0);
+
+    try expect(@typeInfo([:0]u8).Pointer.sentinel != null);
+}
+
 test "type info: slice type info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     try testSlice();
     comptime try testSlice();
 }
@@ -115,6 +142,8 @@ fn testSlice() !void {
 }
 
 test "type info: array type info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     try testArray();
     comptime try testArray();
 }
@@ -137,18 +166,9 @@ fn testArray() !void {
     }
 }
 
-test "type info: optional type info" {
-    try testOptional();
-    comptime try testOptional();
-}
-
-fn testOptional() !void {
-    const null_info = @typeInfo(?void);
-    try expect(null_info == .Optional);
-    try expect(null_info.Optional.child == void);
-}
-
 test "type info: error set, error union info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     try testErrorSet();
     comptime try testErrorSet();
 }
@@ -176,6 +196,8 @@ fn testErrorSet() !void {
 }
 
 test "type info: enum info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     try testEnum();
     comptime try testEnum();
 }
@@ -199,6 +221,8 @@ fn testEnum() !void {
 }
 
 test "type info: union info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     try testUnion();
     comptime try testUnion();
 }
@@ -237,6 +261,8 @@ fn testUnion() !void {
 }
 
 test "type info: struct info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     try testStruct();
     comptime try testStruct();
 }
@@ -284,6 +310,8 @@ const TestStruct = packed struct {
 };
 
 test "type info: opaque info" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     try testOpaque();
     comptime try testOpaque();
 }
@@ -299,6 +327,8 @@ fn testOpaque() !void {
 }
 
 test "type info: function type info" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     // wasm doesn't support align attributes on functions
     if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
     try testFunction();
@@ -327,6 +357,8 @@ extern fn foo(a: usize, b: bool, ...) callconv(.C) usize;
 extern fn fooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
 
 test "typeInfo with comptime parameter in struct fn def" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const S = struct {
         pub fn func(comptime x: f32) void {
             _ = x;
@@ -349,6 +381,8 @@ fn testVector() !void {
 }
 
 test "type info: anyframe and anyframe->T" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     try testAnyFrame();
     comptime try testAnyFrame();
 }
@@ -368,6 +402,8 @@ fn testAnyFrame() !void {
 }
 
 test "type info: pass to function" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     _ = passTypeInfo(@typeInfo(void));
     _ = comptime passTypeInfo(@typeInfo(void));
 }
@@ -378,11 +414,15 @@ fn passTypeInfo(comptime info: TypeInfo) type {
 }
 
 test "type info: TypeId -> TypeInfo impl cast" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     _ = passTypeInfo(TypeId.Void);
     _ = comptime passTypeInfo(TypeId.Void);
 }
 
 test "type info: extern fns with and without lib names" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const S = struct {
         extern fn bar1() void;
         extern "cool" fn bar2() void;
@@ -400,6 +440,8 @@ test "type info: extern fns with and without lib names" {
 }
 
 test "data field is a compile-time value" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const S = struct {
         const Bar = @as(isize, -1);
     };
@@ -407,11 +449,15 @@ test "data field is a compile-time value" {
 }
 
 test "sentinel of opaque pointer type" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const c_void_info = @typeInfo(*anyopaque);
     try expect(c_void_info.Pointer.sentinel == null);
 }
 
 test "@typeInfo does not force declarations into existence" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const S = struct {
         x: i32,
 
@@ -422,7 +468,9 @@ test "@typeInfo does not force declarations into existence" {
     comptime try expect(@typeInfo(S).Struct.fields.len == 1);
 }
 
-test "defaut value for a var-typed field" {
+test "default value for a anytype field" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const S = struct { x: anytype };
     try expect(@typeInfo(S).Struct.fields[0].default_value == null);
 }
@@ -432,6 +480,8 @@ fn add(a: i32, b: i32) i32 {
 }
 
 test "type info for async frames" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     switch (@typeInfo(@Frame(add))) {
         .Frame => |frame| {
             try expect(frame.function == add);
@@ -440,15 +490,9 @@ test "type info for async frames" {
     }
 }
 
-test "type info: value is correctly copied" {
-    comptime {
-        var ptrInfo = @typeInfo([]u32);
-        ptrInfo.Pointer.size = .One;
-        try expect(@typeInfo([]u32).Pointer.size == .Slice);
-    }
-}
-
 test "Declarations are returned in declaration order" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const S = struct {
         const a = 1;
         const b = 2;
@@ -465,17 +509,23 @@ test "Declarations are returned in declaration order" {
 }
 
 test "Struct.is_tuple" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     try expect(@typeInfo(@TypeOf(.{0})).Struct.is_tuple);
     try expect(!@typeInfo(@TypeOf(.{ .a = 0 })).Struct.is_tuple);
 }
 
 test "StructField.is_comptime" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const info = @typeInfo(struct { x: u8 = 3, comptime y: u32 = 5 }).Struct;
     try expect(!info.fields[0].is_comptime);
     try expect(info.fields[1].is_comptime);
 }
 
 test "typeInfo resolves usingnamespace declarations" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const A = struct {
         pub const f1 = 42;
     };

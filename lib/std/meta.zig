@@ -594,6 +594,47 @@ test "std.meta.FieldEnum" {
     try expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
 }
 
+pub fn DeclEnum(comptime T: type) type {
+    const fieldInfos = std.meta.declarations(T);
+    var enumDecls: [fieldInfos.len]std.builtin.TypeInfo.EnumField = undefined;
+    var decls = [_]std.builtin.TypeInfo.Declaration{};
+    inline for (fieldInfos) |field, i| {
+        enumDecls[i] = .{ .name = field.name, .value = i };
+    }
+    return @Type(.{
+        .Enum = .{
+            .layout = .Auto,
+            .tag_type = std.math.IntFittingRange(0, fieldInfos.len - 1),
+            .fields = &enumDecls,
+            .decls = &decls,
+            .is_exhaustive = true,
+        },
+    });
+}
+
+test "std.meta.DeclEnum" {
+    const A = struct {
+        const a: u8 = 0;
+    };
+    const B = union {
+        foo: void,
+
+        const a: u8 = 0;
+        const b: void = {};
+        const c: f32 = 0;
+    };
+    const C = enum {
+        bar,
+
+        const a: u8 = 0;
+        const b: void = {};
+        const c: f32 = 0;
+    };
+    try expectEqualEnum(enum { a }, DeclEnum(A));
+    try expectEqualEnum(enum { a, b, c }, DeclEnum(B));
+    try expectEqualEnum(enum { a, b, c }, DeclEnum(C));
+}
+
 pub const TagType = @compileError("deprecated; use Tag");
 
 pub fn Tag(comptime T: type) type {

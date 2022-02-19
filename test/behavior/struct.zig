@@ -199,3 +199,32 @@ test "struct field init with catch" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "packed struct field alignment" {
+    if (builtin.object_format == .c) return error.SkipZigTest;
+
+    const Stage1 = struct {
+        var baz: packed struct {
+            a: u32,
+            b: u32,
+        } = undefined;
+    };
+    const Stage2 = struct {
+        var baz: packed struct {
+            a: u32,
+            b: u32 align(1),
+        } = undefined;
+    };
+    const S = if (builtin.zig_backend != .stage1) Stage2 else Stage1;
+    try expect(@TypeOf(&S.baz.b) == *align(1) u32);
+}
+
+const blah: packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+} = undefined;
+
+test "bit field alignment" {
+    try expect(@TypeOf(&blah.b) == *align(1:3:1) const u3);
+}

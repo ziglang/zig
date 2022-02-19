@@ -482,6 +482,57 @@ pub const Scalar = struct {
 
         return Scalar{ .limbs = .{ z04, z14, z24, z34, z44 } };
     }
+
+    /// Return x^2 (mod l)
+    pub fn sq(x: Scalar) Scalar {
+        return x.mul(x);
+    }
+
+    /// Square a scalar `n` times
+    inline fn sqn(x: Scalar, comptime n: comptime_int) Scalar {
+        var i: usize = 0;
+        var t = x;
+        while (i < n) : (i += 1) {
+            t = t.sq();
+        }
+        return t;
+    }
+
+    /// Square and multiply
+    fn sqn_mul(x: Scalar, comptime n: comptime_int, y: Scalar) Scalar {
+        return x.sqn(n).mul(y);
+    }
+
+    /// Return the inverse of a scalar (mod l), or 0 if x=0.
+    pub fn invert(x: Scalar) Scalar {
+        const _10 = x.sq();
+        const _11 = x.mul(_10);
+        const _100 = x.mul(_11);
+        const _1000 = _100.sq();
+        const _1010 = _10.mul(_1000);
+        const _1011 = x.mul(_1010);
+        const _10000 = _1000.sq();
+        const _10110 = _1011.sq();
+        const _100000 = _1010.mul(_10110);
+        const _100110 = _10000.mul(_10110);
+        const _1000000 = _100000.sq();
+        const _1010000 = _10000.mul(_1000000);
+        const _1010011 = _11.mul(_1010000);
+        const _1100011 = _10000.mul(_1010011);
+        const _1100111 = _100.mul(_1100011);
+        const _1101011 = _100.mul(_1100111);
+        const _10010011 = _1000000.mul(_1010011);
+        const _10010111 = _100.mul(_10010011);
+        const _10111101 = _100110.mul(_10010111);
+        const _11010011 = _10110.mul(_10111101);
+        const _11100111 = _1010000.mul(_10010111);
+        const _11101011 = _100.mul(_11100111);
+        const _11110101 = _1010.mul(_11101011);
+        return _1011.mul(_11110101).sqn_mul(126, _1010011).sqn_mul(9, _10).mul(_11110101)
+            .sqn_mul(7, _1100111).sqn_mul(9, _11110101).sqn_mul(11, _10111101).sqn_mul(8, _11100111)
+            .sqn_mul(9, _1101011).sqn_mul(6, _1011).sqn_mul(14, _10010011).sqn_mul(10, _1100011)
+            .sqn_mul(9, _10010111).sqn_mul(10, _11110101).sqn_mul(8, _11010011).sqn_mul(8, _11101011);
+    }
 };
 
 const ScalarDouble = struct {
@@ -780,4 +831,12 @@ test "mulAdd overflow check" {
     const x = mulAdd(a, b, c);
     var buf: [128]u8 = undefined;
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&x)}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
+}
+
+test "scalar field inversion" {
+    const bytes: [32]u8 = .{ 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8 };
+    const x = Scalar.fromBytes(bytes);
+    const inv = x.invert();
+    const recovered_x = inv.invert();
+    try std.testing.expectEqualSlices(u8, &bytes, &recovered_x.toBytes());
 }

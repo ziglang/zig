@@ -1574,6 +1574,7 @@ fn getDebugInfoAllocator() mem.Allocator {
 /// Whether or not the current target can print useful debug information when a segfault occurs.
 pub const have_segfault_handling_support = switch (native_os) {
     .linux, .netbsd, .solaris => true,
+    .macos => native_arch == .x86_64,
     .windows => true,
     .freebsd, .openbsd => @hasDecl(os.system, "ucontext_t"),
     else => false,
@@ -1601,7 +1602,7 @@ pub fn attachSegfaultHandler() void {
         return;
     }
     var act = os.Sigaction{
-        .handler = .{ .sigaction = handleSegfaultLinux },
+        .handler = .{ .sigaction = handleSegfaultPosix },
         .mask = os.empty_sigset,
         .flags = (os.SA.SIGINFO | os.SA.RESTART | os.SA.RESETHAND),
     };
@@ -1629,7 +1630,7 @@ fn resetSegfaultHandler() void {
     os.sigaction(os.SIG.BUS, &act, null);
 }
 
-fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
+fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
     // Reset to the default handler so that if a segfault happens in this handler it will crash
     // the process. Also when this handler returns, the original instruction will be repeated
     // and the resulting segfault will crash the process rather than continually dump stack traces.
@@ -1637,7 +1638,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
 
     const addr = switch (native_os) {
         .linux => @ptrToInt(info.fields.sigfault.addr),
-        .freebsd => @ptrToInt(info.addr),
+        .freebsd, .macos => @ptrToInt(info.addr),
         .netbsd => @ptrToInt(info.info.reason.fault.addr),
         .openbsd => @ptrToInt(info.data.fault.addr),
         .solaris => @ptrToInt(info.reason.fault.addr),
@@ -1668,12 +1669,14 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
                 .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
                 .freebsd => @intCast(usize, ctx.mcontext.rip),
                 .openbsd => @intCast(usize, ctx.sc_rip),
+                .macos => @intCast(usize, ctx.mcontext.ss.rip),
                 else => unreachable,
             };
             const bp = switch (native_os) {
                 .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
                 .openbsd => @intCast(usize, ctx.sc_rbp),
                 .freebsd => @intCast(usize, ctx.mcontext.rbp),
+                .macos => @intCast(usize, ctx.mcontext.ss.rbp),
                 else => unreachable,
             };
             dumpStackTraceFromBase(bp, ip);
