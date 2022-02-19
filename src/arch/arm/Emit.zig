@@ -393,11 +393,9 @@ fn addDbgInfoTypeReloc(self: *Emit, ty: Type) !void {
 fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
     const mcv = self.function.args[arg_index];
 
-    const ty_str = self.function.air.instructions.items(.data)[inst].ty_str;
-    const zir = &self.function.mod_fn.owner_decl.getFileScope().zir;
-    const name = zir.nullTerminatedString(ty_str.str);
+    const ty = self.function.air.instructions.items(.data)[inst].ty;
+    const name = self.function.mod_fn.getParamName(arg_index);
     const name_with_null = name.ptr[0 .. name.len + 1];
-    const ty = self.function.air.getRefType(ty_str.ty);
 
     switch (mcv) {
         .register => |reg| {

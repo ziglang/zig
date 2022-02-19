@@ -15,7 +15,6 @@ const Decl = Module.Decl;
 const trace = @import("../tracy.zig").trace;
 const LazySrcLoc = Module.LazySrcLoc;
 const Air = @import("../Air.zig");
-const Zir = @import("../Zir.zig");
 const Liveness = @import("../Liveness.zig");
 
 const Mutability = enum { Const, Mut };
@@ -2807,49 +2806,48 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
-    const air_datas = f.air.instructions.items(.data);
-    const air_extra = f.air.extraData(Air.Asm, air_datas[inst].ty_pl.payload);
-    const zir = f.object.dg.decl.getFileScope().zir;
-    const extended = zir.instructions.items(.data)[air_extra.data.zir_index].extended;
-    const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
-    const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);
-    const outputs_len = @truncate(u5, extended.small);
-    const args_len = @truncate(u5, extended.small >> 5);
-    const clobbers_len = @truncate(u5, extended.small >> 10);
-    _ = clobbers_len; // TODO honor these
-    const is_volatile = @truncate(u1, extended.small >> 15) != 0;
-    const outputs = @bitCast([]const Air.Inst.Ref, f.air.extra[air_extra.end..][0..outputs_len]);
-    const args = @bitCast([]const Air.Inst.Ref, f.air.extra[air_extra.end + outputs.len ..][0..args_len]);
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const extra = f.air.extraData(Air.Asm, ty_pl.payload);
+    const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
+    const clobbers_len = @truncate(u31, extra.data.flags);
+    var extra_i: usize = extra.end;
+    const outputs = @bitCast([]const Air.Inst.Ref, f.air.extra[extra_i..][0..extra.data.outputs_len]);
+    extra_i += outputs.len;
+    const inputs = @bitCast([]const Air.Inst.Ref, f.air.extra[extra_i..][0..extra.data.inputs_len]);
+    extra_i += inputs.len;
 
-    if (outputs_len > 1) {
+    if (!is_volatile and f.liveness.isUnused(inst)) return CValue.none;
+
+    if (outputs.len > 1) {
         return f.fail("TODO implement codegen for asm with more than 1 output", .{});
     }
 
-    if (f.liveness.isUnused(inst) and !is_volatile)
-        return CValue.none;
-
-    var extra_i: usize = zir_extra.end;
-    const output_constraint: ?[]const u8 = out: {
-        var i: usize = 0;
-        while (i < outputs_len) : (i += 1) {
-            const output = zir.extraData(Zir.Inst.Asm.Output, extra_i);
-            extra_i = output.end;
-            break :out zir.nullTerminatedString(output.data.constraint);
+    const output_constraint: ?[]const u8 = for (outputs) |output| {
+        if (output != .none) {
+            return f.fail("TODO implement codegen for non-expr asm", .{});
         }
-        break :out null;
-    };
-    const args_extra_begin = extra_i;
+        const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += constraint.len / 4 + 1;
+
+        break constraint;
+    } else null;
 
     const writer = f.object.writer();
-    for (args) |arg| {
-        const input = zir.extraData(Zir.Inst.Asm.Input, extra_i);
-        extra_i = input.end;
-        const constraint = zir.nullTerminatedString(input.data.constraint);
+    const inputs_extra_begin = extra_i;
+
+    for (inputs) |input| {
+        const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += constraint.len / 4 + 1;
+
         if (constraint[0] == '{' and constraint[constraint.len - 1] == '}') {
             const reg = constraint[1 .. constraint.len - 1];
-            const arg_c_value = try f.resolveInst(arg);
+            const arg_c_value = try f.resolveInst(input);
             try writer.writeAll("register ");
-            try f.renderType(writer, f.air.typeOf(arg));
+            try f.renderType(writer, f.air.typeOf(input));
 
             try writer.print(" {s}_constant __asm__(\"{s}\") = ", .{ reg, reg });
             try f.writeCValue(writer, arg_c_value);
@@ -2858,21 +2856,38 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             return f.fail("TODO non-explicit inline asm regs", .{});
         }
     }
+
+    {
+        var clobber_i: u32 = 0;
+        while (clobber_i < clobbers_len) : (clobber_i += 1) {
+            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += clobber.len / 4 + 1;
+
+            // TODO honor these
+        }
+    }
+
+    const asm_source = std.mem.sliceAsBytes(f.air.extra[extra_i..])[0..extra.data.source_len];
+
     const volatile_string: []const u8 = if (is_volatile) "volatile " else "";
     try writer.print("__asm {s}(\"{s}\"", .{ volatile_string, asm_source });
     if (output_constraint) |_| {
         return f.fail("TODO: CBE inline asm output", .{});
     }
-    if (args.len > 0) {
+    if (inputs.len > 0) {
         if (output_constraint == null) {
             try writer.writeAll(" :");
         }
         try writer.writeAll(": ");
-        extra_i = args_extra_begin;
-        for (args) |_, index| {
-            const input = zir.extraData(Zir.Inst.Asm.Input, extra_i);
-            extra_i = input.end;
-            const constraint = zir.nullTerminatedString(input.data.constraint);
+        extra_i = inputs_extra_begin;
+        for (inputs) |_, index| {
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += constraint.len / 4 + 1;
+
             if (constraint[0] == '{' and constraint[constraint.len - 1] == '}') {
                 const reg = constraint[1 .. constraint.len - 1];
                 if (index > 0) {

@@ -12,7 +12,6 @@ const log = std.log.scoped(.liveness);
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");
-const Zir = @import("Zir.zig");
 const Log2Int = std.math.Log2Int;
 
 /// This array is split into sets of 4 bits per AIR instruction.
@@ -52,7 +51,7 @@ pub const SwitchBr = struct {
     else_death_count: u32,
 };
 
-pub fn analyze(gpa: Allocator, air: Air, zir: Zir) Allocator.Error!Liveness {
+pub fn analyze(gpa: Allocator, air: Air) Allocator.Error!Liveness {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -66,7 +65,6 @@ pub fn analyze(gpa: Allocator, air: Air, zir: Zir) Allocator.Error!Liveness {
         ),
         .extra = .{},
         .special = .{},
-        .zir = &zir,
     };
     errdefer gpa.free(a.tomb_bits);
     errdefer a.special.deinit(gpa);
@@ -157,7 +155,6 @@ const Analysis = struct {
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
     extra: std.ArrayListUnmanaged(u32),
-    zir: *const Zir,
 
     fn storeTombBits(a: *Analysis, inst: Air.Inst.Index, tomb_bits: Bpi) void {
         const usize_index = (inst * bpi) / @bitSizeOf(usize);
@@ -446,15 +443,24 @@ fn analyzeInst(
         },
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[inst].ty_pl.payload);
-            const extended = a.zir.instructions.items(.data)[extra.data.zir_index].extended;
-            const outputs_len = @truncate(u5, extended.small);
-            const inputs_len = @truncate(u5, extended.small >> 5);
-            const outputs = @bitCast([]const Air.Inst.Ref, a.air.extra[extra.end..][0..outputs_len]);
-            const args = @bitCast([]const Air.Inst.Ref, a.air.extra[extra.end + outputs.len ..][0..inputs_len]);
-            if (outputs.len + args.len <= bpi - 1) {
+            var extra_i: usize = extra.end;
+            const outputs = @bitCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.outputs_len]);
+            extra_i += outputs.len;
+            const inputs = @bitCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.inputs_len]);
+            extra_i += inputs.len;
+
+            simple: {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
-                std.mem.copy(Air.Inst.Ref, &buf, outputs);
-                std.mem.copy(Air.Inst.Ref, buf[outputs.len..], args);
+                var buf_index: usize = 0;
+                for (outputs) |output| {
+                    if (output != .none) {
+                        if (buf_index >= buf.len) break :simple;
+                        buf[buf_index] = output;
+                        buf_index += 1;
+                    }
+                }
+                if (buf_index + inputs.len > buf.len) break :simple;
+                std.mem.copy(Air.Inst.Ref, buf[buf_index..], inputs);
                 return trackOperands(a, new_set, inst, main_tomb, buf);
             }
             var extra_tombs: ExtraTombs = .{
@@ -464,10 +470,12 @@ fn analyzeInst(
                 .main_tomb = main_tomb,
             };
             for (outputs) |output| {
-                try extra_tombs.feed(output);
+                if (output != .none) {
+                    try extra_tombs.feed(output);
+                }
             }
-            for (args) |arg| {
-                try extra_tombs.feed(arg);
+            for (inputs) |input| {
+                try extra_tombs.feed(input);
             }
             return extra_tombs.finish();
         },

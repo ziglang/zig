@@ -2778,7 +2778,7 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                 errdefer if (!liveness_frame_ended) liveness_frame.end();
 
                 log.debug("analyze liveness of {s}", .{decl.name});
-                var liveness = try Liveness.analyze(gpa, air, decl.getFileScope().zir);
+                var liveness = try Liveness.analyze(gpa, air);
                 defer liveness.deinit(gpa);
 
                 liveness_frame.end();
@@ -2786,7 +2786,7 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
 
                 if (builtin.mode == .Debug and comp.verbose_air) {
                     std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
-                    @import("print_air.zig").dump(gpa, air, decl.getFileScope().zir, liveness);
+                    @import("print_air.zig").dump(gpa, air, liveness);
                     std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
                 }
 

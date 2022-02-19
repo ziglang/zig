@@ -32,8 +32,7 @@ pub const Inst = struct {
         /// The first N instructions in the main block must be one arg instruction per
         /// function parameter. This makes function parameters participate in
         /// liveness analysis without any special handling.
-        /// Uses the `ty_str` field.
-        /// The string is the parameter name.
+        /// Uses the `ty` field.
         arg,
         /// Float or integer addition. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
@@ -621,11 +620,6 @@ pub const Inst = struct {
             // Index into a different array.
             payload: u32,
         },
-        ty_str: struct {
-            ty: Ref,
-            // ZIR string table index.
-            str: u32,
-        },
         br: struct {
             block_inst: Index,
             operand: Ref,
@@ -709,11 +703,25 @@ pub const Bin = struct {
 /// Trailing:
 /// 0. `Inst.Ref` for every outputs_len
 /// 1. `Inst.Ref` for every inputs_len
+/// 2. for every outputs_len
+///    - constraint: memory at this position is reinterpreted as a null
+///      terminated string. pad to the next u32 after the null byte.
+/// 3. for every inputs_len
+///    - constraint: memory at this position is reinterpreted as a null
+///      terminated string. pad to the next u32 after the null byte.
+/// 4. for every clobbers_len
+///    - clobber_name: memory at this position is reinterpreted as a null
+///      terminated string. pad to the next u32 after the null byte.
+/// 5. A number of u32 elements follow according to the equation `(source_len + 3) / 4`.
+///    Memory starting at this position is reinterpreted as the source bytes.
 pub const Asm = struct {
-    /// Index to the corresponding ZIR instruction.
-    /// `asm_source`, `outputs_len`, `inputs_len`, `clobbers_len`, `is_volatile`, and
-    /// clobbers are found via here.
-    zir_index: u32,
+    /// Length of the assembly source in bytes.
+    source_len: u32,
+    outputs_len: u32,
+    inputs_len: u32,
+    /// The MSB is `is_volatile`.
+    /// The rest of the bits are `clobbers_len`.
+    flags: u32,
 };
 
 pub const Cmpxchg = struct {
@@ -765,8 +773,6 @@ pub fn typeOf(air: Air, inst: Air.Inst.Ref) Type {
 pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
     const datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst]) {
-        .arg => return air.getRefType(datas[inst].ty_str.ty),
-
         .add,
         .addwrap,
         .add_sat,
@@ -833,6 +839,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .alloc,
         .ret_ptr,
+        .arg,
         => return datas[inst].ty,
 
         .assembly,

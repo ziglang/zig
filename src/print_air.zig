@@ -4,11 +4,10 @@ const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 const Module = @import("Module.zig");
 const Value = @import("value.zig").Value;
-const Zir = @import("Zir.zig");
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 
-pub fn dump(gpa: Allocator, air: Air, zir: Zir, liveness: Liveness) void {
+pub fn dump(gpa: Allocator, air: Air, liveness: Liveness) void {
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
@@ -49,7 +48,6 @@ pub fn dump(gpa: Allocator, air: Air, zir: Zir, liveness: Liveness) void {
         .gpa = gpa,
         .arena = arena.allocator(),
         .air = air,
-        .zir = zir,
         .liveness = liveness,
         .indent = 2,
     };
@@ -63,7 +61,6 @@ const Writer = struct {
     gpa: Allocator,
     arena: Allocator,
     air: Air,
-    zir: Zir,
     liveness: Liveness,
     indent: usize,
 
@@ -100,8 +97,6 @@ const Writer = struct {
         const tag = tags[inst];
         try s.print("= {s}(", .{@tagName(tags[inst])});
         switch (tag) {
-            .arg => try w.writeTyStr(s, inst),
-
             .add,
             .addwrap,
             .add_sat,
@@ -181,6 +176,7 @@ const Writer = struct {
             .const_ty,
             .alloc,
             .ret_ptr,
+            .arg,
             => try w.writeTy(s, inst),
 
             .not,
@@ -257,12 +253,6 @@ const Writer = struct {
             .shl_with_overflow,
             => try w.writeOverflow(s, inst),
         }
-    }
-
-    fn writeTyStr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_str = w.air.instructions.items(.data)[inst].ty_str;
-        const name = w.zir.nullTerminatedString(ty_str.str);
-        try s.print("\"{}\", {}", .{ std.zig.fmtEscapes(name), w.air.getRefType(ty_str.ty) });
     }
 
     fn writeBinOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -440,51 +430,67 @@ const Writer = struct {
 
     fn writeAssembly(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const air_asm = w.air.extraData(Air.Asm, ty_pl.payload);
-        const zir = w.zir;
-        const extended = zir.instructions.items(.data)[air_asm.data.zir_index].extended;
-        const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
-        const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);
-        const outputs_len = @truncate(u5, extended.small);
-        const args_len = @truncate(u5, extended.small >> 5);
-        const clobbers_len = @truncate(u5, extended.small >> 10);
-        const args = @bitCast([]const Air.Inst.Ref, w.air.extra[air_asm.end..][0..args_len]);
+        const extra = w.air.extraData(Air.Asm, ty_pl.payload);
+        const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
+        const clobbers_len = @truncate(u31, extra.data.flags);
+        var extra_i: usize = extra.end;
+        var op_index: usize = 0;
 
-        var extra_i: usize = zir_extra.end;
-        const output_constraint: ?[]const u8 = out: {
-            var i: usize = 0;
-            while (i < outputs_len) : (i += 1) {
-                const output = zir.extraData(Zir.Inst.Asm.Output, extra_i);
-                extra_i = output.end;
-                break :out zir.nullTerminatedString(output.data.constraint);
-            }
-            break :out null;
-        };
+        const ret_ty = w.air.typeOfIndex(inst);
+        try s.print("{}", .{ret_ty});
 
-        try s.print("\"{s}\"", .{asm_source});
-
-        if (output_constraint) |constraint| {
-            const ret_ty = w.air.typeOfIndex(inst);
-            try s.print(", {s} -> {}", .{ constraint, ret_ty });
+        if (is_volatile) {
+            try s.writeAll(", volatile");
         }
 
-        for (args) |arg| {
-            const input = zir.extraData(Zir.Inst.Asm.Input, extra_i);
-            extra_i = input.end;
-            const constraint = zir.nullTerminatedString(input.data.constraint);
+        const outputs = @bitCast([]const Air.Inst.Ref, w.air.extra[extra_i..][0..extra.data.outputs_len]);
+        extra_i += outputs.len;
+        const inputs = @bitCast([]const Air.Inst.Ref, w.air.extra[extra_i..][0..extra.data.inputs_len]);
+        extra_i += inputs.len;
 
-            try s.print(", {s} = (", .{constraint});
-            try w.writeOperand(s, inst, 0, arg);
+        for (outputs) |output| {
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(w.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += constraint.len / 4 + 1;
+
+            if (output == .none) {
+                try s.print(", -> {s}", .{constraint});
+            } else {
+                try s.print(", out {s} = (", .{constraint});
+                try w.writeOperand(s, inst, op_index, output);
+                op_index += 1;
+                try s.writeByte(')');
+            }
+        }
+
+        for (inputs) |input| {
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(w.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += constraint.len / 4 + 1;
+
+            try s.print(", in {s} = (", .{constraint});
+            try w.writeOperand(s, inst, op_index, input);
+            op_index += 1;
             try s.writeByte(')');
         }
 
-        const clobbers = zir.extra[extra_i..][0..clobbers_len];
-        for (clobbers) |clobber_index| {
-            const clobber = zir.nullTerminatedString(clobber_index);
-            try s.writeAll(", ~{");
-            try s.writeAll(clobber);
-            try s.writeAll("}");
+        {
+            var clobber_i: u32 = 0;
+            while (clobber_i < clobbers_len) : (clobber_i += 1) {
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(w.air.extra[extra_i..]), 0);
+                // This equation accounts for the fact that even if we have exactly 4 bytes
+                // for the string, we still use the next u32 for the null terminator.
+                extra_i += clobber.len / 4 + 1;
+
+                try s.writeAll(", ~{");
+                try s.writeAll(clobber);
+                try s.writeAll("}");
+            }
         }
+        const asm_source = std.mem.sliceAsBytes(w.air.extra[extra_i..])[0..extra.data.source_len];
+        try s.print(", \"{s}\"", .{asm_source});
     }
 
     fn writeDbgStmt(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
