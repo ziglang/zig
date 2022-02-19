@@ -77,7 +77,6 @@ pub fn format(
 ) !void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
-    // XXX: meta.trait.is(.Struct)(ArgsType) doesn't seem to work...
     if (args_type_info != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }

@@ -319,6 +319,21 @@ fn reachableExpr(
     node: Ast.Node.Index,
     reachable_node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
+    return reachableExprComptime(gz, scope, rl, node, reachable_node, false);
+}
+
+fn reachableExprComptime(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: Ast.Node.Index,
+    reachable_node: Ast.Node.Index,
+    force_comptime: bool,
+) InnerError!Zir.Inst.Ref {
+    const prev_force_comptime = gz.force_comptime;
+    gz.force_comptime = prev_force_comptime or force_comptime;
+    defer gz.force_comptime = prev_force_comptime;
+
     const result_inst = try expr(gz, scope, rl, node);
     if (gz.refIsNoReturn(result_inst)) {
         try gz.astgen.appendErrorNodeNotes(reachable_node, "unreachable code", .{}, &[_]u32{
@@ -2758,7 +2773,7 @@ fn varDecl(
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
-            _ = try reachableExpr(gz, scope, var_data.result_loc, var_decl.ast.init_node, node);
+            _ = try reachableExprComptime(gz, scope, var_data.result_loc, var_decl.ast.init_node, node, is_comptime);
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
