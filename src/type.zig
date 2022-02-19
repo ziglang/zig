@@ -2031,21 +2031,21 @@ pub const Type = extern union {
             .empty_struct,
             .void,
             .anyopaque,
-            => return 0,
-
             .empty_struct_literal,
             .type,
             .comptime_int,
             .comptime_float,
-            .noreturn,
             .@"null",
             .@"undefined",
             .enum_literal,
+            .type_info,
+            => return 0,
+
+            .noreturn,
             .inferred_alloc_const,
             .inferred_alloc_mut,
             .@"opaque",
             .var_args_param,
-            .type_info,
             .bound_fn,
             => unreachable,
 
@@ -4782,6 +4782,7 @@ pub const Type = extern union {
             base: Payload = .{ .tag = .tuple },
             data: struct {
                 types: []Type,
+                /// unreachable_value elements are used to indicate runtime-known.
                 values: []Value,
             },
         };

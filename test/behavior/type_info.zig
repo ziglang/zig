@@ -454,10 +454,13 @@ test "Declarations are returned in declaration order" {
     try expect(std.mem.eql(u8, d[4].name, "e"));
 }
 
-test "Struct.is_tuple" {
+test "Struct.is_tuple for anon list literal" {
+    try expect(@typeInfo(@TypeOf(.{0})).Struct.is_tuple);
+}
+
+test "Struct.is_tuple for anon struct literal" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
-    try expect(@typeInfo(@TypeOf(.{0})).Struct.is_tuple);
     try expect(!@typeInfo(@TypeOf(.{ .a = 0 })).Struct.is_tuple);
 }
 

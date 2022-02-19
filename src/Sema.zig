@@ -4192,12 +4192,12 @@ fn analyzeCall(
         .auto,
         .always_inline,
         .compile_time,
+        .no_async,
         => {},
 
         .async_kw,
         .never_tail,
         .never_inline,
-        .no_async,
         .always_tail,
         => return sema.fail(block, call_src, "TODO implement call with modifier {}", .{
             modifier,
@@ -10035,51 +10035,93 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 var buffer: Value.ToTypeBuffer = undefined;
                 break :t try struct_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
             };
-
             const struct_ty = try sema.resolveTypeFields(block, src, ty);
-            const struct_fields = struct_ty.structFields();
-            const struct_field_vals = try fields_anon_decl.arena().alloc(Value, struct_fields.count());
             const layout = struct_ty.containerLayout();
 
-            for (struct_field_vals) |*field_val, i| {
-                const field = struct_fields.values()[i];
-                const name = struct_fields.keys()[i];
-                const name_val = v: {
-                    var anon_decl = try block.startAnonDecl(src);
-                    defer anon_decl.deinit();
-                    const bytes = try anon_decl.arena().dupeZ(u8, name);
-                    const new_decl = try anon_decl.finish(
-                        try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
-                        try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
-                    );
-                    break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
-                };
+            const struct_field_vals = fv: {
+                if (struct_ty.castTag(.tuple)) |payload| {
+                    const field_types = payload.data.types;
+                    const struct_field_vals = try fields_anon_decl.arena().alloc(Value, field_types.len);
+                    for (struct_field_vals) |*struct_field_val, i| {
+                        const field_ty = field_types[i];
+                        const name_val = v: {
+                            var anon_decl = try block.startAnonDecl(src);
+                            defer anon_decl.deinit();
+                            const bytes = try std.fmt.allocPrintZ(anon_decl.arena(), "{d}", .{i});
+                            const new_decl = try anon_decl.finish(
+                                try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
+                                try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                            );
+                            break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                        };
 
-                const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
-                const opt_default_val = if (field.default_val.tag() == .unreachable_value)
-                    null
-                else
-                    field.default_val;
-                const default_val_ptr = try sema.optRefValue(block, src, field.ty, opt_default_val);
-                const alignment = switch (layout) {
-                    .Auto, .Extern => field.normalAlignment(target),
-                    .Packed => field.packedAlignment(),
-                };
+                        const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
+                        const field_val = payload.data.values[i];
+                        const is_comptime = field_val.tag() != .unreachable_value;
+                        const opt_default_val = if (is_comptime) field_val else null;
+                        const default_val_ptr = try sema.optRefValue(block, src, field_ty, opt_default_val);
+                        const alignment = field_ty.abiAlignment(target);
 
-                struct_field_fields.* = .{
-                    // name: []const u8,
-                    name_val,
-                    // field_type: type,
-                    try Value.Tag.ty.create(fields_anon_decl.arena(), field.ty),
-                    // default_value: ?*const anyopaque,
-                    try default_val_ptr.copy(fields_anon_decl.arena()),
-                    // is_comptime: bool,
-                    Value.makeBool(field.is_comptime),
-                    // alignment: comptime_int,
-                    try Value.Tag.int_u64.create(fields_anon_decl.arena(), alignment),
-                };
-                field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), struct_field_fields);
-            }
+                        struct_field_fields.* = .{
+                            // name: []const u8,
+                            name_val,
+                            // field_type: type,
+                            try Value.Tag.ty.create(fields_anon_decl.arena(), field_ty),
+                            // default_value: ?*const anyopaque,
+                            try default_val_ptr.copy(fields_anon_decl.arena()),
+                            // is_comptime: bool,
+                            Value.makeBool(is_comptime),
+                            // alignment: comptime_int,
+                            try Value.Tag.int_u64.create(fields_anon_decl.arena(), alignment),
+                        };
+                        struct_field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), struct_field_fields);
+                    }
+                    break :fv struct_field_vals;
+                }
+                const struct_fields = struct_ty.structFields();
+                const struct_field_vals = try fields_anon_decl.arena().alloc(Value, struct_fields.count());
+
+                for (struct_field_vals) |*field_val, i| {
+                    const field = struct_fields.values()[i];
+                    const name = struct_fields.keys()[i];
+                    const name_val = v: {
+                        var anon_decl = try block.startAnonDecl(src);
+                        defer anon_decl.deinit();
+                        const bytes = try anon_decl.arena().dupeZ(u8, name);
+                        const new_decl = try anon_decl.finish(
+                            try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
+                            try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                        );
+                        break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                    };
+
+                    const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
+                    const opt_default_val = if (field.default_val.tag() == .unreachable_value)
+                        null
+                    else
+                        field.default_val;
+                    const default_val_ptr = try sema.optRefValue(block, src, field.ty, opt_default_val);
+                    const alignment = switch (layout) {
+                        .Auto, .Extern => field.normalAlignment(target),
+                        .Packed => field.packedAlignment(),
+                    };
+
+                    struct_field_fields.* = .{
+                        // name: []const u8,
+                        name_val,
+                        // field_type: type,
+                        try Value.Tag.ty.create(fields_anon_decl.arena(), field.ty),
+                        // default_value: ?*const anyopaque,
+                        try default_val_ptr.copy(fields_anon_decl.arena()),
+                        // is_comptime: bool,
+                        Value.makeBool(field.is_comptime),
+                        // alignment: comptime_int,
+                        try Value.Tag.int_u64.create(fields_anon_decl.arena(), alignment),
+                    };
+                    field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), struct_field_fields);
+                }
+                break :fv struct_field_vals;
+            };
 
             const fields_val = v: {
                 const new_decl = try fields_anon_decl.finish(
