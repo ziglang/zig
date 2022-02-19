@@ -88,6 +88,22 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
+        /// Returns the negation of a complex number.
+        pub fn neg(self: Self) Self {
+            return Self{
+                .re = -self.re,
+                .im = -self.im,
+            };
+        }
+
+        /// Returns the product of complex number and i=sqrt(-1)
+        pub fn mulbyi(self: Self) Self {
+            return Self{
+                .re = -self.im,
+                .im = self.re,
+            };
+        }
+        
         /// Returns the reciprocal of a complex number.
         pub fn reciprocal(self: Self) Self {
             const m = self.re * self.re + self.im * self.im;
@@ -101,6 +117,7 @@ pub fn Complex(comptime T: type) type {
         pub fn magnitude(self: Self) T {
             return math.sqrt(self.re * self.re + self.im * self.im);
         }
+
     };
 }
 
