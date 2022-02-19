@@ -425,6 +425,9 @@ pub const StackIterator = struct {
     }
 
     fn isValidMemory(address: usize) bool {
+        // We are unable to determine validity of memory for freestanding targets
+        if (native_os == .freestanding) return true;
+
         const aligned_address = address & ~@intCast(usize, (mem.page_size - 1));
 
         // If the address does not span 2 pages, query only the first one
