@@ -1202,33 +1202,32 @@ test "for loop over pointers to struct, getting field from struct pointer" {
 
 test "anon init through error unions and optionals" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (true) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
 
     const S = struct {
         a: u32,
 
         fn foo() anyerror!?anyerror!@This() {
-            return @This(){ .a = 1 };
+            return .{ .a = 1 };
         }
         fn bar() ?anyerror![2]u8 {
-            return [2]u8{ 1, 2 };
+            return .{ 1, 2 };
         }
 
         fn doTheTest() !void {
-            var a = ((foo() catch unreachable).?) catch unreachable;
-            var b = (bar().?) catch unreachable;
+            var a = try (try foo()).?;
+            var b = try bar().?;
             try expect(a.a + b[1] == 3);
         }
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    // comptime try S.doTheTest(); // TODO
 }
 
 test "anon init through optional" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    // not sure why this is needed, we only do the test at comptime
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
 
     const S = struct {
         a: u32,
@@ -1239,14 +1238,14 @@ test "anon init through optional" {
             try expect(s.?.a == 1);
         }
     };
-    // try S.doTheTest(); // TODO
+
+    try S.doTheTest();
     comptime try S.doTheTest();
 }
 
 test "anon init through error union" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    // not sure why this is needed, we only do the test at comptime
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
 
     const S = struct {
         a: u32,
@@ -1257,6 +1256,7 @@ test "anon init through error union" {
             try expect((try s).a == 1);
         }
     };
-    // try S.doTheTest(); // TODO
+
+    try S.doTheTest();
     comptime try S.doTheTest();
 }

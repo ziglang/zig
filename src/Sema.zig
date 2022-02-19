@@ -2603,8 +2603,8 @@ fn zirArrayBasePtr(
     const start_ptr = sema.resolveInst(inst_data.operand);
     var base_ptr = start_ptr;
     while (true) switch (sema.typeOf(base_ptr).childType().zigTypeTag()) {
-        .ErrorUnion => base_ptr = try sema.analyzeErrUnionPayloadPtr(block, src, base_ptr, false),
-        .Optional => base_ptr = try sema.analyzeOptionalPayloadPtr(block, src, base_ptr, false),
+        .ErrorUnion => base_ptr = try sema.analyzeErrUnionPayloadPtr(block, src, base_ptr, false, true),
+        .Optional => base_ptr = try sema.analyzeOptionalPayloadPtr(block, src, base_ptr, false, true),
         else => break,
     };
 
@@ -2630,8 +2630,8 @@ fn zirFieldBasePtr(
     const start_ptr = sema.resolveInst(inst_data.operand);
     var base_ptr = start_ptr;
     while (true) switch (sema.typeOf(base_ptr).childType().zigTypeTag()) {
-        .ErrorUnion => base_ptr = try sema.analyzeErrUnionPayloadPtr(block, src, base_ptr, false),
-        .Optional => base_ptr = try sema.analyzeOptionalPayloadPtr(block, src, base_ptr, false),
+        .ErrorUnion => base_ptr = try sema.analyzeErrUnionPayloadPtr(block, src, base_ptr, false, true),
+        .Optional => base_ptr = try sema.analyzeOptionalPayloadPtr(block, src, base_ptr, false, true),
         else => break,
     };
 
@@ -5263,7 +5263,7 @@ fn zirOptionalPayloadPtr(
     const optional_ptr = sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
-    return sema.analyzeOptionalPayloadPtr(block, src, optional_ptr, safety_check);
+    return sema.analyzeOptionalPayloadPtr(block, src, optional_ptr, safety_check, false);
 }
 
 fn analyzeOptionalPayloadPtr(
@@ -5272,6 +5272,7 @@ fn analyzeOptionalPayloadPtr(
     src: LazySrcLoc,
     optional_ptr: Air.Inst.Ref,
     safety_check: bool,
+    initializing: bool,
 ) CompileError!Air.Inst.Ref {
     const optional_ptr_ty = sema.typeOf(optional_ptr);
     assert(optional_ptr_ty.zigTypeTag() == .Pointer);
@@ -5290,7 +5291,7 @@ fn analyzeOptionalPayloadPtr(
 
     if (try sema.resolveDefinedValue(block, src, optional_ptr)) |pointer_val| {
         if (try sema.pointerDeref(block, src, pointer_val, optional_ptr_ty)) |val| {
-            if (safety_check) {
+            if (!initializing) {
                 if (val.isNull()) {
                     return sema.fail(block, src, "unable to unwrap null", .{});
                 }
@@ -5308,7 +5309,10 @@ fn analyzeOptionalPayloadPtr(
         const is_non_null = try block.addUnOp(.is_non_null_ptr, optional_ptr);
         try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
     }
-    return block.addTyOp(.optional_payload_ptr, child_pointer, optional_ptr);
+    return block.addTyOp(if (initializing)
+        .optional_payload_ptr_set
+    else
+        .optional_payload_ptr, child_pointer, optional_ptr);
 }
 
 /// Value in, value out.
@@ -5412,7 +5416,7 @@ fn zirErrUnionPayloadPtr(
     const operand = sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
-    return sema.analyzeErrUnionPayloadPtr(block, src, operand, safety_check);
+    return sema.analyzeErrUnionPayloadPtr(block, src, operand, safety_check, false);
 }
 
 fn analyzeErrUnionPayloadPtr(
@@ -5421,6 +5425,7 @@ fn analyzeErrUnionPayloadPtr(
     src: LazySrcLoc,
     operand: Air.Inst.Ref,
     safety_check: bool,
+    initializing: bool,
 ) CompileError!Air.Inst.Ref {
     const operand_ty = sema.typeOf(operand);
     assert(operand_ty.zigTypeTag() == .Pointer);
@@ -5437,7 +5442,7 @@ fn analyzeErrUnionPayloadPtr(
 
     if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
         if (try sema.pointerDeref(block, src, pointer_val, operand_ty)) |val| {
-            if (safety_check) {
+            if (!initializing) {
                 if (val.getError()) |name| {
                     return sema.fail(block, src, "caught unexpected error '{s}'", .{name});
                 }
@@ -5455,7 +5460,10 @@ fn analyzeErrUnionPayloadPtr(
         const is_non_err = try block.addUnOp(.is_err, operand);
         try sema.addSafetyCheck(block, is_non_err, .unwrap_errunion);
     }
-    return block.addTyOp(.unwrap_errunion_payload_ptr, operand_pointer_ty, operand);
+    return block.addTyOp(if (initializing)
+        .errunion_payload_ptr_set
+    else
+        .unwrap_errunion_payload_ptr, operand_pointer_ty, operand);
 }
 
 /// Value in, value out
