@@ -103,7 +103,7 @@ pub fn Complex(comptime T: type) type {
                 .im = self.re,
             };
         }
-        
+
         /// Returns the reciprocal of a complex number.
         pub fn reciprocal(self: Self) Self {
             const m = self.re * self.re + self.im * self.im;
@@ -117,7 +117,6 @@ pub fn Complex(comptime T: type) type {
         pub fn magnitude(self: Self) T {
             return math.sqrt(self.re * self.re + self.im * self.im);
         }
-
     };
 }
 
@@ -161,6 +160,20 @@ test "complex.conjugate" {
     const c = a.conjugate();
 
     try testing.expect(c.re == 5 and c.im == -3);
+}
+
+test "complex.neg" {
+    const a = Complex(f32).init(5, 3);
+    const c = a.neg();
+
+    try testing.expect(c.re == -5 and c.im == 3);
+}
+
+test "complex.mulbyi" {
+    const a = Complex(f32).init(5, 3);
+    const c = a.mulbyi();
+
+    try testing.expect(c.re == -3 and c.im == 5);
 }
 
 test "complex.reciprocal" {
