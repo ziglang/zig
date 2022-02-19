@@ -318,6 +318,8 @@ fn analyzeInst(
         .clz,
         .ctz,
         .popcount,
+        .byte_swap,
+        .bit_reverse,
         .splat,
         => {
             const o = inst_datas[inst].ty_op;

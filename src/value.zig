@@ -1334,6 +1334,45 @@ pub const Value = extern union {
         }
     }
 
+    pub fn bitReverse(val: Value, ty: Type, target: Target, arena: Allocator) !Value {
+        assert(!val.isUndef());
+
+        const info = ty.intInfo(target);
+
+        var buffer: Value.BigIntSpace = undefined;
+        const operand_bigint = val.toBigInt(&buffer);
+
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.bitReverse(operand_bigint, info.signedness, info.bits);
+
+        return fromBigInt(arena, result_bigint.toConst());
+    }
+
+    pub fn byteSwap(val: Value, ty: Type, target: Target, arena: Allocator) !Value {
+        assert(!val.isUndef());
+
+        const info = ty.intInfo(target);
+
+        // Bit count must be evenly divisible by 8
+        assert(info.bits % 8 == 0);
+
+        var buffer: Value.BigIntSpace = undefined;
+        const operand_bigint = val.toBigInt(&buffer);
+
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.byteSwap(operand_bigint, info.signedness, info.bits / 8);
+
+        return fromBigInt(arena, result_bigint.toConst());
+    }
+
     /// Asserts the value is an integer and not undefined.
     /// Returns the number of bits the value requires to represent stored in twos complement form.
     pub fn intBitCountTwosComp(self: Value, target: Target) usize {
