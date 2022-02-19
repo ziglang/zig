@@ -925,8 +925,6 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     const operand = try self.resolveInst(ty_op.operand);
     const info_a = operand_ty.intInfo(self.target.*);
     const info_b = self.air.typeOfIndex(inst).intInfo(self.target.*);
-    if (info_a.signedness != info_b.signedness)
-        return self.fail("TODO gen intcast sign safety in semantic analysis", .{});
 
     const operand_abi_size = operand_ty.abiSize(self.target.*);
     const dest_ty = self.air.typeOfIndex(inst);
@@ -5063,6 +5061,26 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
     const ret_ty = fn_ty.fnReturnType();
 
+    // Return values
+    if (ret_ty.zigTypeTag() == .NoReturn) {
+        result.return_value = .{ .unreach = {} };
+    } else if (!ret_ty.hasRuntimeBits()) {
+        result.return_value = .{ .none = {} };
+    } else switch (cc) {
+        .Naked => unreachable,
+        .Unspecified, .C => {
+            const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+            if (ret_ty_size <= 8) {
+                const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
+                result.return_value = .{ .register = aliased_reg };
+            } else {
+                return self.fail("TODO support more return types for x86_64 backend", .{});
+            }
+        },
+        else => return self.fail("TODO implement function return values for {}", .{cc}),
+    }
+
+    // Input params
     switch (cc) {
         .Naked => {
             assert(result.args.len == 0);
@@ -5139,28 +5157,15 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             }
 
             result.stack_align = 16;
+            // TODO fix this so that the 16byte alignment padding is at the current value of $rsp, and push
+            // the args onto the stack so that there is no padding between the first argument and
+            // the standard preamble.
+            // alignment padding | args ... | ret addr | $rbp |
             result.stack_byte_count = mem.alignForwardGeneric(u32, next_stack_offset, result.stack_align);
         },
         else => return self.fail("TODO implement function parameters for {} on x86_64", .{cc}),
     }
 
-    if (ret_ty.zigTypeTag() == .NoReturn) {
-        result.return_value = .{ .unreach = {} };
-    } else if (!ret_ty.hasRuntimeBits()) {
-        result.return_value = .{ .none = {} };
-    } else switch (cc) {
-        .Naked => unreachable,
-        .Unspecified, .C => {
-            const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
-            if (ret_ty_size <= 8) {
-                const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
-                result.return_value = .{ .register = aliased_reg };
-            } else {
-                return self.fail("TODO support more return types for x86_64 backend", .{});
-            }
-        },
-        else => return self.fail("TODO implement function return values for {}", .{cc}),
-    }
     return result;
 }
 
