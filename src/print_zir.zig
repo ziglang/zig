@@ -235,6 +235,8 @@ const Writer = struct {
             .fence,
             .switch_cond,
             .switch_cond_ref,
+            .array_base_ptr,
+            .field_base_ptr,
             => try self.writeUnNode(stream, inst),
 
             .ref,

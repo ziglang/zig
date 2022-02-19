@@ -643,6 +643,18 @@ pub const Inst = struct {
         /// Result is a pointer to the value.
         /// Uses the `switch_capture` field.
         switch_capture_multi_ref,
+        /// Given a
+        ///   *A returns *A
+        ///   *E!A returns *A
+        ///   *?A returns *A
+        /// Uses the `un_node` field.
+        array_base_ptr,
+        /// Given a
+        ///   *S returns *S
+        ///   *E!S returns *S
+        ///   *?S returns *S
+        /// Uses the `un_node` field.
+        field_base_ptr,
         /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
         /// initialization expression, and emits compile errors for duplicate fields
         /// as well as missing fields, if applicable.
@@ -1087,6 +1099,8 @@ pub const Inst = struct {
                 .switch_block,
                 .switch_cond,
                 .switch_cond_ref,
+                .array_base_ptr,
+                .field_base_ptr,
                 .validate_struct_init,
                 .validate_struct_init_comptime,
                 .validate_array_init,
@@ -1340,6 +1354,8 @@ pub const Inst = struct {
                 .switch_capture_ref = .switch_capture,
                 .switch_capture_multi = .switch_capture,
                 .switch_capture_multi_ref = .switch_capture,
+                .array_base_ptr = .un_node,
+                .field_base_ptr = .un_node,
                 .validate_struct_init = .pl_node,
                 .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,

@@ -1384,7 +1384,8 @@ fn arrayInitExprRlPtr(
     array_ty: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
     if (array_ty == .none) {
-        return arrayInitExprRlPtrInner(gz, scope, node, result_ptr, elements);
+        const base_ptr = try gz.addUnNode(.array_base_ptr, result_ptr, node);
+        return arrayInitExprRlPtrInner(gz, scope, node, base_ptr, elements);
     }
 
     var as_scope = try gz.makeCoercionScope(scope, array_ty, result_ptr);
@@ -1493,6 +1494,7 @@ fn structInitExpr(
 
     switch (rl) {
         .discard => {
+            // TODO if a type expr is given the fields should be validated for that type
             if (struct_init.ast.type_expr != 0)
                 _ = try typeExpr(gz, scope, struct_init.ast.type_expr);
             for (struct_init.ast.fields) |field_init| {
@@ -1567,7 +1569,8 @@ fn structInitExprRlPtr(
     result_ptr: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
     if (struct_init.ast.type_expr == 0) {
-        return structInitExprRlPtrInner(gz, scope, node, struct_init, result_ptr);
+        const base_ptr = try gz.addUnNode(.field_base_ptr, result_ptr, node);
+        return structInitExprRlPtrInner(gz, scope, node, struct_init, base_ptr);
     }
     const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
 
@@ -2281,6 +2284,8 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .ret_err_value_code,
             .extended,
             .closure_get,
+            .array_base_ptr,
+            .field_base_ptr,
             => break :b false,
 
             // ZIR instructions that are always `noreturn`.
