@@ -2238,6 +2238,7 @@ pub const FuncGen = struct {
                 .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(inst, true),
                 .unwrap_errunion_err         => try self.airErrUnionErr(inst, false),
                 .unwrap_errunion_err_ptr     => try self.airErrUnionErr(inst, true),
+                .errunion_payload_ptr_set    => try self.airErrUnionPayloadPtrSet(inst),
 
                 .wrap_optional         => try self.airWrapOptional(inst),
                 .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
@@ -3200,6 +3201,37 @@ pub const FuncGen = struct {
         }
 
         return self.builder.buildExtractValue(operand, 0, "");
+    }
+
+    fn airErrUnionPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const error_set_ty = self.air.typeOf(ty_op.operand).childType();
+
+        const error_ty = error_set_ty.errorUnionSet();
+        const payload_ty = error_set_ty.errorUnionPayload();
+        const non_error_val = try self.dg.genTypedValue(.{ .ty = error_ty, .val = Value.zero });
+        if (!payload_ty.hasRuntimeBits()) {
+            // We have a pointer to a i1. We need to set it to 1 and then return the same pointer.
+            _ = self.builder.buildStore(non_error_val, operand);
+            return operand;
+        }
+        const index_type = self.context.intType(32);
+        {
+            // First set the non-error value.
+            const indices: [2]*const llvm.Value = .{
+                index_type.constNull(), // dereference the pointer
+                index_type.constNull(), // first field is the payload
+            };
+            const non_null_ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+            _ = self.builder.buildStore(non_error_val, non_null_ptr);
+        }
+        // Then return the payload pointer.
+        const indices: [2]*const llvm.Value = .{
+            index_type.constNull(), // dereference the pointer
+            index_type.constInt(1, .False), // second field is the payload
+        };
+        return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
     }
 
     fn airWrapOptional(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

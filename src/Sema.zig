@@ -1636,7 +1636,13 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 return sema.fail(block, src, "TODO coerce_result_ptr wrap_errunion_err", .{});
             },
             .wrap_errunion_payload => {
-                return sema.fail(block, src, "TODO coerce_result_ptr wrap_errunion_payload", .{});
+                const ty_op = air_datas[trash_inst].ty_op;
+                const payload_ty = sema.getTmpAir().typeOf(ty_op.operand);
+                const ptr_payload_ty = try Type.ptr(sema.arena, .{
+                    .pointee_type = payload_ty,
+                    .@"addrspace" = addr_space,
+                });
+                new_ptr = try block.addTyOp(.errunion_payload_ptr_set, ptr_payload_ty, new_ptr);
             },
             else => {
                 if (std.debug.runtime_safety) {
