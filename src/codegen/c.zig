@@ -389,19 +389,19 @@ pub const DeclGen = struct {
             // Determine if we must pointer cast.
             if (ty.eql(decl.ty)) {
                 try writer.writeByte('&');
-                try dg.renderDeclName(decl, writer);
+                try dg.renderDeclName(writer, decl);
                 return;
             }
 
             try writer.writeAll("((");
             try dg.renderTypecast(writer, ty);
             try writer.writeAll(")&");
-            try dg.renderDeclName(decl, writer);
+            try dg.renderDeclName(writer, decl);
             try writer.writeByte(')');
             return;
         }
 
-        try dg.renderDeclName(decl, writer);
+        try dg.renderDeclName(writer, decl);
     }
 
     fn renderInt128(
@@ -464,7 +464,7 @@ pub const DeclGen = struct {
                     .variable => ptr_val.castTag(.variable).?.data.owner_decl,
                     else => unreachable,
                 };
-                try dg.renderDeclName(decl, writer);
+                try dg.renderDeclName(writer, decl);
                 return decl.ty;
             },
             .field_ptr => {
@@ -599,11 +599,11 @@ pub const DeclGen = struct {
                 },
                 .function => {
                     const func = val.castTag(.function).?.data;
-                    try dg.renderDeclName(func.owner_decl, writer);
+                    try dg.renderDeclName(writer, func.owner_decl);
                 },
                 .extern_fn => {
                     const extern_fn = val.castTag(.extern_fn).?.data;
-                    try dg.renderDeclName(extern_fn.owner_decl, writer);
+                    try dg.renderDeclName(writer, extern_fn.owner_decl);
                 },
                 .int_u64, .one => {
                     try writer.writeAll("((");
@@ -834,7 +834,7 @@ pub const DeclGen = struct {
             try w.writeAll("void");
         }
         try w.writeAll(" ");
-        try dg.renderDeclName(dg.decl, w);
+        try dg.renderDeclName(w, dg.decl);
         try w.writeAll("(");
         const param_len = dg.decl.ty.fnParamLen();
 
@@ -1058,7 +1058,7 @@ pub const DeclGen = struct {
         if (err_set_type.castTag(.error_set_inferred)) |inf_err_set_payload| {
             const func = inf_err_set_payload.data.func;
             try bw.writeAll("zig_E_");
-            try dg.renderDeclName(func.owner_decl, bw);
+            try dg.renderDeclName(bw, func.owner_decl);
             try bw.writeAll(";\n");
         } else {
             try bw.print("zig_E_{s}_{s};\n", .{
@@ -1391,10 +1391,10 @@ pub const DeclGen = struct {
             .local_ref => |i| return w.print("&t{d}", .{i}),
             .constant => unreachable,
             .arg => |i| return w.print("a{d}", .{i}),
-            .decl => |decl| return dg.renderDeclName(decl, w),
+            .decl => |decl| return dg.renderDeclName(w, decl),
             .decl_ref => |decl| {
                 try w.writeByte('&');
-                return dg.renderDeclName(decl, w);
+                return dg.renderDeclName(w, decl);
             },
             .undefined_ptr => {
                 const target = dg.module.getTarget();
@@ -1418,10 +1418,10 @@ pub const DeclGen = struct {
             .arg => |i| return w.print("(*a{d})", .{i}),
             .decl => |decl| {
                 try w.writeAll("(*");
-                try dg.renderDeclName(decl, w);
+                try dg.renderDeclName(w, decl);
                 return w.writeByte(')');
             },
-            .decl_ref => |decl| return dg.renderDeclName(decl, w),
+            .decl_ref => |decl| return dg.renderDeclName(w, decl),
             .undefined_ptr => unreachable,
             .identifier => |ident| return w.print("(*{ })", .{fmtIdent(ident)}),
             .bytes => |bytes| {
@@ -1432,7 +1432,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn renderDeclName(dg: DeclGen, decl: *Decl, writer: anytype) !void {
+    fn renderDeclName(dg: DeclGen, writer: anytype, decl: *Decl) !void {
         if (dg.module.decl_exports.get(decl)) |exports| {
             return writer.writeAll(exports[0].options.name);
         } else if (decl.val.tag() == .extern_fn) {
@@ -2585,7 +2585,7 @@ fn airCall(f: *Function, inst: Air.Inst.Index) !CValue {
                     else => break :known,
                 };
             };
-            try f.object.dg.renderDeclName(fn_decl, writer);
+            try f.object.dg.renderDeclName(writer, fn_decl);
             break :callee;
         }
         // Fall back to function pointer call.
