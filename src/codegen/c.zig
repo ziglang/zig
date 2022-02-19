@@ -464,7 +464,7 @@ pub const DeclGen = struct {
                     .variable => ptr_val.castTag(.variable).?.data.owner_decl,
                     else => unreachable,
                 };
-                try dg.renderDeclValue(writer, decl.ty, ptr_val, decl);
+                try dg.renderDeclName(decl, writer);
                 return decl.ty;
             },
             .field_ptr => {
@@ -490,7 +490,7 @@ pub const DeclGen = struct {
             },
             .elem_ptr => {
                 const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-                try writer.writeAll("&(*");
+                try writer.writeAll("&(");
                 const container_ty = try dg.renderChildPtr(writer, elem_ptr.array_ptr);
                 try writer.print(")[{d}]", .{elem_ptr.index});
                 return container_ty.childType();

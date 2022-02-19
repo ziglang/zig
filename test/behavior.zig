@@ -100,19 +100,19 @@ test {
 
         if (builtin.zig_backend != .stage2_wasm) {
             // Tests that pass for stage1, llvm backend, C backend
+            _ = @import("behavior/bugs/9584.zig");
             _ = @import("behavior/cast_int.zig");
+            _ = @import("behavior/eval.zig");
             _ = @import("behavior/int128.zig");
+            _ = @import("behavior/merge_error_sets.zig");
             _ = @import("behavior/translate_c_macros.zig");
 
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
                 _ = @import("behavior/atomics.zig");
-                _ = @import("behavior/bugs/9584.zig");
-                _ = @import("behavior/eval.zig");
                 _ = @import("behavior/floatop.zig");
                 _ = @import("behavior/math.zig");
                 _ = @import("behavior/maximum_minimum.zig");
-                _ = @import("behavior/merge_error_sets.zig");
                 _ = @import("behavior/popcount.zig");
                 _ = @import("behavior/saturating_arithmetic.zig");
                 _ = @import("behavior/sizeof_and_typeof.zig");
