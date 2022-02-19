@@ -449,7 +449,7 @@ fn gen(self: *Self) !void {
             // the code. Therefore, we can just delete
             // the space initially reserved for the
             // jump
-            self.mir_instructions.len -= 1;
+            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.items[0]);
         } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             self.mir_instructions.set(jmp_reloc, .{
                 .tag = .b,
@@ -1756,23 +1756,17 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
             self.register_manager.freezeRegs(&.{addr_reg});
             defer self.register_manager.unfreezeRegs(&.{addr_reg});
 
+            const abi_size = elem_ty.abiSize(self.target.*);
             switch (dst_mcv) {
                 .dead => unreachable,
                 .undef => unreachable,
                 .compare_flags_signed, .compare_flags_unsigned => unreachable,
                 .embedded_in_code => unreachable,
                 .register => |dst_reg| {
-                    _ = try self.addInst(.{
-                        .tag = .ldr_immediate,
-                        .data = .{ .load_store_register_immediate = .{
-                            .rt = dst_reg,
-                            .rn = addr_reg,
-                            .offset = Instruction.LoadStoreOffset.none.immediate,
-                        } },
-                    });
+                    try self.genLdrRegister(dst_reg, addr_reg, abi_size);
                 },
                 .stack_offset => |off| {
-                    if (elem_ty.abiSize(self.target.*) <= 8) {
+                    if (abi_size <= 8) {
                         const tmp_reg = try self.register_manager.allocReg(null);
                         self.register_manager.freezeRegs(&.{tmp_reg});
                         defer self.register_manager.unfreezeRegs(&.{tmp_reg});
@@ -1933,6 +1927,100 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn genLdrRegister(self: *Self, value_reg: Register, addr_reg: Register, abi_size: u64) !void {
+    switch (abi_size) {
+        1 => {
+            _ = try self.addInst(.{
+                .tag = .ldrb_immediate,
+                .data = .{ .load_store_register_immediate = .{
+                    .rt = value_reg.to32(),
+                    .rn = addr_reg,
+                    .offset = Instruction.LoadStoreOffset.none.immediate,
+                } },
+            });
+        },
+        2 => {
+            _ = try self.addInst(.{
+                .tag = .ldrh_immediate,
+                .data = .{ .load_store_register_immediate = .{
+                    .rt = value_reg.to32(),
+                    .rn = addr_reg,
+                    .offset = Instruction.LoadStoreOffset.none.immediate,
+                } },
+            });
+        },
+        4 => {
+            _ = try self.addInst(.{
+                .tag = .ldr_immediate,
+                .data = .{ .load_store_register_immediate = .{
+                    .rt = value_reg.to32(),
+                    .rn = addr_reg,
+                    .offset = Instruction.LoadStoreOffset.none.immediate,
+                } },
+            });
+        },
+        8 => {
+            _ = try self.addInst(.{
+                .tag = .ldr_immediate,
+                .data = .{ .load_store_register_immediate = .{
+                    .rt = value_reg.to64(),
+                    .rn = addr_reg,
+                    .offset = Instruction.LoadStoreOffset.none.immediate,
+                } },
+            });
+        },
+        3, 5, 6, 7 => return self.fail("TODO: genLdrRegister for more abi_sizes", .{}),
+        else => unreachable,
+    }
+}
+
+fn genStrRegister(self: *Self, value_reg: Register, addr_reg: Register, abi_size: u64) !void {
+    switch (abi_size) {
+        1 => {
+            _ = try self.addInst(.{
+                .tag = .strb_immediate,
+                .data = .{ .load_store_register_immediate = .{
+                    .rt = value_reg.to32(),
+                    .rn = addr_reg,
+                    .offset = Instruction.LoadStoreOffset.none.immediate,
+                } },
+            });
+        },
+        2 => {
+            _ = try self.addInst(.{
+                .tag = .strh_immediate,
+                .data = .{ .load_store_register_immediate = .{
+                    .rt = value_reg.to32(),
+                    .rn = addr_reg,
+                    .offset = Instruction.LoadStoreOffset.none.immediate,
+                } },
+            });
+        },
+        4 => {
+            _ = try self.addInst(.{
+                .tag = .str_immediate,
+                .data = .{ .load_store_register_immediate = .{
+                    .rt = value_reg.to32(),
+                    .rn = addr_reg,
+                    .offset = Instruction.LoadStoreOffset.none.immediate,
+                } },
+            });
+        },
+        8 => {
+            _ = try self.addInst(.{
+                .tag = .str_immediate,
+                .data = .{ .load_store_register_immediate = .{
+                    .rt = value_reg.to64(),
+                    .rn = addr_reg,
+                    .offset = Instruction.LoadStoreOffset.none.immediate,
+                } },
+            });
+        },
+        3, 5, 6, 7 => return self.fail("TODO: genStrRegister for more abi_sizes", .{}),
+        else => unreachable,
+    }
+}
+
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
     switch (ptr) {
         .none => unreachable,
@@ -1953,8 +2041,28 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .embedded_in_code => {
             return self.fail("TODO implement storing to MCValue.embedded_in_code", .{});
         },
-        .register => {
-            return self.fail("TODO implement storing to MCValue.register", .{});
+        .register => |addr_reg| {
+            self.register_manager.freezeRegs(&.{addr_reg});
+            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+            const abi_size = value_ty.abiSize(self.target.*);
+            switch (value) {
+                .register => |value_reg| {
+                    try self.genStrRegister(value_reg, addr_reg, abi_size);
+                },
+                else => {
+                    if (abi_size <= 8) {
+                        const tmp_reg = try self.register_manager.allocReg(null);
+                        self.register_manager.freezeRegs(&.{tmp_reg});
+                        defer self.register_manager.unfreezeRegs(&.{tmp_reg});
+
+                        try self.genSetReg(value_ty, tmp_reg, value);
+                        try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                    } else {
+                        return self.fail("TODO implement memcpy", .{});
+                    }
+                },
+            }
         },
         .memory,
         .stack_offset,
