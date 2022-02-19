@@ -1783,17 +1783,20 @@ fn binOpRegister(
     };
     defer self.register_manager.unfreezeRegs(&.{rhs_reg});
 
-    const dest_reg = if (maybe_inst) |inst| blk: {
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const dest_reg = switch (tag) {
+        .cmp_eq => .r0, // cmp has no destination regardless
+        else => if (maybe_inst) |inst| blk: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-        if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
-            break :blk lhs_reg;
-        } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
-            break :blk rhs_reg;
-        } else {
-            break :blk try self.register_manager.allocReg(inst);
-        }
-    } else try self.register_manager.allocReg(null);
+            if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
+                break :blk lhs_reg;
+            } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
+                break :blk rhs_reg;
+            } else {
+                break :blk try self.register_manager.allocReg(inst);
+            }
+        } else try self.register_manager.allocReg(null),
+    };
 
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
     if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
@@ -1801,6 +1804,7 @@ fn binOpRegister(
     const mir_tag: Mir.Inst.Tag = switch (tag) {
         .add, .ptr_add => .add,
         .sub, .ptr_sub => .sub,
+        .cmp_eq => .cmp,
         .mul => .mul,
         .bit_and,
         .bool_and,
@@ -1823,6 +1827,7 @@ fn binOpRegister(
     const mir_data: Mir.Inst.Data = switch (tag) {
         .add,
         .sub,
+        .cmp_eq,
         .bit_and,
         .bool_and,
         .bit_or,
@@ -1904,26 +1909,30 @@ fn binOpImmediate(
     };
     defer self.register_manager.unfreezeRegs(&.{lhs_reg});
 
-    const dest_reg = if (maybe_inst) |inst| blk: {
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const dest_reg = switch (tag) {
+        .cmp_eq => .r0, // cmp has no destination reg
+        else => if (maybe_inst) |inst| blk: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-        if (lhs_is_register and self.reuseOperand(
-            inst,
-            if (lhs_and_rhs_swapped) bin_op.rhs else bin_op.lhs,
-            if (lhs_and_rhs_swapped) 1 else 0,
-            lhs,
-        )) {
-            break :blk lhs_reg;
-        } else {
-            break :blk try self.register_manager.allocReg(inst);
-        }
-    } else try self.register_manager.allocReg(null);
+            if (lhs_is_register and self.reuseOperand(
+                inst,
+                if (lhs_and_rhs_swapped) bin_op.rhs else bin_op.lhs,
+                if (lhs_and_rhs_swapped) 1 else 0,
+                lhs,
+            )) {
+                break :blk lhs_reg;
+            } else {
+                break :blk try self.register_manager.allocReg(inst);
+            }
+        } else try self.register_manager.allocReg(null),
+    };
 
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
 
     const mir_tag: Mir.Inst.Tag = switch (tag) {
         .add => .add,
         .sub => .sub,
+        .cmp_eq => .cmp,
         .bit_and,
         .bool_and,
         => .@"and",
@@ -1945,6 +1954,7 @@ fn binOpImmediate(
     const mir_data: Mir.Inst.Data = switch (tag) {
         .add,
         .sub,
+        .cmp_eq,
         .bit_and,
         .bool_and,
         .bit_or,
@@ -1999,6 +2009,7 @@ fn binOp(
     switch (tag) {
         .add,
         .sub,
+        .cmp_eq,
         => {
             switch (lhs_ty.zigTypeTag()) {
                 .Float => return self.fail("TODO ARM binary operations on floats", .{}),
@@ -2012,12 +2023,15 @@ fn binOp(
                         // operands
                         const lhs_immediate_ok = switch (tag) {
                             .add => lhs == .immediate and Instruction.Operand.fromU32(lhs.immediate) != null,
-                            .sub => false,
+                            .sub,
+                            .cmp_eq,
+                            => false,
                             else => unreachable,
                         };
                         const rhs_immediate_ok = switch (tag) {
                             .add,
                             .sub,
+                            .cmp_eq,
                             => rhs == .immediate and Instruction.Operand.fromU32(rhs.immediate) != null,
                             else => unreachable,
                         };
@@ -2148,31 +2162,6 @@ fn binOp(
         },
         else => unreachable,
     }
-}
-
-fn armOperandShouldBeRegister(self: *Self, mcv: MCValue) !bool {
-    return switch (mcv) {
-        .none => unreachable,
-        .undef => unreachable,
-        .dead, .unreach => unreachable,
-        .compare_flags_unsigned => unreachable,
-        .compare_flags_signed => unreachable,
-        .ptr_stack_offset => unreachable,
-        .ptr_embedded_in_code => unreachable,
-        .immediate => |imm| blk: {
-            if (imm > std.math.maxInt(u32)) return self.fail("TODO ARM binary arithmetic immediate larger than u32", .{});
-
-            // Load immediate into register if it doesn't fit
-            // in an operand
-            break :blk Instruction.Operand.fromU32(@intCast(u32, imm)) == null;
-        },
-        .register => true,
-        .stack_offset,
-        .stack_argument_offset,
-        .embedded_in_code,
-        .memory,
-        => true,
-    };
 }
 
 fn genLdrRegister(self: *Self, dest_reg: Register, addr_reg: Register, abi_size: u32) !void {
@@ -2548,84 +2537,38 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         const rhs = try self.resolveInst(bin_op.rhs);
         const lhs_ty = self.air.typeOf(bin_op.lhs);
 
-        if (lhs_ty.abiSize(self.target.*) > 4) {
-            return self.fail("TODO cmp for types with size > 4", .{});
-        }
-
-        const signedness: std.builtin.Signedness = blk: {
-            // by default we tell the operand type is unsigned (i.e. bools and enum values)
-            if (lhs_ty.zigTypeTag() != .Int) break :blk .unsigned;
-
-            // incase of an actual integer, we emit the correct signedness
-            break :blk lhs_ty.intInfo(self.target.*).signedness;
-        };
-
-        try self.spillCompareFlagsIfOccupied();
-        self.compare_flags_inst = inst;
-
-        const lhs_is_register = lhs == .register;
-        const rhs_is_register = rhs == .register;
-        // lhs should always be a register
-        const rhs_should_be_register = try self.armOperandShouldBeRegister(rhs);
-
-        if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
-        defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
-        if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
-        defer if (rhs_is_register) self.register_manager.unfreezeRegs(&.{rhs.register});
-
-        var lhs_mcv = lhs;
-        var rhs_mcv = rhs;
-
-        // Allocate registers
-        if (rhs_should_be_register) {
-            if (!lhs_is_register and !rhs_is_register) {
-                const regs = try self.register_manager.allocRegs(2, .{
-                    Air.refToIndex(bin_op.lhs).?, Air.refToIndex(bin_op.rhs).?,
-                });
-                lhs_mcv = MCValue{ .register = regs[0] };
-                rhs_mcv = MCValue{ .register = regs[1] };
-            } else if (!rhs_is_register) {
-                const track_inst = if (self.liveness.operandDies(inst, 1)) null else Air.refToIndex(bin_op.rhs).?;
-                rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(track_inst) };
-            } else if (!lhs_is_register) {
-                const track_inst = if (self.liveness.operandDies(inst, 0)) null else Air.refToIndex(bin_op.lhs).?;
-                lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(track_inst) };
-            }
-        } else {
-            if (!lhs_is_register) {
-                const track_inst = if (self.liveness.operandDies(inst, 0)) null else Air.refToIndex(bin_op.lhs).?;
-                lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(track_inst) };
-            }
-        }
-
-        // Move the operands to the newly allocated registers
-        const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-        if (lhs_mcv == .register and !lhs_is_register) {
-            try self.genSetReg(lhs_ty, lhs_mcv.register, lhs);
-            branch.inst_table.putAssumeCapacity(Air.refToIndex(bin_op.lhs).?, lhs);
-        }
-        if (rhs_mcv == .register and !rhs_is_register) {
-            try self.genSetReg(lhs_ty, rhs_mcv.register, rhs);
-            branch.inst_table.putAssumeCapacity(Air.refToIndex(bin_op.rhs).?, rhs);
-        }
-
-        _ = try self.addInst(.{
-            .tag = .cmp,
-            .data = .{ .rr_op = .{
-                .rd = undefined,
-                .rn = lhs_mcv.register,
-                .op = switch (rhs_mcv) {
-                    .immediate => |imm| Instruction.Operand.fromU32(@intCast(u32, imm)).?,
-                    .register => |reg| Instruction.Operand.reg(reg, Instruction.Operand.Shift.none),
+        switch (lhs_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO ARM cmp vectors", .{}),
+            .Optional => return self.fail("TODO ARM cmp optionals", .{}),
+            .Float => return self.fail("TODO ARM cmp floats", .{}),
+            .Int, .Bool, .Pointer, .ErrorSet, .Enum => {
+                var int_buffer: Type.Payload.Bits = undefined;
+                const int_ty = switch (lhs_ty.zigTypeTag()) {
+                    .Enum => lhs_ty.intTagType(&int_buffer),
+                    .Int => lhs_ty,
+                    .Bool => Type.initTag(.u1),
+                    .Pointer => Type.usize,
+                    .ErrorSet => Type.initTag(.u16),
                     else => unreachable,
-                },
-            } },
-        });
+                };
 
-        break :result switch (signedness) {
-            .signed => MCValue{ .compare_flags_signed = op },
-            .unsigned => MCValue{ .compare_flags_unsigned = op },
-        };
+                const int_info = int_ty.intInfo(self.target.*);
+                if (int_info.bits <= 32) {
+                    try self.spillCompareFlagsIfOccupied();
+                    self.compare_flags_inst = inst;
+
+                    _ = try self.binOp(.cmp_eq, inst, lhs, rhs, int_ty, int_ty);
+
+                    break :result switch (int_info.signedness) {
+                        .signed => MCValue{ .compare_flags_signed = op },
+                        .unsigned => MCValue{ .compare_flags_unsigned = op },
+                    };
+                } else {
+                    return self.fail("TODO ARM cmp for ints > 32 bits", .{});
+                }
+            },
+            else => unreachable,
+        }
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
