@@ -1081,9 +1081,6 @@ fn genPtrBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_r
     const offset = try self.resolveInst(op_rhs);
     const offset_ty = self.air.typeOf(op_rhs);
 
-    ptr.freezeIfRegister(&self.register_manager);
-    defer ptr.unfreezeIfRegister(&self.register_manager);
-
     offset.freezeIfRegister(&self.register_manager);
     defer offset.unfreezeIfRegister(&self.register_manager);
 
@@ -1091,8 +1088,11 @@ fn genPtrBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_r
         if (self.reuseOperand(inst, op_lhs, 0, ptr)) {
             if (ptr.isMemory() or ptr.isRegister()) break :blk ptr;
         }
-        break :blk try self.copyToRegisterWithInstTracking(inst, dst_ty, ptr);
+        break :blk MCValue{ .register = try self.copyToTmpRegister(dst_ty, ptr) };
     };
+
+    dst_mcv.freezeIfRegister(&self.register_manager);
+    defer dst_mcv.unfreezeIfRegister(&self.register_manager);
 
     const offset_mcv = blk: {
         if (self.reuseOperand(inst, op_rhs, 1, offset)) {
@@ -1100,6 +1100,9 @@ fn genPtrBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_r
         }
         break :blk MCValue{ .register = try self.copyToTmpRegister(offset_ty, offset) };
     };
+
+    offset_mcv.freezeIfRegister(&self.register_manager);
+    defer offset_mcv.unfreezeIfRegister(&self.register_manager);
 
     try self.genIMulOpMir(offset_ty, offset_mcv, .{ .immediate = elem_size });
 
@@ -1179,12 +1182,43 @@ fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
+fn genSubOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref) !MCValue {
+    const dst_ty = self.air.typeOfIndex(inst);
+    const lhs = try self.resolveInst(op_lhs);
+    const rhs = try self.resolveInst(op_rhs);
+
+    rhs.freezeIfRegister(&self.register_manager);
+    defer rhs.unfreezeIfRegister(&self.register_manager);
+
+    const dst_mcv = blk: {
+        if (self.reuseOperand(inst, op_lhs, 0, lhs)) {
+            if (lhs.isMemory() or lhs.isRegister()) break :blk lhs;
+        }
+        break :blk try self.copyToRegisterWithInstTracking(inst, dst_ty, lhs);
+    };
+
+    dst_mcv.freezeIfRegister(&self.register_manager);
+    defer dst_mcv.unfreezeIfRegister(&self.register_manager);
+
+    const rhs_mcv = blk: {
+        if (rhs.isRegister()) break :blk rhs;
+        break :blk MCValue{ .register = try self.copyToTmpRegister(dst_ty, rhs) };
+    };
+
+    rhs_mcv.freezeIfRegister(&self.register_manager);
+    defer rhs_mcv.unfreezeIfRegister(&self.register_manager);
+
+    try self.genBinMathOpMir(.sub, dst_ty, dst_mcv, rhs_mcv);
+
+    return dst_mcv;
+}
+
 fn airSub(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
+        try self.genSubOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3628,7 +3662,7 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
             block_data.mcv = switch (operand_mcv) {
                 .none, .dead, .unreach => unreachable,
                 .register, .stack_offset, .memory => operand_mcv,
-                .immediate => blk: {
+                .compare_flags_signed, .compare_flags_unsigned, .immediate => blk: {
                     const new_mcv = try self.allocRegOrMem(block, true);
                     try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
                     break :blk new_mcv;
@@ -3957,9 +3991,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
             return self.genSetStack(ty, stack_offset, .{ .register = reg });
         },
         .immediate => |x_big| {
-            if (stack_offset > 128) {
-                return self.fail("TODO implement set stack variable with large stack offset", .{});
-            }
             switch (abi_size) {
                 1, 2, 4 => {
                     const payload = try self.addExtra(Mir.ImmPair{
