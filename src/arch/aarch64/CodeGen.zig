@@ -372,7 +372,7 @@ fn gen(self: *Self) !void {
             .data = .{ .load_store_register_pair = .{
                 .rt = .x29,
                 .rt2 = .x30,
-                .rn = Register.sp,
+                .rn = .sp,
                 .offset = Instruction.LoadStorePairOffset.pre_index(-16),
             } },
         });
@@ -407,7 +407,7 @@ fn gen(self: *Self) !void {
         self.saved_regs_stack_space = 16;
         inline for (callee_preserved_regs) |reg| {
             if (self.register_manager.isRegAllocated(reg)) {
-                saved_regs |= @as(u32, 1) << reg.id();
+                saved_regs |= @as(u32, 1) << @intCast(u5, reg.id());
                 self.saved_regs_stack_space += 8;
             }
         }
@@ -475,7 +475,7 @@ fn gen(self: *Self) !void {
             .data = .{ .load_store_register_pair = .{
                 .rt = .x29,
                 .rt2 = .x30,
-                .rn = Register.sp,
+                .rn = .sp,
                 .offset = Instruction.LoadStorePairOffset.post_index(16),
             } },
         });
