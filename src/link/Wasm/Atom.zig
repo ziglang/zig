@@ -94,12 +94,16 @@ pub fn symbolAtom(self: *Atom, symbol_index: u32) *Atom {
     } else unreachable; // Used a symbol index not present in this atom or its children.
 }
 
+/// Returns the location of the symbol that represents this `Atom`
+pub fn symbolLoc(self: Atom) Wasm.SymbolLoc {
+    return .{ .file = self.file, .index = self.sym_index };
+}
+
 /// Resolves the relocations within the atom, writing the new value
 /// at the calculated offset.
 pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
     if (self.relocs.items.len == 0) return;
-    const loc: Wasm.SymbolLoc = .{ .file = self.file, .index = self.sym_index };
-    const symbol = loc.getSymbol(wasm_bin).*;
+    const symbol = self.symbolLoc().getSymbol(wasm_bin).*;
     log.debug("Resolving relocs in atom '{s}' count({d})", .{
         symbol.name,
         self.relocs.items.len,
@@ -169,20 +173,11 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             if (symbol.isUndefined() and (symbol.tag == .data or symbol.isWeak())) {
                 return 0;
             }
+
             const merge_segment = wasm_bin.base.options.output_mode != .Obj;
             const segment_name = wasm_bin.segment_info.items[symbol.index].outputName(merge_segment);
             const atom_index = wasm_bin.data_segments.get(segment_name).?;
-            var target_atom = wasm_bin.atoms.getPtr(atom_index).?.*.getFirst();
-            while (true) {
-                // TODO: Can we simplify this by providing the ability to find an atom
-                // based on a symbol location.
-                if (target_atom.sym_index == relocation.index) {
-                    if (target_atom.file) |file| {
-                        if (self.file != null and self.file.? == file) break;
-                    } else if (self.file == null) break;
-                }
-                target_atom = target_atom.next orelse break;
-            }
+            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
             const segment = wasm_bin.segments.items[atom_index];
             return target_atom.offset + segment.offset + (relocation.addend orelse 0);
         },
