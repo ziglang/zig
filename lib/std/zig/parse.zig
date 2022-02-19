@@ -91,9 +91,6 @@ const Parser = struct {
     extra_data: std.ArrayListUnmanaged(Node.Index),
     scratch: std.ArrayListUnmanaged(Node.Index),
 
-    /// Used for the error note of decl_between_fields error.
-    last_field: TokenIndex = undefined,
-
     const SmallSpan = union(enum) {
         zero_or_one: Node.Index,
         multi: Node.SubRange,
@@ -252,6 +249,8 @@ const Parser = struct {
             err,
         } = .none;
 
+        var last_field: TokenIndex = undefined;
+
         // Skip container doc comments.
         while (p.eatToken(.container_doc_comment)) |_| {}
 
@@ -274,7 +273,7 @@ const Parser = struct {
                     .identifier => {
                         p.tok_i += 1;
                         const identifier = p.tok_i;
-                        defer p.last_field = identifier;
+                        defer last_field = identifier;
                         const container_field = try p.expectContainerFieldRecoverable();
                         if (container_field != 0) {
                             switch (field_state) {
@@ -288,7 +287,7 @@ const Parser = struct {
                                     try p.warnMsg(.{
                                         .tag = .previous_field,
                                         .is_note = true,
-                                        .token = p.last_field,
+                                        .token = last_field,
                                     });
                                     try p.warnMsg(.{
                                         .tag = .next_field,
@@ -389,7 +388,7 @@ const Parser = struct {
                 },
                 .identifier => {
                     const identifier = p.tok_i;
-                    defer p.last_field = identifier;
+                    defer last_field = identifier;
                     const container_field = try p.expectContainerFieldRecoverable();
                     if (container_field != 0) {
                         switch (field_state) {
@@ -402,7 +401,7 @@ const Parser = struct {
                                 });
                                 try p.warnMsg(.{
                                     .tag = .previous_field,
-                                    .token = p.last_field,
+                                    .token = last_field,
                                 });
                                 try p.warnMsg(.{
                                     .tag = .next_field,
