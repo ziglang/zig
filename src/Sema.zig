@@ -872,6 +872,16 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
+            .validate_array_init_ty => {
+                try sema.validateArrayInitTy(block, inst);
+                i += 1;
+                continue;
+            },
+            .validate_struct_init_ty => {
+                try sema.validateStructInitTy(block, inst);
+                i += 1;
+                continue;
+            },
             .validate_struct_init => {
                 try sema.zirValidateStructInit(block, inst, false);
                 i += 1;
@@ -1339,6 +1349,14 @@ fn failWithModRemNegative(sema: *Sema, block: *Block, src: LazySrcLoc, lhs_ty: T
 
 fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, optional_ty: Type) CompileError {
     return sema.fail(block, src, "expected optional type, found {}", .{optional_ty});
+}
+
+fn failWithArrayInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
+    return sema.fail(block, src, "type '{}' does not support array initialization syntax", .{ty});
+}
+
+fn failWithStructInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
+    return sema.fail(block, src, "type '{}' does not support struct initialization syntax", .{ty});
 }
 
 fn failWithErrorSetCodeMissing(
@@ -2614,9 +2632,7 @@ fn zirArrayBasePtr(
         .Struct => if (elem_ty.isTuple()) return base_ptr,
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support array initialization syntax", .{
-        sema.typeOf(start_ptr).childType(),
-    });
+    return sema.failWithArrayInitNotSupported(block, src, sema.typeOf(start_ptr).childType());
 }
 
 fn zirFieldBasePtr(
@@ -2640,9 +2656,40 @@ fn zirFieldBasePtr(
         .Struct, .Union => return base_ptr,
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support struct initialization syntax", .{
-        sema.typeOf(start_ptr).childType(),
-    });
+    return sema.failWithStructInitNotSupported(block, src, sema.typeOf(start_ptr).childType());
+}
+
+fn validateArrayInitTy(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const ty = try sema.resolveType(block, src, inst_data.operand);
+
+    switch (ty.zigTypeTag()) {
+        .Array, .Vector => return,
+        .Struct => if (ty.isTuple()) return,
+        else => {},
+    }
+    return sema.failWithArrayInitNotSupported(block, src, ty);
+}
+
+fn validateStructInitTy(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const ty = try sema.resolveType(block, src, inst_data.operand);
+
+    switch (ty.zigTypeTag()) {
+        .Struct, .Union => return,
+        else => {},
+    }
+    return sema.failWithStructInitNotSupported(block, src, ty);
 }
 
 fn zirValidateStructInit(
@@ -10815,7 +10862,7 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         .Struct => return structInitEmpty(sema, block, obj_ty, src, src),
         .Array => return arrayInitEmpty(sema, obj_ty),
         .Void => return sema.addConstant(obj_ty, Value.void),
-        else => unreachable,
+        else => return sema.failWithArrayInitNotSupported(block, src, obj_ty),
     }
 }
 

@@ -655,6 +655,12 @@ pub const Inst = struct {
         ///   *?S returns *S
         /// Uses the `un_node` field.
         field_base_ptr,
+        /// Checks that the type supports array init syntax.
+        /// Uses the `un_node` field.
+        validate_array_init_ty,
+        /// Checks that the type supports struct init syntax.
+        /// Uses the `un_node` field.
+        validate_struct_init_ty,
         /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
         /// initialization expression, and emits compile errors for duplicate fields
         /// as well as missing fields, if applicable.
@@ -1101,6 +1107,8 @@ pub const Inst = struct {
                 .switch_cond_ref,
                 .array_base_ptr,
                 .field_base_ptr,
+                .validate_array_init_ty,
+                .validate_struct_init_ty,
                 .validate_struct_init,
                 .validate_struct_init_comptime,
                 .validate_array_init,
@@ -1356,6 +1364,8 @@ pub const Inst = struct {
                 .switch_capture_multi_ref = .switch_capture,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
+                .validate_array_init_ty = .un_node,
+                .validate_struct_init_ty = .un_node,
                 .validate_struct_init = .pl_node,
                 .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
