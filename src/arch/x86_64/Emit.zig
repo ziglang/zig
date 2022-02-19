@@ -138,7 +138,12 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .shr => try emit.mirShift(.shr, inst),
             .sar => try emit.mirShift(.sar, inst),
 
+            .imul => try emit.mirMulDiv(.imul, inst),
+            .idiv => try emit.mirMulDiv(.idiv, inst),
+            .div => try emit.mirMulDiv(.div, inst),
             .imul_complex => try emit.mirIMulComplex(inst),
+
+            .cwd => try emit.mirCwd(inst),
 
             .push => try emit.mirPushPop(.push, inst),
             .pop => try emit.mirPushPop(.pop, inst),
@@ -155,6 +160,8 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .cond_set_byte_above_below,
             .cond_set_byte_eq_ne,
             => try emit.mirCondSetByte(tag, inst),
+
+            .cond_mov_eq => try emit.mirCondMov(.cmove, inst),
 
             .ret => try emit.mirRet(inst),
 
@@ -368,6 +375,24 @@ fn mirCondSetByte(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) Inne
     return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1.to8()), emit.code);
 }
 
+fn mirCondMov(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    if (ops.flags == 0b00) {
+        return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
+    }
+    const imm = emit.mir.instructions.items(.data)[inst].imm;
+    const ptr_size: Memory.PtrSize = switch (ops.flags) {
+        0b00 => unreachable,
+        0b01 => .word_ptr,
+        0b10 => .dword_ptr,
+        0b11 => .qword_ptr,
+    };
+    return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(ptr_size, .{
+        .disp = imm,
+        .base = ops.reg2,
+    }), emit.code);
+}
+
 fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .@"test");
@@ -386,7 +411,7 @@ fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                 return lowerToMiEnc(.@"test", RegisterOrMemory.reg(ops.reg1), imm, emit.code);
             }
             // TEST r/m64, r64
-            return emit.fail("TODO TEST r/m64, r64", .{});
+            return lowerToMrEnc(.@"test", RegisterOrMemory.reg(ops.reg1), ops.reg2, emit.code);
         },
         else => return emit.fail("TODO more TEST alternatives", .{}),
     }
@@ -683,6 +708,27 @@ fn mirShift(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
+fn mirMulDiv(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    if (ops.reg1 != .none) {
+        assert(ops.reg2 == .none);
+        return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
+    }
+    assert(ops.reg1 == .none);
+    assert(ops.reg2 != .none);
+    const imm = emit.mir.instructions.items(.data)[inst].imm;
+    const ptr_size: Memory.PtrSize = switch (ops.flags) {
+        0b00 => .byte_ptr,
+        0b01 => .word_ptr,
+        0b10 => .dword_ptr,
+        0b11 => .qword_ptr,
+    };
+    return lowerToMEnc(tag, RegisterOrMemory.mem(ptr_size, .{
+        .disp = imm,
+        .base = ops.reg2,
+    }), emit.code);
+}
+
 fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .imul_complex);
@@ -712,6 +758,17 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             }), imm_pair.operand, emit.code);
         },
     }
+}
+
+fn mirCwd(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const tag: Tag = switch (ops.flags) {
+        0b00 => .cbw,
+        0b01 => .cwd,
+        0b10 => .cdq,
+        0b11 => .cqo,
+    };
+    return lowerToZoEnc(tag, emit.code);
 }
 
 fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -1048,6 +1105,8 @@ const Tag = enum {
     brk,
     nop,
     imul,
+    idiv,
+    div,
     syscall,
     ret_near,
     ret_far,
@@ -1115,6 +1174,12 @@ const Tag = enum {
     sal,
     shr,
     sar,
+    cbw,
+    cwd,
+    cdq,
+    cqo,
+    cmove,
+    cmovz,
 
     fn isSetCC(tag: Tag) bool {
         return switch (tag) {
@@ -1234,6 +1299,8 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .brk => OpCode.oneByte(0xcc),
             .nop => OpCode.oneByte(0x90),
             .syscall => OpCode.twoByte(0x0f, 0x05),
+            .cbw => OpCode.oneByte(0x98),
+            .cwd, .cdq, .cqo => OpCode.oneByte(0x99),
             else => null,
         },
         .d => return switch (tag) {
@@ -1276,6 +1343,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .setnl, .setge => OpCode.twoByte(0x0f, 0x9d),
             .setle, .setng => OpCode.twoByte(0x0f, 0x9e),
             .setnle, .setg => OpCode.twoByte(0x0f, 0x9f),
+            .idiv, .div, .imul => OpCode.oneByte(if (is_one_byte) 0xf6 else 0xf7),
             else => null,
         },
         .o => return switch (tag) {
@@ -1319,6 +1387,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .sbb => OpCode.oneByte(if (is_one_byte) 0x18 else 0x19),
             .cmp => OpCode.oneByte(if (is_one_byte) 0x38 else 0x39),
             .mov => OpCode.oneByte(if (is_one_byte) 0x88 else 0x89),
+            .@"test" => OpCode.oneByte(if (is_one_byte) 0x84 else 0x85),
             else => null,
         },
         .rm => return switch (tag) {
@@ -1336,6 +1405,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .movzx => OpCode.twoByte(0x0f, if (is_one_byte) 0xb6 else 0xb7),
             .lea => OpCode.oneByte(if (is_one_byte) 0x8c else 0x8d),
             .imul => OpCode.twoByte(0x0f, 0xaf),
+            .cmove, .cmovz => OpCode.twoByte(0x0f, 0x44),
             else => null,
         },
         .oi => return switch (tag) {
@@ -1409,6 +1479,9 @@ inline fn getModRmExt(tag: Tag) ?u3 {
         => 0x4,
         .shr => 0x5,
         .sar => 0x7,
+        .imul => 0x5,
+        .idiv => 0x7,
+        .div => 0x6,
         else => null,
     };
 }
@@ -1565,7 +1638,15 @@ const RegisterOrMemory = union(enum) {
 
 fn lowerToZoEnc(tag: Tag, code: *std.ArrayList(u8)) InnerError!void {
     const opc = getOpCode(tag, .zo, false).?;
-    const encoder = try Encoder.init(code, 1);
+    const encoder = try Encoder.init(code, 2);
+    switch (tag) {
+        .cqo => {
+            encoder.rex(.{
+                .w = true,
+            });
+        },
+        else => {},
+    }
     opc.encode(encoder);
 }
 
@@ -2204,6 +2285,10 @@ test "lower M encoding" {
     try expectEqualHexStrings("\xFF\x24\x25\x10\x00\x00\x00", emit.lowered(), "jmp qword ptr [ds:0x10]");
     try lowerToMEnc(.seta, RegisterOrMemory.reg(.r11b), emit.code());
     try expectEqualHexStrings("\x41\x0F\x97\xC3", emit.lowered(), "seta r11b");
+    try lowerToMEnc(.idiv, RegisterOrMemory.reg(.rax), emit.code());
+    try expectEqualHexStrings("\x48\xF7\xF8", emit.lowered(), "idiv rax");
+    try lowerToMEnc(.imul, RegisterOrMemory.reg(.al), emit.code());
+    try expectEqualHexStrings("\xF6\xE8", emit.lowered(), "imul al");
 }
 
 test "lower M1 and MC encodings" {

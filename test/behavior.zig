@@ -50,6 +50,7 @@ test {
     _ = @import("behavior/tuple.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/var_args.zig");
+    _ = @import("behavior/int_div.zig");
 
     // tests that don't pass for stage1
     if (builtin.zig_backend != .stage1) {
