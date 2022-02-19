@@ -780,6 +780,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn allocatedSlice(self: Self) Slice {
             return self.items.ptr[0..self.capacity];
         }
+
+        /// Returns a slice of only the extra capacity after items.
+        /// This can be useful for writing directly into an ArrayList.
+        /// Note that such an operation must be followed up with a direct
+        /// modification of `self.items.len`.
+        pub fn unusedCapacitySlice(self: Self) Slice {
+            return self.allocatedSlice()[self.items.len..];
+        }
     };
 }
 
