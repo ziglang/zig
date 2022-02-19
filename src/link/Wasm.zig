@@ -110,6 +110,10 @@ discarded: std.AutoHashMapUnmanaged(SymbolLoc, SymbolLoc) = .{},
 /// List of all symbol locations which have been resolved by the linker and will be emit
 /// into the final binary.
 resolved_symbols: std.AutoArrayHashMapUnmanaged(SymbolLoc, void) = .{},
+/// Maps a symbol's location to an atom. This can be used to find meta
+/// data of a symbol, such as its size, or its offset to perform a relocation.
+/// Undefined (and synthetic) symbols do not have an Atom and therefore cannot be mapped.
+symbol_atom: std.AutoHashMapUnmanaged(SymbolLoc, *Atom) = .{},
 
 pub const Segment = struct {
     alignment: u32,
@@ -170,6 +174,10 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         .flags = 0,
         .index = 0,
     };
+    const loc: SymbolLoc = .{ .file = null, .index = 0 };
+    try wasm_bin.resolved_symbols.putNoClobber(allocator, loc, {});
+    try wasm_bin.globals.putNoClobber(allocator, "__stack_pointer", loc);
+
     // For object files we will import the stack pointer symbol
     if (options.output_mode == .Obj) {
         symbol.setUndefined(true);
@@ -336,6 +344,7 @@ pub fn deinit(self: *Wasm) void {
     self.globals.deinit(gpa);
     self.resolved_symbols.deinit(gpa);
     self.discarded.deinit(gpa);
+    self.symbol_atom.deinit(gpa);
     self.atoms.deinit(gpa);
     self.managed_atoms.deinit(gpa);
     self.segments.deinit(gpa);
@@ -506,6 +515,10 @@ pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type) !u32 {
         atom.sym_index = @intCast(u32, self.symbols.items.len);
         self.symbols.appendAssumeCapacity(symbol);
     }
+    try self.resolved_symbols.putNoClobber(self.base.allocator, .{
+        .file = null,
+        .index = atom.sym_index,
+    }, {});
 
     try decl.link.wasm.locals.append(self.base.allocator, atom);
     return atom.sym_index;
@@ -614,12 +627,13 @@ fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
     const symbol: *Symbol = &self.symbols.items[symbol_index];
     symbol.name = decl.name;
     symbol.setUndefined(true);
-    // also add it as a global so it can be resolved
     try self.globals.putNoClobber(
         self.base.allocator,
         mem.sliceTo(symbol.name, 0),
         .{ .file = null, .index = symbol_index },
     );
+    try self.resolved_symbols.put(self.base.allocator, .{ .file = null, .index = symbol_index }, {});
+
     switch (decl.ty.zigTypeTag()) {
         .Fn => {
             const gop = try self.imports.getOrPut(self.base.allocator, .{ .index = symbol_index, .file = null });
@@ -730,20 +744,22 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
 }
 
 fn allocateAtoms(self: *Wasm) !void {
-    var it = self.atoms.iterator();
-    while (it.next()) |entry| {
-        var atom: *Atom = entry.value_ptr.*.getFirst();
+    var it = self.atoms.valueIterator();
+    while (it.next()) |current_atom| {
+        var atom: *Atom = current_atom.*.getFirst();
         var offset: u32 = 0;
         while (true) {
             offset = std.mem.alignForwardGeneric(u32, offset, atom.alignment);
             atom.offset = offset;
+            const symbol_loc = atom.symbolLoc();
             log.debug("Atom '{s}' allocated from 0x{x:0>8} to 0x{x:0>8} size={d}", .{
-                (SymbolLoc{ .file = atom.file, .index = atom.sym_index }).getSymbol(self).name,
+                symbol_loc.getSymbol(self).name,
                 offset,
                 offset + atom.size,
                 atom.size,
             });
             offset += atom.size;
+            try self.symbol_atom.putNoClobber(self.base.allocator, symbol_loc, atom);
             atom = atom.next orelse break;
         }
     }
@@ -1295,7 +1311,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Global section (used to emit stack pointer)
-    {
+    if (self.wasm_globals.items.len > 0) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
@@ -1480,7 +1496,13 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     if (is_obj) {
-        try self.emitLinkSection(file, arena);
+        // relocations need to point to the index of a symbol in the final symbol table. To save memory,
+        // we never store all symbols in a single table, but store a location reference instead.
+        // This means that for a relocatable object file, we need to generate one and provide it to the relocation sections.
+        var symbol_table = std.AutoArrayHashMap(SymbolLoc, u32).init(arena);
+        try self.emitLinkSection(file, arena, &symbol_table);
+        try self.emitCodeRelocations(file, arena, 6, symbol_table);
+        try self.emitDataRelocations(file, arena, 7, symbol_table);
     } else {
         try self.emitNameSection(file, arena);
     }
@@ -1498,7 +1520,7 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
     };
 
     var funcs = try std.ArrayList(Name).initCapacity(arena, self.functions.items.len + self.imported_functions_count);
-    var globals = try std.ArrayList(Name).initCapacity(arena, self.wasm_globals.items.len);
+    var globals = try std.ArrayList(Name).initCapacity(arena, self.wasm_globals.items.len + self.imported_globals_count);
     var segments = try std.ArrayList(Name).initCapacity(arena, self.data_segments.count());
 
     for (self.resolved_symbols.keys()) |sym_loc| {
@@ -2069,7 +2091,7 @@ fn writeCustomSectionHeader(file: fs.File, offset: u64, size: u32) !void {
     try file.pwriteAll(&buf, offset);
 }
 
-fn emitLinkSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
+fn emitLinkSection(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
     const offset = try reserveCustomSectionHeader(file);
     const writer = file.writer();
     // emit "linking" custom section name
@@ -2082,14 +2104,14 @@ fn emitLinkSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
 
     // For each subsection type (found in types.Subsection) we can emit a section.
     // Currently, we only support emitting segment info and the symbol table.
-    try self.emitSymbolTable(file, arena);
+    try self.emitSymbolTable(file, arena, symbol_table);
     try self.emitSegmentInfo(file, arena);
 
     const size = @intCast(u32, (try file.getPos()) - offset - 6);
     try writeCustomSectionHeader(file, offset, size);
 }
 
-fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator) !void {
+fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
     // After emitting the subtype, we must emit the subsection's length
     // so first write it to a temporary arraylist to calculate the length
     // and then write all data at once.
@@ -2099,43 +2121,39 @@ fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator) !void {
     try leb.writeULEB128(file.writer(), @enumToInt(types.SubsectionType.WASM_SYMBOL_TABLE));
 
     var symbol_count: u32 = 0;
-    var atom_it = self.atoms.valueIterator();
-    while (atom_it.next()) |next_atom| {
-        var atom: ?*Atom = next_atom.*.getFirst();
-        while (atom) |current_atom| {
-            const sym_loc: SymbolLoc = .{ .file = current_atom.file, .index = current_atom.sym_index };
-            const symbol = sym_loc.getSymbol(self).*;
-            if (symbol.tag == .dead) continue; // Do not emit dead symbols
-            symbol_count += 1;
-            log.debug("Emit symbol: {}", .{symbol});
-            try leb.writeULEB128(writer, @enumToInt(symbol.tag));
-            try leb.writeULEB128(writer, symbol.flags);
+    for (self.resolved_symbols.keys()) |sym_loc| {
+        const symbol = sym_loc.getSymbol(self).*;
+        if (symbol.tag == .dead) continue; // Do not emit dead symbols
+        try symbol_table.putNoClobber(sym_loc, symbol_count);
+        symbol_count += 1;
+        log.debug("Emit symbol: {}", .{symbol});
+        try leb.writeULEB128(writer, @enumToInt(symbol.tag));
+        try leb.writeULEB128(writer, symbol.flags);
 
-            switch (symbol.tag) {
-                .data => {
+        switch (symbol.tag) {
+            .data => {
+                const name = mem.sliceTo(symbol.name, 0);
+                try leb.writeULEB128(writer, @intCast(u32, name.len));
+                try writer.writeAll(name);
+
+                if (symbol.isDefined()) {
+                    try leb.writeULEB128(writer, symbol.index);
+                    const atom = self.symbol_atom.get(sym_loc).?;
+                    try leb.writeULEB128(writer, @as(u32, atom.offset));
+                    try leb.writeULEB128(writer, @as(u32, atom.size));
+                }
+            },
+            .section => {
+                try leb.writeULEB128(writer, symbol.index);
+            },
+            else => {
+                try leb.writeULEB128(writer, symbol.index);
+                if (symbol.isDefined()) {
                     const name = mem.sliceTo(symbol.name, 0);
                     try leb.writeULEB128(writer, @intCast(u32, name.len));
                     try writer.writeAll(name);
-
-                    if (symbol.isDefined()) {
-                        try leb.writeULEB128(writer, symbol.index);
-                        try leb.writeULEB128(writer, @as(u32, current_atom.offset));
-                        try leb.writeULEB128(writer, @as(u32, current_atom.size));
-                    }
-                },
-                .section => {
-                    try leb.writeULEB128(writer, symbol.index);
-                },
-                else => {
-                    try leb.writeULEB128(writer, symbol.index);
-                    if (symbol.isDefined()) {
-                        const name = mem.sliceTo(symbol.name, 0);
-                        try leb.writeULEB128(writer, @intCast(u32, name.len));
-                        try writer.writeAll(name);
-                    }
-                },
-            }
-            atom = current_atom.next orelse break;
+                }
+            },
         }
     }
 
@@ -2174,6 +2192,109 @@ fn emitSegmentInfo(self: *Wasm, file: fs.File, arena: Allocator) !void {
         .iov_len = payload.items.len,
     };
     try file.writevAll(&.{iovec});
+}
+
+/// For each relocatable section, emits a custom "relocation.<section_name>" section
+fn emitCodeRelocations(
+    self: *Wasm,
+    file: fs.File,
+    arena: Allocator,
+    section_index: u32,
+    symbol_table: std.AutoArrayHashMap(SymbolLoc, u32),
+) !void {
+    const code_index = self.code_section_index orelse return;
+    var payload = std.ArrayList(u8).init(arena);
+    const writer = payload.writer();
+
+    // write custom section information
+    const name = "reloc.CODE";
+    try leb.writeULEB128(writer, @intCast(u32, name.len));
+    try writer.writeAll(name);
+    try leb.writeULEB128(writer, section_index);
+    const reloc_start = payload.items.len;
+
+    var count: u32 = 0;
+    var atom: *Atom = self.atoms.get(code_index).?.getFirst();
+    while (true) {
+        for (atom.relocs.items) |relocation| {
+            count += 1;
+            const sym_loc: SymbolLoc = .{ .file = atom.file, .index = relocation.index };
+            const symbol_index = symbol_table.get(sym_loc).?;
+            try leb.writeULEB128(writer, @enumToInt(relocation.relocation_type));
+            try leb.writeULEB128(writer, atom.offset + relocation.offset);
+            try leb.writeULEB128(writer, symbol_index);
+            if (relocation.relocation_type.addendIsPresent()) {
+                try leb.writeULEB128(writer, relocation.addend orelse 0);
+            }
+        }
+        atom = atom.next orelse break;
+    }
+    if (count == 0) return;
+    var buf: [5]u8 = undefined;
+    leb.writeUnsignedFixed(5, &buf, count);
+    try payload.insertSlice(reloc_start, &buf);
+    const iovec: std.os.iovec_const = .{
+        .iov_base = payload.items.ptr,
+        .iov_len = payload.items.len,
+    };
+    const header_offset = try reserveCustomSectionHeader(file);
+    try file.writevAll(&.{iovec});
+    const size = @intCast(u32, payload.items.len);
+    try writeCustomSectionHeader(file, header_offset, size);
+}
+
+fn emitDataRelocations(
+    self: *Wasm,
+    file: fs.File,
+    arena: Allocator,
+    section_index: u32,
+    symbol_table: std.AutoArrayHashMap(SymbolLoc, u32),
+) !void {
+    if (self.data_segments.count() == 0) return;
+    var payload = std.ArrayList(u8).init(arena);
+    const writer = payload.writer();
+
+    // write custom section information
+    const name = "reloc.DATA";
+    try leb.writeULEB128(writer, @intCast(u32, name.len));
+    try writer.writeAll(name);
+    try leb.writeULEB128(writer, section_index);
+    const reloc_start = payload.items.len;
+
+    var count: u32 = 0;
+    for (self.data_segments.values()) |segment_index| {
+        var atom: *Atom = self.atoms.get(segment_index).?.getFirst();
+        while (true) {
+            for (atom.relocs.items) |relocation| {
+                count += 1;
+                const sym_loc: SymbolLoc = .{
+                    .file = atom.file,
+                    .index = relocation.index,
+                };
+                const symbol_index = symbol_table.get(sym_loc).?;
+                try leb.writeULEB128(writer, @enumToInt(relocation.relocation_type));
+                try leb.writeULEB128(writer, atom.offset + relocation.offset);
+                try leb.writeULEB128(writer, symbol_index);
+                if (relocation.relocation_type.addendIsPresent()) {
+                    try leb.writeULEB128(writer, relocation.addend orelse 0);
+                }
+            }
+            atom = atom.next orelse break;
+        }
+    }
+    if (count == 0) return;
+
+    var buf: [5]u8 = undefined;
+    leb.writeUnsignedFixed(5, &buf, count);
+    try payload.insertSlice(reloc_start, &buf);
+    const iovec: std.os.iovec_const = .{
+        .iov_base = payload.items.ptr,
+        .iov_len = payload.items.len,
+    };
+    const header_offset = try reserveCustomSectionHeader(file);
+    try file.writevAll(&.{iovec});
+    const size = @intCast(u32, payload.items.len);
+    try writeCustomSectionHeader(file, header_offset, size);
 }
 
 /// Searches for an a matching function signature, when not found
