@@ -1655,7 +1655,10 @@ pub fn execvpeZ(
 
 /// Get an environment variable.
 /// See also `getenvZ`.
+///
+/// This API is not supported on Windows, see std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.
 pub fn getenv(key: []const u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     if (builtin.link_libc) {
         var small_key_buf: [64]u8 = undefined;
         if (key.len < small_key_buf.len) {
@@ -1680,9 +1683,6 @@ pub fn getenv(key: []const u8) ?[]const u8 {
             return value;
         }
         return null;
-    }
-    if (builtin.os.tag == .windows) {
-        @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
     // TODO see https://github.com/ziglang/zig/issues/4524
     for (environ) |ptr| {
