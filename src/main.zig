@@ -1527,7 +1527,9 @@ fn buildOutputType(
             var i: usize = 0;
             while (i < linker_args.items.len) : (i += 1) {
                 const arg = linker_args.items[i];
-                if (mem.eql(u8, arg, "-soname")) {
+                if (mem.eql(u8, arg, "-soname") or
+                    mem.eql(u8, arg, "--soname"))
+                {
                     i += 1;
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{s}'", .{arg});
