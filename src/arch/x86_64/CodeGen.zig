@@ -1628,23 +1628,44 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const err_union_ty = self.air.typeOf(ty_op.operand);
-        const payload_ty = err_union_ty.errorUnionPayload();
-        const mcv = try self.resolveInst(ty_op.operand);
-        if (!payload_ty.hasRuntimeBits()) break :result mcv;
-        return self.fail("TODO implement unwrap error union error for non-empty payloads", .{});
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+    }
+    const err_union_ty = self.air.typeOf(ty_op.operand);
+    const payload_ty = err_union_ty.errorUnionPayload();
+    const operand = try self.resolveInst(ty_op.operand);
+    const result: MCValue = result: {
+        if (!payload_ty.hasRuntimeBits()) break :result operand;
+        switch (operand) {
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off };
+            },
+            else => return self.fail("TODO implement unwrap_err_err for {}", .{operand}),
+        }
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const err_union_ty = self.air.typeOf(ty_op.operand);
-        const payload_ty = err_union_ty.errorUnionPayload();
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+    }
+    const err_union_ty = self.air.typeOf(ty_op.operand);
+    const payload_ty = err_union_ty.errorUnionPayload();
+    const result: MCValue = result: {
         if (!payload_ty.hasRuntimeBits()) break :result MCValue.none;
-        return self.fail("TODO implement unwrap error union payload for non-empty payloads", .{});
+
+        const operand = try self.resolveInst(ty_op.operand);
+        const err_ty = err_union_ty.errorUnionSet();
+        const err_abi_size = @intCast(u32, err_ty.abiSize(self.target.*));
+        switch (operand) {
+            .stack_offset => |off| {
+                const offset = off - @intCast(i32, err_abi_size);
+                break :result MCValue{ .stack_offset = offset };
+            },
+            else => return self.fail("TODO implement unwrap_err_payload for {}", .{operand}),
+        }
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -3166,8 +3187,8 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
     switch (self.ret_mcv) {
         .stack_offset => {
             // TODO audit register allocation!
-            self.register_manager.freezeRegs(&.{.rdi});
-            defer self.register_manager.unfreezeRegs(&.{.rdi});
+            self.register_manager.freezeRegs(&.{ .rax, .rcx, .rdi });
+            defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx, .rdi });
             const reg = try self.register_manager.allocReg(null);
             self.ret_backpatch = try self.addInst(.{
                 .tag = .mov,
@@ -3509,8 +3530,8 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
             return self.fail("TODO isErr for errors with size larger than register size", .{});
         }
     } else {
-        log.warn("operand = {}, payload_type = {}", .{ operand, payload_type });
-        return self.fail("TODO isErr for non-empty payloads", .{});
+        try self.genBinMathOpMir(.cmp, err_type, operand, MCValue{ .immediate = 0 });
+        return MCValue{ .compare_flags_unsigned = .gt };
     }
 }
 
@@ -4229,6 +4250,8 @@ const InlineMemcpyOpts = struct {
 fn genInlineMemcpy(self: *Self, stack_offset: i32, ty: Type, val: MCValue, opts: InlineMemcpyOpts) InnerError!void {
     const abi_size = ty.abiSize(self.target.*);
 
+    // TODO this is wrong. We should check first if any of the operands is in `.rax` or `.rcx` before
+    // spilling. Consolidate with other TODOs regarding register allocation mechanics.
     try self.register_manager.getReg(.rax, null);
     try self.register_manager.getReg(.rcx, null);
 
