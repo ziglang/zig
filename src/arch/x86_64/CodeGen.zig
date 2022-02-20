@@ -1072,10 +1072,44 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airMin(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement min for {}", .{self.target.cpu.arch});
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
+    const ty = self.air.typeOfIndex(inst);
+    if (ty.zigTypeTag() != .Int) {
+        return self.fail("TODO implement min for type {}", .{ty});
+    }
+    const signedness = ty.intInfo(self.target.*).signedness;
+    const result: MCValue = result: {
+        // TODO improve by checking if any operand can be reused.
+        // TODO audit register allocation
+        const lhs = try self.resolveInst(bin_op.lhs);
+        lhs.freezeIfRegister(&self.register_manager);
+        defer lhs.unfreezeIfRegister(&self.register_manager);
+
+        const lhs_reg = try self.copyToTmpRegister(ty, lhs);
+        self.register_manager.freezeRegs(&.{lhs_reg});
+        defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+
+        const rhs_mcv = try self.limitImmediateType(bin_op.rhs, i32);
+        rhs_mcv.freezeIfRegister(&self.register_manager);
+        defer rhs_mcv.unfreezeIfRegister(&self.register_manager);
+
+        try self.genBinMathOpMir(.cmp, ty, .{ .register = lhs_reg }, rhs_mcv);
+
+        const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ty, rhs_mcv);
+        _ = try self.addInst(.{
+            .tag = if (signedness == .signed) .cond_mov_lt else .cond_mov_below,
+            .ops = (Mir.Ops{
+                .reg1 = dst_mcv.register,
+                .reg2 = lhs_reg,
+            }).encode(),
+            .data = undefined,
+        });
+
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3283,6 +3317,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         // There are 2 operands, destination and source.
         // Either one, but not both, can be a memory operand.
         // Source operand can be an immediate, 8 bits or 32 bits.
+        // TODO this looks wrong. Why do simply reuse lhs without checking if it is dead or alive?
         const dst_mcv = if (lhs.isImmediate() or (lhs.isMemory() and rhs.isMemory()))
             MCValue{ .register = try self.copyToTmpRegister(ty, lhs) }
         else

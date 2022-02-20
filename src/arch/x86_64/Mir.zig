@@ -292,6 +292,8 @@ pub const Inst = struct {
         ///     0b10 reg1, dword ptr [reg2 + imm]
         ///     0b11 reg1, qword ptr [reg2 + imm]
         cond_mov_eq,
+        cond_mov_lt,
+        cond_mov_below,
 
         /// ops flags:  form:
         ///       0b00   reg1
