@@ -763,8 +763,6 @@ fn scalar(x: u32) u32 {
 }
 
 test "comptime assign int to optional int" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime {
         var x: ?i32 = null;
         x = 2;

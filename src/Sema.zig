@@ -964,7 +964,14 @@ fn analyzeBodyInner(
                     break sema.zirBreak(block, inst);
                 }
             },
-            .break_inline => break inst,
+            .break_inline => {
+                if (block.is_comptime) {
+                    break inst;
+                } else {
+                    sema.comptime_break_inst = inst;
+                    return error.ComptimeBreak;
+                }
+            },
             .repeat => {
                 if (block.is_comptime) {
                     // Send comptime control flow back to the beginning of this block.
@@ -3572,8 +3579,20 @@ fn resolveBlockBody(
     if (child_block.is_comptime) {
         return sema.resolveBody(child_block, body, body_inst);
     } else {
-        _ = try sema.analyzeBody(child_block, body);
-        return sema.analyzeBlockBody(parent_block, src, child_block, merges);
+        if (sema.analyzeBodyInner(child_block, body)) |_| {
+            return sema.analyzeBlockBody(parent_block, src, child_block, merges);
+        } else |err| switch (err) {
+            error.ComptimeBreak => {
+                const break_inst = sema.comptime_break_inst;
+                const break_data = sema.code.instructions.items(.data)[break_inst].@"break";
+                if (break_data.block_inst == body_inst) {
+                    return sema.resolveInst(break_data.operand);
+                } else {
+                    return error.ComptimeBreak;
+                }
+            },
+            else => |e| return e,
+        }
     }
 }
 

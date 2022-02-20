@@ -2986,7 +2986,7 @@ pub const Type = extern union {
 
     pub fn containerLayout(ty: Type) std.builtin.TypeInfo.ContainerLayout {
         return switch (ty.tag()) {
-            .tuple => .Auto,
+            .tuple, .empty_struct_literal => .Auto,
             .@"struct" => ty.castTag(.@"struct").?.data.layout,
             .@"union" => ty.castTag(.@"union").?.data.layout,
             .union_tagged => ty.castTag(.union_tagged).?.data.layout,
