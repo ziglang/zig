@@ -205,10 +205,59 @@ pub fn generateSymbol(
                         .appended => {},
                         .externally_managed => |slice| {
                             code.appendSliceAssumeCapacity(slice);
-                            return Result{ .appended = {} };
                         },
                         .fail => |em| return Result{ .fail = em },
                     }
+                }
+                return Result{ .appended = {} };
+            },
+            .repeated => {
+                const array = typed_value.val.castTag(.repeated).?.data;
+                const elem_ty = typed_value.ty.childType();
+                const sentinel = typed_value.ty.sentinel();
+                const len = typed_value.ty.arrayLen();
+
+                var index: u64 = 0;
+                while (index < len) : (index += 1) {
+                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                        .ty = elem_ty,
+                        .val = array,
+                    }, code, debug_output)) {
+                        .appended => {},
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                }
+
+                if (sentinel) |sentinel_val| {
+                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                        .ty = elem_ty,
+                        .val = sentinel_val,
+                    }, code, debug_output)) {
+                        .appended => {},
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                }
+
+                return Result{ .appended = {} };
+            },
+            .empty_array_sentinel => {
+                const elem_ty = typed_value.ty.childType();
+                const sentinel_val = typed_value.ty.sentinel().?;
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = elem_ty,
+                    .val = sentinel_val,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |slice| {
+                        code.appendSliceAssumeCapacity(slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
                 }
                 return Result{ .appended = {} };
             },
