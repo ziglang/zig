@@ -1123,7 +1123,7 @@ pub const Value = extern union {
                 var offset: usize = 0;
                 for (elems) |*elem| {
                     elem.* = try readFromMemory(elem_ty, target, buffer[offset..], arena);
-                    offset += elem_size;
+                    offset += @intCast(usize, elem_size);
                 }
                 return Tag.array.create(arena, elems);
             },
