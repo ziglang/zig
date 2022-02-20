@@ -1090,7 +1090,12 @@ pub const Value = extern union {
         }
     }
 
-    pub fn readFromMemory(ty: Type, target: Target, buffer: []const u8, arena: Allocator) !Value {
+    pub fn readFromMemory(
+        ty: Type,
+        target: Target,
+        buffer: []const u8,
+        arena: Allocator,
+    ) Allocator.Error!Value {
         switch (ty.zigTypeTag()) {
             .Int => {
                 const int_info = ty.intInfo(target);
@@ -1110,6 +1115,17 @@ pub const Value = extern union {
                 80 => return Value.Tag.float_80.create(arena, floatReadFromMemory(f80, target, buffer)),
                 128 => return Value.Tag.float_128.create(arena, floatReadFromMemory(f128, target, buffer)),
                 else => unreachable,
+            },
+            .Array => {
+                const elem_ty = ty.childType();
+                const elem_size = elem_ty.abiSize(target);
+                const elems = try arena.alloc(Value, @intCast(usize, ty.arrayLen()));
+                var offset: usize = 0;
+                for (elems) |*elem| {
+                    elem.* = try readFromMemory(elem_ty, target, buffer[offset..], arena);
+                    offset += elem_size;
+                }
+                return Tag.array.create(arena, elems);
             },
             else => @panic("TODO implement readFromMemory for more types"),
         }
