@@ -301,36 +301,79 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
 
 /// This function is intended to be used only in tests. Checks that two slices or two arrays are equal,
 /// including that their sentinel (if any) are the same. Will error if given another type.
-pub fn expectEqualSlicesSentinel(expected: anytype, actual: anytype) !void {
+pub fn expectEqualSentinel(expected: anytype, actual: anytype) !void {
+    switch (@typeInfo(@TypeOf(expected))) {
+        .Pointer, .Array => {},
+        else => @compileError("expectEqualSentinel: 'expected' parameter is of type '" ++ @typeName(@TypeOf(expected)) ++ "' but this function only works on pointers or arrays."),
+    }
+
+    switch (@typeInfo(@TypeOf(actual))) {
+        .Pointer, .Array => {},
+        else => @compileError("expectEqualSentinel: 'actual' parameter is of type '" ++ @typeName(@TypeOf(actual)) ++ "' but this function only works on pointers or arrays."),
+    }
+
+    // The next two blocks are copy pasted from `expectEqualSlices` because trying to leverage it forces us to do an unnecessary amount of type manipulation.
     if (expected.len != actual.len) {
-        std.debug.print("slice lengths differ. expected {d}, found {d}\n", .{ expected.len, actual.len });
+        std.debug.print("expectEqualSentinel: values differ in length. expected {d}, found {d}\n", .{ expected.len, actual.len });
         return error.TestExpectedEqual;
     }
     var i: usize = 0;
     while (i < expected.len) : (i += 1) {
         if (!std.meta.eql(expected[i], actual[i])) {
-            std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{ i, expected[i], actual[i] });
+            std.debug.print("expectEqualSentinel: values differ at index {}. expected {any}, found {any}\n", .{ i, expected[i], actual[i] });
             return error.TestExpectedEqual;
         }
     }
 
-    const expected_sentinel = std.meta.sentinel(@TypeOf(expected));
-    const actual_sentinel = std.meta.sentinel(@TypeOf(actual));
-
-    if (!std.meta.eql(expected_sentinel, actual_sentinel)) {
-        std.debug.print("slice sentinel not equal in the type information. expected {}, found {}\n", .{ expected_sentinel, actual_sentinel });
+    const expected_type_sentinel = std.meta.sentinel(@TypeOf(expected));
+    const actual_type_sentinel = std.meta.sentinel(@TypeOf(actual));
+    if (!std.meta.eql(expected_type_sentinel, actual_type_sentinel)) {
+        std.debug.print("expectEqualSentinel: types have different sentinels. expected {}, found {}\n", .{ expected_type_sentinel, actual_type_sentinel });
         return error.TestExpectedEqual;
     }
 
-    switch (@typeInfo(@TypeOf(expected))) {
-        .Pointer => {
-            if (expected_sentinel != null and expected[expected.len] != actual[actual.len]) {
-                std.debug.print("slice sentinel not equal in memory. expected {}, found {}\n", .{ expected[expected.len], actual[actual.len] });
-                return error.TestExpectedEqual;
+    // We only performn the in-memory sentinel checks if there are any sentinels.
+    if (expected_type_sentinel != null) {
+        const expected_value_sentinel = blk: {
+            switch (@typeInfo(@TypeOf(expected))) {
+                .Pointer => {
+                    break :blk expected[expected.len];
+                },
+                .Array => |array_info| {
+                    const indexable_outside_of_bounds_expected = @as([]const array_info.child, &expected);
+                    break :blk indexable_outside_of_bounds_expected[indexable_outside_of_bounds_expected.len];
+                },
+                else => {},
             }
-        },
-        .Array => {},
-        else => @compileError("expectEqualSlicesSentinel got a value of a different type than pointer or an array. This function only works on pointer or array types."),
+        };
+
+        const actual_value_sentinel = blk: {
+            switch (@typeInfo(@TypeOf(actual))) {
+                .Pointer => {
+                    break :blk actual[actual.len];
+                },
+                .Array => |array_info| {
+                    const indexable_outside_of_bounds_actual = @as([]const array_info.child, &actual);
+                    break :blk indexable_outside_of_bounds_actual[indexable_outside_of_bounds_actual.len];
+                },
+                else => {},
+            }
+        };
+
+        if (!std.meta.eql(expected_type_sentinel, expected_value_sentinel)) {
+            std.debug.print("expectEqualSentinel: type and value have different sentinels for 'expected' parameter. type sentinel {}, value sentinel {}\n", .{ expected_type_sentinel, expected_value_sentinel });
+            return error.TestExpectedEqual;
+        }
+
+        if (!std.meta.eql(actual_type_sentinel, actual_value_sentinel)) {
+            std.debug.print("expectEqualSentinel: type and value have different sentinels for 'actual' parameter. type sentinel {}, value sentinel {}\n", .{ actual_type_sentinel, actual_value_sentinel });
+            return error.TestExpectedEqual;
+        }
+
+        if (!std.meta.eql(expected_value_sentinel, actual_value_sentinel)) {
+            std.debug.print("expectEqualSentinel: 'expected' and 'actual' parameters have different sentinels in memory. expected {}, found {}\n", .{ expected_value_sentinel, actual_value_sentinel });
+            return error.TestExpectedEqual;
+        }
     }
 }
 

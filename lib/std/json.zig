@@ -2248,13 +2248,13 @@ test "parse into struct with strings and arrays with sentinels" {
     ), options);
     defer parseFree(T, r, options);
 
-    try testing.expectEqualSlicesSentinel("zig", r.language);
+    try testing.expectEqualSentinel("zig", r.language);
 
     const data = [_:99]i32{ 1, 2, 3 };
     const simple_data = [_]i32{ 4, 5, 6 };
 
-    try testing.expectEqualSlicesSentinel(data[0..data.len], r.data);
-    try testing.expectEqualSlicesSentinel(simple_data, r.simple_data);
+    try testing.expectEqualSentinel(data[0..data.len], r.data);
+    try testing.expectEqualSentinel(simple_data, r.simple_data);
 }
 
 test "parse into struct with duplicate field" {
