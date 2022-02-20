@@ -3057,8 +3057,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
     const abi_size = ty.abiSize(self.target.*);
     switch (mcv) {
         .dead => unreachable,
-        .ptr_stack_offset => unreachable,
-        .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
             if (!self.wantSafety())
@@ -3075,6 +3073,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
         .compare_flags_unsigned,
         .compare_flags_signed,
         .immediate,
+        .ptr_stack_offset,
+        .ptr_embedded_in_code,
         => {
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
@@ -3179,7 +3179,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
-        .ptr_stack_offset => unreachable,
         .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
@@ -3191,6 +3190,24 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 64 => return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
                 else => unreachable, // unexpected register size
             }
+        },
+        .ptr_stack_offset => |unadjusted_off| {
+            // TODO: maybe addressing from sp instead of fp
+            const elem_ty = ty.childType();
+            const abi_size = elem_ty.abiSize(self.target.*);
+            const adj_off = unadjusted_off + abi_size;
+
+            const imm12 = math.cast(u12, adj_off) catch
+                return self.fail("TODO larger stack offsets", .{});
+
+            _ = try self.addInst(.{
+                .tag = .sub_immediate,
+                .data = .{ .rr_imm12_sh = .{
+                    .rd = reg,
+                    .rn = .x29,
+                    .imm12 = imm12,
+                } },
+            });
         },
         .compare_flags_unsigned,
         .compare_flags_signed,

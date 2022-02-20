@@ -211,7 +211,6 @@ test "implicit cast from *[N]T to [*c]T" {
 }
 
 test "*usize to *void" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     var i = @as(usize, 0);
     var v = @ptrCast(*void, &i);
     v.* = {};

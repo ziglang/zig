@@ -327,7 +327,6 @@ const FnPtrWrapper = struct {
 };
 
 test "const ptr from var variable" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var x: u64 = undefined;
