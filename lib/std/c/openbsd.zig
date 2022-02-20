@@ -53,6 +53,14 @@ pub const login_cap_t = extern struct {
 
 pub extern "c" fn login_getclass(class: ?[*:0]const u8) ?*login_cap_t;
 pub extern "c" fn login_getstyle(lc: *login_cap_t, style: ?[*:0]const u8, atype: ?[*:0]const u8) ?[*:0]const u8;
+pub extern "c" fn login_getcapbool(lc: *login_cap_t, cap: [*:0]const u8, def: c_int) c_int;
+pub extern "c" fn login_getcapnum(lc: *login_cap_t, cap: [*:0]const u8, def: i64, err: i64) i64;
+pub extern "c" fn login_getcapsize(lc: *login_cap_t, cap: [*:0]const u8, def: i64, err: i64) i64;
+pub extern "c" fn login_getcapstr(lc: *login_cap_t, cap: [*:0]const u8, def: [*:0]const u8, err: [*:0]const u8) [*:0]const u8;
+pub extern "c" fn login_getcaptime(lc: *login_cap_t, cap: [*:0]const u8, def: i64, err: i64) i64;
+pub extern "c" fn login_close(lc: *login_cap_t) void;
+pub extern "c" fn setclasscontext(class: [*:0]const u8, flags: c_uint) c_int;
+pub extern "c" fn setusercontext(lc: *login_cap_t, pwd: *passwd, uid: uid_t, flags: c_uint) c_int;
 
 pub const auth_session_t = opaque {};
 
@@ -85,7 +93,7 @@ pub extern "c" fn auth_setpwd(as: *auth_session_t, pwd: *passwd) c_int;
 pub extern "c" fn auth_mkvalue(value: [*:0]const u8) ?[*:0]const u8;
 pub extern "c" fn auth_cat(file: [*:0]const u8) c_int;
 pub extern "c" fn auth_checknologin(lc: *login_cap_t) void;
-// TODO auth_set_va_list requires zig support for va_list type (#515)
+// TODO: auth_set_va_list requires zig support for va_list type (#515)
 
 pub const passwd = extern struct {
     pw_name: ?[*:0]const u8, // user name
