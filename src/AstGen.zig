@@ -1729,8 +1729,10 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     continue;
                 };
 
+                const break_tag: Zir.Inst.Tag = if (block_gz.is_inline) .break_inline else .@"break";
+
                 if (rhs == 0) {
-                    _ = try parent_gz.addBreak(.@"break", block_inst, .void_value);
+                    _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
                     return Zir.Inst.Ref.unreachable_value;
                 }
                 block_gz.break_count += 1;
@@ -1746,7 +1748,7 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
 
                 switch (block_gz.break_result_loc) {
                     .block_ptr => {
-                        const br = try parent_gz.addBreak(.@"break", block_inst, operand);
+                        const br = try parent_gz.addBreak(break_tag, block_inst, operand);
                         try block_gz.labeled_breaks.append(astgen.gpa, br);
 
                         // if list grew as much as rvalue_rl_count, then a break
@@ -1765,10 +1767,10 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     .ptr => {
                         // In this case we don't have any mechanism to intercept it;
                         // we assume the result location is written, and we break with void.
-                        _ = try parent_gz.addBreak(.@"break", block_inst, .void_value);
+                        _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
                     },
                     else => {
-                        _ = try parent_gz.addBreak(.@"break", block_inst, operand);
+                        _ = try parent_gz.addBreak(break_tag, block_inst, operand);
                     },
                 }
                 return Zir.Inst.Ref.unreachable_value;
@@ -5300,6 +5302,7 @@ fn whileExpr(
     try parent_gz.instructions.append(astgen.gpa, loop_block);
 
     var loop_scope = parent_gz.makeSubBlock(scope);
+    loop_scope.is_inline = is_inline;
     loop_scope.setBreakResultLoc(rl);
     defer loop_scope.unstack();
     defer loop_scope.labeled_breaks.deinit(astgen.gpa);
@@ -5550,6 +5553,7 @@ fn forExpr(
     try parent_gz.instructions.append(astgen.gpa, loop_block);
 
     var loop_scope = parent_gz.makeSubBlock(scope);
+    loop_scope.is_inline = is_inline;
     loop_scope.setBreakResultLoc(rl);
     defer loop_scope.unstack();
     defer loop_scope.labeled_breaks.deinit(astgen.gpa);
@@ -9492,6 +9496,8 @@ const GenZir = struct {
     const base_tag: Scope.Tag = .gen_zir;
     base: Scope = Scope{ .tag = base_tag },
     force_comptime: bool,
+    /// This is set to true for inline loops; false otherwise.
+    is_inline: bool = false,
     in_defer: bool,
     c_import: bool = false,
     /// How decls created in this scope should be named.
