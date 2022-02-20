@@ -48,7 +48,7 @@ pub extern "c" fn pthread_get_name_np(thread: std.c.pthread_t, name: [*:0]u8, le
 pub const login_cap_t = extern struct {
     lc_class: ?[*:0]const u8,
     lc_cap: ?[*:0]const u8,
-    lc_style: ?[*:0]const u8
+    lc_style: ?[*:0]const u8,
 };
 
 pub extern "c" fn login_getclass(class: ?[*:0]const u8) ?*login_cap_t;
