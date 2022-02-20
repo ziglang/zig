@@ -228,6 +228,50 @@ pub inline fn __builtin_isinf_sign(x: anytype) c_int {
     return if (std.math.isPositiveInf(x)) 1 else -1;
 }
 
+pub inline fn __has_builtin(func: anytype) c_int {
+    _ = func;
+    return @boolToInt(true);
+}
+
+pub inline fn __builtin_assume(cond: bool) void {
+    if (!cond) unreachable;
+}
+
+pub inline fn __builtin_unreachable() noreturn {
+    unreachable;
+}
+
+pub inline fn __builtin_constant_p(expr: anytype) c_int {
+    _ = expr;
+    return @boolToInt(false);
+}
+
+fn multiplyAs(a: anytype, b: anytype, comptime T: type) !T {
+    const allocator = std.heap.c_allocator;
+    var big_a = try std.math.big.int.Managed.initSet(allocator, a);
+    defer big_a.deinit();
+    var big_b = try std.math.big.int.Managed.initSet(allocator, b);
+    defer big_b.deinit();
+    var product = try std.math.big.int.Managed.init(allocator);
+    defer product.deinit();
+    try product.mul(big_a.toConst(), big_b.toConst());
+    return try product.to(T);
+}
+
+pub fn __builtin_mul_overflow(a: anytype, b: anytype, result: anytype) c_int {
+    const ResultType = @TypeOf(result);
+    const result_type_info = @typeInfo(ResultType);
+    if (result_type_info != .Pointer) {
+        @compileError("Expected pointer, found " ++ @typeName(ResultType));
+    }
+    if (multiplyAs(a, b, result_type_info.Pointer.child)) |product| {
+        result.* = product;
+        return @boolToInt(false);
+    } else |_| {
+        return @boolToInt(true);
+    }
+}
+
 // __builtin_alloca_with_align is not currently implemented.
 // It is used in a run-translated-c test and a test-translate-c test to ensure that non-implemented
 // builtins are correctly demoted. If you implement __builtin_alloca_with_align, please update the
