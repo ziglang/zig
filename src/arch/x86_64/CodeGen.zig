@@ -1605,11 +1605,58 @@ fn airXor(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airShl(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement shl for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
+    const ty = self.air.typeOfIndex(inst);
+    const tag = self.air.instructions.items(.tag)[inst];
+    switch (tag) {
+        .shl_exact => return self.fail("TODO implement {} for type {}", .{ tag, ty }),
+        .shl => {},
+        else => unreachable,
+    }
+
+    if (ty.zigTypeTag() != .Int) {
+        return self.fail("TODO implement .shl for type {}", .{ty});
+    }
+    if (ty.abiSize(self.target.*) > 8) {
+        return self.fail("TODO implement .shl for integers larger than 8 bytes", .{});
+    }
+
+    // TODO look into reusing the operands
+    // TODO audit register allocation mechanics
+    const shift = try self.resolveInst(bin_op.rhs);
+    const shift_ty = self.air.typeOf(bin_op.rhs);
+
+    blk: {
+        switch (shift) {
+            .register => |reg| {
+                if (reg.to64() == .rcx) break :blk;
+            },
+            else => {},
+        }
+        try self.register_manager.getReg(.rcx, null);
+        try self.genSetReg(shift_ty, .rcx, shift);
+    }
+    self.register_manager.freezeRegs(&.{.rcx});
+    defer self.register_manager.unfreezeRegs(&.{.rcx});
+
+    const value = try self.resolveInst(bin_op.lhs);
+    value.freezeIfRegister(&self.register_manager);
+    defer value.unfreezeIfRegister(&self.register_manager);
+
+    const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ty, value);
+    _ = try self.addInst(.{
+        .tag = .sal,
+        .ops = (Mir.Ops{
+            .reg1 = dst_mcv.register,
+            .flags = 0b01,
+        }).encode(),
+        .data = undefined,
+    });
+
+    return self.finishAir(inst, dst_mcv, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
