@@ -49,6 +49,8 @@ arg_index: u32,
 src_loc: Module.SrcLoc,
 stack_align: u32,
 
+ret_backpatch: ?Mir.Inst.Index = null,
+
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
@@ -470,6 +472,20 @@ fn gen(self: *Self) InnerError!void {
             };
             inline for (callee_preserved_regs) |reg, i| {
                 if (self.register_manager.isRegAllocated(reg)) {
+                    if (self.ret_backpatch) |inst| {
+                        if (reg.to64() == .rdi) {
+                            const ops = Mir.Ops.decode(self.mir_instructions.items(.ops)[inst]);
+                            self.mir_instructions.set(inst, Mir.Inst{
+                                .tag = .mov,
+                                .ops = (Mir.Ops{
+                                    .reg1 = ops.reg1,
+                                    .reg2 = .rbp,
+                                    .flags = 0b01,
+                                }).encode(),
+                                .data = .{ .imm = @bitCast(u32, -@intCast(i32, self.max_end_stack + 8)) },
+                            });
+                        }
+                    }
                     data.regs |= 1 << @intCast(u5, i);
                     self.max_end_stack += 8;
                 }
@@ -3143,14 +3159,28 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     return bt.finishAir(result);
 }
 
-fn ret(self: *Self, mcv: MCValue) !void {
+fn airRet(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
     const ret_ty = self.fn_type.fnReturnType();
     switch (self.ret_mcv) {
         .stack_offset => {
-            try self.genSetStack(ret_ty, 0, .rdi, mcv);
+            // TODO audit register allocation!
+            self.register_manager.freezeRegs(&.{.rdi});
+            defer self.register_manager.unfreezeRegs(&.{.rdi});
+            const reg = try self.register_manager.allocReg(null);
+            self.ret_backpatch = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .reg2 = .rdi,
+                }).encode(),
+                .data = undefined,
+            });
+            try self.genSetStack(ret_ty, 0, reg, operand);
         },
         else => {
-            try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
+            try self.setRegOrMem(ret_ty, self.ret_mcv, operand);
         },
     }
     // TODO when implementing defer, this will need to jump to the appropriate defer expression.
@@ -3164,21 +3194,49 @@ fn ret(self: *Self, mcv: MCValue) !void {
         .data = .{ .inst = undefined },
     });
     try self.exitlude_jump_relocs.append(self.gpa, jmp_reloc);
-}
-
-fn airRet(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const operand = try self.resolveInst(un_op);
-    try self.ret(operand);
     return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ptr = try self.resolveInst(un_op);
-    // we can reuse self.ret_mcv because it just gets returned
-    try self.load(self.ret_mcv, ptr, self.air.typeOf(un_op));
-    try self.ret(self.ret_mcv);
+    const ptr_ty = self.air.typeOf(un_op);
+    const elem_ty = ptr_ty.elemType();
+    switch (self.ret_mcv) {
+        .stack_offset => {
+            // TODO audit register allocation!
+            self.register_manager.freezeRegs(&.{ .rax, .rcx, .rdi });
+            defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx, .rdi });
+            const reg = try self.register_manager.allocReg(null);
+            self.ret_backpatch = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .reg2 = .rdi,
+                }).encode(),
+                .data = undefined,
+            });
+            try self.genInlineMemcpy(0, elem_ty, ptr, .{
+                .source_stack_base = .rbp,
+                .dest_stack_base = reg,
+            });
+        },
+        else => {
+            try self.load(self.ret_mcv, ptr, ptr_ty);
+            try self.setRegOrMem(elem_ty, self.ret_mcv, self.ret_mcv);
+        },
+    }
+    // TODO when implementing defer, this will need to jump to the appropriate defer expression.
+    // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
+    // which is available if the jump is 127 bytes or less forward.
+    const jmp_reloc = try self.addInst(.{
+        .tag = .jmp,
+        .ops = (Mir.Ops{
+            .flags = 0b00,
+        }).encode(),
+        .data = .{ .inst = undefined },
+    });
+    try self.exitlude_jump_relocs.append(self.gpa, jmp_reloc);
     return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
@@ -4190,7 +4248,7 @@ fn genInlineMemcpy(self: *Self, stack_offset: i32, ty: Type, val: MCValue, opts:
             => {
                 break :blk try self.loadMemPtrIntoRegister(Type.usize, val);
             },
-            .stack_offset => |off| {
+            .ptr_stack_offset, .stack_offset => |off| {
                 const addr_reg = (try self.register_manager.allocReg(null)).to64();
                 _ = try self.addInst(.{
                     .tag = .lea,
@@ -5134,9 +5192,6 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             // First, split into args that can be passed via registers.
             // This will make it easier to then push the rest of args in reverse
             // order on the stack.
-            // TODO if we want to be C ABI compatible (well, SysV compatible), passing return value
-            // on the stack requires consuming `.rdi` set with the stack location where to save
-            // the return value.
             var next_int_reg: usize = 0;
             var by_reg = std.AutoHashMap(usize, usize).init(self.bin_file.allocator);
             defer by_reg.deinit();
