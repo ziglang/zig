@@ -1,4 +1,4 @@
-//! This file contains the functionality for lowering AArch64 MIR into
+//! This file contains the functionality for lowering RISCV64 MIR into
 //! machine code
 
 const Emit = @This();
