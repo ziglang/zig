@@ -2079,7 +2079,8 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
 fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
     return if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(operand);
-        const struct_ty = self.air.typeOf(operand).childType();
+        const ptr_ty = self.air.typeOf(operand);
+        const struct_ty = ptr_ty.childType();
         const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
         const struct_field_ty = struct_ty.structFieldType(index);
@@ -2088,7 +2089,28 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
             .ptr_stack_offset => |off| {
                 break :result MCValue{ .ptr_stack_offset = off + struct_size - struct_field_offset - struct_field_size };
             },
-            else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
+            else => {
+                const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
+                    .immediate = struct_field_offset,
+                });
+                self.register_manager.freezeRegs(&.{offset_reg});
+                defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+                const addr_reg = try self.copyToTmpRegister(ptr_ty, mcv);
+                self.register_manager.freezeRegs(&.{addr_reg});
+                defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+                const dest = try self.binOp(
+                    .add,
+                    null,
+                    .{ .register = addr_reg },
+                    .{ .register = offset_reg },
+                    Type.usize,
+                    Type.usize,
+                );
+
+                break :result dest;
+            },
         }
     };
 }
@@ -3117,17 +3139,18 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             _ = sym_index;
             return self.fail("TODO implement set stack variable from {}", .{mcv});
         },
-        .memory => |vaddr| {
-            _ = vaddr;
-            return self.fail("TODO implement set stack variable from memory vaddr", .{});
-        },
-        .stack_offset => |off| {
-            if (stack_offset == off)
-                return; // Copy stack variable to itself; nothing to do.
+        .memory,
+        .stack_offset,
+        => {
+            switch (mcv) {
+                .stack_offset => |off| {
+                    if (stack_offset == off)
+                        return; // Copy stack variable to itself; nothing to do.
+                },
+                else => {},
+            }
 
-            const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-            const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-            if (abi_size <= ptr_bytes) {
+            if (abi_size <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             } else {
@@ -3142,17 +3165,23 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 const count_reg = regs[3];
                 const tmp_reg = regs[4];
 
-                // sub src_reg, fp, #off
-                const adj_src_offset = off + abi_size;
-                const src_offset = math.cast(u12, adj_src_offset) catch return self.fail("TODO load: larger stack offsets", .{});
-                _ = try self.addInst(.{
-                    .tag = .sub_immediate,
-                    .data = .{ .rr_imm12_sh = .{
-                        .rd = src_reg,
-                        .rn = .x29,
-                        .imm12 = src_offset,
-                    } },
-                });
+                switch (mcv) {
+                    .stack_offset => |off| {
+                        // sub src_reg, fp, #off
+                        const adj_src_offset = off + abi_size;
+                        const src_offset = math.cast(u12, adj_src_offset) catch return self.fail("TODO load: larger stack offsets", .{});
+                        _ = try self.addInst(.{
+                            .tag = .sub_immediate,
+                            .data = .{ .rr_imm12_sh = .{
+                                .rd = src_reg,
+                                .rn = .x29,
+                                .imm12 = src_offset,
+                            } },
+                        });
+                    },
+                    .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = addr }),
+                    else => unreachable,
+                }
 
                 // sub dst_reg, fp, #stack_offset
                 const adj_dst_off = stack_offset + abi_size;

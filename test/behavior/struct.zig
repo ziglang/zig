@@ -43,7 +43,6 @@ const StructWithFields = struct {
 };
 
 test "non-packed struct has fields padded out to the required alignment" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const foo = StructWithFields{ .a = 5, .b = 1, .c = 10, .d = 2 };
@@ -67,7 +66,7 @@ const SmallStruct = struct {
 };
 
 test "lower unnamed constants" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
     var foo = SmallStruct{ .a = 1, .b = 255 };
     try expect(foo.first() == 1);
     try expect(foo.second() == 255);
@@ -186,7 +185,6 @@ test "store member function in variable" {
 }
 
 test "member functions" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     const r = MemberFnRand{ .seed = 1234 };
     try expect(r.getSeed() == 1234);
 }
