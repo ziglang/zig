@@ -432,6 +432,54 @@ pub fn generateSymbol(
 
             return Result{ .appended = {} };
         },
+        .ErrorUnion => {
+            const error_ty = typed_value.ty.errorUnionSet();
+            const payload_ty = typed_value.ty.errorUnionPayload();
+            const is_payload = typed_value.val.errorUnionIsPayload();
+
+            const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
+            switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                .ty = error_ty,
+                .val = error_val,
+            }, code, debug_output)) {
+                .appended => {},
+                .externally_managed => |external_slice| {
+                    code.appendSliceAssumeCapacity(external_slice);
+                },
+                .fail => |em| return Result{ .fail = em },
+            }
+
+            if (payload_ty.hasRuntimeBits()) {
+                const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.initTag(.undef);
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = payload_ty,
+                    .val = payload_val,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+            }
+
+            return Result{ .appended = {} };
+        },
+        .ErrorSet => {
+            const target = bin_file.options.target;
+            switch (typed_value.val.tag()) {
+                .@"error" => {
+                    const name = typed_value.val.getError().?;
+                    const kv = try bin_file.options.module.?.getErrorValue(name);
+                    const endian = target.cpu.arch.endian();
+                    try code.writer().writeInt(u32, kv.value, endian);
+                },
+                else => {
+                    try code.writer().writeByteNTimes(0, @intCast(usize, typed_value.ty.abiSize(target)));
+                },
+            }
+            return Result{ .appended = {} };
+        },
         else => |t| {
             return Result{
                 .fail = try ErrorMsg.create(

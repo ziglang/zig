@@ -3127,6 +3127,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, em);
+            log.err("{s}", .{em.msg});
             return error.AnalysisFail;
         },
     };

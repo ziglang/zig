@@ -3509,6 +3509,7 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
             return self.fail("TODO isErr for errors with size larger than register size", .{});
         }
     } else {
+        log.warn("operand = {}, payload_type = {}", .{ operand, payload_type });
         return self.fail("TODO isErr for non-empty payloads", .{});
     }
 }
@@ -5108,22 +5109,18 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             const error_type = typed_value.ty.errorUnionSet();
             const payload_type = typed_value.ty.errorUnionPayload();
 
-            if (typed_value.val.castTag(.eu_payload)) |pl| {
+            if (typed_value.val.castTag(.eu_payload)) |_| {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return MCValue{ .immediate = 0 };
                 }
-
-                _ = pl;
-                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty});
             } else {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
                 }
             }
-
-            return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty});
+            return self.lowerUnnamedConst(typed_value);
         },
         .Struct => {
             return self.lowerUnnamedConst(typed_value);
