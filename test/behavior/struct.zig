@@ -1222,7 +1222,7 @@ test "anon init through error unions and optionals" {
     };
 
     try S.doTheTest();
-    // comptime try S.doTheTest(); // TODO
+    comptime try S.doTheTest();
 }
 
 test "anon init through optional" {

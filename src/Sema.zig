@@ -5337,11 +5337,15 @@ fn analyzeOptionalPayloadPtr(
     });
 
     if (try sema.resolveDefinedValue(block, src, optional_ptr)) |pointer_val| {
+        if (initializing) {
+            return sema.addConstant(
+                child_pointer,
+                try Value.Tag.opt_payload_ptr.create(sema.arena, pointer_val),
+            );
+        }
         if (try sema.pointerDeref(block, src, pointer_val, optional_ptr_ty)) |val| {
-            if (!initializing) {
-                if (val.isNull()) {
-                    return sema.fail(block, src, "unable to unwrap null", .{});
-                }
+            if (val.isNull()) {
+                return sema.fail(block, src, "unable to unwrap null", .{});
             }
             // The same Value represents the pointer to the optional and the payload.
             return sema.addConstant(
@@ -5488,11 +5492,15 @@ fn analyzeErrUnionPayloadPtr(
     });
 
     if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
+        if (initializing) {
+            return sema.addConstant(
+                operand_pointer_ty,
+                try Value.Tag.eu_payload_ptr.create(sema.arena, pointer_val),
+            );
+        }
         if (try sema.pointerDeref(block, src, pointer_val, operand_ty)) |val| {
-            if (!initializing) {
-                if (val.getError()) |name| {
-                    return sema.fail(block, src, "caught unexpected error '{s}'", .{name});
-                }
+            if (val.getError()) |name| {
+                return sema.fail(block, src, "caught unexpected error '{s}'", .{name});
             }
 
             return sema.addConstant(
