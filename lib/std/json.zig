@@ -2236,25 +2236,28 @@ test "parse into struct with strings and arrays with sentinels" {
     const options = ParseOptions{ .allocator = testing.allocator };
     const T = struct {
         language: [:0]const u8,
+        language_without_sentinel: []const u8,
         data: [:99]const i32,
         simple_data: []const i32,
     };
     const r = try parse(T, &TokenStream.init(
         \\{
         \\  "language": "zig",
+        \\  "language_without_sentinel": "zig again!",
         \\  "data": [1, 2, 3],
         \\  "simple_data": [4, 5, 6]
         \\}
     ), options);
     defer parseFree(T, r, options);
 
-    try testing.expectEqualSentinel("zig", r.language);
+    try testing.expectEqualSentinel(u8, 0, "zig", r.language);
 
     const data = [_:99]i32{ 1, 2, 3 };
-    const simple_data = [_]i32{ 4, 5, 6 };
+    try testing.expectEqualSentinel(i32, 99, data[0..data.len], r.data);
 
-    try testing.expectEqualSentinel(data[0..data.len], r.data);
-    try testing.expectEqualSentinel(simple_data, r.simple_data);
+    // Make sure that arrays who aren't supposed to have a sentinel still parse without one.
+    try testing.expectEqual(@as(?i32, null), std.meta.sentinel(@TypeOf(r.simple_data)));
+    try testing.expectEqual(@as(?u8, null), std.meta.sentinel(@TypeOf(r.language_without_sentinel)));
 }
 
 test "parse into struct with duplicate field" {
