@@ -137,7 +137,7 @@ jobs:
       --acl public-read `
       --cache-control 'public, max-age=31536000, immutable'
 
-      Set-Variable -Name SHASUM -Value (Get-FileHash "$TARBALL" -Algorithm SHA256 | select-object -ExpandProperty Hash)
+      Set-Variable -Name SHASUM -Value (Get-FileHash "$TARBALL" -Algorithm SHA256 | select-object -ExpandProperty Hash).ToLower()
       Set-Variable -Name BYTESIZE -Value (Get-Item "$TARBALL").length
 
       Set-Variable -Name JSONFILE -Value "windows-${Env:BUILD_SOURCEBRANCHNAME}.json"
