@@ -104,6 +104,14 @@ pub fn setUndefined(self: *Symbol, is_undefined: bool) void {
     }
 }
 
+pub fn setGlobal(self: *Symbol, is_global: bool) void {
+    if (is_global) {
+        self.flags &= ~@enumToInt(Flag.WASM_SYM_BINDING_LOCAL);
+    } else {
+        self.setFlag(.WASM_SYM_BINDING_LOCAL);
+    }
+}
+
 pub fn isDefined(self: Symbol) bool {
     return !self.isUndefined();
 }
