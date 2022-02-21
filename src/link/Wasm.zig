@@ -1652,6 +1652,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         man.hash.add(self.base.options.export_table);
         man.hash.addOptional(self.base.options.initial_memory);
         man.hash.addOptional(self.base.options.max_memory);
+        man.hash.add(self.base.options.shared_memory);
         man.hash.addOptional(self.base.options.global_base);
         man.hash.add(self.base.options.export_symbol_names.len);
         // strip does not need to go into the linker hash because it is part of the hash namespace
@@ -1755,6 +1756,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         if (self.base.options.max_memory) |max_memory| {
             const arg = try std.fmt.allocPrint(arena, "--max-memory={d}", .{max_memory});
             try argv.append(arg);
+        }
+
+        if (self.base.options.shared_memory) {
+            try argv.append("--shared-memory");
         }
 
         if (self.base.options.global_base) |global_base| {

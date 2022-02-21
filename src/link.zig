@@ -125,6 +125,7 @@ pub const Options = struct {
     export_table: bool,
     initial_memory: ?u64,
     max_memory: ?u64,
+    shared_memory: bool,
     export_symbol_names: []const []const u8,
     global_base: ?u64,
     is_native_os: bool,

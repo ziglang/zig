@@ -438,6 +438,7 @@ const usage_build_generic =
     \\  --export-table                 (WebAssembly) export function table to the host environment
     \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
     \\  --max-memory=[bytes]           (WebAssembly) maximum size of the linear memory
+    \\  --shared-memory                (WebAssembly) use shared linear memory
     \\  --global-base=[addr]           (WebAssembly) where to start to place global data
     \\  --export=[value]               (WebAssembly) Force a symbol to be exported
     \\
@@ -635,6 +636,7 @@ fn buildOutputType(
     var linker_export_table: bool = false;
     var linker_initial_memory: ?u64 = null;
     var linker_max_memory: ?u64 = null;
+    var linker_shared_memory: bool = false;
     var linker_global_base: ?u64 = null;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
@@ -1207,6 +1209,8 @@ fn buildOutputType(
                         linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
                     } else if (mem.startsWith(u8, arg, "--max-memory=")) {
                         linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
+                    } else if (mem.startsWith(u8, arg, "--shared-memory")) {
+                        linker_shared_memory = true;
                     } else if (mem.startsWith(u8, arg, "--global-base=")) {
                         linker_global_base = parseIntSuffix(arg, "--global-base=".len);
                     } else if (mem.startsWith(u8, arg, "--export=")) {
@@ -1623,6 +1627,8 @@ fn buildOutputType(
                     linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
                 } else if (mem.startsWith(u8, arg, "--max-memory=")) {
                     linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
+                } else if (mem.startsWith(u8, arg, "--shared-memory")) {
+                    linker_shared_memory = true;
                 } else if (mem.startsWith(u8, arg, "--global-base=")) {
                     linker_global_base = parseIntSuffix(arg, "--global-base=".len);
                 } else if (mem.startsWith(u8, arg, "--export=")) {
@@ -2620,6 +2626,7 @@ fn buildOutputType(
         .linker_export_table = linker_export_table,
         .linker_initial_memory = linker_initial_memory,
         .linker_max_memory = linker_max_memory,
+        .linker_shared_memory = linker_shared_memory,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nodelete = linker_z_nodelete,

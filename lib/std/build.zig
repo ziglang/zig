@@ -1508,6 +1508,7 @@ pub const LibExeObjStep = struct {
     export_table: bool = false,
     initial_memory: ?u64 = null,
     max_memory: ?u64 = null,
+    shared_memory: bool = false,
     global_base: ?u64 = null,
     c_std: Builder.CStd,
     override_lib_dir: ?[]const u8,
@@ -2565,6 +2566,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.max_memory) |max_memory| {
             try zig_args.append(builder.fmt("--max-memory={d}", .{max_memory}));
+        }
+        if (self.shared_memory) {
+            try zig_args.append("--shared-memory");
         }
         if (self.global_base) |global_base| {
             try zig_args.append(builder.fmt("--global-base={d}", .{global_base}));

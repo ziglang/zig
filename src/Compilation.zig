@@ -757,6 +757,7 @@ pub const InitOptions = struct {
     linker_export_table: bool = false,
     linker_initial_memory: ?u64 = null,
     linker_max_memory: ?u64 = null,
+    linker_shared_memory: bool = false,
     linker_global_base: ?u64 = null,
     linker_export_symbol_names: []const []const u8 = &.{},
     each_lib_rpath: ?bool = null,
@@ -1560,6 +1561,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .export_table = options.linker_export_table,
             .initial_memory = options.linker_initial_memory,
             .max_memory = options.linker_max_memory,
+            .shared_memory = options.linker_shared_memory,
             .global_base = options.linker_global_base,
             .export_symbol_names = options.linker_export_symbol_names,
             .z_nodelete = options.linker_z_nodelete,
@@ -2337,6 +2339,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.import_memory);
     man.hash.addOptional(comp.bin_file.options.initial_memory);
     man.hash.addOptional(comp.bin_file.options.max_memory);
+    man.hash.add(comp.bin_file.options.shared_memory);
     man.hash.addOptional(comp.bin_file.options.global_base);
 
     // Mach-O specific stuff
