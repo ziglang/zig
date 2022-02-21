@@ -486,20 +486,34 @@ pub fn generateSymbol(
             const payload_ty = typed_value.ty.errorUnionPayload();
             const is_payload = typed_value.val.errorUnionIsPayload();
 
-            const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
-            switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
-                .ty = error_ty,
-                .val = error_val,
-            }, code, debug_output)) {
-                .appended => {},
-                .externally_managed => |external_slice| {
-                    code.appendSliceAssumeCapacity(external_slice);
-                },
-                .fail => |em| return Result{ .fail = em },
+            const target = bin_file.options.target;
+            const abi_align = typed_value.ty.abiAlignment(target);
+
+            {
+                const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
+                const begin = code.items.len;
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = error_ty,
+                    .val = error_val,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+                const unpadded_end = code.items.len - begin;
+                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padding = try math.cast(usize, padded_end - unpadded_end);
+
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
+                }
             }
 
             if (payload_ty.hasRuntimeBits()) {
                 const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.initTag(.undef);
+                const begin = code.items.len;
                 switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
                     .ty = payload_ty,
                     .val = payload_val,
@@ -509,6 +523,13 @@ pub fn generateSymbol(
                         code.appendSliceAssumeCapacity(external_slice);
                     },
                     .fail => |em| return Result{ .fail = em },
+                }
+                const unpadded_end = code.items.len - begin;
+                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padding = try math.cast(usize, padded_end - unpadded_end);
+
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
                 }
             }
 
