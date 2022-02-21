@@ -1753,6 +1753,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .unwrap_errunion_err_ptr     => try airUnwrapErrUnionErr(f, inst),
             .wrap_errunion_payload       => try airWrapErrUnionPay(f, inst),
             .wrap_errunion_err           => try airWrapErrUnionErr(f, inst),
+            .errunion_payload_ptr_set    => try airErrUnionPayloadPtrSet(f, inst),
             // zig fmt: on
         };
         switch (result_value) {
@@ -3090,17 +3091,18 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand = try f.resolveInst(ty_op.operand);
     const operand_ty = f.air.typeOf(ty_op.operand);
 
-    const payload_ty = operand_ty.errorUnionPayload();
-    if (!payload_ty.hasRuntimeBits()) {
-        if (operand_ty.zigTypeTag() == .Pointer) {
-            const local = try f.allocLocal(inst_ty, .Const);
-            try writer.writeAll(" = *");
-            try f.writeCValue(writer, operand);
-            try writer.writeAll(";\n");
-            return local;
-        } else {
+    if (operand_ty.zigTypeTag() == .Pointer) {
+        if (!operand_ty.childType().errorUnionPayload().hasRuntimeBits()) {
             return operand;
         }
+        const local = try f.allocLocal(inst_ty, .Const);
+        try writer.writeAll(" = *");
+        try f.writeCValue(writer, operand);
+        try writer.writeAll(";\n");
+        return local;
+    }
+    if (!operand_ty.errorUnionPayload().hasRuntimeBits()) {
+        return operand;
     }
 
     const local = try f.allocLocal(inst_ty, .Const);
@@ -3123,8 +3125,11 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, maybe_addrof: []cons
     const operand = try f.resolveInst(ty_op.operand);
     const operand_ty = f.air.typeOf(ty_op.operand);
 
-    const payload_ty = operand_ty.errorUnionPayload();
-    if (!payload_ty.hasRuntimeBits()) {
+    const error_union_ty = if (operand_ty.zigTypeTag() == .Pointer)
+        operand_ty.childType()
+    else
+        operand_ty;
+    if (!error_union_ty.errorUnionPayload().hasRuntimeBits()) {
         return CValue.none;
     }
 
@@ -3160,6 +3165,7 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll("};\n");
     return local;
 }
+
 fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
 
@@ -3177,6 +3183,11 @@ fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, operand);
     try writer.writeAll(" };\n");
     return local;
+}
+
+fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = inst;
+    return f.fail("TODO: C backend: implement airErrUnionPayloadPtrSet", .{});
 }
 
 fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {

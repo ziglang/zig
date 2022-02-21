@@ -1297,6 +1297,7 @@ fn arrayInitExpr(
             }
         }
         const array_type_inst = try typeExpr(gz, scope, array_init.ast.type_expr);
+        _ = try gz.addUnNode(.validate_array_init_ty, array_type_inst, node);
         const elem_type = try gz.addUnNode(.elem_type, array_type_inst, array_init.ast.type_expr);
         break :inst .{
             .array = array_type_inst,
@@ -1399,7 +1400,8 @@ fn arrayInitExprRlPtr(
     array_ty: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
     if (array_ty == .none) {
-        return arrayInitExprRlPtrInner(gz, scope, node, result_ptr, elements);
+        const base_ptr = try gz.addUnNode(.array_base_ptr, result_ptr, node);
+        return arrayInitExprRlPtrInner(gz, scope, node, base_ptr, elements);
     }
 
     var as_scope = try gz.makeCoercionScope(scope, array_ty, result_ptr);
@@ -1508,8 +1510,11 @@ fn structInitExpr(
 
     switch (rl) {
         .discard => {
-            if (struct_init.ast.type_expr != 0)
-                _ = try typeExpr(gz, scope, struct_init.ast.type_expr);
+            // TODO if a type expr is given the fields should be validated for that type
+            if (struct_init.ast.type_expr != 0) {
+                const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+                _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
+            }
             for (struct_init.ast.fields) |field_init| {
                 _ = try expr(gz, scope, .discard, field_init);
             }
@@ -1518,6 +1523,7 @@ fn structInitExpr(
         .ref => {
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+                _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
                 return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init_ref);
             } else {
                 return structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon_ref);
@@ -1526,6 +1532,7 @@ fn structInitExpr(
         .none => {
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+                _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
                 return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
             } else {
                 return structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon);
@@ -1536,6 +1543,7 @@ fn structInitExpr(
                 return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
             }
             const inner_ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+            _ = try gz.addUnNode(.validate_struct_init_ty, inner_ty_inst, node);
             const result = try structInitExprRlTy(gz, scope, node, struct_init, inner_ty_inst, .struct_init);
             return rvalue(gz, rl, result, node);
         },
@@ -1582,9 +1590,11 @@ fn structInitExprRlPtr(
     result_ptr: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
     if (struct_init.ast.type_expr == 0) {
-        return structInitExprRlPtrInner(gz, scope, node, struct_init, result_ptr);
+        const base_ptr = try gz.addUnNode(.field_base_ptr, result_ptr, node);
+        return structInitExprRlPtrInner(gz, scope, node, struct_init, base_ptr);
     }
     const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+    _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
 
     var as_scope = try gz.makeCoercionScope(scope, ty_inst, result_ptr);
     defer as_scope.unstack();
@@ -2298,6 +2308,8 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .ret_err_value_code,
             .extended,
             .closure_get,
+            .array_base_ptr,
+            .field_base_ptr,
             => break :b false,
 
             // ZIR instructions that are always `noreturn`.
@@ -2346,6 +2358,8 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .closure_capture,
             .memcpy,
             .memset,
+            .validate_array_init_ty,
+            .validate_struct_init_ty,
             => break :b true,
         }
     } else switch (maybe_unused_result) {

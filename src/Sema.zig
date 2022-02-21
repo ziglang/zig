@@ -739,6 +739,8 @@ fn analyzeBodyInner(
             .@"await"                     => try sema.zirAwait(block, inst, false),
             .await_nosuspend              => try sema.zirAwait(block, inst, true),
             .extended                     => try sema.zirExtended(block, inst),
+            .array_base_ptr               => try sema.zirArrayBasePtr(block, inst),
+            .field_base_ptr               => try sema.zirFieldBasePtr(block, inst),
 
             .clz       => try sema.zirBitCount(block, inst, .clz,      Value.clz),
             .ctz       => try sema.zirBitCount(block, inst, .ctz,      Value.ctz),
@@ -867,6 +869,16 @@ fn analyzeBodyInner(
             },
             .resolve_inferred_alloc => {
                 try sema.zirResolveInferredAlloc(block, inst);
+                i += 1;
+                continue;
+            },
+            .validate_array_init_ty => {
+                try sema.validateArrayInitTy(block, inst);
+                i += 1;
+                continue;
+            },
+            .validate_struct_init_ty => {
+                try sema.validateStructInitTy(block, inst);
                 i += 1;
                 continue;
             },
@@ -1346,6 +1358,14 @@ fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, opt
     return sema.fail(block, src, "expected optional type, found {}", .{optional_ty});
 }
 
+fn failWithArrayInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
+    return sema.fail(block, src, "type '{}' does not support array initialization syntax", .{ty});
+}
+
+fn failWithStructInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
+    return sema.fail(block, src, "type '{}' does not support struct initialization syntax", .{ty});
+}
+
 fn failWithErrorSetCodeMissing(
     sema: *Sema,
     block: *Block,
@@ -1641,7 +1661,13 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 return sema.fail(block, src, "TODO coerce_result_ptr wrap_errunion_err", .{});
             },
             .wrap_errunion_payload => {
-                return sema.fail(block, src, "TODO coerce_result_ptr wrap_errunion_payload", .{});
+                const ty_op = air_datas[trash_inst].ty_op;
+                const payload_ty = sema.getTmpAir().typeOf(ty_op.operand);
+                const ptr_payload_ty = try Type.ptr(sema.arena, .{
+                    .pointee_type = payload_ty,
+                    .@"addrspace" = addr_space,
+                });
+                new_ptr = try block.addTyOp(.errunion_payload_ptr_set, ptr_payload_ty, new_ptr);
             },
             else => {
                 if (std.debug.runtime_safety) {
@@ -2589,6 +2615,88 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
         },
         else => unreachable,
     }
+}
+
+fn zirArrayBasePtr(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+
+    const start_ptr = sema.resolveInst(inst_data.operand);
+    var base_ptr = start_ptr;
+    while (true) switch (sema.typeOf(base_ptr).childType().zigTypeTag()) {
+        .ErrorUnion => base_ptr = try sema.analyzeErrUnionPayloadPtr(block, src, base_ptr, false, true),
+        .Optional => base_ptr = try sema.analyzeOptionalPayloadPtr(block, src, base_ptr, false, true),
+        else => break,
+    };
+
+    const elem_ty = sema.typeOf(base_ptr).childType();
+    switch (elem_ty.zigTypeTag()) {
+        .Array, .Vector => return base_ptr,
+        .Struct => if (elem_ty.isTuple()) return base_ptr,
+        else => {},
+    }
+    return sema.failWithArrayInitNotSupported(block, src, sema.typeOf(start_ptr).childType());
+}
+
+fn zirFieldBasePtr(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+
+    const start_ptr = sema.resolveInst(inst_data.operand);
+    var base_ptr = start_ptr;
+    while (true) switch (sema.typeOf(base_ptr).childType().zigTypeTag()) {
+        .ErrorUnion => base_ptr = try sema.analyzeErrUnionPayloadPtr(block, src, base_ptr, false, true),
+        .Optional => base_ptr = try sema.analyzeOptionalPayloadPtr(block, src, base_ptr, false, true),
+        else => break,
+    };
+
+    const elem_ty = sema.typeOf(base_ptr).childType();
+    switch (elem_ty.zigTypeTag()) {
+        .Struct, .Union => return base_ptr,
+        else => {},
+    }
+    return sema.failWithStructInitNotSupported(block, src, sema.typeOf(start_ptr).childType());
+}
+
+fn validateArrayInitTy(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const ty = try sema.resolveType(block, src, inst_data.operand);
+
+    switch (ty.zigTypeTag()) {
+        .Array, .Vector => return,
+        .Struct => if (ty.isTuple()) return,
+        else => {},
+    }
+    return sema.failWithArrayInitNotSupported(block, src, ty);
+}
+
+fn validateStructInitTy(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const ty = try sema.resolveType(block, src, inst_data.operand);
+
+    switch (ty.zigTypeTag()) {
+        .Struct, .Union => return,
+        else => {},
+    }
+    return sema.failWithStructInitNotSupported(block, src, ty);
 }
 
 fn zirValidateStructInit(
@@ -4396,7 +4504,9 @@ fn analyzeCall(
                 if (payload.data.error_set.tag() == .error_set_inferred) {
                     const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
                     node.data = .{ .func = module_fn };
-                    parent_func.?.inferred_error_sets.prepend(node);
+                    if (parent_func) |some| {
+                        some.inferred_error_sets.prepend(node);
+                    }
 
                     const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, &node.data);
                     break :blk try Type.Tag.error_union.create(sema.arena, .{
@@ -5217,9 +5327,21 @@ fn zirOptionalPayloadPtr(
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const optional_ptr = sema.resolveInst(inst_data.operand);
+    const src = inst_data.src();
+
+    return sema.analyzeOptionalPayloadPtr(block, src, optional_ptr, safety_check, false);
+}
+
+fn analyzeOptionalPayloadPtr(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    optional_ptr: Air.Inst.Ref,
+    safety_check: bool,
+    initializing: bool,
+) CompileError!Air.Inst.Ref {
     const optional_ptr_ty = sema.typeOf(optional_ptr);
     assert(optional_ptr_ty.zigTypeTag() == .Pointer);
-    const src = inst_data.src();
 
     const opt_type = optional_ptr_ty.elemType();
     if (opt_type.zigTypeTag() != .Optional) {
@@ -5234,6 +5356,12 @@ fn zirOptionalPayloadPtr(
     });
 
     if (try sema.resolveDefinedValue(block, src, optional_ptr)) |pointer_val| {
+        if (initializing) {
+            return sema.addConstant(
+                child_pointer,
+                try Value.Tag.opt_payload_ptr.create(sema.arena, pointer_val),
+            );
+        }
         if (try sema.pointerDeref(block, src, pointer_val, optional_ptr_ty)) |val| {
             if (val.isNull()) {
                 return sema.fail(block, src, "unable to unwrap null", .{});
@@ -5251,7 +5379,10 @@ fn zirOptionalPayloadPtr(
         const is_non_null = try block.addUnOp(.is_non_null_ptr, optional_ptr);
         try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
     }
-    return block.addTyOp(.optional_payload_ptr, child_pointer, optional_ptr);
+    return block.addTyOp(if (initializing)
+        .optional_payload_ptr_set
+    else
+        .optional_payload_ptr, child_pointer, optional_ptr);
 }
 
 /// Value in, value out.
@@ -5352,8 +5483,20 @@ fn zirErrUnionPayloadPtr(
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
     const operand = sema.resolveInst(inst_data.operand);
+    const src = inst_data.src();
+
+    return sema.analyzeErrUnionPayloadPtr(block, src, operand, safety_check, false);
+}
+
+fn analyzeErrUnionPayloadPtr(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    operand: Air.Inst.Ref,
+    safety_check: bool,
+    initializing: bool,
+) CompileError!Air.Inst.Ref {
     const operand_ty = sema.typeOf(operand);
     assert(operand_ty.zigTypeTag() == .Pointer);
 
@@ -5368,10 +5511,17 @@ fn zirErrUnionPayloadPtr(
     });
 
     if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
+        if (initializing) {
+            return sema.addConstant(
+                operand_pointer_ty,
+                try Value.Tag.eu_payload_ptr.create(sema.arena, pointer_val),
+            );
+        }
         if (try sema.pointerDeref(block, src, pointer_val, operand_ty)) |val| {
             if (val.getError()) |name| {
                 return sema.fail(block, src, "caught unexpected error '{s}'", .{name});
             }
+
             return sema.addConstant(
                 operand_pointer_ty,
                 try Value.Tag.eu_payload_ptr.create(sema.arena, pointer_val),
@@ -5384,7 +5534,10 @@ fn zirErrUnionPayloadPtr(
         const is_non_err = try block.addUnOp(.is_err, operand);
         try sema.addSafetyCheck(block, is_non_err, .unwrap_errunion);
     }
-    return block.addTyOp(.unwrap_errunion_payload_ptr, operand_pointer_ty, operand);
+    return block.addTyOp(if (initializing)
+        .errunion_payload_ptr_set
+    else
+        .unwrap_errunion_payload_ptr, operand_pointer_ty, operand);
 }
 
 /// Value in, value out
@@ -10778,7 +10931,7 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         .Struct => return structInitEmpty(sema, block, obj_ty, src, src),
         .Array => return arrayInitEmpty(sema, obj_ty),
         .Void => return sema.addConstant(obj_ty, Value.void),
-        else => unreachable,
+        else => return sema.failWithArrayInitNotSupported(block, src, obj_ty),
     }
 }
 
@@ -12920,7 +13073,7 @@ fn zirCUndef(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
 
     const name = try sema.resolveConstString(block, src, extra.operand);
     try block.c_import_buf.?.writer().print("#undefine {s}\n", .{name});
@@ -12933,7 +13086,7 @@ fn zirCInclude(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
 
     const name = try sema.resolveConstString(block, src, extra.operand);
     try block.c_import_buf.?.writer().print("#include <{s}>\n", .{name});
@@ -12946,12 +13099,13 @@ fn zirCDefine(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const val_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
 
-    const name = try sema.resolveConstString(block, src, extra.lhs);
+    const name = try sema.resolveConstString(block, name_src, extra.lhs);
     const rhs = sema.resolveInst(extra.rhs);
     if (sema.typeOf(rhs).zigTypeTag() != .Void) {
-        const value = try sema.resolveConstString(block, src, extra.rhs);
+        const value = try sema.resolveConstString(block, val_src, extra.rhs);
         try block.c_import_buf.?.writer().print("#define {s} {s}\n", .{ name, value });
     } else {
         try block.c_import_buf.?.writer().print("#define {s}\n", .{name});

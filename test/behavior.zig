@@ -119,6 +119,7 @@ test {
                 _ = @import("behavior/sizeof_and_typeof.zig");
                 _ = @import("behavior/switch.zig");
                 _ = @import("behavior/widening.zig");
+                _ = @import("behavior/bugs/1442.zig");
 
                 if (builtin.zig_backend == .stage1) {
                     // Tests that only pass for the stage1 backend.
@@ -135,7 +136,6 @@ test {
                     _ = @import("behavior/bugs/920.zig");
                     _ = @import("behavior/bugs/1120.zig");
                     _ = @import("behavior/bugs/1421.zig");
-                    _ = @import("behavior/bugs/1442.zig");
                     _ = @import("behavior/bugs/1607.zig");
                     _ = @import("behavior/bugs/1851.zig");
                     _ = @import("behavior/bugs/2114.zig");

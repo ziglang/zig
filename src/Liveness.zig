@@ -293,6 +293,7 @@ fn analyzeInst(
         .optional_payload,
         .optional_payload_ptr,
         .optional_payload_ptr_set,
+        .errunion_payload_ptr_set,
         .wrap_optional,
         .unwrap_errunion_payload,
         .unwrap_errunion_err,

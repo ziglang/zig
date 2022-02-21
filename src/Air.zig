@@ -429,6 +429,9 @@ pub const Inst = struct {
         /// *(E!T) -> E. If the value is not an error, undefined behavior.
         /// Uses the `ty_op` field.
         unwrap_errunion_err_ptr,
+        /// *(E!T) => *T. Sets the value to non-error with an undefined payload value.
+        /// Uses the `ty_op` field.
+        errunion_payload_ptr_set,
         /// wrap from T to E!T
         /// Uses the `ty_op` field.
         wrap_errunion_payload,
@@ -865,6 +868,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .optional_payload,
         .optional_payload_ptr,
         .optional_payload_ptr_set,
+        .errunion_payload_ptr_set,
         .wrap_optional,
         .unwrap_errunion_payload,
         .unwrap_errunion_err,

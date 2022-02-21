@@ -1199,3 +1199,64 @@ test "for loop over pointers to struct, getting field from struct pointer" {
     };
     try S.doTheTest();
 }
+
+test "anon init through error unions and optionals" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: u32,
+
+        fn foo() anyerror!?anyerror!@This() {
+            return .{ .a = 1 };
+        }
+        fn bar() ?anyerror![2]u8 {
+            return .{ 1, 2 };
+        }
+
+        fn doTheTest() !void {
+            var a = try (try foo()).?;
+            var b = try bar().?;
+            try expect(a.a + b[1] == 3);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "anon init through optional" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: u32,
+
+        fn doTheTest() !void {
+            var s: ?@This() = null;
+            s = .{ .a = 1 };
+            try expect(s.?.a == 1);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "anon init through error union" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: u32,
+
+        fn doTheTest() !void {
+            var s: anyerror!@This() = error.Foo;
+            s = .{ .a = 1 };
+            try expect((try s).a == 1);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
