@@ -3797,12 +3797,150 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
+fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u32 {
+    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+    switch (condition) {
+        .none => unreachable,
+        .undef => unreachable,
+        .dead, .unreach => unreachable,
+        .compare_flags_signed => unreachable,
+        .compare_flags_unsigned => unreachable,
+        .register => |cond_reg| {
+            switch (case) {
+                .none => unreachable,
+                .undef => unreachable,
+                .dead, .unreach => unreachable,
+                .immediate => |imm| {
+                    _ = try self.addInst(.{
+                        .tag = .@"test",
+                        .ops = (Mir.Ops{
+                            .reg1 = registerAlias(cond_reg, abi_size),
+                        }).encode(),
+                        .data = .{ .imm = @intCast(u32, imm) },
+                    });
+                    return self.addInst(.{
+                        .tag = .cond_jmp_eq_ne,
+                        .ops = (Mir.Ops{
+                            .flags = 0b00,
+                        }).encode(),
+                        .data = .{ .inst = undefined },
+                    });
+                },
+                .register => |reg| {
+                    _ = try self.addInst(.{
+                        .tag = .@"test",
+                        .ops = (Mir.Ops{
+                            .reg1 = registerAlias(cond_reg, abi_size),
+                            .reg2 = registerAlias(reg, abi_size),
+                        }).encode(),
+                        .data = undefined,
+                    });
+                    return self.addInst(.{
+                        .tag = .cond_jmp_eq_ne,
+                        .ops = (Mir.Ops{
+                            .flags = 0b00,
+                        }).encode(),
+                        .data = .{ .inst = undefined },
+                    });
+                },
+                .stack_offset => {
+                    if (abi_size <= 8) {
+                        const reg = try self.copyToTmpRegister(ty, case);
+                        return self.genCondSwitchMir(ty, condition, .{ .register = reg });
+                    }
+
+                    return self.fail("TODO implement switch mir when case is stack offset with abi larger than 8 bytes", .{});
+                },
+                else => {
+                    return self.fail("TODO implement switch mir when case is {}", .{case});
+                },
+            }
+        },
+        else => {
+            return self.fail("TODO implemenent switch mir when condition is {}", .{condition});
+        },
+    }
+}
+
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const condition = pl_op.operand;
-    _ = condition;
-    return self.fail("TODO airSwitch for {}", .{self.target.cpu.arch});
-    // return self.finishAir(inst, .dead, .{ condition, .none, .none });
+    const condition = try self.resolveInst(pl_op.operand);
+    const condition_ty = self.air.typeOf(pl_op.operand);
+    const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+    var extra_index: usize = switch_br.end;
+    var case_i: u32 = 0;
+    const liveness = try self.liveness.getSwitchBr(
+        self.gpa,
+        inst,
+        switch_br.data.cases_len + 1,
+    );
+    defer self.gpa.free(liveness.deaths);
+
+    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+        const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+        const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+        const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
+        extra_index = case.end + items.len + case_body.len;
+
+        var relocs = try self.gpa.alloc(u32, items.len);
+        defer self.gpa.free(relocs);
+
+        for (items) |item, item_i| {
+            const item_mcv = try self.resolveInst(item);
+            relocs[item_i] = try self.genCondSwitchMir(condition_ty, condition, item_mcv);
+        }
+
+        // Capture the state of register and stack allocation state so that we can revert to it.
+        const parent_next_stack_offset = self.next_stack_offset;
+        const parent_free_registers = self.register_manager.free_registers;
+        var parent_stack = try self.stack.clone(self.gpa);
+        defer parent_stack.deinit(self.gpa);
+        const parent_registers = self.register_manager.registers;
+
+        try self.branch_stack.append(.{});
+        errdefer {
+            _ = self.branch_stack.pop();
+        }
+
+        try self.ensureProcessDeathCapacity(liveness.deaths[case_i].len);
+        for (liveness.deaths[case_i]) |operand| {
+            self.processDeath(operand);
+        }
+
+        try self.genBody(case_body);
+
+        // Revert to the previous register and stack allocation state.
+        var saved_case_branch = self.branch_stack.pop();
+        defer saved_case_branch.deinit(self.gpa);
+
+        self.register_manager.registers = parent_registers;
+        self.stack.deinit(self.gpa);
+        self.stack = parent_stack;
+        parent_stack = .{};
+
+        self.next_stack_offset = parent_next_stack_offset;
+        self.register_manager.free_registers = parent_free_registers;
+
+        for (relocs) |reloc| {
+            try self.performReloc(reloc);
+        }
+    }
+
+    if (switch_br.data.else_body_len > 0) {
+        return self.fail("TODO handle else branch in switch", .{});
+    }
+
+    // const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+    // const else_branch = self.branch_stack.addOneAssumeCapacity();
+    // else_branch.* = .{};
+
+    // if (else_body.len != 0) {
+    //     try self.genBody(else_body);
+    // } else {
+
+    // }
+
+    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
 }
 
 fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {

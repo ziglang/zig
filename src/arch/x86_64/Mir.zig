@@ -316,7 +316,8 @@ pub const Inst = struct {
         syscall,
 
         /// ops flags:  form:
-        ///       0b00  reg1, imm32
+        ///       0b00  reg1, imm32 if reg2 == .none
+        ///       0b00  reg1, reg2
         /// TODO handle more cases
         @"test",
 
