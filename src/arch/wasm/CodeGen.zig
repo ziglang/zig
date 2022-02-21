@@ -1320,14 +1320,18 @@ pub const DeclGen = struct {
         }
 
         decl.markAlive();
-        try writer.writeIntLittle(u32, try self.bin_file.getDeclVAddr(
-            self.decl, // The decl containing the source symbol index
-            decl.ty, // type we generate the address of
-            self.symbol_index, // source symbol index
-            decl.link.wasm.sym_index, // target symbol index
-            @intCast(u32, self.code.items.len), // offset
-            @intCast(u32, offset), // addend
-        ));
+        if (decl.link.wasm.sym_index == 0) {
+            try writer.writeIntLittle(u32, 0);
+        } else {
+            try writer.writeIntLittle(u32, try self.bin_file.getDeclVAddr(
+                self.decl, // The decl containing the source symbol index
+                decl.ty, // type we generate the address of
+                self.symbol_index, // source symbol index
+                decl.link.wasm.sym_index, // target symbol index
+                @intCast(u32, self.code.items.len), // offset
+                @intCast(u32, offset), // addend
+            ));
+        }
         return Result{ .appended = {} };
     }
 };

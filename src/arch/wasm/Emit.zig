@@ -242,6 +242,7 @@ fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const global_offset = emit.offset();
     try emit.code.appendSlice(&buf);
 
+    // globals can have index 0 as it represents the stack pointer
     try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
         .index = label,
         .offset = global_offset,
@@ -294,11 +295,13 @@ fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
     leb128.writeUnsignedFixed(5, &buf, label);
     try emit.code.appendSlice(&buf);
 
-    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
-        .offset = call_offset,
-        .index = label,
-        .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
-    });
+    if (label != 0) {
+        try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+            .offset = call_offset,
+            .index = label,
+            .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
+        });
+    }
 }
 
 fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -318,11 +321,13 @@ fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
     leb128.writeUnsignedFixed(5, &buf, symbol_index);
     try emit.code.appendSlice(&buf);
 
-    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
-        .offset = index_offset,
-        .index = symbol_index,
-        .relocation_type = .R_WASM_TABLE_INDEX_SLEB,
-    });
+    if (symbol_index != 0) {
+        try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+            .offset = index_offset,
+            .index = symbol_index,
+            .relocation_type = .R_WASM_TABLE_INDEX_SLEB,
+        });
+    }
 }
 
 fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -342,12 +347,14 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
         try emit.code.appendSlice(&buf);
     }
 
-    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
-        .offset = mem_offset,
-        .index = mem.pointer,
-        .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,
-        .addend = mem.offset,
-    });
+    if (mem.pointer != 0) {
+        try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+            .offset = mem_offset,
+            .index = mem.pointer,
+            .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,
+            .addend = mem.offset,
+        });
+    }
 }
 
 fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {

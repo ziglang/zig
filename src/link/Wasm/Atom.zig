@@ -173,7 +173,6 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             if (symbol.isUndefined() and (symbol.tag == .data or symbol.isWeak())) {
                 return 0;
             }
-
             const merge_segment = wasm_bin.base.options.output_mode != .Obj;
             const segment_name = wasm_bin.segment_info.items[symbol.index].outputName(merge_segment);
             const atom_index = wasm_bin.data_segments.get(segment_name).?;

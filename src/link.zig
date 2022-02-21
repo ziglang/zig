@@ -237,7 +237,7 @@ pub const File = struct {
         macho: MachO.Export,
         plan9: Plan9.Export,
         c: void,
-        wasm: void,
+        wasm: Wasm.Export,
         spirv: void,
         nvptx: void,
     };
