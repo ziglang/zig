@@ -47,3 +47,16 @@ test "cast negative integer to pointer" {
 
     try expectEqual(@intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))), h.MAP_FAILED);
 }
+
+test "casting to union with a macro" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO Sema.zirUnionInitPtr
+
+    const l: c_long = 42;
+    const d: f64 = 2.0;
+
+    var casted = h.UNION_CAST(l);
+    try expectEqual(l, casted.l);
+
+    casted = h.UNION_CAST(d);
+    try expectEqual(d, casted.d);
+}

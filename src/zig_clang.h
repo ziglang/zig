@@ -103,6 +103,7 @@ struct ZigClangBuiltinType;
 struct ZigClangCStyleCastExpr;
 struct ZigClangCallExpr;
 struct ZigClangCaseStmt;
+struct ZigClangCastExpr;
 struct ZigClangCharacterLiteral;
 struct ZigClangChooseExpr;
 struct ZigClangCompoundAssignOperator;
@@ -1316,6 +1317,9 @@ ZIG_EXTERN_C struct ZigClangQualType ZigClangConvertVectorExpr_getTypeSourceInfo
 ZIG_EXTERN_C struct ZigClangQualType ZigClangDecayedType_getDecayedType(const struct ZigClangDecayedType *);
 
 ZIG_EXTERN_C const struct ZigClangCompoundStmt *ZigClangStmtExpr_getSubStmt(const struct ZigClangStmtExpr *);
+
+ZIG_EXTERN_C enum ZigClangCK ZigClangCastExpr_getCastKind(const struct ZigClangCastExpr *);
+ZIG_EXTERN_C const struct ZigClangFieldDecl *ZigClangCastExpr_getTargetFieldForToUnionCast(const struct ZigClangCastExpr *, struct ZigClangQualType, struct ZigClangQualType);
 
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangCharacterLiteral_getBeginLoc(const struct ZigClangCharacterLiteral *);
 ZIG_EXTERN_C enum ZigClangCharacterLiteral_CharacterKind ZigClangCharacterLiteral_getKind(const struct ZigClangCharacterLiteral *);

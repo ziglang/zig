@@ -258,6 +258,14 @@ pub const CaseStmt = opaque {
     extern fn ZigClangCaseStmt_getSubStmt(*const CaseStmt) *const Stmt;
 };
 
+pub const CastExpr = opaque {
+    pub const getCastKind = ZigClangCastExpr_getCastKind;
+    extern fn ZigClangCastExpr_getCastKind(*const CastExpr) CK;
+
+    pub const getTargetFieldForToUnionCast = ZigClangCastExpr_getTargetFieldForToUnionCast;
+    extern fn ZigClangCastExpr_getTargetFieldForToUnionCast(*const CastExpr, QualType, QualType) ?*const FieldDecl;
+};
+
 pub const CharacterLiteral = opaque {
     pub const getBeginLoc = ZigClangCharacterLiteral_getBeginLoc;
     extern fn ZigClangCharacterLiteral_getBeginLoc(*const CharacterLiteral) SourceLocation;
