@@ -2610,7 +2610,7 @@ fn AsBytesReturnType(comptime P: type) type {
     if (!trait.isSingleItemPtr(P))
         @compileError("expected single item pointer, passed " ++ @typeName(P));
 
-    const size = @divExact(@bitSizeOf(meta.Child(P)), 8);
+    const size = @sizeOf(meta.Child(P));
 
     return CopyPtrAttrs(P, .One, [size]u8);
 }
@@ -2758,15 +2758,11 @@ test "bytesAsValue preserves pointer attributes" {
     try testing.expectEqual(in.alignment, out.alignment);
 }
 
-test "bytesAsValue and asBytes work with non-word-aligned structs" {
-    const Padded = packed struct { a: u12, b: u12 };
+test "bytesAsValue works with non-word-aligned structs" {
+    const padded = packed struct { a: u14, b: u10 };
     // for test to be meaningful @sizeOf must think the struct is padded.
-    assert(@sizeOf(Padded) != @divExact(@bitSizeOf(Padded), 8));
-    const padded = Padded{ .a = 42, .b = 1 };
-    const bytes = asBytes(&padded);
-    try testing.expectEqual(bytes.len, 3);
-    const padded2 = bytesAsValue(Padded, bytes[0..bytes.len]);
-    try testing.expectEqual(padded, padded2.*);
+    assert(@sizeOf(padded) != @divExact(@bitSizeOf(padded), 8));
+    _ = bytesAsValue(padded, &[3]u8{ 0, 0, 0 });
 }
 
 /// Given a pointer to an array of bytes, returns a value of the specified type backed by a
