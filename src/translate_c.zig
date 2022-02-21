@@ -1791,14 +1791,31 @@ fn transCStyleCastExprClass(
     stmt: *const clang.CStyleCastExpr,
     result_used: ResultUsed,
 ) TransError!Node {
+    const cast_expr = @ptrCast(*const clang.CastExpr, stmt);
     const sub_expr = stmt.getSubExpr();
-    const cast_node = (try transCCast(
+    const dst_type = stmt.getType();
+    const src_type = sub_expr.getType();
+    const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
+    const loc = stmt.getBeginLoc();
+
+    const cast_node = if (cast_expr.getCastKind() == .ToUnion) blk: {
+        const field_decl = cast_expr.getTargetFieldForToUnionCast(dst_type, src_type).?; // C syntax error if target field is null
+        const field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
+
+        const union_ty = try transQualType(c, scope, dst_type, loc);
+
+        const inits = [1]ast.Payload.ContainerInit.Initializer{.{ .name = field_name, .value = sub_expr_node }};
+        break :blk try Tag.container_init.create(c.arena, .{
+            .lhs = union_ty,
+            .inits = try c.arena.dupe(ast.Payload.ContainerInit.Initializer, &inits),
+        });
+    } else (try transCCast(
         c,
         scope,
-        stmt.getBeginLoc(),
-        stmt.getType(),
-        sub_expr.getType(),
-        try transExpr(c, scope, sub_expr, .used),
+        loc,
+        dst_type,
+        src_type,
+        sub_expr_node,
     ));
     return maybeSuppressResult(c, scope, result_used, cast_node);
 }
@@ -2370,7 +2387,7 @@ fn cIntTypeForEnum(enum_qt: clang.QualType) clang.QualType {
     return enum_decl.getIntegerType();
 }
 
-// when modifying this function, make sure to also update std.meta.cast
+// when modifying this function, make sure to also update std.zig.c_translation.cast
 fn transCCast(
     c: *Context,
     scope: *Scope,

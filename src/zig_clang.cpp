@@ -2986,6 +2986,18 @@ const struct ZigClangCompoundStmt *ZigClangStmtExpr_getSubStmt(const struct ZigC
     return reinterpret_cast<const ZigClangCompoundStmt *>(casted->getSubStmt());
 }
 
+enum ZigClangCK ZigClangCastExpr_getCastKind(const struct ZigClangCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::CastExpr *>(self);
+    return (ZigClangCK)casted->getCastKind();
+}
+
+const struct ZigClangFieldDecl *ZigClangCastExpr_getTargetFieldForToUnionCast(const struct ZigClangCastExpr *self, ZigClangQualType union_type, ZigClangQualType op_type) {
+    clang::QualType union_qt = bitcast(union_type);
+    clang::QualType op_qt = bitcast(op_type);
+    auto casted = reinterpret_cast<const clang::CastExpr *>(self);
+    return reinterpret_cast<const ZigClangFieldDecl *>(casted->getTargetFieldForToUnionCast(union_qt, op_qt));
+}
+
 struct ZigClangSourceLocation ZigClangCharacterLiteral_getBeginLoc(const struct ZigClangCharacterLiteral *self) {
     auto casted = reinterpret_cast<const clang::CharacterLiteral *>(self);
     return bitcast(casted->getBeginLoc());
