@@ -135,6 +135,42 @@ pub fn getCondBr(l: Liveness, inst: Air.Inst.Index) CondBrSlices {
     };
 }
 
+/// Indexed by case number as they appear in AIR.
+/// Else is the last element.
+pub const SwitchBrTable = struct {
+    deaths: []const []const Air.Inst.Index,
+};
+
+/// Caller owns the memory.
+pub fn getSwitchBr(l: Liveness, gpa: Allocator, inst: Air.Inst.Index, cases_len: u32) Allocator.Error!SwitchBrTable {
+    var index: usize = l.special.get(inst) orelse return SwitchBrTable{
+        .deaths = &.{},
+    };
+    const else_death_count = l.extra[index];
+    index += 1;
+
+    var deaths = std.ArrayList([]const Air.Inst.Index).init(gpa);
+    defer deaths.deinit();
+    try deaths.ensureTotalCapacity(cases_len + 1);
+
+    var case_i: u32 = 0;
+    while (case_i < cases_len - 1) : (case_i += 1) {
+        const case_death_count: u32 = l.extra[index];
+        index += 1;
+        const case_deaths = l.extra[index..][0..case_death_count];
+        index += case_death_count;
+        deaths.appendAssumeCapacity(case_deaths);
+    }
+    {
+        // Else
+        const else_deaths = l.extra[index..][0..else_death_count];
+        deaths.appendAssumeCapacity(else_deaths);
+    }
+    return SwitchBrTable{
+        .deaths = deaths.toOwnedSlice(),
+    };
+}
+
 pub fn deinit(l: *Liveness, gpa: Allocator) void {
     gpa.free(l.tomb_bits);
     gpa.free(l.extra);
