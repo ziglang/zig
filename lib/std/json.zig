@@ -1873,10 +1873,10 @@ fn parseInternal(
                             }
 
                             if (ptrInfo.sentinel) |some| {
-                                const char = @ptrCast(*const u8, some).*;
-                                try arraylist.append(char);
+                                const sentinel_value = @ptrCast(*const ptrInfo.child, some).*;
+                                try arraylist.append(sentinel_value);
                                 const output = arraylist.toOwnedSlice();
-                                return output[0 .. output.len - 1 :char];
+                                return output[0 .. output.len - 1 :sentinel_value];
                             }
 
                             return arraylist.toOwnedSlice();
