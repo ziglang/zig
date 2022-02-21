@@ -801,6 +801,16 @@ pub const DeclGen = struct {
                 .gs => llvm.address_space.x86.gs,
                 .fs => llvm.address_space.x86.fs,
                 .ss => llvm.address_space.x86.ss,
+                else => unreachable,
+            },
+            .nvptx, .nvptx64 => switch (address_space) {
+                .generic => llvm.address_space.default,
+                .global => llvm.address_space.nvptx.global,
+                .constant => llvm.address_space.nvptx.constant,
+                .param => llvm.address_space.nvptx.param,
+                .shared => llvm.address_space.nvptx.shared,
+                .local => llvm.address_space.nvptx.local,
+                else => unreachable,
             },
             else => switch (address_space) {
                 .generic => llvm.address_space.default,
