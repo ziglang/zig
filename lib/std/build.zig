@@ -2901,7 +2901,7 @@ pub const LibExeObjStep = struct {
             // pass that to zig, e.g. via 'zig build-lib @args.rsp'
             var args_length: usize = 0;
             for (zig_args.items) |arg| {
-                args_length += arg.len;
+                args_length += arg.len + 1; // +1 to account for null terminator
             }
             if (args_length >= 30 * 1024) {
                 const args_dir = try fs.path.join(
