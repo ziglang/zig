@@ -450,7 +450,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .is_generic = true,
         \\        .is_var_args = false,
         \\        .return_type = u0,
-        \\        .args = &[_]@import("std").builtin.TypeInfo.FnArg{},
+        \\        .args = &[_]@import("std").builtin.TypeInfo.Fn.Param{},
         \\    },
         \\});
         \\comptime { _ = Foo; }
@@ -466,7 +466,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .is_generic = false,
         \\        .is_var_args = true,
         \\        .return_type = u0,
-        \\        .args = &[_]@import("std").builtin.TypeInfo.FnArg{},
+        \\        .args = &[_]@import("std").builtin.TypeInfo.Fn.Param{},
         \\    },
         \\});
         \\comptime { _ = Foo; }
@@ -482,7 +482,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .is_generic = false,
         \\        .is_var_args = false,
         \\        .return_type = null,
-        \\        .args = &[_]@import("std").builtin.TypeInfo.FnArg{},
+        \\        .args = &[_]@import("std").builtin.TypeInfo.Fn.Param{},
         \\    },
         \\});
         \\comptime { _ = Foo; }
