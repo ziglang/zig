@@ -3351,9 +3351,10 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     // Check for the possibility of this pattern:
     //   %a = ret_ptr
     //   %b = store(%a, %c)
-    // Where %c is an error union. In such case we need to add to the current function's
-    // inferred error set, if any.
-    if (sema.typeOf(operand).zigTypeTag() == .ErrorUnion and
+    // Where %c is an error union or error set. In such case we need to add
+    // to the current function's inferred error set, if any.
+    if ((sema.typeOf(operand).zigTypeTag() == .ErrorUnion or
+        sema.typeOf(operand).zigTypeTag() == .ErrorSet) and
         sema.fn_ret_ty.zigTypeTag() == .ErrorUnion)
     {
         if (Zir.refToIndex(extra.lhs)) |ptr_index| {
@@ -7665,6 +7666,8 @@ fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const container_type = try sema.resolveType(block, lhs_src, extra.lhs);
     const decl_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
 
+    // tuples are structs but they don't have a namespace
+    if (container_type.isTuple()) return Air.Inst.Ref.bool_false;
     const namespace = container_type.getNamespace() orelse return sema.fail(
         block,
         lhs_src,
@@ -12186,7 +12189,7 @@ fn checkPtrOperand(
     ty: Type,
 ) CompileError!void {
     switch (ty.zigTypeTag()) {
-        .Pointer => {},
+        .Pointer => return,
         .Fn => {
             const msg = msg: {
                 const msg = try sema.errMsg(
@@ -12203,8 +12206,10 @@ fn checkPtrOperand(
             };
             return sema.failWithOwnedErrorMsg(msg);
         },
-        else => return sema.fail(block, ty_src, "expected pointer, found '{}'", .{ty}),
+        .Optional => if (ty.isPtrLikeOptional()) return,
+        else => {},
     }
+    return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{ty});
 }
 
 fn checkPtrType(
@@ -12214,7 +12219,7 @@ fn checkPtrType(
     ty: Type,
 ) CompileError!void {
     switch (ty.zigTypeTag()) {
-        .Pointer => {},
+        .Pointer => return,
         .Fn => {
             const msg = msg: {
                 const msg = try sema.errMsg(
@@ -12231,8 +12236,10 @@ fn checkPtrType(
             };
             return sema.failWithOwnedErrorMsg(msg);
         },
-        else => return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{ty}),
+        .Optional => if (ty.isPtrLikeOptional()) return,
+        else => {},
     }
+    return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{ty});
 }
 
 fn checkVectorElemType(

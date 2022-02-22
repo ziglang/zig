@@ -323,6 +323,10 @@ fn testOpaque() !void {
 }
 
 test "type info: function type info" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     // wasm doesn't support align attributes on functions
     if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
     try testFunction();

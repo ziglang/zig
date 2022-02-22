@@ -593,10 +593,12 @@ pub const Type = extern union {
 
                 for (a_info.param_types) |a_param_ty, i| {
                     const b_param_ty = b_info.param_types[i];
-                    if (!eql(a_param_ty, b_param_ty))
+                    if (a_info.comptime_params[i] != b_info.comptime_params[i])
                         return false;
 
-                    if (a_info.comptime_params[i] != b_info.comptime_params[i])
+                    if (a_param_ty.tag() == .generic_poison) continue;
+                    if (b_param_ty.tag() == .generic_poison) continue;
+                    if (!eql(a_param_ty, b_param_ty))
                         return false;
                 }
 

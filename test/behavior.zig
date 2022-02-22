@@ -120,6 +120,15 @@ test {
             _ = @import("behavior/sizeof_and_typeof.zig");
             _ = @import("behavior/switch.zig");
             _ = @import("behavior/widening.zig");
+            _ = @import("behavior/bugs/421.zig");
+            _ = @import("behavior/bugs/726.zig");
+            _ = @import("behavior/bugs/1421.zig");
+            _ = @import("behavior/bugs/2114.zig");
+            _ = @import("behavior/bugs/3742.zig");
+            _ = @import("behavior/struct_contains_null_ptr_itself.zig");
+            _ = @import("behavior/switch_prong_err_enum.zig");
+            _ = @import("behavior/switch_prong_implicit_cast.zig");
+            _ = @import("behavior/union_with_members.zig");
 
             if (builtin.zig_backend == .stage1) {
                 // Tests that only pass for the stage1 backend.
@@ -128,20 +137,15 @@ test {
                     _ = @import("behavior/async_fn.zig");
                 }
                 _ = @import("behavior/await_struct.zig");
-                _ = @import("behavior/bugs/421.zig");
                 _ = @import("behavior/bugs/529.zig");
                 _ = @import("behavior/bugs/718.zig");
-                _ = @import("behavior/bugs/726.zig");
                 _ = @import("behavior/bugs/828.zig");
                 _ = @import("behavior/bugs/920.zig");
                 _ = @import("behavior/bugs/1120.zig");
-                _ = @import("behavior/bugs/1421.zig");
                 _ = @import("behavior/bugs/1442.zig");
                 _ = @import("behavior/bugs/1607.zig");
                 _ = @import("behavior/bugs/1851.zig");
-                _ = @import("behavior/bugs/2114.zig");
                 _ = @import("behavior/bugs/3384.zig");
-                _ = @import("behavior/bugs/3742.zig");
                 _ = @import("behavior/bugs/3779.zig");
                 _ = @import("behavior/bugs/4328.zig");
                 _ = @import("behavior/bugs/5398.zig");
@@ -161,12 +165,8 @@ test {
                 _ = @import("behavior/muladd.zig");
                 _ = @import("behavior/select.zig");
                 _ = @import("behavior/shuffle.zig");
-                _ = @import("behavior/struct_contains_null_ptr_itself.zig");
                 _ = @import("behavior/struct_contains_slice_of_itself.zig");
-                _ = @import("behavior/switch_prong_err_enum.zig");
-                _ = @import("behavior/switch_prong_implicit_cast.zig");
                 _ = @import("behavior/typename.zig");
-                _ = @import("behavior/union_with_members.zig");
                 _ = @import("behavior/vector.zig");
                 if (builtin.target.cpu.arch == .wasm32) {
                     _ = @import("behavior/wasm.zig");
