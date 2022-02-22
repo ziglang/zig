@@ -117,7 +117,6 @@ fn first4KeysOfHomeRow() []const u8 {
 test "return string from function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }
@@ -231,7 +230,6 @@ test "compile time global reinterpret" {
 
 test "cast undefined" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const array: [100]u8 = undefined;
     const slice = @as([]const u8, &array);
@@ -303,7 +301,6 @@ test "call function pointer in struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     try expect(mem.eql(u8, f3(true), "a"));
@@ -382,7 +379,6 @@ fn testMemcpyMemset() !void {
 test "variable is allowed to be a pointer to an opaque type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     var x: i32 = 1234;
@@ -425,7 +421,6 @@ test "array 2D const double ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const rect_2d_vertexes = [_][1]f32{
@@ -476,7 +471,6 @@ fn testArray2DConstDoublePtr(ptr: *const f32) !void {
 test "double implicit cast in same expression" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var x = @as(i32, @as(u16, nine()));
     try expect(x == 9);

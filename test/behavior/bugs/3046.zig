@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 const SomeStruct = struct {
@@ -12,7 +13,10 @@ fn couldFail() anyerror!i32 {
 var some_struct: SomeStruct = undefined;
 
 test "fixed" {
-    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     some_struct = SomeStruct{
         .field = couldFail() catch @as(i32, 0),

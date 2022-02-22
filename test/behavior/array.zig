@@ -49,7 +49,7 @@ fn getArrayLen(a: []const u32) usize {
 
 test "array init with mult" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const a = 'a';
     var i: [8]u8 = [2]u8{ a, 'b' } ** 4;
@@ -112,7 +112,7 @@ test "array len field" {
 
 test "array with sentinels" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(is_ct: bool) !void {
@@ -179,7 +179,8 @@ fn plusOne(x: u32) u32 {
 
 test "single-item pointer to array indexing and slicing" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     try testSingleItemPtrArrayIndexSlice();
     comptime try testSingleItemPtrArrayIndexSlice();
@@ -205,7 +206,8 @@ fn doSomeMangling(array: *[4]u8) void {
 
 test "implicit cast zero sized array ptr to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     {
         var b = "".*;

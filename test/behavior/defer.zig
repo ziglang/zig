@@ -5,6 +5,9 @@ const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 
 test "break and continue inside loop inside defer expression" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     testBreakContInDefer(10);
     comptime testBreakContInDefer(10);
 }
@@ -21,6 +24,9 @@ fn testBreakContInDefer(x: usize) void {
 }
 
 test "defer and labeled break" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var i = @as(usize, 0);
 
     blk: {
@@ -32,6 +38,9 @@ test "defer and labeled break" {
 }
 
 test "errdefer does not apply to fn inside fn" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| try expect(e == error.Bad);
 }
 
@@ -47,6 +56,10 @@ fn testNestedFnErrDefer() anyerror!void {
 }
 
 test "return variable while defer expression in scope to modify it" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             try expect(notNull().? == 1);

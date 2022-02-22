@@ -1,7 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "@src" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+
     try doTheTest();
 }
 

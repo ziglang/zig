@@ -5,6 +5,9 @@ const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 test "continue in for loop" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const array = [_]i32{ 1, 2, 3, 4, 5 };
     var sum: i32 = 0;
     for (array) |x| {
@@ -18,6 +21,9 @@ test "continue in for loop" {
 }
 
 test "break from outer for loop" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try testBreakOuter();
     comptime try testBreakOuter();
 }
@@ -35,6 +41,9 @@ fn testBreakOuter() !void {
 }
 
 test "continue outer for loop" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try testContinueOuter();
     comptime try testContinueOuter();
 }
@@ -52,6 +61,9 @@ fn testContinueOuter() !void {
 }
 
 test "ignore lval with underscore (for loop)" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     for ([_]void{}) |_, i| {
         _ = i;
         for ([_]void{}) |_, j| {
@@ -63,7 +75,10 @@ test "ignore lval with underscore (for loop)" {
 }
 
 test "basic for loop" {
-    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const expected_result = [_]u8{ 9, 8, 7, 6, 0, 1, 2, 3 } ** 3;
 
@@ -104,6 +119,10 @@ test "basic for loop" {
 }
 
 test "for with null and T peer types and inferred result location type" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest(slice: []const u8) !void {
             if (for (slice) |item| {
@@ -121,6 +140,9 @@ test "for with null and T peer types and inferred result location type" {
 }
 
 test "2 break statements and an else" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         fn entry(t: bool, f: bool) !void {
             var buf: [10]u8 = undefined;
