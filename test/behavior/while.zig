@@ -124,6 +124,8 @@ test "while copies its payload" {
 }
 
 test "continue and break" {
+    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
+
     try runContinueAndBreakTest();
     try expect(continue_and_break_counter == 8);
 }
