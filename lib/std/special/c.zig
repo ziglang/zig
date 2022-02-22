@@ -46,6 +46,10 @@ comptime {
 
     @export(log10, .{ .name = "log10", .linkage = .Strong });
     @export(log10f, .{ .name = "log10f", .linkage = .Strong });
+
+    @export(ceil, .{ .name = "ceil", .linkage = .Strong });
+    @export(ceilf, .{ .name = "ceilf", .linkage = .Strong });
+    @export(ceill, .{ .name = "ceill", .linkage = .Strong });
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
@@ -178,4 +182,19 @@ fn log10(a: f64) callconv(.C) f64 {
 
 fn log10f(a: f32) callconv(.C) f32 {
     return math.log10(a);
+}
+
+fn ceilf(x: f32) callconv(.C) f32 {
+    return math.ceil(x);
+}
+
+fn ceil(x: f64) callconv(.C) f64 {
+    return math.ceil(x);
+}
+
+fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
+    return math.ceil(x);
 }
