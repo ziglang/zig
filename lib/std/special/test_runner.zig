@@ -141,15 +141,18 @@ pub fn main2() anyerror!void {
             }
         };
     }
-    if (builtin.zig_backend == .stage2_llvm or builtin.zig_backend == .stage2_wasm) {
-        const passed = builtin.test_functions.len - skipped - failed;
-        const stderr = std.io.getStdErr();
-        writeInt(stderr, passed) catch {};
-        stderr.writeAll(" passed; ") catch {};
-        writeInt(stderr, skipped) catch {};
-        stderr.writeAll(" skipped; ") catch {};
-        writeInt(stderr, failed) catch {};
-        stderr.writeAll(" failed.\n") catch {};
+    switch (builtin.zig_backend) {
+        .stage2_llvm, .stage2_wasm, .stage2_x86_64 => {
+            const passed = builtin.test_functions.len - skipped - failed;
+            const stderr = std.io.getStdErr();
+            writeInt(stderr, passed) catch {};
+            stderr.writeAll(" passed; ") catch {};
+            writeInt(stderr, skipped) catch {};
+            stderr.writeAll(" skipped; ") catch {};
+            writeInt(stderr, failed) catch {};
+            stderr.writeAll(" failed.\n") catch {};
+        },
+        else => {},
     }
     if (failed != 0) {
         return error.TestsFailed;
