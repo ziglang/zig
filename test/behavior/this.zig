@@ -1,4 +1,5 @@
 const expect = @import("std").testing.expect;
+const builtin = @import("builtin");
 
 const module = @This();
 
@@ -20,10 +21,16 @@ fn add(x: i32, y: i32) i32 {
 }
 
 test "this refer to module call private fn" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try expect(module.add(1, 2) == 3);
 }
 
 test "this refer to container" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var pt: Point(i32) = undefined;
     pt.x = 12;
     pt.y = 34;

@@ -162,6 +162,8 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             => try emit.mirCondSetByte(tag, inst),
 
             .cond_mov_eq => try emit.mirCondMov(.cmove, inst),
+            .cond_mov_lt => try emit.mirCondMov(.cmovl, inst),
+            .cond_mov_below => try emit.mirCondMov(.cmovb, inst),
 
             .ret => try emit.mirRet(inst),
 
@@ -1180,6 +1182,10 @@ const Tag = enum {
     cqo,
     cmove,
     cmovz,
+    cmovl,
+    cmovng,
+    cmovb,
+    cmovnae,
 
     fn isSetCC(tag: Tag) bool {
         return switch (tag) {
@@ -1406,6 +1412,8 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .lea => OpCode.oneByte(if (is_one_byte) 0x8c else 0x8d),
             .imul => OpCode.twoByte(0x0f, 0xaf),
             .cmove, .cmovz => OpCode.twoByte(0x0f, 0x44),
+            .cmovb, .cmovnae => OpCode.twoByte(0x0f, 0x42),
+            .cmovl, .cmovng => OpCode.twoByte(0x0f, 0x4c),
             else => null,
         },
         .oi => return switch (tag) {

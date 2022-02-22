@@ -17,6 +17,10 @@ fn testDerefPtr() !void {
 }
 
 test "pointer arithmetic" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var ptr: [*]const u8 = "abcd";
 
     try expect(ptr[0] == 'a');
@@ -61,6 +65,10 @@ test "initialize const optional C pointer to null" {
 }
 
 test "assigning integer to C pointer" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var x: i32 = 0;
     var y: i32 = 1;
     var ptr: [*c]u8 = 0;
@@ -75,6 +83,10 @@ test "assigning integer to C pointer" {
 }
 
 test "C pointer comparison and arithmetic" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var ptr1: [*c]u32 = 0;
@@ -133,6 +145,10 @@ test "peer type resolution with C pointers" {
 }
 
 test "implicit casting between C pointer and optional non-C pointer" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var slice: []const u8 = "aoeu";
     const opt_many_ptr: ?[*]const u8 = slice.ptr;
     var ptr_opt_many_ptr = &opt_many_ptr;
@@ -172,6 +188,9 @@ test "compare equality of optional and non-optional pointer" {
 test "allowzero pointer and slice" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var ptr = @intToPtr([*]allowzero i32, 0);
     var opt_ptr: ?[*]allowzero i32 = ptr;

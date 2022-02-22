@@ -186,6 +186,10 @@ fn testErrorSet() !void {
 }
 
 test "type info: enum info" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try testEnum();
     comptime try testEnum();
 }
@@ -249,6 +253,9 @@ fn testUnion() !void {
 }
 
 test "type info: struct info" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try testStruct();
     comptime try testStruct();
 }
@@ -439,6 +446,10 @@ test "type info for async frames" {
 }
 
 test "Declarations are returned in declaration order" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         const a = 1;
         const b = 2;

@@ -141,7 +141,10 @@ pub fn main2() anyerror!void {
             }
         };
     }
-    if (builtin.zig_backend == .stage2_llvm or builtin.zig_backend == .stage2_wasm) {
+    if (builtin.zig_backend == .stage2_llvm or
+        builtin.zig_backend == .stage2_wasm or
+        (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag != .macos))
+    {
         const passed = builtin.test_functions.len - skipped - failed;
         const stderr = std.io.getStdErr();
         writeInt(stderr, passed) catch {};

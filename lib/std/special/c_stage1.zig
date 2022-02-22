@@ -613,19 +613,6 @@ export fn fmod(x: f64, y: f64) f64 {
     return generic_fmod(f64, x, y);
 }
 
-export fn ceilf(x: f32) f32 {
-    return math.ceil(x);
-}
-export fn ceil(x: f64) f64 {
-    return math.ceil(x);
-}
-export fn ceill(x: c_longdouble) c_longdouble {
-    if (!long_double_is_f128) {
-        @panic("TODO implement this");
-    }
-    return math.ceil(x);
-}
-
 export fn fmaf(a: f32, b: f32, c: f32) f32 {
     return math.fma(f32, a, b, c);
 }

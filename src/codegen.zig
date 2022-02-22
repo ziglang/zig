@@ -205,10 +205,59 @@ pub fn generateSymbol(
                         .appended => {},
                         .externally_managed => |slice| {
                             code.appendSliceAssumeCapacity(slice);
-                            return Result{ .appended = {} };
                         },
                         .fail => |em| return Result{ .fail = em },
                     }
+                }
+                return Result{ .appended = {} };
+            },
+            .repeated => {
+                const array = typed_value.val.castTag(.repeated).?.data;
+                const elem_ty = typed_value.ty.childType();
+                const sentinel = typed_value.ty.sentinel();
+                const len = typed_value.ty.arrayLen();
+
+                var index: u64 = 0;
+                while (index < len) : (index += 1) {
+                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                        .ty = elem_ty,
+                        .val = array,
+                    }, code, debug_output)) {
+                        .appended => {},
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                }
+
+                if (sentinel) |sentinel_val| {
+                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                        .ty = elem_ty,
+                        .val = sentinel_val,
+                    }, code, debug_output)) {
+                        .appended => {},
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                }
+
+                return Result{ .appended = {} };
+            },
+            .empty_array_sentinel => {
+                const elem_ty = typed_value.ty.childType();
+                const sentinel_val = typed_value.ty.sentinel().?;
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = elem_ty,
+                    .val = sentinel_val,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |slice| {
+                        code.appendSliceAssumeCapacity(slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
                 }
                 return Result{ .appended = {} };
             },
@@ -430,6 +479,75 @@ pub fn generateSymbol(
             const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
             try code.writer().writeByteNTimes(0xaa, abi_size);
 
+            return Result{ .appended = {} };
+        },
+        .ErrorUnion => {
+            const error_ty = typed_value.ty.errorUnionSet();
+            const payload_ty = typed_value.ty.errorUnionPayload();
+            const is_payload = typed_value.val.errorUnionIsPayload();
+
+            const target = bin_file.options.target;
+            const abi_align = typed_value.ty.abiAlignment(target);
+
+            {
+                const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
+                const begin = code.items.len;
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = error_ty,
+                    .val = error_val,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+                const unpadded_end = code.items.len - begin;
+                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padding = try math.cast(usize, padded_end - unpadded_end);
+
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
+                }
+            }
+
+            if (payload_ty.hasRuntimeBits()) {
+                const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.initTag(.undef);
+                const begin = code.items.len;
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = payload_ty,
+                    .val = payload_val,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+                const unpadded_end = code.items.len - begin;
+                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padding = try math.cast(usize, padded_end - unpadded_end);
+
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
+                }
+            }
+
+            return Result{ .appended = {} };
+        },
+        .ErrorSet => {
+            const target = bin_file.options.target;
+            switch (typed_value.val.tag()) {
+                .@"error" => {
+                    const name = typed_value.val.getError().?;
+                    const kv = try bin_file.options.module.?.getErrorValue(name);
+                    const endian = target.cpu.arch.endian();
+                    try code.writer().writeInt(u32, kv.value, endian);
+                },
+                else => {
+                    try code.writer().writeByteNTimes(0, @intCast(usize, typed_value.ty.abiSize(target)));
+                },
+            }
             return Result{ .appended = {} };
         },
         else => |t| {
