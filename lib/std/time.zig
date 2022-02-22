@@ -157,6 +157,9 @@ pub const s_per_week = s_per_day * 7;
 pub const Instant = struct {
     timestamp: if (!(builtin.os.tag == .wasi and !builtin.link_libc)) os.timespec else u64,
 
+    /// Queries the system for the current moment of time as an Instant.
+    /// This is not guaranteed to be monotonic or steadily increasing, but for most implementations it is.
+    /// Returns `error.Unsupported` when a suitable clock is not detected.
     pub fn now() error{Unsupported}!Instant {
         // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
         if (builtin.os.tag == .windows) {
@@ -187,6 +190,7 @@ pub const Instant = struct {
         return Instant{ .timestamp = ts };
     }
 
+    /// Quickly compares two instances between each other.
     pub fn order(self: Instant, other: Instant) std.math.Order {
         // windows and wasi timestamps are in u64 which is easily comparible
         if (builtin.os.tag == .windows or (builtin.os.tag == .wasi and !builtin.link_libc)) {
@@ -200,6 +204,9 @@ pub const Instant = struct {
         return ord;
     }
 
+    /// Returns elapsed time in nanoseconds since the `earlier` Instant.
+    /// This assumes that the `earlier` Instant represents a moment in time before or equal to `self`.
+    /// This also assumes that the time that has passed between both Instants fits inside a u64 (~585 yrs).
     pub fn since(self: Instant, earlier: Instant) u64 {
         if (builtin.os.tag == .windows) {
             // We don't need to cache QPF as it's internally just a memory read to KUSER_SHARED_DATA 
