@@ -3953,18 +3953,21 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     if (switch_br.data.else_body_len > 0) {
-        return self.fail("TODO handle else branch in switch", .{});
+        const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+        try self.branch_stack.append(.{});
+        defer self.branch_stack.pop().deinit(self.gpa);
+
+        const else_deaths = liveness.deaths.len - 1;
+        try self.ensureProcessDeathCapacity(liveness.deaths[else_deaths].len);
+        for (liveness.deaths[else_deaths]) |operand| {
+            self.processDeath(operand);
+        }
+
+        try self.genBody(else_body);
+
+        // TODO consolidate returned MCValues between prongs and else branch like we do
+        // in airCondBr.
     }
-
-    // const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
-    // const else_branch = self.branch_stack.addOneAssumeCapacity();
-    // else_branch.* = .{};
-
-    // if (else_body.len != 0) {
-    //     try self.genBody(else_body);
-    // } else {
-
-    // }
 
     return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
 }
