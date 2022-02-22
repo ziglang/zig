@@ -2012,6 +2012,18 @@ fn buildOutputType(
             link_libcpp = true;
     }
 
+    if (target_info.target.cpu.arch.isWasm() and linker_shared_memory) {
+        if (output_mode == .Obj) {
+            fatal("shared memory is not allowed in object files", .{});
+        }
+
+        if (!target_info.target.cpu.features.isEnabled(@enumToInt(std.Target.wasm.Feature.atomics)) or
+            !target_info.target.cpu.features.isEnabled(@enumToInt(std.Target.wasm.Feature.bulk_memory)))
+        {
+            fatal("'atomics' and 'bulk-memory' features must be used in order to use shared memory", .{});
+        }
+    }
+
     // Now that we have target info, we can find out if any of the system libraries
     // are part of libc or libc++. We remove them from the list and communicate their
     // existence via flags instead.
