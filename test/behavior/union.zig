@@ -495,7 +495,7 @@ test "tagged union with all void fields but a meaningful tag" {
 }
 
 test "union(enum(u32)) with specified and unspecified tag values" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     comptime try expect(Tag(Tag(MultipleChoice2)) == u32);
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
@@ -558,8 +558,6 @@ const PartialInstWithPayload = union(enum) {
 };
 
 test "union with only 1 field casted to its enum type which has enum value specified" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const Literal = union(enum) {
         Number: f64,
         Bool: bool,
@@ -640,8 +638,6 @@ fn Setter(attr: Attribute) type {
 }
 
 test "return union init with void payload" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn entry() !void {
             try expect(func().state == State.one);

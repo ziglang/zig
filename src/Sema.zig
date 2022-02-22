@@ -17526,6 +17526,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     extra_index += bit_bags_count;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
+    var last_tag_val: ?Value = null;
     while (field_i < fields_len) : (field_i += 1) {
         if (field_i % fields_per_u32 == 0) {
             cur_bit_bag = zir.extra[bit_bag_index];
@@ -17566,15 +17567,26 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         } else .none;
 
         if (enum_value_map) |map| {
-            const tag_src = src; // TODO better source location
-            const coerced = try sema.coerce(&block_scope, int_tag_ty, tag_ref, tag_src);
-            const val = try sema.resolveConstValue(&block_scope, tag_src, coerced);
+            if (tag_ref != .none) {
+                const tag_src = src; // TODO better source location
+                const coerced = try sema.coerce(&block_scope, int_tag_ty, tag_ref, tag_src);
+                const val = try sema.resolveConstValue(&block_scope, tag_src, coerced);
+                last_tag_val = val;
 
-            // This puts the memory into the union arena, not the enum arena, but
-            // it is OK since they share the same lifetime.
-            const copied_val = try val.copy(decl_arena_allocator);
+                // This puts the memory into the union arena, not the enum arena, but
+                // it is OK since they share the same lifetime.
+                const copied_val = try val.copy(decl_arena_allocator);
+                map.putAssumeCapacityContext(copied_val, {}, .{ .ty = int_tag_ty });
+            } else {
+                const val = if (last_tag_val) |val|
+                    try val.intAdd(Value.one, sema.arena)
+                else
+                    Value.zero;
+                last_tag_val = val;
 
-            map.putAssumeCapacityContext(copied_val, {}, .{ .ty = int_tag_ty });
+                const copied_val = try val.copy(decl_arena_allocator);
+                map.putAssumeCapacityContext(copied_val, {}, .{ .ty = int_tag_ty });
+            }
         }
 
         // This string needs to outlive the ZIR code.
