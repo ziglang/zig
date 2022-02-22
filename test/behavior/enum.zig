@@ -907,8 +907,6 @@ test "enum literal casting to tagged union" {
 const Bar = enum { A, B, C, D };
 
 test "enum literal casting to error union with payload enum" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var bar: error{B}!Bar = undefined;
     bar = .B; // should never cast to the error set
 
@@ -932,8 +930,6 @@ test "exporting enum type and value" {
 }
 
 test "constant enum initialization with differing sizes" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-
     try test3_1(test3_foo);
     try test3_2(test3_bar);
 }

@@ -14859,21 +14859,25 @@ fn coerce(
                                 inst_ty.errorUnionPayload(),
                                 inst_val.castTag(.eu_payload).?.data,
                             );
-                            return sema.wrapErrorUnion(block, dest_ty, payload, inst_src);
+                            return sema.wrapErrorUnionPayload(block, dest_ty, payload, inst_src);
                         },
                         else => {
                             const error_set = try sema.addConstant(
                                 inst_ty.errorUnionSet(),
                                 inst_val,
                             );
-                            return sema.wrapErrorUnion(block, dest_ty, error_set, inst_src);
+                            return sema.wrapErrorUnionSet(block, dest_ty, error_set, inst_src);
                         },
                     }
                 }
             },
+            .ErrorSet => {
+                // E to E!T
+                return sema.wrapErrorUnionSet(block, dest_ty, inst, inst_src);
+            },
             else => {
-                // T to E!T or E to E!T
-                return sema.wrapErrorUnion(block, dest_ty, inst, inst_src);
+                // T to E!T
+                return sema.wrapErrorUnionPayload(block, dest_ty, inst, inst_src);
             },
         },
         .Union => switch (inst_ty.zigTypeTag()) {
@@ -16688,7 +16692,24 @@ fn wrapOptional(
     return block.addTyOp(.wrap_optional, dest_ty, inst);
 }
 
-fn wrapErrorUnion(
+fn wrapErrorUnionPayload(
+    sema: *Sema,
+    block: *Block,
+    dest_ty: Type,
+    inst: Air.Inst.Ref,
+    inst_src: LazySrcLoc,
+) !Air.Inst.Ref {
+    const dest_payload_ty = dest_ty.errorUnionPayload();
+    const coerced = try sema.coerce(block, dest_payload_ty, inst, inst_src);
+    if (try sema.resolveMaybeUndefVal(block, inst_src, coerced)) |val| {
+        if (val.isUndef()) return sema.addConstUndef(dest_ty);
+        return sema.addConstant(dest_ty, try Value.Tag.eu_payload.create(sema.arena, val));
+    }
+    try sema.requireRuntimeBlock(block, inst_src);
+    return block.addTyOp(.wrap_errunion_payload, dest_ty, coerced);
+}
+
+fn wrapErrorUnionSet(
     sema: *Sema,
     block: *Block,
     dest_ty: Type,
@@ -16697,12 +16718,7 @@ fn wrapErrorUnion(
 ) !Air.Inst.Ref {
     const inst_ty = sema.typeOf(inst);
     const dest_err_set_ty = dest_ty.errorUnionSet();
-    const dest_payload_ty = dest_ty.errorUnionPayload();
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
-        if (inst_ty.zigTypeTag() != .ErrorSet) {
-            _ = try sema.coerce(block, dest_payload_ty, inst, inst_src);
-            return sema.addConstant(dest_ty, try Value.Tag.eu_payload.create(sema.arena, val));
-        }
         switch (dest_err_set_ty.tag()) {
             .anyerror => {},
             .error_set_single => ok: {
@@ -16739,15 +16755,8 @@ fn wrapErrorUnion(
     }
 
     try sema.requireRuntimeBlock(block, inst_src);
-
-    // we are coercing from E to E!T
-    if (inst_ty.zigTypeTag() == .ErrorSet) {
-        var coerced = try sema.coerce(block, dest_err_set_ty, inst, inst_src);
-        return block.addTyOp(.wrap_errunion_err, dest_ty, coerced);
-    } else {
-        var coerced = try sema.coerce(block, dest_payload_ty, inst, inst_src);
-        return block.addTyOp(.wrap_errunion_payload, dest_ty, coerced);
-    }
+    const coerced = try sema.coerce(block, dest_err_set_ty, inst, inst_src);
+    return block.addTyOp(.wrap_errunion_err, dest_ty, coerced);
 }
 
 fn unionToTag(
