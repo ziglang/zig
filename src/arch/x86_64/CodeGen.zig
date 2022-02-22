@@ -50,6 +50,7 @@ src_loc: Module.SrcLoc,
 stack_align: u32,
 
 ret_backpatch: ?Mir.Inst.Index = null,
+compare_flags_inst: ?Air.Inst.Index = null,
 
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
@@ -774,6 +775,9 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
             const canon_reg = reg.to64();
             self.register_manager.freeReg(canon_reg);
         },
+        .compare_flags_signed, .compare_flags_unsigned => {
+            self.compare_flags_inst = null;
+        },
         else => {}, // TODO process stack allocation death
     }
 }
@@ -887,6 +891,22 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     try branch.inst_table.put(self.gpa, inst, stack_mcv);
     try self.genSetStack(self.air.typeOfIndex(inst), stack_mcv.stack_offset, reg_mcv, .{});
+}
+
+pub fn spillCompareFlagsIfOccupied(self: *Self) !void {
+    if (self.compare_flags_inst) |inst_to_save| {
+        const mcv = self.getResolvedInstValue(inst_to_save);
+        assert(mcv == .compare_flags_signed or mcv == .compare_flags_unsigned);
+
+        const new_mcv = try self.allocRegOrMem(inst_to_save, true);
+        try self.setRegOrMem(self.air.typeOfIndex(inst_to_save), new_mcv, mcv);
+        log.debug("spilling {d} to mcv {any}", .{ inst_to_save, new_mcv });
+
+        const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+        try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
+
+        self.compare_flags_inst = null;
+    }
 }
 
 /// Copies a value to a register without tracking the register. The register is not considered
@@ -2763,6 +2783,8 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                 .memory,
                 .got_load,
                 .direct_load,
+                .compare_flags_signed,
+                .compare_flags_unsigned,
                 => {
                     assert(abi_size <= 8);
                     self.register_manager.freezeRegs(&.{dst_reg});
@@ -2783,12 +2805,6 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                         }).encode(),
                         .data = .{ .imm = @bitCast(u32, -off) },
                     });
-                },
-                .compare_flags_unsigned => {
-                    return self.fail("TODO implement x86 ADD/SUB/CMP source compare flag (unsigned)", .{});
-                },
-                .compare_flags_signed => {
-                    return self.fail("TODO implement x86 ADD/SUB/CMP source compare flag (signed)", .{});
                 },
             }
         },
@@ -3060,6 +3076,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
 
     var info = try self.resolveCallingConventionValues(fn_ty);
     defer info.deinit(self);
+
+    try self.spillCompareFlagsIfOccupied();
 
     if (info.return_value == .stack_offset) {
         const ret_ty = fn_ty.fnReturnType();
@@ -3384,17 +3402,24 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         break :blk ty.intInfo(self.target.*).signedness;
     };
 
-    const lhs = try self.resolveInst(bin_op.lhs);
-    const rhs = try self.resolveInst(bin_op.rhs);
+    try self.spillCompareFlagsIfOccupied();
+    self.compare_flags_inst = inst;
+
     const result: MCValue = result: {
         // There are 2 operands, destination and source.
         // Either one, but not both, can be a memory operand.
         // Source operand can be an immediate, 8 bits or 32 bits.
-        // TODO this looks wrong. Why do simply reuse lhs without checking if it is dead or alive?
-        const dst_mcv = if (lhs.isImmediate() or (lhs.isMemory() and rhs.isMemory()))
-            MCValue{ .register = try self.copyToTmpRegister(ty, lhs) }
-        else
-            lhs;
+        // TODO look into reusing the operand
+        const lhs = try self.resolveInst(bin_op.lhs);
+        lhs.freezeIfRegister(&self.register_manager);
+        defer lhs.unfreezeIfRegister(&self.register_manager);
+
+        const dst_reg = try self.copyToTmpRegister(ty, lhs);
+        self.register_manager.freezeRegs(&.{dst_reg});
+        defer self.register_manager.unfreezeRegs(&.{dst_reg});
+
+        const dst_mcv = MCValue{ .register = dst_reg };
+
         // This instruction supports only signed 32-bit immediates at most.
         const src_mcv = try self.limitImmediateType(bin_op.rhs, i32);
 
@@ -3404,6 +3429,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
             .unsigned => MCValue{ .compare_flags_unsigned = op },
         };
     };
+
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3451,6 +3477,7 @@ fn genCondBrMir(self: *Self, ty: Type, mcv: MCValue) !u32 {
             });
         },
         .register => |reg| {
+            try self.spillCompareFlagsIfOccupied();
             _ = try self.addInst(.{
                 .tag = .@"test",
                 .ops = (Mir.Ops{
@@ -3467,19 +3494,15 @@ fn genCondBrMir(self: *Self, ty: Type, mcv: MCValue) !u32 {
                 .data = .{ .inst = undefined },
             });
         },
-        .immediate => {
+        .immediate,
+        .stack_offset,
+        => {
+            try self.spillCompareFlagsIfOccupied();
             if (abi_size <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genCondBrMir(ty, .{ .register = reg });
             }
-            return self.fail("TODO implement condbr when condition is immediate larger than 4 bytes", .{});
-        },
-        .stack_offset => {
-            if (abi_size <= 8) {
-                const reg = try self.copyToTmpRegister(ty, mcv);
-                return self.genCondBrMir(ty, .{ .register = reg });
-            }
-            return self.fail("TODO implement condbr when condition is stack offset with abi larger than 8 bytes", .{});
+            return self.fail("TODO implement condbr when condition is {} with abi larger than 8 bytes", .{mcv});
         },
         else => return self.fail("TODO implement condbr when condition is {s}", .{@tagName(mcv)}),
     }
@@ -3496,9 +3519,23 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     const reloc = try self.genCondBrMir(cond_ty, cond);
 
+    // If the condition dies here in this condbr instruction, process
+    // that death now instead of later as this has an effect on
+    // whether it needs to be spilled in the branches
+    // TODO I need investigate how to make this work without removing
+    // an assertion from getResolvedInstValue()
+    if (self.liveness.operandDies(inst, 0)) {
+        const op_int = @enumToInt(pl_op.operand);
+        if (op_int >= Air.Inst.Ref.typed_value_map.len) {
+            const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
+            self.processDeath(op_index);
+        }
+    }
+
     // Capture the state of register and stack allocation state so that we can revert to it.
     const parent_next_stack_offset = self.next_stack_offset;
     const parent_free_registers = self.register_manager.free_registers;
+    const parent_compare_flags_inst = self.compare_flags_inst;
     var parent_stack = try self.stack.clone(self.gpa);
     defer parent_stack.deinit(self.gpa);
     const parent_registers = self.register_manager.registers;
@@ -3520,6 +3557,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     defer saved_then_branch.deinit(self.gpa);
 
     self.register_manager.registers = parent_registers;
+    self.compare_flags_inst = parent_compare_flags_inst;
 
     self.stack.deinit(self.gpa);
     self.stack = parent_stack;
@@ -3590,6 +3628,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         // We already deleted the items from this table that matched the else_branch.
         // So these are all instructions that are only overridden in the then branch.
         parent_branch.inst_table.putAssumeCapacity(then_key, then_value);
+        log.debug("then_value = {}", .{then_value});
         if (then_value == .dead)
             continue;
         const parent_mcv = blk: {
@@ -3614,23 +3653,31 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
 }
 
-fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
+fn isNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
+    try self.spillCompareFlagsIfOccupied();
+    self.compare_flags_inst = inst;
+
     try self.genBinMathOpMir(.cmp, ty, operand, MCValue{ .immediate = 0 });
     return MCValue{ .compare_flags_unsigned = .eq };
 }
 
-fn isNonNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
-    const is_null_res = try self.isNull(ty, operand);
+fn isNonNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
+    const is_null_res = try self.isNull(inst, ty, operand);
     assert(is_null_res.compare_flags_unsigned == .eq);
     return MCValue{ .compare_flags_unsigned = .neq };
 }
 
-fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
+fn isErr(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
     const err_type = ty.errorUnionSet();
     const payload_type = ty.errorUnionPayload();
     if (!err_type.hasRuntimeBits()) {
         return MCValue{ .immediate = 0 }; // always false
-    } else if (!payload_type.hasRuntimeBits()) {
+    }
+
+    try self.spillCompareFlagsIfOccupied();
+    self.compare_flags_inst = inst;
+
+    if (!payload_type.hasRuntimeBits()) {
         if (err_type.abiSize(self.target.*) <= 8) {
             try self.genBinMathOpMir(.cmp, err_type, operand, MCValue{ .immediate = 0 });
             return MCValue{ .compare_flags_unsigned = .gt };
@@ -3643,8 +3690,8 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     }
 }
 
-fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
-    const is_err_res = try self.isErr(ty, operand);
+fn isNonErr(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
+    const is_err_res = try self.isErr(inst, ty, operand);
     switch (is_err_res) {
         .compare_flags_unsigned => |op| {
             assert(op == .gt);
@@ -3663,7 +3710,7 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
         const ty = self.air.typeOf(un_op);
-        break :result try self.isNull(ty, operand);
+        break :result try self.isNull(inst, ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3684,7 +3731,7 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
         };
         const ptr_ty = self.air.typeOf(un_op);
         try self.load(operand, operand_ptr, ptr_ty);
-        break :result try self.isNull(ptr_ty.elemType(), operand);
+        break :result try self.isNull(inst, ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3694,7 +3741,7 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
         const ty = self.air.typeOf(un_op);
-        break :result try self.isNonNull(ty, operand);
+        break :result try self.isNonNull(inst, ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3715,7 +3762,7 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
         };
         const ptr_ty = self.air.typeOf(un_op);
         try self.load(operand, operand_ptr, ptr_ty);
-        break :result try self.isNonNull(ptr_ty.elemType(), operand);
+        break :result try self.isNonNull(inst, ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3725,7 +3772,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
         const ty = self.air.typeOf(un_op);
-        break :result try self.isErr(ty, operand);
+        break :result try self.isErr(inst, ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3746,7 +3793,7 @@ fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
         };
         const ptr_ty = self.air.typeOf(un_op);
         try self.load(operand, operand_ptr, ptr_ty);
-        break :result try self.isErr(ptr_ty.elemType(), operand);
+        break :result try self.isErr(inst, ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3756,7 +3803,7 @@ fn airIsNonErr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
         const ty = self.air.typeOf(un_op);
-        break :result try self.isNonErr(ty, operand);
+        break :result try self.isNonErr(inst, ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3777,7 +3824,7 @@ fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
         };
         const ptr_ty = self.air.typeOf(un_op);
         try self.load(operand, operand_ptr, ptr_ty);
-        break :result try self.isNonErr(ptr_ty.elemType(), operand);
+        break :result try self.isNonErr(inst, ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3832,6 +3879,7 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
         .compare_flags_signed => unreachable,
         .compare_flags_unsigned => unreachable,
         .register => |cond_reg| {
+            try self.spillCompareFlagsIfOccupied();
             switch (case) {
                 .none => unreachable,
                 .undef => unreachable,
@@ -3916,9 +3964,23 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
             relocs[item_i] = try self.genCondSwitchMir(condition_ty, condition, item_mcv);
         }
 
+        // If the condition dies here in this condbr instruction, process
+        // that death now instead of later as this has an effect on
+        // whether it needs to be spilled in the branches
+        // TODO I need investigate how to make this work without removing
+        // an assertion from getResolvedInstValue()
+        if (self.liveness.operandDies(inst, 0)) {
+            const op_int = @enumToInt(pl_op.operand);
+            if (op_int >= Air.Inst.Ref.typed_value_map.len) {
+                const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
+                self.processDeath(op_index);
+            }
+        }
+
         // Capture the state of register and stack allocation state so that we can revert to it.
         const parent_next_stack_offset = self.next_stack_offset;
         const parent_free_registers = self.register_manager.free_registers;
+        const parent_compare_flags_inst = self.compare_flags_inst;
         var parent_stack = try self.stack.clone(self.gpa);
         defer parent_stack.deinit(self.gpa);
         const parent_registers = self.register_manager.registers;
@@ -3940,6 +4002,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         defer saved_case_branch.deinit(self.gpa);
 
         self.register_manager.registers = parent_registers;
+        self.compare_flags_inst = parent_compare_flags_inst;
         self.stack.deinit(self.gpa);
         self.stack = parent_stack;
         parent_stack = .{};
@@ -5208,7 +5271,8 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     while (true) {
         i -= 1;
         if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
-            assert(mcv != .dead);
+            // TODO see comment in `airCondBr` and `airSwitch`
+            // assert(mcv != .dead);
             return mcv;
         }
     }
