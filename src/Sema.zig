@@ -1586,19 +1586,23 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                         }),
                     );
                 },
-                .decl_ref_mut => {
-                    const ptr_ty = try Type.ptr(sema.arena, .{
-                        .pointee_type = pointee_ty,
-                        .@"addrspace" = addr_space,
-                    });
-                    return sema.addConstant(ptr_ty, ptr_val);
-                },
                 else => {},
             }
         }
     }
 
-    try sema.requireRuntimeBlock(block, src);
+    // We would like to rely on the mechanism below even for comptime values.
+    // However in the case that the pointer points to comptime-mutable value,
+    // we cannot do it.
+    if (try sema.resolveDefinedValue(block, src, ptr)) |ptr_val| {
+        if (ptr_val.isComptimeMutablePtr()) {
+            const ptr_ty = try Type.ptr(sema.arena, .{
+                .pointee_type = pointee_ty,
+                .@"addrspace" = addr_space,
+            });
+            return sema.addConstant(ptr_ty, ptr_val);
+        }
+    }
 
     // Make a dummy store through the pointer to test the coercion.
     // We will then use the generated instructions to decide what
@@ -1638,7 +1642,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         switch (air_tags[trash_inst]) {
             .bitcast => {
                 if (Air.indexToRef(trash_inst) == dummy_operand) {
-                    return block.addBitCast(ptr_ty, new_ptr);
+                    return sema.bitCast(block, ptr_ty, new_ptr, src);
                 }
                 const ty_op = air_datas[trash_inst].ty_op;
                 const operand_ty = sema.getTmpAir().typeOf(ty_op.operand);
@@ -1646,28 +1650,16 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     .pointee_type = operand_ty,
                     .@"addrspace" = addr_space,
                 });
-                new_ptr = try block.addBitCast(ptr_operand_ty, new_ptr);
+                new_ptr = try sema.bitCast(block, ptr_operand_ty, new_ptr, src);
             },
             .wrap_optional => {
-                const ty_op = air_datas[trash_inst].ty_op;
-                const payload_ty = sema.getTmpAir().typeOf(ty_op.operand);
-                const ptr_payload_ty = try Type.ptr(sema.arena, .{
-                    .pointee_type = payload_ty,
-                    .@"addrspace" = addr_space,
-                });
-                new_ptr = try block.addTyOp(.optional_payload_ptr_set, ptr_payload_ty, new_ptr);
+                new_ptr = try sema.analyzeOptionalPayloadPtr(block, src, new_ptr, false, true);
             },
             .wrap_errunion_err => {
                 return sema.fail(block, src, "TODO coerce_result_ptr wrap_errunion_err", .{});
             },
             .wrap_errunion_payload => {
-                const ty_op = air_datas[trash_inst].ty_op;
-                const payload_ty = sema.getTmpAir().typeOf(ty_op.operand);
-                const ptr_payload_ty = try Type.ptr(sema.arena, .{
-                    .pointee_type = payload_ty,
-                    .@"addrspace" = addr_space,
-                });
-                new_ptr = try block.addTyOp(.errunion_payload_ptr_set, ptr_payload_ty, new_ptr);
+                new_ptr = try sema.analyzeErrUnionPayloadPtr(block, src, new_ptr, false, true);
             },
             else => {
                 if (std.debug.runtime_safety) {
@@ -2774,9 +2766,16 @@ fn validateUnionInit(
     const field_index = @intCast(u32, field_index_big);
 
     // Handle the possibility of the union value being comptime-known.
-    const union_ptr_inst = Air.refToIndex(sema.resolveInst(field_ptr_extra.lhs)).?;
+    const union_ptr_inst = Air.refToIndex(union_ptr).?;
     switch (sema.air_instructions.items(.tag)[union_ptr_inst]) {
-        .constant => return, // In this case the tag has already been set. No validation to do.
+        .constant => {
+            if (try sema.resolveDefinedValue(block, init_src, union_ptr)) |ptr_val| {
+                if (ptr_val.isComptimeMutablePtr()) {
+                    // In this case the tag has already been set. No validation to do.
+                    return;
+                }
+            }
+        },
         .bitcast => {
             // TODO here we need to go back and see if we need to convert the union
             // to a comptime-known value. In such case, we must delete all the instructions
@@ -2895,7 +2894,7 @@ fn validateStructInit(
     }
 
     var struct_is_comptime = true;
-    var first_block_index: usize = std.math.maxInt(u32);
+    var first_block_index = block.instructions.items.len;
 
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
@@ -2904,7 +2903,7 @@ fn validateStructInit(
     // ends up being comptime-known.
     const field_values = try sema.arena.alloc(Value, fields.len);
 
-    for (found_fields) |field_ptr, i| {
+    field: for (found_fields) |field_ptr, i| {
         const field = fields[i];
 
         if (field_ptr != 0) {
@@ -2919,40 +2918,57 @@ fn validateStructInit(
 
             const field_ptr_air_ref = sema.inst_map.get(field_ptr).?;
             const field_ptr_air_inst = Air.refToIndex(field_ptr_air_ref).?;
-            // Find the block index of the field_ptr so that we can look at the next
-            // instruction after it within the same block.
+
+            //std.debug.print("validateStructInit (field_ptr_air_inst=%{d}):\n", .{
+            //    field_ptr_air_inst,
+            //});
+            //for (block.instructions.items) |item| {
+            //    std.debug.print("  %{d} = {s}\n", .{item, @tagName(air_tags[item])});
+            //}
+
+            // We expect to see something like this in the current block AIR:
+            //   %a = field_ptr(...)
+            //   store(%a, %b)
+            // If %b is a comptime operand, this field is comptime.
+            //
+            // However, in the case of a comptime-known pointer to a struct, the
+            // the field_ptr instruction is missing, so we have to pattern-match
+            // based only on the store instructions.
+            // `first_block_index` needs to point to the `field_ptr` if it exists;
+            // the `store` otherwise.
+            //
+            // It's also possible for there to be no store instruction, in the case
+            // of nested `coerce_result_ptr` instructions. If we see the `field_ptr`
+            // but we have not found a `store`, treat as a runtime-known field.
+
             // Possible performance enhancement: save the `block_index` between iterations
             // of the for loop.
-            const next_air_inst = inst: {
-                var block_index = block.instructions.items.len - 1;
-                while (block.instructions.items[block_index] != field_ptr_air_inst) {
-                    block_index -= 1;
-                }
-                first_block_index = @minimum(first_block_index, block_index);
-                break :inst block.instructions.items[block_index + 1];
-            };
-
-            // If the next instructon is a store with a comptime operand, this field
-            // is comptime.
-            switch (air_tags[next_air_inst]) {
-                .store => {
-                    const bin_op = air_datas[next_air_inst].bin_op;
-                    if (bin_op.lhs != field_ptr_air_ref) {
-                        struct_is_comptime = false;
-                        continue;
-                    }
-                    if (try sema.resolveMaybeUndefValAllowVariables(block, field_src, bin_op.rhs)) |val| {
-                        field_values[i] = val;
-                    } else {
-                        struct_is_comptime = false;
-                    }
-                    continue;
-                },
-                else => {
+            var block_index = block.instructions.items.len - 1;
+            while (block_index > 0) : (block_index -= 1) {
+                const store_inst = block.instructions.items[block_index];
+                if (store_inst == field_ptr_air_inst) {
                     struct_is_comptime = false;
-                    continue;
-                },
+                    continue :field;
+                }
+                if (air_tags[store_inst] != .store) continue;
+                const bin_op = air_datas[store_inst].bin_op;
+                if (bin_op.lhs != field_ptr_air_ref) continue;
+                if (block_index > 0 and
+                    field_ptr_air_inst == block.instructions.items[block_index - 1])
+                {
+                    first_block_index = @minimum(first_block_index, block_index - 1);
+                } else {
+                    first_block_index = @minimum(first_block_index, block_index);
+                }
+                if (try sema.resolveMaybeUndefValAllowVariables(block, field_src, bin_op.rhs)) |val| {
+                    field_values[i] = val;
+                } else {
+                    struct_is_comptime = false;
+                }
+                continue :field;
             }
+            struct_is_comptime = false;
+            continue :field;
         }
 
         const field_name = struct_obj.fields.keys()[i];
@@ -5355,21 +5371,28 @@ fn analyzeOptionalPayloadPtr(
         .@"addrspace" = optional_ptr_ty.ptrAddressSpace(),
     });
 
-    if (try sema.resolveDefinedValue(block, src, optional_ptr)) |pointer_val| {
+    if (try sema.resolveDefinedValue(block, src, optional_ptr)) |ptr_val| {
         if (initializing) {
+            if (!ptr_val.isComptimeMutablePtr()) {
+                // If the pointer resulting from this function was stored at comptime,
+                // the optional non-null bit would be set that way. But in this case,
+                // we need to emit a runtime instruction to do it.
+                try sema.requireRuntimeBlock(block, src);
+                _ = try block.addTyOp(.optional_payload_ptr_set, child_pointer, optional_ptr);
+            }
             return sema.addConstant(
                 child_pointer,
-                try Value.Tag.opt_payload_ptr.create(sema.arena, pointer_val),
+                try Value.Tag.opt_payload_ptr.create(sema.arena, ptr_val),
             );
         }
-        if (try sema.pointerDeref(block, src, pointer_val, optional_ptr_ty)) |val| {
+        if (try sema.pointerDeref(block, src, ptr_val, optional_ptr_ty)) |val| {
             if (val.isNull()) {
                 return sema.fail(block, src, "unable to unwrap null", .{});
             }
             // The same Value represents the pointer to the optional and the payload.
             return sema.addConstant(
                 child_pointer,
-                try Value.Tag.opt_payload_ptr.create(sema.arena, pointer_val),
+                try Value.Tag.opt_payload_ptr.create(sema.arena, ptr_val),
             );
         }
     }
@@ -5379,10 +5402,11 @@ fn analyzeOptionalPayloadPtr(
         const is_non_null = try block.addUnOp(.is_non_null_ptr, optional_ptr);
         try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
     }
-    return block.addTyOp(if (initializing)
+    const air_tag: Air.Inst.Tag = if (initializing)
         .optional_payload_ptr_set
     else
-        .optional_payload_ptr, child_pointer, optional_ptr);
+        .optional_payload_ptr;
+    return block.addTyOp(air_tag, child_pointer, optional_ptr);
 }
 
 /// Value in, value out.
@@ -5510,21 +5534,28 @@ fn analyzeErrUnionPayloadPtr(
         .@"addrspace" = operand_ty.ptrAddressSpace(),
     });
 
-    if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
+    if (try sema.resolveDefinedValue(block, src, operand)) |ptr_val| {
         if (initializing) {
+            if (!ptr_val.isComptimeMutablePtr()) {
+                // If the pointer resulting from this function was stored at comptime,
+                // the error union error code would be set that way. But in this case,
+                // we need to emit a runtime instruction to do it.
+                try sema.requireRuntimeBlock(block, src);
+                _ = try block.addTyOp(.errunion_payload_ptr_set, operand_pointer_ty, operand);
+            }
             return sema.addConstant(
                 operand_pointer_ty,
-                try Value.Tag.eu_payload_ptr.create(sema.arena, pointer_val),
+                try Value.Tag.eu_payload_ptr.create(sema.arena, ptr_val),
             );
         }
-        if (try sema.pointerDeref(block, src, pointer_val, operand_ty)) |val| {
+        if (try sema.pointerDeref(block, src, ptr_val, operand_ty)) |val| {
             if (val.getError()) |name| {
                 return sema.fail(block, src, "caught unexpected error '{s}'", .{name});
             }
 
             return sema.addConstant(
                 operand_pointer_ty,
-                try Value.Tag.eu_payload_ptr.create(sema.arena, pointer_val),
+                try Value.Tag.eu_payload_ptr.create(sema.arena, ptr_val),
             );
         }
     }
@@ -5534,10 +5565,11 @@ fn analyzeErrUnionPayloadPtr(
         const is_non_err = try block.addUnOp(.is_err, operand);
         try sema.addSafetyCheck(block, is_non_err, .unwrap_errunion);
     }
-    return block.addTyOp(if (initializing)
+    const air_tag: Air.Inst.Tag = if (initializing)
         .errunion_payload_ptr_set
     else
-        .unwrap_errunion_payload_ptr, operand_pointer_ty, operand);
+        .unwrap_errunion_payload_ptr;
+    return block.addTyOp(air_tag, operand_pointer_ty, operand);
 }
 
 /// Value in, value out
@@ -15242,8 +15274,6 @@ fn storePtr2(
     }
 
     const operand = try sema.coerce(block, elem_ty, uncasted_operand, operand_src);
-    if ((try sema.typeHasOnePossibleValue(block, src, elem_ty)) != null)
-        return;
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
         const maybe_operand_val = try sema.resolveMaybeUndefVal(block, operand_src, operand);
@@ -15256,6 +15286,11 @@ fn storePtr2(
             return;
         } else break :rs ptr_src;
     } else ptr_src;
+
+    // We do this after the possible comptime store above, for the case of field_ptr stores
+    // to unions because we want the comptime tag to be set, even if the field type is void.
+    if ((try sema.typeHasOnePossibleValue(block, src, elem_ty)) != null)
+        return;
 
     // TODO handle if the element type requires comptime
 

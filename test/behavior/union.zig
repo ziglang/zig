@@ -348,6 +348,9 @@ const Foo1 = union(enum) {
 var glbl: Foo1 = undefined;
 
 test "global union with single field is correctly initialized" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     glbl = Foo1{
         .f = @typeInfo(Foo1).Union.fields[0].field_type{ .x = 123 },
     };
@@ -363,6 +366,7 @@ var glbl_array: [2]FooUnion = undefined;
 
 test "initialize global array of union" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     glbl_array[1] = FooUnion{ .U1 = 2 };
     glbl_array[0] = FooUnion{ .U0 = 1 };
@@ -487,8 +491,7 @@ test "tagged union with all void fields but a meaningful tag" {
         }
     };
     try S.doTheTest();
-    // TODO enable the test at comptime too
-    //comptime try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "union(enum(u32)) with specified and unspecified tag values" {

@@ -1329,32 +1329,25 @@ pub const DeclGen = struct {
                     const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(), .False);
                     return llvm_int.constIntToPtr(try dg.llvmType(tv.ty));
                 },
-                .field_ptr => {
-                    const field_ptr = tv.val.castTag(.field_ptr).?.data;
-                    const parent_ptr = try dg.lowerParentPtr(field_ptr.container_ptr);
-                    const llvm_u32 = dg.context.intType(32);
-                    const indices: [2]*const llvm.Value = .{
-                        llvm_u32.constInt(0, .False),
-                        llvm_u32.constInt(field_ptr.field_index, .False),
-                    };
-                    const uncasted = parent_ptr.constInBoundsGEP(&indices, indices.len);
-                    return uncasted.constBitCast(try dg.llvmType(tv.ty));
+                .field_ptr, .opt_payload_ptr, .eu_payload_ptr => {
+                    const parent = try dg.lowerParentPtr(tv.val);
+                    return parent.llvm_ptr.constBitCast(try dg.llvmType(tv.ty));
                 },
                 .elem_ptr => {
                     const elem_ptr = tv.val.castTag(.elem_ptr).?.data;
-                    const parent_ptr = try dg.lowerParentPtr(elem_ptr.array_ptr);
+                    const parent = try dg.lowerParentPtr(elem_ptr.array_ptr);
                     const llvm_usize = try dg.llvmType(Type.usize);
-                    if (parent_ptr.typeOf().getElementType().getTypeKind() == .Array) {
+                    if (parent.llvm_ptr.typeOf().getElementType().getTypeKind() == .Array) {
                         const indices: [2]*const llvm.Value = .{
                             llvm_usize.constInt(0, .False),
                             llvm_usize.constInt(elem_ptr.index, .False),
                         };
-                        return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                        return parent.llvm_ptr.constInBoundsGEP(&indices, indices.len);
                     } else {
                         const indices: [1]*const llvm.Value = .{
                             llvm_usize.constInt(elem_ptr.index, .False),
                         };
-                        return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                        return parent.llvm_ptr.constInBoundsGEP(&indices, indices.len);
                     }
                 },
                 .null_value, .zero => {
@@ -1800,11 +1793,7 @@ pub const DeclGen = struct {
         llvm_ptr: *const llvm.Value,
     };
 
-    fn lowerParentPtrDecl(
-        dg: *DeclGen,
-        ptr_val: Value,
-        decl: *Module.Decl,
-    ) Error!ParentPtr {
+    fn lowerParentPtrDecl(dg: *DeclGen, ptr_val: Value, decl: *Module.Decl) Error!ParentPtr {
         decl.markAlive();
         var ptr_ty_payload: Type.Payload.ElemType = .{
             .base = .{ .tag = .single_mut_pointer },
@@ -1818,42 +1807,134 @@ pub const DeclGen = struct {
         };
     }
 
-    fn lowerParentPtr(dg: *DeclGen, ptr_val: Value) Error!*const llvm.Value {
+    fn lowerParentPtr(dg: *DeclGen, ptr_val: Value) Error!ParentPtr {
         switch (ptr_val.tag()) {
             .decl_ref_mut => {
                 const decl = ptr_val.castTag(.decl_ref_mut).?.data.decl;
-                return (try dg.lowerParentPtrDecl(ptr_val, decl)).llvm_ptr;
+                return dg.lowerParentPtrDecl(ptr_val, decl);
             },
             .decl_ref => {
                 const decl = ptr_val.castTag(.decl_ref).?.data;
-                return (try dg.lowerParentPtrDecl(ptr_val, decl)).llvm_ptr;
+                return dg.lowerParentPtrDecl(ptr_val, decl);
             },
             .variable => {
                 const decl = ptr_val.castTag(.variable).?.data.owner_decl;
-                return (try dg.lowerParentPtrDecl(ptr_val, decl)).llvm_ptr;
+                return dg.lowerParentPtrDecl(ptr_val, decl);
             },
             .field_ptr => {
                 const field_ptr = ptr_val.castTag(.field_ptr).?.data;
-                const parent_ptr = try dg.lowerParentPtr(field_ptr.container_ptr);
+                const parent = try dg.lowerParentPtr(field_ptr.container_ptr);
+                const field_index = @intCast(u32, field_ptr.field_index);
                 const llvm_u32 = dg.context.intType(32);
-                const indices: [2]*const llvm.Value = .{
-                    llvm_u32.constInt(0, .False),
-                    llvm_u32.constInt(field_ptr.field_index, .False),
-                };
-                return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                const target = dg.module.getTarget();
+                switch (parent.ty.zigTypeTag()) {
+                    .Union => {
+                        const fields = parent.ty.unionFields();
+                        const layout = parent.ty.unionGetLayout(target);
+                        const field_ty = fields.values()[field_index].ty;
+                        if (layout.payload_size == 0) {
+                            // In this case a pointer to the union and a pointer to any
+                            // (void) payload is the same.
+                            return ParentPtr{
+                                .llvm_ptr = parent.llvm_ptr,
+                                .ty = field_ty,
+                            };
+                        }
+                        if (layout.tag_size == 0) {
+                            const indices: [2]*const llvm.Value = .{
+                                llvm_u32.constInt(0, .False),
+                                llvm_u32.constInt(0, .False),
+                            };
+                            return ParentPtr{
+                                .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
+                                .ty = field_ty,
+                            };
+                        }
+                        const llvm_pl_index = @boolToInt(layout.tag_align >= layout.payload_align);
+                        const indices: [2]*const llvm.Value = .{
+                            llvm_u32.constInt(0, .False),
+                            llvm_u32.constInt(llvm_pl_index, .False),
+                        };
+                        return ParentPtr{
+                            .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
+                            .ty = field_ty,
+                        };
+                    },
+                    .Struct => {
+                        var ty_buf: Type.Payload.Pointer = undefined;
+                        const llvm_field_index = llvmFieldIndex(parent.ty, field_index, target, &ty_buf).?;
+                        const indices: [2]*const llvm.Value = .{
+                            llvm_u32.constInt(0, .False),
+                            llvm_u32.constInt(llvm_field_index, .False),
+                        };
+                        return ParentPtr{
+                            .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
+                            .ty = parent.ty.structFieldType(field_index),
+                        };
+                    },
+                    else => unreachable,
+                }
             },
             .elem_ptr => {
                 const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-                const parent_ptr = try dg.lowerParentPtr(elem_ptr.array_ptr);
+                const parent = try dg.lowerParentPtr(elem_ptr.array_ptr);
                 const llvm_usize = try dg.llvmType(Type.usize);
                 const indices: [2]*const llvm.Value = .{
                     llvm_usize.constInt(0, .False),
                     llvm_usize.constInt(elem_ptr.index, .False),
                 };
-                return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                return ParentPtr{
+                    .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
+                    .ty = parent.ty.childType(),
+                };
             },
-            .opt_payload_ptr => return dg.todo("implement lowerParentPtr for optional payload", .{}),
-            .eu_payload_ptr => return dg.todo("implement lowerParentPtr for error union payload", .{}),
+            .opt_payload_ptr => {
+                const opt_payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
+                const parent = try dg.lowerParentPtr(opt_payload_ptr);
+                var buf: Type.Payload.ElemType = undefined;
+                const payload_ty = parent.ty.optionalChild(&buf);
+                if (!payload_ty.hasRuntimeBits() or parent.ty.isPtrLikeOptional()) {
+                    // In this case, we represent pointer to optional the same as pointer
+                    // to the payload.
+                    return ParentPtr{
+                        .llvm_ptr = parent.llvm_ptr,
+                        .ty = payload_ty,
+                    };
+                }
+
+                const llvm_u32 = dg.context.intType(32);
+                const indices: [2]*const llvm.Value = .{
+                    llvm_u32.constInt(0, .False),
+                    llvm_u32.constInt(0, .False),
+                };
+                return ParentPtr{
+                    .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
+                    .ty = payload_ty,
+                };
+            },
+            .eu_payload_ptr => {
+                const eu_payload_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
+                const parent = try dg.lowerParentPtr(eu_payload_ptr);
+                const payload_ty = parent.ty.errorUnionPayload();
+                if (!payload_ty.hasRuntimeBits()) {
+                    // In this case, we represent pointer to error union the same as pointer
+                    // to the payload.
+                    return ParentPtr{
+                        .llvm_ptr = parent.llvm_ptr,
+                        .ty = payload_ty,
+                    };
+                }
+
+                const llvm_u32 = dg.context.intType(32);
+                const indices: [2]*const llvm.Value = .{
+                    llvm_u32.constInt(0, .False),
+                    llvm_u32.constInt(1, .False),
+                };
+                return ParentPtr{
+                    .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
+                    .ty = payload_ty,
+                };
+            },
             else => unreachable,
         }
     }
@@ -3142,7 +3223,9 @@ pub const FuncGen = struct {
             const non_null_ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
             _ = self.builder.buildStore(non_null_bit, non_null_ptr);
         }
-        // Then return the payload pointer.
+        // Then return the payload pointer (only if it's used).
+        if (self.liveness.isUnused(inst))
+            return null;
         const indices: [2]*const llvm.Value = .{
             index_type.constNull(), // dereference the pointer
             index_type.constNull(), // first field is the payload
@@ -3236,7 +3319,9 @@ pub const FuncGen = struct {
             const non_null_ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
             _ = self.builder.buildStore(non_error_val, non_null_ptr);
         }
-        // Then return the payload pointer.
+        // Then return the payload pointer (only if it is used).
+        if (self.liveness.isUnused(inst))
+            return null;
         const indices: [2]*const llvm.Value = .{
             index_type.constNull(), // dereference the pointer
             index_type.constInt(1, .False), // second field is the payload
@@ -5257,7 +5342,7 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
 }
 
 /// Take into account 0 bit fields. Returns null if an llvm field could not be found. This only
-/// happends if you want the field index of a zero sized field at the end of the struct.
+/// happens if you want the field index of a zero sized field at the end of the struct.
 fn llvmFieldIndex(
     ty: Type,
     field_index: u32,

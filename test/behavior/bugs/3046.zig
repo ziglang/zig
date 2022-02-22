@@ -12,6 +12,8 @@ fn couldFail() anyerror!i32 {
 var some_struct: SomeStruct = undefined;
 
 test "fixed" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     some_struct = SomeStruct{
         .field = couldFail() catch @as(i32, 0),
     };

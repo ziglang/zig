@@ -63,6 +63,8 @@ test "ignore lval with underscore (for loop)" {
 }
 
 test "basic for loop" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     const expected_result = [_]u8{ 9, 8, 7, 6, 0, 1, 2, 3 } ** 3;
 
     var buffer: [expected_result.len]u8 = undefined;
