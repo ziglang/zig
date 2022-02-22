@@ -873,8 +873,6 @@ test "method call on an enum" {
 }
 
 test "enum value allocation" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const LargeEnum = enum(u32) {
         A0 = 0x80000000,
         A1,

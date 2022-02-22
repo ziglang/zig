@@ -1938,6 +1938,7 @@ fn zirEnumDecl(
     var bit_bag_index: usize = body_end;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
+    var last_tag_val: ?Value = null;
     while (field_i < fields_len) : (field_i += 1) {
         if (field_i % 32 == 0) {
             cur_bit_bag = sema.code.extra[bit_bag_index];
@@ -1976,13 +1977,21 @@ fn zirEnumDecl(
             // that points to this default value expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
             const tag_val = (try sema.resolveInstConst(block, src, tag_val_ref)).val;
+            last_tag_val = tag_val;
             const copied_tag_val = try tag_val.copy(new_decl_arena_allocator);
             enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
                 .ty = enum_obj.tag_ty,
             });
         } else if (any_values) {
-            const tag_val = try Value.Tag.int_u64.create(new_decl_arena_allocator, field_i);
-            enum_obj.values.putAssumeCapacityNoClobberContext(tag_val, {}, .{ .ty = enum_obj.tag_ty });
+            const tag_val = if (last_tag_val) |val|
+                try val.intAdd(Value.one, sema.arena)
+            else
+                Value.zero;
+            last_tag_val = tag_val;
+            const copied_tag_val = try tag_val.copy(new_decl_arena_allocator);
+            enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
+                .ty = enum_obj.tag_ty,
+            });
         }
     }
 
