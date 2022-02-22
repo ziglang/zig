@@ -822,10 +822,9 @@ fn buildOutputType(
                         cur_pkg = cur_pkg.parent orelse
                             fatal("encountered --pkg-end with no matching --pkg-begin", .{});
                     } else if (mem.eql(u8, arg, "--main-pkg-path")) {
-                        const next_arg = args_iter.next() orelse {
+                        main_pkg_path = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        main_pkg_path = next_arg;
                     } else if (mem.eql(u8, arg, "-cflags")) {
                         extra_cflags.shrinkRetainingCapacity(0);
                         while (true) {
@@ -877,15 +876,13 @@ fn buildOutputType(
                             });
                         }
                     } else if (mem.eql(u8, arg, "-O")) {
-                        const next_arg = args_iter.next() orelse {
+                        optimize_mode_string = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        optimize_mode_string = next_arg;
                     } else if (mem.eql(u8, arg, "--entry")) {
-                        const next_arg = args_iter.next() orelse {
+                        entry = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        entry = next_arg;
                     } else if (mem.eql(u8, arg, "--stack")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -901,45 +898,37 @@ fn buildOutputType(
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "--name")) {
-                        const next_arg = args_iter.next() orelse {
+                        provided_name = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        provided_name = next_arg;
                     } else if (mem.eql(u8, arg, "-rpath")) {
-                        const next_arg = args_iter.next() orelse {
+                        try rpath_list.append(args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
-                        };
-                        try rpath_list.append(next_arg);
+                        });
                     } else if (mem.eql(u8, arg, "--library-directory") or mem.eql(u8, arg, "-L")) {
-                        const next_arg = args_iter.next() orelse {
+                        try lib_dirs.append(args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
-                        };
-                        try lib_dirs.append(next_arg);
+                        });
                     } else if (mem.eql(u8, arg, "-F")) {
-                        const next_arg = args_iter.next() orelse {
+                        try framework_dirs.append(args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
-                        };
-                        try framework_dirs.append(next_arg);
+                        });
                     } else if (mem.eql(u8, arg, "-framework")) {
-                        const next_arg = args_iter.next() orelse {
+                        try frameworks.append(args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
-                        };
-                        try frameworks.append(next_arg);
+                        });
                     } else if (mem.eql(u8, arg, "-install_name")) {
-                        const next_arg = args_iter.next() orelse {
+                        install_name = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        install_name = next_arg;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
-                        const next_arg = args_iter.next() orelse {
+                        linker_script = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        linker_script = next_arg;
                     } else if (mem.eql(u8, arg, "--version-script")) {
-                        const next_arg = args_iter.next() orelse {
+                        version_script = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        version_script = next_arg;
                     } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -960,11 +949,10 @@ fn buildOutputType(
                         mem.eql(u8, arg, "-iframework") or
                         mem.eql(u8, arg, "-iframeworkwithsysroot"))
                     {
-                        const next_arg = args_iter.next() orelse {
-                            fatal("expected parameter after {s}", .{arg});
-                        };
                         try clang_argv.append(arg);
-                        try clang_argv.append(next_arg);
+                        try clang_argv.append(args_iter.next() orelse {
+                            fatal("expected parameter after {s}", .{arg});
+                        });
                     } else if (mem.eql(u8, arg, "--version")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -974,20 +962,17 @@ fn buildOutputType(
                         };
                         have_version = true;
                     } else if (mem.eql(u8, arg, "-target")) {
-                        const next_arg = args_iter.next() orelse {
+                        target_arch_os_abi = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        target_arch_os_abi = next_arg;
                     } else if (mem.eql(u8, arg, "-mcpu")) {
-                        const next_arg = args_iter.next() orelse {
+                        target_mcpu = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        target_mcpu = next_arg;
                     } else if (mem.eql(u8, arg, "-mcmodel")) {
-                        const next_arg = args_iter.next() orelse {
+                        machine_code_model = parseCodeModel(args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
-                        };
-                        machine_code_model = parseCodeModel(next_arg);
+                        });
                     } else if (mem.startsWith(u8, arg, "-ofmt=")) {
                         target_ofmt = arg["-ofmt=".len..];
                     } else if (mem.startsWith(u8, arg, "-mcpu=")) {
@@ -997,52 +982,43 @@ fn buildOutputType(
                     } else if (mem.startsWith(u8, arg, "-O")) {
                         optimize_mode_string = arg["-O".len..];
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
-                        const next_arg = args_iter.next() orelse {
+                        target_dynamic_linker = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        target_dynamic_linker = next_arg;
                     } else if (mem.eql(u8, arg, "--sysroot")) {
-                        const next_arg = args_iter.next() orelse {
+                        sysroot = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        sysroot = next_arg;
                         try clang_argv.append("-isysroot");
-                        try clang_argv.append(next_arg);
+                        try clang_argv.append(sysroot.?);
                     } else if (mem.eql(u8, arg, "--libc")) {
-                        const next_arg = args_iter.next() orelse {
+                        libc_paths_file = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        libc_paths_file = next_arg;
                     } else if (mem.eql(u8, arg, "--test-filter")) {
-                        const next_arg = args_iter.next() orelse {
+                        test_filter = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        test_filter = next_arg;
                     } else if (mem.eql(u8, arg, "--test-name-prefix")) {
-                        const next_arg = args_iter.next() orelse {
+                        test_name_prefix = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        test_name_prefix = next_arg;
                     } else if (mem.eql(u8, arg, "--test-cmd")) {
-                        const next_arg = args_iter.next() orelse {
+                        try test_exec_args.append(args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
-                        };
-                        try test_exec_args.append(next_arg);
+                        });
                     } else if (mem.eql(u8, arg, "--cache-dir")) {
-                        const next_arg = args_iter.next() orelse {
+                        override_local_cache_dir = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        override_local_cache_dir = next_arg;
                     } else if (mem.eql(u8, arg, "--global-cache-dir")) {
-                        const next_arg = args_iter.next() orelse {
+                        override_global_cache_dir = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        override_global_cache_dir = next_arg;
                     } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
-                        const next_arg = args_iter.next() orelse {
+                        override_lib_dir = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        override_lib_dir = next_arg;
                     } else if (mem.eql(u8, arg, "--debug-log")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -1223,10 +1199,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-allow-shlib-undefined")) {
                         linker_allow_shlib_undefined = false;
                     } else if (mem.eql(u8, arg, "-z")) {
-                        const next_arg = args_iter.next() orelse {
+                        const z_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        const z_arg = next_arg;
                         if (mem.eql(u8, z_arg, "nodelete")) {
                             linker_z_nodelete = true;
                         } else if (mem.eql(u8, z_arg, "notext")) {
