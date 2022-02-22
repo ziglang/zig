@@ -65,7 +65,11 @@ pub fn generateZirData(self: *Autodoc) !void {
                         //    @tagName(t),
                         //});
                         break :blk .{
-                            .Array = .{ .name = tmpbuf.toOwnedSlice() },
+                            .Array = .{
+                                .len = 1,
+                                .name = tmpbuf.toOwnedSlice(),
+                                .child = .{ .type = 0 },
+                            },
                         };
                     },
                     .u1_type,
@@ -248,7 +252,7 @@ const DocData = struct {
 
     const Decl = struct {
         name: []const u8,
-        kind: []const u8, // TODO: where do we find this info?
+        kind: []const u8,
         src: usize, // index into astNodes
         // typeRef: TypeRef,
         value: WalkResult,
@@ -272,8 +276,15 @@ const DocData = struct {
         NoReturn: struct { name: []const u8 },
         Int: struct { name: []const u8 },
         Float: struct { name: []const u8 },
-        Pointer: struct { name: []const u8 },
-        Array: struct { name: []const u8 },
+        Pointer: struct {
+            name: []const u8,
+            child: TypeRef,
+        },
+        Array: struct {
+            name: []const u8,
+            len: usize,
+            child: TypeRef,
+        },
         Struct: struct {
             name: []const u8,
             src: ?usize = null, // index into astNodes
@@ -286,7 +297,10 @@ const DocData = struct {
         ComptimeInt: struct { name: []const u8 },
         Undefined: struct { name: []const u8 },
         Null: struct { name: []const u8 },
-        Optional: struct { name: []const u8 },
+        Optional: struct {
+            name: []const u8,
+            child: TypeRef,
+        },
         ErrorUnion: struct { name: []const u8 },
         ErrorSet: struct { name: []const u8 },
         Enum: struct {
@@ -335,6 +349,7 @@ const DocData = struct {
                 .ComptimeInt => |v| try printTypeBody(v, options, w),
                 .ComptimeFloat => |v| try printTypeBody(v, options, w),
                 .Null => |v| try printTypeBody(v, options, w),
+                .Optional => |v| try printTypeBody(v, options, w),
 
                 .Struct => |v| try printTypeBody(v, options, w),
                 .Fn => |v| try printTypeBody(v, options, w),
@@ -376,13 +391,13 @@ const DocData = struct {
 
     const TypeRef = union(enum) {
         unspecified,
-        declRef: usize, // index in `decls`
+        declPath: []usize, // indexes in `decls`
         type: usize, // index in `types`
         comptimeExpr: usize, // index in `comptimeExprs`
 
         pub fn fromWalkResult(wr: WalkResult) TypeRef {
             return switch (wr) {
-                .declRef => |v| .{ .declRef = v },
+                .declPath => |v| .{ .declPath = v },
                 .type => |v| .{ .type = v },
                 else => @panic("Found non-type WalkResult"),
             };
@@ -400,10 +415,17 @@ const DocData = struct {
                     , .{});
                 },
 
-                .declRef, .type, .comptimeExpr => |v| {
+                .type, .comptimeExpr => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
+                },
+                .declPath => |v| {
+                    try w.print("{{ \"declPath\": [", .{});
+                    for (v) |d, i| {
+                        const comma = if (i == v.len - 1) "]}" else ",";
+                        try w.print("{d}{s}", .{ d, comma });
+                    }
                 },
             }
         }
@@ -415,16 +437,10 @@ const DocData = struct {
         @"unreachable",
         @"null": TypeRef,
         @"undefined": TypeRef,
-        @"struct": struct {
-            typeRef: TypeRef,
-            fieldVals: []struct {
-                name: []const u8,
-                val: WalkResult,
-            },
-        },
+        @"struct": Struct,
         bool: bool,
         type: usize, // index in `types`
-        declRef: usize, // index in `decls`
+        declPath: []usize, // indices in `decls`
         int: struct {
             typeRef: TypeRef,
             value: usize, // direct value
@@ -435,6 +451,14 @@ const DocData = struct {
             value: f64, // direct value
             negated: bool = false,
         },
+
+        const Struct = struct {
+            typeRef: TypeRef,
+            fieldVals: []struct {
+                name: []const u8,
+                val: WalkResult,
+            },
+        };
         pub fn jsonStringify(
             self: WalkResult,
             options: std.json.StringifyOptions,
@@ -446,7 +470,7 @@ const DocData = struct {
                         \\{{ "{s}":{{}} }}
                     , .{@tagName(self)});
                 },
-                .type, .declRef, .comptimeExpr => |v| {
+                .type, .comptimeExpr => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
@@ -478,12 +502,18 @@ const DocData = struct {
                 },
                 .@"undefined" => |v| try std.json.stringify(v, options, w),
                 .@"null" => |v| try std.json.stringify(v, options, w),
-                .@"struct" => |v| try std.json.stringify(v, options, w),
-                // .decl_ref => |v| {
-                //     try w.print(
-                //         \\{{ "{s}":"{s}" }}
-                //     , .{ @tagName(self), v });
-                // },
+                .@"struct" => |v| try std.json.stringify(
+                    struct { @"struct": Struct }{ .@"struct" = v },
+                    options,
+                    w,
+                ),
+                .declPath => |v| {
+                    try w.print("{{ \"declPath\": [", .{});
+                    for (v) |d, i| {
+                        const comma = if (i == v.len - 1) "]}" else ",";
+                        try w.print("{d}{s}", .{ d, comma });
+                    }
+                },
             }
         }
     };
@@ -571,13 +601,15 @@ fn walkInstruction(
                     "TODO: handle {s} in `walkInstruction.as_node`\n",
                     .{@tagName(operand)},
                 ),
-                .declRef => {},
+                .declPath, .type => {},
                 // we don't do anything because up until now,
                 // I've only seen this used as such:
                 //       @as(@as(type, Baz), .{})
                 // and we don't want to toss away the
                 // decl_val information (eg by replacing it with
                 // a WalkResult.type).
+                // TODO: Actually, this is a good moment to check if
+                // the result is indeed a type!!
                 .comptimeExpr => {
                     self.comptimeExprs.items[operand.comptimeExpr].typeRef = dest_type_ref;
                 },
@@ -588,11 +620,39 @@ fn walkInstruction(
 
             return operand;
         },
+        .optional_type => {
+            const un_node = data[inst_index].un_node;
+            var operand: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+            );
+            const type_ref = walkResultToTypeRef(operand);
+            const res = DocData.WalkResult{ .type = self.types.items.len };
+            try self.types.append(self.arena, .{
+                .Optional = .{ .name = "?TODO", .child = type_ref },
+            });
+            return res;
+        },
         .decl_val => {
             const str_tok = data[inst_index].str_tok;
             const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
-            return DocData.WalkResult{ .declRef = decls_slot_index };
+            var path = try self.arena.alloc(usize, 1);
+            path[0] = decls_slot_index;
+            return DocData.WalkResult{ .declPath = path };
         },
+        //.field_val => {
+        //            const pl_node = data[inst_index].pl_node;
+        //            const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
+        //            // In case that we have a path (eg Foo.Bar.Baz.X.Y.Z),
+        //            // then we want to deal with them in a while loop instead
+        //            // of using `walkRef()`.
+        //
+        //            var path = try self.arena.alloc(usize, 1);
+        //            path[0] = decls_slot_index;
+        //            return DocData.WalkResult{ .declPath = path };
+
+        //},
         .int_type => {
             const int_type = data[inst_index].int_type;
             const sign = if (int_type.signedness == .unsigned) "u" else "i";
@@ -945,17 +1005,13 @@ fn walkInstruction(
                     // Done to make sure that all decl refs can be resolved correctly,
                     // even if we haven't fully analyzed the decl yet.
                     {
-                        var actual_decls_len: usize = 0;
                         var it = file.zir.declIterator(@intCast(u32, inst_index));
+                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
                         var decls_slot_index = decls_first_index;
                         while (it.next()) |d| : (decls_slot_index += 1) {
                             const decl_name_index = file.zir.extra[d.sub_index + 5];
-                            if (decl_name_index == 2) continue; // we don't do decltests here
-                            actual_decls_len += 1;
                             try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
                         }
-                        // we don't count decltests in our decls
-                        try self.decls.resize(self.arena, decls_first_index + actual_decls_len);
                     }
 
                     extra_index = try self.walkDecls(
@@ -1144,6 +1200,12 @@ fn walkDecls(
                     break :idx idx;
                 };
                 self.decls.items[decl_being_tested].decltest = ast_node_index;
+                self.decls.items[decls_slot_index] = .{
+                    .name = "test",
+                    .src = ast_node_index,
+                    .value = .{ .type = 0 },
+                    .kind = "const",
+                };
                 continue;
             } else {
                 const raw_decl_name = file.zir.nullTerminatedString(decl_name_index);
@@ -1450,7 +1512,7 @@ fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
             .{@tagName(wr)},
         ),
 
-        .declRef => |v| .{ .declRef = v },
+        .declPath => |v| .{ .declPath = v },
         .type => |v| .{ .type = v },
     };
 }
