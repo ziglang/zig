@@ -909,7 +909,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
             var other_reg: Register = undefined;
             while (i > 0) : (i -= 1) {
                 const reg = @intToEnum(Register, i - 1);
-                if (reg_list & @as(u32, 1) << reg.id() != 0) {
+                if (reg_list & @as(u32, 1) << @intCast(u5, reg.id()) != 0) {
                     if (count % 2 == 0) {
                         if (count == number_of_regs - 1) {
                             try emit.writeInstruction(Instruction.ldr(
@@ -939,7 +939,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
             var other_reg: Register = undefined;
             while (i < 32) : (i += 1) {
                 const reg = @intToEnum(Register, i);
-                if (reg_list & @as(u32, 1) << reg.id() != 0) {
+                if (reg_list & @as(u32, 1) << @intCast(u5, reg.id()) != 0) {
                     if (count % 2 == 0) {
                         if (count == number_of_regs - 1) {
                             try emit.writeInstruction(Instruction.str(

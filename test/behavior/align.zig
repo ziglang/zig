@@ -27,7 +27,6 @@ test "default alignment allows unspecified in type syntax" {
 }
 
 test "implicitly decreasing pointer alignment" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     try expect(addUnaligned(&a, &b) == 7);
@@ -38,7 +37,6 @@ fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
 }
 
 test "@alignCast pointers" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     var x: u32 align(4) = 1;
     expectsOnly1(&x);
     try expect(x == 2);
@@ -313,7 +311,7 @@ fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) !void {
 }
 
 test "alignment of function with c calling convention" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     var runtime_nothing = &nothing;
