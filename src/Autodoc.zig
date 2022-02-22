@@ -252,6 +252,8 @@ const DocData = struct {
         src: usize, // index into astNodes
         // typeRef: TypeRef,
         value: WalkResult,
+        // The index in astNodes of the `test declname { }` node
+        decltest: ?usize = null,
     };
 
     const AstNode = struct {
@@ -610,11 +612,7 @@ fn walkInstruction(
         //return self.walkRef(file, parent_scope, break_operand);
         //},
         .block_inline => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
-            const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
-            const break_operand = data[break_index].@"break".operand;
-            return self.walkRef(file, parent_scope, break_operand);
+            return self.walkRef(file, parent_scope, getBlockInlineBreak(file.zir, inst_index));
         },
         .func => {
             const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
@@ -947,13 +945,17 @@ fn walkInstruction(
                     // Done to make sure that all decl refs can be resolved correctly,
                     // even if we haven't fully analyzed the decl yet.
                     {
+                        var actual_decls_len: usize = 0;
                         var it = file.zir.declIterator(@intCast(u32, inst_index));
-                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
                         var decls_slot_index = decls_first_index;
                         while (it.next()) |d| : (decls_slot_index += 1) {
                             const decl_name_index = file.zir.extra[d.sub_index + 5];
+                            if (decl_name_index == 2) continue; // we don't do decltests here
+                            actual_decls_len += 1;
                             try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
                         }
+                        // we don't count decltests in our decls
+                        try self.decls.resize(self.arena, decls_first_index + actual_decls_len);
                     }
 
                     extra_index = try self.walkDecls(
@@ -1042,7 +1044,7 @@ fn walkDecls(
 
         // const hash_u32s = file.zir.extra[extra_index..][0..4];
         extra_index += 4;
-        // const line = file.zir.extra[extra_index];
+        const line = file.zir.extra[extra_index];
         extra_index += 1;
         const decl_name_index = file.zir.extra[extra_index];
         extra_index += 1;
@@ -1075,6 +1077,74 @@ fn walkDecls(
                 break :blk if (is_exported) "usingnamespace" else "comptime";
             } else if (decl_name_index == 1) {
                 break :blk "test";
+            } else if (decl_name_index == 2) {
+                // it is a decltest
+                const decl_being_tested = scope.resolveDeclName(doc_comment_index);
+                const ast_node_index = idx: {
+                    const idx = self.ast_nodes.items.len;
+                    const file_source = file.getSource(self.module.gpa) catch unreachable; // TODO fix this
+                    const source_of_decltest_function = srcloc: {
+                        const func_index = getBlockInlineBreak(file.zir, decl_index);
+                        // a decltest is always a function
+                        const tag = file.zir.instructions.items(.tag)[Zir.refToIndex(func_index).?];
+                        std.debug.assert(tag == .extended);
+
+                        const extended = file.zir.instructions.items(.data)[Zir.refToIndex(func_index).?].extended;
+                        const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, extended.operand);
+                        const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
+
+                        var extra_index_for_this_func: usize = extra.end;
+                        if (small.has_lib_name) extra_index_for_this_func += 1;
+                        if (small.has_cc) extra_index_for_this_func += 1;
+                        if (small.has_align) extra_index_for_this_func += 1;
+
+                        const ret_ty_body = file.zir.extra[extra_index_for_this_func..][0..extra.data.ret_body_len];
+                        extra_index_for_this_func += ret_ty_body.len;
+
+                        const body = file.zir.extra[extra_index_for_this_func..][0..extra.data.body_len];
+                        extra_index_for_this_func += body.len;
+
+                        var src_locs: Zir.Inst.Func.SrcLocs = undefined;
+                        if (body.len != 0) {
+                            src_locs = file.zir.extraData(Zir.Inst.Func.SrcLocs, extra_index_for_this_func).data;
+                        } else {
+                            src_locs = .{
+                                .lbrace_line = line,
+                                .rbrace_line = line,
+                                .columns = 0, // TODO get columns when body.len == 0
+                            };
+                        }
+                        break :srcloc src_locs;
+                    };
+                    const source_slice = slice: {
+                        var start_byte_offset: u32 = 0;
+                        var end_byte_offset: u32 = 0;
+                        const rbrace_col = @truncate(u16, source_of_decltest_function.columns >> 16);
+                        var lines: u32 = 0;
+                        for (file_source.bytes) |b, i| {
+                            if (b == '\n') {
+                                lines += 1;
+                            }
+                            if (lines == source_of_decltest_function.lbrace_line) {
+                                start_byte_offset = @intCast(u32, i);
+                            }
+                            if (lines == source_of_decltest_function.rbrace_line) {
+                                end_byte_offset = @intCast(u32, i) + rbrace_col;
+                                break;
+                            }
+                        }
+                        break :slice file_source.bytes[start_byte_offset..end_byte_offset];
+                    };
+                    try self.ast_nodes.append(self.arena, .{
+                        .file = 0,
+                        .line = line,
+                        .col = 0,
+                        .name = try self.arena.dupe(u8, source_slice),
+                    });
+                    break :idx idx;
+                };
+                self.decls.items[decl_being_tested].decltest = ast_node_index;
+                continue;
             } else {
                 const raw_decl_name = file.zir.nullTerminatedString(decl_name_index);
                 if (raw_decl_name.len == 0) {
@@ -1095,7 +1165,7 @@ fn walkDecls(
             const idx = self.ast_nodes.items.len;
             try self.ast_nodes.append(self.arena, .{
                 .file = 0,
-                .line = 0,
+                .line = line,
                 .col = 0,
                 .docs = doc_comment,
                 .fields = null, // walkInstruction will fill `fields` if necessary
@@ -1388,3 +1458,10 @@ fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
 //fn collectParamInfo(self: *Autodoc, file: *File, scope: *Scope, inst_idx: Zir.Index) void {
 
 //}
+fn getBlockInlineBreak(zir: Zir, inst_index: usize) Zir.Inst.Ref {
+    const data = zir.instructions.items(.data);
+    const pl_node = data[inst_index].pl_node;
+    const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+    const break_index = zir.extra[extra.end..][extra.data.body_len - 1];
+    return data[break_index].@"break".operand;
+}
