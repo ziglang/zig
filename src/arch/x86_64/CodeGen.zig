@@ -3880,6 +3880,10 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
         .compare_flags_unsigned => unreachable,
         .register => |cond_reg| {
             try self.spillCompareFlagsIfOccupied();
+
+            self.register_manager.freezeRegs(&.{cond_reg});
+            defer self.register_manager.unfreezeRegs(&.{cond_reg});
+
             switch (case) {
                 .none => unreachable,
                 .undef => unreachable,
@@ -3929,6 +3933,18 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
                     return self.fail("TODO implement switch mir when case is {}", .{case});
                 },
             }
+        },
+        .stack_offset => {
+            try self.spillCompareFlagsIfOccupied();
+
+            if (abi_size <= 8) {
+                const reg = try self.copyToTmpRegister(ty, condition);
+                self.register_manager.freezeRegs(&.{reg});
+                defer self.register_manager.unfreezeRegs(&.{reg});
+                return self.genCondSwitchMir(ty, .{ .register = reg }, case);
+            }
+
+            return self.fail("TODO implement switch mir when condition is stack offset with abi larger than 8 bytes", .{});
         },
         else => {
             return self.fail("TODO implemenent switch mir when condition is {}", .{condition});

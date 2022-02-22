@@ -142,7 +142,8 @@ pub fn main2() anyerror!void {
         };
     }
     switch (builtin.zig_backend) {
-        .stage2_llvm, .stage2_wasm, .stage2_x86_64 => {
+        .stage2_llvm, .stage2_wasm, .stage2_x86_64 => blk: {
+            if (builtin.os.tag == .macos) break :blk;
             const passed = builtin.test_functions.len - skipped - failed;
             const stderr = std.io.getStdErr();
             writeInt(stderr, passed) catch {};
