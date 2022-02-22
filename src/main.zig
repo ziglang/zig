@@ -2020,7 +2020,7 @@ fn buildOutputType(
         if (!target_info.target.cpu.features.isEnabled(@enumToInt(std.Target.wasm.Feature.atomics)) or
             !target_info.target.cpu.features.isEnabled(@enumToInt(std.Target.wasm.Feature.bulk_memory)))
         {
-            fatal("'atomics' and 'bulk-memory' features must be used in order to use shared memory", .{});
+            fatal("'atomics' and 'bulk-memory' features must be enabled to use shared memory", .{});
         }
     }
 
