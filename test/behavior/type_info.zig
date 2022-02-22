@@ -323,8 +323,6 @@ fn testOpaque() !void {
 }
 
 test "type info: function type info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     // wasm doesn't support align attributes on functions
     if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
     try testFunction();
@@ -343,6 +341,7 @@ fn testFunction() !void {
     const fn_aligned_info = @typeInfo(@TypeOf(fooAligned));
     try expect(fn_aligned_info.Fn.alignment == 4);
 
+    if (builtin.zig_backend != .stage1) return; // no bound fn in stage2
     const test_instance: TestPackedStruct = undefined;
     const bound_fn_info = @typeInfo(@TypeOf(test_instance.foo));
     try expect(bound_fn_info == .BoundFn);

@@ -9886,7 +9886,65 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             }),
         ),
         .Fn => {
+            // TODO: look into memoizing this result.
             const info = ty.fnInfo();
+            var params_anon_decl = try block.startAnonDecl(src);
+            defer params_anon_decl.deinit();
+
+            const param_vals = try params_anon_decl.arena().alloc(Value, info.param_types.len);
+            for (param_vals) |*param_val, i| {
+                const param_ty = info.param_types[i];
+                const is_generic = param_ty.tag() == .generic_poison;
+                const param_ty_val = if (is_generic)
+                    Value.@"null"
+                else
+                    try Value.Tag.opt_payload.create(
+                        params_anon_decl.arena(),
+                        try Value.Tag.ty.create(params_anon_decl.arena(), param_ty),
+                    );
+
+                const param_fields = try params_anon_decl.arena().create([3]Value);
+                param_fields.* = .{
+                    // is_generic: bool,
+                    Value.makeBool(is_generic),
+                    // is_noalias: bool,
+                    Value.@"false", // TODO
+                    // arg_type: ?type,
+                    param_ty_val,
+                };
+                param_val.* = try Value.Tag.@"struct".create(params_anon_decl.arena(), param_fields);
+            }
+
+            const args_val = v: {
+                const fn_info_decl = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    type_info_ty.getNamespace().?,
+                    "Fn",
+                )).?;
+                try sema.mod.declareDeclDependency(sema.owner_decl, fn_info_decl);
+                try sema.ensureDeclAnalyzed(fn_info_decl);
+                const param_info_decl = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    fn_info_decl.val.castTag(.ty).?.data.getNamespace().?,
+                    "Param",
+                )).?;
+                try sema.mod.declareDeclDependency(sema.owner_decl, param_info_decl);
+                try sema.ensureDeclAnalyzed(param_info_decl);
+                const new_decl = try params_anon_decl.finish(
+                    try Type.Tag.array.create(params_anon_decl.arena(), .{
+                        .len = param_vals.len,
+                        .elem_type = param_info_decl.ty,
+                    }),
+                    try Value.Tag.array.create(
+                        params_anon_decl.arena(),
+                        param_vals,
+                    ),
+                );
+                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+            };
+
             const field_values = try sema.arena.alloc(Value, 6);
             // calling_convention: CallingConvention,
             field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.cc));
@@ -9897,9 +9955,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // is_var_args: bool,
             field_values[3] = Value.makeBool(info.is_var_args);
             // return_type: ?type,
-            field_values[4] = try Value.Tag.ty.create(sema.arena, ty.fnReturnType());
-            // args: []const FnArg,
-            field_values[5] = Value.@"null"; // TODO
+            field_values[4] = try Value.Tag.ty.create(sema.arena, info.return_type);
+            // args: []const Fn.Param,
+            field_values[5] = args_val;
 
             return sema.addConstant(
                 type_info_ty,
@@ -10102,7 +10160,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     }),
                     try Value.Tag.array.create(
                         fields_anon_decl.arena(),
-                        try fields_anon_decl.arena().dupe(Value, enum_field_vals),
+                        enum_field_vals,
                     ),
                 );
                 break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
