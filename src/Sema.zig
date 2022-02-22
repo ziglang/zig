@@ -16858,6 +16858,8 @@ fn resolvePeerTypes(
 
     var chosen = instructions[0];
     var any_are_null = false;
+    var make_the_slice_const = false;
+    var convert_to_slice = false;
     var chosen_i: usize = 0;
     for (instructions[1..]) |candidate, candidate_i| {
         const candidate_ty = sema.typeOf(candidate);
@@ -16955,6 +16957,46 @@ fn resolvePeerTypes(
                         continue;
                     }
                 }
+
+                // *[N]T and *[M]T
+                // verify both are pointers to known lengths
+                if (chosen_ty_tag == .Pointer and
+                    chosen_ty.ptrSize() == .One and
+                    candidate_ty.ptrSize() == .One)
+                {
+                    // verify both pointers are two arrays
+                    const chosen_child_ty = chosen_ty.childType();
+                    const candidate_child_ty = candidate_ty.childType();
+                    if (chosen_child_ty.zigTypeTag() == .Array and candidate_child_ty.zigTypeTag() == .Array) {
+                        // If there is a sentinel, it must match
+                        if (chosen_child_ty.sentinel()) |chosen_sentinel| {
+                            if (candidate_child_ty.sentinel()) |candidate_sentinel| {
+                                if (!chosen_sentinel.eql(candidate_sentinel, chosen_child_ty)) {
+                                    continue;
+                                }
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        // If we can cerce the element types, then we can do this.
+                        const chosen_elem_ty = chosen_child_ty.elemType2();
+                        const candidate_elem_ty = candidate_child_ty.elemType2();
+                        if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+
+                            convert_to_slice = true;
+
+                            // If one of the pointers is to const data, the slice
+                            // must also be const.
+                            if (candidate_child_ty.isConstPtr() or chosen_child_ty.isConstPtr())
+                                make_the_slice_const = true;
+
+                            continue;
+                        }
+                    }
+                }
             },
             .Optional => {
                 var opt_child_buf: Type.Payload.ElemType = undefined;
@@ -17035,6 +17077,22 @@ fn resolvePeerTypes(
             .Null, .Optional => return chosen_ty,
             else => return Type.optional(sema.arena, chosen_ty),
         }
+    }
+
+    if (convert_to_slice) {
+        // turn *[N]T => []T
+        const chosen_child_ty = chosen_ty.childType();
+        var info = chosen_ty.ptrInfo();
+        info.data.sentinel = chosen_child_ty.sentinel();
+        info.data.size = .Slice;
+        info.data.mutable = chosen_child_ty.isConstPtr() or make_the_slice_const;
+        info.data.pointee_type = switch (chosen_child_ty.tag()) {
+            .array => chosen_child_ty.elemType2(),
+            .array_u8, .array_u8_sentinel_0 => Type.initTag(.u8),
+            else => unreachable,
+        };
+
+        return Type.ptr(sema.arena, info.data);
     }
 
     return chosen_ty;

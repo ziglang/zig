@@ -777,8 +777,6 @@ test "peer type resolve string lit with sentinel-terminated mutable slice" {
 }
 
 test "peer type resolve array pointers, one of them const" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var array1: [4]u8 = undefined;
     const array2: [5]u8 = undefined;
     comptime try expect(@TypeOf(&array1, &array2) == []const u8);
