@@ -155,7 +155,14 @@ pub const s_per_week = s_per_day * 7;
 /// It also tries to be monotonic, but this is not a guarantee due to OS/hardware bugs.
 /// If you need monotonic readings for elapsed time, consider `Timer` instead.
 pub const Instant = struct {
-    timestamp: if (!(builtin.os.tag == .wasi and !builtin.link_libc)) os.timespec else u64,
+    timestamp: if (is_posix) os.timespec else u64,
+
+    // true if we should use clock_gettime()
+    const is_posix = switch (builtin.os.tag) {
+        .wasi => builtin.link_libc,
+        .windows => false,
+        else => true,
+    };
 
     /// Queries the system for the current moment of time as an Instant.
     /// This is not guaranteed to be monotonic or steadily increasing, but for most implementations it is.
@@ -193,7 +200,7 @@ pub const Instant = struct {
     /// Quickly compares two instances between each other.
     pub fn order(self: Instant, other: Instant) std.math.Order {
         // windows and wasi timestamps are in u64 which is easily comparible
-        if (builtin.os.tag == .windows or (builtin.os.tag == .wasi and !builtin.link_libc)) {
+        if (!is_posix) {
             return std.math.order(self.timestamp, other.timestamp);
         }
 
@@ -220,7 +227,7 @@ pub const Instant = struct {
             // https://github.com/microsoft/STL/blob/785143a0c73f030238ef618890fd4d6ae2b3a3a0/stl/inc/chrono#L694-L701
             const common_qpf = 10_000_000;
             if (qpf == common_qpf) {
-                return qpc * (common_qpf / ns_per_s);
+                return qpc * (ns_per_s / common_qpf);
             }
 
             // Convert to ns using fixed point.
@@ -231,7 +238,7 @@ pub const Instant = struct {
 
         // WASI timestamps are directly in nanoseconds
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
-            return self.timestamp - earler.timestamp;
+            return self.timestamp - earlier.timestamp;
         }
 
         // Convert timespec diff to ns
@@ -259,7 +266,7 @@ pub const Timer = struct {
 
     /// Initialize the timer by querying for a supported clock.
     /// Returns `error.TimerUnsupported` when such a clock is unavailable.
-    /// This should only fail in hostile environements such as linux seccomp misuse.
+    /// This should only fail in hostile environments such as linux seccomp misuse.
     pub fn start() Error!Timer {
         const current = Instant.now() catch return error.TimerUnsupported;
         return Timer{ .started = current, .previous = current };
@@ -288,7 +295,7 @@ pub const Timer = struct {
     /// guaranteed to be monotonic with respect to the timer's starting point.
     fn sample(self: *Timer) Instant {
         const current = Instant.now() catch unreachable;
-        if (std.math.order(self.started, current) == .gt) {
+        if (current.order(self.previous) == .gt) {
             self.previous = current;
         }
         return self.previous;
