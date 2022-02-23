@@ -5335,6 +5335,179 @@ fn createFoo(param: i32) !Foo {
       is covered. The deallocation code is always directly following the allocation code.
       </p>
       {#header_close#}
+      {#header_open|Common errdefer Slip-Ups#}
+      <p>
+      It should be noted that {#syntax#}errdefer{#endsyntax#} statements only last until the end of the block
+      they are written in, and therefore are not run if an error is returned outside of that block:
+      </p>
+      {#code_begin|test_err|1 tests leaked memory#}
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Foo = struct {
+    data: u32,
+};
+
+fn tryToAllocateFoo(allocator: Allocator) !*Foo {
+    return allocator.create(Foo);
+}
+
+fn deallocateFoo(allocator: Allocator, foo: *Foo) void {
+    allocator.destroy(foo);
+}
+
+fn getFooData() !u32 {
+    return 666;
+}
+
+fn createFoo(allocator: Allocator, param: i32) !*Foo {
+    const foo = getFoo: {
+        var foo = try tryToAllocateFoo(allocator);
+        errdefer deallocateFoo(allocator, foo); // Only lasts until the end of getFoo
+
+        // Calls deallocateFoo on error
+        foo.data = try getFooData();
+
+        break :getFoo foo;
+    };
+
+    // Outside of the scope of the errdefer, so
+    // deallocateFoo will not be called here
+    if (param > 1337) return error.InvalidParam;
+
+    return foo;
+}
+
+test "createFoo" {
+    try std.testing.expectError(error.InvalidParam, createFoo(std.testing.allocator, 2468));
+}
+      {#code_end#}
+      <p>
+      To ensure that {#syntax#}deallocateFoo{#endsyntax#} is properly called
+      when returning an error, you must add an {#syntax#}errdefer{#endsyntax#} outside of the block:
+      {#code_begin|test|test_errdefer_block#}
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Foo = struct {
+    data: u32,
+};
+
+fn tryToAllocateFoo(allocator: Allocator) !*Foo {
+    return allocator.create(Foo);
+}
+
+fn deallocateFoo(allocator: Allocator, foo: *Foo) void {
+    allocator.destroy(foo);
+}
+
+fn getFooData() !u32 {
+    return 666;
+}
+
+fn createFoo(allocator: Allocator, param: i32) !*Foo {
+    const foo = getFoo: {
+        var foo = try tryToAllocateFoo(allocator);
+        errdefer deallocateFoo(allocator, foo);
+
+        foo.data = try getFooData();
+
+        break :getFoo foo;
+    };
+    // This lasts for the rest of the function
+    errdefer deallocateFoo(allocator, foo);
+
+    // Error is now properly handled by errdefer
+    if (param > 1337) return error.InvalidParam;
+
+    return foo;
+}
+
+test "createFoo" {
+    try std.testing.expectError(error.InvalidParam, createFoo(std.testing.allocator, 2468));
+}
+      {#code_end#}
+      <p>
+      The fact that errdefers only last for the block they are declared in is
+      especially important when using loops:
+      </p>
+      {#code_begin|test_err|3 errors were logged#}
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Foo = struct {
+    data: *u32
+};
+
+fn getData() !u32 {
+    return 666;
+}
+
+fn genFoos(allocator: Allocator, num: usize) ![]Foo {
+    var foos = try allocator.alloc(Foo, num);
+    errdefer allocator.free(foos);
+
+    for(foos) |*foo, i| {
+        foo.data = try allocator.create(u32);
+        // This errdefer does not last between iterations
+        errdefer allocator.destroy(foo.data);
+
+        // The data for the first 3 foos will be leaked
+        if(i >= 3) return error.TooManyFoos;
+
+        foo.data.* = try getData();
+    }
+
+    return foos;
+}
+
+test "genFoos" {
+    try std.testing.expectError(error.TooManyFoos, genFoos(std.testing.allocator, 5));
+}
+      {#code_end#}
+      <p>
+      Special care must be taken with code that allocates in a loop
+      to make sure that no memory is leaked when returning an error:
+      </p>
+      {#code_begin|test|test_errdefer_loop#}
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Foo = struct {
+    data: *u32
+};
+
+fn getData() !u32 {
+    return 666;
+}
+
+fn genFoos(allocator: Allocator, num: usize) ![]Foo {
+    var foos = try allocator.alloc(Foo, num);
+    errdefer allocator.free(foos);
+
+    // Used to track how many foos have been initialized
+    // (including their data being allocated)
+    var num_allocated: usize = 0;
+    errdefer for(foos[0..num_allocated]) |foo| {
+        allocator.destroy(foo.data);
+    };
+    for(foos) |*foo, i| {
+        foo.data = try allocator.create(u32);
+        num_allocated += 1;
+
+        if(i >= 3) return error.TooManyFoos;
+
+        foo.data.* = try getData();
+    }
+
+    return foos;
+}
+
+test "genFoos" {
+    try std.testing.expectError(error.TooManyFoos, genFoos(std.testing.allocator, 5));
+}
+      {#code_end#}
+      {#header_close#}
       <p>
       A couple of other tidbits about error handling:
       </p>
