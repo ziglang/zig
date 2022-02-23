@@ -2048,19 +2048,24 @@ fn buildOutputType(
                 system_libs.orderedRemoveAt(i);
                 continue;
             }
-            if (mem.eql(u8, lib_name, "unwind")) {
-                link_libunwind = true;
-                system_libs.orderedRemoveAt(i);
-                continue;
+            switch (target_util.classifyCompilerRtLibName(target_info.target, lib_name)) {
+                .none => {},
+                .only_libunwind, .both => {
+                    link_libunwind = true;
+                    system_libs.orderedRemoveAt(i);
+                    continue;
+                },
+                .only_compiler_rt => {
+                    std.log.warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
+                    system_libs.orderedRemoveAt(i);
+                    continue;
+                },
             }
-            if (target_util.is_compiler_rt_lib_name(target_info.target, lib_name)) {
-                std.log.warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
-                system_libs.orderedRemoveAt(i);
-                continue;
-            }
+
             if (std.fs.path.isAbsolute(lib_name)) {
                 fatal("cannot use absolute path as a system library: {s}", .{lib_name});
             }
+
             if (target_info.target.os.tag == .wasi) {
                 if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |crt_file| {
                     try wasi_emulated_libs.append(crt_file);

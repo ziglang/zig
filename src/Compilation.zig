@@ -962,7 +962,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const tsan = options.want_tsan orelse false;
         // TSAN is implemented in C++ so it requires linking libc++.
         const link_libcpp = options.link_libcpp or tsan;
-        const link_libc = link_libcpp or options.link_libc or
+        const link_libc = link_libcpp or options.link_libc or options.link_libunwind or
             target_util.osRequiresLibC(options.target);
 
         const link_libunwind = options.link_libunwind or

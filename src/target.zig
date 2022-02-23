@@ -427,14 +427,22 @@ pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
         eqlIgnoreCase(ignore_case, name, "c++abi");
 }
 
-pub fn is_compiler_rt_lib_name(target: std.Target, name: []const u8) bool {
+pub const CompilerRtClassification = enum { none, only_compiler_rt, only_libunwind, both };
+
+pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerRtClassification {
     if (target.abi.isGnu() and std.mem.eql(u8, name, "gcc_s")) {
-        return true;
+        // libgcc_s includes exception handling functions, so if linking this library
+        // is requested, zig needs to instead link libunwind. Otherwise we end up with
+        // the linker unable to find `_Unwind_RaiseException` and other related symbols.
+        return .both;
     }
     if (std.mem.eql(u8, name, "compiler_rt")) {
-        return true;
+        return .only_compiler_rt;
     }
-    return false;
+    if (std.mem.eql(u8, name, "unwind")) {
+        return .only_libunwind;
+    }
+    return .none;
 }
 
 pub fn hasDebugInfo(target: std.Target) bool {
