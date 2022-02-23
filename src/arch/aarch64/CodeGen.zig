@@ -3318,15 +3318,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             });
         },
         .memory => |addr| {
-            _ = try self.addInst(.{
-                .tag = .load_memory,
-                .data = .{
-                    .load_memory = .{
-                        .register = @enumToInt(reg),
-                        .addr = @intCast(u32, addr),
-                    },
-                },
-            });
+            // The value is in memory at a hard-coded address.
+            // If the type is a pointer, it means the pointer address is at this memory location.
+            try self.genSetReg(ty, reg, .{ .immediate = addr });
+            try self.genLdrRegister(reg, reg, ty.abiSize(self.target.*));
         },
         .stack_offset => |unadjusted_off| {
             const abi_size = ty.abiSize(self.target.*);

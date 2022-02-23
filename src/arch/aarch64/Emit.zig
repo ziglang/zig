@@ -108,7 +108,6 @@ pub fn emitMir(
 
             .eor_shifted_register => try emit.mirLogicalShiftedRegister(inst),
 
-            .load_memory => try emit.mirLoadMemory(inst),
             .load_memory_got => try emit.mirLoadMemoryPie(inst),
             .load_memory_direct => try emit.mirLoadMemoryPie(inst),
 
@@ -210,16 +209,6 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .load_memory_got,
         .load_memory_direct,
         => return 2 * 4,
-        .load_memory => {
-            const load_memory = emit.mir.instructions.items(.data)[inst].load_memory;
-            const addr = load_memory.addr;
-
-            // movz, [movk, ...], ldr
-            if (addr <= math.maxInt(u16)) return 2 * 4;
-            if (addr <= math.maxInt(u32)) return 3 * 4;
-            if (addr <= math.maxInt(u48)) return 4 * 4;
-            return 5 * 4;
-        },
         .pop_regs, .push_regs => {
             const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
             const number_of_regs = @popCount(u32, reg_list);
@@ -655,21 +644,6 @@ fn mirLogicalShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
-fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
-    assert(emit.mir.instructions.items(.tag)[inst] == .load_memory);
-    const load_memory = emit.mir.instructions.items(.data)[inst].load_memory;
-    const reg = @intToEnum(Register, load_memory.register);
-    const addr = load_memory.addr;
-    // The value is in memory at a hard-coded address.
-    // If the type is a pointer, it means the pointer address is at this memory location.
-    try emit.moveImmediate(reg, addr);
-    try emit.writeInstruction(Instruction.ldr(
-        reg,
-        reg,
-        Instruction.LoadStoreOffset.none,
-    ));
-}
-
 fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const payload = emit.mir.instructions.items(.data)[inst].payload;
@@ -741,6 +715,7 @@ fn mirLoadStoreRegisterPair(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const load_store_stack = emit.mir.instructions.items(.data)[inst].load_store_stack;
+    const rt = load_store_stack.rt;
 
     const raw_offset = emit.stack_size - load_store_stack.offset;
     const offset = switch (tag) {
@@ -760,7 +735,7 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
             }
         },
         .ldr_stack, .str_stack => blk: {
-            const alignment: u32 = switch (load_store_stack.rt.size()) {
+            const alignment: u32 = switch (rt.size()) {
                 32 => 4,
                 64 => 8,
                 else => unreachable,
@@ -777,36 +752,12 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
     };
 
     switch (tag) {
-        .ldr_stack => try emit.writeInstruction(Instruction.ldr(
-            load_store_stack.rt,
-            Register.sp,
-            offset,
-        )),
-        .ldrb_stack => try emit.writeInstruction(Instruction.ldrb(
-            load_store_stack.rt,
-            Register.sp,
-            offset,
-        )),
-        .ldrh_stack => try emit.writeInstruction(Instruction.ldrh(
-            load_store_stack.rt,
-            Register.sp,
-            offset,
-        )),
-        .str_stack => try emit.writeInstruction(Instruction.str(
-            load_store_stack.rt,
-            Register.sp,
-            offset,
-        )),
-        .strb_stack => try emit.writeInstruction(Instruction.strb(
-            load_store_stack.rt,
-            Register.sp,
-            offset,
-        )),
-        .strh_stack => try emit.writeInstruction(Instruction.strh(
-            load_store_stack.rt,
-            Register.sp,
-            offset,
-        )),
+        .ldr_stack => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
+        .ldrb_stack => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
+        .ldrh_stack => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
+        .str_stack => try emit.writeInstruction(Instruction.str(rt, .sp, offset)),
+        .strb_stack => try emit.writeInstruction(Instruction.strb(rt, .sp, offset)),
+        .strh_stack => try emit.writeInstruction(Instruction.strh(rt, .sp, offset)),
         else => unreachable,
     }
 }
@@ -914,7 +865,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
                         if (count == number_of_regs - 1) {
                             try emit.writeInstruction(Instruction.ldr(
                                 reg,
-                                Register.sp,
+                                .sp,
                                 Instruction.LoadStoreOffset.imm_post_index(16),
                             ));
                         } else {
@@ -924,7 +875,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
                         try emit.writeInstruction(Instruction.ldp(
                             reg,
                             other_reg,
-                            Register.sp,
+                            .sp,
                             Instruction.LoadStorePairOffset.post_index(16),
                         ));
                     }
@@ -944,7 +895,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
                         if (count == number_of_regs - 1) {
                             try emit.writeInstruction(Instruction.str(
                                 reg,
-                                Register.sp,
+                                .sp,
                                 Instruction.LoadStoreOffset.imm_pre_index(-16),
                             ));
                         } else {
@@ -954,7 +905,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
                         try emit.writeInstruction(Instruction.stp(
                             other_reg,
                             reg,
-                            Register.sp,
+                            .sp,
                             Instruction.LoadStorePairOffset.pre_index(-16),
                         ));
                     }
