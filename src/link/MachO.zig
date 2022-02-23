@@ -3047,6 +3047,9 @@ fn createMhExecuteHeaderAtom(self: *MachO) !void {
         .seg = self.text_segment_cmd_index.?,
         .sect = self.text_section_index.?,
     };
+    const seg = self.load_commands.items[match.seg].segment;
+    const sect = seg.sections.items[match.sect];
+
     const n_strx = try self.makeString("__mh_execute_header");
     const local_sym_index = @intCast(u32, self.locals.items.len);
     var nlist = macho.nlist_64{
@@ -3054,29 +3057,42 @@ fn createMhExecuteHeaderAtom(self: *MachO) !void {
         .n_type = macho.N_SECT,
         .n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1),
         .n_desc = 0,
-        .n_value = 0,
+        .n_value = sect.addr,
     };
     try self.locals.append(self.base.allocator, nlist);
-
-    nlist.n_type |= macho.N_EXT;
-    const global_sym_index = @intCast(u32, self.globals.items.len);
-    try self.globals.append(self.base.allocator, nlist);
-    try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
-        .where = .global,
-        .where_index = global_sym_index,
-        .local_sym_index = local_sym_index,
-        .file = null,
-    });
-
-    const atom = try self.createEmptyAtom(local_sym_index, 0, 0);
-
-    if (self.needs_prealloc) {
-        const sym = &self.locals.items[local_sym_index];
-        const vaddr = try self.allocateAtom(atom, 0, 1, match);
-        sym.n_value = vaddr;
-    } else try self.addAtomToSection(atom, match);
-
     self.mh_execute_header_index = local_sym_index;
+
+    if (self.symbol_resolver.getPtr(n_strx)) |resolv| {
+        const global = &self.globals.items[resolv.where_index];
+        if (!(global.weakDef() or !global.pext())) {
+            log.err("symbol '__mh_execute_header' defined multiple times", .{});
+            return error.MultipleSymbolDefinitions;
+        }
+        resolv.local_sym_index = local_sym_index;
+    } else {
+        const global_sym_index = @intCast(u32, self.globals.items.len);
+        nlist.n_type |= macho.N_EXT;
+        try self.globals.append(self.base.allocator, nlist);
+        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
+            .where = .global,
+            .where_index = global_sym_index,
+            .local_sym_index = local_sym_index,
+            .file = null,
+        });
+    }
+
+    // We always set the __mh_execute_header to point to the beginning of the __TEXT,__text section
+    const atom = try self.createEmptyAtom(local_sym_index, 0, 0);
+    if (self.atoms.get(match)) |last| {
+        var first = last;
+        while (first.prev) |prev| {
+            first = prev;
+        }
+        atom.next = first;
+        first.prev = atom;
+    } else {
+        try self.atoms.putNoClobber(self.base.allocator, match, atom);
+    }
 }
 
 fn resolveDyldStubBinder(self: *MachO) !void {
