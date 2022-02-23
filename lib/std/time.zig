@@ -99,8 +99,7 @@ pub fn nanoTimestamp() i128 {
 
     var ts: os.timespec = undefined;
     os.clock_gettime(os.CLOCK.REALTIME, &ts) catch |err| switch (err) {
-        error.UnsupportedClock, 
-        error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
+        error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
     };
     return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
 }
@@ -184,7 +183,7 @@ pub const Instant = struct {
         // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while suspended.
         // On linux, use BOOTTIME instead of MONOTONIC as it ticks while suspended.
         // On freebsd derivatives, use MONOTONIC_FAST as currently there's no precision tradeoff.
-        // On other posix systems, MONOTONIC is generally the fastest and ticks while suspended. 
+        // On other posix systems, MONOTONIC is generally the fastest and ticks while suspended.
         const clock_id = switch (builtin.os.tag) {
             .macos, .ios, .tvos, .watchos => os.CLOCK.UPTIME_RAW,
             .freebsd, .dragonfly => os.CLOCK.MONOTONIC_FAST,
@@ -216,7 +215,7 @@ pub const Instant = struct {
     /// This also assumes that the time that has passed between both Instants fits inside a u64 (~585 yrs).
     pub fn since(self: Instant, earlier: Instant) u64 {
         if (builtin.os.tag == .windows) {
-            // We don't need to cache QPF as it's internally just a memory read to KUSER_SHARED_DATA 
+            // We don't need to cache QPF as it's internally just a memory read to KUSER_SHARED_DATA
             // (a read-only page of info updated and mapped by the kernel to all processes):
             // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-kuser_shared_data
             // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
