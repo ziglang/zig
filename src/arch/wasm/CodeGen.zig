@@ -1217,18 +1217,36 @@ pub const DeclGen = struct {
                 const error_ty = ty.errorUnionSet();
                 const payload_ty = ty.errorUnionPayload();
                 const is_pl = val.errorUnionIsPayload();
+                const abi_align = ty.abiAlignment(self.target());
 
-                const err_val = if (!is_pl) val else Value.initTag(.zero);
-                switch (try self.genTypedValue(error_ty, err_val)) {
-                    .externally_managed => |data| try writer.writeAll(data),
-                    .appended => {},
+                {
+                    const err_val = if (!is_pl) val else Value.initTag(.zero);
+                    const start = self.code.items.len;
+                    switch (try self.genTypedValue(error_ty, err_val)) {
+                        .externally_managed => |data| try writer.writeAll(data),
+                        .appended => {},
+                    }
+                    const unpadded_end = self.code.items.len - start;
+                    const padded_end = mem.alignForwardGeneric(usize, unpadded_end, abi_align);
+                    const padding = padded_end - unpadded_end;
+                    if (padding > 0) {
+                        try writer.writeByteNTimes(0, padding);
+                    }
                 }
 
                 if (payload_ty.hasRuntimeBits()) {
+                    const start = self.code.items.len;
                     const pl_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
                     switch (try self.genTypedValue(payload_ty, pl_val)) {
                         .externally_managed => |data| try writer.writeAll(data),
                         .appended => {},
+                    }
+
+                    const unpadded_end = self.code.items.len - start;
+                    const padded_end = mem.alignForwardGeneric(usize, unpadded_end, abi_align);
+                    const padding = padded_end - unpadded_end;
+                    if (padding > 0) {
+                        try writer.writeByteNTimes(0, padding);
                     }
                 }
 
@@ -2065,15 +2083,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         decl.markAlive();
         const target_sym_index = decl.link.wasm.sym_index;
         if (ty.isSlice()) {
-            var slice_len: Value.Payload.U64 = .{
-                .base = .{ .tag = .int_u64 },
-                .data = val.sliceLen(),
-            };
-            var slice_val: Value.Payload.Slice = .{
-                .base = .{ .tag = .slice },
-                .data = .{ .ptr = val.slicePtr(), .len = Value.initPayload(&slice_len.base) },
-            };
-            return self.lowerConstant(Value.initPayload(&slice_val.base), ty);
+            return WValue{ .memory = try self.bin_file.lowerUnnamedConst(self.decl, .{ .ty = ty, .val = val }) };
         } else if (decl.ty.zigTypeTag() == .Fn) {
             try self.bin_file.addTableFunction(target_sym_index);
             return WValue{ .function_index = target_sym_index };
@@ -2702,11 +2712,13 @@ fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     const err_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = err_ty.errorUnionPayload();
     if (!payload_ty.hasRuntimeBits()) return WValue{ .none = {} };
-    const offset = @intCast(u32, err_ty.errorUnionSet().abiSize(self.target));
+    const err_align = err_ty.abiAlignment(self.target);
+    const set_size = err_ty.errorUnionSet().abiSize(self.target);
+    const offset = mem.alignForwardGeneric(u64, set_size, err_align);
     if (isByRef(payload_ty, self.target)) {
         return self.buildPointerOffset(operand, offset, .new);
     }
-    return self.load(operand, payload_ty, offset);
+    return self.load(operand, payload_ty, @intCast(u32, offset));
 }
 
 fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2732,7 +2744,9 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const op_ty = self.air.typeOf(ty_op.operand);
     if (!op_ty.hasRuntimeBits()) return operand;
     const err_ty = self.air.getRefType(ty_op.ty);
-    const offset = err_ty.errorUnionSet().abiSize(self.target);
+    const err_align = err_ty.abiAlignment(self.target);
+    const set_size = err_ty.errorUnionSet().abiSize(self.target);
+    const offset = mem.alignForwardGeneric(u64, set_size, err_align);
 
     const err_union = try self.allocStack(err_ty);
     const payload_ptr = try self.buildPointerOffset(err_union, offset, .new);
