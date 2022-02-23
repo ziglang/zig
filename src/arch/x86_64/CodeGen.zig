@@ -49,7 +49,7 @@ arg_index: u32,
 src_loc: Module.SrcLoc,
 stack_align: u32,
 
-ret_backpatch: ?Mir.Inst.Index = null,
+ret_backpatches: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
 compare_flags_inst: ?Air.Inst.Index = null,
 
 /// MIR Instructions
@@ -310,6 +310,7 @@ pub fn generate(
             std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index).init(bin_file.allocator)
         else {},
     };
+    defer function.ret_backpatches.deinit(bin_file.allocator);
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
     defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
@@ -473,8 +474,8 @@ fn gen(self: *Self) InnerError!void {
             };
             inline for (callee_preserved_regs) |reg, i| {
                 if (self.register_manager.isRegAllocated(reg)) {
-                    if (self.ret_backpatch) |inst| {
-                        if (reg.to64() == .rdi) {
+                    if (reg.to64() == .rdi) {
+                        for (self.ret_backpatches.items) |inst| {
                             const ops = Mir.Ops.decode(self.mir_instructions.items(.ops)[inst]);
                             self.mir_instructions.set(inst, Mir.Inst{
                                 .tag = .mov,
@@ -3312,7 +3313,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
             self.register_manager.freezeRegs(&.{ .rax, .rcx, .rdi });
             defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx, .rdi });
             const reg = try self.register_manager.allocReg(null);
-            self.ret_backpatch = try self.addInst(.{
+            const backpatch = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
                     .reg1 = reg,
@@ -3320,6 +3321,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
                 }).encode(),
                 .data = undefined,
             });
+            try self.ret_backpatches.append(self.gpa, backpatch);
             try self.genSetStack(ret_ty, 0, operand, .{
                 .source_stack_base = .rbp,
                 .dest_stack_base = reg,
@@ -3354,7 +3356,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
             self.register_manager.freezeRegs(&.{ .rax, .rcx, .rdi });
             defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx, .rdi });
             const reg = try self.register_manager.allocReg(null);
-            self.ret_backpatch = try self.addInst(.{
+            const backpatch = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
                     .reg1 = reg,
@@ -3362,6 +3364,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
                 }).encode(),
                 .data = undefined,
             });
+            try self.ret_backpatches.append(self.gpa, backpatch);
             try self.genInlineMemcpy(0, elem_ty, ptr, .{
                 .source_stack_base = .rbp,
                 .dest_stack_base = reg,

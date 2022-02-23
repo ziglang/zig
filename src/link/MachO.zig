@@ -3047,6 +3047,9 @@ fn createMhExecuteHeaderAtom(self: *MachO) !void {
         .seg = self.text_segment_cmd_index.?,
         .sect = self.text_section_index.?,
     };
+    const seg = self.load_commands.items[match.seg].segment;
+    const sect = seg.sections.items[match.sect];
+
     const n_strx = try self.makeString("__mh_execute_header");
     const local_sym_index = @intCast(u32, self.locals.items.len);
     var nlist = macho.nlist_64{
@@ -3054,29 +3057,42 @@ fn createMhExecuteHeaderAtom(self: *MachO) !void {
         .n_type = macho.N_SECT,
         .n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1),
         .n_desc = 0,
-        .n_value = 0,
+        .n_value = sect.addr,
     };
     try self.locals.append(self.base.allocator, nlist);
-
-    nlist.n_type |= macho.N_EXT;
-    const global_sym_index = @intCast(u32, self.globals.items.len);
-    try self.globals.append(self.base.allocator, nlist);
-    try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
-        .where = .global,
-        .where_index = global_sym_index,
-        .local_sym_index = local_sym_index,
-        .file = null,
-    });
-
-    const atom = try self.createEmptyAtom(local_sym_index, 0, 0);
-
-    if (self.needs_prealloc) {
-        const sym = &self.locals.items[local_sym_index];
-        const vaddr = try self.allocateAtom(atom, 0, 1, match);
-        sym.n_value = vaddr;
-    } else try self.addAtomToSection(atom, match);
-
     self.mh_execute_header_index = local_sym_index;
+
+    if (self.symbol_resolver.getPtr(n_strx)) |resolv| {
+        const global = &self.globals.items[resolv.where_index];
+        if (!(global.weakDef() or !global.pext())) {
+            log.err("symbol '__mh_execute_header' defined multiple times", .{});
+            return error.MultipleSymbolDefinitions;
+        }
+        resolv.local_sym_index = local_sym_index;
+    } else {
+        const global_sym_index = @intCast(u32, self.globals.items.len);
+        nlist.n_type |= macho.N_EXT;
+        try self.globals.append(self.base.allocator, nlist);
+        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
+            .where = .global,
+            .where_index = global_sym_index,
+            .local_sym_index = local_sym_index,
+            .file = null,
+        });
+    }
+
+    // We always set the __mh_execute_header to point to the beginning of the __TEXT,__text section
+    const atom = try self.createEmptyAtom(local_sym_index, 0, 0);
+    if (self.atoms.get(match)) |last| {
+        var first = last;
+        while (first.prev) |prev| {
+            first = prev;
+        }
+        atom.next = first;
+        first.prev = atom;
+    } else {
+        try self.atoms.putNoClobber(self.base.allocator, match, atom);
+    }
 }
 
 fn resolveDyldStubBinder(self: *MachO) !void {
@@ -3747,9 +3763,12 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
     }
     const unnamed_consts = gop.value_ptr;
 
+    const decl_name = try decl.getFullyQualifiedName(self.base.allocator);
+    defer self.base.allocator.free(decl_name);
+
     const name_str_index = blk: {
         const index = unnamed_consts.items.len;
-        const name = try std.fmt.allocPrint(self.base.allocator, "__unnamed_{s}_{d}", .{ decl.name, index });
+        const name = try std.fmt.allocPrint(self.base.allocator, "__unnamed_{s}_{d}", .{ decl_name, index });
         defer self.base.allocator.free(name);
         break :blk try self.makeString(name);
     };
@@ -4041,14 +4060,17 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
         decl_ptr.* = try self.getMatchingSectionAtom(&decl.link.macho, decl.ty, decl.val);
     }
     const match = decl_ptr.*.?;
+    const sym_name = try decl.getFullyQualifiedName(self.base.allocator);
+    defer self.base.allocator.free(sym_name);
 
     if (decl.link.macho.size != 0) {
         const capacity = decl.link.macho.capacity(self.*);
         const need_realloc = code_len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
+
         if (need_realloc) {
             const vaddr = try self.growAtom(&decl.link.macho, code_len, required_alignment, match);
 
-            log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
+            log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ sym_name, symbol.n_value, vaddr });
 
             if (vaddr != symbol.n_value) {
                 log.debug(" (writing new GOT entry)", .{});
@@ -4074,25 +4096,15 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
         decl.link.macho.size = code_len;
         decl.link.macho.dirty = true;
 
-        const new_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{
-            mem.sliceTo(decl.name, 0),
-        });
-        defer self.base.allocator.free(new_name);
-
-        symbol.n_strx = try self.makeString(new_name);
+        symbol.n_strx = try self.makeString(sym_name);
         symbol.n_type = macho.N_SECT;
         symbol.n_sect = @intCast(u8, self.text_section_index.?) + 1;
         symbol.n_desc = 0;
     } else {
-        const decl_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{
-            mem.sliceTo(decl.name, 0),
-        });
-        defer self.base.allocator.free(decl_name);
-
-        const name_str_index = try self.makeString(decl_name);
+        const name_str_index = try self.makeString(sym_name);
         const addr = try self.allocateAtom(&decl.link.macho, code_len, required_alignment, match);
 
-        log.debug("allocated atom for {s} at 0x{x}", .{ decl_name, addr });
+        log.debug("allocated atom for {s} at 0x{x}", .{ sym_name, addr });
 
         errdefer self.freeAtom(&decl.link.macho, match, false);
 
@@ -6675,17 +6687,17 @@ fn snapshotState(self: *MachO) !void {
 fn logSymtab(self: MachO) void {
     log.debug("locals:", .{});
     for (self.locals.items) |sym, id| {
-        log.debug("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+        log.debug("  {d}: {s}: @{x} in {d}", .{ id, self.getString(sym.n_strx), sym.n_value, sym.n_sect });
     }
 
     log.debug("globals:", .{});
     for (self.globals.items) |sym, id| {
-        log.debug("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+        log.debug("  {d}: {s}: @{x} in {d}", .{ id, self.getString(sym.n_strx), sym.n_value, sym.n_sect });
     }
 
     log.debug("undefs:", .{});
     for (self.undefs.items) |sym, id| {
-        log.debug("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+        log.debug("  {d}: {s}: in {d}", .{ id, self.getString(sym.n_strx), sym.n_desc });
     }
 
     {
@@ -6700,26 +6712,28 @@ fn logSymtab(self: MachO) void {
     for (self.got_entries_table.values()) |value| {
         const key = self.got_entries.items[value].target;
         const atom = self.got_entries.items[value].atom;
+        const n_value = self.locals.items[atom.local_sym_index].n_value;
         switch (key) {
-            .local => {
-                const sym = self.locals.items[atom.local_sym_index];
-                log.debug("  {} => {s}", .{ key, self.getString(sym.n_strx) });
-            },
-            .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
+            .local => |ndx| log.debug("  {d}: @{x}", .{ ndx, n_value }),
+            .global => |n_strx| log.debug("  {s}: @{x}", .{ self.getString(n_strx), n_value }),
         }
     }
 
     log.debug("__thread_ptrs entries:", .{});
-    for (self.tlv_ptr_entries_table.keys()) |key| {
-        switch (key) {
-            .local => unreachable,
-            .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
-        }
+    for (self.tlv_ptr_entries_table.values()) |value| {
+        const key = self.tlv_ptr_entries.items[value].target;
+        const atom = self.tlv_ptr_entries.items[value].atom;
+        const n_value = self.locals.items[atom.local_sym_index].n_value;
+        assert(key == .global);
+        log.debug("  {s}: @{x}", .{ self.getString(key.global), n_value });
     }
 
     log.debug("stubs:", .{});
     for (self.stubs_table.keys()) |key| {
-        log.debug("  {} => {s}", .{ key, self.getString(key) });
+        const value = self.stubs_table.get(key).?;
+        const atom = self.stubs.items[value];
+        const sym = self.locals.items[atom.local_sym_index];
+        log.debug("  {s}: @{x}", .{ self.getString(key), sym.n_value });
     }
 }
 
