@@ -110,6 +110,8 @@ pub fn emitMir(
 
             .load_memory_got => try emit.mirLoadMemoryPie(inst),
             .load_memory_direct => try emit.mirLoadMemoryPie(inst),
+            .load_memory_ptr_got => try emit.mirLoadMemoryPie(inst),
+            .load_memory_ptr_direct => try emit.mirLoadMemoryPie(inst),
 
             .ldp => try emit.mirLoadStoreRegisterPair(inst),
             .stp => try emit.mirLoadStoreRegisterPair(inst),
@@ -208,6 +210,8 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
     switch (tag) {
         .load_memory_got,
         .load_memory_direct,
+        .load_memory_ptr_got,
+        .load_memory_ptr_direct,
         => return 2 * 4,
         .pop_regs, .push_regs => {
             const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
@@ -655,12 +659,25 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     const offset = @intCast(u32, emit.code.items.len);
     try emit.writeInstruction(Instruction.adrp(reg, 0));
 
-    // ldr reg, reg, offset
-    try emit.writeInstruction(Instruction.ldr(
-        reg,
-        reg,
-        Instruction.LoadStoreOffset.imm(0),
-    ));
+    switch (tag) {
+        .load_memory_got,
+        .load_memory_direct,
+        => {
+            // ldr reg, reg, offset
+            try emit.writeInstruction(Instruction.ldr(
+                reg,
+                reg,
+                Instruction.LoadStoreOffset.imm(0),
+            ));
+        },
+        .load_memory_ptr_got,
+        .load_memory_ptr_direct,
+        => {
+            // add reg, reg, offset
+            try emit.writeInstruction(Instruction.add(reg, reg, 0, false));
+        },
+        else => unreachable,
+    }
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         const atom = macho_file.atom_by_index_table.get(data.atom_index).?;
@@ -673,8 +690,12 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .pcrel = true,
             .length = 2,
             .@"type" = switch (tag) {
-                .load_memory_got => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
-                .load_memory_direct => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGE21),
+                .load_memory_got,
+                .load_memory_ptr_got,
+                => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
+                .load_memory_direct,
+                .load_memory_ptr_direct,
+                => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGE21),
                 else => unreachable,
             },
         });
@@ -687,8 +708,12 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .pcrel = false,
             .length = 2,
             .@"type" = switch (tag) {
-                .load_memory_got => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
-                .load_memory_direct => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGEOFF12),
+                .load_memory_got,
+                .load_memory_ptr_got,
+                => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
+                .load_memory_direct,
+                .load_memory_ptr_direct,
+                => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGEOFF12),
                 else => unreachable,
             },
         });

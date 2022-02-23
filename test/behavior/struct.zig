@@ -66,7 +66,6 @@ const SmallStruct = struct {
 };
 
 test "lower unnamed constants" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
     var foo = SmallStruct{ .a = 1, .b = 255 };
     try expect(foo.first() == 1);
     try expect(foo.second() == 255);

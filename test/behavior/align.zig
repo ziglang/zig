@@ -305,7 +305,6 @@ fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) !void {
 }
 
 test "alignment of function with c calling convention" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     var runtime_nothing = &nothing;

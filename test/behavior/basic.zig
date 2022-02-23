@@ -48,7 +48,6 @@ const g1: i32 = 1233 + 1;
 var g2: i32 = 0;
 
 test "global variables" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
     try expect(g2 == 0);
     g2 = g1;
     try expect(g2 == 1234);
@@ -604,7 +603,6 @@ test "comptime cast fn to ptr" {
 }
 
 test "equality compare fn ptrs" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     var a = &emptyFn;
@@ -612,7 +610,6 @@ test "equality compare fn ptrs" {
 }
 
 test "self reference through fn ptr field" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 

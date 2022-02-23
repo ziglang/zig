@@ -81,7 +81,6 @@ fn assertLenIsZero(msg: []const u8) !void {
 }
 
 test "access len index of sentinel-terminated slice" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const S = struct {
