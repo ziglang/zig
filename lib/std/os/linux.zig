@@ -1269,11 +1269,11 @@ pub fn sendfile(outfd: i32, infd: i32, offset: ?*i64, count: usize) usize {
     }
 }
 
-pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) usize {
+pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: *[2]i32) usize {
     if (native_arch == .i386) {
-        return socketcall(SC.socketpair, &[4]usize{ @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(&fd[0]) });
+        return socketcall(SC.socketpair, &[4]usize{ @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(fd) });
     }
-    return syscall4(.socketpair, @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(&fd[0]));
+    return syscall4(.socketpair, @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(fd));
 }
 
 pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
