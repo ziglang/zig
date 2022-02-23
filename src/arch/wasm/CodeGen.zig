@@ -645,31 +645,8 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!WValue {
     // In the other cases, we will simply lower the constant to a value that fits
     // into a single local (such as a pointer, integer, bool, etc).
     const result = if (isByRef(ty, self.target)) blk: {
-        var value_bytes = std.ArrayList(u8).init(self.gpa);
-        defer value_bytes.deinit();
-
-        var decl_gen: DeclGen = .{
-            .bin_file = self.bin_file,
-            .decl = self.decl,
-            .err_msg = undefined,
-            .gpa = self.gpa,
-            .module = self.module,
-            .code = &value_bytes,
-            .symbol_index = try self.bin_file.createLocalSymbol(self.decl, ty),
-        };
-        const result = decl_gen.genTypedValue(ty, val) catch |err| {
-            // When a codegen error occured, take ownership of the error message
-            if (err == error.CodegenFail) {
-                self.err_msg = decl_gen.err_msg;
-            }
-            return err;
-        };
-        const code = switch (result) {
-            .appended => value_bytes.items,
-            .externally_managed => |data| data,
-        };
-        try self.bin_file.updateLocalSymbolCode(self.decl, decl_gen.symbol_index, code);
-        break :blk WValue{ .memory = decl_gen.symbol_index };
+        const sym_index = try self.bin_file.lowerUnnamedConst(self.decl, .{ .ty = ty, .val = val });
+        break :blk WValue{ .memory = sym_index };
     } else try self.lowerConstant(val, ty);
 
     gop.value_ptr.* = result;
@@ -986,7 +963,7 @@ pub const DeclGen = struct {
     }
 
     /// Generates the wasm bytecode for the declaration belonging to `Context`
-    fn genTypedValue(self: *DeclGen, ty: Type, val: Value) InnerError!Result {
+    pub fn genTypedValue(self: *DeclGen, ty: Type, val: Value) InnerError!Result {
         log.debug("genTypedValue: ty = {}, val = {}", .{ ty, val });
 
         const writer = self.code.writer();
@@ -1324,10 +1301,9 @@ pub const DeclGen = struct {
             try writer.writeIntLittle(u32, 0);
         } else {
             try writer.writeIntLittle(u32, try self.bin_file.getDeclVAddr(
-                self.decl, // The decl containing the source symbol index
-                decl.ty, // type we generate the address of
+                self.decl, // parent decl that owns the atom of the symbol
                 self.symbol_index, // source symbol index
-                decl.link.wasm.sym_index, // target symbol index
+                decl, // target decl that contains the target symbol
                 @intCast(u32, self.code.items.len), // offset
                 @intCast(u32, offset), // addend
             ));
