@@ -1013,7 +1013,6 @@ test "cast from array reference to fn: comptime fn ptr" {
     try expect(@ptrToInt(f) == @ptrToInt(&global_array));
 }
 test "cast from array reference to fn: runtime fn ptr" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

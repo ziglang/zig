@@ -56,14 +56,22 @@ pub const Inst = struct {
         dbg_line,
         /// Bitwise Exclusive OR (shifted register)
         eor_shifted_register,
-        /// Pseudo-instruction: Load memory
+        /// Loads the contents into a register
         ///
-        /// Payload is `load_memory`
-        load_memory,
         /// Payload is `LoadMemoryPie`
         load_memory_got,
+        /// Loads the contents into a register
+        ///
         /// Payload is `LoadMemoryPie`
         load_memory_direct,
+        /// Loads the address into a register
+        ///
+        /// Payload is `LoadMemoryPie`
+        load_memory_ptr_got,
+        /// Loads the address into a register
+        ///
+        /// Payload is `LoadMemoryPie`
+        load_memory_ptr_direct,
         /// Load Pair of Registers
         ldp,
         /// Pseudo-instruction: Load from stack

@@ -1717,6 +1717,8 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
 
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
     const elem_ty = ptr_ty.elemType();
+    const elem_size = elem_ty.abiSize(self.target.*);
+
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -1736,17 +1738,16 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
             self.register_manager.freezeRegs(&.{addr_reg});
             defer self.register_manager.unfreezeRegs(&.{addr_reg});
 
-            const abi_size = elem_ty.abiSize(self.target.*);
             switch (dst_mcv) {
                 .dead => unreachable,
                 .undef => unreachable,
                 .compare_flags_signed, .compare_flags_unsigned => unreachable,
                 .embedded_in_code => unreachable,
                 .register => |dst_reg| {
-                    try self.genLdrRegister(dst_reg, addr_reg, abi_size);
+                    try self.genLdrRegister(dst_reg, addr_reg, elem_size);
                 },
                 .stack_offset => |off| {
-                    if (abi_size <= 8) {
+                    if (elem_size <= 8) {
                         const tmp_reg = try self.register_manager.allocReg(null);
                         self.register_manager.freezeRegs(&.{tmp_reg});
                         defer self.register_manager.unfreezeRegs(&.{tmp_reg});
@@ -1766,17 +1767,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         const tmp_reg = regs[3];
 
                         // sub dst_reg, fp, #off
-                        const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
-                        const adj_off = off + elem_size;
-                        const offset = math.cast(u12, adj_off) catch return self.fail("TODO load: larger stack offsets", .{});
-                        _ = try self.addInst(.{
-                            .tag = .sub_immediate,
-                            .data = .{ .rr_imm12_sh = .{
-                                .rd = dst_reg,
-                                .rn = .x29,
-                                .imm12 = offset,
-                            } },
-                        });
+                        try self.genSetReg(ptr_ty, dst_reg, .{ .ptr_stack_offset = off });
 
                         // mov len, #elem_size
                         try self.genSetReg(Type.usize, len_reg, .{ .immediate = elem_size });
@@ -2046,14 +2037,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         },
         .memory,
         .stack_offset,
-        => {
-            const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
-            try self.store(.{ .register = addr_reg }, value, ptr_ty, value_ty);
-        },
         .got_load,
         .direct_load,
         => {
-            return self.fail("TODO implement storing to {}", .{ptr});
+            const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
+            try self.store(.{ .register = addr_reg }, value, ptr_ty, value_ty);
         },
     }
 }
@@ -3142,10 +3130,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
         },
         .got_load,
         .direct_load,
-        => |sym_index| {
-            _ = sym_index;
-            return self.fail("TODO implement set stack variable from {}", .{mcv});
-        },
         .memory,
         .stack_offset,
         => {
@@ -3187,6 +3171,25 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         });
                     },
                     .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = addr }),
+                    .got_load,
+                    .direct_load,
+                    => |sym_index| {
+                        const tag: Mir.Inst.Tag = switch (mcv) {
+                            .got_load => .load_memory_ptr_got,
+                            .direct_load => .load_memory_ptr_direct,
+                            else => unreachable,
+                        };
+                        _ = try self.addInst(.{
+                            .tag = tag,
+                            .data = .{
+                                .payload = try self.addExtra(Mir.LoadMemoryPie{
+                                    .register = @enumToInt(src_reg),
+                                    .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
+                                    .sym_index = sym_index,
+                                }),
+                            },
+                        });
+                    },
                     else => unreachable,
                 }
 
@@ -3318,15 +3321,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             });
         },
         .memory => |addr| {
-            _ = try self.addInst(.{
-                .tag = .load_memory,
-                .data = .{
-                    .load_memory = .{
-                        .register = @enumToInt(reg),
-                        .addr = @intCast(u32, addr),
-                    },
-                },
-            });
+            // The value is in memory at a hard-coded address.
+            // If the type is a pointer, it means the pointer address is at this memory location.
+            try self.genSetReg(ty, reg, .{ .immediate = addr });
+            try self.genLdrRegister(reg, reg, ty.abiSize(self.target.*));
         },
         .stack_offset => |unadjusted_off| {
             const abi_size = ty.abiSize(self.target.*);

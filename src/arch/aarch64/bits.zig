@@ -1486,19 +1486,19 @@ test "serialize instructions" {
             .expected = 0b1_00_10000_1111111111111111110_00010,
         },
         .{ // stp x1, x2, [sp, #8]
-            .inst = Instruction.stp(.x1, .x2, Register.sp, Instruction.LoadStorePairOffset.signed(8)),
+            .inst = Instruction.stp(.x1, .x2, .sp, Instruction.LoadStorePairOffset.signed(8)),
             .expected = 0b10_101_0_010_0_0000001_00010_11111_00001,
         },
         .{ // ldp x1, x2, [sp, #8]
-            .inst = Instruction.ldp(.x1, .x2, Register.sp, Instruction.LoadStorePairOffset.signed(8)),
+            .inst = Instruction.ldp(.x1, .x2, .sp, Instruction.LoadStorePairOffset.signed(8)),
             .expected = 0b10_101_0_010_1_0000001_00010_11111_00001,
         },
         .{ // stp x1, x2, [sp, #-16]!
-            .inst = Instruction.stp(.x1, .x2, Register.sp, Instruction.LoadStorePairOffset.pre_index(-16)),
+            .inst = Instruction.stp(.x1, .x2, .sp, Instruction.LoadStorePairOffset.pre_index(-16)),
             .expected = 0b10_101_0_011_0_1111110_00010_11111_00001,
         },
         .{ // ldp x1, x2, [sp], #16
-            .inst = Instruction.ldp(.x1, .x2, Register.sp, Instruction.LoadStorePairOffset.post_index(16)),
+            .inst = Instruction.ldp(.x1, .x2, .sp, Instruction.LoadStorePairOffset.post_index(16)),
             .expected = 0b10_101_0_001_1_0000010_00010_11111_00001,
         },
         .{ // and x0, x4, x2
