@@ -18750,8 +18750,8 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                     return_type->data.x_type = type_entry->data.fn.fn_type_id.return_type;
                     fields[4]->data.x_optional = return_type;
                 }
-                // args: []TypeInfo.FnArg
-                ZigType *type_info_fn_arg_type = ir_type_info_get_type(ira, "FnArg", nullptr);
+                // args: []TypeInfo.Fn.Param
+                ZigType *type_info_fn_arg_type = ir_type_info_get_type(ira, "Param", result->type);
                 if ((err = type_resolve(g, type_info_fn_arg_type, ResolveStatusSizeKnown))) {
                     zig_unreachable();
                 }
@@ -19614,14 +19614,13 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             assert(args_arr->data.x_array.special == ConstArraySpecialNone);
             for (size_t i = 0; i < args_len; i++) {
                 ZigValue *arg_value = &args_arr->data.x_array.data.s_none.elements[i];
-                assert(arg_value->type == ir_type_info_get_type(ira, "FnArg", nullptr));
                 FnTypeParamInfo *info = &fn_type_id.param_info[i];
                 Error err;
                 bool is_generic;
                 if ((err = get_const_field_bool(ira, source_node, arg_value, "is_generic", 0, &is_generic)))
                     return ira->codegen->invalid_inst_gen->value->type;
                 if (is_generic) {
-                    ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.FnArg.is_generic must be false for @Type"));
+                    ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.Fn.Param.is_generic must be false for @Type"));
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
                 if ((err = get_const_field_bool(ira, source_node, arg_value, "is_noalias", 1, &info->is_noalias)))
@@ -19629,7 +19628,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
                 ZigType *type = get_const_field_meta_type_optional(
                     ira, source_node, arg_value, "arg_type", 2);
                 if (type == nullptr) {
-                    ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.FnArg.arg_type must be non-null for @Type"));
+                    ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.Fn.Param.arg_type must be non-null for @Type"));
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
                 info->type = type;

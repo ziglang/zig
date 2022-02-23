@@ -346,14 +346,8 @@ pub const TypeInfo = union(enum) {
         decls: []const Declaration,
     };
 
-    /// This data structure is used by the Zig language code generation and
-    /// therefore must be kept in sync with the compiler implementation.
-    /// TODO rename to Param and put inside `Fn`.
-    pub const FnArg = struct {
-        is_generic: bool,
-        is_noalias: bool,
-        arg_type: ?type,
-    };
+    /// TODO deprecated use Fn.Param
+    pub const FnArg = Fn.Param;
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -363,7 +357,15 @@ pub const TypeInfo = union(enum) {
         is_generic: bool,
         is_var_args: bool,
         return_type: ?type,
-        args: []const FnArg,
+        args: []const Param,
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Param = struct {
+            is_generic: bool,
+            is_noalias: bool,
+            arg_type: ?type,
+        };
     };
 
     /// This data structure is used by the Zig language code generation and

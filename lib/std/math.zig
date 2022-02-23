@@ -947,7 +947,7 @@ fn testRem() !void {
 /// Result is an unsigned integer.
 pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
     .ComptimeInt => comptime_int,
-    .Int => |intInfo| std.meta.Int(.unsigned, intInfo.bits),
+    .Int => |int_info| std.meta.Int(.unsigned, int_info.bits),
     else => @compileError("absCast only accepts integers"),
 } {
     switch (@typeInfo(@TypeOf(x))) {
@@ -958,8 +958,9 @@ pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
                 return x;
             }
         },
-        .Int => |intInfo| {
-            const Uint = std.meta.Int(.unsigned, intInfo.bits);
+        .Int => |int_info| {
+            if (int_info.signedness == .unsigned) return x;
+            const Uint = std.meta.Int(.unsigned, int_info.bits);
             if (x < 0) {
                 return ~@bitCast(Uint, x +% -1);
             } else {
