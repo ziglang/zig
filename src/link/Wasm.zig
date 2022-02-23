@@ -21,6 +21,7 @@ const build_options = @import("build_options");
 const wasi_libc = @import("../wasi_libc.zig");
 const Cache = @import("../Cache.zig");
 const Type = @import("../type.zig").Type;
+const TypedValue = @import("../TypedValue.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
@@ -497,10 +498,13 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     try atom.code.appendSlice(self.base.allocator, code);
 }
 
-/// Creates a new local symbol for a given type (and its bytes it's represented by)
-/// and then append it as a 'contained' atom onto the Decl.
-pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type) !u32 {
-    assert(ty.zigTypeTag() != .Fn); // cannot create local symbols for functions
+/// Lowers a constant typed value to a local symbol and atom.
+/// Returns the symbol index of the local
+/// The given `decl` is the parent decl whom owns the constant.
+pub fn lowerUnnamedConst(self: *Wasm, decl: *Module.Decl, tv: TypedValue) !u32 {
+    assert(tv.ty.zigTypeTag() != .Fn); // cannot create local symbols for functions
+
+    // Create and initialize a new local symbol and atom
     const local_index = decl.link.wasm.locals.items.len;
     const name = try std.fmt.allocPrintZ(self.base.allocator, "__unnamed_{s}_{d}", .{ decl.name, local_index });
     var symbol: Symbol = .{
@@ -510,10 +514,10 @@ pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type) !u32 {
         .index = undefined,
     };
     symbol.setFlag(.WASM_SYM_BINDING_LOCAL);
-    symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
 
-    var atom = Atom.empty;
-    atom.alignment = ty.abiAlignment(self.base.options.target);
+    const atom = try decl.link.wasm.locals.addOne(self.base.allocator);
+    atom.* = Atom.empty;
+    atom.alignment = tv.ty.abiAlignment(self.base.options.target);
     try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
 
     if (self.symbols_free_list.popOrNull()) |index| {
@@ -528,14 +532,36 @@ pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type) !u32 {
         .index = atom.sym_index,
     }, {});
 
-    try decl.link.wasm.locals.append(self.base.allocator, atom);
-    return atom.sym_index;
-}
+    var value_bytes = std.ArrayList(u8).init(self.base.allocator);
+    defer value_bytes.deinit();
 
-pub fn updateLocalSymbolCode(self: *Wasm, decl: *Module.Decl, symbol_index: u32, code: []const u8) !void {
-    const atom = decl.link.wasm.symbolAtom(symbol_index);
+    const module = self.base.options.module.?;
+    var decl_gen: CodeGen.DeclGen = .{
+        .bin_file = self,
+        .decl = decl,
+        .err_msg = undefined,
+        .gpa = self.base.allocator,
+        .module = module,
+        .code = &value_bytes,
+        .symbol_index = atom.sym_index,
+    };
+
+    const result = decl_gen.genTypedValue(tv.ty, tv.val) catch |err| switch (err) {
+        error.CodegenFail => {
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl, decl_gen.err_msg);
+            return error.AnalysisFail;
+        },
+        else => |e| return e,
+    };
+    const code = switch (result) {
+        .appended => value_bytes.items,
+        .externally_managed => |data| data,
+    };
+
     atom.size = @intCast(u32, code.len);
     try atom.code.appendSlice(self.base.allocator, code);
+    return atom.sym_index;
 }
 
 /// For a given decl, find the given symbol index's atom, and create a relocation for the type.
@@ -543,16 +569,18 @@ pub fn updateLocalSymbolCode(self: *Wasm, decl: *Module.Decl, symbol_index: u32,
 pub fn getDeclVAddr(
     self: *Wasm,
     decl: *Module.Decl,
-    ty: Type,
     symbol_index: u32,
-    target_symbol_index: u32,
+    target_decl: *Module.Decl,
     offset: u32,
     addend: u32,
 ) !u32 {
+    const target_symbol_index = target_decl.link.wasm.sym_index;
     assert(target_symbol_index != 0);
+    assert(symbol_index != 0);
+
     const atom = decl.link.wasm.symbolAtom(symbol_index);
     const is_wasm32 = self.base.options.target.cpu.arch == .wasm32;
-    if (ty.zigTypeTag() == .Fn) {
+    if (target_decl.ty.zigTypeTag() == .Fn) {
         assert(addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
@@ -1192,6 +1220,11 @@ fn resetState(self: *Wasm) void {
         const atom = &decl.*.link.wasm;
         atom.next = null;
         atom.prev = null;
+
+        for (atom.locals.items) |*local_atom| {
+            local_atom.next = null;
+            local_atom.prev = null;
+        }
     }
     self.functions.clearRetainingCapacity();
     self.exports.clearRetainingCapacity();
