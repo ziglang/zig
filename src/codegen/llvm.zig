@@ -2191,6 +2191,8 @@ pub const FuncGen = struct {
                 .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
                 .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
 
+                .field_parent_ptr => try self.airFieldParentPtr(inst),
+
                 .array_elem_val     => try self.airArrayElemVal(inst),
                 .slice_elem_val     => try self.airSliceElemVal(inst),
                 .slice_elem_ptr     => try self.airSliceElemPtr(inst),
@@ -2851,6 +2853,29 @@ pub const FuncGen = struct {
             },
             else => unreachable,
         }
+    }
+
+    fn airFieldParentPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
+
+        const field_ptr = try self.resolveInst(extra.field_ptr);
+
+        const target = self.dg.module.getTarget();
+        const struct_ty = self.air.getRefType(ty_pl.ty).childType();
+        const field_offset = struct_ty.structFieldOffset(extra.field_index, target);
+
+        const res_ty = try self.dg.llvmType(self.air.getRefType(ty_pl.ty));
+        if (field_offset == 0) {
+            return self.builder.buildBitCast(field_ptr, res_ty, "");
+        }
+        const llvm_usize_ty = self.context.intType(target.cpu.arch.ptrBitWidth());
+
+        const field_ptr_int = self.builder.buildPtrToInt(field_ptr, llvm_usize_ty, "");
+        const base_ptr_int = self.builder.buildNUWSub(field_ptr_int, llvm_usize_ty.constInt(field_offset, .False), "");
+        return self.builder.buildIntToPtr(base_ptr_int, res_ty, "");
     }
 
     fn airNot(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

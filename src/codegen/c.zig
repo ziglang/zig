@@ -1734,6 +1734,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .struct_field_ptr_index_2 => try airStructFieldPtrIndex(f, inst, 2),
             .struct_field_ptr_index_3 => try airStructFieldPtrIndex(f, inst, 3),
 
+            .field_parent_ptr => try airFieldParentPtr(f, inst),
+
             .struct_field_val => try airStructFieldVal(f, inst),
             .slice_ptr        => try airSliceField(f, inst, ".ptr;\n"),
             .slice_len        => try airSliceField(f, inst, ".len;\n"),
@@ -3024,6 +3026,11 @@ fn airStructFieldPtrIndex(f: *Function, inst: Air.Inst.Index, index: u8) !CValue
     const struct_ptr = try f.resolveInst(ty_op.operand);
     const struct_ptr_ty = f.air.typeOf(ty_op.operand);
     return structFieldPtr(f, inst, struct_ptr_ty, struct_ptr, index);
+}
+
+fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = inst;
+    return f.fail("TODO: C backend: implement airFieldParentPtr", .{});
 }
 
 fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struct_ptr: CValue, index: u32) !CValue {

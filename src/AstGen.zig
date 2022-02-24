@@ -2296,7 +2296,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .atomic_rmw,
             .mul_add,
             .builtin_call,
-            .field_ptr_type,
             .field_parent_ptr,
             .maximum,
             .minimum,
@@ -7403,11 +7402,10 @@ fn builtinCall(
         .field_parent_ptr => {
             const parent_type = try typeExpr(gz, scope, params[0]);
             const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
-            const field_ptr_type = try gz.addBin(.field_ptr_type, parent_type, field_name);
             const result = try gz.addPlNode(.field_parent_ptr, node, Zir.Inst.FieldParentPtr{
                 .parent_type = parent_type,
                 .field_name = field_name,
-                .field_ptr = try expr(gz, scope, .{ .ty = field_ptr_type }, params[2]),
+                .field_ptr = try expr(gz, scope, .none, params[2]),
             });
             return rvalue(gz, rl, result, node);
         },

@@ -574,6 +574,10 @@ pub const Inst = struct {
         /// Uses the `prefetch` field.
         prefetch,
 
+        /// Implements @fieldParentPtr builtin.
+        /// Uses the `ty_pl` field.
+        field_parent_ptr,
+
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -701,6 +705,11 @@ pub const StructField = struct {
 pub const Bin = struct {
     lhs: Inst.Ref,
     rhs: Inst.Ref,
+};
+
+pub const FieldParentPtr = struct {
+    field_ptr: Inst.Ref,
+    field_index: u32,
 };
 
 /// Trailing:
@@ -856,6 +865,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .cmpxchg_strong,
         .slice,
         .vector_init,
+        .field_parent_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,

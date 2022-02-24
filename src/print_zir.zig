@@ -150,7 +150,6 @@ const Writer = struct {
             .store,
             .store_to_block_ptr,
             .store_to_inferred_ptr,
-            .field_ptr_type,
             => try self.writeBin(stream, inst),
 
             .alloc,

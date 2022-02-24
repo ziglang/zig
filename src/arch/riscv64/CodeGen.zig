@@ -609,6 +609,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
             .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
 
+            .field_parent_ptr => try self.airFieldParentPtr(inst),
+
             .switch_br       => try self.airSwitch(inst),
             .slice_ptr       => try self.airSlicePtr(inst),
             .slice_len       => try self.airSliceLen(inst),
@@ -1358,6 +1360,12 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     _ = extra;
     return self.fail("TODO implement codegen struct_field_val", .{});
     //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+}
+
+fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
+    _ = self;
+    _ = inst;
+    return self.fail("TODO implement codegen airFieldParentPtr", .{});
 }
 
 fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {

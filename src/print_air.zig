@@ -247,6 +247,7 @@ const Writer = struct {
             .atomic_rmw => try w.writeAtomicRmw(s, inst),
             .memcpy => try w.writeMemcpy(s, inst),
             .memset => try w.writeMemset(s, inst),
+            .field_parent_ptr => try w.writeFieldParentPtr(s, inst),
 
             .add_with_overflow,
             .sub_with_overflow,
@@ -410,6 +411,14 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, extra.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, extra.rhs);
+    }
+
+    fn writeFieldParentPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.FieldParentPtr, pl_op.payload).data;
+
+        try w.writeOperand(s, inst, 0, extra.field_ptr);
+        try s.print(", {d}", .{extra.field_index});
     }
 
     fn writeMemcpy(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

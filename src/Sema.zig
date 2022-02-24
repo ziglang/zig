@@ -732,7 +732,6 @@ fn analyzeBodyInner(
             .atomic_rmw                   => try sema.zirAtomicRmw(block, inst),
             .mul_add                      => try sema.zirMulAdd(block, inst),
             .builtin_call                 => try sema.zirBuiltinCall(block, inst),
-            .field_ptr_type               => try sema.zirFieldPtrType(block, inst),
             .field_parent_ptr             => try sema.zirFieldParentPtr(block, inst),
             .builtin_async_call           => try sema.zirBuiltinAsyncCall(block, inst),
             .@"resume"                    => try sema.zirResume(block, inst),
@@ -12839,16 +12838,68 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     return sema.fail(block, src, "TODO: Sema.zirBuiltinCall", .{});
 }
 
-fn zirFieldPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirFieldPtrType", .{});
-}
-
 fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.FieldParentPtr, inst_data.payload_index).data;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirFieldParentPtr", .{});
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+
+    const struct_ty = try sema.resolveType(block, ty_src, extra.parent_type);
+    const field_name = try sema.resolveConstString(block, name_src, extra.field_name);
+    const field_ptr = sema.resolveInst(extra.field_ptr);
+    const field_ptr_ty = sema.typeOf(field_ptr);
+
+    if (struct_ty.zigTypeTag() != .Struct) {
+        return sema.fail(block, ty_src, "expected struct type, found '{}'", .{struct_ty});
+    }
+    try sema.resolveTypeLayout(block, ty_src, struct_ty);
+
+    const struct_obj = struct_ty.castTag(.@"struct").?.data;
+    const field_index = struct_obj.fields.getIndex(field_name) orelse
+        return sema.failWithBadStructFieldAccess(block, struct_obj, name_src, field_name);
+
+    if (field_ptr_ty.zigTypeTag() != .Pointer) {
+        return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{field_ptr_ty});
+    }
+    const field = struct_obj.fields.values()[field_index];
+    const field_ptr_ty_info = field_ptr_ty.ptrInfo().data;
+
+    var ptr_ty_data: Type.Payload.Pointer.Data = .{
+        .pointee_type = field.ty,
+        .mutable = field_ptr_ty_info.mutable,
+        .@"addrspace" = field_ptr_ty_info.@"addrspace",
+    };
+
+    if (struct_obj.layout == .Packed) {
+        // TODO handle packed structs
+    } else if (field.abi_align.tag() != .abi_align_default) {
+        ptr_ty_data.@"align" = @intCast(u32, field.abi_align.toUnsignedInt());
+    }
+
+    const actual_field_ptr_ty = try Type.ptr(sema.arena, ptr_ty_data);
+    const casted_field_ptr = try sema.coerce(block, actual_field_ptr_ty, field_ptr, ptr_src);
+
+    ptr_ty_data.pointee_type = struct_ty;
+    const result_ptr = try Type.ptr(sema.arena, ptr_ty_data);
+
+    if (try sema.resolveDefinedValue(block, src, casted_field_ptr)) |field_ptr_val| {
+        const payload = field_ptr_val.castTag(.field_ptr).?.data;
+        return sema.addConstant(result_ptr, payload.container_ptr);
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addInst(.{
+        .tag = .field_parent_ptr,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(result_ptr),
+            .payload = try block.sema.addExtra(Air.FieldParentPtr{
+                .field_ptr = casted_field_ptr,
+                .field_index = @intCast(u32, field_index),
+            }),
+        } },
+    });
 }
 
 fn zirMinMax(
