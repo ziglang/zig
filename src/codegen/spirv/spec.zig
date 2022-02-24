@@ -1206,7 +1206,7 @@ pub const Opcode = enum(u16) {
     }
 };
 pub const ImageOperands = packed struct {
-    Bias: bool align(@alignOf(u32)) = false,
+    Bias: bool = false,
     Lod: bool = false,
     Grad: bool = false,
     ConstOffset: bool = false,
@@ -1280,7 +1280,7 @@ pub const ImageOperands = packed struct {
     };
 };
 pub const FPFastMathMode = packed struct {
-    NotNaN: bool align(@alignOf(u32)) = false,
+    NotNaN: bool = false,
     NotInf: bool = false,
     NSZ: bool = false,
     AllowRecip: bool = false,
@@ -1314,7 +1314,7 @@ pub const FPFastMathMode = packed struct {
     _reserved_bit_31: bool = false,
 };
 pub const SelectionControl = packed struct {
-    Flatten: bool align(@alignOf(u32)) = false,
+    Flatten: bool = false,
     DontFlatten: bool = false,
     _reserved_bit_2: bool = false,
     _reserved_bit_3: bool = false,
@@ -1348,7 +1348,7 @@ pub const SelectionControl = packed struct {
     _reserved_bit_31: bool = false,
 };
 pub const LoopControl = packed struct {
-    Unroll: bool align(@alignOf(u32)) = false,
+    Unroll: bool = false,
     DontUnroll: bool = false,
     DependencyInfinite: bool = false,
     DependencyLength: bool = false,
@@ -1417,7 +1417,7 @@ pub const LoopControl = packed struct {
     };
 };
 pub const FunctionControl = packed struct {
-    Inline: bool align(@alignOf(u32)) = false,
+    Inline: bool = false,
     DontInline: bool = false,
     Pure: bool = false,
     Const: bool = false,
@@ -1451,7 +1451,7 @@ pub const FunctionControl = packed struct {
     _reserved_bit_31: bool = false,
 };
 pub const MemorySemantics = packed struct {
-    _reserved_bit_0: bool align(@alignOf(u32)) = false,
+    _reserved_bit_0: bool = false,
     Acquire: bool = false,
     Release: bool = false,
     AcquireRelease: bool = false,
@@ -1489,7 +1489,7 @@ pub const MemorySemantics = packed struct {
     pub const MakeVisibleKHR: MemorySemantics = .{ .MakeVisible = true };
 };
 pub const MemoryAccess = packed struct {
-    Volatile: bool align(@alignOf(u32)) = false,
+    Volatile: bool = false,
     Aligned: bool = false,
     Nontemporal: bool = false,
     MakePointerAvailable: bool = false,
@@ -1562,7 +1562,7 @@ pub const MemoryAccess = packed struct {
     };
 };
 pub const KernelProfilingInfo = packed struct {
-    CmdExecTime: bool align(@alignOf(u32)) = false,
+    CmdExecTime: bool = false,
     _reserved_bit_1: bool = false,
     _reserved_bit_2: bool = false,
     _reserved_bit_3: bool = false,
@@ -1596,7 +1596,7 @@ pub const KernelProfilingInfo = packed struct {
     _reserved_bit_31: bool = false,
 };
 pub const RayFlags = packed struct {
-    OpaqueKHR: bool align(@alignOf(u32)) = false,
+    OpaqueKHR: bool = false,
     NoOpaqueKHR: bool = false,
     TerminateOnFirstHitKHR: bool = false,
     SkipClosestHitShaderKHR: bool = false,
@@ -1630,7 +1630,7 @@ pub const RayFlags = packed struct {
     _reserved_bit_31: bool = false,
 };
 pub const FragmentShadingRate = packed struct {
-    Vertical2Pixels: bool align(@alignOf(u32)) = false,
+    Vertical2Pixels: bool = false,
     Vertical4Pixels: bool = false,
     Horizontal2Pixels: bool = false,
     Horizontal4Pixels: bool = false,
