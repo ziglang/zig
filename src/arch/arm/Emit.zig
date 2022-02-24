@@ -130,6 +130,9 @@ pub fn emitMir(
             .push => try emit.mirBlockDataTransfer(inst),
 
             .svc => try emit.mirSupervisorCall(inst),
+
+            .sbfx => try emit.mirBitFieldExtract(inst),
+            .ubfx => try emit.mirBitFieldExtract(inst),
         }
     }
 }
@@ -688,6 +691,22 @@ fn mirSupervisorCall(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .svc => try emit.writeInstruction(Instruction.svc(cond, imm24)),
+        else => unreachable,
+    }
+}
+
+fn mirBitFieldExtract(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const cond = emit.mir.instructions.items(.cond)[inst];
+    const rr_lsb_width = emit.mir.instructions.items(.data)[inst].rr_lsb_width;
+    const rd = rr_lsb_width.rd;
+    const rn = rr_lsb_width.rn;
+    const lsb = rr_lsb_width.lsb;
+    const width = rr_lsb_width.width;
+
+    switch (tag) {
+        .sbfx => try emit.writeInstruction(Instruction.sbfx(cond, rd, rn, lsb, width)),
+        .ubfx => try emit.writeInstruction(Instruction.ubfx(cond, rd, rn, lsb, width)),
         else => unreachable,
     }
 }

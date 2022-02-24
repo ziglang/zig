@@ -439,7 +439,7 @@ fn gen(self: *Self) !void {
             // the code. Therefore, we can just delete
             // the space initially reserved for the
             // jump
-            self.mir_instructions.len -= 1;
+            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.items[0]);
         } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             self.mir_instructions.set(jmp_reloc, .{
                 .tag = .b,
@@ -749,6 +749,17 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
 /// Use a pointer instruction as the basis for allocating stack memory.
 fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const elem_ty = self.air.typeOfIndex(inst).elemType();
+
+    if (!elem_ty.hasRuntimeBits()) {
+        // As this stack item will never be dereferenced at runtime,
+        // return the current stack offset
+        try self.stack.putNoClobber(self.gpa, self.next_stack_offset, .{
+            .inst = inst,
+            .size = 0,
+        });
+        return self.next_stack_offset;
+    }
+
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
     };
@@ -872,11 +883,61 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
 
+    const operand_ty = self.air.typeOf(ty_op.operand);
     const operand = try self.resolveInst(ty_op.operand);
-    _ = operand;
+    const info_a = operand_ty.intInfo(self.target.*);
+    const info_b = self.air.typeOfIndex(inst).intInfo(self.target.*);
 
-    return self.fail("TODO implement trunc for {}", .{self.target.cpu.arch});
-    // return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    const result: MCValue = blk: {
+        if (info_b.bits <= 32) {
+            const operand_reg = switch (operand) {
+                .register => |r| r,
+                else => operand_reg: {
+                    if (info_a.bits <= 32) {
+                        break :operand_reg try self.copyToTmpRegister(operand_ty, operand);
+                    } else {
+                        return self.fail("TODO load least significant word into register", .{});
+                    }
+                },
+            };
+            self.register_manager.freezeRegs(&.{operand_reg});
+            defer self.register_manager.unfreezeRegs(&.{operand_reg});
+
+            const dest_reg = dest_reg: {
+                if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                    break :dest_reg operand_reg;
+                }
+
+                break :dest_reg try self.register_manager.allocReg(null);
+            };
+
+            switch (info_b.bits) {
+                32 => {
+                    try self.genSetReg(operand_ty, dest_reg, .{ .register = operand_reg });
+                    break :blk MCValue{ .register = dest_reg };
+                },
+                else => {
+                    _ = try self.addInst(.{
+                        .tag = switch (info_b.signedness) {
+                            .signed => .sbfx,
+                            .unsigned => .ubfx,
+                        },
+                        .data = .{ .rr_lsb_width = .{
+                            .rd = dest_reg,
+                            .rn = operand_reg,
+                            .lsb = 0,
+                            .width = @intCast(u6, info_b.bits),
+                        } },
+                    });
+                    break :blk MCValue{ .register = dest_reg };
+                },
+            }
+        } else {
+            return self.fail("TODO: truncate to ints > 32 bits", .{});
+        }
+    };
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {

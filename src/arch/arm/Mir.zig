@@ -88,6 +88,8 @@ pub const Inst = struct {
         push,
         /// Reverse Subtract
         rsb,
+        /// Signed Bit Field Extract
+        sbfx,
         /// Store Register
         str,
         /// Store Register Byte
@@ -98,6 +100,8 @@ pub const Inst = struct {
         sub,
         /// Supervisor Call
         svc,
+        /// Unsigned Bit Field Extract
+        ubfx,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -178,6 +182,16 @@ pub const Inst = struct {
             rt: Register,
             rn: Register,
             offset: bits.Instruction.ExtraLoadStoreOffsetArgs,
+        },
+        /// Two registers and a lsb (range 0-31) and a width (range
+        /// 1-32)
+        ///
+        /// Used by e.g. sbfx
+        rr_lsb_width: struct {
+            rd: Register,
+            rn: Register,
+            lsb: u5,
+            width: u6,
         },
         /// Three registers
         ///
