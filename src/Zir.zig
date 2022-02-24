@@ -892,10 +892,6 @@ pub const Inst = struct {
         /// Implements the `@call` builtin.
         /// Uses the `pl_node` union field with payload `BuiltinCall`.
         builtin_call,
-        /// Given a type and a field name, returns a pointer to the field type.
-        /// Assumed to be part of a `@fieldParentPtr` builtin call.
-        /// Uses the `bin` union field. LHS is type, RHS is field name.
-        field_ptr_type,
         /// Implements the `@fieldParentPtr` builtin.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
@@ -1192,7 +1188,6 @@ pub const Inst = struct {
                 .atomic_store,
                 .mul_add,
                 .builtin_call,
-                .field_ptr_type,
                 .field_parent_ptr,
                 .maximum,
                 .memcpy,
@@ -1466,7 +1461,6 @@ pub const Inst = struct {
                 .atomic_store = .pl_node,
                 .mul_add = .pl_node,
                 .builtin_call = .pl_node,
-                .field_ptr_type = .bin,
                 .field_parent_ptr = .pl_node,
                 .maximum = .pl_node,
                 .memcpy = .pl_node,

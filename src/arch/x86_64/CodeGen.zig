@@ -721,6 +721,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
             .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
 
+            .field_parent_ptr => try self.airFieldParentPtr(inst),
+
             .switch_br       => try self.airSwitch(inst),
             .slice_ptr       => try self.airSlicePtr(inst),
             .slice_len       => try self.airSliceLen(inst),
@@ -2654,6 +2656,15 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     };
 
     return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
+}
+
+fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        return self.fail("TODO implement airFieldParentPtr for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 /// Perform "binary" operators, excluding comparisons.

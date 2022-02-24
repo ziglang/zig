@@ -1852,7 +1852,13 @@ pub const Value = extern union {
                 return eql(a_payload.ptr, b_payload.ptr, ptr_ty);
             },
             .elem_ptr => @panic("TODO: Implement more pointer eql cases"),
-            .field_ptr => @panic("TODO: Implement more pointer eql cases"),
+            .field_ptr => {
+                const a_payload = a.castTag(.field_ptr).?.data;
+                const b_payload = b.castTag(.field_ptr).?.data;
+                if (a_payload.field_index != b_payload.field_index) return false;
+
+                return eql(a_payload.container_ptr, b_payload.container_ptr, ty);
+            },
             .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
             .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
             .array => {

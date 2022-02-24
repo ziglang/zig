@@ -129,6 +129,7 @@ test {
             _ = @import("behavior/switch_prong_err_enum.zig");
             _ = @import("behavior/switch_prong_implicit_cast.zig");
             _ = @import("behavior/union_with_members.zig");
+            _ = @import("behavior/field_parent_ptr.zig");
 
             if (builtin.zig_backend == .stage1) {
                 // Tests that only pass for the stage1 backend.
@@ -160,7 +161,6 @@ test {
                 _ = @import("behavior/bugs/10147.zig");
                 _ = @import("behavior/const_slice_child.zig");
                 _ = @import("behavior/export_self_referential_type_info.zig");
-                _ = @import("behavior/field_parent_ptr.zig");
                 _ = @import("behavior/misc.zig");
                 _ = @import("behavior/muladd.zig");
                 _ = @import("behavior/select.zig");

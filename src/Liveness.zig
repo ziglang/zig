@@ -446,6 +446,10 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_operand, .none, .none });
         },
+        .field_parent_ptr => {
+            const extra = a.air.extraData(Air.FieldParentPtr, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.field_ptr, .none, .none });
+        },
         .ptr_elem_ptr, .slice_elem_ptr, .slice => {
             const extra = a.air.extraData(Air.Bin, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
