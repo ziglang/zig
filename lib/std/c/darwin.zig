@@ -64,7 +64,8 @@ pub const fstat = if (native_arch == .aarch64) private.fstat else private.@"fsta
 pub const fstatat = if (native_arch == .aarch64) private.fstatat else private.@"fstatat$INODE64";
 
 pub extern "c" fn mach_absolute_time() u64;
-pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;
+pub extern "c" fn mach_continuous_time() u64;
+pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) kern_return_t;
 
 pub extern "c" fn malloc_size(?*const anyopaque) usize;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
