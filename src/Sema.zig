@@ -3247,12 +3247,10 @@ fn zirStoreToBlockPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     defer tracy.end();
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    if (bin_inst.lhs == .none) {
-        // This is an elided instruction, but AstGen was not smart enough
-        // to omit it.
+    const ptr = sema.inst_map.get(@enumToInt(bin_inst.lhs) - @as(u32, Zir.Inst.Ref.typed_value_map.len)) orelse {
+        // This is an elided instruction, but AstGen was unable to omit it.
         return;
-    }
-    const ptr = sema.resolveInst(bin_inst.lhs);
+    };
     const value = sema.resolveInst(bin_inst.rhs);
     const ptr_ty = try Type.ptr(sema.arena, .{
         .pointee_type = sema.typeOf(value),

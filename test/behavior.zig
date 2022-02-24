@@ -103,6 +103,7 @@ test {
     {
         // Tests that pass for stage1, llvm backend, C backend
         _ = @import("behavior/bugs/9584.zig");
+        _ = @import("behavior/bugs/10970.zig");
         _ = @import("behavior/cast_int.zig");
         _ = @import("behavior/eval.zig");
         _ = @import("behavior/int128.zig");
