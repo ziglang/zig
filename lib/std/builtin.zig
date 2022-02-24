@@ -356,6 +356,7 @@ pub const TypeInfo = union(enum) {
         alignment: comptime_int,
         is_generic: bool,
         is_var_args: bool,
+        /// TODO change the language spec to make this not optional.
         return_type: ?type,
         args: []const Param,
 

@@ -268,25 +268,6 @@ test "struct field init with catch" {
     comptime try S.doTheTest();
 }
 
-test "packed struct field alignment" {
-    if (builtin.object_format == .c) return error.SkipZigTest;
-
-    const Stage1 = struct {
-        var baz: packed struct {
-            a: u32,
-            b: u32,
-        } = undefined;
-    };
-    const Stage2 = struct {
-        var baz: packed struct {
-            a: u32,
-            b: u32 align(1),
-        } = undefined;
-    };
-    const S = if (builtin.zig_backend != .stage1) Stage2 else Stage1;
-    try expect(@TypeOf(&S.baz.b) == *align(1) u32);
-}
-
 const blah: packed struct {
     a: u3,
     b: u3,
@@ -687,48 +668,52 @@ test "default struct initialization fields" {
     try expect(1239 == x.a + x.b);
 }
 
-// TODO revisit this test when doing https://github.com/ziglang/zig/issues/1512
 test "packed array 24bits" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     comptime {
         try expect(@sizeOf([9]Foo32Bits) == 9 * 4);
-        try expect(@sizeOf(FooArray24Bits) == 2 + 2 * 4 + 2);
+        try expect(@sizeOf(FooArray24Bits) == @sizeOf(u96));
     }
 
     var bytes = [_]u8{0} ** (@sizeOf(FooArray24Bits) + 1);
-    bytes[bytes.len - 1] = 0xaa;
+    bytes[bytes.len - 1] = 0xbb;
     const ptr = &std.mem.bytesAsSlice(FooArray24Bits, bytes[0 .. bytes.len - 1])[0];
     try expect(ptr.a == 0);
-    try expect(ptr.b[0].field == 0);
-    try expect(ptr.b[1].field == 0);
+    try expect(ptr.b0.field == 0);
+    try expect(ptr.b1.field == 0);
     try expect(ptr.c == 0);
 
     ptr.a = maxInt(u16);
     try expect(ptr.a == maxInt(u16));
-    try expect(ptr.b[0].field == 0);
-    try expect(ptr.b[1].field == 0);
+    try expect(ptr.b0.field == 0);
+    try expect(ptr.b1.field == 0);
     try expect(ptr.c == 0);
 
-    ptr.b[0].field = maxInt(u24);
+    ptr.b0.field = maxInt(u24);
     try expect(ptr.a == maxInt(u16));
-    try expect(ptr.b[0].field == maxInt(u24));
-    try expect(ptr.b[1].field == 0);
+    try expect(ptr.b0.field == maxInt(u24));
+    try expect(ptr.b1.field == 0);
     try expect(ptr.c == 0);
 
-    ptr.b[1].field = maxInt(u24);
+    ptr.b1.field = maxInt(u24);
     try expect(ptr.a == maxInt(u16));
-    try expect(ptr.b[0].field == maxInt(u24));
-    try expect(ptr.b[1].field == maxInt(u24));
+    try expect(ptr.b0.field == maxInt(u24));
+    try expect(ptr.b1.field == maxInt(u24));
     try expect(ptr.c == 0);
 
     ptr.c = maxInt(u16);
     try expect(ptr.a == maxInt(u16));
-    try expect(ptr.b[0].field == maxInt(u24));
-    try expect(ptr.b[1].field == maxInt(u24));
+    try expect(ptr.b0.field == maxInt(u24));
+    try expect(ptr.b1.field == maxInt(u24));
     try expect(ptr.c == maxInt(u16));
 
-    try expect(bytes[bytes.len - 1] == 0xaa);
+    try expect(bytes[bytes.len - 1] == 0xbb);
 }
 
 const Foo32Bits = packed struct {
@@ -738,12 +723,16 @@ const Foo32Bits = packed struct {
 
 const FooArray24Bits = packed struct {
     a: u16,
-    b: [2]Foo32Bits,
+    b0: Foo32Bits,
+    b1: Foo32Bits,
     c: u16,
 };
 
 test "aligned array of packed struct" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     comptime {
         try expect(@sizeOf(FooStructAligned) == 2);
@@ -769,7 +758,10 @@ const FooArrayOfAligned = packed struct {
 };
 
 test "pointer to packed struct member in a stack variable" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = packed struct {
         a: u2,
@@ -783,32 +775,12 @@ test "pointer to packed struct member in a stack variable" {
     try expect(s.b == 2);
 }
 
-test "non-byte-aligned array inside packed struct" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    const Foo = packed struct {
-        a: bool,
-        b: [0x16]u8,
-    };
-    const S = struct {
-        fn bar(slice: []const u8) !void {
-            try expectEqualSlices(u8, slice, "abcdefghijklmnopqurstu");
-        }
-        fn doTheTest() !void {
-            var foo = Foo{
-                .a = true,
-                .b = "abcdefghijklmnopqurstu".*,
-            };
-            const value = foo.b;
-            try bar(&value);
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
-}
-
 test "packed struct with u0 field access" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const S = packed struct {
         f0: u0,
@@ -818,7 +790,11 @@ test "packed struct with u0 field access" {
 }
 
 test "access to global struct fields" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     g_foo.bar.value = 42;
     try expect(g_foo.bar.value == 42);
@@ -839,26 +815,32 @@ const S0 = struct {
 var g_foo: S0 = S0.init();
 
 test "packed struct with fp fields" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const S = packed struct {
-        data: [3]f32,
+        data0: f32,
+        data1: f32,
+        data2: f32,
 
         pub fn frob(self: *@This()) void {
-            self.data[0] += self.data[1] + self.data[2];
-            self.data[1] += self.data[0] + self.data[2];
-            self.data[2] += self.data[0] + self.data[1];
+            self.data0 += self.data1 + self.data2;
+            self.data1 += self.data0 + self.data2;
+            self.data2 += self.data0 + self.data1;
         }
     };
 
     var s: S = undefined;
-    s.data[0] = 1.0;
-    s.data[1] = 2.0;
-    s.data[2] = 3.0;
+    s.data0 = 1.0;
+    s.data1 = 2.0;
+    s.data2 = 3.0;
     s.frob();
-    try expectEqual(@as(f32, 6.0), s.data[0]);
-    try expectEqual(@as(f32, 11.0), s.data[1]);
-    try expectEqual(@as(f32, 20.0), s.data[2]);
+    try expect(@as(f32, 6.0) == s.data0);
+    try expect(@as(f32, 11.0) == s.data1);
+    try expect(@as(f32, 20.0) == s.data2);
 }
 
 test "fn with C calling convention returns struct by value" {
@@ -906,7 +888,11 @@ test "non-packed struct with u128 entry in union" {
 }
 
 test "packed struct field passed to generic function" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const S = struct {
         const P = packed struct {
@@ -1046,8 +1032,8 @@ test "struct with union field" {
     var True = Value{
         .kind = .{ .Bool = true },
     };
-    try expectEqual(@as(u32, 2), True.ref);
-    try expectEqual(true, True.kind.Bool);
+    try expect(@as(u32, 2) == True.ref);
+    try expect(True.kind.Bool);
 }
 
 test "type coercion of anon struct literal to struct" {

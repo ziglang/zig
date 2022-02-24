@@ -1078,16 +1078,70 @@ pub const Value = extern union {
                     buf_off += elem_size;
                 }
             },
-            .Struct => {
-                const fields = ty.structFields().values();
-                const field_vals = val.castTag(.@"struct").?.data;
-                for (fields) |field, i| {
-                    const off = @intCast(usize, ty.structFieldOffset(i, target));
-                    writeToMemory(field_vals[i], field.ty, target, buffer[off..]);
-                }
+            .Struct => switch (ty.containerLayout()) {
+                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                .Extern => {
+                    const fields = ty.structFields().values();
+                    const field_vals = val.castTag(.@"struct").?.data;
+                    for (fields) |field, i| {
+                        const off = @intCast(usize, ty.structFieldOffset(i, target));
+                        writeToMemory(field_vals[i], field.ty, target, buffer[off..]);
+                    }
+                },
+                .Packed => {
+                    // TODO allocate enough heap space instead of using this buffer
+                    // on the stack.
+                    var buf: [16]std.math.big.Limb = undefined;
+                    const host_int = packedStructToInt(val, ty, target, &buf);
+                    const abi_size = @intCast(usize, ty.abiSize(target));
+                    const bit_size = @intCast(usize, ty.bitSize(target));
+                    host_int.writeTwosComplement(buffer, bit_size, abi_size, target.cpu.arch.endian());
+                },
             },
             else => @panic("TODO implement writeToMemory for more types"),
         }
+    }
+
+    fn packedStructToInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb) BigIntConst {
+        var bigint = BigIntMutable.init(buf, 0);
+        const fields = ty.structFields().values();
+        const field_vals = val.castTag(.@"struct").?.data;
+        var bits: u16 = 0;
+        // TODO allocate enough heap space instead of using this buffer
+        // on the stack.
+        var field_buf: [16]std.math.big.Limb = undefined;
+        var field_space: BigIntSpace = undefined;
+        var field_buf2: [16]std.math.big.Limb = undefined;
+        for (fields) |field, i| {
+            const field_val = field_vals[i];
+            const field_bigint_const = switch (field.ty.zigTypeTag()) {
+                .Float => switch (field.ty.floatBits(target)) {
+                    16 => bitcastFloatToBigInt(f16, val.toFloat(f16), &field_buf),
+                    32 => bitcastFloatToBigInt(f32, val.toFloat(f32), &field_buf),
+                    64 => bitcastFloatToBigInt(f64, val.toFloat(f64), &field_buf),
+                    80 => bitcastFloatToBigInt(f80, val.toFloat(f80), &field_buf),
+                    128 => bitcastFloatToBigInt(f128, val.toFloat(f128), &field_buf),
+                    else => unreachable,
+                },
+                .Int, .Bool => field_val.toBigInt(&field_space),
+                .Struct => packedStructToInt(field_val, field.ty, target, &field_buf),
+                else => unreachable,
+            };
+            var field_bigint = BigIntMutable.init(&field_buf2, 0);
+            field_bigint.shiftLeft(field_bigint_const, bits);
+            bits += @intCast(u16, field.ty.bitSize(target));
+            bigint.bitOr(bigint.toConst(), field_bigint.toConst());
+        }
+        return bigint.toConst();
+    }
+
+    fn bitcastFloatToBigInt(comptime F: type, f: F, buf: []std.math.big.Limb) BigIntConst {
+        const Int = @Type(.{ .Int = .{
+            .signedness = .unsigned,
+            .bits = @typeInfo(F).Float.bits,
+        } });
+        const int = @bitCast(Int, f);
+        return BigIntMutable.init(buf, int).toConst();
     }
 
     pub fn readFromMemory(
@@ -1127,8 +1181,88 @@ pub const Value = extern union {
                 }
                 return Tag.array.create(arena, elems);
             },
+            .Struct => switch (ty.containerLayout()) {
+                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                .Extern => {
+                    const fields = ty.structFields().values();
+                    const field_vals = try arena.alloc(Value, fields.len);
+                    for (fields) |field, i| {
+                        const off = @intCast(usize, ty.structFieldOffset(i, target));
+                        field_vals[i] = try readFromMemory(field.ty, target, buffer[off..], arena);
+                    }
+                    return Tag.@"struct".create(arena, field_vals);
+                },
+                .Packed => {
+                    const endian = target.cpu.arch.endian();
+                    const Limb = std.math.big.Limb;
+                    const abi_size = @intCast(usize, ty.abiSize(target));
+                    const bit_size = @intCast(usize, ty.bitSize(target));
+                    const limb_count = (buffer.len + @sizeOf(Limb) - 1) / @sizeOf(Limb);
+                    const limbs_buffer = try arena.alloc(Limb, limb_count);
+                    var bigint = BigIntMutable.init(limbs_buffer, 0);
+                    bigint.readTwosComplement(buffer, bit_size, abi_size, endian, .unsigned);
+                    return intToPackedStruct(ty, target, bigint.toConst(), arena);
+                },
+            },
             else => @panic("TODO implement readFromMemory for more types"),
         }
+    }
+
+    fn intToPackedStruct(
+        ty: Type,
+        target: Target,
+        bigint: BigIntConst,
+        arena: Allocator,
+    ) Allocator.Error!Value {
+        const limbs_buffer = try arena.alloc(std.math.big.Limb, bigint.limbs.len);
+        var bigint_mut = bigint.toMutable(limbs_buffer);
+        const fields = ty.structFields().values();
+        const field_vals = try arena.alloc(Value, fields.len);
+        var bits: u16 = 0;
+        for (fields) |field, i| {
+            const field_bits = @intCast(u16, field.ty.bitSize(target));
+            bigint_mut.shiftRight(bigint, bits);
+            bigint_mut.truncate(bigint_mut.toConst(), .unsigned, field_bits);
+            bits += field_bits;
+            const field_bigint = bigint_mut.toConst();
+
+            field_vals[i] = switch (field.ty.zigTypeTag()) {
+                .Float => switch (field.ty.floatBits(target)) {
+                    16 => try bitCastBigIntToFloat(f16, .float_16, field_bigint, arena),
+                    32 => try bitCastBigIntToFloat(f32, .float_32, field_bigint, arena),
+                    64 => try bitCastBigIntToFloat(f64, .float_64, field_bigint, arena),
+                    80 => try bitCastBigIntToFloat(f80, .float_80, field_bigint, arena),
+                    128 => try bitCastBigIntToFloat(f128, .float_128, field_bigint, arena),
+                    else => unreachable,
+                },
+                .Bool => makeBool(!field_bigint.eqZero()),
+                .Int => try Tag.int_big_positive.create(
+                    arena,
+                    try arena.dupe(std.math.big.Limb, field_bigint.limbs),
+                ),
+                .Struct => try intToPackedStruct(field.ty, target, field_bigint, arena),
+                else => unreachable,
+            };
+        }
+        return Tag.@"struct".create(arena, field_vals);
+    }
+
+    fn bitCastBigIntToFloat(
+        comptime F: type,
+        comptime float_tag: Tag,
+        bigint: BigIntConst,
+        arena: Allocator,
+    ) !Value {
+        const Int = @Type(.{ .Int = .{
+            .signedness = .unsigned,
+            .bits = @typeInfo(F).Float.bits,
+        } });
+        const int = bigint.to(Int) catch |err| switch (err) {
+            error.NegativeIntoUnsigned => unreachable,
+            error.TargetTooSmall => unreachable,
+        };
+        const f = @bitCast(F, int);
+        return float_tag.create(arena, f);
     }
 
     fn floatWriteToMemory(comptime F: type, f: F, target: Target, buffer: []u8) void {

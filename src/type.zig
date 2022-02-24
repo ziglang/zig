@@ -1952,57 +1952,22 @@ pub const Type = extern union {
 
             .@"struct" => {
                 const fields = self.structFields();
-                const is_packed = if (self.castTag(.@"struct")) |payload| p: {
+                if (self.castTag(.@"struct")) |payload| {
                     const struct_obj = payload.data;
                     assert(struct_obj.haveLayout());
-                    break :p struct_obj.layout == .Packed;
-                } else false;
-
-                if (!is_packed) {
-                    var big_align: u32 = 0;
-                    for (fields.values()) |field| {
-                        if (!field.ty.hasRuntimeBits()) continue;
-
-                        const field_align = field.normalAlignment(target);
-                        big_align = @maximum(big_align, field_align);
+                    if (struct_obj.layout == .Packed) {
+                        var buf: Type.Payload.Bits = undefined;
+                        const int_ty = struct_obj.packedIntegerType(target, &buf);
+                        return int_ty.abiAlignment(target);
                     }
-                    return big_align;
                 }
 
-                // For packed structs, we take the maximum alignment of the backing integers.
-                comptime assert(Type.packed_struct_layout_version == 1);
                 var big_align: u32 = 0;
-                var running_bits: u16 = 0;
-
                 for (fields.values()) |field| {
                     if (!field.ty.hasRuntimeBits()) continue;
 
-                    const field_align = field.packedAlignment();
-                    if (field_align == 0) {
-                        running_bits += @intCast(u16, field.ty.bitSize(target));
-                    } else {
-                        if (running_bits != 0) {
-                            var int_payload: Payload.Bits = .{
-                                .base = .{ .tag = .int_unsigned },
-                                .data = running_bits,
-                            };
-                            const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                            const int_align = int_ty.abiAlignment(target);
-                            big_align = @maximum(big_align, int_align);
-                            running_bits = 0;
-                        }
-                        big_align = @maximum(big_align, field_align);
-                    }
-                }
-
-                if (running_bits != 0) {
-                    var int_payload: Payload.Bits = .{
-                        .base = .{ .tag = .int_unsigned },
-                        .data = running_bits,
-                    };
-                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                    const int_align = int_ty.abiAlignment(target);
-                    big_align = @maximum(big_align, int_align);
+                    const field_align = field.normalAlignment(target);
+                    big_align = @maximum(big_align, field_align);
                 }
                 return big_align;
             },
@@ -2090,12 +2055,20 @@ pub const Type = extern union {
             .void,
             => 0,
 
-            .@"struct", .tuple => {
-                const field_count = self.structFieldCount();
-                if (field_count == 0) {
-                    return 0;
-                }
-                return self.structFieldOffset(field_count, target);
+            .@"struct", .tuple => switch (self.containerLayout()) {
+                .Packed => {
+                    const struct_obj = self.castTag(.@"struct").?.data;
+                    var buf: Type.Payload.Bits = undefined;
+                    const int_ty = struct_obj.packedIntegerType(target, &buf);
+                    return int_ty.abiSize(target);
+                },
+                else => {
+                    const field_count = self.structFieldCount();
+                    if (field_count == 0) {
+                        return 0;
+                    }
+                    return self.structFieldOffset(field_count, target);
+                },
             },
 
             .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
@@ -2264,7 +2237,6 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
             .function => unreachable, // represents machine code; not a pointer
             .anyopaque => unreachable,
-            .void => unreachable,
             .type => unreachable,
             .comptime_int => unreachable,
             .comptime_float => unreachable,
@@ -2282,18 +2254,25 @@ pub const Type = extern union {
             .generic_poison => unreachable,
             .bound_fn => unreachable,
 
+            .void => 0,
+
             .@"struct" => {
                 const field_count = ty.structFieldCount();
                 if (field_count == 0) return 0;
 
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                assert(struct_obj.haveLayout());
+                assert(struct_obj.haveFieldTypes());
 
-                var total: u64 = 0;
-                for (struct_obj.fields.values()) |field| {
-                    total += field.ty.bitSize(target);
+                switch (struct_obj.layout) {
+                    .Auto, .Extern => {
+                        var total: u64 = 0;
+                        for (struct_obj.fields.values()) |field| {
+                            total += field.ty.bitSize(target);
+                        }
+                        return total;
+                    },
+                    .Packed => return struct_obj.packedIntegerBits(target),
                 }
-                return total;
             },
 
             .tuple => {
@@ -4039,78 +4018,6 @@ pub const Type = extern union {
         }
     }
 
-    pub const PackedFieldOffset = struct {
-        field: usize,
-        offset: u64,
-        running_bits: u16,
-    };
-
-    pub const PackedStructOffsetIterator = struct {
-        field: usize = 0,
-        offset: u64 = 0,
-        big_align: u32 = 0,
-        running_bits: u16 = 0,
-        struct_obj: *Module.Struct,
-        target: Target,
-
-        pub fn next(it: *PackedStructOffsetIterator) ?PackedFieldOffset {
-            comptime assert(Type.packed_struct_layout_version == 1);
-            if (it.struct_obj.fields.count() <= it.field)
-                return null;
-
-            const field = it.struct_obj.fields.values()[it.field];
-            defer it.field += 1;
-            if (!field.ty.hasRuntimeBits()) {
-                return PackedFieldOffset{
-                    .field = it.field,
-                    .offset = it.offset,
-                    .running_bits = it.running_bits,
-                };
-            }
-
-            const field_align = field.packedAlignment();
-            if (field_align == 0) {
-                defer it.running_bits += @intCast(u16, field.ty.bitSize(it.target));
-                return PackedFieldOffset{
-                    .field = it.field,
-                    .offset = it.offset,
-                    .running_bits = it.running_bits,
-                };
-            } else {
-                it.big_align = @maximum(it.big_align, field_align);
-
-                if (it.running_bits != 0) {
-                    var int_payload: Payload.Bits = .{
-                        .base = .{ .tag = .int_unsigned },
-                        .data = it.running_bits,
-                    };
-                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                    const int_align = int_ty.abiAlignment(it.target);
-                    it.big_align = @maximum(it.big_align, int_align);
-                    it.offset = std.mem.alignForwardGeneric(u64, it.offset, int_align);
-                    it.offset += int_ty.abiSize(it.target);
-                    it.running_bits = 0;
-                }
-                it.offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
-                defer it.offset += field.ty.abiSize(it.target);
-                return PackedFieldOffset{
-                    .field = it.field,
-                    .offset = it.offset,
-                    .running_bits = it.running_bits,
-                };
-            }
-        }
-    };
-
-    /// Get an iterator that iterates over all the struct field, returning the field and
-    /// offset of that field. Asserts that the type is a none packed struct.
-    pub fn iteratePackedStructOffsets(ty: Type, target: Target) PackedStructOffsetIterator {
-        const struct_obj = ty.castTag(.@"struct").?.data;
-        assert(struct_obj.haveLayout());
-        assert(struct_obj.layout == .Packed);
-        return .{ .struct_obj = struct_obj, .target = target };
-    }
-
     pub const FieldOffset = struct {
         field: usize,
         offset: u64,
@@ -4150,42 +4057,19 @@ pub const Type = extern union {
     }
 
     /// Supports structs and unions.
-    /// For packed structs, it returns the byte offset of the containing integer.
     pub fn structFieldOffset(ty: Type, index: usize, target: Target) u64 {
         switch (ty.tag()) {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 assert(struct_obj.haveLayout());
-                const is_packed = struct_obj.layout == .Packed;
-                if (!is_packed) {
-                    var it = ty.iterateStructOffsets(target);
-                    while (it.next()) |field_offset| {
-                        if (index == field_offset.field)
-                            return field_offset.offset;
-                    }
-
-                    return std.mem.alignForwardGeneric(u64, it.offset, it.big_align);
-                }
-
-                var it = ty.iteratePackedStructOffsets(target);
+                assert(struct_obj.layout != .Packed);
+                var it = ty.iterateStructOffsets(target);
                 while (it.next()) |field_offset| {
                     if (index == field_offset.field)
                         return field_offset.offset;
                 }
 
-                if (it.running_bits != 0) {
-                    var int_payload: Payload.Bits = .{
-                        .base = .{ .tag = .int_unsigned },
-                        .data = it.running_bits,
-                    };
-                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                    const int_align = int_ty.abiAlignment(target);
-                    it.big_align = @maximum(it.big_align, int_align);
-                    it.offset = std.mem.alignForwardGeneric(u64, it.offset, int_align);
-                    it.offset += int_ty.abiSize(target);
-                }
-                it.offset = std.mem.alignForwardGeneric(u64, it.offset, it.big_align);
-                return it.offset;
+                return std.mem.alignForwardGeneric(u64, it.offset, it.big_align);
             },
 
             .tuple => {
@@ -4734,6 +4618,9 @@ pub const Type = extern union {
                 /// an appropriate value for this field.
                 @"addrspace": std.builtin.AddressSpace,
                 bit_offset: u16 = 0,
+                /// If this is non-zero it means the pointer points to a sub-byte
+                /// range of data, which is backed by a "host integer" with this
+                /// number of bytes.
                 host_size: u16 = 0,
                 @"allowzero": bool = false,
                 mutable: bool = true, // TODO rename this to const, not mutable
@@ -4953,7 +4840,7 @@ pub const Type = extern union {
 
     /// This is only used for comptime asserts. Bump this number when you make a change
     /// to packed struct layout to find out all the places in the codebase you need to edit!
-    pub const packed_struct_layout_version = 1;
+    pub const packed_struct_layout_version = 2;
 };
 
 pub const CType = enum {

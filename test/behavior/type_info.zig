@@ -274,7 +274,7 @@ const TestStruct = struct {
 };
 
 test "type info: packed struct info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     try testPackedStruct();
     comptime try testPackedStruct();
@@ -286,19 +286,19 @@ fn testPackedStruct() !void {
     try expect(struct_info.Struct.is_tuple == false);
     try expect(struct_info.Struct.layout == .Packed);
     try expect(struct_info.Struct.fields.len == 4);
-    try expect(struct_info.Struct.fields[0].alignment == 2 * @alignOf(usize));
-    try expect(struct_info.Struct.fields[2].field_type == *TestPackedStruct);
+    try expect(struct_info.Struct.fields[0].alignment == 0);
+    try expect(struct_info.Struct.fields[2].field_type == f32);
     try expect(struct_info.Struct.fields[2].default_value == null);
     try expect(@ptrCast(*const u32, struct_info.Struct.fields[3].default_value.?).* == 4);
-    try expect(struct_info.Struct.fields[3].alignment == 1);
+    try expect(struct_info.Struct.fields[3].alignment == 0);
     try expect(struct_info.Struct.decls.len == 2);
     try expect(struct_info.Struct.decls[0].is_pub);
 }
 
 const TestPackedStruct = packed struct {
-    fieldA: usize align(2 * @alignOf(usize)),
+    fieldA: usize,
     fieldB: void,
-    fieldC: *Self,
+    fieldC: f32,
     fieldD: u32 = 4,
 
     pub fn foo(self: *const Self) void {
@@ -329,6 +329,7 @@ test "type info: function type info" {
 
     // wasm doesn't support align attributes on functions
     if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
+
     try testFunction();
     comptime try testFunction();
 }

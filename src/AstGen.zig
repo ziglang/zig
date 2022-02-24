@@ -4002,6 +4002,9 @@ fn structDeclInner(
         wip_members.nextField(bits_per_field, .{ have_align, have_value, is_comptime, unused });
 
         if (have_align) {
+            if (layout == .Packed) {
+                try astgen.appendErrorNode(member.ast.align_expr, "unable to override alignment of packed struct fields", .{});
+            }
             const align_inst = try expr(&block_scope, &namespace.base, align_rl, member.ast.align_expr);
             wip_members.appendToField(@enumToInt(align_inst));
         }

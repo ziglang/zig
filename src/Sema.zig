@@ -9701,7 +9701,8 @@ fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 fn zirBitSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_ty = try sema.resolveType(block, operand_src, inst_data.operand);
+    const unresolved_operand_ty = try sema.resolveType(block, operand_src, inst_data.operand);
+    const operand_ty = try sema.resolveTypeFields(block, operand_src, unresolved_operand_ty);
     const target = sema.mod.getTarget();
     const bit_size = operand_ty.bitSize(target);
     return sema.addIntUnsigned(Type.initTag(.comptime_int), bit_size);
@@ -9891,6 +9892,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .Fn => {
             // TODO: look into memoizing this result.
             const info = ty.fnInfo();
+
             var params_anon_decl = try block.startAnonDecl(src);
             defer params_anon_decl.deinit();
 
@@ -9948,19 +9950,24 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
             };
 
-            const field_values = try sema.arena.alloc(Value, 6);
-            // calling_convention: CallingConvention,
-            field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.cc));
-            // alignment: comptime_int,
-            field_values[1] = try Value.Tag.int_u64.create(sema.arena, ty.abiAlignment(target));
-            // is_generic: bool,
-            field_values[2] = Value.makeBool(info.is_generic);
-            // is_var_args: bool,
-            field_values[3] = Value.makeBool(info.is_var_args);
-            // return_type: ?type,
-            field_values[4] = try Value.Tag.ty.create(sema.arena, info.return_type);
-            // args: []const Fn.Param,
-            field_values[5] = args_val;
+            const field_values = try sema.arena.create([6]Value);
+            field_values.* = .{
+                // calling_convention: CallingConvention,
+                try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.cc)),
+                // alignment: comptime_int,
+                try Value.Tag.int_u64.create(sema.arena, ty.abiAlignment(target)),
+                // is_generic: bool,
+                Value.makeBool(info.is_generic),
+                // is_var_args: bool,
+                Value.makeBool(info.is_var_args),
+                // return_type: ?type,
+                try Value.Tag.opt_payload.create(
+                    sema.arena,
+                    try Value.Tag.ty.create(sema.arena, info.return_type),
+                ),
+                // args: []const Fn.Param,
+                args_val,
+            };
 
             return sema.addConstant(
                 type_info_ty,
@@ -10007,25 +10014,27 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const alignment = if (info.@"align" != 0)
                 info.@"align"
             else
-                info.pointee_type.abiAlignment(target);
+                try sema.typeAbiAlignment(block, src, info.pointee_type);
 
-            const field_values = try sema.arena.alloc(Value, 8);
-            // size: Size,
-            field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.size));
-            // is_const: bool,
-            field_values[1] = Value.makeBool(!info.mutable);
-            // is_volatile: bool,
-            field_values[2] = Value.makeBool(info.@"volatile");
-            // alignment: comptime_int,
-            field_values[3] = try Value.Tag.int_u64.create(sema.arena, alignment);
-            // address_space: AddressSpace
-            field_values[4] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.@"addrspace"));
-            // child: type,
-            field_values[5] = try Value.Tag.ty.create(sema.arena, info.pointee_type);
-            // is_allowzero: bool,
-            field_values[6] = Value.makeBool(info.@"allowzero");
-            // sentinel: ?*const anyopaque,
-            field_values[7] = try sema.optRefValue(block, src, info.pointee_type, info.sentinel);
+            const field_values = try sema.arena.create([8]Value);
+            field_values.* = .{
+                // size: Size,
+                try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.size)),
+                // is_const: bool,
+                Value.makeBool(!info.mutable),
+                // is_volatile: bool,
+                Value.makeBool(info.@"volatile"),
+                // alignment: comptime_int,
+                try Value.Tag.int_u64.create(sema.arena, alignment),
+                // address_space: AddressSpace
+                try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.@"addrspace")),
+                // child: type,
+                try Value.Tag.ty.create(sema.arena, info.pointee_type),
+                // is_allowzero: bool,
+                Value.makeBool(info.@"allowzero"),
+                // sentinel: ?*const anyopaque,
+                try sema.optRefValue(block, src, info.pointee_type, info.sentinel),
+            };
 
             return sema.addConstant(
                 type_info_ty,
@@ -10377,7 +10386,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const default_val_ptr = try sema.optRefValue(block, src, field.ty, opt_default_val);
                     const alignment = switch (layout) {
                         .Auto, .Extern => field.normalAlignment(target),
-                        .Packed => field.packedAlignment(),
+                        .Packed => 0,
                     };
 
                     struct_field_fields.* = .{
@@ -12120,6 +12129,7 @@ fn zirBitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
 fn zirOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const offset = try bitOffsetOf(sema, block, inst);
+    // TODO reminder to make this a compile error for packed structs
     return sema.addIntUnsigned(Type.comptime_int, offset / 8);
 }
 
@@ -12143,7 +12153,8 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
         );
     }
 
-    const index = ty.structFields().getIndex(field_name) orelse {
+    const fields = ty.structFields();
+    const index = fields.getIndex(field_name) orelse {
         return sema.fail(
             block,
             rhs_src,
@@ -12153,24 +12164,25 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
     };
 
     const target = sema.mod.getTarget();
-    const layout = ty.containerLayout();
-    if (layout == .Packed) {
-        var it = ty.iteratePackedStructOffsets(target);
-        while (it.next()) |field_offset| {
-            if (field_offset.field == index) {
-                return (field_offset.offset * 8) + field_offset.running_bits;
-            }
-        }
-    } else {
-        var it = ty.iterateStructOffsets(target);
-        while (it.next()) |field_offset| {
-            if (field_offset.field == index) {
-                return field_offset.offset * 8;
-            }
-        }
+    switch (ty.containerLayout()) {
+        .Packed => {
+            var bit_sum: u64 = 0;
+            for (fields.values()) |field, i| {
+                if (i == index) {
+                    return bit_sum;
+                }
+                bit_sum += field.ty.bitSize(target);
+            } else unreachable;
+        },
+        else => {
+            var it = ty.iterateStructOffsets(target);
+            while (it.next()) |field_offset| {
+                if (field_offset.field == index) {
+                    return field_offset.offset * 8;
+                }
+            } else unreachable;
+        },
     }
-
-    unreachable;
 }
 
 /// Returns `true` if the type was a comptime_int.
@@ -14199,61 +14211,44 @@ fn structFieldPtrByIndex(
     field_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const field = struct_obj.fields.values()[field_index];
-
     const struct_ptr_ty = sema.typeOf(struct_ptr);
+    const struct_ptr_ty_info = struct_ptr_ty.ptrInfo().data;
+
     var ptr_ty_data: Type.Payload.Pointer.Data = .{
         .pointee_type = field.ty,
-        .mutable = struct_ptr_ty.ptrIsMutable(),
-        .@"addrspace" = struct_ptr_ty.ptrAddressSpace(),
+        .mutable = struct_ptr_ty_info.mutable,
+        .@"addrspace" = struct_ptr_ty_info.@"addrspace",
     };
+
     // TODO handle when the struct pointer is overaligned, we should return a potentially
     // over-aligned field pointer too.
-    if (struct_obj.layout == .Packed) p: {
+    if (struct_obj.layout == .Packed) {
         const target = sema.mod.getTarget();
-        comptime assert(Type.packed_struct_layout_version == 1);
+        comptime assert(Type.packed_struct_layout_version == 2);
 
-        var offset: u64 = 0;
         var running_bits: u16 = 0;
         for (struct_obj.fields.values()) |f, i| {
             if (!(try sema.typeHasRuntimeBits(block, field_src, f.ty))) continue;
 
-            const field_align = f.packedAlignment();
-            if (field_align == 0) {
-                if (i == field_index) {
-                    ptr_ty_data.bit_offset = running_bits;
-                }
-                running_bits += @intCast(u16, f.ty.bitSize(target));
-            } else {
-                if (running_bits != 0) {
-                    var int_payload: Type.Payload.Bits = .{
-                        .base = .{ .tag = .int_unsigned },
-                        .data = running_bits,
-                    };
-                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                    if (i > field_index) {
-                        ptr_ty_data.host_size = @intCast(u16, int_ty.abiSize(target));
-                        break :p;
-                    }
-                    const int_align = int_ty.abiAlignment(target);
-                    offset = std.mem.alignForwardGeneric(u64, offset, int_align);
-                    offset += int_ty.abiSize(target);
-                    running_bits = 0;
-                }
-                offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                if (i == field_index) {
-                    break :p;
-                }
-                offset += f.ty.abiSize(target);
+            if (i == field_index) {
+                ptr_ty_data.bit_offset = running_bits;
             }
+            running_bits += @intCast(u16, f.ty.bitSize(target));
         }
-        assert(running_bits != 0);
-        var int_payload: Type.Payload.Bits = .{
-            .base = .{ .tag = .int_unsigned },
-            .data = running_bits,
-        };
-        const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-        ptr_ty_data.host_size = @intCast(u16, int_ty.abiSize(target));
+        ptr_ty_data.host_size = (running_bits + 7) / 8;
+
+        // If this is a packed struct embedded in another one, we need to offset
+        // the bits against each other.
+        if (struct_ptr_ty_info.host_size != 0) {
+            ptr_ty_data.host_size = struct_ptr_ty_info.host_size;
+            ptr_ty_data.bit_offset += struct_ptr_ty_info.bit_offset;
+        }
+    } else {
+        if (field.abi_align.tag() != .abi_align_default) {
+            ptr_ty_data.@"align" = @intCast(u32, field.abi_align.toUnsignedInt());
+        }
     }
+
     const ptr_field_ty = try Type.ptr(sema.arena, ptr_ty_data);
 
     if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
@@ -15849,13 +15844,18 @@ fn beginComptimePtrLoad(
 fn bitCast(
     sema: *Sema,
     block: *Block,
-    dest_ty: Type,
+    dest_ty_unresolved: Type,
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
+    const dest_ty = try sema.resolveTypeFields(block, inst_src, dest_ty_unresolved);
+    try sema.resolveTypeLayout(block, inst_src, dest_ty);
+
+    const old_ty = try sema.resolveTypeFields(block, inst_src, sema.typeOf(inst));
+    try sema.resolveTypeLayout(block, inst_src, old_ty);
+
     // TODO validate the type size and other compile errors
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
-        const old_ty = sema.typeOf(inst);
         const result_val = try sema.bitCastVal(block, inst_src, val, old_ty, dest_ty);
         return sema.addConstant(dest_ty, result_val);
     }
@@ -17506,6 +17506,9 @@ fn semaStructFields(
             // But only resolve the source location if we need to emit a compile error.
             try sema.resolveType(&block_scope, src, field_type_ref);
 
+        // TODO emit compile errors for invalid field types
+        // such as arrays and pointers inside packed structs.
+
         const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
         assert(!gop.found_existing);
         gop.value_ptr.* = .{
@@ -18688,6 +18691,12 @@ pub fn typeHasRuntimeBits(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type)
     if ((try sema.typeHasOnePossibleValue(block, src, ty)) != null) return false;
     if (try sema.typeRequiresComptime(block, src, ty)) return false;
     return true;
+}
+
+fn typeAbiAlignment(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u32 {
+    try sema.resolveTypeLayout(block, src, ty);
+    const target = sema.mod.getTarget();
+    return ty.abiAlignment(target);
 }
 
 /// Synchronize logic with `Type.isFnOrHasRuntimeBits`.

@@ -23,7 +23,7 @@ pub const EdidOverrideProtocol = extern struct {
 };
 
 pub const EdidOverrideProtocolAttributes = packed struct {
-    dont_override: bool align(4),
+    dont_override: bool,
     enable_hot_plug: bool,
     _pad: u30 = 0,
 };

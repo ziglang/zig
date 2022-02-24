@@ -865,8 +865,12 @@ pub const DeclGen = struct {
                     };
                     return dg.context.structType(&fields, fields.len, .False);
                 }
-                const llvm_addrspace = dg.llvmAddressSpace(t.ptrAddressSpace());
-                const elem_ty = t.childType();
+                const ptr_info = t.ptrInfo().data;
+                const llvm_addrspace = dg.llvmAddressSpace(ptr_info.@"addrspace");
+                if (ptr_info.host_size != 0) {
+                    return dg.context.intType(ptr_info.host_size * 8).pointerType(llvm_addrspace);
+                }
+                const elem_ty = ptr_info.pointee_type;
                 const lower_elem_ty = switch (elem_ty.zigTypeTag()) {
                     .Opaque, .Fn => true,
                     .Array => elem_ty.childType().hasRuntimeBits(),
@@ -977,6 +981,14 @@ pub const DeclGen = struct {
 
                 const struct_obj = t.castTag(.@"struct").?.data;
 
+                if (struct_obj.layout == .Packed) {
+                    var buf: Type.Payload.Bits = undefined;
+                    const int_ty = struct_obj.packedIntegerType(target, &buf);
+                    const int_llvm_ty = try dg.llvmType(int_ty);
+                    gop.value_ptr.* = int_llvm_ty;
+                    return int_llvm_ty;
+                }
+
                 const name = try struct_obj.getFullyQualifiedName(gpa);
                 defer gpa.free(name);
 
@@ -988,83 +1000,9 @@ pub const DeclGen = struct {
                 var llvm_field_types = try std.ArrayListUnmanaged(*const llvm.Type).initCapacity(gpa, struct_obj.fields.count());
                 defer llvm_field_types.deinit(gpa);
 
-                if (struct_obj.layout == .Packed) {
-                    try llvm_field_types.ensureUnusedCapacity(gpa, struct_obj.fields.count() * 2);
-                    comptime assert(Type.packed_struct_layout_version == 1);
-                    var offset: u64 = 0;
-                    var big_align: u32 = 0;
-                    var running_bits: u16 = 0;
-                    for (struct_obj.fields.values()) |field| {
-                        if (!field.ty.hasRuntimeBits()) continue;
-
-                        const field_align = field.packedAlignment();
-                        if (field_align == 0) {
-                            running_bits += @intCast(u16, field.ty.bitSize(target));
-                        } else {
-                            if (running_bits != 0) {
-                                var int_payload: Type.Payload.Bits = .{
-                                    .base = .{ .tag = .int_unsigned },
-                                    .data = running_bits,
-                                };
-                                const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                                const int_align = int_ty.abiAlignment(target);
-                                big_align = @maximum(big_align, int_align);
-                                const llvm_int_ty = try dg.llvmType(int_ty);
-                                const prev_offset = offset;
-                                offset = std.mem.alignForwardGeneric(u64, offset, int_align);
-                                const padding_bytes = @intCast(c_uint, offset - prev_offset);
-                                if (padding_bytes != 0) {
-                                    const padding = dg.context.intType(8).arrayType(padding_bytes);
-                                    llvm_field_types.appendAssumeCapacity(padding);
-                                }
-                                llvm_field_types.appendAssumeCapacity(llvm_int_ty);
-                                offset += int_ty.abiSize(target);
-                                running_bits = 0;
-                            }
-                            big_align = @maximum(big_align, field_align);
-                            const prev_offset = offset;
-                            offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                            const padding_bytes = @intCast(c_uint, offset - prev_offset);
-                            if (padding_bytes != 0) {
-                                const padding = dg.context.intType(8).arrayType(padding_bytes);
-                                llvm_field_types.appendAssumeCapacity(padding);
-                            }
-                            llvm_field_types.appendAssumeCapacity(try dg.llvmType(field.ty));
-                            offset += field.ty.abiSize(target);
-                        }
-                    }
-
-                    if (running_bits != 0) {
-                        var int_payload: Type.Payload.Bits = .{
-                            .base = .{ .tag = .int_unsigned },
-                            .data = running_bits,
-                        };
-                        const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                        const int_align = int_ty.abiAlignment(target);
-                        big_align = @maximum(big_align, int_align);
-                        const prev_offset = offset;
-                        offset = std.mem.alignForwardGeneric(u64, offset, int_align);
-                        const padding_bytes = @intCast(c_uint, offset - prev_offset);
-                        if (padding_bytes != 0) {
-                            const padding = dg.context.intType(8).arrayType(padding_bytes);
-                            llvm_field_types.appendAssumeCapacity(padding);
-                        }
-                        const llvm_int_ty = try dg.llvmType(int_ty);
-                        llvm_field_types.appendAssumeCapacity(llvm_int_ty);
-                    }
-
-                    const prev_offset = offset;
-                    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
-                    const padding_bytes = @intCast(c_uint, offset - prev_offset);
-                    if (padding_bytes != 0) {
-                        const padding = dg.context.intType(8).arrayType(padding_bytes);
-                        llvm_field_types.appendAssumeCapacity(padding);
-                    }
-                } else {
-                    for (struct_obj.fields.values()) |field| {
-                        if (!field.ty.hasRuntimeBits()) continue;
-                        llvm_field_types.appendAssumeCapacity(try dg.llvmType(field.ty));
-                    }
+                for (struct_obj.fields.values()) |field| {
+                    if (!field.ty.hasRuntimeBits()) continue;
+                    llvm_field_types.appendAssumeCapacity(try dg.llvmType(field.ty));
                 }
 
                 llvm_struct_ty.structSetBody(
@@ -1521,116 +1459,54 @@ pub const DeclGen = struct {
                 const llvm_struct_ty = try dg.llvmType(tv.ty);
                 const field_vals = tv.val.castTag(.@"struct").?.data;
                 const gpa = dg.gpa;
-                const llvm_field_count = llvm_struct_ty.countStructElementTypes();
-
-                var llvm_fields = try std.ArrayListUnmanaged(*const llvm.Value).initCapacity(gpa, llvm_field_count);
-                defer llvm_fields.deinit(gpa);
-
-                var need_unnamed = false;
                 const struct_obj = tv.ty.castTag(.@"struct").?.data;
+
                 if (struct_obj.layout == .Packed) {
                     const target = dg.module.getTarget();
+                    var int_ty_buf: Type.Payload.Bits = undefined;
+                    const int_ty = struct_obj.packedIntegerType(target, &int_ty_buf);
+                    const int_llvm_ty = try dg.llvmType(int_ty);
                     const fields = struct_obj.fields.values();
-                    comptime assert(Type.packed_struct_layout_version == 1);
-                    var offset: u64 = 0;
-                    var big_align: u32 = 0;
+                    comptime assert(Type.packed_struct_layout_version == 2);
+                    var running_int: *const llvm.Value = int_llvm_ty.constNull();
                     var running_bits: u16 = 0;
-                    var running_int: *const llvm.Value = llvm_struct_ty.structGetTypeAtIndex(0).constNull();
                     for (field_vals) |field_val, i| {
                         const field = fields[i];
                         if (!field.ty.hasRuntimeBits()) continue;
 
-                        const field_align = field.packedAlignment();
-                        if (field_align == 0) {
-                            const non_int_val = try dg.genTypedValue(.{
-                                .ty = field.ty,
-                                .val = field_val,
-                            });
-                            const ty_bit_size = @intCast(u16, field.ty.bitSize(target));
-                            const small_int_ty = dg.context.intType(ty_bit_size);
-                            const small_int_val = non_int_val.constBitCast(small_int_ty);
-                            const big_int_ty = running_int.typeOf();
-                            const shift_rhs = big_int_ty.constInt(running_bits, .False);
-                            const extended_int_val = small_int_val.constZExt(big_int_ty);
-                            const shifted = extended_int_val.constShl(shift_rhs);
-                            running_int = running_int.constOr(shifted);
-                            running_bits += ty_bit_size;
-                        } else {
-                            big_align = @maximum(big_align, field_align);
-                            if (running_bits != 0) {
-                                var int_payload: Type.Payload.Bits = .{
-                                    .base = .{ .tag = .int_unsigned },
-                                    .data = running_bits,
-                                };
-                                const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                                const int_align = int_ty.abiAlignment(target);
-                                big_align = @maximum(big_align, int_align);
-                                const prev_offset = offset;
-                                offset = std.mem.alignForwardGeneric(u64, offset, int_align);
-                                const padding_bytes = @intCast(c_uint, offset - prev_offset);
-                                if (padding_bytes != 0) {
-                                    const padding = dg.context.intType(8).arrayType(padding_bytes);
-                                    llvm_fields.appendAssumeCapacity(padding.getUndef());
-                                }
-                                llvm_fields.appendAssumeCapacity(running_int);
-                                running_int = llvm_struct_ty.structGetTypeAtIndex(@intCast(c_uint, llvm_fields.items.len)).constNull();
-                                offset += int_ty.abiSize(target);
-                                running_bits = 0;
-                            }
-                            const prev_offset = offset;
-                            offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                            const padding_bytes = @intCast(c_uint, offset - prev_offset);
-                            if (padding_bytes != 0) {
-                                const padding = dg.context.intType(8).arrayType(padding_bytes);
-                                llvm_fields.appendAssumeCapacity(padding.getUndef());
-                            }
-                            llvm_fields.appendAssumeCapacity(try dg.genTypedValue(.{
-                                .ty = field.ty,
-                                .val = field_val,
-                            }));
-                            offset += field.ty.abiSize(target);
-                        }
-                    }
-                    if (running_bits != 0) {
-                        var int_payload: Type.Payload.Bits = .{
-                            .base = .{ .tag = .int_unsigned },
-                            .data = running_bits,
-                        };
-                        const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                        const int_align = int_ty.abiAlignment(target);
-                        big_align = @maximum(big_align, int_align);
-                        const prev_offset = offset;
-                        offset = std.mem.alignForwardGeneric(u64, offset, int_align);
-                        const padding_bytes = @intCast(c_uint, offset - prev_offset);
-                        if (padding_bytes != 0) {
-                            const padding = dg.context.intType(8).arrayType(padding_bytes);
-                            llvm_fields.appendAssumeCapacity(padding.getUndef());
-                        }
-                        llvm_fields.appendAssumeCapacity(running_int);
-                        offset += int_ty.abiSize(target);
-                    }
-
-                    const prev_offset = offset;
-                    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
-                    const padding_bytes = @intCast(c_uint, offset - prev_offset);
-                    if (padding_bytes != 0) {
-                        const padding = dg.context.intType(8).arrayType(padding_bytes);
-                        llvm_fields.appendAssumeCapacity(padding.getUndef());
-                    }
-                } else {
-                    for (field_vals) |field_val, i| {
-                        const field_ty = tv.ty.structFieldType(i);
-                        if (!field_ty.hasRuntimeBits()) continue;
-
-                        const field_llvm_val = try dg.genTypedValue(.{
-                            .ty = field_ty,
+                        const non_int_val = try dg.genTypedValue(.{
+                            .ty = field.ty,
                             .val = field_val,
                         });
-
-                        need_unnamed = need_unnamed or dg.isUnnamedType(field_ty, field_llvm_val);
-
-                        llvm_fields.appendAssumeCapacity(field_llvm_val);
+                        const ty_bit_size = @intCast(u16, field.ty.bitSize(target));
+                        const small_int_ty = dg.context.intType(ty_bit_size);
+                        const small_int_val = non_int_val.constBitCast(small_int_ty);
+                        const shift_rhs = int_llvm_ty.constInt(running_bits, .False);
+                        const extended_int_val = small_int_val.constZExt(int_llvm_ty);
+                        const shifted = extended_int_val.constShl(shift_rhs);
+                        running_int = running_int.constOr(shifted);
+                        running_bits += ty_bit_size;
                     }
+                    return running_int;
+                }
+
+                const llvm_field_count = llvm_struct_ty.countStructElementTypes();
+                var llvm_fields = try std.ArrayListUnmanaged(*const llvm.Value).initCapacity(gpa, llvm_field_count);
+                defer llvm_fields.deinit(gpa);
+
+                var need_unnamed = false;
+                for (field_vals) |field_val, i| {
+                    const field_ty = tv.ty.structFieldType(i);
+                    if (!field_ty.hasRuntimeBits()) continue;
+
+                    const field_llvm_val = try dg.genTypedValue(.{
+                        .ty = field_ty,
+                        .val = field_val,
+                    });
+
+                    need_unnamed = need_unnamed or dg.isUnnamedType(field_ty, field_llvm_val);
+
+                    llvm_fields.appendAssumeCapacity(field_llvm_val);
                 }
 
                 if (need_unnamed) {
@@ -2923,10 +2799,27 @@ pub const FuncGen = struct {
         if (!isByRef(struct_ty)) {
             assert(!isByRef(field_ty));
             switch (struct_ty.zigTypeTag()) {
-                .Struct => {
-                    var ptr_ty_buf: Type.Payload.Pointer = undefined;
-                    const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ptr_ty_buf).?;
-                    return self.builder.buildExtractValue(struct_llvm_val, llvm_field_index, "");
+                .Struct => switch (struct_ty.containerLayout()) {
+                    .Packed => {
+                        const struct_obj = struct_ty.castTag(.@"struct").?.data;
+                        const bit_offset = struct_obj.packedFieldBitOffset(target, field_index);
+                        const containing_int = struct_llvm_val;
+                        const shift_amt = containing_int.typeOf().constInt(bit_offset, .False);
+                        const shifted_value = self.builder.buildLShr(containing_int, shift_amt, "");
+                        const elem_llvm_ty = try self.dg.llvmType(field_ty);
+                        if (field_ty.zigTypeTag() == .Float) {
+                            const elem_bits = @intCast(c_uint, field_ty.bitSize(target));
+                            const same_size_int = self.context.intType(elem_bits);
+                            const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
+                            return self.builder.buildBitCast(truncated_int, elem_llvm_ty, "");
+                        }
+                        return self.builder.buildTrunc(shifted_value, elem_llvm_ty, "");
+                    },
+                    else => {
+                        var ptr_ty_buf: Type.Payload.Pointer = undefined;
+                        const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ptr_ty_buf).?;
+                        return self.builder.buildExtractValue(struct_llvm_val, llvm_field_index, "");
+                    },
                 },
                 .Union => {
                     return self.todo("airStructFieldVal byval union", .{});
@@ -2937,6 +2830,7 @@ pub const FuncGen = struct {
 
         switch (struct_ty.zigTypeTag()) {
             .Struct => {
+                assert(struct_ty.containerLayout() != .Packed);
                 var ptr_ty_buf: Type.Payload.Pointer = undefined;
                 const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ptr_ty_buf).?;
                 const field_ptr = self.builder.buildStructGEP(struct_llvm_val, llvm_field_index, "");
@@ -4928,21 +4822,35 @@ pub const FuncGen = struct {
     ) !?*const llvm.Value {
         const struct_ty = struct_ptr_ty.childType();
         switch (struct_ty.zigTypeTag()) {
-            .Struct => {
-                const target = self.dg.module.getTarget();
-                var ty_buf: Type.Payload.Pointer = undefined;
-                if (llvmFieldIndex(struct_ty, field_index, target, &ty_buf)) |llvm_field_index| {
-                    return self.builder.buildStructGEP(struct_ptr, llvm_field_index, "");
-                } else {
-                    // If we found no index then this means this is a zero sized field at the
-                    // end of the struct. Treat our struct pointer as an array of two and get
-                    // the index to the element at index `1` to get a pointer to the end of
-                    // the struct.
-                    const llvm_usize = try self.dg.llvmType(Type.usize);
-                    const llvm_index = llvm_usize.constInt(1, .False);
-                    const indices: [1]*const llvm.Value = .{llvm_index};
-                    return self.builder.buildInBoundsGEP(struct_ptr, &indices, indices.len, "");
-                }
+            .Struct => switch (struct_ty.containerLayout()) {
+                .Packed => {
+                    // From LLVM's perspective, a pointer to a packed struct and a pointer
+                    // to a field of a packed struct are the same. The difference is in the
+                    // Zig pointer type which provides information for how to mask and shift
+                    // out the relevant bits when accessing the pointee.
+                    // Here we perform a bitcast because we want to use the host_size
+                    // as the llvm pointer element type.
+                    const result_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
+                    // TODO this can be removed if we change host_size to be bits instead
+                    // of bytes.
+                    return self.builder.buildBitCast(struct_ptr, result_llvm_ty, "");
+                },
+                else => {
+                    const target = self.dg.module.getTarget();
+                    var ty_buf: Type.Payload.Pointer = undefined;
+                    if (llvmFieldIndex(struct_ty, field_index, target, &ty_buf)) |llvm_field_index| {
+                        return self.builder.buildStructGEP(struct_ptr, llvm_field_index, "");
+                    } else {
+                        // If we found no index then this means this is a zero sized field at the
+                        // end of the struct. Treat our struct pointer as an array of two and get
+                        // the index to the element at index `1` to get a pointer to the end of
+                        // the struct.
+                        const llvm_usize = try self.dg.llvmType(Type.usize);
+                        const llvm_index = llvm_usize.constInt(1, .False);
+                        const indices: [1]*const llvm.Value = .{llvm_index};
+                        return self.builder.buildInBoundsGEP(struct_ptr, &indices, indices.len, "");
+                    }
+                },
             },
             .Union => return self.unionFieldPtr(inst, struct_ptr, struct_ty, field_index),
             else => unreachable,
@@ -5373,102 +5281,29 @@ fn llvmFieldIndex(
         return null;
     }
     const struct_obj = ty.castTag(.@"struct").?.data;
-    if (struct_obj.layout != .Packed) {
-        var llvm_field_index: c_uint = 0;
-        for (struct_obj.fields.values()) |field, i| {
-            if (!field.ty.hasRuntimeBits())
-                continue;
-            if (field_index > i) {
-                llvm_field_index += 1;
-                continue;
-            }
+    assert(struct_obj.layout != .Packed);
 
-            ptr_pl_buf.* = .{
-                .data = .{
-                    .pointee_type = field.ty,
-                    .@"align" = field.normalAlignment(target),
-                    .@"addrspace" = .generic,
-                },
-            };
-            return llvm_field_index;
-        } else {
-            // We did not find an llvm field that corresponds to this zig field.
-            return null;
-        }
-    }
-
-    // Our job here is to return the host integer field index.
-    comptime assert(Type.packed_struct_layout_version == 1);
-    var offset: u64 = 0;
-    var running_bits: u16 = 0;
     var llvm_field_index: c_uint = 0;
     for (struct_obj.fields.values()) |field, i| {
         if (!field.ty.hasRuntimeBits())
             continue;
-
-        const field_align = field.packedAlignment();
-        if (field_align == 0) {
-            if (i == field_index) {
-                ptr_pl_buf.* = .{
-                    .data = .{
-                        .pointee_type = field.ty,
-                        .bit_offset = running_bits,
-                        .@"addrspace" = .generic,
-                    },
-                };
-            }
-            running_bits += @intCast(u16, field.ty.bitSize(target));
-        } else {
-            if (running_bits != 0) {
-                var int_payload: Type.Payload.Bits = .{
-                    .base = .{ .tag = .int_unsigned },
-                    .data = running_bits,
-                };
-                const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                if (i > field_index) {
-                    ptr_pl_buf.data.host_size = @intCast(u16, int_ty.abiSize(target));
-                    return llvm_field_index;
-                }
-
-                const int_align = int_ty.abiAlignment(target);
-                const prev_offset = offset;
-                offset = std.mem.alignForwardGeneric(u64, offset, int_align);
-                const padding_bytes = @intCast(c_uint, offset - prev_offset);
-                if (padding_bytes != 0) {
-                    llvm_field_index += 1;
-                }
-                llvm_field_index += 1;
-                offset += int_ty.abiSize(target);
-                running_bits = 0;
-            }
-            const prev_offset = offset;
-            offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-            const padding_bytes = @intCast(c_uint, offset - prev_offset);
-            if (padding_bytes != 0) {
-                llvm_field_index += 1;
-            }
-            if (i == field_index) {
-                ptr_pl_buf.* = .{
-                    .data = .{
-                        .pointee_type = field.ty,
-                        .@"align" = field_align,
-                        .@"addrspace" = .generic,
-                    },
-                };
-                return llvm_field_index;
-            }
+        if (field_index > i) {
             llvm_field_index += 1;
-            offset += field.ty.abiSize(target);
+            continue;
         }
+
+        ptr_pl_buf.* = .{
+            .data = .{
+                .pointee_type = field.ty,
+                .@"align" = field.normalAlignment(target),
+                .@"addrspace" = .generic,
+            },
+        };
+        return llvm_field_index;
+    } else {
+        // We did not find an llvm field that corresponds to this zig field.
+        return null;
     }
-    assert(running_bits != 0);
-    var int_payload: Type.Payload.Bits = .{
-        .base = .{ .tag = .int_unsigned },
-        .data = running_bits,
-    };
-    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-    ptr_pl_buf.data.host_size = @intCast(u16, int_ty.abiSize(target));
-    return llvm_field_index;
 }
 
 fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool {
@@ -5518,6 +5353,9 @@ fn isByRef(ty: Type) bool {
 
         .Array, .Frame => return ty.hasRuntimeBits(),
         .Struct => {
+            // Packed structs are represented to LLVM as integers.
+            if (ty.containerLayout() == .Packed) return false;
+
             if (!ty.hasRuntimeBits()) return false;
             if (ty.castTag(.tuple)) |tuple| {
                 var count: usize = 0;

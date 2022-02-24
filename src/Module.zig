@@ -886,15 +886,6 @@ pub const Struct = struct {
         offset: u32,
         is_comptime: bool,
 
-        /// Returns the field alignment, assuming the struct is packed.
-        pub fn packedAlignment(field: Field) u32 {
-            if (field.abi_align.tag() == .abi_align_default) {
-                return 0;
-            } else {
-                return @intCast(u32, field.abi_align.toUnsignedInt());
-            }
-        }
-
         /// Returns the field alignment, assuming the struct is not packed.
         pub fn normalAlignment(field: Field, target: Target) u32 {
             if (field.abi_align.tag() == .abi_align_default) {
@@ -984,6 +975,31 @@ pub const Struct = struct {
             .fully_resolved,
             => true,
         };
+    }
+
+    pub fn packedFieldBitOffset(s: Struct, target: Target, index: usize) u16 {
+        assert(s.layout == .Packed);
+        assert(s.haveFieldTypes());
+        var bit_sum: u64 = 0;
+        for (s.fields.values()) |field, i| {
+            if (i == index) {
+                return @intCast(u16, bit_sum);
+            }
+            bit_sum += field.ty.bitSize(target);
+        }
+        return @intCast(u16, bit_sum);
+    }
+
+    pub fn packedIntegerBits(s: Struct, target: Target) u16 {
+        return s.packedFieldBitOffset(target, s.fields.count());
+    }
+
+    pub fn packedIntegerType(s: Struct, target: Target, buf: *Type.Payload.Bits) Type {
+        buf.* = .{
+            .base = .{ .tag = .int_unsigned },
+            .data = s.packedIntegerBits(target),
+        };
+        return Type.initPayload(&buf.base);
     }
 };
 

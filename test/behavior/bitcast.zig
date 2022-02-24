@@ -132,7 +132,6 @@ test "bitcast generates a temporary value" {
 }
 
 test "@bitCast packed structs at runtime and comptime" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -170,7 +169,6 @@ test "@bitCast packed structs at runtime and comptime" {
 }
 
 test "@bitCast extern structs at runtime and comptime" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -205,7 +203,6 @@ test "@bitCast extern structs at runtime and comptime" {
 }
 
 test "bitcast packed struct to integer and back" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -246,7 +243,6 @@ test "implicit cast to error union by returning" {
 }
 
 test "bitcast packed struct literal to byte" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -261,7 +257,6 @@ test "bitcast packed struct literal to byte" {
 }
 
 test "comptime bitcast used in expression has the correct type" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;

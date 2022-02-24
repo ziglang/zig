@@ -210,13 +210,13 @@ test "branching logic inside @TypeOf" {
 }
 
 test "@bitSizeOf" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     try expect(@bitSizeOf(u2) == 2);
     try expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
     try expect(@bitSizeOf(struct {
         a: u2,
-    }) == 8);
+    }) == 2);
     try expect(@bitSizeOf(packed struct {
         a: u2,
     }) == 2);
