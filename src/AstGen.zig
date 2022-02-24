@@ -1760,19 +1760,6 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     .block_ptr => {
                         const br = try parent_gz.addBreak(break_tag, block_inst, operand);
                         try block_gz.labeled_breaks.append(astgen.gpa, br);
-
-                        // if list grew as much as rvalue_rl_count, then a break
-                        // inside operand already saved the store_to_block_ptr
-                        const have_store_to_block = block_gz.rvalue_rl_count >
-                            block_gz.labeled_store_to_block_ptr_list.items.len;
-                        if (have_store_to_block) {
-                            const zir_tags = parent_gz.astgen.instructions.items(.tag);
-                            const zir_datas = parent_gz.astgen.instructions.items(.data);
-                            const store_inst = @intCast(u32, zir_tags.len - 2);
-                            assert(zir_tags[store_inst] == .store_to_block_ptr);
-                            assert(zir_datas[store_inst].bin.lhs == block_gz.rl_ptr);
-                            try block_gz.labeled_store_to_block_ptr_list.append(astgen.gpa, store_inst);
-                        }
                     },
                     .ptr => {
                         // In this case we don't have any mechanism to intercept it;
@@ -1955,7 +1942,6 @@ fn labeledBlockExpr(
     block_scope.setBreakResultLoc(rl);
     defer block_scope.unstack();
     defer block_scope.labeled_breaks.deinit(astgen.gpa);
-    defer block_scope.labeled_store_to_block_ptr_list.deinit(astgen.gpa);
 
     try blockExprStmts(&block_scope, &block_scope.base, statements);
 
@@ -1963,9 +1949,7 @@ fn labeledBlockExpr(
         try astgen.appendErrorTok(label_token, "unused block label", .{});
     }
 
-    const zir_tags = gz.astgen.instructions.items(.tag);
     const zir_datas = gz.astgen.instructions.items(.data);
-
     const strat = rl.strategy(&block_scope);
     switch (strat.tag) {
         .break_void => {
@@ -1981,11 +1965,6 @@ fn labeledBlockExpr(
         .break_operand => {
             // All break operands are values that did not use the result location pointer.
             if (strat.elide_store_to_block_ptr_instructions) {
-                for (block_scope.labeled_store_to_block_ptr_list.items) |inst| {
-                    // Mark as elided for removal below.
-                    assert(zir_tags[inst] == .store_to_block_ptr);
-                    zir_datas[inst].bin.lhs = .none;
-                }
                 try block_scope.setBlockBodyEliding(block_inst);
             } else {
                 try block_scope.setBlockBody(block_inst);
@@ -5322,7 +5301,6 @@ fn whileExpr(
     loop_scope.setBreakResultLoc(rl);
     defer loop_scope.unstack();
     defer loop_scope.labeled_breaks.deinit(astgen.gpa);
-    defer loop_scope.labeled_store_to_block_ptr_list.deinit(astgen.gpa);
 
     var continue_scope = parent_gz.makeSubBlock(&loop_scope.base);
     defer continue_scope.unstack();
@@ -5573,7 +5551,6 @@ fn forExpr(
     loop_scope.setBreakResultLoc(rl);
     defer loop_scope.unstack();
     defer loop_scope.labeled_breaks.deinit(astgen.gpa);
-    defer loop_scope.labeled_store_to_block_ptr_list.deinit(astgen.gpa);
 
     var cond_scope = parent_gz.makeSubBlock(&loop_scope.base);
     defer cond_scope.unstack();
@@ -9553,10 +9530,6 @@ const GenZir = struct {
     /// Tracks `break :foo bar` instructions so they can possibly be elided later if
     /// the labeled block ends up not needing a result location pointer.
     labeled_breaks: ArrayListUnmanaged(Zir.Inst.Index) = .{},
-    /// Tracks `store_to_block_ptr` instructions that correspond to break instructions
-    /// so they can possibly be elided later if the labeled block ends up not needing
-    /// a result location pointer.
-    labeled_store_to_block_ptr_list: ArrayListUnmanaged(Zir.Inst.Index) = .{},
 
     suspend_node: Ast.Node.Index = 0,
     nosuspend_node: Ast.Node.Index = 0,
