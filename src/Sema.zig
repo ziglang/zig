@@ -17085,6 +17085,47 @@ fn resolvePeerTypes(
                     }
                 }
 
+                // *[N]T to []T (prev is slice)
+                if (chosen_ty.isSlice() and
+                    candidate_ty.ptrSize() == .One and
+                    candidate_ty.childType().zigTypeTag() == .Array)
+                {
+                    const chosen_elem_ty = chosen_ty.elemType2();
+                    const candidate_elem_ty = candidate_ty.childType().elemType2();
+                    if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
+                        convert_to_slice = false; // it already is a slice
+
+                        // If the pointer is const then we need to const
+                        if (candidate_ty.childType().isConstPtr())
+                            make_the_slice_const = true;
+
+                        continue;
+                    }
+                }
+
+                // *[N]T to []T (current is slice)
+                if (chosen_ty_tag == .Pointer and
+                    chosen_ty.ptrSize() == .One and
+                    chosen_ty.childType().zigTypeTag() == .Array and
+                    candidate_ty.isSlice())
+                {
+                    const chosen_child_ty = chosen_ty.childType();
+                    const chosen_elem_ty = chosen_child_ty.elemType2();
+                    const candidate_elem_ty = candidate_ty.elemType2();
+                    if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+
+                        convert_to_slice = false; // it already is a slice
+
+                        // If the prev pointer is const then we need to const
+                        if (chosen_child_ty.isConstPtr())
+                            make_the_slice_const = true;
+
+                        continue;
+                    }
+                }
+
                 // *[N]T and *[M]T
                 // verify both are pointers to known lengths
                 if (chosen_ty_tag == .Pointer and
@@ -17219,6 +17260,15 @@ fn resolvePeerTypes(
             else => unreachable,
         };
 
+        return Type.ptr(sema.arena, info.data);
+    }
+
+    if (make_the_slice_const) {
+        // turn []T => []const T
+        var info = chosen_ty.ptrInfo();
+        info.data.mutable = false;
+
+        std.debug.print("TYPE: {}\n", .{Type.ptr(sema.arena, info.data)});
         return Type.ptr(sema.arena, info.data);
     }
 
