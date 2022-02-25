@@ -17295,8 +17295,6 @@ fn resolvePeerTypes(
         // turn []T => []const T
         var info = chosen_ty.ptrInfo();
         info.data.mutable = false;
-
-        std.debug.print("TYPE: {}\n", .{Type.ptr(sema.arena, info.data)});
         return Type.ptr(sema.arena, info.data);
     }
 
