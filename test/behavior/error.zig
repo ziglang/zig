@@ -294,10 +294,11 @@ fn quux_1() !i32 {
 }
 
 test "error: Zero sized error set returned with value payload crash" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
-    _ = foo3(0) catch {};
-    _ = comptime foo3(0) catch {};
+    _ = try foo3(0);
+    _ = comptime try foo3(0);
 }
 
 const Error = error{};

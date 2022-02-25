@@ -1598,11 +1598,37 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     // we cannot do it.
     if (try sema.resolveDefinedValue(block, src, ptr)) |ptr_val| {
         if (ptr_val.isComptimeMutablePtr()) {
+            const sentinel_val = try sema.addConstant(pointee_ty, Value.initTag(.unreachable_value));
+            const coerced = try sema.coerce(block, sema.typeOf(ptr).childType(), sentinel_val, src);
+
+            var res_ptr = ptr_val;
+            var cur_val = (try sema.resolveMaybeUndefVal(block, .unneeded, coerced)).?;
+            while (true) switch (cur_val.tag()) {
+                .unreachable_value => break,
+                .opt_payload => {
+                    res_ptr = try Value.Tag.opt_payload_ptr.create(sema.arena, res_ptr);
+                    cur_val = cur_val.castTag(.opt_payload).?.data;
+                },
+                .eu_payload => {
+                    res_ptr = try Value.Tag.eu_payload_ptr.create(sema.arena, res_ptr);
+                    cur_val = cur_val.castTag(.eu_payload).?.data;
+                },
+                else => {
+                    if (std.debug.runtime_safety) {
+                        std.debug.panic("unexpected Value tag for coerce_result_ptr: {s}", .{
+                            cur_val.tag(),
+                        });
+                    } else {
+                        unreachable;
+                    }
+                },
+            };
+
             const ptr_ty = try Type.ptr(sema.arena, .{
                 .pointee_type = pointee_ty,
                 .@"addrspace" = addr_space,
             });
-            return sema.addConstant(ptr_ty, ptr_val);
+            return sema.addConstant(ptr_ty, res_ptr);
         }
     }
 
@@ -1673,7 +1699,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 }
             },
         }
-    } else unreachable; // TODO should not need else unreachable
+    }
 }
 
 pub fn analyzeStructDecl(
@@ -16937,7 +16963,6 @@ fn wrapErrorUnionPayload(
     const dest_payload_ty = dest_ty.errorUnionPayload();
     const coerced = try sema.coerce(block, dest_payload_ty, inst, inst_src);
     if (try sema.resolveMaybeUndefVal(block, inst_src, coerced)) |val| {
-        if (val.isUndef()) return sema.addConstUndef(dest_ty);
         return sema.addConstant(dest_ty, try Value.Tag.eu_payload.create(sema.arena, val));
     }
     try sema.requireRuntimeBlock(block, inst_src);
