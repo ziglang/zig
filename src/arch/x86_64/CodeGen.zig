@@ -852,7 +852,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const elem_ty = ptr_ty.elemType();
 
     if (!elem_ty.hasRuntimeBits()) {
-        return self.allocMem(inst, 8, 8);
+        return self.allocMem(inst, @sizeOf(usize), @alignOf(usize));
     }
 
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
