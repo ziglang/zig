@@ -791,17 +791,22 @@ pub const Value = extern union {
                 return decl_val.toAllocatedBytes(decl.ty, allocator);
             },
             .the_only_possible_value => return &[_]u8{},
-            .slice => return toAllocatedBytes(val.castTag(.slice).?.data.ptr, ty, allocator),
-            else => {
-                const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen()));
-                var elem_value_buf: ElemValueBuffer = undefined;
-                for (result) |*elem, i| {
-                    const elem_val = val.elemValueBuffer(i, &elem_value_buf);
-                    elem.* = @intCast(u8, elem_val.toUnsignedInt());
-                }
-                return result;
+            .slice => {
+                const slice = val.castTag(.slice).?.data;
+                return arrayToAllocatedBytes(slice.ptr, slice.len.toUnsignedInt(), allocator);
             },
+            else => return arrayToAllocatedBytes(val, ty.arrayLen(), allocator),
         }
+    }
+
+    fn arrayToAllocatedBytes(val: Value, len: u64, allocator: Allocator) ![]u8 {
+        const result = try allocator.alloc(u8, @intCast(usize, len));
+        var elem_value_buf: ElemValueBuffer = undefined;
+        for (result) |*elem, i| {
+            const elem_val = val.elemValueBuffer(i, &elem_value_buf);
+            elem.* = @intCast(u8, elem_val.toUnsignedInt());
+        }
+        return result;
     }
 
     pub const ToTypeBuffer = Type.Payload.Bits;

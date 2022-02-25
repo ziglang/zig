@@ -25,7 +25,7 @@ test "assignment of field with padding" {
             .emits_shadows = false,
         },
     };
-    try testing.expectEqual(false, renderable.material.transparent);
-    try testing.expectEqual(false, renderable.material.emits_shadows);
-    try testing.expectEqual(true, renderable.material.render_color);
+    try testing.expect(false == renderable.material.transparent);
+    try testing.expect(false == renderable.material.emits_shadows);
+    try testing.expect(true == renderable.material.render_color);
 }
