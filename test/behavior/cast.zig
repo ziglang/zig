@@ -358,8 +358,6 @@ fn testCastIntToErr(err: anyerror) !void {
 }
 
 test "peer resolve array and const slice" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testPeerResolveArrayConstSlice(true);
     comptime try testPeerResolveArrayConstSlice(true);
 }
@@ -492,8 +490,6 @@ fn testPeerErrorAndArray2(x: u8) anyerror![]const u8 {
 }
 
 test "single-item pointer of array to slice to unknown length pointer" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testCastPtrOfArrayToSliceAndPtr();
     comptime try testCastPtrOfArrayToSliceAndPtr();
 }
@@ -607,18 +603,16 @@ test "peer type resolution: unreachable, error set, unreachable" {
 }
 
 test "peer cast *[0]T to E![]const T" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var buffer: [5]u8 = "abcde".*;
     var buf: anyerror![]const u8 = buffer[0..];
     var b = false;
     var y = if (b) &[0]u8{} else buf;
+    var z = if (!b) buf else &[0]u8{};
     try expect(mem.eql(u8, "abcde", y catch unreachable));
+    try expect(mem.eql(u8, "abcde", z catch unreachable));
 }
 
 test "peer cast *[0]T to []const T" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var buffer: [5]u8 = "abcde".*;
     var buf: []const u8 = buffer[0..];
     var b = false;
@@ -744,8 +738,6 @@ test "peer type resolution implicit cast to variable type" {
 }
 
 test "variable initialization uses result locations properly with regards to the type" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var b = true;
     const x: i32 = if (b) 1 else 2;
     try expect(x == 1);
