@@ -553,8 +553,6 @@ var simple_struct = SimpleStruct{ .field = 1234 };
 const bound_fn = simple_struct.method;
 
 test "ptr to local array argument at comptime" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime {
         var bytes: [10]u8 = undefined;
         modifySomeBytes(bytes[0..]);
@@ -591,8 +589,6 @@ fn testCompTimeUIntComparisons(x: u32) void {
 const hi1 = "hi";
 const hi2 = hi1;
 test "const global shares pointer with other same one" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try assertEqualPtrs(&hi1[0], &hi2[0]);
     comptime try expect(&hi1[0] == &hi2[0]);
 }
@@ -704,7 +700,7 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try testVarInsideInlineLoop(.{ true, @as(u32, 42) });
 }

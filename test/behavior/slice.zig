@@ -565,7 +565,8 @@ test "array concat of slices gives slice" {
 }
 
 test "slice bounds in comptime concatenation" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const bs = comptime blk: {
         const b = "........1........";

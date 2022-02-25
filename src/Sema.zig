@@ -14360,6 +14360,10 @@ fn structFieldVal(
     assert(unresolved_struct_ty.zigTypeTag() == .Struct);
 
     const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_ty);
+    if (struct_ty.isTuple()) {
+        return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty);
+    }
+
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
     const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
@@ -14379,6 +14383,46 @@ fn structFieldVal(
 
     try sema.requireRuntimeBlock(block, src);
     return block.addStructFieldVal(struct_byval, field_index, field.ty);
+}
+
+fn tupleFieldVal(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    tuple_byval: Air.Inst.Ref,
+    field_name: []const u8,
+    field_name_src: LazySrcLoc,
+    tuple_ty: Type,
+) CompileError!Air.Inst.Ref {
+    const tuple = tuple_ty.castTag(.tuple).?.data;
+
+    if (mem.eql(u8, field_name, "len")) {
+        return sema.addIntUnsigned(Type.usize, tuple.types.len);
+    }
+
+    const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch |err| {
+        return sema.fail(block, field_name_src, "tuple {} has no such field '{s}': {s}", .{
+            tuple_ty, field_name, @errorName(err),
+        });
+    };
+
+    const field_ty = tuple.types[field_index];
+
+    if (tuple.values[field_index].tag() != .unreachable_value) {
+        return sema.addConstant(field_ty, tuple.values[field_index]);
+    }
+
+    if (try sema.resolveMaybeUndefVal(block, src, tuple_byval)) |tuple_val| {
+        if (tuple_val.isUndef()) return sema.addConstUndef(field_ty);
+        if ((try sema.typeHasOnePossibleValue(block, src, field_ty))) |opv| {
+            return sema.addConstant(field_ty, opv);
+        }
+        const field_values = tuple_val.castTag(.@"struct").?.data;
+        return sema.addConstant(field_ty, field_values[field_index]);
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addStructFieldVal(tuple_byval, field_index, field_ty);
 }
 
 fn unionFieldPtr(

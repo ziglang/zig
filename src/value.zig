@@ -1851,7 +1851,13 @@ pub const Value = extern union {
 
                 return eql(a_payload.ptr, b_payload.ptr, ptr_ty);
             },
-            .elem_ptr => @panic("TODO: Implement more pointer eql cases"),
+            .elem_ptr => {
+                const a_payload = a.castTag(.elem_ptr).?.data;
+                const b_payload = b.castTag(.elem_ptr).?.data;
+                if (a_payload.index != b_payload.index) return false;
+
+                return eql(a_payload.array_ptr, b_payload.array_ptr, ty);
+            },
             .field_ptr => {
                 const a_payload = a.castTag(.field_ptr).?.data;
                 const b_payload = b.castTag(.field_ptr).?.data;
@@ -2327,21 +2333,33 @@ pub const Value = extern union {
     }
 
     /// Returns a pointer to the element value at the index.
-    pub fn elemPtr(self: Value, allocator: Allocator, index: usize) !Value {
-        switch (self.tag()) {
+    pub fn elemPtr(val: Value, arena: Allocator, index: usize) Allocator.Error!Value {
+        switch (val.tag()) {
             .elem_ptr => {
-                const elem_ptr = self.castTag(.elem_ptr).?.data;
-                return Tag.elem_ptr.create(allocator, .{
+                const elem_ptr = val.castTag(.elem_ptr).?.data;
+                return Tag.elem_ptr.create(arena, .{
                     .array_ptr = elem_ptr.array_ptr,
                     .index = elem_ptr.index + index,
                 });
             },
-            .slice => return Tag.elem_ptr.create(allocator, .{
-                .array_ptr = self.castTag(.slice).?.data.ptr,
-                .index = index,
-            }),
-            else => return Tag.elem_ptr.create(allocator, .{
-                .array_ptr = self,
+            .slice => {
+                const ptr_val = val.castTag(.slice).?.data.ptr;
+                switch (ptr_val.tag()) {
+                    .elem_ptr => {
+                        const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
+                        return Tag.elem_ptr.create(arena, .{
+                            .array_ptr = elem_ptr.array_ptr,
+                            .index = elem_ptr.index + index,
+                        });
+                    },
+                    else => return Tag.elem_ptr.create(arena, .{
+                        .array_ptr = ptr_val,
+                        .index = index,
+                    }),
+                }
+            },
+            else => return Tag.elem_ptr.create(arena, .{
+                .array_ptr = val,
                 .index = index,
             }),
         }

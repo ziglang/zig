@@ -30,16 +30,12 @@ test "initializer list expression" {
 }
 
 test "sizeof in macros" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    try expectEqual(@as(c_int, @sizeOf(u32)), h.MY_SIZEOF(u32));
-    try expectEqual(@as(c_int, @sizeOf(u32)), h.MY_SIZEOF2(u32));
+    try expect(@as(c_int, @sizeOf(u32)) == h.MY_SIZEOF(u32));
+    try expect(@as(c_int, @sizeOf(u32)) == h.MY_SIZEOF2(u32));
 }
 
 test "reference to a struct type" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    try expectEqual(@sizeOf(h.struct_Foo), h.SIZE_OF_FOO);
+    try expect(@sizeOf(h.struct_Foo) == h.SIZE_OF_FOO);
 }
 
 test "cast negative integer to pointer" {

@@ -97,7 +97,9 @@ fn runSomeErrorDefers(x: bool) !bool {
 }
 
 test "mixing normal and error defers" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try expect(runSomeErrorDefers(true) catch unreachable);
     try expect(result[0] == 'c');

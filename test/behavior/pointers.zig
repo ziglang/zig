@@ -177,8 +177,6 @@ test "implicit cast error unions with non-optional to optional pointer" {
 }
 
 test "compare equality of optional and non-optional pointer" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const a = @intToPtr(*const usize, 0x12345678);
     const b = @intToPtr(?*usize, 0x12345678);
     try expect(a == b);
