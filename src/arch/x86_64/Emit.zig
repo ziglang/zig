@@ -857,6 +857,7 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
         };
         const atom = macho_file.atom_by_index_table.get(load_reloc.atom_index).?;
+        log.debug("adding reloc of type {} to local @{d}", .{ reloc_type, load_reloc.sym_index });
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = @intCast(u32, end_offset - 4),
             .target = .{ .local = load_reloc.sym_index },

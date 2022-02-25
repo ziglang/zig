@@ -4286,6 +4286,7 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
 }
 
 fn freeUnnamedConsts(self: *MachO, decl: *Module.Decl) void {
+    log.debug("freeUnnamedConsts for decl {*}", .{decl});
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl) orelse return;
     for (unnamed_consts.items) |atom| {
         self.freeAtom(atom, .{
@@ -4295,6 +4296,7 @@ fn freeUnnamedConsts(self: *MachO, decl: *Module.Decl) void {
         self.locals_free_list.append(self.base.allocator, atom.local_sym_index) catch {};
         self.locals.items[atom.local_sym_index].n_type = 0;
         _ = self.atom_by_index_table.remove(atom.local_sym_index);
+        log.debug("  adding local symbol index {d} to free list", .{atom.local_sym_index});
         atom.local_sym_index = 0;
     }
     unnamed_consts.clearAndFree(self.base.allocator);
@@ -4319,10 +4321,15 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
             self.got_entries_free_list.append(self.base.allocator, @intCast(u32, got_index)) catch {};
             self.got_entries.items[got_index] = .{ .target = .{ .local = 0 }, .atom = undefined };
             _ = self.got_entries_table.swapRemove(.{ .local = decl.link.macho.local_sym_index });
+            log.debug("  adding GOT index {d} to free list (target local@{d})", .{
+                got_index,
+                decl.link.macho.local_sym_index,
+            });
         }
 
         self.locals.items[decl.link.macho.local_sym_index].n_type = 0;
         _ = self.atom_by_index_table.remove(decl.link.macho.local_sym_index);
+        log.debug("  adding local symbol index {d} to free list", .{decl.link.macho.local_sym_index});
         decl.link.macho.local_sym_index = 0;
     }
     if (self.d_sym) |*d_sym| {
