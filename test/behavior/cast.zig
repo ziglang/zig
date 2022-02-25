@@ -411,8 +411,6 @@ fn gimmeErrOrSlice() anyerror![]u8 {
 }
 
 test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() anyerror!void {
             {
