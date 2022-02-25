@@ -1438,7 +1438,7 @@ var wasi_cwd = if (builtin.os.tag == .wasi and !builtin.link_libc) struct {
 /// Note that `cwd_init` corresponds to a Preopen directory, not necessarily
 /// a POSIX path. For example, "." matches a Preopen provided with `--dir=.`
 ///
-/// This must be called before using any relative or absolute paths with `std.os` 
+/// This must be called before using any relative or absolute paths with `std.os`
 /// functions, if you are on WASI without linking libc.
 ///
 /// `alloc` must not be a temporary or leak-detecting allocator, since `std.os`
@@ -1472,7 +1472,7 @@ pub fn initPreopensWasi(alloc: Allocator, cwd_init: ?[]const u8) !void {
 
 /// Resolve a relative or absolute path to an handle (`fd_t`) and a relative subpath.
 ///
-/// For absolute paths, this automatically searches among available Preopens to find 
+/// For absolute paths, this automatically searches among available Preopens to find
 /// a match. For relative paths, it uses the "emulated" CWD.
 pub fn resolvePathWasi(path: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) !RelativePathWasi {
     // Note: Due to WASI's "sandboxed" file handles, operations with this RelativePathWasi
@@ -5091,6 +5091,10 @@ pub const RealPathError = error{
 /// extra `/` characters in `pathname`.
 /// The return value is a slice of `out_buffer`, but not necessarily from the beginning.
 /// See also `realpathZ` and `realpathW`.
+/// Note: All /-separated components of the supplied path must resolve to a
+/// directory, or a symlink to a directory, except for the last component
+/// Use `fs.path.resolve` or `fs.path.relative` to get dir of file (`file/..`).
+/// assume: if relative path used, then they are relative to `getcwd()`
 pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);

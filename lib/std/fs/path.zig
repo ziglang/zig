@@ -468,6 +468,10 @@ fn asciiEqlIgnoreCase(s1: []const u8, s2: []const u8) bool {
 }
 
 /// On Windows, this calls `resolveWindows` and on POSIX it calls `resolvePosix`.
+/// Note: Symlinks currently dont work and should not be used,
+/// because Windows and Posix having different behavior.
+/// On Windows, symlinks are resolved after `..` is resolved.
+/// On POSIX, symlinks are resolved eagerly.
 pub fn resolve(allocator: Allocator, paths: []const []const u8) ![]u8 {
     if (native_os == .windows) {
         return resolveWindows(allocator, paths);
