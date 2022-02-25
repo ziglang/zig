@@ -6067,25 +6067,6 @@ pub fn dn_expand(
     return error.InvalidDnsPacket;
 }
 
-pub const SchedYieldError = error{
-    /// The system is not configured to allow yielding
-    SystemCannotYield,
-};
-
-pub fn sched_yield() SchedYieldError!void {
-    if (builtin.os.tag == .windows) {
-        // The return value has to do with how many other threads there are; it is not
-        // an error condition on Windows.
-        _ = windows.kernel32.SwitchToThread();
-        return;
-    }
-    switch (errno(system.sched_yield())) {
-        .SUCCESS => return,
-        .NOSYS => return error.SystemCannotYield,
-        else => return error.SystemCannotYield,
-    }
-}
-
 pub const SetSockOptError = error{
     /// The socket is already connected, and a specified option cannot be set while the socket is connected.
     AlreadyConnected,

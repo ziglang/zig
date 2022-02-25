@@ -350,6 +350,26 @@ pub fn join(self: Thread) void {
     return self.impl.join();
 }
 
+pub const YieldError = error{
+    /// The system is not configured to allow yielding
+    SystemCannotYield,
+};
+
+/// Yields the current thread potentially allowing other threads to run.
+pub fn yield() YieldError!void {
+    if (builtin.os.tag == .windows) {
+        // The return value has to do with how many other threads there are; it is not
+        // an error condition on Windows.
+        _ = os.windows.kernel32.SwitchToThread();
+        return;
+    }
+    switch (os.errno(os.system.sched_yield())) {
+        .SUCCESS => return,
+        .NOSYS => return error.SystemCannotYield,
+        else => return error.SystemCannotYield,
+    }
+}
+
 /// State to synchronize detachment of spawner thread to spawned thread
 const Completion = Atomic(enum(u8) {
     running,
