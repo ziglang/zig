@@ -1964,11 +1964,7 @@ fn labeledBlockExpr(
         },
         .break_operand => {
             // All break operands are values that did not use the result location pointer.
-            if (strat.elide_store_to_block_ptr_instructions) {
-                try block_scope.setBlockBodyEliding(block_inst);
-            } else {
-                try block_scope.setBlockBody(block_inst);
-            }
+            try block_scope.setBlockBody(block_inst);
             const block_ref = indexToRef(block_inst);
             switch (rl) {
                 .ref => return block_ref,
@@ -9731,32 +9727,6 @@ const GenZir = struct {
             Zir.Inst.Block{ .body_len = @intCast(u32, body.len) },
         );
         gz.astgen.extra.appendSliceAssumeCapacity(body);
-        gz.unstack();
-    }
-
-    /// Same as `setBlockBody` except we don't copy instructions which are
-    /// `store_to_block_ptr` instructions with lhs set to .none.
-    /// Assumes nothing stacked on `gz`. Unstacks `gz`.
-    fn setBlockBodyEliding(gz: *GenZir, inst: Zir.Inst.Index) !void {
-        const gpa = gz.astgen.gpa;
-        const body = gz.instructionsSlice();
-        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Block).Struct.fields.len + body.len);
-        const zir_datas = gz.astgen.instructions.items(.data);
-        const zir_tags = gz.astgen.instructions.items(.tag);
-        const block_pl_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Block{
-            .body_len = @intCast(u32, body.len),
-        });
-        zir_datas[inst].pl_node.payload_index = block_pl_index;
-        for (body) |sub_inst| {
-            if (zir_tags[sub_inst] == .store_to_block_ptr and
-                zir_datas[sub_inst].bin.lhs == .none)
-            {
-                // Decrement `body_len`.
-                gz.astgen.extra.items[block_pl_index] -= 1;
-                continue;
-            }
-            gz.astgen.extra.appendAssumeCapacity(sub_inst);
-        }
         gz.unstack();
     }
 

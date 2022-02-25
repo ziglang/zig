@@ -124,6 +124,7 @@ test {
             _ = @import("behavior/bugs/421.zig");
             _ = @import("behavior/bugs/726.zig");
             _ = @import("behavior/bugs/1421.zig");
+            _ = @import("behavior/bugs/1442.zig");
             _ = @import("behavior/bugs/2114.zig");
             _ = @import("behavior/bugs/3742.zig");
             _ = @import("behavior/struct_contains_null_ptr_itself.zig");
@@ -144,7 +145,6 @@ test {
                 _ = @import("behavior/bugs/828.zig");
                 _ = @import("behavior/bugs/920.zig");
                 _ = @import("behavior/bugs/1120.zig");
-                _ = @import("behavior/bugs/1442.zig");
                 _ = @import("behavior/bugs/1607.zig");
                 _ = @import("behavior/bugs/1851.zig");
                 _ = @import("behavior/bugs/3384.zig");

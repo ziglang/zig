@@ -518,11 +518,14 @@ pub const Inst = struct {
         /// Same as `store` except provides a source location.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         store_node,
-        /// Same as `store` but the type of the value being stored will be used to infer
-        /// the block type. The LHS is the pointer to store to.
-        /// Uses the `bin` union field.
-        /// If the pointer is none, it means this instruction has been elided in
-        /// AstGen, but AstGen was unable to actually omit it from the ZIR code.
+        /// This instruction is not really supposed to be emitted from AstGen; nevetheless it
+        /// is sometimes emitted due to deficiencies in AstGen. When Sema sees this instruction,
+        /// it must clean up after AstGen's mess by looking at various context clues and
+        /// then treating it as one of the following:
+        ///  * no-op
+        ///  * store_to_inferred_ptr
+        ///  * store
+        /// Uses the `bin` union field with LHS as the pointer to store to.
         store_to_block_ptr,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.

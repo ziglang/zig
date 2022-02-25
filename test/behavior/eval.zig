@@ -495,7 +495,7 @@ test "@tagName of @typeInfo" {
 }
 
 test "static eval list init" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try expect(static_vec3.data[2] == 1.0);
     try expect(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
@@ -511,8 +511,6 @@ pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
 }
 
 test "inlined loop has array literal with elided runtime scope on first iteration but not second iteration" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var runtime = [1]i32{3};
     comptime var i: usize = 0;
     inline while (i < 2) : (i += 1) {
