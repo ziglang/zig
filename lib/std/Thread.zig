@@ -333,7 +333,7 @@ pub fn spawn(config: SpawnConfig, comptime function: anytype, args: anytype) Spa
 /// May be an integer or a pointer depending on the platform.
 pub const Handle = Impl.ThreadHandle;
 
-/// Retrns the handle of this thread
+/// Returns the handle of this thread
 pub fn getHandle(self: Thread) Handle {
     return self.impl.getHandle();
 }
