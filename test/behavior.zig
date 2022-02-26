@@ -132,6 +132,7 @@ test {
             _ = @import("behavior/bugs/3384.zig");
             _ = @import("behavior/bugs/3742.zig");
             _ = @import("behavior/bugs/5398.zig");
+            _ = @import("behavior/bugs/5487.zig");
             _ = @import("behavior/struct_contains_null_ptr_itself.zig");
             _ = @import("behavior/switch_prong_err_enum.zig");
             _ = @import("behavior/switch_prong_implicit_cast.zig");
@@ -153,7 +154,6 @@ test {
                 _ = @import("behavior/bugs/1851.zig");
                 _ = @import("behavior/bugs/3779.zig");
                 _ = @import("behavior/bugs/5413.zig");
-                _ = @import("behavior/bugs/5487.zig");
                 _ = @import("behavior/bugs/6456.zig");
                 _ = @import("behavior/bugs/6781.zig");
                 _ = @import("behavior/bugs/7003.zig");

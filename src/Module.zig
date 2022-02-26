@@ -1435,7 +1435,7 @@ pub const Fn = struct {
         /// All currently known errors that this error set contains. This includes direct additions
         /// via `return error.Foo;`, and possibly also errors that are returned from any dependent functions.
         /// When the inferred error set is fully resolved, this map contains all the errors that the function might return.
-        errors: std.StringHashMapUnmanaged(void) = .{},
+        errors: ErrorSet.NameMap = .{},
 
         /// Other inferred error sets which this inferred error set should include.
         inferred_error_sets: std.AutoHashMapUnmanaged(*InferredErrorSet, void) = .{},
