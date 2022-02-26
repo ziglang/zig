@@ -488,6 +488,12 @@ const DivResult = struct {
     remainder: u64,
 };
 
+test "bit shift a u1" {
+    var x: u1 = 1;
+    var y = x << 0;
+    try expect(y == 1);
+}
+
 test "truncating shift right" {
     try testShrTrunc(maxInt(u16));
     comptime try testShrTrunc(maxInt(u16));

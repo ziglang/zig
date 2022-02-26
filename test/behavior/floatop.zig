@@ -466,3 +466,32 @@ test "negation" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "eval @setFloatMode at compile-time" {
+    if (builtin.zig_backend != .stage1) {
+        // let's delay solving this one; I want to re-evaluate this language feature, and
+        // we don't rely on it for self-hosted.
+        return error.SkipZigTest; // TODO
+    }
+
+    const result = comptime fnWithFloatMode();
+    try expect(result == 1234.0);
+}
+
+fn fnWithFloatMode() f32 {
+    @setFloatMode(std.builtin.FloatMode.Strict);
+    return 1234.0;
+}
+
+test "float literal at compile time not lossy" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try expect(16777216.0 + 1.0 == 16777217.0);
+    try expect(9007199254740992.0 + 1.0 == 9007199254740993.0);
+}
+
+test "f128 at compile time is lossy" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
+}

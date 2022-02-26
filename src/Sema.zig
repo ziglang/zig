@@ -11098,16 +11098,25 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);
     } else 0;
 
-    const bit_end = if (inst_data.flags.has_bit_range) blk: {
+    var host_size: u16 = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);
     } else 0;
 
-    if (bit_end != 0 and bit_start >= bit_end * 8)
-        return sema.fail(block, src, "bit offset starts after end of host integer", .{});
-
     const elem_type = try sema.resolveType(block, .unneeded, extra.data.elem_type);
+
+    if (host_size != 0) {
+        if (bit_start >= host_size * 8) {
+            return sema.fail(block, src, "bit offset starts after end of host integer", .{});
+        }
+        const target = sema.mod.getTarget();
+        const elem_type_bits = elem_type.bitSize(target);
+        if (host_size * 8 == elem_type_bits) {
+            assert(bit_start == 0);
+            host_size = 0;
+        }
+    }
 
     const ty = try Type.ptr(sema.arena, .{
         .pointee_type = elem_type,
@@ -11115,7 +11124,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .@"align" = abi_align,
         .@"addrspace" = address_space,
         .bit_offset = bit_start,
-        .host_size = bit_end,
+        .host_size = host_size,
         .mutable = inst_data.flags.is_mutable,
         .@"allowzero" = inst_data.flags.is_allowzero or inst_data.size == .C,
         .@"volatile" = inst_data.flags.is_volatile,

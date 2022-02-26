@@ -2423,7 +2423,7 @@ pub const Inst = struct {
     /// 1. align: Ref // if `has_align` flag is set
     /// 2. address_space: Ref // if `has_addrspace` flag is set
     /// 3. bit_start: Ref // if `has_bit_range` flag is set
-    /// 4. bit_end: Ref // if `has_bit_range` flag is set
+    /// 4. host_size: Ref // if `has_bit_range` flag is set
     pub const PtrType = struct {
         elem_type: Ref,
     };
