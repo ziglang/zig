@@ -17100,6 +17100,18 @@ fn resolvePeerTypes(
         const chosen_ty = sema.typeOf(chosen);
         if (candidate_ty.eql(chosen_ty))
             continue;
+
+        // If the candidate can coerce into our chosen type, we're done.
+        // If the chosen type can coerce into the candidate, use that.
+        if ((try sema.coerceInMemoryAllowed(block, chosen_ty, candidate_ty, false, target, src, src)) == .ok) {
+            continue;
+        }
+        if ((try sema.coerceInMemoryAllowed(block, candidate_ty, chosen_ty, false, target, src, src)) == .ok) {
+            chosen = candidate;
+            chosen_i = candidate_i + 1;
+            continue;
+        }
+
         const candidate_ty_tag = candidate_ty.zigTypeTag();
         const chosen_ty_tag = chosen_ty.zigTypeTag();
 
@@ -17180,6 +17192,30 @@ fn resolvePeerTypes(
                 },
                 else => {},
             },
+            .ErrorUnion => {
+                const payload_ty = candidate_ty.errorUnionPayload();
+                if (chosen_ty_tag == .Pointer and
+                    chosen_ty.ptrSize() == .One and
+                    chosen_ty.childType().zigTypeTag() == .Array and
+                    payload_ty.isSlice())
+                {
+                    const chosen_child_ty = chosen_ty.childType();
+                    const chosen_elem_ty = chosen_child_ty.elemType2();
+                    const candidate_elem_ty = payload_ty.elemType2();
+                    if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+
+                        convert_to_slice = false; // it already is a slice
+
+                        // If the prev pointer is const then we need to const
+                        if (chosen_child_ty.isConstPtr())
+                            make_the_slice_const = true;
+
+                        continue;
+                    }
+                }
+            },
             .Pointer => {
                 if (candidate_ty.ptrSize() == .C) {
                     if (chosen_ty_tag == .Int or chosen_ty_tag == .ComptimeInt) {
@@ -17188,6 +17224,80 @@ fn resolvePeerTypes(
                         continue;
                     }
                     if (chosen_ty_tag == .Pointer and chosen_ty.ptrSize() != .Slice) {
+                        continue;
+                    }
+                }
+
+                // *[N]T to [*]T
+                if (candidate_ty.ptrSize() == .Many and
+                    chosen_ty_tag == .Pointer and
+                    chosen_ty.ptrSize() == .One and
+                    chosen_ty.childType().zigTypeTag() == .Array)
+                {
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+
+                    convert_to_slice = false;
+
+                    if (chosen_ty.childType().isConstPtr() and !candidate_ty.childType().isConstPtr())
+                        make_the_slice_const = true;
+
+                    continue;
+                }
+
+                // *[N]T to [*]T (prev is many pointer)
+                if (candidate_ty.ptrSize() == .One and
+                    candidate_ty.childType().zigTypeTag() == .Array and
+                    chosen_ty_tag == .Pointer and
+                    chosen_ty.ptrSize() == .Many)
+                {
+                    if (candidate_ty.childType().isConstPtr() and !chosen_ty.childType().isConstPtr())
+                        make_the_slice_const = true;
+
+                    continue;
+                }
+
+                // *[N]T to []T (prev is slice)
+                // *[N]T to E![]T
+                if ((chosen_ty.isSlice() or (chosen_ty_tag == .ErrorUnion and chosen_ty.errorUnionPayload().isSlice())) and
+                    candidate_ty.ptrSize() == .One and
+                    candidate_ty.childType().zigTypeTag() == .Array)
+                {
+                    const chosen_elem_ty = switch (chosen_ty_tag) {
+                        .ErrorUnion => chosen_ty.errorUnionPayload().elemType2(),
+                        else => chosen_ty.elemType2(),
+                    };
+                    const candidate_elem_ty = candidate_ty.childType().elemType2();
+                    if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
+                        convert_to_slice = false; // it already is a slice
+
+                        // If the pointer is const then we need to const
+                        if (candidate_ty.childType().isConstPtr())
+                            make_the_slice_const = true;
+
+                        continue;
+                    }
+                }
+
+                // *[N]T to []T (current is slice)
+                if (chosen_ty_tag == .Pointer and
+                    chosen_ty.ptrSize() == .One and
+                    chosen_ty.childType().zigTypeTag() == .Array and
+                    candidate_ty.isSlice())
+                {
+                    const chosen_child_ty = chosen_ty.childType();
+                    const chosen_elem_ty = chosen_child_ty.elemType2();
+                    const candidate_elem_ty = candidate_ty.elemType2();
+                    if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+
+                        convert_to_slice = false; // it already is a slice
+
+                        // If the prev pointer is const then we need to const
+                        if (chosen_child_ty.isConstPtr())
+                            make_the_slice_const = true;
+
                         continue;
                     }
                 }
@@ -17326,6 +17436,13 @@ fn resolvePeerTypes(
             else => unreachable,
         };
 
+        return Type.ptr(sema.arena, info.data);
+    }
+
+    if (make_the_slice_const) {
+        // turn []T => []const T
+        var info = chosen_ty.ptrInfo();
+        info.data.mutable = false;
         return Type.ptr(sema.arena, info.data);
     }
 
