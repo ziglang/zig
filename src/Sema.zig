@@ -17109,6 +17109,35 @@ fn resolvePeerTypes(
                     }
                 }
 
+                // *[N]T to [*]T
+                if (candidate_ty.ptrSize() == .Many and
+                    chosen_ty_tag == .Pointer and
+                    chosen_ty.ptrSize() == .One and
+                    chosen_ty.childType().zigTypeTag() == .Array)
+                {
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+
+                    convert_to_slice = false;
+
+                    if (chosen_ty.childType().isConstPtr() and !candidate_ty.childType().isConstPtr())
+                        make_the_slice_const = true;
+
+                    continue;
+                }
+
+                // *[N]T to [*]T (prev is many pointer)
+                if (candidate_ty.ptrSize() == .One and
+                    candidate_ty.childType().zigTypeTag() == .Array and
+                    chosen_ty_tag == .Pointer and
+                    chosen_ty.ptrSize() == .Many)
+                {
+                    if (candidate_ty.childType().isConstPtr() and !chosen_ty.childType().isConstPtr())
+                        make_the_slice_const = true;
+
+                    continue;
+                }
+
                 // *[N]T to []T (prev is slice)
                 // *[N]T to E![]T
                 if ((chosen_ty.isSlice() or (chosen_ty_tag == .ErrorUnion and chosen_ty.errorUnionPayload().isSlice())) and

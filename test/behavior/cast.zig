@@ -643,6 +643,18 @@ test "peer cast *[0]T to []const T" {
     try expect(mem.eql(u8, "abcde", y));
 }
 
+test "peer cast *[N]T to [*]T" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    var array = [4:99]i32{ 1, 2, 3, 4 };
+    var dest: [*]i32 = undefined;
+    try expect(@TypeOf(&array, dest) == [*]i32);
+    try expect(@TypeOf(dest, &array) == [*]i32);
+}
+
 test "peer resolution of string literals" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
