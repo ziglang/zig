@@ -13427,7 +13427,7 @@ fn zirBuiltinExtern(
 }
 
 fn requireFunctionBlock(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
-    if (sema.func == null) {
+    if (sema.func == null and !block.is_typeof) {
         return sema.fail(block, src, "instruction illegal outside function body", .{});
     }
 }
@@ -14194,7 +14194,8 @@ fn fieldCallBind(
                         if (first_param_tag == .var_args_param or
                             first_param_tag == .generic_poison or (
                                 first_param_type.zigTypeTag() == .Pointer and
-                                first_param_type.ptrSize() == .One and
+                                (first_param_type.ptrSize() == .One or
+                                first_param_type.ptrSize() == .C) and
                                 first_param_type.childType().eql(concrete_ty)))
                         {
                             // zig fmt: on
