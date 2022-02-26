@@ -1210,6 +1210,7 @@ pub const Union = struct {
         return @intCast(u32, most_index);
     }
 
+    /// Returns 0 if the union is represented with 0 bits at runtime.
     pub fn abiAlignment(u: Union, target: Target, have_tag: bool) u32 {
         var max_align: u32 = 0;
         if (have_tag) max_align = u.tag_ty.abiAlignment(target);
@@ -1225,7 +1226,6 @@ pub const Union = struct {
             };
             max_align = @maximum(max_align, field_align);
         }
-        assert(max_align != 0);
         return max_align;
     }
 

@@ -155,15 +155,14 @@ test "@sin" {
 
 fn testSin() !void {
     // stage1 emits an incorrect compile error for `@as(ty, std.math.pi / 2)`
-    // so skip the rest of the tests.
-    if (builtin.zig_backend != .stage1) {
-        inline for ([_]type{ f16, f32, f64 }) |ty| {
-            const eps = epsForType(ty);
-            try expect(@sin(@as(ty, 0)) == 0);
-            try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi)), 0, eps));
-            try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 2)), 1, eps));
-            try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
-        }
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    inline for ([_]type{ f16, f32, f64 }) |ty| {
+        const eps = epsForType(ty);
+        try expect(@sin(@as(ty, 0)) == 0);
+        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi)), 0, eps));
+        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 2)), 1, eps));
+        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
     }
 
     {
@@ -183,15 +182,14 @@ test "@cos" {
 
 fn testCos() !void {
     // stage1 emits an incorrect compile error for `@as(ty, std.math.pi / 2)`
-    // so skip the rest of the tests.
-    if (builtin.zig_backend != .stage1) {
-        inline for ([_]type{ f16, f32, f64 }) |ty| {
-            const eps = epsForType(ty);
-            try expect(@cos(@as(ty, 0)) == 1);
-            try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi)), -1, eps));
-            try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 2)), 0, eps));
-            try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
-        }
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    inline for ([_]type{ f16, f32, f64 }) |ty| {
+        const eps = epsForType(ty);
+        try expect(@cos(@as(ty, 0)) == 1);
+        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi)), -1, eps));
+        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 2)), 0, eps));
+        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
     }
 
     {
