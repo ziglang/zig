@@ -1593,53 +1593,16 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         }
     }
 
-    // We would like to rely on the mechanism below even for comptime values.
-    // However in the case that the pointer points to comptime-mutable value,
-    // we cannot do it.
-    if (try sema.resolveDefinedValue(block, src, ptr)) |ptr_val| {
-        if (ptr_val.isComptimeMutablePtr()) {
-            const sentinel_val = try sema.addConstant(pointee_ty, Value.initTag(.unreachable_value));
-            const coerced = try sema.coerce(block, sema.typeOf(ptr).childType(), sentinel_val, src);
-
-            var res_ptr = ptr_val;
-            var cur_val = (try sema.resolveMaybeUndefVal(block, .unneeded, coerced)).?;
-            while (true) switch (cur_val.tag()) {
-                .unreachable_value => break,
-                .opt_payload => {
-                    res_ptr = try Value.Tag.opt_payload_ptr.create(sema.arena, res_ptr);
-                    cur_val = cur_val.castTag(.opt_payload).?.data;
-                },
-                .eu_payload => {
-                    res_ptr = try Value.Tag.eu_payload_ptr.create(sema.arena, res_ptr);
-                    cur_val = cur_val.castTag(.eu_payload).?.data;
-                },
-                else => {
-                    if (std.debug.runtime_safety) {
-                        std.debug.panic("unexpected Value tag for coerce_result_ptr: {s}", .{
-                            cur_val.tag(),
-                        });
-                    } else {
-                        unreachable;
-                    }
-                },
-            };
-
-            const ptr_ty = try Type.ptr(sema.arena, .{
-                .pointee_type = pointee_ty,
-                .@"addrspace" = addr_space,
-            });
-            return sema.addConstant(ptr_ty, res_ptr);
-        }
-    }
-
     // Make a dummy store through the pointer to test the coercion.
     // We will then use the generated instructions to decide what
     // kind of transformations to make on the result pointer.
     var trash_block = block.makeSubBlock();
+    trash_block.is_comptime = false;
     defer trash_block.instructions.deinit(sema.gpa);
 
+    const dummy_ptr = try trash_block.addTy(.alloc, sema.typeOf(ptr));
     const dummy_operand = try trash_block.addBitCast(pointee_ty, .void_value);
-    try sema.storePtr(&trash_block, src, ptr, dummy_operand);
+    try sema.storePtr(&trash_block, src, dummy_ptr, dummy_operand);
 
     {
         const air_tags = sema.air_instructions.items(.tag);
@@ -1670,6 +1633,9 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         switch (air_tags[trash_inst]) {
             .bitcast => {
                 if (Air.indexToRef(trash_inst) == dummy_operand) {
+                    if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
+                        return sema.addConstant(ptr_ty, ptr_val);
+                    }
                     return sema.bitCast(block, ptr_ty, new_ptr, src);
                 }
                 const ty_op = air_datas[trash_inst].ty_op;
@@ -1678,7 +1644,11 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     .pointee_type = operand_ty,
                     .@"addrspace" = addr_space,
                 });
-                new_ptr = try sema.bitCast(block, ptr_operand_ty, new_ptr, src);
+                if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
+                    new_ptr = try sema.addConstant(ptr_operand_ty, ptr_val);
+                } else {
+                    new_ptr = try sema.bitCast(block, ptr_operand_ty, new_ptr, src);
+                }
             },
             .wrap_optional => {
                 new_ptr = try sema.analyzeOptionalPayloadPtr(block, src, new_ptr, false, true);
