@@ -410,6 +410,12 @@ pub const MAP = struct {
     pub const NORESERVE = 0x10;
 };
 
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
+};
+
 pub const W = struct {
     pub const NOHANG = 0x1;
     pub const UNTRACED = 0x2;
