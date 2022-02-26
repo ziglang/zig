@@ -66,7 +66,6 @@ test "truncate.i0.var" {
 
 test "truncate on comptime integer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var x = @truncate(u16, 9999);
     try expect(x == 9999);

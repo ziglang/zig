@@ -64,6 +64,14 @@ pub const Inst = struct {
         ldrh,
         /// Load Register Halfword
         ldrh_stack_argument,
+        /// Load Register Signed Byte
+        ldrsb,
+        /// Load Register Signed Byte
+        ldrsb_stack_argument,
+        /// Load Register Signed Halfword
+        ldrsh,
+        /// Load Register Signed Halfword
+        ldrsh_stack_argument,
         /// Logical Shift Left
         lsl,
         /// Logical Shift Right

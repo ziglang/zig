@@ -1123,11 +1123,19 @@ pub const Instruction = union(enum) {
     };
 
     pub fn strh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
-        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0, 0b01, rn, rt, args.offset);
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b0, 0b01, rn, rt, args.offset);
     }
 
     pub fn ldrh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
-        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 1, 0b01, rn, rt, args.offset);
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b1, 0b01, rn, rt, args.offset);
+    }
+
+    pub fn ldrsh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b1, 0b11, rn, rt, args.offset);
+    }
+
+    pub fn ldrsb(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b1, 0b10, rn, rt, args.offset);
     }
 
     // Block data transfer
