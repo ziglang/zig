@@ -16993,6 +16993,18 @@ fn resolvePeerTypes(
         const chosen_ty = sema.typeOf(chosen);
         if (candidate_ty.eql(chosen_ty))
             continue;
+
+        // If the candidate can coernce into our chosen type, we're done.
+        // If the chosen type can coerce into the candidate, use that.
+        if ((try sema.coerceInMemoryAllowed(block, chosen_ty, candidate_ty, false, target, src, src)) == .ok) {
+            continue;
+        }
+        if ((try sema.coerceInMemoryAllowed(block, candidate_ty, chosen_ty, false, target, src, src)) == .ok) {
+            chosen = candidate;
+            chosen_i = candidate_i + 1;
+            continue;
+        }
+
         const candidate_ty_tag = candidate_ty.zigTypeTag();
         const chosen_ty_tag = chosen_ty.zigTypeTag();
 
