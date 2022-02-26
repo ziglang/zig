@@ -2159,6 +2159,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .negate,
             .negate_wrap,
             .typeof,
+            .typeof_builtin,
             .xor,
             .optional_type,
             .optional_payload_safe,
@@ -6875,29 +6876,54 @@ fn typeOf(
     scope: *Scope,
     rl: ResultLoc,
     node: Ast.Node.Index,
-    params: []const Ast.Node.Index,
+    args: []const Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    if (params.len < 1) {
+    if (args.len < 1) {
         return gz.astgen.failNode(node, "expected at least 1 argument, found 0", .{});
     }
-    if (params.len == 1) {
-        const expr_result = try reachableExpr(gz, scope, .none, params[0], node);
-        const result = try gz.addUnNode(.typeof, expr_result, node);
-        return rvalue(gz, rl, result, node);
-    }
+    const gpa = gz.astgen.gpa;
+    if (args.len == 1) {
+        const typeof_inst = try gz.makeBlockInst(.typeof_builtin, node);
 
-    const payload_index = try addExtra(gz.astgen, Zir.Inst.NodeMultiOp{
+        var typeof_scope = gz.makeSubBlock(scope);
+        typeof_scope.force_comptime = false;
+        defer typeof_scope.unstack();
+
+        const ty_expr = try reachableExpr(&typeof_scope, &typeof_scope.base, .none, args[0], node);
+        if (!gz.refIsNoReturn(ty_expr)) {
+            _ = try typeof_scope.addBreak(.break_inline, typeof_inst, ty_expr);
+        }
+        try typeof_scope.setBlockBody(typeof_inst);
+
+        // typeof_scope unstacked now, can add new instructions to gz
+        try gz.instructions.append(gpa, typeof_inst);
+        return rvalue(gz, rl, indexToRef(typeof_inst), node);
+    }
+    const payload_size: u32 = std.meta.fields(Zir.Inst.TypeOfPeer).len;
+    const payload_index = try reserveExtra(gz.astgen, payload_size + args.len);
+    var args_index = payload_index + payload_size;
+
+    const typeof_inst = try gz.addExtendedMultiOpPayloadIndex(.typeof_peer, payload_index, args.len);
+
+    var typeof_scope = gz.makeSubBlock(scope);
+    typeof_scope.force_comptime = false;
+
+    for (args) |arg, i| {
+        const param_ref = try reachableExpr(&typeof_scope, &typeof_scope.base, .none, arg, node);
+        gz.astgen.extra.items[args_index + i] = @enumToInt(param_ref);
+    }
+    _ = try typeof_scope.addBreak(.break_inline, refToIndex(typeof_inst).?, .void_value);
+
+    const body = typeof_scope.instructionsSlice();
+    gz.astgen.setExtra(payload_index, Zir.Inst.TypeOfPeer{
+        .body_len = @intCast(u32, body.len),
+        .body_index = @intCast(u32, gz.astgen.extra.items.len),
         .src_node = gz.nodeIndexToRelative(node),
     });
-    var extra_index = try reserveExtra(gz.astgen, params.len);
-    for (params) |param| {
-        const param_ref = try reachableExpr(gz, scope, .none, param, node);
-        gz.astgen.extra.items[extra_index] = @enumToInt(param_ref);
-        extra_index += 1;
-    }
+    try gz.astgen.extra.appendSlice(gpa, body);
+    typeof_scope.unstack();
 
-    const result = try gz.addExtendedMultiOpPayloadIndex(.typeof_peer, payload_index, params.len);
-    return rvalue(gz, rl, result, node);
+    return rvalue(gz, rl, typeof_inst, node);
 }
 
 fn builtinCall(
