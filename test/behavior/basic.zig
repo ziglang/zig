@@ -195,9 +195,6 @@ test "multiline string comments at multiple places" {
 }
 
 test "string concatenation" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .macos) return error.SkipZigTest;
-
     try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
@@ -402,8 +399,6 @@ fn testTakeAddressOfParameter(f: f32) !void {
 
 test "pointer to void return type" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .macos) return error.SkipZigTest;
 
     try testPointerToVoidReturnType();
 }

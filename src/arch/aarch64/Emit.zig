@@ -208,8 +208,8 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
     }
 
     switch (tag) {
+        .load_memory_direct => return 3 * 4,
         .load_memory_got,
-        .load_memory_direct,
         .load_memory_ptr_got,
         .load_memory_ptr_direct,
         => return 2 * 4,
@@ -654,15 +654,31 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     const data = emit.mir.extraData(Mir.LoadMemoryPie, payload).data;
     const reg = @intToEnum(Register, data.register);
 
-    // PC-relative displacement to the entry in the GOT table.
+    // PC-relative displacement to the entry in memory.
     // adrp
     const offset = @intCast(u32, emit.code.items.len);
     try emit.writeInstruction(Instruction.adrp(reg, 0));
 
     switch (tag) {
-        .load_memory_got,
-        .load_memory_direct,
-        => {
+        .load_memory_got => {
+            // ldr reg, reg, offset
+            try emit.writeInstruction(Instruction.ldr(
+                reg,
+                reg,
+                Instruction.LoadStoreOffset.imm(0),
+            ));
+        },
+        .load_memory_direct => {
+            // We cannot load the offset directly as it may not be aligned properly.
+            // For example, load for 64bit register will require the target address offset
+            // to be 8-byte aligned, while the value might have non-8-byte natural alignment,
+            // meaning the linker might have put it at a non-8-byte aligned address. To circumvent
+            // this, we use `adrp, add` to form the address value which we then dereference with
+            // `ldr`.
+            // Note that this can potentially be optimised out by the codegen/linker if the
+            // target address is appropriately aligned.
+            // add reg, reg, offset
+            try emit.writeInstruction(Instruction.add(reg, reg, 0, false));
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,

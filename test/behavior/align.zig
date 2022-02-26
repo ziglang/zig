@@ -7,7 +7,6 @@ var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .macos) return error.SkipZigTest;
 
     comptime try expect(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
     comptime try expect(@TypeOf(&foo) == *align(4) u8);

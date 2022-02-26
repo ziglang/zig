@@ -852,7 +852,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const elem_ty = ptr_ty.elemType();
 
     if (!elem_ty.hasRuntimeBits()) {
-        return self.allocMem(inst, 8, 8);
+        return self.allocMem(inst, @sizeOf(usize), @alignOf(usize));
     }
 
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
@@ -5333,6 +5333,14 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
+    // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
+    if (tv.ty.zigTypeTag() == .Pointer) blk: {
+        if (tv.ty.castPtrToFn()) |_| break :blk;
+        if (!tv.ty.elemType2().hasRuntimeBits()) {
+            return MCValue.none;
+        }
+    }
+
     decl.alive = true;
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
@@ -5341,6 +5349,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         // Because MachO is PIE-always-on, we defer memory address resolution until
         // the linker has enough info to perform relocations.
+        assert(decl.link.macho.local_sym_index != 0);
         return MCValue{ .got_load = decl.link.macho.local_sym_index };
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
         const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;

@@ -691,11 +691,11 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
 
             if (is_via_got) {
                 const got_index = macho_file.got_entries_table.get(rel.target) orelse {
-                    const n_strx = switch (rel.target) {
-                        .local => |sym_index| macho_file.locals.items[sym_index].n_strx,
-                        .global => |n_strx| n_strx,
-                    };
-                    log.err("expected GOT entry for symbol '{s}'", .{macho_file.getString(n_strx)});
+                    log.err("expected GOT entry for symbol", .{});
+                    switch (rel.target) {
+                        .local => |sym_index| log.err("  local @{d}", .{sym_index}),
+                        .global => |n_strx| log.err("  global @'{s}'", .{macho_file.getString(n_strx)}),
+                    }
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 };

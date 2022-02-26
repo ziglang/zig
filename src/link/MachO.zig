@@ -3797,10 +3797,11 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
     atom.code.clearRetainingCapacity();
     try atom.code.appendSlice(self.base.allocator, code);
 
-    const match = try self.getMatchingSectionAtom(atom, typed_value.ty, typed_value.val);
+    const match = try self.getMatchingSectionAtom(atom, decl_name, typed_value.ty, typed_value.val);
     const addr = try self.allocateAtom(atom, code.len, required_alignment, match);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, addr });
+    log.debug("  (required alignment 0x{x})", .{required_alignment});
 
     errdefer self.freeAtom(atom, match, true);
 
@@ -3903,28 +3904,60 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     try self.updateDeclExports(module, decl, decl_exports);
 }
 
-fn isElemTyPointer(ty: Type) bool {
+/// Checks if the value, or any of its embedded values stores a pointer, and thus requires
+/// a rebase opcode for the dynamic linker.
+fn needsPointerRebase(ty: Type, val: Value) bool {
+    if (ty.zigTypeTag() == .Fn) {
+        return false;
+    }
+    if (val.pointerDecl()) |_| {
+        return true;
+    }
+
     switch (ty.zigTypeTag()) {
-        .Fn => return false,
+        .Fn => unreachable,
         .Pointer => return true,
-        .Array => {
-            const elem_ty = ty.elemType();
-            return isElemTyPointer(elem_ty);
+        .Array, .Vector => {
+            if (ty.arrayLen() == 0) return false;
+            const elem_ty = ty.childType();
+            var elem_value_buf: Value.ElemValueBuffer = undefined;
+            const elem_val = val.elemValueBuffer(0, &elem_value_buf);
+            return needsPointerRebase(elem_ty, elem_val);
         },
-        .Struct, .Union => {
-            const len = ty.structFieldCount();
-            var i: usize = 0;
-            while (i < len) : (i += 1) {
-                const field_ty = ty.structFieldType(i);
-                if (isElemTyPointer(field_ty)) return true;
-            }
-            return false;
+        .Struct => {
+            const fields = ty.structFields().values();
+            if (fields.len == 0) return false;
+            if (val.castTag(.@"struct")) |payload| {
+                const field_values = payload.data;
+                for (field_values) |field_val, i| {
+                    if (needsPointerRebase(fields[i].ty, field_val)) return true;
+                } else return false;
+            } else return false;
+        },
+        .Optional => {
+            if (val.castTag(.opt_payload)) |payload| {
+                const sub_val = payload.data;
+                var buffer: Type.Payload.ElemType = undefined;
+                const sub_ty = ty.optionalChild(&buffer);
+                return needsPointerRebase(sub_ty, sub_val);
+            } else return false;
+        },
+        .Union => {
+            const union_obj = val.cast(Value.Payload.Union).?.data;
+            const active_field_ty = ty.unionFieldType(union_obj.tag);
+            return needsPointerRebase(active_field_ty, union_obj.val);
+        },
+        .ErrorUnion => {
+            if (val.castTag(.eu_payload)) |payload| {
+                const payload_ty = ty.errorUnionPayload();
+                return needsPointerRebase(payload_ty, payload.data);
+            } else return false;
         },
         else => return false,
     }
 }
 
-fn getMatchingSectionAtom(self: *MachO, atom: *Atom, ty: Type, val: Value) !MatchingSection {
+fn getMatchingSectionAtom(self: *MachO, atom: *Atom, name: []const u8, ty: Type, val: Value) !MatchingSection {
     const code = atom.code.items;
     const alignment = ty.abiAlignment(self.base.options.target);
     const align_log_2 = math.log2(alignment);
@@ -3938,10 +3971,25 @@ fn getMatchingSectionAtom(self: *MachO, atom: *Atom, ty: Type, val: Value) !Matc
                     .seg = self.data_segment_cmd_index.?,
                     .sect = self.bss_section_index.?,
                 };
+            } else {
+                break :blk MatchingSection{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.data_section_index.?,
+                };
             }
+        }
+
+        if (val.castTag(.variable)) |_| {
+            break :blk MatchingSection{
+                .seg = self.data_segment_cmd_index.?,
+                .sect = self.data_section_index.?,
+            };
+        }
+
+        if (needsPointerRebase(ty, val)) {
             break :blk (try self.getMatchingSection(.{
-                .segname = makeStaticString("__DATA"),
-                .sectname = makeStaticString("__data"),
+                .segname = makeStaticString("__DATA_CONST"),
+                .sectname = makeStaticString("__const"),
                 .size = code.len,
                 .@"align" = align_log_2,
             })).?;
@@ -3954,8 +4002,8 @@ fn getMatchingSectionAtom(self: *MachO, atom: *Atom, ty: Type, val: Value) !Matc
                     .sect = self.text_section_index.?,
                 };
             },
-            .Array => switch (val.tag()) {
-                .bytes => {
+            .Array => {
+                if (val.tag() == .bytes) {
                     switch (ty.tag()) {
                         .array_u8_sentinel_0,
                         .const_slice_u8_sentinel_0,
@@ -3969,79 +4017,23 @@ fn getMatchingSectionAtom(self: *MachO, atom: *Atom, ty: Type, val: Value) !Matc
                                 .@"align" = align_log_2,
                             })).?;
                         },
-                        else => {
-                            break :blk (try self.getMatchingSection(.{
-                                .segname = makeStaticString("__TEXT"),
-                                .sectname = makeStaticString("__const"),
-                                .size = code.len,
-                                .@"align" = align_log_2,
-                            })).?;
-                        },
+                        else => {},
                     }
-                },
-                .array => {
-                    if (isElemTyPointer(ty)) {
-                        break :blk (try self.getMatchingSection(.{
-                            .segname = makeStaticString("__DATA_CONST"),
-                            .sectname = makeStaticString("__const"),
-                            .size = code.len,
-                            .@"align" = align_log_2,
-                        })).?;
-                    } else {
-                        break :blk (try self.getMatchingSection(.{
-                            .segname = makeStaticString("__TEXT"),
-                            .sectname = makeStaticString("__const"),
-                            .size = code.len,
-                            .@"align" = align_log_2,
-                        })).?;
-                    }
-                },
-                else => {
-                    break :blk (try self.getMatchingSection(.{
-                        .segname = makeStaticString("__TEXT"),
-                        .sectname = makeStaticString("__const"),
-                        .size = code.len,
-                        .@"align" = align_log_2,
-                    })).?;
-                },
-            },
-            .Pointer => {
-                if (val.castTag(.variable)) |_| {
-                    break :blk MatchingSection{
-                        .seg = self.data_segment_cmd_index.?,
-                        .sect = self.data_section_index.?,
-                    };
-                } else {
-                    break :blk (try self.getMatchingSection(.{
-                        .segname = makeStaticString("__DATA_CONST"),
-                        .sectname = makeStaticString("__const"),
-                        .size = code.len,
-                        .@"align" = align_log_2,
-                    })).?;
                 }
             },
-            else => {
-                if (val.castTag(.variable)) |_| {
-                    break :blk MatchingSection{
-                        .seg = self.data_segment_cmd_index.?,
-                        .sect = self.data_section_index.?,
-                    };
-                } else {
-                    break :blk (try self.getMatchingSection(.{
-                        .segname = makeStaticString("__TEXT"),
-                        .sectname = makeStaticString("__const"),
-                        .size = code.len,
-                        .@"align" = align_log_2,
-                    })).?;
-                }
-            },
+            else => {},
         }
+        break :blk (try self.getMatchingSection(.{
+            .segname = makeStaticString("__TEXT"),
+            .sectname = makeStaticString("__const"),
+            .size = code.len,
+            .@"align" = align_log_2,
+        })).?;
     };
-    const local = self.locals.items[atom.local_sym_index];
     const seg = self.load_commands.items[match.seg].segment;
     const sect = seg.sections.items[match.sect];
     log.debug("  allocating atom '{s}' in '{s},{s}' ({d},{d})", .{
-        self.getString(local.n_strx),
+        name,
         sect.segName(),
         sect.sectName(),
         match.seg,
@@ -4055,13 +4047,14 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.locals.items[decl.link.macho.local_sym_index];
 
-    const decl_ptr = self.decls.getPtr(decl).?;
-    if (decl_ptr.* == null) {
-        decl_ptr.* = try self.getMatchingSectionAtom(&decl.link.macho, decl.ty, decl.val);
-    }
-    const match = decl_ptr.*.?;
     const sym_name = try decl.getFullyQualifiedName(self.base.allocator);
     defer self.base.allocator.free(sym_name);
+
+    const decl_ptr = self.decls.getPtr(decl).?;
+    if (decl_ptr.* == null) {
+        decl_ptr.* = try self.getMatchingSectionAtom(&decl.link.macho, sym_name, decl.ty, decl.val);
+    }
+    const match = decl_ptr.*.?;
 
     if (decl.link.macho.size != 0) {
         const capacity = decl.link.macho.capacity(self.*);
@@ -4071,6 +4064,7 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
             const vaddr = try self.growAtom(&decl.link.macho, code_len, required_alignment, match);
 
             log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ sym_name, symbol.n_value, vaddr });
+            log.debug("  (required alignment 0x{x})", .{required_alignment});
 
             if (vaddr != symbol.n_value) {
                 log.debug(" (writing new GOT entry)", .{});
@@ -4105,6 +4099,7 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
         const addr = try self.allocateAtom(&decl.link.macho, code_len, required_alignment, match);
 
         log.debug("allocated atom for {s} at 0x{x}", .{ sym_name, addr });
+        log.debug("  (required alignment 0x{x})", .{required_alignment});
 
         errdefer self.freeAtom(&decl.link.macho, match, false);
 
@@ -4291,6 +4286,7 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
 }
 
 fn freeUnnamedConsts(self: *MachO, decl: *Module.Decl) void {
+    log.debug("freeUnnamedConsts for decl {*}", .{decl});
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl) orelse return;
     for (unnamed_consts.items) |atom| {
         self.freeAtom(atom, .{
@@ -4300,6 +4296,7 @@ fn freeUnnamedConsts(self: *MachO, decl: *Module.Decl) void {
         self.locals_free_list.append(self.base.allocator, atom.local_sym_index) catch {};
         self.locals.items[atom.local_sym_index].n_type = 0;
         _ = self.atom_by_index_table.remove(atom.local_sym_index);
+        log.debug("  adding local symbol index {d} to free list", .{atom.local_sym_index});
         atom.local_sym_index = 0;
     }
     unnamed_consts.clearAndFree(self.base.allocator);
@@ -4324,10 +4321,15 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
             self.got_entries_free_list.append(self.base.allocator, @intCast(u32, got_index)) catch {};
             self.got_entries.items[got_index] = .{ .target = .{ .local = 0 }, .atom = undefined };
             _ = self.got_entries_table.swapRemove(.{ .local = decl.link.macho.local_sym_index });
+            log.debug("  adding GOT index {d} to free list (target local@{d})", .{
+                got_index,
+                decl.link.macho.local_sym_index,
+            });
         }
 
         self.locals.items[decl.link.macho.local_sym_index].n_type = 0;
         _ = self.atom_by_index_table.remove(decl.link.macho.local_sym_index);
+        log.debug("  adding local symbol index {d} to free list", .{decl.link.macho.local_sym_index});
         decl.link.macho.local_sym_index = 0;
     }
     if (self.d_sym) |*d_sym| {
