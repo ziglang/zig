@@ -547,6 +547,9 @@ pub const Inst = struct {
         /// Returns the type of a value.
         /// Uses the `un_node` field.
         typeof,
+        /// Implements `@TypeOf` for one operand.
+        /// Uses the `pl_node` field.
+        typeof_builtin,
         /// Given a value, look at the type of it, which must be an integer type.
         /// Returns the integer type for the RHS of a shift operation.
         /// Uses the `un_node` field.
@@ -1067,6 +1070,7 @@ pub const Inst = struct {
                 .negate,
                 .negate_wrap,
                 .typeof,
+                .typeof_builtin,
                 .xor,
                 .optional_type,
                 .optional_payload_safe,
@@ -1429,6 +1433,7 @@ pub const Inst = struct {
                 .ptr_cast = .pl_node,
                 .truncate = .pl_node,
                 .align_cast = .pl_node,
+                .typeof_builtin = .pl_node,
 
                 .has_decl = .pl_node,
                 .has_field = .pl_node,
@@ -2389,6 +2394,12 @@ pub const Inst = struct {
                     @compileError("Call.Flags.PackedModifier needs to be updated!");
             }
         };
+    };
+
+    pub const TypeOfPeer = struct {
+        src_node: i32,
+        body_len: u32,
+        body_index: u32,
     };
 
     pub const BuiltinCall = struct {

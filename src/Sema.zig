@@ -124,6 +124,7 @@ pub const Block = struct {
     runtime_index: u32 = 0,
 
     is_comptime: bool,
+    is_typeof: bool = false,
 
     /// when null, it is determined by build mode, changed by @setRuntimeSafety
     want_safety: ?bool = null,
@@ -181,6 +182,7 @@ pub const Block = struct {
             .label = null,
             .inlining = parent.inlining,
             .is_comptime = parent.is_comptime,
+            .is_typeof = parent.is_typeof,
             .runtime_cond = parent.runtime_cond,
             .runtime_loop = parent.runtime_loop,
             .runtime_index = parent.runtime_index,
@@ -682,6 +684,7 @@ fn analyzeBodyInner(
             .size_of                      => try sema.zirSizeOf(block, inst),
             .bit_size_of                  => try sema.zirBitSizeOf(block, inst),
             .typeof                       => try sema.zirTypeof(block, inst),
+            .typeof_builtin               => try sema.zirTypeofBuiltin(block, inst),
             .log2_int_type                => try sema.zirLog2IntType(block, inst),
             .typeof_log2_int_type         => try sema.zirTypeofLog2IntType(block, inst),
             .xor                          => try sema.zirBitwise(block, inst, .xor),
@@ -10574,6 +10577,29 @@ fn zirTypeof(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     return sema.addType(operand_ty);
 }
 
+fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const pl_node = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Block, pl_node.payload_index);
+    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
+
+    var child_block: Block = .{
+        .parent = block,
+        .sema = sema,
+        .src_decl = block.src_decl,
+        .namespace = block.namespace,
+        .wip_capture_scope = block.wip_capture_scope,
+        .instructions = .{},
+        .inlining = block.inlining,
+        .is_comptime = false,
+        .is_typeof = true,
+    };
+    defer child_block.instructions.deinit(sema.gpa);
+
+    const operand = try sema.resolveBody(&child_block, body, inst);
+    const operand_ty = sema.typeOf(operand);
+    return sema.addType(operand_ty);
+}
+
 fn zirTypeofLog2IntType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
@@ -10624,8 +10650,24 @@ fn zirTypeofPeer(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
+    const extra = sema.code.extraData(Zir.Inst.TypeOfPeer, extended.operand);
     const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    const body = sema.code.extra[extra.data.body_index..][0..extra.data.body_len];
+
+    var child_block: Block = .{
+        .parent = block,
+        .sema = sema,
+        .src_decl = block.src_decl,
+        .namespace = block.namespace,
+        .wip_capture_scope = block.wip_capture_scope,
+        .instructions = .{},
+        .inlining = block.inlining,
+        .is_comptime = false,
+        .is_typeof = true,
+    };
+    defer child_block.instructions.deinit(sema.gpa);
+    _ = try sema.analyzeBody(&child_block, body);
+
     const args = sema.code.refSlice(extra.end, extended.small);
 
     const inst_list = try sema.gpa.alloc(Air.Inst.Ref, args.len);

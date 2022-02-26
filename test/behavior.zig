@@ -102,6 +102,7 @@ test {
         builtin.zig_backend != .stage2_wasm)
     {
         // Tests that pass for stage1, llvm backend, C backend
+        _ = @import("behavior/bugs/5474.zig");
         _ = @import("behavior/bugs/9584.zig");
         _ = @import("behavior/bugs/10970.zig");
         _ = @import("behavior/cast_int.zig");
@@ -152,7 +153,6 @@ test {
                 _ = @import("behavior/bugs/4328.zig");
                 _ = @import("behavior/bugs/5398.zig");
                 _ = @import("behavior/bugs/5413.zig");
-                _ = @import("behavior/bugs/5474.zig");
                 _ = @import("behavior/bugs/5487.zig");
                 _ = @import("behavior/bugs/6456.zig");
                 _ = @import("behavior/bugs/6781.zig");
