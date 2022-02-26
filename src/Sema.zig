@@ -16994,7 +16994,7 @@ fn resolvePeerTypes(
         if (candidate_ty.eql(chosen_ty))
             continue;
 
-        // If the candidate can coernce into our chosen type, we're done.
+        // If the candidate can coerce into our chosen type, we're done.
         // If the chosen type can coerce into the candidate, use that.
         if ((try sema.coerceInMemoryAllowed(block, chosen_ty, candidate_ty, false, target, src, src)) == .ok) {
             continue;
