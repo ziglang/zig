@@ -676,6 +676,11 @@ test "peer resolution of string literals" {
 }
 
 test "peer cast [:x]T to []T" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest() !void {
             var array = [4:0]i32{ 1, 2, 3, 4 };
@@ -689,6 +694,11 @@ test "peer cast [:x]T to []T" {
 }
 
 test "peer cast [N:x]T to [N]T" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest() !void {
             var array = [4:0]i32{ 1, 2, 3, 4 };
@@ -701,6 +711,11 @@ test "peer cast [N:x]T to [N]T" {
 }
 
 test "peer cast *[N:x]T to *[N]T" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest() !void {
             var array = [4:0]i32{ 1, 2, 3, 4 };
