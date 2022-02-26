@@ -1613,10 +1613,15 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         //}
 
         // The last one is always `store`.
-        const trash_inst = trash_block.instructions.pop();
-        assert(air_tags[trash_inst] == .store);
-        assert(trash_inst == sema.air_instructions.len - 1);
-        sema.air_instructions.len -= 1;
+        const trash_inst = trash_block.instructions.items[trash_block.instructions.items.len - 1];
+        if (air_tags[trash_inst] != .store) {
+            // no store instruction is generated for zero sized types
+            assert((try sema.typeHasOnePossibleValue(block, src, pointee_ty)) != null);
+        } else {
+            trash_block.instructions.items.len -= 1;
+            assert(trash_inst == sema.air_instructions.len - 1);
+            sema.air_instructions.len -= 1;
+        }
     }
 
     const ptr_ty = try Type.ptr(sema.arena, .{
@@ -5236,6 +5241,22 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     if (lhs_ty.tag() == .anyerror or rhs_ty.tag() == .anyerror) {
         return Air.Inst.Ref.anyerror_type;
     }
+
+    if (lhs_ty.castTag(.error_set_inferred)) |payload| {
+        try sema.resolveInferredErrorSet(payload.data);
+        // isAnyError might have changed from a false negative to a true positive after resolution.
+        if (lhs_ty.isAnyError()) {
+            return Air.Inst.Ref.anyerror_type;
+        }
+    }
+    if (rhs_ty.castTag(.error_set_inferred)) |payload| {
+        try sema.resolveInferredErrorSet(payload.data);
+        // isAnyError might have changed from a false negative to a true positive after resolution.
+        if (rhs_ty.isAnyError()) {
+            return Air.Inst.Ref.anyerror_type;
+        }
+    }
+
     // Resolve both error sets now.
     const lhs_names = lhs_ty.errorSetNames();
     const rhs_names = rhs_ty.errorSetNames();
@@ -6807,6 +6828,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
                     try sema.validateSwitchNoRange(block, ranges_len, operand_ty, src_node_offset);
                 }
+            }
+
+            if (operand_ty.castTag(.error_set_inferred)) |inferred| {
+                try sema.resolveInferredErrorSet(inferred.data);
             }
 
             if (operand_ty.isAnyError()) {
@@ -14597,6 +14622,12 @@ fn elemPtr(
         },
         .Array => return sema.elemPtrArray(block, array_ptr_src, array_ptr, elem_index, elem_index_src),
         .Vector => return sema.fail(block, src, "TODO implement Sema for elemPtr for vector", .{}),
+        .Struct => {
+            // Tuple field access.
+            const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index);
+            const index = @intCast(u32, index_val.toUnsignedInt());
+            return sema.tupleFieldPtr(block, array_ptr, index, src, elem_index_src);
+        },
         else => unreachable,
     }
 }
@@ -14671,6 +14702,45 @@ fn elemVal(
         },
         else => unreachable,
     }
+}
+
+fn tupleFieldPtr(
+    sema: *Sema,
+    block: *Block,
+    tuple_ptr: Air.Inst.Ref,
+    field_index: u32,
+    tuple_src: LazySrcLoc,
+    field_index_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    const tuple_ptr_ty = sema.typeOf(tuple_ptr);
+    const tuple_ty = tuple_ptr_ty.childType();
+    const tuple_info = tuple_ty.castTag(.tuple).?.data;
+
+    if (field_index > tuple_info.types.len) {
+        return sema.fail(block, field_index_src, "index {d} outside tuple of length {d}", .{
+            field_index, tuple_info.types.len,
+        });
+    }
+
+    const field_ty = tuple_info.types[field_index];
+    const ptr_field_ty = try Type.ptr(sema.arena, .{
+        .pointee_type = field_ty,
+        .mutable = tuple_ptr_ty.ptrIsMutable(),
+        .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(),
+    });
+
+    if (try sema.resolveMaybeUndefVal(block, tuple_src, tuple_ptr)) |tuple_ptr_val| {
+        return sema.addConstant(
+            ptr_field_ty,
+            try Value.Tag.field_ptr.create(sema.arena, .{
+                .container_ptr = tuple_ptr_val,
+                .field_index = field_index,
+            }),
+        );
+    }
+
+    try sema.requireRuntimeBlock(block, tuple_src);
+    return block.addStructFieldPtr(tuple_ptr, field_index, ptr_field_ty);
 }
 
 fn tupleField(
@@ -15273,9 +15343,8 @@ fn coerceInMemoryAllowedErrorSets(
                 return .no_match;
             }
 
-            var it = src_data.errors.keyIterator();
-            while (it.next()) |name_ptr| {
-                if (!dest_ty.errorSetHasField(name_ptr.*)) {
+            for (src_data.errors.keys()) |key| {
+                if (!dest_ty.errorSetHasField(key)) {
                     return .no_match;
                 }
             }
@@ -17525,9 +17594,8 @@ fn resolveInferredErrorSet(sema: *Sema, inferred_error_set: *Module.Fn.InferredE
         try sema.ensureDeclAnalyzed(decl); // To ensure that all dependencies are properly added to the set.
         try sema.resolveInferredErrorSet(other_error_set_ptr.*);
 
-        var error_it = other_error_set_ptr.*.errors.keyIterator();
-        while (error_it.next()) |entry| {
-            try inferred_error_set.errors.put(sema.gpa, entry.*, {});
+        for (other_error_set_ptr.*.errors.keys()) |key| {
+            try inferred_error_set.errors.put(sema.gpa, key, {});
         }
         if (other_error_set_ptr.*.is_anyerror)
             inferred_error_set.is_anyerror = true;

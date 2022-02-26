@@ -3878,6 +3878,12 @@ pub const Type = extern union {
             },
             .error_set_merged => ty.castTag(.error_set_merged).?.data.keys(),
             .error_set => ty.castTag(.error_set).?.data.names.keys(),
+            .error_set_inferred => {
+                const inferred_error_set = ty.castTag(.error_set_inferred).?.data;
+                assert(inferred_error_set.is_resolved);
+                assert(!inferred_error_set.is_anyerror);
+                return inferred_error_set.errors.keys();
+            },
             else => unreachable,
         };
     }
