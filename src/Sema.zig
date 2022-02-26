@@ -5308,16 +5308,16 @@ fn zirEnumToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     const enum_tag: Air.Inst.Ref = switch (operand_ty.zigTypeTag()) {
         .Enum => operand,
-        .Union => {
-            //if (!operand_ty.unionHasTag()) {
-            //    return sema.fail(
-            //        block,
-            //        operand_src,
-            //        "untagged union '{}' cannot be converted to integer",
-            //        .{dest_ty_src},
-            //    );
-            //}
-            return sema.fail(block, operand_src, "TODO zirEnumToInt for tagged unions", .{});
+        .Union => blk: {
+            const tag_ty = operand_ty.unionTagType() orelse {
+                return sema.fail(
+                    block,
+                    operand_src,
+                    "untagged union '{}' cannot be converted to integer",
+                    .{src},
+                );
+            };
+            break :blk try sema.unionToTag(block, tag_ty, operand, operand_src);
         },
         else => {
             return sema.fail(block, operand_src, "expected enum or tagged union, found {}", .{
