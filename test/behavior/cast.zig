@@ -675,55 +675,74 @@ test "peer resolution of string literals" {
     comptime try S.doTheTest(.b);
 }
 
-test "type coercion related to sentinel-termination" {
+test "peer cast [:x]T to []T" {
+    const S = struct {
+        fn doTheTest() !void {
+            var array = [4:0]i32{ 1, 2, 3, 4 };
+            var slice: [:0]i32 = &array;
+            var dest: []i32 = slice;
+            try expect(mem.eql(i32, dest, &[_]i32{ 1, 2, 3, 4 }));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "peer cast [N:x]T to [N]T" {
+    const S = struct {
+        fn doTheTest() !void {
+            var array = [4:0]i32{ 1, 2, 3, 4 };
+            var dest: [4]i32 = array;
+            try expect(mem.eql(i32, &dest, &[_]i32{ 1, 2, 3, 4 }));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "peer cast *[N:x]T to *[N]T" {
+    const S = struct {
+        fn doTheTest() !void {
+            var array = [4:0]i32{ 1, 2, 3, 4 };
+            var dest: *[4]i32 = &array;
+            try expect(mem.eql(i32, dest, &[_]i32{ 1, 2, 3, 4 }));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "peer cast [*:x]T to [*]T" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
-            // [:x]T to []T
-            {
-                var array = [4:0]i32{ 1, 2, 3, 4 };
-                var slice: [:0]i32 = &array;
-                var dest: []i32 = slice;
-                try expect(mem.eql(i32, dest, &[_]i32{ 1, 2, 3, 4 }));
-            }
+            var array = [4:99]i32{ 1, 2, 3, 4 };
+            var dest: [*]i32 = &array;
+            try expect(dest[0] == 1);
+            try expect(dest[1] == 2);
+            try expect(dest[2] == 3);
+            try expect(dest[3] == 4);
+            try expect(dest[4] == 99);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
 
-            // [*:x]T to [*]T
-            {
-                var array = [4:99]i32{ 1, 2, 3, 4 };
-                var dest: [*]i32 = &array;
-                try expect(dest[0] == 1);
-                try expect(dest[1] == 2);
-                try expect(dest[2] == 3);
-                try expect(dest[3] == 4);
-                try expect(dest[4] == 99);
-            }
+test "peer cast [:x]T to [*:x]T" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
-            // [N:x]T to [N]T
-            {
-                var array = [4:0]i32{ 1, 2, 3, 4 };
-                var dest: [4]i32 = array;
-                try expect(mem.eql(i32, &dest, &[_]i32{ 1, 2, 3, 4 }));
-            }
-
-            // *[N:x]T to *[N]T
-            {
-                var array = [4:0]i32{ 1, 2, 3, 4 };
-                var dest: *[4]i32 = &array;
-                try expect(mem.eql(i32, dest, &[_]i32{ 1, 2, 3, 4 }));
-            }
-
-            // [:x]T to [*:x]T
-            {
-                var array = [4:0]i32{ 1, 2, 3, 4 };
-                var slice: [:0]i32 = &array;
-                var dest: [*:0]i32 = slice;
-                try expect(dest[0] == 1);
-                try expect(dest[1] == 2);
-                try expect(dest[2] == 3);
-                try expect(dest[3] == 4);
-                try expect(dest[4] == 0);
-            }
+    const S = struct {
+        fn doTheTest() !void {
+            var array = [4:0]i32{ 1, 2, 3, 4 };
+            var slice: [:0]i32 = &array;
+            var dest: [*:0]i32 = slice;
+            try expect(dest[0] == 1);
+            try expect(dest[1] == 2);
+            try expect(dest[2] == 3);
+            try expect(dest[3] == 4);
+            try expect(dest[4] == 0);
         }
     };
     try S.doTheTest();
