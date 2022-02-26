@@ -1,5 +1,6 @@
 const std = @import("std");
 const DW = std.dwarf;
+const assert = std.debug.assert;
 const testing = std.testing;
 
 /// The condition field specifies the flags necessary for an
@@ -235,6 +236,17 @@ pub const Instruction = union(enum) {
         fixed_2: u1 = 0b0,
         opc: u2,
         fixed_3: u5 = 0b00010,
+        cond: u4,
+    },
+    bit_field_extract: packed struct {
+        rn: u4,
+        fixed_1: u3 = 0b101,
+        lsb: u5,
+        rd: u4,
+        widthm1: u5,
+        fixed_2: u1 = 0b1,
+        unsigned: u1,
+        fixed_3: u5 = 0b01111,
         cond: u4,
     },
     single_data_transfer: packed struct {
@@ -576,6 +588,7 @@ pub const Instruction = union(enum) {
             .multiply => |v| @bitCast(u32, v),
             .multiply_long => |v| @bitCast(u32, v),
             .integer_saturating_arithmetic => |v| @bitCast(u32, v),
+            .bit_field_extract => |v| @bitCast(u32, v),
             .single_data_transfer => |v| @bitCast(u32, v),
             .extra_load_store => |v| @bitCast(u32, v),
             .block_data_transfer => |v| @bitCast(u32, v),
@@ -686,6 +699,27 @@ pub const Instruction = union(enum) {
                 .rd = rd.id(),
                 .rn = rn.id(),
                 .opc = opc,
+                .cond = @enumToInt(cond),
+            },
+        };
+    }
+
+    fn bitFieldExtract(
+        unsigned: u1,
+        cond: Condition,
+        rd: Register,
+        rn: Register,
+        lsb: u5,
+        width: u6,
+    ) Instruction {
+        assert(width > 0 and width <= 32);
+        return Instruction{
+            .bit_field_extract = .{
+                .rn = rn.id(),
+                .lsb = lsb,
+                .rd = rd.id(),
+                .widthm1 = @intCast(u5, width - 1),
+                .unsigned = unsigned,
                 .cond = @enumToInt(cond),
             },
         };
@@ -1044,6 +1078,16 @@ pub const Instruction = union(enum) {
         return multiplyLong(cond, 1, 1, 1, rdhi, rdlo, rm, rn);
     }
 
+    // Bit field extract
+
+    pub fn ubfx(cond: Condition, rd: Register, rn: Register, lsb: u5, width: u6) Instruction {
+        return bitFieldExtract(0b1, cond, rd, rn, lsb, width);
+    }
+
+    pub fn sbfx(cond: Condition, rd: Register, rn: Register, lsb: u5, width: u6) Instruction {
+        return bitFieldExtract(0b0, cond, rd, rn, lsb, width);
+    }
+
     // Single data transfer
 
     pub const OffsetArgs = struct {
@@ -1079,11 +1123,19 @@ pub const Instruction = union(enum) {
     };
 
     pub fn strh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
-        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0, 0b01, rn, rt, args.offset);
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b0, 0b01, rn, rt, args.offset);
     }
 
     pub fn ldrh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
-        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 1, 0b01, rn, rt, args.offset);
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b1, 0b01, rn, rt, args.offset);
+    }
+
+    pub fn ldrsh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b1, 0b11, rn, rt, args.offset);
+    }
+
+    pub fn ldrsb(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b1, 0b10, rn, rt, args.offset);
     }
 
     // Block data transfer

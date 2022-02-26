@@ -439,7 +439,7 @@ fn gen(self: *Self) !void {
             // the code. Therefore, we can just delete
             // the space initially reserved for the
             // jump
-            self.mir_instructions.len -= 1;
+            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.items[0]);
         } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             self.mir_instructions.set(jmp_reloc, .{
                 .tag = .b,
@@ -749,6 +749,17 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
 /// Use a pointer instruction as the basis for allocating stack memory.
 fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const elem_ty = self.air.typeOfIndex(inst).elemType();
+
+    if (!elem_ty.hasRuntimeBits()) {
+        // As this stack item will never be dereferenced at runtime,
+        // return the current stack offset
+        try self.stack.putNoClobber(self.gpa, self.next_stack_offset, .{
+            .inst = inst,
+            .size = 0,
+        });
+        return self.next_stack_offset;
+    }
+
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
     };
@@ -872,11 +883,61 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
 
+    const operand_ty = self.air.typeOf(ty_op.operand);
     const operand = try self.resolveInst(ty_op.operand);
-    _ = operand;
+    const info_a = operand_ty.intInfo(self.target.*);
+    const info_b = self.air.typeOfIndex(inst).intInfo(self.target.*);
 
-    return self.fail("TODO implement trunc for {}", .{self.target.cpu.arch});
-    // return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    const result: MCValue = blk: {
+        if (info_b.bits <= 32) {
+            const operand_reg = switch (operand) {
+                .register => |r| r,
+                else => operand_reg: {
+                    if (info_a.bits <= 32) {
+                        break :operand_reg try self.copyToTmpRegister(operand_ty, operand);
+                    } else {
+                        return self.fail("TODO load least significant word into register", .{});
+                    }
+                },
+            };
+            self.register_manager.freezeRegs(&.{operand_reg});
+            defer self.register_manager.unfreezeRegs(&.{operand_reg});
+
+            const dest_reg = dest_reg: {
+                if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                    break :dest_reg operand_reg;
+                }
+
+                break :dest_reg try self.register_manager.allocReg(null);
+            };
+
+            switch (info_b.bits) {
+                32 => {
+                    try self.genSetReg(operand_ty, dest_reg, .{ .register = operand_reg });
+                    break :blk MCValue{ .register = dest_reg };
+                },
+                else => {
+                    _ = try self.addInst(.{
+                        .tag = switch (info_b.signedness) {
+                            .signed => .sbfx,
+                            .unsigned => .ubfx,
+                        },
+                        .data = .{ .rr_lsb_width = .{
+                            .rd = dest_reg,
+                            .rn = operand_reg,
+                            .lsb = 0,
+                            .width = @intCast(u6, info_b.bits),
+                        } },
+                    });
+                    break :blk MCValue{ .register = dest_reg };
+                },
+            }
+        } else {
+            return self.fail("TODO: truncate to ints > 32 bits", .{});
+        }
+    };
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
@@ -1514,7 +1575,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .compare_flags_signed, .compare_flags_unsigned => unreachable,
                 .embedded_in_code => unreachable,
                 .register => |dst_reg| {
-                    try self.genLdrRegister(dst_reg, reg, elem_size);
+                    try self.genLdrRegister(dst_reg, reg, elem_ty);
                 },
                 .stack_offset => |off| {
                     if (elem_size <= 4) {
@@ -1615,7 +1676,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
 
             switch (value) {
                 .register => |value_reg| {
-                    try self.genStrRegister(value_reg, addr_reg, @intCast(u32, value_ty.abiSize(self.target.*)));
+                    try self.genStrRegister(value_reg, addr_reg, value_ty);
                 },
                 else => {
                     if (value_ty.abiSize(self.target.*) <= 4) {
@@ -2180,68 +2241,71 @@ fn binOp(
     }
 }
 
-fn genLdrRegister(self: *Self, dest_reg: Register, addr_reg: Register, abi_size: u32) !void {
-    switch (abi_size) {
-        1, 3, 4 => {
-            const tag: Mir.Inst.Tag = switch (abi_size) {
-                1 => .ldrb,
-                3, 4 => .ldr,
-                else => unreachable,
-            };
+fn genLdrRegister(self: *Self, dest_reg: Register, addr_reg: Register, ty: Type) !void {
+    const abi_size = ty.abiSize(self.target.*);
 
-            _ = try self.addInst(.{
-                .tag = tag,
-                .data = .{ .rr_offset = .{
-                    .rt = dest_reg,
-                    .rn = addr_reg,
-                    .offset = .{ .offset = Instruction.Offset.none },
-                } },
-            });
-        },
-        2 => {
-            _ = try self.addInst(.{
-                .tag = .ldrh,
-                .data = .{ .rr_extra_offset = .{
-                    .rt = dest_reg,
-                    .rn = addr_reg,
-                    .offset = .{ .offset = Instruction.ExtraLoadStoreOffset.none },
-                } },
-            });
-        },
-        else => unreachable, // invalid abi_size for a register
-    }
+    const tag: Mir.Inst.Tag = switch (abi_size) {
+        1 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsb else .ldrb,
+        2 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsh else .ldrh,
+        3, 4 => .ldr,
+        else => unreachable,
+    };
+
+    const rr_offset: Mir.Inst.Data = .{ .rr_offset = .{
+        .rt = dest_reg,
+        .rn = addr_reg,
+        .offset = .{ .offset = Instruction.Offset.none },
+    } };
+    const rr_extra_offset: Mir.Inst.Data = .{ .rr_extra_offset = .{
+        .rt = dest_reg,
+        .rn = addr_reg,
+        .offset = .{ .offset = Instruction.ExtraLoadStoreOffset.none },
+    } };
+
+    const data: Mir.Inst.Data = switch (abi_size) {
+        1 => if (ty.isSignedInt()) rr_extra_offset else rr_offset,
+        2 => rr_extra_offset,
+        3, 4 => rr_offset,
+        else => unreachable,
+    };
+
+    _ = try self.addInst(.{
+        .tag = tag,
+        .data = data,
+    });
 }
 
-fn genStrRegister(self: *Self, source_reg: Register, addr_reg: Register, abi_size: u32) !void {
-    switch (abi_size) {
-        1, 3, 4 => {
-            const tag: Mir.Inst.Tag = switch (abi_size) {
-                1 => .strb,
-                3, 4 => .str,
-                else => unreachable,
-            };
+fn genStrRegister(self: *Self, source_reg: Register, addr_reg: Register, ty: Type) !void {
+    const abi_size = ty.abiSize(self.target.*);
 
-            _ = try self.addInst(.{
-                .tag = tag,
-                .data = .{ .rr_offset = .{
-                    .rt = source_reg,
-                    .rn = addr_reg,
-                    .offset = .{ .offset = Instruction.Offset.none },
-                } },
-            });
-        },
-        2 => {
-            _ = try self.addInst(.{
-                .tag = .strh,
-                .data = .{ .rr_extra_offset = .{
-                    .rt = source_reg,
-                    .rn = addr_reg,
-                    .offset = .{ .offset = Instruction.ExtraLoadStoreOffset.none },
-                } },
-            });
-        },
-        else => unreachable, // invalid abi_size for a register
-    }
+    const tag: Mir.Inst.Tag = switch (abi_size) {
+        1 => .strb,
+        2 => .strh,
+        3, 4 => .str,
+        else => unreachable,
+    };
+
+    const rr_offset: Mir.Inst.Data = .{ .rr_offset = .{
+        .rt = source_reg,
+        .rn = addr_reg,
+        .offset = .{ .offset = Instruction.Offset.none },
+    } };
+    const rr_extra_offset: Mir.Inst.Data = .{ .rr_extra_offset = .{
+        .rt = source_reg,
+        .rn = addr_reg,
+        .offset = .{ .offset = Instruction.ExtraLoadStoreOffset.none },
+    } };
+
+    const data: Mir.Inst.Data = switch (abi_size) {
+        1, 3, 4 => rr_offset,
+        2 => rr_extra_offset,
+        else => unreachable,
+    };
+
+    _ = try self.addInst(.{
+        .tag = tag,
+        .data = data,
+    });
 }
 
 fn genInlineMemcpy(
@@ -2834,8 +2898,6 @@ fn isNonNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
 }
 
 fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
-    _ = operand;
-
     const error_type = ty.errorUnionSet();
     const payload_type = ty.errorUnionPayload();
 
@@ -3569,55 +3631,59 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // The value is in memory at a hard-coded address.
             // If the type is a pointer, it means the pointer address is at this memory location.
             try self.genSetReg(ty, reg, .{ .immediate = @intCast(u32, addr) });
-            try self.genLdrRegister(reg, reg, @intCast(u32, ty.abiSize(self.target.*)));
+            try self.genLdrRegister(reg, reg, ty);
         },
         .stack_offset => |unadjusted_off| {
             // TODO: maybe addressing from sp instead of fp
             const abi_size = @intCast(u32, ty.abiSize(self.target.*));
             const adj_off = unadjusted_off + abi_size;
 
-            switch (abi_size) {
-                1, 4 => {
-                    const offset = if (adj_off <= math.maxInt(u12)) blk: {
-                        break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
-                    } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = adj_off }), .none);
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsb else .ldrb,
+                2 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsh else .ldrh,
+                3, 4 => .ldr,
+                else => unreachable,
+            };
 
-                    const tag: Mir.Inst.Tag = switch (abi_size) {
-                        1 => .ldrb,
-                        4 => .ldr,
-                        else => unreachable,
-                    };
+            const extra_offset = switch (abi_size) {
+                1 => ty.isSignedInt(),
+                2 => true,
+                3, 4 => false,
+                else => unreachable,
+            };
 
-                    _ = try self.addInst(.{
-                        .tag = tag,
-                        .data = .{ .rr_offset = .{
-                            .rt = reg,
-                            .rn = .fp,
-                            .offset = .{
-                                .offset = offset,
-                                .positive = false,
-                            },
-                        } },
-                    });
-                },
-                2 => {
-                    const offset = if (adj_off <= math.maxInt(u8)) blk: {
-                        break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, adj_off));
-                    } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = adj_off }));
+            if (extra_offset) {
+                const offset = if (adj_off <= math.maxInt(u8)) blk: {
+                    break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, adj_off));
+                } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = adj_off }));
 
-                    _ = try self.addInst(.{
-                        .tag = .ldrh,
-                        .data = .{ .rr_extra_offset = .{
-                            .rt = reg,
-                            .rn = .fp,
-                            .offset = .{
-                                .offset = offset,
-                                .positive = false,
-                            },
-                        } },
-                    });
-                },
-                else => return self.fail("TODO a type of size {} is not allowed in a register", .{abi_size}),
+                _ = try self.addInst(.{
+                    .tag = tag,
+                    .data = .{ .rr_extra_offset = .{
+                        .rt = reg,
+                        .rn = .fp,
+                        .offset = .{
+                            .offset = offset,
+                            .positive = false,
+                        },
+                    } },
+                });
+            } else {
+                const offset = if (adj_off <= math.maxInt(u12)) blk: {
+                    break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
+                } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = adj_off }), .none);
+
+                _ = try self.addInst(.{
+                    .tag = tag,
+                    .data = .{ .rr_offset = .{
+                        .rt = reg,
+                        .rn = .fp,
+                        .offset = .{
+                            .offset = offset,
+                            .positive = false,
+                        },
+                    } },
+                });
             }
         },
         .stack_argument_offset => |unadjusted_off| {
@@ -3625,9 +3691,9 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             const adj_off = unadjusted_off + abi_size;
 
             const tag: Mir.Inst.Tag = switch (abi_size) {
-                1 => .ldrb_stack_argument,
-                2 => .ldrh_stack_argument,
-                4 => .ldr_stack_argument,
+                1 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsb_stack_argument else .ldrb_stack_argument,
+                2 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsh_stack_argument else .ldrh_stack_argument,
+                3, 4 => .ldr_stack_argument,
                 else => unreachable,
             };
 

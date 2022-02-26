@@ -115,8 +115,12 @@ pub fn emitMir(
             .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrb_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrh_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrsb_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrsh_stack_argument => try emit.mirLoadStackArgument(inst),
 
             .ldrh => try emit.mirLoadStoreExtra(inst),
+            .ldrsb => try emit.mirLoadStore(inst),
+            .ldrsh => try emit.mirLoadStoreExtra(inst),
             .strh => try emit.mirLoadStoreExtra(inst),
 
             .movw => try emit.mirSpecialMove(inst),
@@ -130,6 +134,9 @@ pub fn emitMir(
             .push => try emit.mirBlockDataTransfer(inst),
 
             .svc => try emit.mirSupervisorCall(inst),
+
+            .sbfx => try emit.mirBitFieldExtract(inst),
+            .ubfx => try emit.mirBitFieldExtract(inst),
         }
     }
 }
@@ -590,36 +597,42 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     const raw_offset = emit.prologue_stack_space - r_stack_offset.stack_offset;
     switch (tag) {
-        .ldr_stack_argument => {
+        .ldr_stack_argument,
+        .ldrb_stack_argument,
+        => {
             const offset = if (raw_offset <= math.maxInt(u12)) blk: {
                 break :blk Instruction.Offset.imm(@intCast(u12, raw_offset));
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            try emit.writeInstruction(Instruction.ldr(
+            const ldr = switch (tag) {
+                .ldr_stack_argument => Instruction.ldr,
+                .ldrb_stack_argument => Instruction.ldrb,
+                else => unreachable,
+            };
+
+            try emit.writeInstruction(ldr(
                 cond,
                 r_stack_offset.rt,
                 .fp,
                 .{ .offset = offset },
             ));
         },
-        .ldrb_stack_argument => {
-            const offset = if (raw_offset <= math.maxInt(u12)) blk: {
-                break :blk Instruction.Offset.imm(@intCast(u12, raw_offset));
-            } else return emit.fail("TODO mirLoadStack larger offsets", .{});
-
-            try emit.writeInstruction(Instruction.ldrb(
-                cond,
-                r_stack_offset.rt,
-                .fp,
-                .{ .offset = offset },
-            ));
-        },
-        .ldrh_stack_argument => {
+        .ldrh_stack_argument,
+        .ldrsb_stack_argument,
+        .ldrsh_stack_argument,
+        => {
             const offset = if (raw_offset <= math.maxInt(u8)) blk: {
                 break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, raw_offset));
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            try emit.writeInstruction(Instruction.ldrh(
+            const ldr = switch (tag) {
+                .ldrh_stack_argument => Instruction.ldrh,
+                .ldrsb_stack_argument => Instruction.ldrsb,
+                .ldrsh_stack_argument => Instruction.ldrsh,
+                else => unreachable,
+            };
+
+            try emit.writeInstruction(ldr(
                 cond,
                 r_stack_offset.rt,
                 .fp,
@@ -637,6 +650,8 @@ fn mirLoadStoreExtra(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .ldrh => try emit.writeInstruction(Instruction.ldrh(cond, rr_extra_offset.rt, rr_extra_offset.rn, rr_extra_offset.offset)),
+        .ldrsb => try emit.writeInstruction(Instruction.ldrsb(cond, rr_extra_offset.rt, rr_extra_offset.rn, rr_extra_offset.offset)),
+        .ldrsh => try emit.writeInstruction(Instruction.ldrsh(cond, rr_extra_offset.rt, rr_extra_offset.rn, rr_extra_offset.offset)),
         .strh => try emit.writeInstruction(Instruction.strh(cond, rr_extra_offset.rt, rr_extra_offset.rn, rr_extra_offset.offset)),
         else => unreachable,
     }
@@ -688,6 +703,22 @@ fn mirSupervisorCall(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .svc => try emit.writeInstruction(Instruction.svc(cond, imm24)),
+        else => unreachable,
+    }
+}
+
+fn mirBitFieldExtract(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const cond = emit.mir.instructions.items(.cond)[inst];
+    const rr_lsb_width = emit.mir.instructions.items(.data)[inst].rr_lsb_width;
+    const rd = rr_lsb_width.rd;
+    const rn = rr_lsb_width.rn;
+    const lsb = rr_lsb_width.lsb;
+    const width = rr_lsb_width.width;
+
+    switch (tag) {
+        .sbfx => try emit.writeInstruction(Instruction.sbfx(cond, rd, rn, lsb, width)),
+        .ubfx => try emit.writeInstruction(Instruction.ubfx(cond, rd, rn, lsb, width)),
         else => unreachable,
     }
 }
