@@ -1237,3 +1237,28 @@ test "anon init through error union" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "typed init through error unions and optionals" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: u32,
+
+        fn foo() anyerror!?anyerror!@This() {
+            return @This(){ .a = 1 };
+        }
+        fn bar() ?anyerror![2]u8 {
+            return [2]u8{ 1, 2 };
+        }
+
+        fn doTheTest() !void {
+            var a = try (try foo()).?;
+            var b = try bar().?;
+            try expect(a.a + b[1] == 3);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}

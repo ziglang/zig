@@ -1593,27 +1593,16 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         }
     }
 
-    // We would like to rely on the mechanism below even for comptime values.
-    // However in the case that the pointer points to comptime-mutable value,
-    // we cannot do it.
-    if (try sema.resolveDefinedValue(block, src, ptr)) |ptr_val| {
-        if (ptr_val.isComptimeMutablePtr()) {
-            const ptr_ty = try Type.ptr(sema.arena, .{
-                .pointee_type = pointee_ty,
-                .@"addrspace" = addr_space,
-            });
-            return sema.addConstant(ptr_ty, ptr_val);
-        }
-    }
-
     // Make a dummy store through the pointer to test the coercion.
     // We will then use the generated instructions to decide what
     // kind of transformations to make on the result pointer.
     var trash_block = block.makeSubBlock();
+    trash_block.is_comptime = false;
     defer trash_block.instructions.deinit(sema.gpa);
 
+    const dummy_ptr = try trash_block.addTy(.alloc, sema.typeOf(ptr));
     const dummy_operand = try trash_block.addBitCast(pointee_ty, .void_value);
-    try sema.storePtr(&trash_block, src, ptr, dummy_operand);
+    try sema.storePtr(&trash_block, src, dummy_ptr, dummy_operand);
 
     {
         const air_tags = sema.air_instructions.items(.tag);
@@ -1644,6 +1633,9 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         switch (air_tags[trash_inst]) {
             .bitcast => {
                 if (Air.indexToRef(trash_inst) == dummy_operand) {
+                    if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
+                        return sema.addConstant(ptr_ty, ptr_val);
+                    }
                     return sema.bitCast(block, ptr_ty, new_ptr, src);
                 }
                 const ty_op = air_datas[trash_inst].ty_op;
@@ -1652,7 +1644,11 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     .pointee_type = operand_ty,
                     .@"addrspace" = addr_space,
                 });
-                new_ptr = try sema.bitCast(block, ptr_operand_ty, new_ptr, src);
+                if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
+                    new_ptr = try sema.addConstant(ptr_operand_ty, ptr_val);
+                } else {
+                    new_ptr = try sema.bitCast(block, ptr_operand_ty, new_ptr, src);
+                }
             },
             .wrap_optional => {
                 new_ptr = try sema.analyzeOptionalPayloadPtr(block, src, new_ptr, false, true);
@@ -1673,7 +1669,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 }
             },
         }
-    } else unreachable; // TODO should not need else unreachable
+    }
 }
 
 pub fn analyzeStructDecl(
@@ -16937,7 +16933,6 @@ fn wrapErrorUnionPayload(
     const dest_payload_ty = dest_ty.errorUnionPayload();
     const coerced = try sema.coerce(block, dest_payload_ty, inst, inst_src);
     if (try sema.resolveMaybeUndefVal(block, inst_src, coerced)) |val| {
-        if (val.isUndef()) return sema.addConstUndef(dest_ty);
         return sema.addConstant(dest_ty, try Value.Tag.eu_payload.create(sema.arena, val));
     }
     try sema.requireRuntimeBlock(block, inst_src);

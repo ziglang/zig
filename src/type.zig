@@ -3980,7 +3980,7 @@ pub const Type = extern union {
 
     pub fn structFields(ty: Type) Module.Struct.Fields {
         switch (ty.tag()) {
-            .empty_struct => return .{},
+            .empty_struct, .empty_struct_literal => return .{},
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 assert(struct_obj.haveFieldTypes());
@@ -3996,7 +3996,7 @@ pub const Type = extern union {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 return struct_obj.fields.count();
             },
-            .empty_struct => return 0,
+            .empty_struct, .empty_struct_literal => return 0,
             .tuple => return ty.castTag(.tuple).?.data.types.len,
             else => unreachable,
         }
