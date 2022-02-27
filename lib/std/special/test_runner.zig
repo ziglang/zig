@@ -66,9 +66,7 @@ pub fn main() void {
                 std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
             }
         }
-        const result = if (builtin.zig_backend == .stage2_llvm)
-            test_fn.func()
-        else if (test_fn.async_frame_size) |size| switch (io_mode) {
+        const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
             .evented => blk: {
                 if (async_frame_buffer.len < size) {
                     std.heap.page_allocator.free(async_frame_buffer);
