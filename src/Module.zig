@@ -3762,7 +3762,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
-    try sema.resolveTypeLayout(&block_scope, src, decl_tv.ty);
+    try sema.resolveTypeFully(&block_scope, src, decl_tv.ty);
 
     const decl_arena_state = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
 

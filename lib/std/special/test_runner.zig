@@ -23,10 +23,12 @@ fn processArgs() void {
 }
 
 pub fn main() void {
-    if (builtin.zig_backend != .stage1) {
+    if (builtin.zig_backend != .stage1 and
+        builtin.zig_backend != .stage2_llvm)
+    {
         return main2() catch @panic("test failure");
     }
-    processArgs();
+    if (builtin.zig_backend == .stage1) processArgs();
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
@@ -44,9 +46,9 @@ pub fn main() void {
 
     var leaks: usize = 0;
     for (test_fn_list) |test_fn, i| {
-        std.testing.allocator_instance = .{};
+        if (builtin.zig_backend != .stage2_llvm) std.testing.allocator_instance = .{};
         defer {
-            if (std.testing.allocator_instance.deinit()) {
+            if (builtin.zig_backend != .stage2_llvm and std.testing.allocator_instance.deinit()) {
                 leaks += 1;
             }
         }
@@ -56,9 +58,17 @@ pub fn main() void {
         test_node.activate();
         progress.refresh();
         if (!have_tty) {
-            std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
+            if (builtin.zig_backend == .stage2_llvm) {
+                std.debug.print("{d}/", .{i + 1});
+                std.debug.print("{d} ", .{test_fn_list.len});
+                std.debug.print("{s}... ", .{test_fn.name});
+            } else {
+                std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
+            }
         }
-        const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
+        const result = if (builtin.zig_backend == .stage2_llvm)
+            test_fn.func()
+        else if (test_fn.async_frame_size) |size| switch (io_mode) {
             .evented => blk: {
                 if (async_frame_buffer.len < size) {
                     std.heap.page_allocator.free(async_frame_buffer);
@@ -90,9 +100,9 @@ pub fn main() void {
                 fail_count += 1;
                 progress.log("FAIL ({s})\n", .{@errorName(err)});
                 if (!have_tty) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
+                if (builtin.zig_backend != .stage2_llvm) if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
-                }
+                };
                 test_node.end();
             },
         }
@@ -101,7 +111,13 @@ pub fn main() void {
     if (ok_count == test_fn_list.len) {
         std.debug.print("All {d} tests passed.\n", .{ok_count});
     } else {
-        std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{ ok_count, skip_count, fail_count });
+        if (builtin.zig_backend == .stage2_llvm) {
+            std.debug.print("{d} passed; ", .{ok_count});
+            std.debug.print("{d} skipped; ", .{skip_count});
+            std.debug.print("{d} failed.\n", .{fail_count});
+        } else {
+            std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{ ok_count, skip_count, fail_count });
+        }
     }
     if (log_err_count != 0) {
         std.debug.print("{d} errors were logged.\n", .{log_err_count});
@@ -141,20 +157,7 @@ pub fn main2() anyerror!void {
             }
         };
     }
-    if (builtin.zig_backend == .stage2_llvm) {
-        const stderr = std.io.getStdErr().writer();
-        const ok_count = builtin.test_functions.len - skipped - failed;
-        if (ok_count == builtin.test_functions.len) {
-            try stderr.print("All {d} tests passed.\n", .{ok_count});
-        } else {
-            try stderr.print("{d} passed; ", .{ok_count});
-            try stderr.print("{d} skipped; ", .{skipped});
-            try stderr.print("{d} failed.\n", .{failed});
-        }
-        if (failed != 0) {
-            std.process.exit(1);
-        }
-    } else if (builtin.zig_backend == .stage2_wasm or
+    if (builtin.zig_backend == .stage2_wasm or
         builtin.zig_backend == .stage2_x86_64)
     {
         const passed = builtin.test_functions.len - skipped - failed;

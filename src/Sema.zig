@@ -11947,19 +11947,27 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             var buffer: Value.ToTypeBuffer = undefined;
             const child_ty = child_val.toType(&buffer);
 
+            const ptr_size = size_val.toEnum(std.builtin.TypeInfo.Pointer.Size);
+
+            var actual_sentinel: ?Value = null;
             if (!sentinel_val.isNull()) {
-                return sema.fail(block, src, "TODO: implement zirReify for pointer with non-null sentinel", .{});
+                if (ptr_size == .One or ptr_size == .C) {
+                    return sema.fail(block, src, "sentinels are only allowed on slices and unknown-length pointers", .{});
+                }
+                const sentinel_ptr_val = sentinel_val.castTag(.opt_payload).?.data;
+                const ptr_ty = try Type.ptr(sema.arena, .{ .@"addrspace" = .generic, .pointee_type = child_ty });
+                actual_sentinel = (try sema.pointerDeref(block, src, sentinel_ptr_val, ptr_ty)).?;
             }
 
             const ty = try Type.ptr(sema.arena, .{
-                .size = size_val.toEnum(std.builtin.TypeInfo.Pointer.Size),
+                .size = ptr_size,
                 .mutable = !is_const_val.toBool(),
                 .@"volatile" = is_volatile_val.toBool(),
                 .@"align" = @intCast(u8, alignment_val.toUnsignedInt()), // TODO: Validate this value.
                 .@"addrspace" = address_space_val.toEnum(std.builtin.AddressSpace),
                 .pointee_type = try child_ty.copy(sema.arena),
                 .@"allowzero" = is_allowzero_val.toBool(),
-                .sentinel = null,
+                .sentinel = actual_sentinel,
             });
             return sema.addType(ty);
         },
@@ -12069,6 +12077,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const type_res = try sema.resolveType(block, src, extra.lhs);
     try sema.checkPtrType(block, type_src, type_res);
+    _ = try sema.resolveTypeLayout(block, src, type_res.childType());
     const ptr_align = type_res.ptrAlignment(sema.mod.getTarget());
 
     if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
@@ -17586,7 +17595,7 @@ fn resolvePeerTypes(
     return chosen_ty;
 }
 
-pub fn resolveTypeLayout(
+fn resolveTypeLayout(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -17659,7 +17668,7 @@ fn resolveUnionLayout(
     union_obj.status = .have_layout;
 }
 
-fn resolveTypeFully(
+pub fn resolveTypeFully(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,

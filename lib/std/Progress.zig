@@ -269,7 +269,12 @@ fn refreshWithHeldLock(self: *Progress) void {
                 }
                 if (eti > 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, eti });
+                    if (builtin.zig_backend == .stage2_llvm) {
+                        self.bufWrite(&end, "[{d}/ ", .{current_item});
+                        self.bufWrite(&end, "{d}] ", .{eti});
+                    } else {
+                        self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, eti });
+                    }
                     need_ellipse = false;
                 } else if (completed_items != 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});
@@ -284,9 +289,10 @@ fn refreshWithHeldLock(self: *Progress) void {
         }
     }
 
-    _ = file.write(self.output_buffer[0..end]) catch {
+    _ = file.write(self.output_buffer[0..end]) catch blk: {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
+        break :blk 0; // TODO stage2 requires this
     };
     if (self.timer) |*timer| {
         self.prev_refresh_timestamp = timer.read();

@@ -871,7 +871,7 @@ var vdso_clock_gettime = @ptrCast(?*const anyopaque, init_vdso_clock_gettime);
 const vdso_clock_gettime_ty = fn (i32, *timespec) callconv(.C) usize;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
-    if (@hasDecl(VDSO, "CGT_SYM")) {
+    if (@hasDecl(VDSO, "CGT_SYM") and builtin.zig_backend == .stage1) {
         const ptr = @atomicLoad(?*const anyopaque, &vdso_clock_gettime, .Unordered);
         if (ptr) |fn_ptr| {
             const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
