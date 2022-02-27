@@ -2934,6 +2934,14 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts the type is a union; returns the tag type, even if the tag will
+    /// not be stored at runtime.
+    pub fn unionTagTypeHypothetical(ty: Type) Type {
+        const union_obj = ty.cast(Payload.Union).?.data;
+        assert(union_obj.haveFieldTypes());
+        return union_obj.tag_ty;
+    }
+
     pub fn unionFields(ty: Type) Module.Union.Fields {
         const union_obj = ty.cast(Payload.Union).?.data;
         assert(union_obj.haveFieldTypes());

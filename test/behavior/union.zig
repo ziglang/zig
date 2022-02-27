@@ -723,8 +723,6 @@ test "@enumToInt works on unions" {
 }
 
 test "comptime union field value equality" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const a0 = Setter(Attribute{ .A = false });
     const a1 = Setter(Attribute{ .A = true });
     const a2 = Setter(Attribute{ .A = false });

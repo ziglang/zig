@@ -1902,6 +1902,25 @@ pub const Value = extern union {
                 }
                 return true;
             },
+            .@"union" => {
+                const a_union = a.castTag(.@"union").?.data;
+                const b_union = b.castTag(.@"union").?.data;
+                switch (ty.containerLayout()) {
+                    .Packed, .Extern => {
+                        // In this case, we must disregard mismatching tags and compare
+                        // based on the in-memory bytes of the payloads.
+                        @panic("TODO implement comparison of extern union values");
+                    },
+                    .Auto => {
+                        const tag_ty = ty.unionTagTypeHypothetical();
+                        if (!a_union.tag.eql(b_union.tag, tag_ty)) {
+                            return false;
+                        }
+                        const active_field_ty = ty.unionFieldType(a_union.tag);
+                        return a_union.val.eql(b_union.val, active_field_ty);
+                    },
+                }
+            },
             else => {},
         } else if (a_tag == .null_value or b_tag == .null_value) {
             return false;
