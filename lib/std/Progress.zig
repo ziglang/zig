@@ -269,12 +269,7 @@ fn refreshWithHeldLock(self: *Progress) void {
                 }
                 if (eti > 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    if (builtin.zig_backend == .stage2_llvm) {
-                        self.bufWrite(&end, "[{d}/", .{current_item});
-                        self.bufWrite(&end, "{d}] ", .{eti});
-                    } else {
-                        self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, eti });
-                    }
+                    self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, eti });
                     need_ellipse = false;
                 } else if (completed_items != 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});

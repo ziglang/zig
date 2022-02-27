@@ -58,13 +58,7 @@ pub fn main() void {
         test_node.activate();
         progress.refresh();
         if (!have_tty) {
-            if (builtin.zig_backend == .stage2_llvm) {
-                std.debug.print("{d}/", .{i + 1});
-                std.debug.print("{d} ", .{test_fn_list.len});
-                std.debug.print("{s}... ", .{test_fn.name});
-            } else {
-                std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
-            }
+            std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
         }
         const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
             .evented => blk: {
@@ -109,13 +103,7 @@ pub fn main() void {
     if (ok_count == test_fn_list.len) {
         std.debug.print("All {d} tests passed.\n", .{ok_count});
     } else {
-        if (builtin.zig_backend == .stage2_llvm) {
-            std.debug.print("{d} passed; ", .{ok_count});
-            std.debug.print("{d} skipped; ", .{skip_count});
-            std.debug.print("{d} failed.\n", .{fail_count});
-        } else {
-            std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{ ok_count, skip_count, fail_count });
-        }
+        std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{ ok_count, skip_count, fail_count });
     }
     if (log_err_count != 0) {
         std.debug.print("{d} errors were logged.\n", .{log_err_count});

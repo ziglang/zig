@@ -4494,6 +4494,10 @@ fn analyzeCall(
 
         try sema.emitBackwardBranch(&child_block, call_src);
 
+        // Whether this call should be memoized, set to false if the call can mutate
+        // comptime state.
+        var should_memoize = true;
+
         // This will have return instructions analyzed as break instructions to
         // the block_inst above. Here we are performing "comptime/inline semantic analysis"
         // for a function body, which means we must map the parameter ZIR instructions to
@@ -4527,6 +4531,7 @@ fn analyzeCall(
                         },
                         else => {},
                     }
+                    should_memoize = should_memoize and !arg_val.isComptimeMutablePtr();
                     memoized_call_key.args[arg_i] = .{
                         .ty = param_ty,
                         .val = arg_val,
@@ -4552,6 +4557,7 @@ fn analyzeCall(
                         },
                         else => {},
                     }
+                    should_memoize = should_memoize and !arg_val.isComptimeMutablePtr();
                     memoized_call_key.args[arg_i] = .{
                         .ty = sema.typeOf(uncasted_arg),
                         .val = arg_val,
@@ -4597,7 +4603,7 @@ fn analyzeCall(
         // This `res2` is here instead of directly breaking from `res` due to a stage1
         // bug generating invalid LLVM IR.
         const res2: Air.Inst.Ref = res2: {
-            if (is_comptime_call) {
+            if (should_memoize and is_comptime_call) {
                 if (mod.memoized_calls.get(memoized_call_key)) |result| {
                     const ty_inst = try sema.addType(fn_ret_ty);
                     try sema.air_values.append(gpa, result.val);
@@ -4621,7 +4627,7 @@ fn analyzeCall(
                 break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
             };
 
-            if (is_comptime_call) {
+            if (should_memoize and is_comptime_call) {
                 const result_val = try sema.resolveConstMaybeUndefVal(block, call_src, result);
 
                 // TODO: check whether any external comptime memory was mutated by the
