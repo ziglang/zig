@@ -76,7 +76,6 @@ fn conv_uN(comptime N: usize, x: std.meta.Int(.unsigned, N)) std.meta.Int(.signe
 
 test "nested bitcast" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn moo(x: isize) !void {
@@ -96,7 +95,6 @@ test "nested bitcast" {
 
 test "@bitCast enum to its integer type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const SOCK = enum(c_int) {
         A,
@@ -116,7 +114,6 @@ test "@bitCast enum to its integer type" {
 // issue #3010: compiler segfault
 test "bitcast literal [4]u8 param to u32" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const ip = @bitCast(u32, [_]u8{ 255, 255, 255, 255 });
     try expect(ip == maxInt(u32));
@@ -124,7 +121,6 @@ test "bitcast literal [4]u8 param to u32" {
 
 test "bitcast generates a temporary value" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var y = @as(u16, 0x55AA);
     const x = @bitCast(u16, @bitCast([2]u8, y));
@@ -247,7 +243,6 @@ test "bitcast packed struct literal to byte" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const Foo = packed struct {
         value: u8,
@@ -261,7 +256,6 @@ test "comptime bitcast used in expression has the correct type" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const Foo = packed struct {
         value: u8,

@@ -1067,7 +1067,6 @@ test "implicit cast *[0]T to E![]const u8" {
 
 var global_array: [4]u8 = undefined;
 test "cast from array reference to fn: comptime fn ptr" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const f = @ptrCast(*const fn () callconv(.C) void, &global_array);
@@ -1075,7 +1074,6 @@ test "cast from array reference to fn: comptime fn ptr" {
 }
 test "cast from array reference to fn: runtime fn ptr" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var f = @ptrCast(*const fn () callconv(.C) void, &global_array);
@@ -1100,7 +1098,6 @@ test "*const [N]null u8 to ?[]const u8" {
 }
 
 test "cast between [*c]T and ?[*:0]T on fn parameter" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {

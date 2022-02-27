@@ -70,8 +70,6 @@ test "array literal with explicit type" {
 }
 
 test "array literal with inferred length" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const hex_mult = [_]u16{ 4096, 256, 16, 1 };
 
     try expect(hex_mult.len == 4);
@@ -142,7 +140,6 @@ test "array with sentinels" {
 
 test "void arrays" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var array: [4]void = undefined;
     array[0] = void{};

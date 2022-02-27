@@ -120,14 +120,12 @@ test "return string from function" {
 
 test "hex escape" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     try expect(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
 test "multiline string" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -140,7 +138,6 @@ test "multiline string" {
 
 test "multiline string comments at start" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const s1 =
         //\\one
@@ -153,7 +150,6 @@ test "multiline string comments at start" {
 
 test "multiline string comments at end" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -166,7 +162,6 @@ test "multiline string comments at end" {
 
 test "multiline string comments in middle" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -179,7 +174,6 @@ test "multiline string comments in middle" {
 
 test "multiline string comments at multiple places" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -198,7 +192,6 @@ test "string concatenation" {
 
 test "array mult operator" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
 }

@@ -1359,6 +1359,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
         const base_mcv: MCValue = switch (slice_mcv) {
             .stack_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_offset = off + 4 }) },
+            .stack_argument_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_argument_offset = off + 4 }) },
             else => return self.fail("TODO slice_elem_val when slice is {}", .{slice_mcv}),
         };
         self.register_manager.freezeRegs(&.{base_mcv.register});

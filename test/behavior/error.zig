@@ -6,7 +6,6 @@ const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 test "error values" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const a = @errorToInt(error.err1);
@@ -15,7 +14,6 @@ test "error values" {
 }
 
 test "redefinition of error values allowed" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     shouldBeNotEqual(error.AnError, error.SecondError);
@@ -39,7 +37,6 @@ fn errBinaryOperatorG(x: bool) anyerror!isize {
 }
 
 test "empty error union" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const x = error{} || error{};
@@ -98,7 +95,6 @@ fn makeANonErr() anyerror!i32 {
 }
 
 test "syntax: optional operator in front of error union operator" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     comptime {
@@ -157,7 +153,6 @@ test "implicit cast to optional to error union to return result loc" {
 }
 
 test "error: fn returning empty error set can be passed as fn returning any error" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     entry();
@@ -178,7 +173,6 @@ fn bar2() (error{}!void) {}
 test "error union type " {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
@@ -197,7 +191,6 @@ fn testErrorUnionType() !void {
 test "error set type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
