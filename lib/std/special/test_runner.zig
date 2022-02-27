@@ -141,8 +141,20 @@ pub fn main2() anyerror!void {
             }
         };
     }
-    if (builtin.zig_backend == .stage2_llvm or
-        builtin.zig_backend == .stage2_wasm or
+    if (builtin.zig_backend == .stage2_llvm) {
+        const stderr = std.io.getStdErr().writer();
+        const ok_count = builtin.test_functions.len - skipped - failed;
+        if (ok_count == builtin.test_functions.len) {
+            try stderr.print("All {d} tests passed.\n", .{ok_count});
+        } else {
+            try stderr.print("{d} passed; ", .{ok_count});
+            try stderr.print("{d} skipped; ", .{skipped});
+            try stderr.print("{d} failed.\n", .{failed});
+        }
+        if (failed != 0) {
+            std.process.exit(1);
+        }
+    } else if (builtin.zig_backend == .stage2_wasm or
         builtin.zig_backend == .stage2_x86_64)
     {
         const passed = builtin.test_functions.len - skipped - failed;

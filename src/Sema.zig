@@ -10975,8 +10975,7 @@ fn zirCondbr(
 
     if (try sema.resolveDefinedValue(parent_block, src, cond)) |cond_val| {
         const body = if (cond_val.toBool()) then_body else else_body;
-        _ = try sema.analyzeBody(parent_block, body);
-        return always_noreturn;
+        return sema.analyzeBodyInner(parent_block, body);
     }
 
     const gpa = sema.gpa;
