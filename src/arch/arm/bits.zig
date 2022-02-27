@@ -469,6 +469,23 @@ pub const Instruction = union(enum) {
         }
     };
 
+    pub const AddressingMode = enum {
+        /// [<Rn>, <offset>]
+        ///
+        /// Address = Rn + offset
+        offset,
+        /// [<Rn>, <offset>]!
+        ///
+        /// Address = Rn + offset
+        /// Rn = Rn + offset
+        pre_index,
+        /// [<Rn>], <offset>
+        ///
+        /// Address = Rn
+        /// Rn = Rn + offset
+        post_index,
+    };
+
     /// Represents the offset operand of a load or store
     /// instruction. Data can be loaded from memory with either an
     /// immediate offset or an offset that is stored in some register.
@@ -730,10 +747,9 @@ pub const Instruction = union(enum) {
         rd: Register,
         rn: Register,
         offset: Offset,
-        pre_index: bool,
+        mode: AddressingMode,
         positive: bool,
         byte_word: u1,
-        write_back: bool,
         load_store: u1,
     ) Instruction {
         return Instruction{
@@ -743,10 +759,16 @@ pub const Instruction = union(enum) {
                 .rd = rd.id(),
                 .offset = offset.toU12(),
                 .load_store = load_store,
-                .write_back = @boolToInt(write_back),
+                .write_back = switch (mode) {
+                    .offset => 0b0,
+                    .pre_index, .post_index => 0b1,
+                },
                 .byte_word = byte_word,
                 .up_down = @boolToInt(positive),
-                .pre_post = @boolToInt(pre_index),
+                .pre_post = switch (mode) {
+                    .offset, .pre_index => 0b1,
+                    .post_index => 0b0,
+                },
                 .imm = @boolToInt(offset != .immediate),
             },
         };
@@ -754,9 +776,8 @@ pub const Instruction = union(enum) {
 
     fn extraLoadStore(
         cond: Condition,
-        pre_index: bool,
+        mode: AddressingMode,
         positive: bool,
-        write_back: bool,
         o1: u1,
         op2: u2,
         rn: Register,
@@ -780,10 +801,16 @@ pub const Instruction = union(enum) {
                 .rt = rt.id(),
                 .rn = rn.id(),
                 .o1 = o1,
-                .write_back = @boolToInt(write_back),
+                .write_back = switch (mode) {
+                    .offset => 0b0,
+                    .pre_index, .post_index => 0b1,
+                },
                 .imm = @boolToInt(offset == .immediate),
                 .up_down = @boolToInt(positive),
-                .pre_index = @boolToInt(pre_index),
+                .pre_index = switch (mode) {
+                    .offset, .pre_index => 0b1,
+                    .post_index => 0b0,
+                },
                 .cond = @enumToInt(cond),
             },
         };
@@ -1091,51 +1118,49 @@ pub const Instruction = union(enum) {
     // Single data transfer
 
     pub const OffsetArgs = struct {
-        pre_index: bool = true,
+        mode: AddressingMode = .offset,
         positive: bool = true,
         offset: Offset,
-        write_back: bool = false,
     };
 
     pub fn ldr(cond: Condition, rd: Register, rn: Register, args: OffsetArgs) Instruction {
-        return singleDataTransfer(cond, rd, rn, args.offset, args.pre_index, args.positive, 0, args.write_back, 1);
+        return singleDataTransfer(cond, rd, rn, args.offset, args.mode, args.positive, 0, 1);
     }
 
     pub fn ldrb(cond: Condition, rd: Register, rn: Register, args: OffsetArgs) Instruction {
-        return singleDataTransfer(cond, rd, rn, args.offset, args.pre_index, args.positive, 1, args.write_back, 1);
+        return singleDataTransfer(cond, rd, rn, args.offset, args.mode, args.positive, 1, 1);
     }
 
     pub fn str(cond: Condition, rd: Register, rn: Register, args: OffsetArgs) Instruction {
-        return singleDataTransfer(cond, rd, rn, args.offset, args.pre_index, args.positive, 0, args.write_back, 0);
+        return singleDataTransfer(cond, rd, rn, args.offset, args.mode, args.positive, 0, 0);
     }
 
     pub fn strb(cond: Condition, rd: Register, rn: Register, args: OffsetArgs) Instruction {
-        return singleDataTransfer(cond, rd, rn, args.offset, args.pre_index, args.positive, 1, args.write_back, 0);
+        return singleDataTransfer(cond, rd, rn, args.offset, args.mode, args.positive, 1, 0);
     }
 
     // Extra load/store
 
     pub const ExtraLoadStoreOffsetArgs = struct {
-        pre_index: bool = true,
+        mode: AddressingMode = .offset,
         positive: bool = true,
         offset: ExtraLoadStoreOffset,
-        write_back: bool = false,
     };
 
     pub fn strh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
-        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b0, 0b01, rn, rt, args.offset);
+        return extraLoadStore(cond, args.mode, args.positive, 0b0, 0b01, rn, rt, args.offset);
     }
 
     pub fn ldrh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
-        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b1, 0b01, rn, rt, args.offset);
+        return extraLoadStore(cond, args.mode, args.positive, 0b1, 0b01, rn, rt, args.offset);
     }
 
     pub fn ldrsh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
-        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b1, 0b11, rn, rt, args.offset);
+        return extraLoadStore(cond, args.mode, args.positive, 0b1, 0b11, rn, rt, args.offset);
     }
 
     pub fn ldrsb(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
-        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0b1, 0b10, rn, rt, args.offset);
+        return extraLoadStore(cond, args.mode, args.positive, 0b1, 0b10, rn, rt, args.offset);
     }
 
     // Block data transfer
@@ -1234,10 +1259,9 @@ pub const Instruction = union(enum) {
         } else if (args.len == 1) {
             const reg = args[0];
             return ldr(cond, reg, .sp, .{
-                .pre_index = false,
+                .mode = .post_index,
                 .positive = true,
                 .offset = Offset.imm(4),
-                .write_back = false,
             });
         } else {
             var register_list: u16 = 0;
@@ -1259,10 +1283,9 @@ pub const Instruction = union(enum) {
         } else if (args.len == 1) {
             const reg = args[0];
             return str(cond, reg, .sp, .{
-                .pre_index = true,
+                .mode = .pre_index,
                 .positive = false,
                 .offset = Offset.imm(4),
-                .write_back = true,
             });
         } else {
             var register_list: u16 = 0;
@@ -1447,10 +1470,9 @@ test "aliases" {
         .{ // pop { r6 }
             .actual = Instruction.pop(.al, .{.r6}),
             .expected = Instruction.ldr(.al, .r6, .sp, .{
-                .pre_index = false,
+                .mode = .post_index,
                 .positive = true,
                 .offset = Instruction.Offset.imm(4),
-                .write_back = false,
             }),
         },
         .{ // pop { r1, r5 }
@@ -1460,10 +1482,9 @@ test "aliases" {
         .{ // push { r3 }
             .actual = Instruction.push(.al, .{.r3}),
             .expected = Instruction.str(.al, .r3, .sp, .{
-                .pre_index = true,
+                .mode = .pre_index,
                 .positive = false,
                 .offset = Instruction.Offset.imm(4),
-                .write_back = true,
             }),
         },
         .{ // push { r0, r2 }
