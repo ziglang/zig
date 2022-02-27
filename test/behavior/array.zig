@@ -49,7 +49,6 @@ fn getArrayLen(a: []const u32) usize {
 
 test "array init with mult" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const a = 'a';
     var i: [8]u8 = [2]u8{ a, 'b' } ** 4;
@@ -98,7 +97,6 @@ test "array literal with specified size" {
 
 test "array len field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var arr = [4]u8{ 0, 0, 0, 0 };
     var ptr = &arr;

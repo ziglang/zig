@@ -4,7 +4,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "if statements" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     shouldBeEqual(1, 1);
