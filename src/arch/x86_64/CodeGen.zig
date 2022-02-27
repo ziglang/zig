@@ -2098,17 +2098,42 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    _ = bin_op;
-    return self.fail("TODO implement airSetUnionTag for {}", .{self.target.cpu.arch});
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const union_ty = ptr_ty.childType();
+    const tag_ty = self.air.typeOf(bin_op.rhs);
+    const layout = union_ty.unionGetLayout(self.target.*);
+
+    if (layout.tag_size == 0) {
+        return self.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
+    const ptr = try self.resolveInst(bin_op.lhs);
+    ptr.freezeIfRegister(&self.register_manager);
+    defer ptr.unfreezeIfRegister(&self.register_manager);
+
+    const tag = try self.resolveInst(bin_op.rhs);
+    tag.freezeIfRegister(&self.register_manager);
+    defer tag.unfreezeIfRegister(&self.register_manager);
+
+    const adjusted_ptr: MCValue = if (layout.payload_size > 0 and layout.tag_align < layout.payload_align) blk: {
+        // TODO reusing the operand
+        const reg = try self.copyToTmpRegister(ptr_ty, ptr);
+        try self.genBinMathOpMir(.add, ptr_ty, .{ .register = reg }, .{ .immediate = layout.payload_size });
+        break :blk MCValue{ .register = reg };
+    } else ptr;
+
+    try self.store(adjusted_ptr, tag, ptr_ty, tag_ty);
+
+    return self.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airGetUnionTag for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+    }
+    return self.fail("TODO implement airGetUnionTag for {}", .{self.target.cpu.arch});
+    // return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airClz(self: *Self, inst: Air.Inst.Index) !void {
@@ -5507,6 +5532,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             return self.lowerUnnamedConst(typed_value);
         },
         .Struct => {
+            return self.lowerUnnamedConst(typed_value);
+        },
+        .Union => {
             return self.lowerUnnamedConst(typed_value);
         },
         else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
