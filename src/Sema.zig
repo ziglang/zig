@@ -10146,6 +10146,87 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 }),
             );
         },
+        .ErrorSet => {
+            var fields_anon_decl = try block.startAnonDecl(src);
+            defer fields_anon_decl.deinit();
+
+            // Get the Error type
+            const error_field_ty = t: {
+                const set_field_ty_decl = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    type_info_ty.getNamespace().?,
+                    "Error",
+                )).?;
+                try sema.mod.declareDeclDependency(sema.owner_decl, set_field_ty_decl);
+                try sema.ensureDeclAnalyzed(set_field_ty_decl);
+                var buffer: Value.ToTypeBuffer = undefined;
+                break :t try set_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
+            };
+
+            // If the error set is inferred it has to be resolved at this point
+            if (ty.castTag(.error_set_inferred)) |payload| {
+                try sema.resolveInferredErrorSet(payload.data);
+            }
+
+            // Build our list of Error values
+            // Optional value is only null if anyerror
+            // Value can be zero-length slice otherwise
+            const error_field_vals: ?[]Value = if (ty.isAnyError()) null else blk: {
+                const names = ty.errorSetNames();
+                const vals = try fields_anon_decl.arena().alloc(Value, names.len);
+                for (vals) |*field_val, i| {
+                    const name = names[i];
+                    const name_val = v: {
+                        var anon_decl = try block.startAnonDecl(src);
+                        defer anon_decl.deinit();
+                        const bytes = try anon_decl.arena().dupeZ(u8, name);
+                        const new_decl = try anon_decl.finish(
+                            try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
+                            try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                        );
+                        break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                    };
+
+                    const error_field_fields = try fields_anon_decl.arena().create([1]Value);
+                    error_field_fields.* = .{
+                        // name: []const u8,
+                        name_val,
+                    };
+
+                    field_val.* = try Value.Tag.@"struct".create(
+                        fields_anon_decl.arena(),
+                        error_field_fields,
+                    );
+                }
+
+                break :blk vals;
+            };
+
+            // Build our ?[]const Error value
+            const errors_val = if (error_field_vals) |vals| v: {
+                const new_decl = try fields_anon_decl.finish(
+                    try Type.Tag.array.create(fields_anon_decl.arena(), .{
+                        .len = vals.len,
+                        .elem_type = error_field_ty,
+                    }),
+                    try Value.Tag.array.create(
+                        fields_anon_decl.arena(),
+                        vals,
+                    ),
+                );
+                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+            } else Value.@"null";
+
+            // Construct TypeInfo{ .ErrorSet = errors_val }
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.ErrorSet)),
+                    .val = errors_val,
+                }),
+            );
+        },
         .ErrorUnion => {
             const field_values = try sema.arena.alloc(Value, 2);
             // error_set: type,
@@ -10520,7 +10601,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 }),
             );
         },
-        .ErrorSet => return sema.fail(block, src, "TODO: implement zirTypeInfo for ErrorSet", .{}),
         .BoundFn => @panic("TODO remove this type from the language and compiler"),
         .Frame => return sema.fail(block, src, "TODO: implement zirTypeInfo for Frame", .{}),
         .AnyFrame => return sema.fail(block, src, "TODO: implement zirTypeInfo for AnyFrame", .{}),
