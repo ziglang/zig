@@ -3,6 +3,21 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
+test "super basic invocations" {
+    const foo = struct {
+        fn foo() i32 {
+            return 1234;
+        }
+    }.foo;
+    try expect(@call(.{}, foo, .{}) == 1234);
+    comptime try expect(@call(.{ .modifier = .always_inline }, foo, .{}) == 1234);
+    {
+        // comptime call without comptime keyword
+        const result = @call(.{ .modifier = .compile_time }, foo, .{}) == 1234;
+        comptime try expect(result);
+    }
+}
+
 test "basic invocations" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
@@ -34,7 +49,10 @@ test "basic invocations" {
 }
 
 test "tuple parameters" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const add = struct {
         fn add(a: i32, b: i32) i32 {
@@ -47,7 +65,8 @@ test "tuple parameters" {
     try expect(@call(.{}, add, .{ 12, b }) == 46);
     try expect(@call(.{}, add, .{ a, b }) == 46);
     try expect(@call(.{}, add, .{ 12, 34 }) == 46);
-    comptime try expect(@call(.{}, add, .{ 12, 34 }) == 46);
+    if (builtin.zig_backend == .stage1) comptime try expect(@call(.{}, add, .{ 12, 34 }) == 46); // TODO
+    try expect(comptime @call(.{}, add, .{ 12, 34 }) == 46);
     {
         const separate_args0 = .{ a, b };
         const separate_args1 = .{ a, 34 };

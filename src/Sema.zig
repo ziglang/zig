@@ -13145,9 +13145,59 @@ fn zirMulAdd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 }
 
 fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirBuiltinCall", .{});
+    const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const func_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const args_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+    const call_src = inst_data.src();
+
+    const extra = sema.code.extraData(Zir.Inst.BuiltinCall, inst_data.payload_index);
+    var func = sema.resolveInst(extra.data.callee);
+    const options = sema.resolveInst(extra.data.options);
+    const args = sema.resolveInst(extra.data.args);
+
+    const modifier: std.builtin.CallOptions.Modifier = modifier: {
+        const export_options_ty = try sema.getBuiltinType(block, options_src, "CallOptions");
+        const coerced_options = try sema.coerce(block, export_options_ty, options, options_src);
+        const options_val = try sema.resolveConstValue(block, options_src, coerced_options);
+        const fields = options_val.castTag(.@"struct").?.data;
+        const struct_obj = export_options_ty.castTag(.@"struct").?.data;
+        const modifier_index = struct_obj.fields.getIndex("modifier").?;
+        const stack_index = struct_obj.fields.getIndex("stack").?;
+        if (!fields[stack_index].isNull()) {
+            return sema.fail(block, options_src, "TODO: implement @call with stack", .{});
+        }
+        break :modifier fields[modifier_index].toEnum(std.builtin.CallOptions.Modifier);
+    };
+
+    const args_ty = sema.typeOf(args);
+    if (!args_ty.isTuple() and args_ty.tag() != .empty_struct_literal) {
+        return sema.fail(block, args_src, "expected a tuple, found {}", .{args_ty});
+    }
+
+    var resolved_args: []Air.Inst.Ref = undefined;
+
+    // Desugar bound functions here
+    if (sema.typeOf(func).tag() == .bound_fn) {
+        const bound_func = try sema.resolveValue(block, func_src, func);
+        const bound_data = &bound_func.cast(Value.Payload.BoundFn).?.data;
+        func = bound_data.func_inst;
+        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args_ty.structFieldCount() + 1);
+        resolved_args[0] = bound_data.arg0_inst;
+        for (resolved_args[1..]) |*resolved, i| {
+            resolved.* = try sema.tupleFieldValByIndex(block, args_src, args, @intCast(u32, i), args_ty);
+        }
+    } else {
+        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args_ty.structFieldCount());
+        for (resolved_args) |*resolved, i| {
+            resolved.* = try sema.tupleFieldValByIndex(block, args_src, args, @intCast(u32, i), args_ty);
+        }
+    }
+
+    return sema.analyzeCall(block, func, func_src, call_src, modifier, false, resolved_args);
 }
 
 fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -14675,10 +14725,8 @@ fn tupleFieldVal(
     field_name_src: LazySrcLoc,
     tuple_ty: Type,
 ) CompileError!Air.Inst.Ref {
-    const tuple = tuple_ty.castTag(.tuple).?.data;
-
     if (mem.eql(u8, field_name, "len")) {
-        return sema.addIntUnsigned(Type.usize, tuple.types.len);
+        return sema.addIntUnsigned(Type.usize, tuple_ty.structFieldCount());
     }
 
     const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch |err| {
@@ -14686,7 +14734,18 @@ fn tupleFieldVal(
             tuple_ty, field_name, @errorName(err),
         });
     };
+    return tupleFieldValByIndex(sema, block, src, tuple_byval, field_index, tuple_ty);
+}
 
+fn tupleFieldValByIndex(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    tuple_byval: Air.Inst.Ref,
+    field_index: u32,
+    tuple_ty: Type,
+) CompileError!Air.Inst.Ref {
+    const tuple = tuple_ty.castTag(.tuple).?.data;
     const field_ty = tuple.types[field_index];
 
     if (tuple.values[field_index].tag() != .unreachable_value) {
