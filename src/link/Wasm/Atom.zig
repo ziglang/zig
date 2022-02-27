@@ -103,17 +103,17 @@ pub fn symbolLoc(self: Atom) Wasm.SymbolLoc {
 /// at the calculated offset.
 pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
     if (self.relocs.items.len == 0) return;
-    const symbol = self.symbolLoc().getSymbol(wasm_bin).*;
+    const symbol_name = self.symbolLoc().getName(wasm_bin);
     log.debug("Resolving relocs in atom '{s}' count({d})", .{
-        symbol.name,
+        symbol_name,
         self.relocs.items.len,
     });
 
     for (self.relocs.items) |reloc| {
         const value = try self.relocationValue(reloc, wasm_bin);
         log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}", .{
-            (Wasm.SymbolLoc{ .file = self.file, .index = reloc.index }).getSymbol(wasm_bin).name,
-            symbol.name,
+            (Wasm.SymbolLoc{ .file = self.file, .index = reloc.index }).getName(wasm_bin),
+            symbol_name,
             reloc.offset,
             value,
         });

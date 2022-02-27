@@ -79,6 +79,8 @@ data_segments: std.StringArrayHashMapUnmanaged(u32) = .{},
 /// A list of `types.Segment` which provide meta data
 /// about a data symbol such as its name
 segment_info: std.ArrayListUnmanaged(types.Segment) = .{},
+/// Deduplicated string table for strings used by symbols, imports and exports.
+string_table: StringTable = .{},
 
 // Output sections
 /// Output type section
@@ -155,6 +157,79 @@ pub const SymbolLoc = struct {
         }
         return &wasm_bin.symbols.items[self.index];
     }
+
+    /// From a given location, returns the name of the symbol.
+    pub fn getName(self: SymbolLoc, wasm_bin: *const Wasm) []const u8 {
+        if (wasm_bin.discarded.get(self)) |new_loc| {
+            return new_loc.getName(wasm_bin);
+        }
+        if (self.file) |object_index| {
+            const object = wasm_bin.objects.items[object_index];
+            return object.string_table.get(object.symtable[self.index].name);
+        }
+        return wasm_bin.string_table.get(wasm_bin.symbols.items[self.index].name);
+    }
+};
+
+/// Generic string table that duplicates strings
+/// and converts them into offsets instead.
+pub const StringTable = struct {
+    /// Table that maps string offsets, which is used to de-duplicate strings.
+    /// Rather than having the offset map to the data, the `StringContext` holds all bytes of the string.
+    /// The strings are stored as a contigious array where each string is zero-terminated.
+    string_table: std.HashMapUnmanaged(
+        u32,
+        void,
+        std.hash_map.StringIndexContext,
+        std.hash_map.default_max_load_percentage,
+    ) = .{},
+    /// Holds the actual data of the string table.
+    string_data: std.ArrayListUnmanaged(u8) = .{},
+
+    /// Accepts a string and searches for a corresponding string.
+    /// When found, de-duplicates the string and returns the existing offset instead.
+    /// When the string is not found in the `string_table`, a new entry will be inserted
+    /// and the new offset to its data will be returned.
+    pub fn put(self: *StringTable, allocator: Allocator, string: []const u8) !u32 {
+        const gop = try self.string_table.getOrPutContextAdapted(
+            allocator,
+            string,
+            std.hash_map.StringIndexAdapter{ .bytes = &self.string_data },
+            .{ .bytes = &self.string_data },
+        );
+        if (gop.found_existing) {
+            const off = gop.key_ptr.*;
+            log.debug("reusing string '{s}' at offset 0x{x}", .{ string, off });
+            return off;
+        }
+
+        try self.string_data.ensureUnusedCapacity(allocator, string.len + 1);
+        const offset = @intCast(u32, self.string_data.items.len);
+
+        log.debug("writing new string '{s}' at offset 0x{x}", .{ string, offset });
+
+        self.string_data.appendSliceAssumeCapacity(string);
+        self.string_data.appendAssumeCapacity(0);
+
+        gop.key_ptr.* = offset;
+
+        return offset;
+    }
+
+    /// From a given offset, returns its corresponding string value.
+    /// Asserts offset does not exceed bounds.
+    pub fn get(self: StringTable, off: u32) []const u8 {
+        assert(off < self.string_data.items.len);
+        return mem.sliceTo(@ptrCast([*:0]const u8, self.string_data.items.ptr + off), 0);
+    }
+
+    /// Frees all resources of the string table. Any references pointing
+    /// to the strings will be invalid.
+    pub fn deinit(self: *StringTable, allocator: Allocator) void {
+        self.string_data.deinit(allocator);
+        self.string_table.deinit(allocator);
+        self.* = undefined;
+    }
 };
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
@@ -177,7 +252,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     // As sym_index '0' is reserved, we use it for our stack pointer symbol
     const symbol = try wasm_bin.symbols.addOne(allocator);
     symbol.* = .{
-        .name = "__stack_pointer",
+        .name = try wasm_bin.string_table.put(allocator, "__stack_pointer"),
         .tag = .global,
         .flags = 0,
         .index = 0,
@@ -268,12 +343,12 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             .file = object_index,
             .index = sym_index,
         };
-        const sym_name = std.mem.sliceTo(symbol.name, 0);
+        const sym_name = object.string_table.get(symbol.name);
 
         if (symbol.isLocal()) {
             if (symbol.isUndefined()) {
                 log.err("Local symbols are not allowed to reference imports", .{});
-                log.err("  symbol '{s}' defined in '{s}'", .{ symbol.name, object.name });
+                log.err("  symbol '{s}' defined in '{s}'", .{ sym_name, object.name });
                 return error.undefinedLocal;
             }
             try self.resolved_symbols.putNoClobber(self.base.allocator, location, {});
@@ -299,7 +374,7 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
 
         if (!existing_sym.isUndefined()) {
             if (!symbol.isUndefined()) {
-                log.err("symbol '{s}' defined multiple times", .{existing_sym.name});
+                log.err("symbol '{s}' defined multiple times", .{sym_name});
                 log.err("  first definition in '{s}'", .{existing_file_path});
                 log.err("  next definition in '{s}'", .{object.name});
                 return error.SymbolCollision;
@@ -309,7 +384,7 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
         }
 
         // simply overwrite with the new symbol
-        log.debug("Overwriting symbol '{s}'", .{symbol.name});
+        log.debug("Overwriting symbol '{s}'", .{sym_name});
         log.debug("  old definition in '{s}'", .{existing_file_path});
         log.debug("  new definition in '{s}'", .{object.name});
         try self.discarded.putNoClobber(self.base.allocator, maybe_existing.value_ptr.*, location);
@@ -328,12 +403,7 @@ pub fn deinit(self: *Wasm) void {
 
     var decl_it = self.decls.keyIterator();
     while (decl_it.next()) |decl_ptr| {
-        const decl = decl_ptr.*;
-        const atom: *Atom = &decl.link.wasm;
-        for (atom.locals.items) |local| {
-            gpa.free(mem.sliceTo(self.symbols.items[local.sym_index].name, 0));
-        }
-        decl.link.wasm.deinit(gpa);
+        decl_ptr.*.link.wasm.deinit(gpa);
     }
 
     for (self.func_types.items) |*func_type| {
@@ -374,6 +444,8 @@ pub fn deinit(self: *Wasm) void {
     self.function_table.deinit(gpa);
     self.tables.deinit(gpa);
     self.exports.deinit(gpa);
+
+    self.string_table.deinit(gpa);
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
@@ -498,7 +570,10 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     atom.size = @intCast(u32, code.len);
     atom.alignment = decl.ty.abiAlignment(self.base.options.target);
     const symbol = &self.symbols.items[atom.sym_index];
-    symbol.name = decl.name;
+
+    const full_name = try decl.getFullyQualifiedName(self.base.allocator);
+    defer self.base.allocator.free(full_name);
+    symbol.name = try self.string_table.put(self.base.allocator, full_name);
     try atom.code.appendSlice(self.base.allocator, code);
 }
 
@@ -511,8 +586,9 @@ pub fn lowerUnnamedConst(self: *Wasm, decl: *Module.Decl, tv: TypedValue) !u32 {
     // Create and initialize a new local symbol and atom
     const local_index = decl.link.wasm.locals.items.len;
     const name = try std.fmt.allocPrintZ(self.base.allocator, "__unnamed_{s}_{d}", .{ decl.name, local_index });
+    defer self.base.allocator.free(name);
     var symbol: Symbol = .{
-        .name = name,
+        .name = try self.string_table.put(self.base.allocator, name),
         .flags = 0,
         .tag = .data,
         .index = undefined,
@@ -615,7 +691,7 @@ pub fn deleteExport(self: *Wasm, exp: Export) void {
     const sym_index = exp.sym_index orelse return;
     const loc: SymbolLoc = .{ .file = null, .index = sym_index };
     const symbol = loc.getSymbol(self);
-    const symbol_name = mem.sliceTo(symbol.name, 0);
+    const symbol_name = self.string_table.get(symbol.name);
     log.debug("Deleting export for decl '{s}'", .{symbol_name});
     if (self.export_names.fetchRemove(loc)) |kv| {
         assert(self.globals.remove(kv.value));
@@ -656,7 +732,7 @@ pub fn updateDeclExports(
             // are strong symbols, we have a linker error.
             // In the other case we replace one with the other.
             if (!exp_is_weak and !existing_sym.isWeak()) {
-                try module.failed_exports.putNoClobber(module.gpa, exp, try Module.ErrorMsg.create(
+                try module.failed_exports.put(module.gpa, exp, try Module.ErrorMsg.create(
                     module.gpa,
                     decl.srcLoc(),
                     \\LinkError: symbol '{s}' defined multiple times
@@ -665,6 +741,7 @@ pub fn updateDeclExports(
                 ,
                     .{ exp.options.name, self.name, self.name },
                 ));
+                continue;
             } else if (exp_is_weak) {
                 continue; // to-be-exported symbol is weak, so we keep the existing symbol
             } else {
@@ -697,7 +774,7 @@ pub fn updateDeclExports(
             },
         }
         // Ensure the symbol will be exported using the given name
-        if (!mem.eql(u8, exp.options.name, mem.sliceTo(exp.exported_decl.name, 0))) {
+        if (!mem.eql(u8, exp.options.name, sym_loc.getName(self))) {
             try self.export_names.put(self.base.allocator, sym_loc, exp.options.name);
         }
 
@@ -725,7 +802,6 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     for (atom.locals.items) |local_atom| {
         const local_symbol = &self.symbols.items[local_atom.sym_index];
         local_symbol.tag = .dead; // also for any local symbol
-        self.base.allocator.free(mem.sliceTo(local_symbol.name, 0));
         self.symbols_free_list.append(self.base.allocator, local_atom.sym_index) catch {};
         assert(self.resolved_symbols.swapRemove(local_atom.symbolLoc()));
     }
@@ -755,14 +831,15 @@ fn mapFunctionTable(self: *Wasm) void {
 }
 
 fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
+    // For the import name itself, we use the decl's name, rather than the fully qualified name
+    const decl_name = mem.sliceTo(decl.name, 0);
     const symbol_index = decl.link.wasm.sym_index;
     const symbol: *Symbol = &self.symbols.items[symbol_index];
-    symbol.name = decl.name;
     symbol.setUndefined(true);
     symbol.setGlobal(true);
     try self.globals.putNoClobber(
         self.base.allocator,
-        mem.sliceTo(symbol.name, 0),
+        decl_name,
         .{ .file = null, .index = symbol_index },
     );
     try self.resolved_symbols.put(self.base.allocator, .{ .file = null, .index = symbol_index }, {});
@@ -776,7 +853,7 @@ fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .module_name = module_name,
-                    .name = mem.sliceTo(symbol.name, 0),
+                    .name = decl_name,
                     .kind = .{ .function = decl.fn_link.wasm.type_index },
                 };
             }
@@ -815,7 +892,7 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
             // TODO: Add mutables global decls to .bss section instead
             const segment_name = try std.mem.concat(self.base.allocator, u8, &.{
                 ".rodata.",
-                std.mem.span(symbol.name),
+                self.string_table.get(symbol.name),
             });
             errdefer self.base.allocator.free(segment_name);
             const segment_info: types.Segment = .{
@@ -886,7 +963,7 @@ fn allocateAtoms(self: *Wasm) !void {
             atom.offset = offset;
             const symbol_loc = atom.symbolLoc();
             log.debug("Atom '{s}' allocated from 0x{x:0>8} to 0x{x:0>8} size={d}", .{
-                symbol_loc.getSymbol(self).name,
+                symbol_loc.getName(self),
                 offset,
                 offset + atom.size,
                 atom.size,
@@ -906,7 +983,7 @@ fn setupImports(self: *Wasm) !void {
             // remove an import if it was resolved
             if (self.imports.remove(discarded.*)) {
                 log.debug("Removed symbol '{s}' as an import", .{
-                    discarded.getSymbol(self).name,
+                    discarded.getName(self),
                 });
             }
         }
@@ -923,7 +1000,7 @@ fn setupImports(self: *Wasm) !void {
             continue;
         }
 
-        log.debug("Symbol '{s}' will be imported from the host", .{symbol.name});
+        log.debug("Symbol '{s}' will be imported from the host", .{symbol_loc.getName(self)});
         const import = self.objects.items[symbol_loc.file.?].findImport(symbol.tag.externalType(), symbol.index);
         // TODO: De-duplicate imports
         try self.imports.putNoClobber(self.base.allocator, symbol_loc, import);
@@ -1036,12 +1113,12 @@ fn mergeTypes(self: *Wasm) !void {
         }
 
         if (symbol.isUndefined()) {
-            log.debug("Adding type from extern function '{s}'", .{symbol.name});
+            log.debug("Adding type from extern function '{s}'", .{sym_loc.getName(self)});
             const import: *wasm.Import = self.imports.getPtr(sym_loc).?;
             const original_type = object.func_types[import.kind.function];
             import.kind.function = try self.putOrGetFuncType(original_type);
         } else {
-            log.debug("Adding type from function '{s}'", .{symbol.name});
+            log.debug("Adding type from function '{s}'", .{sym_loc.getName(self)});
             const func = &self.functions.items[symbol.index - self.imported_functions_count];
             func.type_index = try self.putOrGetFuncType(object.func_types[func.type_index]);
         }
@@ -1057,13 +1134,14 @@ fn setupExports(self: *Wasm) !void {
         const symbol = sym_loc.getSymbol(self);
         if (!symbol.isExported()) continue;
 
-        const export_name = if (self.export_names.get(sym_loc)) |name| name else mem.sliceTo(symbol.name, 0);
+        const sym_name = sym_loc.getName(self);
+        const export_name = if (self.export_names.get(sym_loc)) |name| name else sym_name;
         const exp: wasm.Export = .{
             .name = export_name,
             .kind = symbol.tag.externalType(),
             .index = symbol.index,
         };
-        log.debug("Exporting symbol '{s}' as '{s}' at index: ({d})", .{ symbol.name, exp.name, exp.index });
+        log.debug("Exporting symbol '{s}' as '{s}' at index: ({d})", .{ sym_name, exp.name, exp.index });
         try self.exports.append(self.base.allocator, exp);
     }
 
@@ -1670,8 +1748,8 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
     for (self.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(self).*;
         switch (symbol.tag) {
-            .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
-            .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = mem.sliceTo(symbol.name, 0) }),
+            .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = sym_loc.getName(self) }),
+            .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = sym_loc.getName(self) }),
             else => {},
         }
     }
@@ -2275,11 +2353,11 @@ fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *
         try leb.writeULEB128(writer, @enumToInt(symbol.tag));
         try leb.writeULEB128(writer, symbol.flags);
 
+        const sym_name = if (self.export_names.get(sym_loc)) |exp_name| exp_name else sym_loc.getName(self);
         switch (symbol.tag) {
             .data => {
-                const name = mem.sliceTo(symbol.name, 0);
-                try leb.writeULEB128(writer, @intCast(u32, name.len));
-                try writer.writeAll(name);
+                try leb.writeULEB128(writer, @intCast(u32, sym_name.len));
+                try writer.writeAll(sym_name);
 
                 if (symbol.isDefined()) {
                     try leb.writeULEB128(writer, symbol.index);
@@ -2294,9 +2372,8 @@ fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *
             else => {
                 try leb.writeULEB128(writer, symbol.index);
                 if (symbol.isDefined()) {
-                    const name = mem.sliceTo(symbol.name, 0);
-                    try leb.writeULEB128(writer, @intCast(u32, name.len));
-                    try writer.writeAll(name);
+                    try leb.writeULEB128(writer, @intCast(u32, sym_name.len));
+                    try writer.writeAll(sym_name);
                 }
             },
         }
