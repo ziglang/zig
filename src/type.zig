@@ -2602,7 +2602,7 @@ pub const Type = extern union {
                 const payload = self.castTag(.pointer).?.data;
                 return payload.@"allowzero";
             },
-            else => false,
+            else => return self.zigTypeTag() == .Optional,
         };
     }
 
