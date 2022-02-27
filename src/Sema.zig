@@ -9903,63 +9903,63 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             type_info_ty,
             try Value.Tag.@"union".create(sema.arena, .{
                 .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Type)),
-                .val = Value.initTag(.unreachable_value),
+                .val = Value.@"void",
             }),
         ),
         .Void => return sema.addConstant(
             type_info_ty,
             try Value.Tag.@"union".create(sema.arena, .{
                 .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Void)),
-                .val = Value.initTag(.unreachable_value),
+                .val = Value.@"void",
             }),
         ),
         .Bool => return sema.addConstant(
             type_info_ty,
             try Value.Tag.@"union".create(sema.arena, .{
                 .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Bool)),
-                .val = Value.initTag(.unreachable_value),
+                .val = Value.@"void",
             }),
         ),
         .NoReturn => return sema.addConstant(
             type_info_ty,
             try Value.Tag.@"union".create(sema.arena, .{
                 .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.NoReturn)),
-                .val = Value.initTag(.unreachable_value),
+                .val = Value.@"void",
             }),
         ),
         .ComptimeFloat => return sema.addConstant(
             type_info_ty,
             try Value.Tag.@"union".create(sema.arena, .{
                 .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.ComptimeFloat)),
-                .val = Value.initTag(.unreachable_value),
+                .val = Value.@"void",
             }),
         ),
         .ComptimeInt => return sema.addConstant(
             type_info_ty,
             try Value.Tag.@"union".create(sema.arena, .{
                 .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.ComptimeInt)),
-                .val = Value.initTag(.unreachable_value),
+                .val = Value.@"void",
             }),
         ),
         .Undefined => return sema.addConstant(
             type_info_ty,
             try Value.Tag.@"union".create(sema.arena, .{
                 .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Undefined)),
-                .val = Value.initTag(.unreachable_value),
+                .val = Value.@"void",
             }),
         ),
         .Null => return sema.addConstant(
             type_info_ty,
             try Value.Tag.@"union".create(sema.arena, .{
                 .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Null)),
-                .val = Value.initTag(.unreachable_value),
+                .val = Value.@"void",
             }),
         ),
         .EnumLiteral => return sema.addConstant(
             type_info_ty,
             try Value.Tag.@"union".create(sema.arena, .{
                 .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.EnumLiteral)),
-                .val = Value.initTag(.unreachable_value),
+                .val = Value.@"void",
             }),
         ),
         .Fn => {
@@ -10380,6 +10380,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
 
             const union_ty = try sema.resolveTypeFields(block, src, ty);
+            try sema.resolveTypeLayout(block, src, ty); // Getting alignment requires type layout
+            const layout = union_ty.containerLayout();
+
             const union_fields = union_ty.unionFields();
             const union_field_vals = try fields_anon_decl.arena().alloc(Value, union_fields.count());
 
@@ -10398,13 +10401,18 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 };
 
                 const union_field_fields = try fields_anon_decl.arena().create([3]Value);
+                const alignment = switch (layout) {
+                    .Auto, .Extern => field.normalAlignment(target),
+                    .Packed => 0,
+                };
+
                 union_field_fields.* = .{
                     // name: []const u8,
                     name_val,
                     // field_type: type,
                     try Value.Tag.ty.create(fields_anon_decl.arena(), field.ty),
                     // alignment: comptime_int,
-                    try field.abi_align.copy(fields_anon_decl.arena()),
+                    try Value.Tag.int_u64.create(fields_anon_decl.arena(), alignment),
                 };
                 field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), union_field_fields);
             }
@@ -10435,7 +10443,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // layout: ContainerLayout,
                 try Value.Tag.enum_field_index.create(
                     sema.arena,
-                    @enumToInt(union_ty.containerLayout()),
+                    @enumToInt(layout),
                 ),
 
                 // tag_type: ?type,
@@ -10473,6 +10481,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :t try struct_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
             };
             const struct_ty = try sema.resolveTypeFields(block, src, ty);
+            try sema.resolveTypeLayout(block, src, ty); // Getting alignment requires type layout
             const layout = struct_ty.containerLayout();
 
             const struct_field_vals = fv: {
