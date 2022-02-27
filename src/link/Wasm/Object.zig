@@ -59,6 +59,10 @@ comdat_info: []const types.Comdat = &.{},
 /// Represents non-synthetic sections that can essentially be mem-cpy'd into place
 /// after performing relocations.
 relocatable_data: []const RelocatableData = &.{},
+/// String table for all strings required by the object file, such as symbol names,
+/// import name, module name and export names. Each string will be deduplicated
+/// and returns an offset into the table.
+string_table: Wasm.StringTable = .{},
 
 /// Represents a single item within a section (depending on its `type`)
 const RelocatableData = struct {
@@ -142,9 +146,6 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
         gpa.free(val);
     }
     self.relocations.deinit(gpa);
-    for (self.symtable) |symbol| {
-        gpa.free(std.mem.sliceTo(symbol.name, 0));
-    }
     gpa.free(self.symtable);
     gpa.free(self.comdat_info);
     gpa.free(self.init_funcs);
@@ -156,6 +157,7 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
         gpa.free(rel_data.data[0..rel_data.size]);
     }
     gpa.free(self.relocatable_data);
+    self.string_table.deinit(gpa);
     self.* = undefined;
 }
 
@@ -228,7 +230,7 @@ fn checkLegacyIndirectFunctionTable(self: *Object, gpa: Allocator) !?Symbol {
 
     var table_symbol: Symbol = .{
         .flags = 0,
-        .name = try gpa.dupeZ(u8, table_import.name),
+        .name = try self.string_table.put(gpa, table_import.name),
         .tag = .table,
         .index = 0,
     };
@@ -666,7 +668,7 @@ fn Parser(comptime ReaderType: type) type {
                         symbol.* = try self.parseSymbol(gpa, reader);
                         log.debug("Found symbol: type({s}) name({s}) flags(0b{b:0>8})", .{
                             @tagName(symbol.tag),
-                            symbol.name,
+                            self.object.string_table.get(symbol.name),
                             symbol.flags,
                         });
                     }
@@ -699,10 +701,10 @@ fn Parser(comptime ReaderType: type) type {
             switch (tag) {
                 .data => {
                     const name_len = try leb.readULEB128(u32, reader);
-                    const name = try gpa.allocSentinel(u8, name_len, 0);
-                    errdefer gpa.free(name);
+                    const name = try gpa.alloc(u8, name_len);
+                    defer gpa.free(name);
                     try reader.readNoEof(name);
-                    symbol.name = name;
+                    symbol.name = try self.object.string_table.put(gpa, name);
 
                     // Data symbols only have the following fields if the symbol is defined
                     if (symbol.isDefined()) {
@@ -714,7 +716,7 @@ fn Parser(comptime ReaderType: type) type {
                 },
                 .section => {
                     symbol.index = try leb.readULEB128(u32, reader);
-                    symbol.name = @tagName(symbol.tag);
+                    symbol.name = try self.object.string_table.put(gpa, @tagName(symbol.tag));
                 },
                 else => {
                     symbol.index = try leb.readULEB128(u32, reader);
@@ -727,12 +729,12 @@ fn Parser(comptime ReaderType: type) type {
                     const explicit_name = symbol.hasFlag(.WASM_SYM_EXPLICIT_NAME);
                     if (!(is_undefined and !explicit_name)) {
                         const name_len = try leb.readULEB128(u32, reader);
-                        const name = try gpa.allocSentinel(u8, name_len, 0);
-                        errdefer gpa.free(name);
+                        const name = try gpa.alloc(u8, name_len);
+                        defer gpa.free(name);
                         try reader.readNoEof(name);
-                        symbol.name = name;
+                        symbol.name = try self.object.string_table.put(gpa, name);
                     } else {
-                        symbol.name = try gpa.dupeZ(u8, maybe_import.?.name);
+                        symbol.name = try self.object.string_table.put(gpa, maybe_import.?.name);
                     }
                 },
             }
@@ -882,7 +884,7 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
         } else {
             try wasm_bin.atoms.putNoClobber(gpa, final_index, atom);
         }
-        log.debug("Parsed into atom: '{s}'", .{self.symtable[atom.sym_index].name});
+        log.debug("Parsed into atom: '{s}'", .{self.string_table.get(self.symtable[atom.sym_index].name)});
     }
 }
 
