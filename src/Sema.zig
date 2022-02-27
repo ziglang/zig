@@ -10402,7 +10402,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
                 const union_field_fields = try fields_anon_decl.arena().create([3]Value);
                 const alignment = switch (layout) {
-                    .Auto, .Extern => field.normalAlignment(target),
+                    .Auto, .Extern => try sema.unionFieldAlignment(block, src, field),
                     .Packed => 0,
                 };
 
@@ -17713,6 +17713,10 @@ fn resolveTypeLayout(
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
             const payload_ty = ty.optionalChild(&buf);
+            // In case of querying the ABI alignment of this optional, we will ask
+            // for hasRuntimeBits() of the payload type, so we need "requires comptime"
+            // to be known already before this function returns.
+            _ = try sema.typeRequiresComptime(block, src, payload_ty);
             return sema.resolveTypeLayout(block, src, payload_ty);
         },
         .ErrorUnion => {
@@ -17744,6 +17748,13 @@ fn resolveStructLayout(
             try sema.resolveTypeLayout(block, src, field.ty);
         }
         struct_obj.status = .have_layout;
+
+        // In case of querying the ABI alignment of this struct, we will ask
+        // for hasRuntimeBits() of each field, so we need "requires comptime"
+        // to be known already before this function returns.
+        for (struct_obj.fields.values()) |field| {
+            _ = try sema.typeRequiresComptime(block, src, field.ty);
+        }
     }
     // otherwise it's a tuple; no need to resolve anything
 }
@@ -19295,6 +19306,21 @@ fn typeAbiAlignment(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u32 
     try sema.resolveTypeLayout(block, src, ty);
     const target = sema.mod.getTarget();
     return ty.abiAlignment(target);
+}
+
+/// Not valid to call for packed unions.
+/// Keep implementation in sync with `Module.Union.Field.normalAlignment`.
+fn unionFieldAlignment(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    field: Module.Union.Field,
+) !u32 {
+    if (field.abi_align.tag() == .abi_align_default) {
+        return sema.typeAbiAlignment(block, src, field.ty);
+    } else {
+        return @intCast(u32, field.abi_align.toUnsignedInt());
+    }
 }
 
 /// Synchronize logic with `Type.isFnOrHasRuntimeBits`.

@@ -1619,10 +1619,6 @@ pub const Type = extern union {
 
             // These types have more than one possible value, so the result is the same as
             // asking whether they are comptime-only types.
-            //
-            // If we get an error that the comptimeOnly status hasn't been
-            // resolved yet, then we assume that there are runtime bits,
-            // just like we do for structs below
             .anyframe_T,
             .optional,
             .optional_single_mut_pointer,
@@ -1636,7 +1632,7 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .pointer,
-            => !(ty.comptimeOnly() catch return true),
+            => !ty.comptimeOnly(),
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
@@ -1732,7 +1728,7 @@ pub const Type = extern union {
                     .Inline => return false,
                     else => {},
                 }
-                if (fn_info.return_type.comptimeOnly() catch unreachable) return false;
+                if (fn_info.return_type.comptimeOnly()) return false;
                 return true;
             },
             else => return ty.hasRuntimeBits(),
@@ -3614,7 +3610,7 @@ pub const Type = extern union {
 
     /// During semantic analysis, instead call `Sema.typeRequiresComptime` which
     /// resolves field types rather than asserting they are already resolved.
-    pub fn comptimeOnly(ty: Type) error{StatusNotResolved}!bool {
+    pub fn comptimeOnly(ty: Type) bool {
         return switch (ty.tag()) {
             .u1,
             .u8,
@@ -3735,7 +3731,7 @@ pub const Type = extern union {
             .tuple => {
                 const tuple = ty.castTag(.tuple).?.data;
                 for (tuple.types) |field_ty| {
-                    if (try field_ty.comptimeOnly()) return true;
+                    if (field_ty.comptimeOnly()) return true;
                 }
                 return false;
             },
@@ -3743,20 +3739,18 @@ pub const Type = extern union {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 switch (struct_obj.requires_comptime) {
-                    .wip => unreachable,
+                    .wip, .unknown => unreachable, // This function asserts types already resolved.
                     .no => return false,
                     .yes => return true,
-                    .unknown => return error.StatusNotResolved,
                 }
             },
 
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Type.Payload.Union).?.data;
                 switch (union_obj.requires_comptime) {
-                    .wip => unreachable,
+                    .wip, .unknown => unreachable, // This function asserts types already resolved.
                     .no => return false,
                     .yes => return true,
-                    .unknown => return error.StatusNotResolved,
                 }
             },
 
