@@ -865,10 +865,16 @@ pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, operation)));
 }
 
-var vdso_clock_gettime = @ptrCast(?*const anyopaque, init_vdso_clock_gettime);
+var vdso_clock_gettime = if (builtin.zig_backend == .stage1)
+    @ptrCast(?*const anyopaque, init_vdso_clock_gettime)
+else
+    @ptrCast(?*const anyopaque, &init_vdso_clock_gettime);
 
 // We must follow the C calling convention when we call into the VDSO
-const vdso_clock_gettime_ty = fn (i32, *timespec) callconv(.C) usize;
+const vdso_clock_gettime_ty = if (builtin.zig_backend == .stage1)
+    fn (i32, *timespec) callconv(.C) usize
+else
+    *const fn (i32, *timespec) callconv(.C) usize;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {

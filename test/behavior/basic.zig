@@ -819,3 +819,37 @@ test "if expression type coercion" {
     const x: u16 = if (cond) 1 else 0;
     try expect(@as(u16, x) == 1);
 }
+
+test "discarding the result of various expressions" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo() !u32 {
+            return 1;
+        }
+        fn bar() ?u32 {
+            return 1;
+        }
+    };
+    _ = S.bar() orelse {
+        // do nothing
+    };
+    _ = S.foo() catch {
+        // do nothing
+    };
+    _ = switch (1) {
+        1 => 1,
+        2 => {},
+        else => return,
+    };
+    _ = try S.foo();
+    _ = if (S.bar()) |some| some else {};
+    _ = blk: {
+        if (S.bar()) |some| break :blk some;
+        break :blk;
+    };
+    _ = while (S.bar()) |some| break some else {};
+    _ = for ("foo") |char| break char else {};
+}

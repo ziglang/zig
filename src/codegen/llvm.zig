@@ -3892,7 +3892,7 @@ pub const FuncGen = struct {
             return self.builder.buildBitCast(operand, llvm_dest_ty.pointerType(0), "");
         }
 
-        if (operand_ty.zigTypeTag() == .Int and inst_ty.zigTypeTag() == .Pointer) {
+        if (operand_ty.zigTypeTag() == .Int and inst_ty.isPtrAtRuntime()) {
             return self.builder.buildIntToPtr(operand, llvm_dest_ty, "");
         }
 

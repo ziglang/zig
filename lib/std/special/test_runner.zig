@@ -23,10 +23,12 @@ fn processArgs() void {
 }
 
 pub fn main() void {
-    if (builtin.zig_backend != .stage1) {
+    if (builtin.zig_backend != .stage1 and
+        builtin.zig_backend != .stage2_llvm)
+    {
         return main2() catch @panic("test failure");
     }
-    processArgs();
+    if (builtin.zig_backend == .stage1) processArgs();
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
@@ -44,9 +46,9 @@ pub fn main() void {
 
     var leaks: usize = 0;
     for (test_fn_list) |test_fn, i| {
-        std.testing.allocator_instance = .{};
+        if (builtin.zig_backend != .stage2_llvm) std.testing.allocator_instance = .{};
         defer {
-            if (std.testing.allocator_instance.deinit()) {
+            if (builtin.zig_backend != .stage2_llvm and std.testing.allocator_instance.deinit()) {
                 leaks += 1;
             }
         }
@@ -90,9 +92,9 @@ pub fn main() void {
                 fail_count += 1;
                 progress.log("FAIL ({s})\n", .{@errorName(err)});
                 if (!have_tty) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
+                if (builtin.zig_backend != .stage2_llvm) if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
-                }
+                };
                 test_node.end();
             },
         }
@@ -141,8 +143,7 @@ pub fn main2() anyerror!void {
             }
         };
     }
-    if (builtin.zig_backend == .stage2_llvm or
-        builtin.zig_backend == .stage2_wasm or
+    if (builtin.zig_backend == .stage2_wasm or
         builtin.zig_backend == .stage2_x86_64)
     {
         const passed = builtin.test_functions.len - skipped - failed;

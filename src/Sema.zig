@@ -4494,6 +4494,10 @@ fn analyzeCall(
 
         try sema.emitBackwardBranch(&child_block, call_src);
 
+        // Whether this call should be memoized, set to false if the call can mutate
+        // comptime state.
+        var should_memoize = true;
+
         // This will have return instructions analyzed as break instructions to
         // the block_inst above. Here we are performing "comptime/inline semantic analysis"
         // for a function body, which means we must map the parameter ZIR instructions to
@@ -4527,6 +4531,7 @@ fn analyzeCall(
                         },
                         else => {},
                     }
+                    should_memoize = should_memoize and !arg_val.isComptimeMutablePtr();
                     memoized_call_key.args[arg_i] = .{
                         .ty = param_ty,
                         .val = arg_val,
@@ -4552,6 +4557,7 @@ fn analyzeCall(
                         },
                         else => {},
                     }
+                    should_memoize = should_memoize and !arg_val.isComptimeMutablePtr();
                     memoized_call_key.args[arg_i] = .{
                         .ty = sema.typeOf(uncasted_arg),
                         .val = arg_val,
@@ -4597,7 +4603,7 @@ fn analyzeCall(
         // This `res2` is here instead of directly breaking from `res` due to a stage1
         // bug generating invalid LLVM IR.
         const res2: Air.Inst.Ref = res2: {
-            if (is_comptime_call) {
+            if (should_memoize and is_comptime_call) {
                 if (mod.memoized_calls.get(memoized_call_key)) |result| {
                     const ty_inst = try sema.addType(fn_ret_ty);
                     try sema.air_values.append(gpa, result.val);
@@ -4621,7 +4627,7 @@ fn analyzeCall(
                 break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
             };
 
-            if (is_comptime_call) {
+            if (should_memoize and is_comptime_call) {
                 const result_val = try sema.resolveConstMaybeUndefVal(block, call_src, result);
 
                 // TODO: check whether any external comptime memory was mutated by the
@@ -10975,8 +10981,7 @@ fn zirCondbr(
 
     if (try sema.resolveDefinedValue(parent_block, src, cond)) |cond_val| {
         const body = if (cond_val.toBool()) then_body else else_body;
-        _ = try sema.analyzeBody(parent_block, body);
-        return always_noreturn;
+        return sema.analyzeBodyInner(parent_block, body);
     }
 
     const gpa = sema.gpa;
@@ -11948,19 +11953,27 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             var buffer: Value.ToTypeBuffer = undefined;
             const child_ty = child_val.toType(&buffer);
 
+            const ptr_size = size_val.toEnum(std.builtin.TypeInfo.Pointer.Size);
+
+            var actual_sentinel: ?Value = null;
             if (!sentinel_val.isNull()) {
-                return sema.fail(block, src, "TODO: implement zirReify for pointer with non-null sentinel", .{});
+                if (ptr_size == .One or ptr_size == .C) {
+                    return sema.fail(block, src, "sentinels are only allowed on slices and unknown-length pointers", .{});
+                }
+                const sentinel_ptr_val = sentinel_val.castTag(.opt_payload).?.data;
+                const ptr_ty = try Type.ptr(sema.arena, .{ .@"addrspace" = .generic, .pointee_type = child_ty });
+                actual_sentinel = (try sema.pointerDeref(block, src, sentinel_ptr_val, ptr_ty)).?;
             }
 
             const ty = try Type.ptr(sema.arena, .{
-                .size = size_val.toEnum(std.builtin.TypeInfo.Pointer.Size),
+                .size = ptr_size,
                 .mutable = !is_const_val.toBool(),
                 .@"volatile" = is_volatile_val.toBool(),
                 .@"align" = @intCast(u8, alignment_val.toUnsignedInt()), // TODO: Validate this value.
                 .@"addrspace" = address_space_val.toEnum(std.builtin.AddressSpace),
                 .pointee_type = try child_ty.copy(sema.arena),
                 .@"allowzero" = is_allowzero_val.toBool(),
-                .sentinel = null,
+                .sentinel = actual_sentinel,
             });
             return sema.addType(ty);
         },
@@ -12070,6 +12083,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const type_res = try sema.resolveType(block, src, extra.lhs);
     try sema.checkPtrType(block, type_src, type_res);
+    _ = try sema.resolveTypeLayout(block, src, type_res.childType());
     const ptr_align = type_res.ptrAlignment(sema.mod.getTarget());
 
     if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
@@ -17587,7 +17601,7 @@ fn resolvePeerTypes(
     return chosen_ty;
 }
 
-pub fn resolveTypeLayout(
+fn resolveTypeLayout(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -17660,7 +17674,7 @@ fn resolveUnionLayout(
     union_obj.status = .have_layout;
 }
 
-fn resolveTypeFully(
+pub fn resolveTypeFully(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
