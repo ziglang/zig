@@ -104,8 +104,6 @@ test "Type.Pointer" {
 }
 
 test "Type.Float" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testing.expect(f16 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 16 } }));
     try testing.expect(f32 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 32 } }));
     try testing.expect(f64 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 64 } }));
@@ -115,8 +113,6 @@ test "Type.Float" {
 }
 
 test "Type.Array" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testing.expect([123]u8 == @Type(TypeInfo{
         .Array = TypeInfo.Array{
             .len = 123,
@@ -190,8 +186,6 @@ test "@Type picks up the sentinel value from TypeInfo" {
 }
 
 test "Type.Optional" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testTypes(&[_]type{
         ?u8,
         ?*u8,
@@ -202,8 +196,6 @@ test "Type.Optional" {
 }
 
 test "Type.ErrorUnion" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testTypes(&[_]type{
         error{}!void,
         error{Error}!void,
@@ -227,8 +219,6 @@ test "Type.Opaque" {
 }
 
 test "Type.Vector" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testTypes(&[_]type{
         @Vector(0, u8),
         @Vector(4, u8),
