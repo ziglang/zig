@@ -17,10 +17,6 @@ const log = std.log.scoped(.link);
 
 /// Wasm spec version used for this `Object`
 version: u32 = 0,
-/// The entire object file is read and parsed in a single pass.
-/// For this reason it's a lot simpler to use an arena and store the entire
-/// state after parsing. This also allows to free all memory at once.
-arena: std.heap.ArenaAllocator.State = .{},
 /// The file descriptor that represents the wasm object file.
 file: ?std.fs.File = null,
 /// Name (read path) of the object file.
@@ -28,15 +24,15 @@ name: []const u8,
 /// Parsed type section
 func_types: []const std.wasm.Type = &.{},
 /// A list of all imports for this module
-imports: []std.wasm.Import = &.{},
+imports: []const std.wasm.Import = &.{},
 /// Parsed function section
-functions: []std.wasm.Func = &.{},
+functions: []const std.wasm.Func = &.{},
 /// Parsed table section
-tables: []std.wasm.Table = &.{},
+tables: []const std.wasm.Table = &.{},
 /// Parsed memory section
 memories: []const std.wasm.Memory = &.{},
 /// Parsed global section
-globals: []std.wasm.Global = &.{},
+globals: []const std.wasm.Global = &.{},
 /// Parsed export section
 exports: []const std.wasm.Export = &.{},
 /// Parsed element section
@@ -62,7 +58,7 @@ init_funcs: []const types.InitFunc = &.{},
 comdat_info: []const types.Comdat = &.{},
 /// Represents non-synthetic sections that can essentially be mem-cpy'd into place
 /// after performing relocations.
-relocatable_data: []RelocatableData = &.{},
+relocatable_data: []const RelocatableData = &.{},
 
 /// Represents a single item within a section (depending on its `type`)
 const RelocatableData = struct {
@@ -111,12 +107,9 @@ pub fn create(gpa: Allocator, file: std.fs.File, path: []const u8) InitError!Obj
         .name = path,
     };
 
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    errdefer arena.deinit();
-
     var is_object_file: bool = false;
-    try object.parse(arena.allocator(), file.reader(), &is_object_file);
-    object.arena = arena.state;
+    try object.parse(gpa, file.reader(), &is_object_file);
+    errdefer object.deinit(gpa);
     if (!is_object_file) return error.NotObjectFile;
 
     return object;
@@ -125,7 +118,44 @@ pub fn create(gpa: Allocator, file: std.fs.File, path: []const u8) InitError!Obj
 /// Frees all memory of `Object` at once. The given `Allocator` must be
 /// the same allocator that was used when `init` was called.
 pub fn deinit(self: *Object, gpa: Allocator) void {
-    self.arena.promote(gpa).deinit();
+    for (self.func_types) |func_ty| {
+        gpa.free(func_ty.params);
+        gpa.free(func_ty.returns);
+    }
+    gpa.free(self.func_types);
+    for (self.imports) |imp| {
+        gpa.free(imp.name);
+        gpa.free(imp.module_name);
+    }
+    gpa.free(self.functions);
+    gpa.free(self.imports);
+    gpa.free(self.tables);
+    gpa.free(self.memories);
+    gpa.free(self.globals);
+    for (self.exports) |exp| {
+        gpa.free(exp.name);
+    }
+    gpa.free(self.exports);
+    gpa.free(self.elements);
+    gpa.free(self.features);
+    for (self.relocations.values()) |val| {
+        gpa.free(val);
+    }
+    self.relocations.deinit(gpa);
+    for (self.symtable) |symbol| {
+        gpa.free(std.mem.sliceTo(symbol.name, 0));
+    }
+    gpa.free(self.symtable);
+    gpa.free(self.comdat_info);
+    gpa.free(self.init_funcs);
+    for (self.segment_info) |info| {
+        gpa.free(info.name);
+    }
+    gpa.free(self.segment_info);
+    for (self.relocatable_data) |rel_data| {
+        gpa.free(rel_data.data[0..rel_data.size]);
+    }
+    gpa.free(self.relocatable_data);
     self.* = undefined;
 }
 
@@ -147,13 +177,6 @@ pub fn importedCountByKind(self: *const Object, kind: std.wasm.ExternalKind) u32
     return for (self.imports) |imp| {
         if (@as(std.wasm.ExternalKind, imp.kind) == kind) i += 1;
     } else i;
-}
-
-/// Returns a table by a given id, rather than by its index within the list.
-pub fn getTable(self: *const Object, id: u32) *std.wasm.Table {
-    return for (self.tables) |*table| {
-        if (table.table_idx == id) break table;
-    } else unreachable;
 }
 
 /// Checks if the object file is an MVP version.
@@ -328,10 +351,12 @@ fn Parser(comptime ReaderType: type) type {
                         for (try readVec(&self.object.imports, reader, gpa)) |*import| {
                             const module_len = try readLeb(u32, reader);
                             const module_name = try gpa.alloc(u8, module_len);
+                            errdefer gpa.free(module_name);
                             try reader.readNoEof(module_name);
 
                             const name_len = try readLeb(u32, reader);
                             const name = try gpa.alloc(u8, name_len);
+                            errdefer gpa.free(name);
                             try reader.readNoEof(name);
 
                             const kind = try readEnum(std.wasm.ExternalKind, reader);
@@ -393,6 +418,7 @@ fn Parser(comptime ReaderType: type) type {
                         for (try readVec(&self.object.exports, reader, gpa)) |*exp| {
                             const name_len = try readLeb(u32, reader);
                             const name = try gpa.alloc(u8, name_len);
+                            errdefer gpa.free(name);
                             try reader.readNoEof(name);
                             exp.* = .{
                                 .name = name,
@@ -425,6 +451,7 @@ fn Parser(comptime ReaderType: type) type {
                             const code_len = try readLeb(u32, reader);
                             const offset = @intCast(u32, start - reader.context.bytes_left);
                             const data = try gpa.alloc(u8, code_len);
+                            errdefer gpa.free(data);
                             try reader.readNoEof(data);
                             try relocatable_data.append(.{
                                 .type = .code,
@@ -448,6 +475,7 @@ fn Parser(comptime ReaderType: type) type {
                             const data_len = try readLeb(u32, reader);
                             const offset = @intCast(u32, start - reader.context.bytes_left);
                             const data = try gpa.alloc(u8, data_len);
+                            errdefer gpa.free(data);
                             try reader.readNoEof(data);
                             try relocatable_data.append(.{
                                 .type = .data,
@@ -478,6 +506,7 @@ fn Parser(comptime ReaderType: type) type {
                 const prefix = try readEnum(types.Feature.Prefix, reader);
                 const name_len = try leb.readULEB128(u32, reader);
                 const name = try gpa.alloc(u8, name_len);
+                defer gpa.free(name);
                 try reader.readNoEof(name);
 
                 const tag = types.known_features.get(name) orelse {
@@ -499,6 +528,7 @@ fn Parser(comptime ReaderType: type) type {
             const section = try leb.readULEB128(u32, reader);
             const count = try leb.readULEB128(u32, reader);
             const relocations = try gpa.alloc(types.Relocation, count);
+            errdefer gpa.free(relocations);
 
             log.debug("Found {d} relocations for section ({d})", .{
                 count,
@@ -563,9 +593,11 @@ fn Parser(comptime ReaderType: type) type {
             switch (@intToEnum(types.SubsectionType, sub_type)) {
                 .WASM_SEGMENT_INFO => {
                     const segments = try gpa.alloc(types.Segment, count);
+                    errdefer gpa.free(segments);
                     for (segments) |*segment| {
                         const name_len = try leb.readULEB128(u32, reader);
                         const name = try gpa.alloc(u8, name_len);
+                        errdefer gpa.free(name);
                         try reader.readNoEof(name);
                         segment.* = .{
                             .name = name,
@@ -582,6 +614,7 @@ fn Parser(comptime ReaderType: type) type {
                 },
                 .WASM_INIT_FUNCS => {
                     const funcs = try gpa.alloc(types.InitFunc, count);
+                    errdefer gpa.free(funcs);
                     for (funcs) |*func| {
                         func.* = .{
                             .priority = try leb.readULEB128(u32, reader),
@@ -593,9 +626,11 @@ fn Parser(comptime ReaderType: type) type {
                 },
                 .WASM_COMDAT_INFO => {
                     const comdats = try gpa.alloc(types.Comdat, count);
+                    errdefer gpa.free(comdats);
                     for (comdats) |*comdat| {
                         const name_len = try leb.readULEB128(u32, reader);
                         const name = try gpa.alloc(u8, name_len);
+                        errdefer gpa.free(name);
                         try reader.readNoEof(name);
 
                         const flags = try leb.readULEB128(u32, reader);
@@ -605,6 +640,7 @@ fn Parser(comptime ReaderType: type) type {
 
                         const symbol_count = try leb.readULEB128(u32, reader);
                         const symbols = try gpa.alloc(types.ComdatSym, symbol_count);
+                        errdefer gpa.free(symbols);
                         for (symbols) |*symbol| {
                             symbol.* = .{
                                 .kind = @intToEnum(types.ComdatSym.Type, try leb.readULEB128(u8, reader)),
@@ -664,6 +700,7 @@ fn Parser(comptime ReaderType: type) type {
                 .data => {
                     const name_len = try leb.readULEB128(u32, reader);
                     const name = try gpa.allocSentinel(u8, name_len, 0);
+                    errdefer gpa.free(name);
                     try reader.readNoEof(name);
                     symbol.name = name;
 
@@ -691,6 +728,7 @@ fn Parser(comptime ReaderType: type) type {
                     if (!(is_undefined and !explicit_name)) {
                         const name_len = try leb.readULEB128(u32, reader);
                         const name = try gpa.allocSentinel(u8, name_len, 0);
+                        errdefer gpa.free(name);
                         try reader.readNoEof(name);
                         symbol.name = name;
                     } else {

@@ -248,7 +248,7 @@ fn parseObjectFile(self: *Wasm, path: []const u8) !bool {
 
     var object = Object.create(self.base.allocator, file, path) catch |err| switch (err) {
         error.InvalidMagicByte, error.NotObjectFile => {
-            log.warn("Self hosted linker does not support non-object file parsing", .{});
+            log.warn("Self hosted linker does not support non-object file parsing: {s}", .{@errorName(err)});
             return false;
         },
         else => |e| return e,
@@ -356,6 +356,10 @@ pub fn deinit(self: *Wasm) void {
     self.symbol_atom.deinit(gpa);
     self.export_names.deinit(gpa);
     self.atoms.deinit(gpa);
+    for (self.managed_atoms.items) |managed_atom| {
+        managed_atom.deinit(gpa);
+        gpa.destroy(managed_atom);
+    }
     self.managed_atoms.deinit(gpa);
     self.segments.deinit(gpa);
     self.data_segments.deinit(gpa);
