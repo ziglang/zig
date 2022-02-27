@@ -559,8 +559,6 @@ fn modifySomeBytes(bytes: []u8) void {
 }
 
 test "comparisons 0 <= uint and 0 > uint should be comptime" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     testCompTimeUIntComparisons(1234);
 }
 fn testCompTimeUIntComparisons(x: u32) void {

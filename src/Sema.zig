@@ -11842,6 +11842,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
 
+    try sema.resolveTypeLayout(block, operand_src, operand_ty);
     const enum_ty = switch (operand_ty.zigTypeTag()) {
         .EnumLiteral => {
             const val = try sema.resolveConstValue(block, operand_src, operand);
@@ -17113,30 +17114,41 @@ fn cmpNumeric(
     if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
         if (lhs_val.isUndef())
             return sema.addConstUndef(Type.bool);
-        const is_unsigned = if (lhs_is_float) x: {
+        if (!rhs_is_signed) {
+            switch (lhs_val.orderAgainstZero()) {
+                .gt => {},
+                .eq => switch (op) { // LHS = 0, RHS is unsigned
+                    .lte => return Air.Inst.Ref.bool_true,
+                    .gt => return Air.Inst.Ref.bool_false,
+                    else => {},
+                },
+                .lt => switch (op) { // LHS < 0, RHS is unsigned
+                    .neq, .lt, .lte => return Air.Inst.Ref.bool_true,
+                    .eq, .gt, .gte => return Air.Inst.Ref.bool_false,
+                },
+            }
+        }
+        if (lhs_is_float) {
             var bigint_space: Value.BigIntSpace = undefined;
             var bigint = try lhs_val.toBigInt(&bigint_space).toManaged(sema.gpa);
             defer bigint.deinit();
-            const zcmp = lhs_val.orderAgainstZero();
             if (lhs_val.floatHasFraction()) {
                 switch (op) {
                     .eq => return Air.Inst.Ref.bool_false,
                     .neq => return Air.Inst.Ref.bool_true,
                     else => {},
                 }
-                if (zcmp == .lt) {
+                if (lhs_is_signed) {
                     try bigint.addScalar(bigint.toConst(), -1);
                 } else {
                     try bigint.addScalar(bigint.toConst(), 1);
                 }
             }
             lhs_bits = bigint.toConst().bitCountTwosComp();
-            break :x (zcmp != .lt);
-        } else x: {
+        } else {
             lhs_bits = lhs_val.intBitCountTwosComp(target);
-            break :x (lhs_val.orderAgainstZero() != .lt);
-        };
-        lhs_bits += @boolToInt(is_unsigned and dest_int_is_signed);
+        }
+        lhs_bits += @boolToInt(!lhs_is_signed and dest_int_is_signed);
     } else if (lhs_is_float) {
         dest_float_type = lhs_ty;
     } else {
@@ -17148,30 +17160,41 @@ fn cmpNumeric(
     if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
         if (rhs_val.isUndef())
             return sema.addConstUndef(Type.bool);
-        const is_unsigned = if (rhs_is_float) x: {
+        if (!lhs_is_signed) {
+            switch (rhs_val.orderAgainstZero()) {
+                .gt => {},
+                .eq => switch (op) { // RHS = 0, LHS is unsigned
+                    .gte => return Air.Inst.Ref.bool_true,
+                    .lt => return Air.Inst.Ref.bool_false,
+                    else => {},
+                },
+                .lt => switch (op) { // RHS < 0, LHS is unsigned
+                    .neq, .gt, .gte => return Air.Inst.Ref.bool_true,
+                    .eq, .lt, .lte => return Air.Inst.Ref.bool_false,
+                },
+            }
+        }
+        if (rhs_is_float) {
             var bigint_space: Value.BigIntSpace = undefined;
             var bigint = try rhs_val.toBigInt(&bigint_space).toManaged(sema.gpa);
             defer bigint.deinit();
-            const zcmp = rhs_val.orderAgainstZero();
             if (rhs_val.floatHasFraction()) {
                 switch (op) {
                     .eq => return Air.Inst.Ref.bool_false,
                     .neq => return Air.Inst.Ref.bool_true,
                     else => {},
                 }
-                if (zcmp == .lt) {
+                if (rhs_is_signed) {
                     try bigint.addScalar(bigint.toConst(), -1);
                 } else {
                     try bigint.addScalar(bigint.toConst(), 1);
                 }
             }
             rhs_bits = bigint.toConst().bitCountTwosComp();
-            break :x (zcmp != .lt);
-        } else x: {
+        } else {
             rhs_bits = rhs_val.intBitCountTwosComp(target);
-            break :x (rhs_val.orderAgainstZero() != .lt);
-        };
-        rhs_bits += @boolToInt(is_unsigned and dest_int_is_signed);
+        }
+        rhs_bits += @boolToInt(!rhs_is_signed and dest_int_is_signed);
     } else if (rhs_is_float) {
         dest_float_type = rhs_ty;
     } else {
