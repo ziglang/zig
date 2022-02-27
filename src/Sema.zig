@@ -11837,6 +11837,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
 
+    try sema.resolveTypeLayout(block, operand_src, operand_ty);
     const enum_ty = switch (operand_ty.zigTypeTag()) {
         .EnumLiteral => {
             const val = try sema.resolveConstValue(block, operand_src, operand);
