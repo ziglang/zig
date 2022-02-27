@@ -244,8 +244,12 @@ pub const ResultLoc = union(enum) {
     fn strategy(rl: ResultLoc, block_scope: *GenZir) Strategy {
         switch (rl) {
             // In this branch there will not be any store_to_block_ptr instructions.
-            .discard, .none, .ty, .coerced_ty, .ref => return .{
+            .none, .ty, .coerced_ty, .ref => return .{
                 .tag = .break_operand,
+                .elide_store_to_block_ptr_instructions = false,
+            },
+            .discard => return .{
+                .tag = .break_void,
                 .elide_store_to_block_ptr_instructions = false,
             },
             // The pointer got passed through to the sub-expressions, so we will use
@@ -1764,6 +1768,9 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     .ptr => {
                         // In this case we don't have any mechanism to intercept it;
                         // we assume the result location is written, and we break with void.
+                        _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
+                    },
+                    .discard => {
                         _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
                     },
                     else => {

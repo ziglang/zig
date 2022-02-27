@@ -289,10 +289,9 @@ fn refreshWithHeldLock(self: *Progress) void {
         }
     }
 
-    _ = file.write(self.output_buffer[0..end]) catch blk: {
+    _ = file.write(self.output_buffer[0..end]) catch {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
-        break :blk 0; // TODO stage2 requires this
     };
     if (self.timer) |*timer| {
         self.prev_refresh_timestamp = timer.read();
