@@ -561,13 +561,15 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         error_name,
 
-        /// Constructs a vector, tuple, or array value out of runtime-known elements.
+        /// Constructs a vector, tuple, struct, or array value out of runtime-known elements.
         /// Some of the elements may be comptime-known.
         /// Uses the `ty_pl` field, payload is index of an array of elements, each of which
         /// is a `Ref`. Length of the array is given by the vector type.
-        /// TODO rename this to `aggregate_init` and make it support array values and
-        /// struct values too.
-        vector_init,
+        aggregate_init,
+
+        /// Constructs a union from a field index and a runtime-known init value.
+        /// Uses the `ty_pl` field with payload `UnionInit`.
+        union_init,
 
         /// Communicates an intent to load memory.
         /// Result is always unused.
@@ -768,6 +770,11 @@ pub const AtomicRmw = struct {
     }
 };
 
+pub const UnionInit = struct {
+    field_index: u32,
+    init: Inst.Ref,
+};
+
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@enumToInt(ExtraIndex.main_block)];
     const extra = air.extraData(Block, body_index);
@@ -864,7 +871,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .cmpxchg_weak,
         .cmpxchg_strong,
         .slice,
-        .vector_init,
+        .aggregate_init,
+        .union_init,
         .field_parent_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
 

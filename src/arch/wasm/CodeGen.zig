@@ -1642,7 +1642,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .ret_ptr => self.airRetPtr(inst),
         .ret_load => self.airRetLoad(inst),
         .splat => self.airSplat(inst),
-        .vector_init => self.airVectorInit(inst),
+        .aggregate_init => self.airAggregateInit(inst),
+        .union_init => self.airUnionInit(inst),
         .prefetch => self.airPrefetch(inst),
 
         .slice => self.airSlice(inst),
@@ -3350,7 +3351,7 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     return self.fail("TODO: Implement wasm airSplat", .{});
 }
 
-fn airVectorInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+fn airAggregateInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const vector_ty = self.air.typeOfIndex(inst);
@@ -3359,7 +3360,7 @@ fn airVectorInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
 
     switch (vector_ty.zigTypeTag()) {
-        .Vector => return self.fail("TODO: Wasm backend: implement airVectorInit for vectors", .{}),
+        .Vector => return self.fail("TODO: Wasm backend: implement airAggregateInit for vectors", .{}),
         .Array => {
             const result = try self.allocStack(vector_ty);
             const elem_ty = vector_ty.childType();
@@ -3411,6 +3412,11 @@ fn airVectorInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         },
         else => unreachable,
     }
+}
+
+fn airUnionInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+    return self.fail("TODO: Wasm backend: implement airUnionInit", .{});
 }
 
 fn airPrefetch(self: *Self, inst: Air.Inst.Index) InnerError!WValue {

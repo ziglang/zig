@@ -2175,7 +2175,8 @@ pub const FuncGen = struct {
                 .tag_name       => try self.airTagName(inst),
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
-                .vector_init    => try self.airVectorInit(inst),
+                .aggregate_init => try self.airAggregateInit(inst),
+                .union_init     => try self.airUnionInit(inst),
                 .prefetch       => try self.airPrefetch(inst),
 
                 .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
@@ -4608,7 +4609,7 @@ pub const FuncGen = struct {
         return self.builder.buildShuffleVector(op_vector, undef_vector, mask_llvm_ty.constNull(), "");
     }
 
-    fn airVectorInit(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airAggregateInit(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
@@ -4691,6 +4692,109 @@ pub const FuncGen = struct {
             },
             else => unreachable,
         }
+    }
+
+    fn airUnionInit(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
+        const union_ty = self.air.typeOfIndex(inst);
+        const union_llvm_ty = try self.dg.llvmType(union_ty);
+        const target = self.dg.module.getTarget();
+        const layout = union_ty.unionGetLayout(target);
+        if (layout.payload_size == 0) {
+            if (layout.tag_size == 0) {
+                return null;
+            }
+            assert(!isByRef(union_ty));
+            return union_llvm_ty.constInt(extra.field_index, .False);
+        }
+        assert(isByRef(union_ty));
+        // The llvm type of the alloca will the the named LLVM union type, which will not
+        // necessarily match the format that we need, depending on which tag is active. We
+        // must construct the correct unnamed struct type here and bitcast, in order to
+        // then set the fields appropriately.
+        const result_ptr = self.buildAlloca(union_llvm_ty);
+        const llvm_payload = try self.resolveInst(extra.init);
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        assert(union_obj.haveFieldTypes());
+        const field = union_obj.fields.values()[extra.field_index];
+        const field_llvm_ty = try self.dg.llvmType(field.ty);
+        const tag_llvm_ty = try self.dg.llvmType(union_obj.tag_ty);
+        const field_size = field.ty.abiSize(target);
+        const field_align = field.normalAlignment(target);
+
+        const llvm_union_ty = t: {
+            const payload = p: {
+                if (!field.ty.hasRuntimeBits()) {
+                    const padding_len = @intCast(c_uint, layout.payload_size);
+                    break :p self.context.intType(8).arrayType(padding_len);
+                }
+                if (field_size == layout.payload_size) {
+                    break :p field_llvm_ty;
+                }
+                const padding_len = @intCast(c_uint, layout.payload_size - field_size);
+                const fields: [2]*const llvm.Type = .{
+                    field_llvm_ty, self.context.intType(8).arrayType(padding_len),
+                };
+                break :p self.context.structType(&fields, fields.len, .False);
+            };
+            if (layout.tag_size == 0) {
+                const fields: [1]*const llvm.Type = .{payload};
+                break :t self.context.structType(&fields, fields.len, .False);
+            }
+            var fields: [2]*const llvm.Type = undefined;
+            if (layout.tag_align >= layout.payload_align) {
+                fields = .{ tag_llvm_ty, payload };
+            } else {
+                fields = .{ payload, tag_llvm_ty };
+            }
+            break :t self.context.structType(&fields, fields.len, .False);
+        };
+
+        const casted_ptr = self.builder.buildBitCast(result_ptr, llvm_union_ty.pointerType(0), "");
+
+        // Now we follow the layout as expressed above with GEP instructions to set the
+        // tag and the payload.
+        const index_type = self.context.intType(32);
+
+        if (layout.tag_size == 0) {
+            const indices: [3]*const llvm.Value = .{
+                index_type.constNull(),
+                index_type.constNull(),
+                index_type.constNull(),
+            };
+            const len: c_uint = if (field_size == layout.payload_size) 2 else 3;
+            const field_ptr = self.builder.buildInBoundsGEP(casted_ptr, &indices, len, "");
+            const store_inst = self.builder.buildStore(llvm_payload, field_ptr);
+            store_inst.setAlignment(field_align);
+            return result_ptr;
+        }
+
+        {
+            const indices: [3]*const llvm.Value = .{
+                index_type.constNull(),
+                index_type.constInt(@boolToInt(layout.tag_align >= layout.payload_align), .False),
+                index_type.constNull(),
+            };
+            const len: c_uint = if (field_size == layout.payload_size) 2 else 3;
+            const field_ptr = self.builder.buildInBoundsGEP(casted_ptr, &indices, len, "");
+            const store_inst = self.builder.buildStore(llvm_payload, field_ptr);
+            store_inst.setAlignment(field_align);
+        }
+        {
+            const indices: [2]*const llvm.Value = .{
+                index_type.constNull(),
+                index_type.constInt(@boolToInt(layout.tag_align < layout.payload_align), .False),
+            };
+            const field_ptr = self.builder.buildInBoundsGEP(casted_ptr, &indices, indices.len, "");
+            const llvm_tag = union_llvm_ty.constInt(extra.field_index, .False);
+            const store_inst = self.builder.buildStore(llvm_tag, field_ptr);
+            store_inst.setAlignment(union_obj.tag_ty.abiAlignment(target));
+        }
+
+        return result_ptr;
     }
 
     fn airPrefetch(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

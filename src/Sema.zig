@@ -204,7 +204,7 @@ pub const Block = struct {
         return block.namespace.file_scope;
     }
 
-    pub fn addTy(
+    fn addTy(
         block: *Block,
         tag: Air.Inst.Tag,
         ty: Type,
@@ -215,7 +215,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addTyOp(
+    fn addTyOp(
         block: *Block,
         tag: Air.Inst.Tag,
         ty: Type,
@@ -230,7 +230,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addBitCast(block: *Block, ty: Type, operand: Air.Inst.Ref) Allocator.Error!Air.Inst.Ref {
+    fn addBitCast(block: *Block, ty: Type, operand: Air.Inst.Ref) Allocator.Error!Air.Inst.Ref {
         return block.addInst(.{
             .tag = .bitcast,
             .data = .{ .ty_op = .{
@@ -240,14 +240,14 @@ pub const Block = struct {
         });
     }
 
-    pub fn addNoOp(block: *Block, tag: Air.Inst.Tag) error{OutOfMemory}!Air.Inst.Ref {
+    fn addNoOp(block: *Block, tag: Air.Inst.Tag) error{OutOfMemory}!Air.Inst.Ref {
         return block.addInst(.{
             .tag = tag,
             .data = .{ .no_op = {} },
         });
     }
 
-    pub fn addUnOp(
+    fn addUnOp(
         block: *Block,
         tag: Air.Inst.Tag,
         operand: Air.Inst.Ref,
@@ -258,7 +258,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addBr(
+    fn addBr(
         block: *Block,
         target_block: Air.Inst.Index,
         operand: Air.Inst.Ref,
@@ -328,7 +328,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addStructFieldVal(
+    fn addStructFieldVal(
         block: *Block,
         struct_val: Air.Inst.Ref,
         field_index: u32,
@@ -346,7 +346,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addSliceElemPtr(
+    fn addSliceElemPtr(
         block: *Block,
         slice: Air.Inst.Ref,
         elem_index: Air.Inst.Ref,
@@ -364,7 +364,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addPtrElemPtr(
+    fn addPtrElemPtr(
         block: *Block,
         array_ptr: Air.Inst.Ref,
         elem_index: Air.Inst.Ref,
@@ -374,7 +374,7 @@ pub const Block = struct {
         return block.addPtrElemPtrTypeRef(array_ptr, elem_index, ty_ref);
     }
 
-    pub fn addPtrElemPtrTypeRef(
+    fn addPtrElemPtrTypeRef(
         block: *Block,
         array_ptr: Air.Inst.Ref,
         elem_index: Air.Inst.Ref,
@@ -392,7 +392,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addVectorInit(
+    fn addAggregateInit(
         block: *Block,
         vector_ty: Type,
         elements: []const Air.Inst.Ref,
@@ -404,10 +404,28 @@ pub const Block = struct {
         sema.appendRefsAssumeCapacity(elements);
 
         return block.addInst(.{
-            .tag = .vector_init,
+            .tag = .aggregate_init,
             .data = .{ .ty_pl = .{
                 .ty = ty_ref,
                 .payload = extra_index,
+            } },
+        });
+    }
+
+    fn addUnionInit(
+        block: *Block,
+        union_ty: Type,
+        field_index: u32,
+        init: Air.Inst.Ref,
+    ) !Air.Inst.Ref {
+        return block.addInst(.{
+            .tag = .union_init,
+            .data = .{ .ty_pl = .{
+                .ty = try block.sema.addType(union_ty),
+                .payload = try block.sema.addExtra(Air.UnionInit{
+                    .field_index = field_index,
+                    .init = init,
+                }),
             } },
         });
     }
@@ -697,7 +715,7 @@ fn analyzeBodyInner(
             .array_init_ref               => try sema.zirArrayInit(block, inst, true),
             .array_init_anon              => try sema.zirArrayInitAnon(block, inst, false),
             .array_init_anon_ref          => try sema.zirArrayInitAnon(block, inst, true),
-            .union_init_ptr               => try sema.zirUnionInitPtr(block, inst),
+            .union_init                   => try sema.zirUnionInit(block, inst),
             .field_type                   => try sema.zirFieldType(block, inst),
             .field_type_ref               => try sema.zirFieldTypeRef(block, inst),
             .ptr_to_int                   => try sema.zirPtrToInt(block, inst),
@@ -11273,10 +11291,31 @@ fn arrayInitEmpty(sema: *Sema, obj_ty: Type) CompileError!Air.Inst.Ref {
     }
 }
 
-fn zirUnionInitPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirUnionInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirUnionInitPtr", .{});
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const field_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const init_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.UnionInit, inst_data.payload_index).data;
+    const union_ty = try sema.resolveType(block, ty_src, extra.union_type);
+    const field_name = try sema.resolveConstString(block, field_src, extra.field_name);
+    const init = sema.resolveInst(extra.init);
+    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    const field_index_usize = union_obj.fields.getIndex(field_name) orelse
+        return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
+    const field_index = @intCast(u32, field_index_usize);
+
+    if (try sema.resolveMaybeUndefVal(block, init_src, init)) |init_val| {
+        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+        return sema.addConstant(
+            union_ty,
+            try Value.Tag.@"union".create(sema.arena, .{ .tag = tag_val, .val = init_val }),
+        );
+    }
+
+    try sema.requireRuntimeBlock(block, init_src);
+    try sema.resolveTypeLayout(block, ty_src, union_ty);
+    return block.addUnionInit(union_ty, field_index, init);
 }
 
 fn zirStructInit(
@@ -11447,7 +11486,7 @@ fn finishStructInit(
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addVectorInit(struct_ty, field_inits);
+    return block.addAggregateInit(struct_ty, field_inits);
 }
 
 fn zirStructInitAnon(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool) CompileError!Air.Inst.Ref {
@@ -11527,7 +11566,7 @@ fn zirArrayInit(
         return alloc;
     }
 
-    return block.addVectorInit(array_ty, resolved_args);
+    return block.addAggregateInit(array_ty, resolved_args);
 }
 
 fn zirArrayInitAnon(
@@ -11593,7 +11632,7 @@ fn zirArrayInitAnon(
         element_refs[i] = sema.resolveInst(operand);
     }
 
-    return block.addVectorInit(tuple_ty, element_refs);
+    return block.addAggregateInit(tuple_ty, element_refs);
 }
 
 fn addConstantMaybeRef(
@@ -11617,31 +11656,47 @@ fn addConstantMaybeRef(
 
 fn zirFieldTypeRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirFieldTypeRef", .{});
+    const extra = sema.code.extraData(Zir.Inst.FieldTypeRef, inst_data.payload_index).data;
+    const ty_src = inst_data.src();
+    const field_src = inst_data.src();
+    const aggregate_ty = try sema.resolveType(block, ty_src, extra.container_type);
+    const field_name = try sema.resolveConstString(block, field_src, extra.field_name);
+    return sema.fieldType(block, aggregate_ty, field_name, field_src, ty_src);
 }
 
 fn zirFieldType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.FieldType, inst_data.payload_index).data;
-    const src = inst_data.src();
+    const ty_src = inst_data.src();
+    const field_src = inst_data.src();
+    const aggregate_ty = try sema.resolveType(block, ty_src, extra.container_type);
     const field_name = sema.code.nullTerminatedString(extra.name_start);
-    const unresolved_ty = try sema.resolveType(block, src, extra.container_type);
-    const resolved_ty = try sema.resolveTypeFields(block, src, unresolved_ty);
+    return sema.fieldType(block, aggregate_ty, field_name, field_src, ty_src);
+}
+
+fn fieldType(
+    sema: *Sema,
+    block: *Block,
+    aggregate_ty: Type,
+    field_name: []const u8,
+    field_src: LazySrcLoc,
+    ty_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    const resolved_ty = try sema.resolveTypeFields(block, ty_src, aggregate_ty);
     switch (resolved_ty.zigTypeTag()) {
         .Struct => {
             const struct_obj = resolved_ty.castTag(.@"struct").?.data;
             const field = struct_obj.fields.get(field_name) orelse
-                return sema.failWithBadStructFieldAccess(block, struct_obj, src, field_name);
+                return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
             return sema.addType(field.ty);
         },
         .Union => {
             const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
             const field = union_obj.fields.get(field_name) orelse
-                return sema.failWithBadUnionFieldAccess(block, union_obj, src, field_name);
+                return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
             return sema.addType(field.ty);
         },
-        else => return sema.fail(block, src, "expected struct or union; found '{}'", .{
+        else => return sema.fail(block, ty_src, "expected struct or union; found '{}'", .{
             resolved_ty,
         }),
     }
@@ -16396,7 +16451,7 @@ fn coerceArrayLike(
 
     if (runtime_src) |rs| {
         try sema.requireRuntimeBlock(block, rs);
-        return block.addVectorInit(dest_ty, element_refs);
+        return block.addAggregateInit(dest_ty, element_refs);
     }
 
     return sema.addConstant(
@@ -16453,7 +16508,7 @@ fn coerceTupleToArray(
 
     if (runtime_src) |rs| {
         try sema.requireRuntimeBlock(block, rs);
-        return block.addVectorInit(dest_ty, element_refs);
+        return block.addAggregateInit(dest_ty, element_refs);
     }
 
     return sema.addConstant(

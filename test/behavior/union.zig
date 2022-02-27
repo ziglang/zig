@@ -785,8 +785,40 @@ test "return union init with void payload" {
     comptime try S.entry();
 }
 
+test "@unionInit stored to a const" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const U = union(enum) {
+            boolean: bool,
+            byte: u8,
+        };
+        fn doTheTest() !void {
+            {
+                var t = true;
+                const u = @unionInit(U, "boolean", t);
+                try expect(u.boolean);
+            }
+            {
+                var byte: u8 = 69;
+                const u = @unionInit(U, "byte", byte);
+                try expect(u.byte == 69);
+            }
+        }
+    };
+
+    comptime try S.doTheTest();
+    try S.doTheTest();
+}
+
 test "@unionInit can modify a union type" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const UnionInitEnum = union(enum) {
         Boolean: bool,
@@ -807,7 +839,9 @@ test "@unionInit can modify a union type" {
 }
 
 test "@unionInit can modify a pointer value" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const UnionInitEnum = union(enum) {
         Boolean: bool,
@@ -825,7 +859,9 @@ test "@unionInit can modify a pointer value" {
 }
 
 test "union no tag with struct member" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const Struct = struct {};
     const Union = union {

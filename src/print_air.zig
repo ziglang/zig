@@ -232,7 +232,8 @@ const Writer = struct {
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
             .call => try w.writeCall(s, inst),
-            .vector_init => try w.writeVectorInit(s, inst),
+            .aggregate_init => try w.writeAggregateInit(s, inst),
+            .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
             .switch_br => try w.writeSwitchBr(s, inst),
@@ -301,7 +302,7 @@ const Writer = struct {
         try s.writeAll("}");
     }
 
-    fn writeVectorInit(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+    fn writeAggregateInit(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const vector_ty = w.air.getRefType(ty_pl.ty);
         const len = @intCast(usize, vector_ty.arrayLen());
@@ -313,6 +314,14 @@ const Writer = struct {
             try w.writeOperand(s, inst, i, elem);
         }
         try s.writeAll("]");
+    }
+
+    fn writeUnionInit(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.UnionInit, ty_pl.payload).data;
+
+        try s.print("{d}, ", .{extra.field_index});
+        try w.writeOperand(s, inst, 0, extra.init);
     }
 
     fn writeStructField(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

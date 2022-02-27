@@ -596,7 +596,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .tag_name        => try self.airTagName(inst),
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
-            .vector_init     => try self.airVectorInit(inst),
+            .aggregate_init  => try self.airAggregateInit(inst),
+            .union_init      => try self.airUnionInit(inst),
             .prefetch        => try self.airPrefetch(inst),
 
             .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
@@ -2157,14 +2158,14 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airVectorInit(self: *Self, inst: Air.Inst.Index) !void {
+fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     const vector_ty = self.air.typeOfIndex(inst);
     const len = vector_ty.vectorLen();
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
     const result: MCValue = res: {
         if (self.liveness.isUnused(inst)) break :res MCValue.dead;
-        return self.fail("TODO implement airVectorInit for riscv64", .{});
+        return self.fail("TODO implement airAggregateInit for riscv64", .{});
     };
 
     if (elements.len <= Liveness.bpi - 1) {
@@ -2177,6 +2178,14 @@ fn airVectorInit(self: *Self, inst: Air.Inst.Index) !void {
         bt.feed(elem);
     }
     return bt.finishAir(result);
+}
+
+fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
+    _ = extra;
+    return self.fail("TODO implement airUnionInit for riscv64", .{});
+    // return self.finishAir(inst, result, .{ extra.ptr, extra.expected_value, extra.new_value });
 }
 
 fn airPrefetch(self: *Self, inst: Air.Inst.Index) !void {

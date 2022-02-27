@@ -1123,6 +1123,15 @@ pub const Union = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.
         ty: Type,
         abi_align: Value,
+
+        /// Returns the field alignment, assuming the union is not packed.
+        pub fn normalAlignment(field: Field, target: Target) u32 {
+            if (field.abi_align.tag() == .abi_align_default) {
+                return field.ty.abiAlignment(target);
+            } else {
+                return @intCast(u32, field.abi_align.toUnsignedInt());
+            }
+        }
     };
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);

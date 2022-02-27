@@ -721,10 +721,9 @@ pub const Inst = struct {
         /// Anonymous array initialization syntax, make the result a pointer.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon_ref,
-        /// Given a pointer to a union and a comptime known field name, activates that field
-        /// and returns a pointer to it.
-        /// Uses the `pl_node` field. Payload is `UnionInitPtr`.
-        union_init_ptr,
+        /// Implements the `@unionInit` builtin.
+        /// Uses the `pl_node` field. Payload is `UnionInit`.
+        union_init,
         /// Implements the `@typeInfo` builtin. Uses `un_node`.
         type_info,
         /// Implements the `@sizeOf` builtin. Uses `un_node`.
@@ -1125,7 +1124,7 @@ pub const Inst = struct {
                 .array_init_anon,
                 .array_init_ref,
                 .array_init_anon_ref,
-                .union_init_ptr,
+                .union_init,
                 .field_type,
                 .field_type_ref,
                 .int_to_enum,
@@ -1383,7 +1382,7 @@ pub const Inst = struct {
                 .array_init_anon = .pl_node,
                 .array_init_ref = .pl_node,
                 .array_init_anon_ref = .pl_node,
-                .union_init_ptr = .pl_node,
+                .union_init = .pl_node,
                 .type_info = .un_node,
                 .size_of = .un_node,
                 .bit_size_of = .un_node,
@@ -2896,10 +2895,10 @@ pub const Inst = struct {
         ordering: Ref,
     };
 
-    pub const UnionInitPtr = struct {
-        result_ptr: Ref,
+    pub const UnionInit = struct {
         union_type: Ref,
         field_name: Ref,
+        init: Ref,
     };
 
     pub const AtomicStore = struct {

@@ -273,7 +273,7 @@ const Writer = struct {
             .slice_end => try self.writeSliceEnd(stream, inst),
             .slice_sentinel => try self.writeSliceSentinel(stream, inst),
 
-            .union_init_ptr => try self.writeUnionInitPtr(stream, inst),
+            .union_init => try self.writeUnionInit(stream, inst),
 
             .struct_init,
             .struct_init_ref,
@@ -692,14 +692,14 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeUnionInitPtr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+    fn writeUnionInit(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.UnionInitPtr, inst_data.payload_index).data;
-        try self.writeInstRef(stream, extra.result_ptr);
-        try stream.writeAll(", ");
+        const extra = self.code.extraData(Zir.Inst.UnionInit, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.union_type);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.field_name);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.init);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

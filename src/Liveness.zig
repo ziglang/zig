@@ -25,7 +25,7 @@ tomb_bits: []usize,
 /// array. The meaning of the data depends on the AIR tag.
 ///  * `cond_br` - points to a `CondBr` in `extra` at this index.
 ///  * `switch_br` - points to a `SwitchBr` in `extra` at this index.
-///  * `asm`, `call`, `vector_init` - the value is a set of bits which are the extra tomb
+///  * `asm`, `call`, `aggregate_init` - the value is a set of bits which are the extra tomb
 ///    bits of operands.
 ///    The main tomb bits are still used and the extra ones are starting with the lsb of the
 ///    value here.
@@ -420,10 +420,10 @@ fn analyzeInst(
             }
             return extra_tombs.finish();
         },
-        .vector_init => {
+        .aggregate_init => {
             const ty_pl = inst_datas[inst].ty_pl;
-            const vector_ty = a.air.getRefType(ty_pl.ty);
-            const len = @intCast(usize, vector_ty.arrayLen());
+            const aggregate_ty = a.air.getRefType(ty_pl.ty);
+            const len = @intCast(usize, aggregate_ty.arrayLen());
             const elements = @bitCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {
@@ -441,6 +441,10 @@ fn analyzeInst(
                 try extra_tombs.feed(elem);
             }
             return extra_tombs.finish();
+        },
+        .union_init => {
+            const extra = a.air.extraData(Air.UnionInit, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.init, .none, .none });
         },
         .struct_field_ptr, .struct_field_val => {
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;

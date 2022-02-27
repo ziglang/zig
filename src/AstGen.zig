@@ -2052,8 +2052,8 @@ fn unusedResultDeferExpr(gz: *GenZir, defer_scope: *Scope.Defer, expr_scope: *Sc
     _ = try unusedResultExpr(gz, expr_scope, expr_node);
 }
 
-/// Returns AST source node of the thing that is noreturn if the statement is definitely `noreturn`.
-/// Otherwise returns 0.
+/// Returns AST source node of the thing that is noreturn if the statement is
+/// definitely `noreturn`. Otherwise returns 0.
 fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) InnerError!Ast.Node.Index {
     try emitDbgNode(gz, statement);
     // We need to emit an error if the result is not `noreturn` or `void`, but
@@ -2201,7 +2201,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .array_init_anon,
             .array_init_ref,
             .array_init_anon_ref,
-            .union_init_ptr,
+            .union_init,
             .field_type,
             .field_type_ref,
             .error_set_decl,
@@ -6802,40 +6802,17 @@ fn unionInit(
 ) InnerError!Zir.Inst.Ref {
     const union_type = try typeExpr(gz, scope, params[0]);
     const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
-    switch (rl) {
-        .none, .discard, .ref, .ty, .coerced_ty, .inferred_ptr => {
-            _ = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
-                .container_type = union_type,
-                .field_name = field_name,
-            });
-            const result = try expr(gz, scope, .{ .ty = union_type }, params[2]);
-            return rvalue(gz, rl, result, node);
-        },
-        .ptr => |result_ptr| {
-            return unionInitRlPtr(gz, scope, node, result_ptr, params[2], union_type, field_name);
-        },
-        .block_ptr => |block_scope| {
-            return unionInitRlPtr(gz, scope, node, block_scope.rl_ptr, params[2], union_type, field_name);
-        },
-    }
-}
-
-fn unionInitRlPtr(
-    parent_gz: *GenZir,
-    scope: *Scope,
-    node: Ast.Node.Index,
-    result_ptr: Zir.Inst.Ref,
-    expr_node: Ast.Node.Index,
-    union_type: Zir.Inst.Ref,
-    field_name: Zir.Inst.Ref,
-) InnerError!Zir.Inst.Ref {
-    const union_init_ptr = try parent_gz.addPlNode(.union_init_ptr, node, Zir.Inst.UnionInitPtr{
-        .result_ptr = result_ptr,
-        .union_type = union_type,
+    const field_type = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
+        .container_type = union_type,
         .field_name = field_name,
     });
-    // TODO check if we need to do the elision like below in asRlPtr
-    return expr(parent_gz, scope, .{ .ptr = union_init_ptr }, expr_node);
+    const init = try reachableExpr(gz, scope, .{ .ty = field_type }, params[2], node);
+    const result = try gz.addPlNode(.union_init, node, Zir.Inst.UnionInit{
+        .union_type = union_type,
+        .init = init,
+        .field_name = field_name,
+    });
+    return rvalue(gz, rl, result, node);
 }
 
 fn asRlPtr(

@@ -1713,7 +1713,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .tag_name         => try airTagName(f, inst),
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
-            .vector_init      => try airVectorInit(f, inst),
+            .aggregate_init   => try airAggregateInit(f, inst),
+            .union_init       => try airUnionInit(f, inst),
             .prefetch         => try airPrefetch(f, inst),
 
             .int_to_float,
@@ -3526,7 +3527,7 @@ fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
     return f.fail("TODO: C backend: implement airSplat", .{});
 }
 
-fn airVectorInit(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
 
     const inst_ty = f.air.typeOfIndex(inst);
@@ -3541,7 +3542,22 @@ fn airVectorInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
     _ = elements;
     _ = local;
-    return f.fail("TODO: C backend: implement airVectorInit", .{});
+    return f.fail("TODO: C backend: implement airAggregateInit", .{});
+}
+
+fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+
+    _ = local;
+    _ = ty_pl;
+    return f.fail("TODO: C backend: implement airUnionInit", .{});
 }
 
 fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
