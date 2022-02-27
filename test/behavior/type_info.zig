@@ -156,8 +156,11 @@ fn testArray() !void {
     }
 }
 
-test "type info: error set, error union info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+test "type info: error set, error union info, anyerror" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     try testErrorSet();
     comptime try testErrorSet();
@@ -183,6 +186,36 @@ fn testErrorSet() !void {
     const global_info = @typeInfo(anyerror);
     try expect(global_info == .ErrorSet);
     try expect(global_info.ErrorSet == null);
+}
+
+test "type info: error set single value" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const TestSet = error.One;
+
+    const error_set_info = @typeInfo(@TypeOf(TestSet));
+    try expect(error_set_info == .ErrorSet);
+    try expect(error_set_info.ErrorSet.?.len == 1);
+    try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
+}
+
+test "type info: error set merged" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const TestSet = error{ One, Two } || error{Three};
+
+    const error_set_info = @typeInfo(TestSet);
+    try expect(error_set_info == .ErrorSet);
+    try expect(error_set_info.ErrorSet.?.len == 3);
+    try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
+    try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+    try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
 }
 
 test "type info: enum info" {

@@ -10164,12 +10164,19 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :t try set_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
             };
 
+            // If the error set is inferred it has to be resolved at this point
+            if (ty.castTag(.error_set_inferred)) |payload| {
+                try sema.resolveInferredErrorSet(payload.data);
+            }
+
             // Build our list of Error values
-            var error_field_vals: ?[]Value = null;
-            switch (ty.tag()) {
-                .error_set_single => {
-                    // Get single error name, put it into a []const u8
-                    const name = ty.castTag(.error_set_single).?.data;
+            // Optional value is only null if anyerror
+            // Value can be zero-length slice otherwise
+            const error_field_vals: ?[]Value = if (ty.isAnyError()) null else blk: {
+                const names = ty.errorSetNames();
+                const vals = try fields_anon_decl.arena().alloc(Value, names.len);
+                for (vals) |*field_val, i| {
+                    const name = names[i];
                     const name_val = v: {
                         var anon_decl = try block.startAnonDecl(src);
                         defer anon_decl.deinit();
@@ -10187,16 +10194,14 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         name_val,
                     };
 
-                    const values = try fields_anon_decl.arena().alloc(Value, 1);
-                    values[0] = try Value.Tag.@"struct".create(
+                    field_val.* = try Value.Tag.@"struct".create(
                         fields_anon_decl.arena(),
                         error_field_fields,
                     );
+                }
 
-                    error_field_vals = values;
-                },
-                else => return sema.fail(block, src, "zirTypeInfo for unknown errorset tag: {}", .{ty.tag()}),
-            }
+                break :blk vals;
+            };
 
             // Build our ?[]const Error value
             const errors_val = if (error_field_vals) |vals| v: {
