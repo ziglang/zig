@@ -1125,6 +1125,8 @@ pub const Union = struct {
         abi_align: Value,
 
         /// Returns the field alignment, assuming the union is not packed.
+        /// Keep implementation in sync with `Sema.unionFieldAlignment`.
+        /// Prefer to call that function instead of this one during Sema.
         pub fn normalAlignment(field: Field, target: Target) u32 {
             if (field.abi_align.tag() == .abi_align_default) {
                 return field.ty.abiAlignment(target);

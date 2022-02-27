@@ -249,8 +249,6 @@ fn testEnum() !void {
 }
 
 test "type info: union info" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testUnion();
     comptime try testUnion();
 }
@@ -436,8 +434,6 @@ fn testAnyFrame() !void {
 }
 
 test "type info: pass to function" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     _ = passTypeInfo(@typeInfo(void));
     _ = comptime passTypeInfo(@typeInfo(void));
 }
@@ -448,8 +444,6 @@ fn passTypeInfo(comptime info: TypeInfo) type {
 }
 
 test "type info: TypeId -> TypeInfo impl cast" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     _ = passTypeInfo(TypeId.Void);
     _ = comptime passTypeInfo(TypeId.Void);
 }
