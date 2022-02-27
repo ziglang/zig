@@ -11937,7 +11937,23 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const ty = try Type.vector(sema.arena, len, try child_ty.copy(sema.arena));
             return sema.addType(ty);
         },
-        .Float => return sema.fail(block, src, "TODO: Sema.zirReify for Float", .{}),
+        .Float => {
+            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            // TODO use reflection instead of magic numbers here
+            // bits: comptime_int,
+            const bits_val = struct_val[0];
+
+            const bits = @intCast(u16, bits_val.toUnsignedInt());
+            const ty = switch (bits) {
+                16 => Type.@"f16",
+                32 => Type.@"f32",
+                64 => Type.@"f64",
+                80 => Type.@"f80",
+                128 => Type.@"f128",
+                else => return sema.fail(block, src, "{}-bit float unsupported", .{bits}),
+            };
+            return sema.addType(ty);
+        },
         .Pointer => {
             const struct_val = union_val.val.castTag(.@"struct").?.data;
             // TODO use reflection instead of magic numbers here
@@ -11977,10 +11993,58 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             });
             return sema.addType(ty);
         },
-        .Array => return sema.fail(block, src, "TODO: Sema.zirReify for Array", .{}),
+        .Array => {
+            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            // TODO use reflection instead of magic numbers here
+            // len: comptime_int,
+            const len_val = struct_val[0];
+            // child: type,
+            const child_val = struct_val[1];
+            // sentinel: ?*const anyopaque,
+            const sentinel_val = struct_val[2];
+
+            const len = len_val.toUnsignedInt();
+            var buffer: Value.ToTypeBuffer = undefined;
+            const child_ty = try child_val.toType(&buffer).copy(sema.arena);
+            const sentinel = if (sentinel_val.castTag(.opt_payload)) |p| blk: {
+                const ptr_ty = try Type.ptr(sema.arena, .{ .@"addrspace" = .generic, .pointee_type = child_ty });
+                break :blk (try sema.pointerDeref(block, src, p.data, ptr_ty)).?;
+            } else null;
+
+            const ty = try Type.array(sema.arena, len, sentinel, child_ty);
+            return sema.addType(ty);
+        },
         .Struct => return sema.fail(block, src, "TODO: Sema.zirReify for Struct", .{}),
-        .Optional => return sema.fail(block, src, "TODO: Sema.zirReify for Optional", .{}),
-        .ErrorUnion => return sema.fail(block, src, "TODO: Sema.zirReify for ErrorUnion", .{}),
+        .Optional => {
+            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            // TODO use reflection instead of magic numbers here
+            // child: type,
+            const child_val = struct_val[0];
+
+            var buffer: Value.ToTypeBuffer = undefined;
+            const child_ty = try child_val.toType(&buffer).copy(sema.arena);
+
+            const ty = try Type.optional(sema.arena, child_ty);
+            return sema.addType(ty);
+        },
+        .ErrorUnion => {
+            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            // TODO use reflection instead of magic numbers here
+            // error_set: type,
+            const error_set_val = struct_val[0];
+            // payload: type,
+            const payload_val = struct_val[1];
+
+            var buffer: Value.ToTypeBuffer = undefined;
+            const error_set_ty = try error_set_val.toType(&buffer).copy(sema.arena);
+            const payload_ty = try payload_val.toType(&buffer).copy(sema.arena);
+
+            const ty = try Type.Tag.error_union.create(sema.arena, .{
+                .error_set = error_set_ty,
+                .payload = payload_ty,
+            });
+            return sema.addType(ty);
+        },
         .ErrorSet => return sema.fail(block, src, "TODO: Sema.zirReify for ErrorSet", .{}),
         .Enum => return sema.fail(block, src, "TODO: Sema.zirReify for Enum", .{}),
         .Union => return sema.fail(block, src, "TODO: Sema.zirReify for Union", .{}),
