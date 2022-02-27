@@ -3698,11 +3698,7 @@ fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) Comp
     return sema.fail(parent_block, src, "TODO: implement Sema.zirSuspendBlock", .{});
 }
 
-fn zirBlock(
-    sema: *Sema,
-    parent_block: *Block,
-    inst: Zir.Inst.Index,
-) CompileError!Air.Inst.Ref {
+fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3747,9 +3743,7 @@ fn zirBlock(
     defer merges.results.deinit(gpa);
     defer merges.br_list.deinit(gpa);
 
-    _ = try sema.analyzeBody(&child_block, body);
-
-    return sema.analyzeBlockBody(parent_block, src, &child_block, merges);
+    return sema.resolveBlockBody(parent_block, src, &child_block, body, inst, merges);
 }
 
 fn resolveBlockBody(
@@ -14000,7 +13994,7 @@ fn fieldVal(
             var to_type_buffer: Value.ToTypeBuffer = undefined;
             const child_type = val.toType(&to_type_buffer);
 
-            switch (child_type.zigTypeTag()) {
+            switch (try child_type.zigTypeTagOrPoison()) {
                 .ErrorSet => {
                     const name: []const u8 = if (child_type.castTag(.error_set)) |payload| blk: {
                         if (payload.data.names.getEntry(field_name)) |entry| {
