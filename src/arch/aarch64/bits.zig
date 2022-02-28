@@ -323,6 +323,16 @@ pub const Instruction = union(enum) {
         op: u1,
         sf: u1,
     },
+    logical_immediate: packed struct {
+        rd: u5,
+        rn: u5,
+        imms: u6,
+        immr: u6,
+        n: u1,
+        fixed: u6 = 0b100100,
+        opc: u2,
+        sf: u1,
+    },
     add_subtract_shifted_register: packed struct {
         rd: u5,
         rn: u5,
@@ -487,6 +497,7 @@ pub const Instruction = union(enum) {
             .no_operation => |v| @bitCast(u32, v),
             .logical_shifted_register => |v| @bitCast(u32, v),
             .add_subtract_immediate => |v| @bitCast(u32, v),
+            .logical_immediate => |v| @bitCast(u32, v),
             .add_subtract_shifted_register => |v| @bitCast(u32, v),
             // TODO once packed structs work, this can be refactored
             .conditional_branch => |v| @as(u32, v.cond) | (@as(u32, v.o0) << 4) | (@as(u32, v.imm19) << 5) | (@as(u32, v.o1) << 24) | (@as(u32, v.fixed) << 25),
@@ -900,6 +911,31 @@ pub const Instruction = union(enum) {
         };
     }
 
+    fn logicalImmediate(
+        opc: u2,
+        rd: Register,
+        rn: Register,
+        imms: u6,
+        immr: u6,
+        n: u1,
+    ) Instruction {
+        return Instruction{
+            .logical_immediate = .{
+                .rd = rd.enc(),
+                .rn = rn.enc(),
+                .imms = imms,
+                .immr = immr,
+                .n = n,
+                .opc = opc,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
     pub const AddSubtractShiftedRegisterShift = enum(u2) { lsl, lsr, asr, _ };
 
     fn addSubtractShiftedRegister(
@@ -1173,7 +1209,7 @@ pub const Instruction = union(enum) {
 
     // Logical (shifted register)
 
-    pub fn @"and"(
+    pub fn andShiftedRegister(
         rd: Register,
         rn: Register,
         rm: Register,
@@ -1183,7 +1219,7 @@ pub const Instruction = union(enum) {
         return logicalShiftedRegister(0b00, 0b0, rd, rn, rm, shift, amount);
     }
 
-    pub fn bic(
+    pub fn bicShiftedRegister(
         rd: Register,
         rn: Register,
         rm: Register,
@@ -1193,7 +1229,7 @@ pub const Instruction = union(enum) {
         return logicalShiftedRegister(0b00, 0b1, rd, rn, rm, shift, amount);
     }
 
-    pub fn orr(
+    pub fn orrShiftedRegister(
         rd: Register,
         rn: Register,
         rm: Register,
@@ -1203,7 +1239,7 @@ pub const Instruction = union(enum) {
         return logicalShiftedRegister(0b01, 0b0, rd, rn, rm, shift, amount);
     }
 
-    pub fn orn(
+    pub fn ornShiftedRegister(
         rd: Register,
         rn: Register,
         rm: Register,
@@ -1213,7 +1249,7 @@ pub const Instruction = union(enum) {
         return logicalShiftedRegister(0b01, 0b1, rd, rn, rm, shift, amount);
     }
 
-    pub fn eor(
+    pub fn eorShiftedRegister(
         rd: Register,
         rn: Register,
         rm: Register,
@@ -1223,7 +1259,7 @@ pub const Instruction = union(enum) {
         return logicalShiftedRegister(0b10, 0b0, rd, rn, rm, shift, amount);
     }
 
-    pub fn eon(
+    pub fn eonShiftedRegister(
         rd: Register,
         rn: Register,
         rm: Register,
@@ -1233,7 +1269,7 @@ pub const Instruction = union(enum) {
         return logicalShiftedRegister(0b10, 0b1, rd, rn, rm, shift, amount);
     }
 
-    pub fn ands(
+    pub fn andsShiftedRegister(
         rd: Register,
         rn: Register,
         rm: Register,
@@ -1243,7 +1279,7 @@ pub const Instruction = union(enum) {
         return logicalShiftedRegister(0b11, 0b0, rd, rn, rm, shift, amount);
     }
 
-    pub fn bics(
+    pub fn bicsShiftedRegister(
         rd: Register,
         rn: Register,
         rm: Register,
@@ -1269,6 +1305,24 @@ pub const Instruction = union(enum) {
 
     pub fn subs(rd: Register, rn: Register, imm: u12, shift: bool) Instruction {
         return addSubtractImmediate(0b1, 0b1, rd, rn, imm, shift);
+    }
+
+    // Logical (immediate)
+
+    pub fn andImmediate(rd: Register, rn: Register, imms: u6, immr: u6, n: u1) Instruction {
+        return logicalImmediate(0b00, rd, rn, imms, immr, n);
+    }
+
+    pub fn orrImmediate(rd: Register, rn: Register, imms: u6, immr: u6, n: u1) Instruction {
+        return logicalImmediate(0b01, rd, rn, imms, immr, n);
+    }
+
+    pub fn eorImmediate(rd: Register, rn: Register, imms: u6, immr: u6, n: u1) Instruction {
+        return logicalImmediate(0b10, rd, rn, imms, immr, n);
+    }
+
+    pub fn andsImmediate(rd: Register, rn: Register, imms: u6, immr: u6, n: u1) Instruction {
+        return logicalImmediate(0b11, rd, rn, imms, immr, n);
     }
 
     // Add/subtract (shifted register)
@@ -1378,11 +1432,11 @@ test "serialize instructions" {
 
     const testcases = [_]Testcase{
         .{ // orr x0, xzr, x1
-            .inst = Instruction.orr(.x0, .xzr, .x1, .lsl, 0),
+            .inst = Instruction.orrShiftedRegister(.x0, .xzr, .x1, .lsl, 0),
             .expected = 0b1_01_01010_00_0_00001_000000_11111_00000,
         },
         .{ // orn x0, xzr, x1
-            .inst = Instruction.orn(.x0, .xzr, .x1, .lsl, 0),
+            .inst = Instruction.ornShiftedRegister(.x0, .xzr, .x1, .lsl, 0),
             .expected = 0b1_01_01010_00_1_00001_000000_11111_00000,
         },
         .{ // movz x1, #4
@@ -1502,11 +1556,11 @@ test "serialize instructions" {
             .expected = 0b10_101_0_001_1_0000010_00010_11111_00001,
         },
         .{ // and x0, x4, x2
-            .inst = Instruction.@"and"(.x0, .x4, .x2, .lsl, 0),
+            .inst = Instruction.andShiftedRegister(.x0, .x4, .x2, .lsl, 0),
             .expected = 0b1_00_01010_00_0_00010_000000_00100_00000,
         },
         .{ // and x0, x4, x2, lsl #0x8
-            .inst = Instruction.@"and"(.x0, .x4, .x2, .lsl, 0x8),
+            .inst = Instruction.andShiftedRegister(.x0, .x4, .x2, .lsl, 0x8),
             .expected = 0b1_00_01010_00_0_00010_001000_00100_00000,
         },
         .{ // add x0, x10, #10
@@ -1536,6 +1590,10 @@ test "serialize instructions" {
         .{ // mul x1, x4, x9
             .inst = Instruction.mul(.x1, .x4, .x9),
             .expected = 0b1_00_11011_000_01001_0_11111_00100_00001,
+        },
+        .{ // eor x3, x5, #1
+            .inst = Instruction.eorImmediate(.x3, .x5, 0b000000, 0b000000, 0b1),
+            .expected = 0b1_10_100100_1_000000_000000_00101_00011,
         },
     };
 

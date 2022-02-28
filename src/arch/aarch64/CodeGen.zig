@@ -950,10 +950,69 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                 switch (operand_ty.zigTypeTag()) {
                     .Bool => {
                         // TODO convert this to mvn + and
-                        const dest = try self.binOp(.xor, null, operand, .{ .immediate = 1 }, operand_ty, Type.bool);
-                        break :result dest;
+                        const op_reg = switch (operand) {
+                            .register => |r| r,
+                            else => try self.copyToTmpRegister(operand_ty, operand),
+                        };
+                        self.register_manager.freezeRegs(&.{op_reg});
+                        defer self.register_manager.unfreezeRegs(&.{op_reg});
+
+                        const dest_reg = blk: {
+                            if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                                break :blk op_reg;
+                            }
+
+                            break :blk try self.register_manager.allocReg(null);
+                        };
+
+                        _ = try self.addInst(.{
+                            .tag = .eor_immediate,
+                            .data = .{ .rr_bitmask = .{
+                                .rd = dest_reg,
+                                .rn = op_reg,
+                                .imms = 0b000000,
+                                .immr = 0b000000,
+                                .n = 0b1,
+                            } },
+                        });
+
+                        break :result MCValue{ .register = dest_reg };
                     },
-                    else => return self.fail("TODO bitwise not", .{}),
+                    .Vector => return self.fail("TODO bitwise not for vectors", .{}),
+                    .Int => {
+                        const int_info = operand_ty.intInfo(self.target.*);
+                        if (int_info.bits <= 64) {
+                            const op_reg = switch (operand) {
+                                .register => |r| r,
+                                else => try self.copyToTmpRegister(operand_ty, operand),
+                            };
+                            self.register_manager.freezeRegs(&.{op_reg});
+                            defer self.register_manager.unfreezeRegs(&.{op_reg});
+
+                            const dest_reg = blk: {
+                                if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                                    break :blk op_reg;
+                                }
+
+                                break :blk try self.register_manager.allocReg(null);
+                            };
+
+                            _ = try self.addInst(.{
+                                .tag = .mvn,
+                                .data = .{ .rr_imm6_shift = .{
+                                    .rd = dest_reg,
+                                    .rm = op_reg,
+                                    .imm6 = 0,
+                                    .shift = .lsl,
+                                } },
+                            });
+
+                            break :result MCValue{ .register = dest_reg };
+                        } else {
+                            return self.fail("TODO AArch64 not on integers > u64/i64", .{});
+                        }
+                    },
+                    else => unreachable,
                 }
             },
         }
@@ -1259,15 +1318,13 @@ fn binOp(
             }
         },
         // Bitwise operations on integers
-        .xor => {
+        .bit_and,
+        .bit_or,
+        .xor,
+        => {
             switch (lhs_ty.zigTypeTag()) {
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int => return self.fail("TODO binary operations on vectors", .{}),
-                .Bool => {
-                    assert(lhs_ty.eql(rhs_ty));
-                    // TODO boolean operations with immediates
-                    return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
-                },
+                .Int => return self.fail("TODO binary operations on integers", .{}),
                 else => unreachable,
             }
         },
@@ -3136,11 +3193,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         4, 8 => .str_stack,
                         else => unreachable, // unexpected abi size
                     };
-                    const rt: Register = switch (abi_size) {
-                        1, 2, 4 => reg.to32(),
-                        8 => reg.to64(),
-                        else => unreachable, // unexpected abi size
-                    };
+                    const rt = registerAlias(reg, abi_size);
 
                     _ = try self.addInst(.{
                         .tag = tag,
@@ -3622,7 +3675,6 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     if (typed_value.val.isUndef())
         return MCValue{ .undef = {} };
-    const ptr_bits = self.target.cpu.arch.ptrBitWidth();
 
     if (typed_value.val.castTag(.decl_ref)) |payload| {
         return self.lowerDeclRef(typed_value, payload.data);
@@ -3652,13 +3704,19 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         },
         .Int => {
             const info = typed_value.ty.intInfo(self.target.*);
-            if (info.bits <= ptr_bits and info.signedness == .signed) {
-                return MCValue{ .immediate = @bitCast(u64, typed_value.val.toSignedInt()) };
+            if (info.bits <= 64) {
+                const unsigned = switch (info.signedness) {
+                    .signed => blk: {
+                        const signed = typed_value.val.toSignedInt();
+                        break :blk @bitCast(u64, signed);
+                    },
+                    .unsigned => typed_value.val.toUnsignedInt(),
+                };
+
+                return MCValue{ .immediate = unsigned };
+            } else {
+                return self.lowerUnnamedConst(typed_value);
             }
-            if (info.bits > ptr_bits or info.signedness == .signed) {
-                return self.fail("TODO const int bigger than ptr and signed int", .{});
-            }
-            return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
         },
         .Bool => {
             return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
@@ -3875,7 +3933,7 @@ fn parseRegName(name: []const u8) ?Register {
     return std.meta.stringToEnum(Register, name);
 }
 
-fn registerAlias(reg: Register, size_bytes: u32) Register {
+fn registerAlias(reg: Register, size_bytes: u64) Register {
     if (size_bytes == 0) {
         unreachable; // should be comptime known
     } else if (size_bytes <= 4) {
