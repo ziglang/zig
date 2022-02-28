@@ -118,8 +118,6 @@ pub const Inst = struct {
     /// All instructions have a 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
-    // TODO flatten down Data (remove use of tagged unions) to make it
-    // 8 bytes only
     pub const Data = union {
         /// No additional data
         ///
@@ -231,11 +229,11 @@ pub const Inst = struct {
 
     // Make sure we don't accidentally make instructions bigger than expected.
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
-    // comptime {
-    //     if (builtin.mode != .Debug) {
-    //         assert(@sizeOf(Data) == 8);
-    //     }
-    // }
+    comptime {
+        if (builtin.mode != .Debug) {
+            assert(@sizeOf(Data) == 8);
+        }
+    }
 };
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {

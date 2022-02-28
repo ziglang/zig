@@ -43,8 +43,6 @@ fn setInt(foo: *Foo, x: i32) void {
 }
 
 test "comptime union field access" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     comptime {
         var foo = Foo{ .int = 0 };
         try expect(foo.int == 0);
@@ -75,14 +73,10 @@ const ExternPtrOrInt = extern union {
     int: u64,
 };
 test "extern union size" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     comptime try expect(@sizeOf(ExternPtrOrInt) == 8);
 }
 
 test "0-sized extern union definition" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const U = extern union {
         a: void,
         const f = 1;
@@ -112,8 +106,6 @@ const err = @as(anyerror!Agg, Agg{
 const array = [_]Value{ v1, v2, v1, v2 };
 
 test "unions embedded in aggregate types" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     switch (array[1]) {
         Value.Array => |arr| try expect(arr[4] == 3),
         else => unreachable,
@@ -125,8 +117,6 @@ test "unions embedded in aggregate types" {
 }
 
 test "access a member of tagged union with conflicting enum tag name" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const Bar = union(enum) {
         A: A,
         B: B,
@@ -169,8 +159,6 @@ const TaggedUnionWithPayload = union(enum) {
 };
 
 test "union alignment" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     comptime {
         try expect(@alignOf(AlignTestTaggedUnion) >= @alignOf([9]u8));
         try expect(@alignOf(AlignTestTaggedUnion) >= @alignOf(u64));
@@ -268,8 +256,6 @@ fn testCastUnionToTag() !void {
 }
 
 test "union field access gives the enum values" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(TheUnion.A == TheTag.A);
     try expect(TheUnion.B == TheTag.B);
     try expect(TheUnion.C == TheTag.C);
@@ -343,8 +329,6 @@ const PackedPtrOrInt = packed union {
     int: u64,
 };
 test "packed union size" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     comptime try expect(@sizeOf(PackedPtrOrInt) == 8);
 }
 
@@ -352,8 +336,6 @@ const ZeroBits = union {
     OnlyField: void,
 };
 test "union with only 1 field which is void should be zero bits" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     comptime try expect(@sizeOf(ZeroBits) == 0);
 }
 
@@ -411,8 +393,6 @@ test "union with only 1 field casted to its enum type" {
 }
 
 test "union with one member defaults to u0 tag type" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const U0 = union(enum) {
         X: u32,
     };

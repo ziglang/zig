@@ -273,7 +273,6 @@ test "*const ?[*]const T to [*c]const [*c]const T" {
 
 test "array coersion to undefined at runtime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     @setRuntimeSafety(true);
 
@@ -337,7 +336,6 @@ test "peer type unsigned int to signed" {
 
 test "expected [*c]const u8, found [*:0]const u8" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var a: [*:0]const u8 = "hello";
     var b: [*c]const u8 = a;
@@ -648,7 +646,6 @@ test "peer cast *[0]T to []const T" {
 test "peer cast *[N]T to [*]T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var array = [4:99]i32{ 1, 2, 3, 4 };
@@ -1067,7 +1064,6 @@ test "implicit cast *[0]T to E![]const u8" {
 
 var global_array: [4]u8 = undefined;
 test "cast from array reference to fn: comptime fn ptr" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const f = @ptrCast(*const fn () callconv(.C) void, &global_array);
@@ -1075,7 +1071,6 @@ test "cast from array reference to fn: comptime fn ptr" {
 }
 test "cast from array reference to fn: runtime fn ptr" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var f = @ptrCast(*const fn () callconv(.C) void, &global_array);
@@ -1100,7 +1095,6 @@ test "*const [N]null u8 to ?[]const u8" {
 }
 
 test "cast between [*c]T and ?[*:0]T on fn parameter" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {

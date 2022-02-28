@@ -5,7 +5,6 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "params" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(testParamsAdd(22, 11) == 33);
@@ -15,7 +14,6 @@ fn testParamsAdd(a: i32, b: i32) i32 {
 }
 
 test "local variables" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     testLocVars(2);
@@ -26,7 +24,6 @@ fn testLocVars(b: i32) void {
 }
 
 test "mutable local variables" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var zero: i32 = 0;
@@ -40,7 +37,6 @@ test "mutable local variables" {
 }
 
 test "separate block scopes" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     {
@@ -59,14 +55,12 @@ fn @"weird function name"() i32 {
     return 1234;
 }
 test "weird function name" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(@"weird function name"() == 1234);
 }
 
 test "assign inline fn to const variable" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const a = inlineFn;
@@ -86,7 +80,6 @@ fn outer(y: u32) *const fn (u32) u32 {
 }
 
 test "return inner function which references comptime variable of outer function" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
@@ -156,7 +149,6 @@ test "inline function call that calls optional function pointer, return pointer 
 }
 
 test "implicit cast function unreachable return" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     wantsFnWithVoid(fnWithUnreachable);
@@ -209,7 +201,6 @@ test "function with complex callconv and return type expressions" {
 }
 
 test "pass by non-copying value" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);
@@ -238,7 +229,6 @@ fn addPointCoordsVar(pt: anytype) !i32 {
 }
 
 test "pass by non-copying value as method" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var pt = Point2{ .x = 1, .y = 2 };
@@ -255,7 +245,6 @@ const Point2 = struct {
 };
 
 test "pass by non-copying value as method, which is generic" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var pt = Point3{ .x = 1, .y = 2 };
@@ -273,7 +262,6 @@ const Point3 = struct {
 };
 
 test "pass by non-copying value as method, at comptime" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     comptime {
@@ -325,7 +313,6 @@ fn voidFun(a: i32, b: void, c: i32, d: void) !void {
 }
 
 test "call function with empty string" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     acceptsString("");
@@ -362,7 +349,6 @@ fn fn4() u32 {
 }
 
 test "number literal as an argument" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try numberLiteralArg(3);
@@ -395,7 +381,6 @@ test "function call with anon list literal" {
 }
 
 test "ability to give comptime types and non comptime types to same parameter" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {

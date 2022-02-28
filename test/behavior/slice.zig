@@ -220,7 +220,6 @@ test "compile time slice of pointer to hard coded address" {
 
 test "slice string literal has correct type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     comptime {
         try expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
@@ -258,7 +257,6 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 
 test "C pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var buf: [*c]const u8 = "kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
     var len: u32 = 10;
@@ -357,7 +355,6 @@ test "empty array to slice" {
 
 test "@ptrCast slice to pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -565,7 +562,6 @@ test "array concat of slices gives slice" {
 }
 
 test "slice bounds in comptime concatenation" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const bs = comptime blk: {

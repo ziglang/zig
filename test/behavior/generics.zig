@@ -5,7 +5,6 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "one param, explicit comptime" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var x: usize = 0;
@@ -43,7 +42,6 @@ fn add(comptime a: i32, b: i32) i32 {
 
 const the_max = max(u32, 1234, 5678);
 test "compile time generic eval" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(the_max == 5678);
@@ -144,7 +142,6 @@ pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) type {
 }
 
 test "const decls in struct" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(GenericDataThing(3).count_plus_one == 4);
@@ -156,7 +153,6 @@ fn GenericDataThing(comptime count: isize) type {
 }
 
 test "use generic param in generic param" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(aGenericFn(i32, 3, 4) == 7);
@@ -201,7 +197,6 @@ test "generic fn keeps non-generic parameter types" {
 }
 
 test "array of generic fns" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
@@ -223,7 +218,6 @@ fn foo2(arg: anytype) bool {
 
 test "generic struct" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     var a1 = GenNode(i32){
         .value = 13,

@@ -433,7 +433,9 @@ fn gen(self: *Self) !void {
         });
 
         // exitlude jumps
-        if (self.exitlude_jump_relocs.items.len == 1) {
+        const only_one_exitlude_jump = self.exitlude_jump_relocs.items.len == 1 and
+            self.exitlude_jump_relocs.items[0] == self.mir_instructions.len - 1;
+        if (only_one_exitlude_jump) {
             // There is only one relocation. Hence,
             // this relocation must be at the end of
             // the code. Therefore, we can just delete
@@ -1066,7 +1068,17 @@ fn airMax(self: *Self, inst: Air.Inst.Index) !void {
 fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr = try self.resolveInst(bin_op.lhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const len = try self.resolveInst(bin_op.rhs);
+        const len_ty = self.air.typeOf(bin_op.rhs);
+
+        const stack_offset = try self.allocMem(inst, 8, 8);
+        try self.genSetStack(ptr_ty, stack_offset + 4, ptr);
+        try self.genSetStack(len_ty, stack_offset, len);
+        break :result MCValue{ .stack_offset = stack_offset };
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1359,6 +1371,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
         const base_mcv: MCValue = switch (slice_mcv) {
             .stack_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_offset = off + 4 }) },
+            .stack_argument_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_argument_offset = off + 4 }) },
             else => return self.fail("TODO slice_elem_val when slice is {}", .{slice_mcv}),
         };
         self.register_manager.freezeRegs(&.{base_mcv.register});
@@ -3854,9 +3867,17 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airArrayToSlice for {}", .{
-        self.target.cpu.arch,
-    });
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_ty = self.air.typeOf(ty_op.operand);
+        const ptr = try self.resolveInst(ty_op.operand);
+        const array_ty = ptr_ty.childType();
+        const array_len = @intCast(u32, array_ty.arrayLenIncludingSentinel());
+
+        const stack_offset = try self.allocMem(inst, 8, 8);
+        try self.genSetStack(ptr_ty, stack_offset + 4, ptr);
+        try self.genSetStack(Type.initTag(.usize), stack_offset, .{ .immediate = array_len });
+        break :result MCValue{ .stack_offset = stack_offset };
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -4077,6 +4098,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     }
 
     switch (typed_value.ty.zigTypeTag()) {
+        .Array => {
+            return self.lowerUnnamedConst(typed_value);
+        },
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {
                 return self.lowerUnnamedConst(typed_value);
