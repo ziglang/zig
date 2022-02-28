@@ -2098,17 +2098,72 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    _ = bin_op;
-    return self.fail("TODO implement airSetUnionTag for {}", .{self.target.cpu.arch});
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const union_ty = ptr_ty.childType();
+    const tag_ty = self.air.typeOf(bin_op.rhs);
+    const layout = union_ty.unionGetLayout(self.target.*);
+
+    if (layout.tag_size == 0) {
+        return self.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
+    const ptr = try self.resolveInst(bin_op.lhs);
+    ptr.freezeIfRegister(&self.register_manager);
+    defer ptr.unfreezeIfRegister(&self.register_manager);
+
+    const tag = try self.resolveInst(bin_op.rhs);
+    tag.freezeIfRegister(&self.register_manager);
+    defer tag.unfreezeIfRegister(&self.register_manager);
+
+    const adjusted_ptr: MCValue = if (layout.payload_size > 0 and layout.tag_align < layout.payload_align) blk: {
+        // TODO reusing the operand
+        const reg = try self.copyToTmpRegister(ptr_ty, ptr);
+        try self.genBinMathOpMir(.add, ptr_ty, .{ .register = reg }, .{ .immediate = layout.payload_size });
+        break :blk MCValue{ .register = reg };
+    } else ptr;
+
+    try self.store(adjusted_ptr, tag, ptr_ty, tag_ty);
+
+    return self.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airGetUnionTag for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+    }
+
+    const tag_ty = self.air.typeOfIndex(inst);
+    const union_ty = self.air.typeOf(ty_op.operand);
+    const layout = union_ty.unionGetLayout(self.target.*);
+
+    if (layout.tag_size == 0) {
+        return self.finishAir(inst, .none, .{ ty_op.operand, .none, .none });
+    }
+
+    // TODO reusing the operand
+    const operand = try self.resolveInst(ty_op.operand);
+    operand.freezeIfRegister(&self.register_manager);
+    defer operand.unfreezeIfRegister(&self.register_manager);
+
+    const tag_abi_size = tag_ty.abiSize(self.target.*);
+    const offset: i32 = if (layout.tag_align < layout.payload_align) @intCast(i32, layout.payload_size) else 0;
+    const dst_mcv: MCValue = blk: {
+        switch (operand) {
+            .stack_offset => |off| {
+                if (tag_abi_size <= 8) {
+                    break :blk try self.copyToRegisterWithInstTracking(inst, tag_ty, .{
+                        .stack_offset = off - offset,
+                    });
+                }
+
+                return self.fail("TODO implement get_union_tag for ABI larger than 8 bytes and operand {}", .{operand});
+            },
+            else => return self.fail("TODO implement get_union_tag for {}", .{operand}),
+        }
+    };
+
+    return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
 fn airClz(self: *Self, inst: Air.Inst.Index) !void {
@@ -2429,8 +2484,15 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     });
                 },
                 .stack_offset => {
-                    const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                    return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                    if (abi_size <= 8) {
+                        const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                        return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                    }
+
+                    try self.genInlineMemcpy(0, value_ty, value, .{
+                        .source_stack_base = .rbp,
+                        .dest_stack_base = reg.to64(),
+                    });
                 },
                 else => |other| {
                     return self.fail("TODO implement set pointee with {}", .{other});
@@ -3905,35 +3967,21 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
                 .dead, .unreach => unreachable,
                 .immediate => |imm| {
                     _ = try self.addInst(.{
-                        .tag = .@"test",
+                        .tag = .xor,
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(cond_reg, abi_size),
                         }).encode(),
                         .data = .{ .imm = @intCast(u32, imm) },
                     });
-                    return self.addInst(.{
-                        .tag = .cond_jmp_eq_ne,
-                        .ops = (Mir.Ops{
-                            .flags = 0b00,
-                        }).encode(),
-                        .data = .{ .inst = undefined },
-                    });
                 },
                 .register => |reg| {
                     _ = try self.addInst(.{
-                        .tag = .@"test",
+                        .tag = .xor,
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(cond_reg, abi_size),
                             .reg2 = registerAlias(reg, abi_size),
                         }).encode(),
                         .data = undefined,
-                    });
-                    return self.addInst(.{
-                        .tag = .cond_jmp_eq_ne,
-                        .ops = (Mir.Ops{
-                            .flags = 0b00,
-                        }).encode(),
-                        .data = .{ .inst = undefined },
                     });
                 },
                 .stack_offset => {
@@ -3948,6 +3996,22 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
                     return self.fail("TODO implement switch mir when case is {}", .{case});
                 },
             }
+
+            _ = try self.addInst(.{
+                .tag = .@"test",
+                .ops = (Mir.Ops{
+                    .reg1 = registerAlias(cond_reg, abi_size),
+                    .reg2 = registerAlias(cond_reg, abi_size),
+                }).encode(),
+                .data = undefined,
+            });
+            return self.addInst(.{
+                .tag = .cond_jmp_eq_ne,
+                .ops = (Mir.Ops{
+                    .flags = 0b00,
+                }).encode(),
+                .data = .{ .inst = undefined },
+            });
         },
         .stack_offset => {
             try self.spillCompareFlagsIfOccupied();
@@ -5408,24 +5472,14 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     }
 
     switch (typed_value.ty.zigTypeTag()) {
-        .Array => {
-            return self.lowerUnnamedConst(typed_value);
-        },
         .Pointer => switch (typed_value.ty.ptrSize()) {
-            .Slice => {
-                return self.lowerUnnamedConst(typed_value);
-            },
+            .Slice => {},
             else => {
                 switch (typed_value.val.tag()) {
                     .int_u64 => {
                         return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
                     },
-                    .slice => {
-                        return self.lowerUnnamedConst(typed_value);
-                    },
-                    else => {
-                        return self.fail("TODO codegen more kinds of const pointers: {}", .{typed_value.val.tag()});
-                    },
+                    else => {},
                 }
             },
         },
@@ -5434,10 +5488,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             if (info.bits <= ptr_bits and info.signedness == .signed) {
                 return MCValue{ .immediate = @bitCast(u64, typed_value.val.toSignedInt()) };
             }
-            if (info.bits > ptr_bits or info.signedness == .signed) {
-                return self.fail("TODO const int bigger than ptr and signed int", .{});
+            if (!(info.bits > ptr_bits or info.signedness == .signed)) {
+                return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
             }
-            return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
         },
         .Bool => {
             return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
@@ -5457,7 +5510,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             } else if (typed_value.ty.abiSize(self.target.*) == 1) {
                 return MCValue{ .immediate = @boolToInt(typed_value.val.isNull()) };
             }
-            return self.fail("TODO non pointer optionals", .{});
         },
         .Enum => {
             if (typed_value.val.castTag(.enum_field_index)) |field_index| {
@@ -5504,13 +5556,11 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                     return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
                 }
             }
-            return self.lowerUnnamedConst(typed_value);
         },
-        .Struct => {
-            return self.lowerUnnamedConst(typed_value);
-        },
-        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
+        else => {},
     }
+
+    return self.lowerUnnamedConst(typed_value);
 }
 
 const CallMCValues = struct {

@@ -466,10 +466,74 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Union => {
-            // TODO generateSymbol for unions
+            // TODO generate debug info for unions
             const target = bin_file.options.target;
-            const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
-            try code.writer().writeByteNTimes(0xaa, abi_size);
+            const union_obj = typed_value.val.castTag(.@"union").?.data;
+            const layout = typed_value.ty.unionGetLayout(target);
+
+            if (layout.payload_size == 0) {
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = typed_value.ty.unionTagType().?,
+                    .val = union_obj.tag,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+            }
+
+            // Check if we should store the tag first.
+            if (layout.tag_align >= layout.payload_align) {
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = typed_value.ty.unionTagType().?,
+                    .val = union_obj.tag,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+            }
+
+            const union_ty = typed_value.ty.cast(Type.Payload.Union).?.data;
+            const field_index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag).?;
+            assert(union_ty.haveFieldTypes());
+            const field_ty = union_ty.fields.values()[field_index].ty;
+            if (!field_ty.hasRuntimeBits()) {
+                try code.writer().writeByteNTimes(0xaa, try math.cast(usize, layout.payload_size));
+            } else {
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = field_ty,
+                    .val = union_obj.val,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+
+                const padding = try math.cast(usize, layout.payload_size - field_ty.abiSize(target));
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
+                }
+            }
+
+            if (layout.tag_size > 0) {
+                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    .ty = union_ty.tag_ty,
+                    .val = union_obj.tag,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+            }
 
             return Result{ .appended = {} };
         },
