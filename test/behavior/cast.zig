@@ -705,6 +705,37 @@ test "peer type resolution: error union and error set" {
     }
 }
 
+test "peer type resolution: error union after non-error" {
+    const a: u32 = undefined;
+    const b: error{ One, Two }!u32 = undefined;
+
+    // note: order of error set members doesn't member, may want to sort
+
+    {
+        const ty = @TypeOf(a, b);
+        const info = @typeInfo(ty);
+        try expect(info == .ErrorUnion);
+        try expect(info.ErrorUnion.payload == u32);
+
+        const error_set_info = @typeInfo(info.ErrorUnion.error_set);
+        try expect(error_set_info.ErrorSet.?.len == 2);
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+    }
+
+    {
+        const ty = @TypeOf(b, a);
+        const info = @typeInfo(ty);
+        try expect(info == .ErrorUnion);
+        try expect(info.ErrorUnion.payload == u32);
+
+        const error_set_info = @typeInfo(info.ErrorUnion.error_set);
+        try expect(error_set_info.ErrorSet.?.len == 2);
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+    }
+}
+
 test "peer cast *[0]T to E![]const T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO

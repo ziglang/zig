@@ -17814,8 +17814,8 @@ fn resolvePeerTypes(
                 err_set_ty = try err_set_ty.?.errorSetMerge(sema.arena, candidate_ty);
                 continue;
             },
-            .ErrorUnion => {
-                if (chosen_ty_tag == .ErrorSet) {
+            .ErrorUnion => switch (chosen_ty_tag) {
+                .ErrorSet => {
                     if (err_set_ty.?.isAnyError()) {
                         chosen = candidate;
                         chosen_i = candidate_i + 1;
@@ -17854,9 +17854,9 @@ fn resolvePeerTypes(
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
                     continue;
-                }
+                },
 
-                if (chosen_ty_tag == .ErrorUnion) {
+                .ErrorUnion => {
                     const chosen_payload_ty = chosen_ty.errorUnionPayload();
                     const candidate_payload_ty = candidate_ty.errorUnionPayload();
 
@@ -17926,30 +17926,57 @@ fn resolvePeerTypes(
                         err_set_ty = try chosen_set_ty.errorSetMerge(sema.arena, candidate_ty);
                         continue;
                     }
-                }
+                },
 
-                const payload_ty = candidate_ty.errorUnionPayload();
-                if (chosen_ty_tag == .Pointer and
-                    chosen_ty.ptrSize() == .One and
-                    chosen_ty.childType().zigTypeTag() == .Array and
-                    payload_ty.isSlice())
-                {
-                    const chosen_child_ty = chosen_ty.childType();
-                    const chosen_elem_ty = chosen_child_ty.elemType2();
-                    const candidate_elem_ty = payload_ty.elemType2();
-                    if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
+                .Pointer => {
+                    const payload_ty = candidate_ty.errorUnionPayload();
+                    if (chosen_ty.ptrSize() == .One and
+                        chosen_ty.childType().zigTypeTag() == .Array and
+                        payload_ty.isSlice())
+                    {
+                        const chosen_child_ty = chosen_ty.childType();
+                        const chosen_elem_ty = chosen_child_ty.elemType2();
+                        const candidate_elem_ty = payload_ty.elemType2();
+                        if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+
+                            convert_to_slice = false; // it already is a slice
+
+                            // If the prev pointer is const then we need to const
+                            if (chosen_child_ty.isConstPtr())
+                                make_the_slice_const = true;
+
+                            continue;
+                        }
+                    }
+                },
+
+                else => {
+                    // Chosen coercing into payload type
+                    // Then merge error sets (if any)
+                    const payload_ty = candidate_ty.errorUnionPayload();
+                    if ((try sema.coerceInMemoryAllowed(block, payload_ty, chosen_ty, false, target, src, src)) == .ok) {
                         chosen = candidate;
                         chosen_i = candidate_i + 1;
 
-                        convert_to_slice = false; // it already is a slice
+                        if (err_set_ty) |ty| {
+                            const cand_set_ty = candidate_ty.errorUnionSet();
+                            if (cand_set_ty.castTag(.error_set_inferred)) |inferred| {
+                                try sema.resolveInferredErrorSet(inferred.data);
+                            }
+                            if (cand_set_ty.isAnyError()) {
+                                err_set_ty = cand_set_ty;
+                                continue;
+                            }
+                            if (ty.isAnyError()) continue;
 
-                        // If the prev pointer is const then we need to const
-                        if (chosen_child_ty.isConstPtr())
-                            make_the_slice_const = true;
+                            err_set_ty = try err_set_ty.?.errorSetMerge(sema.arena, cand_set_ty);
+                        }
 
                         continue;
                     }
-                }
+                },
             },
             .Pointer => {
                 if (candidate_ty.ptrSize() == .C) {
@@ -18112,6 +18139,12 @@ fn resolvePeerTypes(
                     any_are_null = true;
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
+                    continue;
+                }
+            },
+            .ErrorUnion => {
+                const payload_ty = chosen_ty.errorUnionPayload();
+                if ((try sema.coerceInMemoryAllowed(block, payload_ty, candidate_ty, false, target, src, src)) == .ok) {
                     continue;
                 }
             },
