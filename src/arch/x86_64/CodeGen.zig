@@ -3167,11 +3167,13 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
         const ret_abi_align = @intCast(u32, ret_ty.abiAlignment(self.target.*));
         const stack_offset = @intCast(i32, try self.allocMem(inst, ret_abi_size, ret_abi_align));
 
-        try self.register_manager.getReg(.rdi, inst);
+        try self.register_manager.getReg(.rdi, null);
+        self.register_manager.freezeRegs(&.{.rdi});
         try self.genSetReg(Type.usize, .rdi, .{ .ptr_stack_offset = stack_offset });
 
         info.return_value.stack_offset = stack_offset;
     }
+    defer if (info.return_value == .stack_offset) self.register_manager.unfreezeRegs(&.{.rdi});
 
     for (args) |arg, arg_i| {
         const mc_arg = info.args[arg_i];
