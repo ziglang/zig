@@ -17738,23 +17738,17 @@ fn resolvePeerTypes(
                     // If chosen is superset of candidate, keep it.
                     // If candidate is superset of chosen, switch it.
                     // If neither is a superset, merge errors.
-                    var prev_is_superset = true;
                     for (candidate_ty.errorSetNames()) |name| {
                         if (!err_set_ty.?.errorSetHasField(name)) {
-                            prev_is_superset = false;
                             break;
                         }
-                    }
-                    if (prev_is_superset) continue; // use previous
+                    } else continue;
 
-                    var cand_is_superset = true;
                     for (err_set_ty.?.errorSetNames()) |name| {
                         if (!candidate_ty.errorSetHasField(name)) {
-                            cand_is_superset = false;
                             break;
                         }
-                    }
-                    if (cand_is_superset) {
+                    } else {
                         // Swap to candidate
                         err_set_ty = candidate_ty;
                         chosen = candidate;
@@ -17801,14 +17795,11 @@ fn resolvePeerTypes(
                 }
 
                 // If previous is superset, keep the previous
-                var prev_is_superset = true;
                 for (candidate_ty.errorSetNames()) |name| {
                     if (!err_set_ty.?.errorSetHasField(name)) {
-                        prev_is_superset = false;
                         break;
                     }
-                }
-                if (prev_is_superset) continue; // use previous
+                } else continue;
 
                 // Merge
                 err_set_ty = try err_set_ty.?.errorSetMerge(sema.arena, candidate_ty);
@@ -17834,14 +17825,11 @@ fn resolvePeerTypes(
                     }
 
                     // If candidate is a superset of the error type, then use it.
-                    var cand_is_superset = true;
                     for (err_set_ty.?.errorSetNames()) |name| {
                         if (!eu_set_ty.errorSetHasField(name)) {
-                            cand_is_superset = false;
                             break;
                         }
-                    }
-                    if (cand_is_superset) {
+                    } else {
                         // Swap to candidate
                         err_set_ty = eu_set_ty;
                         chosen = candidate;
@@ -17901,23 +17889,17 @@ fn resolvePeerTypes(
                         if (err_set_ty == null) err_set_ty = chosen_set_ty;
 
                         // If the previous error set type is a superset, we're done.
-                        var prev_is_superset = true;
                         for (candidate_set_ty.errorSetNames()) |name| {
                             if (!chosen_set_ty.errorSetHasField(name)) {
-                                prev_is_superset = false;
                                 break;
                             }
-                        }
-                        if (prev_is_superset) continue; // use previous
+                        } else continue;
 
-                        var cand_is_superset = true;
                         for (chosen_set_ty.errorSetNames()) |name| {
                             if (!candidate_set_ty.errorSetHasField(name)) {
-                                cand_is_superset = false;
                                 break;
                             }
-                        }
-                        if (cand_is_superset) {
+                        } else {
                             err_set_ty = candidate_ty;
                             continue;
                         }
