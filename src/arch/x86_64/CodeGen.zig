@@ -1783,8 +1783,9 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
             },
             .register => {
                 // TODO reuse operand
+                const shift = @intCast(u6, err_ty.bitSize(self.target.*));
                 const result = try self.copyToRegisterWithInstTracking(inst, err_union_ty, operand);
-                try self.shiftRegister(result.register.to64(), @intCast(u6, err_ty.bitSize(self.target.*)));
+                try self.shiftRegister(result.register.to64(), shift);
                 break :result MCValue{
                     .register = registerAlias(result.register, @intCast(u32, payload_ty.abiSize(self.target.*))),
                 };
@@ -2169,17 +2170,28 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
     defer operand.unfreezeIfRegister(&self.register_manager);
 
     const tag_abi_size = tag_ty.abiSize(self.target.*);
-    const offset: i32 = if (layout.tag_align < layout.payload_align) @intCast(i32, layout.payload_size) else 0;
     const dst_mcv: MCValue = blk: {
         switch (operand) {
             .stack_offset => |off| {
                 if (tag_abi_size <= 8) {
+                    const offset: i32 = if (layout.tag_align < layout.payload_align) @intCast(i32, layout.payload_size) else 0;
                     break :blk try self.copyToRegisterWithInstTracking(inst, tag_ty, .{
                         .stack_offset = off - offset,
                     });
                 }
 
                 return self.fail("TODO implement get_union_tag for ABI larger than 8 bytes and operand {}", .{operand});
+            },
+            .register => {
+                const shift: u6 = if (layout.tag_align < layout.payload_align)
+                    @intCast(u6, layout.payload_size * 8)
+                else
+                    0;
+                const result = try self.copyToRegisterWithInstTracking(inst, union_ty, operand);
+                try self.shiftRegister(result.register.to64(), shift);
+                break :blk MCValue{
+                    .register = registerAlias(result.register, @intCast(u32, layout.tag_size)),
+                };
             },
             else => return self.fail("TODO implement get_union_tag for {}", .{operand}),
         }
