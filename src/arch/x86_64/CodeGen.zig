@@ -2484,8 +2484,15 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     });
                 },
                 .stack_offset => {
-                    const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                    return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                    if (abi_size <= 8) {
+                        const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                        return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                    }
+
+                    try self.genInlineMemcpy(0, value_ty, value, .{
+                        .source_stack_base = .rbp,
+                        .dest_stack_base = reg.to64(),
+                    });
                 },
                 else => |other| {
                     return self.fail("TODO implement set pointee with {}", .{other});

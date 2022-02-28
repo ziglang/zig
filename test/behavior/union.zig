@@ -4,70 +4,102 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const Tag = std.meta.Tag;
 
-const Foo = union {
+const FooWithFloats = union {
     float: f64,
     int: i32,
 };
 
-test "basic unions" {
+test "basic unions with floats" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var foo = FooWithFloats{ .int = 1 };
+    try expect(foo.int == 1);
+    foo = FooWithFloats{ .float = 12.34 };
+    try expect(foo.float == 12.34);
+}
+
+fn setFloat(foo: *FooWithFloats, x: f64) void {
+    foo.* = FooWithFloats{ .float = x };
+}
+
+test "init union with runtime value - floats" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var foo: FooWithFloats = undefined;
+
+    setFloat(&foo, 12.34);
+    try expect(foo.float == 12.34);
+}
+
+test "basic unions" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo = Foo{ .int = 1 };
     try expect(foo.int == 1);
-    foo = Foo{ .float = 12.34 };
-    try expect(foo.float == 12.34);
+    foo = Foo{ .str = .{ .slice = "Hello!" } };
+    try expect(std.mem.eql(u8, foo.str.slice, "Hello!"));
 }
 
+const Foo = union {
+    int: i32,
+    str: struct {
+        slice: []const u8,
+    },
+};
+
 test "init union with runtime value" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo: Foo = undefined;
 
-    setFloat(&foo, 12.34);
-    try expect(foo.float == 12.34);
-
     setInt(&foo, 42);
     try expect(foo.int == 42);
-}
 
-fn setFloat(foo: *Foo, x: f64) void {
-    foo.* = Foo{ .float = x };
+    setStr(&foo, "Hello!");
+    try expect(std.mem.eql(u8, foo.str.slice, "Hello!"));
 }
 
 fn setInt(foo: *Foo, x: i32) void {
     foo.* = Foo{ .int = x };
 }
 
+fn setStr(foo: *Foo, slice: []const u8) void {
+    foo.* = Foo{ .str = .{ .slice = slice } };
+}
+
 test "comptime union field access" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     comptime {
-        var foo = Foo{ .int = 0 };
+        var foo = FooWithFloats{ .int = 0 };
         try expect(foo.int == 0);
 
-        foo = Foo{ .float = 42.42 };
-        try expect(foo.float == 42.42);
+        foo = FooWithFloats{ .float = 12.34 };
+        try expect(foo.float == 12.34);
     }
 }
 
 const FooExtern = extern union {
-    float: f64,
     int: i32,
+    str: struct {
+        slice: []const u8,
+    },
 };
 
 test "basic extern unions" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo = FooExtern{ .int = 1 };
     try expect(foo.int == 1);
-    foo.float = 12.34;
-    try expect(foo.float == 12.34);
+    foo.str.slice = "Well";
+    try expect(std.mem.eql(u8, foo.str.slice, "Well"));
 }
 
 const ExternPtrOrInt = extern union {
