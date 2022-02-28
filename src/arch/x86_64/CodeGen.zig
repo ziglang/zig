@@ -2132,8 +2132,38 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst)) {
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
     }
-    return self.fail("TODO implement airGetUnionTag for {}", .{self.target.cpu.arch});
-    // return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+
+    const tag_ty = self.air.typeOfIndex(inst);
+    const union_ty = self.air.typeOf(ty_op.operand);
+    const layout = union_ty.unionGetLayout(self.target.*);
+
+    if (layout.tag_size == 0) {
+        return self.finishAir(inst, .none, .{ ty_op.operand, .none, .none });
+    }
+
+    // TODO reusing the operand
+    const operand = try self.resolveInst(ty_op.operand);
+    operand.freezeIfRegister(&self.register_manager);
+    defer operand.unfreezeIfRegister(&self.register_manager);
+
+    const tag_abi_size = tag_ty.abiSize(self.target.*);
+    const offset: i32 = if (layout.tag_align < layout.payload_align) @intCast(i32, layout.payload_size) else 0;
+    const dst_mcv: MCValue = blk: {
+        switch (operand) {
+            .stack_offset => |off| {
+                if (tag_abi_size <= 8) {
+                    break :blk try self.copyToRegisterWithInstTracking(inst, tag_ty, .{
+                        .stack_offset = off - offset,
+                    });
+                }
+
+                return self.fail("TODO implement get_union_tag for ABI larger than 8 bytes and operand {}", .{operand});
+            },
+            else => return self.fail("TODO implement get_union_tag for {}", .{operand}),
+        }
+    };
+
+    return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
 fn airClz(self: *Self, inst: Air.Inst.Index) !void {
