@@ -69,8 +69,8 @@ imported_globals_count: u32 = 0,
 /// The count of imported tables. This number will be appended
 /// to the table indexes when sections are merged.
 imported_tables_count: u32 = 0,
-/// Map of symbol locations, represented by its `wasm.Import`
-imports: std.AutoHashMapUnmanaged(SymbolLoc, wasm.Import) = .{},
+/// Map of symbol locations, represented by its `types.Import`
+imports: std.AutoHashMapUnmanaged(SymbolLoc, types.Import) = .{},
 /// Represents non-synthetic section entries.
 /// Used for code, data and custom sections.
 segments: std.ArrayListUnmanaged(Segment) = .{},
@@ -94,7 +94,7 @@ memories: wasm.Memory = .{ .limits = .{ .min = 0, .max = null } },
 /// Output table section
 tables: std.ArrayListUnmanaged(wasm.Table) = .{},
 /// Output export section
-exports: std.ArrayListUnmanaged(wasm.Export) = .{},
+exports: std.ArrayListUnmanaged(types.Export) = .{},
 
 /// Indirect function table, used to call function pointers
 /// When this is non-zero, we must emit a table entry,
@@ -105,8 +105,8 @@ function_table: std.AutoHashMapUnmanaged(u32, u32) = .{},
 
 /// All object files and their data which are linked into the final binary
 objects: std.ArrayListUnmanaged(Object) = .{},
-/// A map of global names to their symbol location
-globals: std.StringHashMapUnmanaged(SymbolLoc) = .{},
+/// A map of global names (read: offset into string table) to their symbol location
+globals: std.AutoHashMapUnmanaged(u32, SymbolLoc) = .{},
 /// Maps discarded symbols and their positions to the location of the symbol
 /// it was resolved to
 discarded: std.AutoHashMapUnmanaged(SymbolLoc, SymbolLoc) = .{},
@@ -119,7 +119,8 @@ resolved_symbols: std.AutoArrayHashMapUnmanaged(SymbolLoc, void) = .{},
 symbol_atom: std.AutoHashMapUnmanaged(SymbolLoc, *Atom) = .{},
 /// Maps a symbol's location to its export name, which may differ from the decl's name
 /// which does the exporting.
-export_names: std.AutoHashMapUnmanaged(SymbolLoc, []const u8) = .{},
+/// Note: The value represents the offset into the string table, rather than the actual string.
+export_names: std.AutoHashMapUnmanaged(SymbolLoc, u32) = .{},
 
 pub const Segment = struct {
     alignment: u32,
@@ -223,6 +224,15 @@ pub const StringTable = struct {
         return mem.sliceTo(@ptrCast([*:0]const u8, self.string_data.items.ptr + off), 0);
     }
 
+    /// Returns the offset of a given string when it exists.
+    /// Will return null if the given string does not yet exist within the string table.
+    pub fn getOffset(self: *StringTable, string: []const u8) ?u32 {
+        return self.string_table.getKeyAdapted(
+            string,
+            std.hash_map.StringIndexAdapter{ .bytes = &self.string_data },
+        );
+    }
+
     /// Frees all resources of the string table. Any references pointing
     /// to the strings will be invalid.
     pub fn deinit(self: *StringTable, allocator: Allocator) void {
@@ -250,16 +260,17 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     try file.writeAll(&(wasm.magic ++ wasm.version));
 
     // As sym_index '0' is reserved, we use it for our stack pointer symbol
+    const sym_name = try wasm_bin.string_table.put(allocator, "__stack_pointer");
     const symbol = try wasm_bin.symbols.addOne(allocator);
     symbol.* = .{
-        .name = try wasm_bin.string_table.put(allocator, "__stack_pointer"),
+        .name = sym_name,
         .tag = .global,
         .flags = 0,
         .index = 0,
     };
     const loc: SymbolLoc = .{ .file = null, .index = 0 };
     try wasm_bin.resolved_symbols.putNoClobber(allocator, loc, {});
-    try wasm_bin.globals.putNoClobber(allocator, "__stack_pointer", loc);
+    try wasm_bin.globals.putNoClobber(allocator, sym_name, loc);
 
     // For object files we will import the stack pointer symbol
     if (options.output_mode == .Obj) {
@@ -268,8 +279,8 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             allocator,
             .{ .file = null, .index = 0 },
             .{
-                .module_name = wasm_bin.host_name,
-                .name = "__stack_pointer",
+                .module_name = try wasm_bin.string_table.put(allocator, wasm_bin.host_name),
+                .name = sym_name,
                 .kind = .{ .global = .{ .valtype = .i32, .mutable = true } },
             },
         );
@@ -344,6 +355,7 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             .index = sym_index,
         };
         const sym_name = object.string_table.get(symbol.name);
+        const sym_name_index = try self.string_table.put(self.base.allocator, sym_name);
 
         if (symbol.isLocal()) {
             if (symbol.isUndefined()) {
@@ -358,7 +370,7 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
         // TODO: locals are allowed to have duplicate symbol names
         // TODO: Store undefined symbols so we can verify at the end if they've all been found
         // if not, emit an error (unless --allow-undefined is enabled).
-        const maybe_existing = try self.globals.getOrPut(self.base.allocator, sym_name);
+        const maybe_existing = try self.globals.getOrPut(self.base.allocator, sym_name_index);
         if (!maybe_existing.found_existing) {
             maybe_existing.value_ptr.* = location;
             try self.resolved_symbols.putNoClobber(self.base.allocator, location, {});
@@ -383,13 +395,18 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             continue; // Do not overwrite defined symbols with undefined symbols
         }
 
+        // when both symbols are weak, we skip overwriting
+        if (existing_sym.isWeak() and symbol.isWeak()) {
+            continue;
+        }
+
         // simply overwrite with the new symbol
         log.debug("Overwriting symbol '{s}'", .{sym_name});
         log.debug("  old definition in '{s}'", .{existing_file_path});
         log.debug("  new definition in '{s}'", .{object.name});
         try self.discarded.putNoClobber(self.base.allocator, maybe_existing.value_ptr.*, location);
         maybe_existing.value_ptr.* = location;
-        try self.globals.put(self.base.allocator, sym_name, location);
+        try self.globals.put(self.base.allocator, sym_name_index, location);
         try self.resolved_symbols.put(self.base.allocator, location, {});
         assert(self.resolved_symbols.swapRemove(existing_loc));
     }
@@ -696,7 +713,7 @@ pub fn deleteExport(self: *Wasm, exp: Export) void {
     if (self.export_names.fetchRemove(loc)) |kv| {
         assert(self.globals.remove(kv.value));
     } else {
-        assert(self.globals.remove(symbol_name));
+        assert(self.globals.remove(symbol.name));
     }
 }
 
@@ -723,7 +740,9 @@ pub fn updateDeclExports(
             ));
             continue;
         }
-        if (self.globals.getPtr(exp.options.name)) |existing_loc| {
+
+        const export_name = try self.string_table.put(self.base.allocator, exp.options.name);
+        if (self.globals.getPtr(export_name)) |existing_loc| {
             if (existing_loc.index == decl.link.wasm.sym_index) continue;
             const existing_sym: Symbol = existing_loc.getSymbol(self).*;
 
@@ -775,13 +794,13 @@ pub fn updateDeclExports(
         }
         // Ensure the symbol will be exported using the given name
         if (!mem.eql(u8, exp.options.name, sym_loc.getName(self))) {
-            try self.export_names.put(self.base.allocator, sym_loc, exp.options.name);
+            try self.export_names.put(self.base.allocator, sym_loc, export_name);
         }
 
         symbol.setGlobal(true);
         try self.globals.put(
             self.base.allocator,
-            exp.options.name,
+            export_name,
             sym_loc,
         );
 
@@ -832,14 +851,14 @@ fn mapFunctionTable(self: *Wasm) void {
 
 fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
     // For the import name itself, we use the decl's name, rather than the fully qualified name
-    const decl_name = mem.sliceTo(decl.name, 0);
+    const decl_name_index = try self.string_table.put(self.base.allocator, mem.sliceTo(decl.name, 0));
     const symbol_index = decl.link.wasm.sym_index;
     const symbol: *Symbol = &self.symbols.items[symbol_index];
     symbol.setUndefined(true);
     symbol.setGlobal(true);
     try self.globals.putNoClobber(
         self.base.allocator,
-        decl_name,
+        decl_name_index,
         .{ .file = null, .index = symbol_index },
     );
     try self.resolved_symbols.put(self.base.allocator, .{ .file = null, .index = symbol_index }, {});
@@ -852,8 +871,8 @@ fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
             } else self.host_name;
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
-                    .module_name = module_name,
-                    .name = decl_name,
+                    .module_name = try self.string_table.put(self.base.allocator, module_name),
+                    .name = decl_name_index,
                     .kind = .{ .function = decl.fn_link.wasm.type_index },
                 };
             }
@@ -1001,9 +1020,18 @@ fn setupImports(self: *Wasm) !void {
         }
 
         log.debug("Symbol '{s}' will be imported from the host", .{symbol_loc.getName(self)});
-        const import = self.objects.items[symbol_loc.file.?].findImport(symbol.tag.externalType(), symbol.index);
-        // TODO: De-duplicate imports
-        try self.imports.putNoClobber(self.base.allocator, symbol_loc, import);
+        const object = self.objects.items[symbol_loc.file.?];
+        const import = object.findImport(symbol.tag.externalType(), symbol.index);
+
+        // We copy the import to a new import to ensure the names contain references
+        // to the internal string table, rather than of the object file.
+        var new_imp: types.Import = .{
+            .module_name = try self.string_table.put(self.base.allocator, object.string_table.get(import.module_name)),
+            .name = try self.string_table.put(self.base.allocator, object.string_table.get(import.name)),
+            .kind = import.kind,
+        };
+        // TODO: De-duplicate imports when they contain the same names and type
+        try self.imports.putNoClobber(self.base.allocator, symbol_loc, new_imp);
     }
 
     // Assign all indexes of the imports to their representing symbols
@@ -1013,7 +1041,7 @@ fn setupImports(self: *Wasm) !void {
     var it = self.imports.iterator();
     while (it.next()) |entry| {
         const symbol = entry.key_ptr.*.getSymbol(self);
-        const import: wasm.Import = entry.value_ptr.*;
+        const import: types.Import = entry.value_ptr.*;
         switch (import.kind) {
             .function => {
                 symbol.index = function_index;
@@ -1045,7 +1073,8 @@ fn setupImports(self: *Wasm) !void {
 /// and merges it into a single section for each.
 fn mergeSections(self: *Wasm) !void {
     // append the indirect function table if initialized
-    if (self.globals.get("__indirect_function_table")) |sym_loc| {
+    if (self.string_table.getOffset("__indirect_function_table")) |offset| {
+        const sym_loc = self.globals.get(offset).?;
         const table: wasm.Table = .{
             .limits = .{ .min = @intCast(u32, self.function_table.count()), .max = null },
             .reftype = .funcref,
@@ -1114,7 +1143,7 @@ fn mergeTypes(self: *Wasm) !void {
 
         if (symbol.isUndefined()) {
             log.debug("Adding type from extern function '{s}'", .{sym_loc.getName(self)});
-            const import: *wasm.Import = self.imports.getPtr(sym_loc).?;
+            const import: *types.Import = self.imports.getPtr(sym_loc).?;
             const original_type = object.func_types[import.kind.function];
             import.kind.function = try self.putOrGetFuncType(original_type);
         } else {
@@ -1135,13 +1164,13 @@ fn setupExports(self: *Wasm) !void {
         if (!symbol.isExported()) continue;
 
         const sym_name = sym_loc.getName(self);
-        const export_name = if (self.export_names.get(sym_loc)) |name| name else sym_name;
-        const exp: wasm.Export = .{
+        const export_name = if (self.export_names.get(sym_loc)) |name| name else symbol.name;
+        const exp: types.Export = .{
             .name = export_name,
             .kind = symbol.tag.externalType(),
             .index = symbol.index,
         };
-        log.debug("Exporting symbol '{s}' as '{s}' at index: ({d})", .{ sym_name, exp.name, exp.index });
+        log.debug("Exporting symbol '{s}' as '{s}' at index: ({d})", .{ sym_name, self.string_table.get(exp.name), exp.index });
         try self.exports.append(self.base.allocator, exp);
     }
 
@@ -1151,7 +1180,7 @@ fn setupExports(self: *Wasm) !void {
 fn setupStart(self: *Wasm) !void {
     const entry_name = self.base.options.entry orelse "_start";
 
-    const symbol_loc = self.globals.get(entry_name) orelse {
+    const symbol_name_offset = self.string_table.getOffset(entry_name) orelse {
         if (self.base.options.output_mode == .Exe) {
             if (self.base.options.wasi_exec_model == .reactor) return; // Not required for reactors
         } else {
@@ -1161,6 +1190,7 @@ fn setupStart(self: *Wasm) !void {
         return error.MissingSymbol;
     };
 
+    const symbol_loc = self.globals.get(symbol_name_offset).?;
     const symbol = symbol_loc.getSymbol(self);
     if (symbol.tag != .function) {
         log.err("Entry symbol '{s}' is not a function", .{entry_name});
@@ -1443,9 +1473,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
         // import table is always first table so emit that first
         if (import_table) {
-            const table_imp: wasm.Import = .{
-                .module_name = self.host_name,
-                .name = "__indirect_function_table",
+            const table_imp: types.Import = .{
+                .module_name = try self.string_table.put(self.base.allocator, self.host_name),
+                .name = try self.string_table.put(self.base.allocator, "__indirect_function_table"),
                 .kind = .{
                     .table = .{
                         .limits = .{
@@ -1456,23 +1486,23 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                     },
                 },
             };
-            try emitImport(writer, table_imp);
+            try self.emitImport(writer, table_imp);
         }
 
         var it = self.imports.iterator();
         while (it.next()) |entry| {
             assert(entry.key_ptr.*.getSymbol(self).isUndefined());
             const import = entry.value_ptr.*;
-            try emitImport(writer, import);
+            try self.emitImport(writer, import);
         }
 
         if (import_memory) {
-            const mem_imp: wasm.Import = .{
-                .module_name = self.host_name,
-                .name = "__linear_memory",
+            const mem_imp: types.Import = .{
+                .module_name = try self.string_table.put(self.base.allocator, self.host_name),
+                .name = try self.string_table.put(self.base.allocator, "__linear_memory"),
                 .kind = .{ .memory = self.memories.limits },
             };
-            try emitImport(writer, mem_imp);
+            try self.emitImport(writer, mem_imp);
         }
 
         try writeVecSectionHeader(
@@ -1567,8 +1597,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         for (self.exports.items) |exp| {
-            try leb.writeULEB128(writer, @intCast(u32, exp.name.len));
-            try writer.writeAll(exp.name);
+            const name = self.string_table.get(exp.name);
+            try leb.writeULEB128(writer, @intCast(u32, name.len));
+            try writer.writeAll(name);
             try leb.writeULEB128(writer, @enumToInt(exp.kind));
             try leb.writeULEB128(writer, exp.index);
         }
@@ -1747,9 +1778,12 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
 
     for (self.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(self).*;
+        const name = if (symbol.isUndefined()) blk: {
+            break :blk self.string_table.get(self.imports.get(sym_loc).?.name);
+        } else sym_loc.getName(self);
         switch (symbol.tag) {
-            .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = sym_loc.getName(self) }),
-            .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = sym_loc.getName(self) }),
+            .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = name }),
+            .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = name }),
             else => {},
         }
     }
@@ -1831,12 +1865,14 @@ fn emitInit(writer: anytype, init_expr: wasm.InitExpression) !void {
     try writer.writeByte(wasm.opcode(.end));
 }
 
-fn emitImport(writer: anytype, import: wasm.Import) !void {
-    try leb.writeULEB128(writer, @intCast(u32, import.module_name.len));
-    try writer.writeAll(import.module_name);
+fn emitImport(self: *Wasm, writer: anytype, import: types.Import) !void {
+    const module_name = self.string_table.get(import.module_name);
+    try leb.writeULEB128(writer, @intCast(u32, module_name.len));
+    try writer.writeAll(module_name);
 
-    try leb.writeULEB128(writer, @intCast(u32, import.name.len));
-    try writer.writeAll(import.name);
+    const name = self.string_table.get(import.name);
+    try leb.writeULEB128(writer, @intCast(u32, name.len));
+    try writer.writeAll(name);
 
     try writer.writeByte(@enumToInt(import.kind));
     switch (import.kind) {
@@ -2353,7 +2389,7 @@ fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *
         try leb.writeULEB128(writer, @enumToInt(symbol.tag));
         try leb.writeULEB128(writer, symbol.flags);
 
-        const sym_name = if (self.export_names.get(sym_loc)) |exp_name| exp_name else sym_loc.getName(self);
+        const sym_name = if (self.export_names.get(sym_loc)) |exp_name| self.string_table.get(exp_name) else sym_loc.getName(self);
         switch (symbol.tag) {
             .data => {
                 try leb.writeULEB128(writer, @intCast(u32, sym_name.len));
