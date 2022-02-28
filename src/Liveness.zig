@@ -317,6 +317,7 @@ fn analyzeInst(
         .unreach,
         .fence,
         .ret_addr,
+        .frame_addr,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,

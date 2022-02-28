@@ -738,7 +738,7 @@ pub fn HashMapUnmanaged(
             value: V,
         };
 
-        const Header = packed struct {
+        const Header = struct {
             values: [*]V,
             keys: [*]K,
             capacity: Size,
@@ -932,7 +932,7 @@ pub fn HashMapUnmanaged(
         }
 
         fn header(self: *const Self) *Header {
-            return @ptrCast(*Header, @ptrCast([*]Header, self.metadata.?) - 1);
+            return @ptrCast(*Header, @ptrCast([*]Header, @alignCast(@alignOf(Header), self.metadata.?)) - 1);
         }
 
         fn keys(self: *const Self) [*]K {

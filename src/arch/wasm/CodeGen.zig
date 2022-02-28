@@ -1683,6 +1683,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .assembly,
         .shl_sat,
         .ret_addr,
+        .frame_addr,
         .clz,
         .ctz,
         .popcount,

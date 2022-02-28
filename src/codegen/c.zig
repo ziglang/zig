@@ -1588,7 +1588,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .arg      => airArg(f),
 
             .breakpoint => try airBreakpoint(f),
-            .ret_addr   => try airRetAddr(f),
+            .ret_addr   => try airRetAddr(f, inst),
+            .frame_addr => try airFrameAddress(f, inst),
             .unreach    => try airUnreach(f),
             .fence      => try airFence(f, inst),
 
@@ -2717,9 +2718,17 @@ fn airBreakpoint(f: *Function) !CValue {
     return CValue.none;
 }
 
-fn airRetAddr(f: *Function) !CValue {
+fn airRetAddr(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
     const local = try f.allocLocal(Type.usize, .Const);
     try f.object.writer().writeAll(" = zig_return_address();\n");
+    return local;
+}
+
+fn airFrameAddress(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+    const local = try f.allocLocal(Type.usize, .Const);
+    try f.object.writer().writeAll(" = zig_frame_address();\n");
     return local;
 }
 

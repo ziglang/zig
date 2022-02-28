@@ -23,28 +23,30 @@ test "tuple concatenation" {
 }
 
 test "tuple multiplication" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             {
                 const t = .{} ** 4;
-                try expectEqual(0, @typeInfo(@TypeOf(t)).Struct.fields.len);
+                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 0);
             }
             {
                 const t = .{'a'} ** 4;
-                try expectEqual(4, @typeInfo(@TypeOf(t)).Struct.fields.len);
-                inline for (t) |x| try expectEqual('a', x);
+                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 4);
+                inline for (t) |x| try expect(x == 'a');
             }
             {
                 const t = .{ 1, 2, 3 } ** 4;
-                try expectEqual(12, @typeInfo(@TypeOf(t)).Struct.fields.len);
-                inline for (t) |x, i| try expectEqual(1 + i % 3, x);
+                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 12);
+                inline for (t) |x, i| try expect(x == 1 + i % 3);
             }
         }
     };
     try S.doTheTest();
     comptime try S.doTheTest();
+}
+
+test "tuple concatenation" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
     const T = struct {
         fn consume_tuple(tuple: anytype, len: usize) !void {
@@ -86,8 +88,6 @@ test "tuple multiplication" {
 }
 
 test "pass tuple to comptime var parameter" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn Foo(comptime args: anytype) !void {
             try expect(args[0] == 1);

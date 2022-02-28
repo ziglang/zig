@@ -8059,6 +8059,79 @@ fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     return block.addTyOp(.not, operand_type, operand);
 }
 
+fn analyzeTupleCat(
+    sema: *Sema,
+    block: *Block,
+    src_node: i32,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = src_node };
+
+    const lhs_tuple = lhs_ty.tupleFields();
+    const rhs_tuple = rhs_ty.tupleFields();
+    const dest_fields = lhs_tuple.types.len + rhs_tuple.types.len;
+
+    if (dest_fields == 0) {
+        return sema.addConstant(Type.initTag(.empty_struct_literal), Value.initTag(.empty_struct_value));
+    }
+    const final_len = try sema.usizeCast(block, rhs_src, dest_fields);
+
+    const types = try sema.arena.alloc(Type, final_len);
+    const values = try sema.arena.alloc(Value, final_len);
+
+    const opt_runtime_src = rs: {
+        var runtime_src: ?LazySrcLoc = null;
+        for (lhs_tuple.types) |ty, i| {
+            types[i] = ty;
+            values[i] = lhs_tuple.values[i];
+            const operand_src = lhs_src; // TODO better source location
+            if (values[i].tag() == .unreachable_value) {
+                runtime_src = operand_src;
+            }
+        }
+        const offset = lhs_tuple.types.len;
+        for (rhs_tuple.types) |ty, i| {
+            types[i + offset] = ty;
+            values[i + offset] = rhs_tuple.values[i];
+            const operand_src = rhs_src; // TODO better source location
+            if (rhs_tuple.values[i].tag() == .unreachable_value) {
+                runtime_src = operand_src;
+            }
+        }
+        break :rs runtime_src;
+    };
+
+    const tuple_ty = try Type.Tag.tuple.create(sema.arena, .{
+        .types = types,
+        .values = values,
+    });
+
+    const runtime_src = opt_runtime_src orelse {
+        const tuple_val = try Value.Tag.@"struct".create(sema.arena, values);
+        return sema.addConstant(tuple_ty, tuple_val);
+    };
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+
+    const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
+    for (lhs_tuple.types) |_, i| {
+        const operand_src = lhs_src; // TODO better source location
+        element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, lhs, @intCast(u32, i), lhs_ty);
+    }
+    const offset = lhs_tuple.types.len;
+    for (rhs_tuple.types) |_, i| {
+        const operand_src = rhs_src; // TODO better source location
+        element_refs[i + offset] =
+            try sema.tupleFieldValByIndex(block, operand_src, rhs, @intCast(u32, i), rhs_ty);
+    }
+
+    return block.addAggregateInit(tuple_ty, element_refs);
+}
+
 fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -8069,12 +8142,17 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const rhs = sema.resolveInst(extra.rhs);
     const lhs_ty = sema.typeOf(lhs);
     const rhs_ty = sema.typeOf(rhs);
+
+    if (lhs_ty.isTuple() and rhs_ty.isTuple()) {
+        return sema.analyzeTupleCat(block, inst_data.src_node, lhs, rhs);
+    }
+
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
 
-    const lhs_info = getArrayCatInfo(lhs_ty) orelse
+    const lhs_info = (try sema.getArrayCatInfo(block, lhs_src, lhs)) orelse
         return sema.fail(block, lhs_src, "expected array, found '{}'", .{lhs_ty});
-    const rhs_info = getArrayCatInfo(rhs_ty) orelse
+    const rhs_info = (try sema.getArrayCatInfo(block, rhs_src, rhs)) orelse
         return sema.fail(block, rhs_src, "expected array, found '{}'", .{rhs_ty});
     if (!lhs_info.elem_type.eql(rhs_info.elem_type)) {
         return sema.fail(block, rhs_src, "expected array of type '{}', found '{}'", .{ lhs_info.elem_type, rhs_ty });
@@ -8095,9 +8173,10 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const rhs_len = try sema.usizeCast(block, lhs_src, rhs_info.len);
             const final_len = lhs_len + rhs_len;
             const final_len_including_sent = final_len + @boolToInt(res_sent != null);
-            const is_pointer = lhs_ty.zigTypeTag() == .Pointer;
-            const lhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
-            const rhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)).? else rhs_val;
+            const lhs_single_ptr = lhs_ty.zigTypeTag() == .Pointer and !lhs_ty.isSlice();
+            const rhs_single_ptr = rhs_ty.zigTypeTag() == .Pointer and !rhs_ty.isSlice();
+            const lhs_sub_val = if (lhs_single_ptr) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
+            const rhs_sub_val = if (rhs_single_ptr) (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)).? else rhs_val;
             var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
             defer anon_decl.deinit();
 
@@ -8129,7 +8208,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             });
             const val = try Value.Tag.array.create(anon_decl.arena(), buf);
             const decl = try anon_decl.finish(ty, val);
-            if (is_pointer) {
+            if (lhs_single_ptr or rhs_single_ptr) {
                 return sema.analyzeDeclRef(decl);
             } else {
                 return sema.analyzeDeclVal(block, .unneeded, decl);
@@ -8142,17 +8221,93 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 }
 
-fn getArrayCatInfo(t: Type) ?Type.ArrayInfo {
+fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, inst: Air.Inst.Ref) !?Type.ArrayInfo {
+    const t = sema.typeOf(inst);
     return switch (t.zigTypeTag()) {
         .Array => t.arrayInfo(),
         .Pointer => blk: {
             const ptrinfo = t.ptrInfo().data;
+            if (ptrinfo.size == .Slice) {
+                const val = try sema.resolveConstValue(block, src, inst);
+                return Type.ArrayInfo{
+                    .elem_type = t.childType(),
+                    .sentinel = t.sentinel(),
+                    .len = val.sliceLen(),
+                };
+            }
             if (ptrinfo.pointee_type.zigTypeTag() != .Array) return null;
             if (ptrinfo.size != .One) return null;
             break :blk ptrinfo.pointee_type.arrayInfo();
         },
         else => null,
     };
+}
+
+fn analyzeTupleMul(
+    sema: *Sema,
+    block: *Block,
+    src_node: i32,
+    operand: Air.Inst.Ref,
+    factor: u64,
+) CompileError!Air.Inst.Ref {
+    const operand_ty = sema.typeOf(operand);
+    const operand_tuple = operand_ty.tupleFields();
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = src_node };
+
+    const tuple_len = operand_tuple.types.len;
+    const final_len_u64 = std.math.mul(u64, tuple_len, factor) catch
+        return sema.fail(block, rhs_src, "operation results in overflow", .{});
+
+    if (final_len_u64 == 0) {
+        return sema.addConstant(Type.initTag(.empty_struct_literal), Value.initTag(.empty_struct_value));
+    }
+    const final_len = try sema.usizeCast(block, rhs_src, final_len_u64);
+
+    const types = try sema.arena.alloc(Type, final_len);
+    const values = try sema.arena.alloc(Value, final_len);
+
+    const opt_runtime_src = rs: {
+        var runtime_src: ?LazySrcLoc = null;
+        for (operand_tuple.types) |ty, i| {
+            types[i] = ty;
+            values[i] = operand_tuple.values[i];
+            const operand_src = lhs_src; // TODO better source location
+            if (values[i].tag() == .unreachable_value) {
+                runtime_src = operand_src;
+            }
+        }
+        var i: usize = 1;
+        while (i < factor) : (i += 1) {
+            mem.copy(Type, types[tuple_len * i ..], operand_tuple.types);
+            mem.copy(Value, values[tuple_len * i ..], operand_tuple.values);
+        }
+        break :rs runtime_src;
+    };
+
+    const tuple_ty = try Type.Tag.tuple.create(sema.arena, .{
+        .types = types,
+        .values = values,
+    });
+
+    const runtime_src = opt_runtime_src orelse {
+        const tuple_val = try Value.Tag.@"struct".create(sema.arena, values);
+        return sema.addConstant(tuple_ty, tuple_val);
+    };
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+
+    const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
+    for (operand_tuple.types) |_, i| {
+        const operand_src = lhs_src; // TODO better source location
+        element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, operand, @intCast(u32, i), operand_ty);
+    }
+    var i: usize = 1;
+    while (i < factor) : (i += 1) {
+        mem.copy(Air.Inst.Ref, element_refs[tuple_len * i ..], element_refs[0..tuple_len]);
+    }
+
+    return block.addAggregateInit(tuple_ty, element_refs);
 }
 
 fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8169,7 +8324,12 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     // In `**` rhs has to be comptime-known, but lhs can be runtime-known
     const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize);
-    const mulinfo = getArrayCatInfo(lhs_ty) orelse
+
+    if (lhs_ty.isTuple()) {
+        return sema.analyzeTupleMul(block, inst_data.src_node, lhs, factor);
+    }
+
+    const mulinfo = (try sema.getArrayCatInfo(block, lhs_src, lhs)) orelse
         return sema.fail(block, lhs_src, "expected array, found '{}'", .{lhs_ty});
 
     const final_len_u64 = std.math.mul(u64, mulinfo.len, factor) catch
@@ -8180,7 +8340,8 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         const final_len_including_sent = final_len + @boolToInt(mulinfo.sentinel != null);
         const lhs_len = try sema.usizeCast(block, lhs_src, mulinfo.len);
 
-        const lhs_sub_val = if (lhs_ty.zigTypeTag() == .Pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
+        const is_single_ptr = lhs_ty.zigTypeTag() == .Pointer and !lhs_ty.isSlice();
+        const lhs_sub_val = if (is_single_ptr) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
 
         var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
@@ -8220,7 +8381,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             break :blk try Value.Tag.array.create(anon_decl.arena(), buf);
         };
         const decl = try anon_decl.finish(final_ty, val);
-        if (lhs_ty.zigTypeTag() == .Pointer) {
+        if (is_single_ptr) {
             return sema.analyzeDeclRef(decl);
         } else {
             return sema.analyzeDeclVal(block, .unneeded, decl);
@@ -9832,12 +9993,19 @@ fn zirRetAddr(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     try sema.requireRuntimeBlock(block, src);
     return try block.addNoOp(.ret_addr);
+}
+
+fn zirFrameAddress(
+    sema: *Sema,
+    block: *Block,
+    extended: Zir.Inst.Extended.InstData,
+) CompileError!Air.Inst.Ref {
+    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+    try sema.requireRuntimeBlock(block, src);
+    return try block.addNoOp(.frame_addr);
 }
 
 fn zirBuiltinSrc(
@@ -11726,15 +11894,6 @@ fn zirFrame(
 ) CompileError!Air.Inst.Ref {
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     return sema.fail(block, src, "TODO: Sema.zirFrame", .{});
-}
-
-fn zirFrameAddress(
-    sema: *Sema,
-    block: *Block,
-    extended: Zir.Inst.Extended.InstData,
-) CompileError!Air.Inst.Ref {
-    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
-    return sema.fail(block, src, "TODO: Sema.zirFrameAddress", .{});
 }
 
 fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -14743,6 +14902,11 @@ fn tupleFieldVal(
             tuple_ty, field_name, @errorName(err),
         });
     };
+    if (field_index >= tuple_ty.structFieldCount()) {
+        return sema.fail(block, field_name_src, "tuple {} has no such field '{s}'", .{
+            tuple_ty, field_name,
+        });
+    }
     return tupleFieldValByIndex(sema, block, src, tuple_byval, field_index, tuple_ty);
 }
 
@@ -19093,6 +19257,7 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
 /// Used to convert a u64 value to a usize value, emitting a compile error if the number
 /// is too big to fit.
 fn usizeCast(sema: *Sema, block: *Block, src: LazySrcLoc, int: u64) CompileError!usize {
+    if (@bitSizeOf(u64) <= @bitSizeOf(usize)) return int;
     return std.math.cast(usize, int) catch |err| switch (err) {
         error.Overflow => return sema.fail(block, src, "expression produces integer value {d} which is too big for this compiler implementation to handle", .{int}),
     };
