@@ -171,7 +171,6 @@ test "access a member of tagged union with conflicting enum tag name" {
 }
 
 test "constant tagged union with payload" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -271,7 +270,6 @@ fn testComparison() !void {
 }
 
 test "comparison between union and enum literal" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -343,7 +341,6 @@ pub const PackThis = union(enum) {
 };
 
 test "constant packed union" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -509,7 +506,6 @@ test "update the tag value for zero-sized unions" {
 }
 
 test "union initializer generates padding only if needed" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -522,7 +518,6 @@ test "union initializer generates padding only if needed" {
 }
 
 test "runtime tag name with single field" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -535,7 +530,6 @@ test "runtime tag name with single field" {
 }
 
 test "method call on an empty union" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -599,7 +593,6 @@ test "tagged union type" {
 }
 
 test "tagged union as return value" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -680,7 +673,6 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
 }
 
 test "switch on union with only 1 field" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
@@ -710,7 +702,6 @@ const PartialInstWithPayload = union(enum) {
 };
 
 test "union with only 1 field casted to its enum type which has enum value specified" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -848,7 +839,6 @@ test "@unionInit stored to a const" {
 }
 
 test "@unionInit can modify a union type" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
@@ -891,7 +881,6 @@ test "@unionInit can modify a pointer value" {
 }
 
 test "union no tag with struct member" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 

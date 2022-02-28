@@ -1859,6 +1859,9 @@ fn lowerToRmEnc(
     switch (reg_or_mem) {
         .register => |src_reg| {
             const encoder = try Encoder.init(code, 4);
+            if (reg.size() == 16) {
+                encoder.prefix16BitMode();
+            }
             encoder.rex(.{
                 .w = setRexWRegister(reg) or setRexWRegister(src_reg),
                 .r = reg.isExtended(),
@@ -1902,6 +1905,9 @@ fn lowerToMrEnc(
     switch (reg_or_mem) {
         .register => |dst_reg| {
             const encoder = try Encoder.init(code, 3);
+            if (dst_reg.size() == 16) {
+                encoder.prefix16BitMode();
+            }
             encoder.rex(.{
                 .w = setRexWRegister(dst_reg) or setRexWRegister(reg),
                 .r = reg.isExtended(),

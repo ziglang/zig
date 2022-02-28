@@ -3967,35 +3967,21 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
                 .dead, .unreach => unreachable,
                 .immediate => |imm| {
                     _ = try self.addInst(.{
-                        .tag = .@"test",
+                        .tag = .xor,
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(cond_reg, abi_size),
                         }).encode(),
                         .data = .{ .imm = @intCast(u32, imm) },
                     });
-                    return self.addInst(.{
-                        .tag = .cond_jmp_eq_ne,
-                        .ops = (Mir.Ops{
-                            .flags = 0b00,
-                        }).encode(),
-                        .data = .{ .inst = undefined },
-                    });
                 },
                 .register => |reg| {
                     _ = try self.addInst(.{
-                        .tag = .@"test",
+                        .tag = .xor,
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(cond_reg, abi_size),
                             .reg2 = registerAlias(reg, abi_size),
                         }).encode(),
                         .data = undefined,
-                    });
-                    return self.addInst(.{
-                        .tag = .cond_jmp_eq_ne,
-                        .ops = (Mir.Ops{
-                            .flags = 0b00,
-                        }).encode(),
-                        .data = .{ .inst = undefined },
                     });
                 },
                 .stack_offset => {
@@ -4010,6 +3996,22 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
                     return self.fail("TODO implement switch mir when case is {}", .{case});
                 },
             }
+
+            _ = try self.addInst(.{
+                .tag = .@"test",
+                .ops = (Mir.Ops{
+                    .reg1 = registerAlias(cond_reg, abi_size),
+                    .reg2 = registerAlias(cond_reg, abi_size),
+                }).encode(),
+                .data = undefined,
+            });
+            return self.addInst(.{
+                .tag = .cond_jmp_eq_ne,
+                .ops = (Mir.Ops{
+                    .flags = 0b00,
+                }).encode(),
+                .data = .{ .inst = undefined },
+            });
         },
         .stack_offset => {
             try self.spillCompareFlagsIfOccupied();
