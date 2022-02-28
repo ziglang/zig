@@ -669,16 +669,16 @@ test "peer type resolution: disjoint error sets" {
     const a: error{ One, Two } = undefined;
     const b: error{Three} = undefined;
 
-    // note: order of error set members doesn't member, may want to sort
+    // note: order of error set made to match stage1 during stage2 dev
 
     {
         const ty = @TypeOf(a, b);
         const error_set_info = @typeInfo(ty);
         try expect(error_set_info == .ErrorSet);
         try expect(error_set_info.ErrorSet.?.len == 3);
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "Three"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "One"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
     }
 
     {
@@ -686,9 +686,9 @@ test "peer type resolution: disjoint error sets" {
         const error_set_info = @typeInfo(ty);
         try expect(error_set_info == .ErrorSet);
         try expect(error_set_info.ErrorSet.?.len == 3);
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "Three"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "One"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
     }
 }
 
@@ -701,7 +701,7 @@ test "peer type resolution: error union and error set" {
     const a: error{Three} = undefined;
     const b: error{ One, Two }!u32 = undefined;
 
-    // note: order of error set members doesn't member, may want to sort
+    // note: order of error set made to match stage1 during stage2 dev
 
     {
         const ty = @TypeOf(a, b);
@@ -710,9 +710,9 @@ test "peer type resolution: error union and error set" {
 
         const error_set_info = @typeInfo(info.ErrorUnion.error_set);
         try expect(error_set_info.ErrorSet.?.len == 3);
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "Three"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "One"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
     }
 
     {
@@ -737,7 +737,7 @@ test "peer type resolution: error union after non-error" {
     const a: u32 = undefined;
     const b: error{ One, Two }!u32 = undefined;
 
-    // note: order of error set members doesn't member, may want to sort
+    // note: order of error set made to match stage1 during stage2 dev
 
     {
         const ty = @TypeOf(a, b);

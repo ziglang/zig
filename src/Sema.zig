@@ -17763,7 +17763,7 @@ fn resolvePeerTypes(
                     }
 
                     // Merge errors
-                    err_set_ty = try err_set_ty.?.errorSetMerge(sema.arena, candidate_ty);
+                    err_set_ty = try candidate_ty.errorSetMerge(sema.arena, err_set_ty.?);
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
                     continue;
@@ -17850,7 +17850,7 @@ fn resolvePeerTypes(
                     }
 
                     // Not a superset, create merged error set
-                    err_set_ty = try err_set_ty.?.errorSetMerge(sema.arena, eu_set_ty);
+                    err_set_ty = try eu_set_ty.errorSetMerge(sema.arena, err_set_ty.?);
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
                     continue;
