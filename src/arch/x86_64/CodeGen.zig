@@ -2032,42 +2032,44 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
         self.register_manager.freezeRegs(&.{offset_reg});
         defer self.register_manager.unfreezeRegs(&.{offset_reg});
 
-        const addr_reg = blk: {
-            const off = inner: {
-                switch (array) {
-                    .register => {
-                        const off = @intCast(i32, try self.allocMem(
-                            inst,
-                            @intCast(u32, array_ty.abiSize(self.target.*)),
-                            array_ty.abiAlignment(self.target.*),
-                        ));
-                        try self.genSetStack(array_ty, off, array, .{});
-                        break :inner off;
-                    },
-                    .stack_offset => |off| {
-                        break :inner off;
-                    },
-                    .memory,
-                    .got_load,
-                    .direct_load,
-                    => {
-                        break :blk try self.loadMemPtrIntoRegister(Type.usize, array);
-                    },
-                    else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
-                }
-            };
-            const addr_reg = try self.register_manager.allocReg(null);
-            // lea reg, [rbp]
-            _ = try self.addInst(.{
-                .tag = .lea,
-                .ops = (Mir.Ops{
-                    .reg1 = addr_reg.to64(),
-                    .reg2 = .rbp,
-                }).encode(),
-                .data = .{ .imm = @bitCast(u32, -off) },
-            });
-            break :blk addr_reg.to64();
-        };
+        const addr_reg = try self.register_manager.allocReg(null);
+        switch (array) {
+            .register => {
+                const off = @intCast(i32, try self.allocMem(
+                    inst,
+                    @intCast(u32, array_ty.abiSize(self.target.*)),
+                    array_ty.abiAlignment(self.target.*),
+                ));
+                try self.genSetStack(array_ty, off, array, .{});
+                // lea reg, [rbp]
+                _ = try self.addInst(.{
+                    .tag = .lea,
+                    .ops = (Mir.Ops{
+                        .reg1 = addr_reg.to64(),
+                        .reg2 = .rbp,
+                    }).encode(),
+                    .data = .{ .imm = @bitCast(u32, -off) },
+                });
+            },
+            .stack_offset => |off| {
+                // lea reg, [rbp]
+                _ = try self.addInst(.{
+                    .tag = .lea,
+                    .ops = (Mir.Ops{
+                        .reg1 = addr_reg.to64(),
+                        .reg2 = .rbp,
+                    }).encode(),
+                    .data = .{ .imm = @bitCast(u32, -off) },
+                });
+            },
+            .memory,
+            .got_load,
+            .direct_load,
+            => {
+                try self.loadMemPtrIntoRegister(addr_reg, Type.usize, array);
+            },
+            else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
+        }
 
         // TODO we could allocate register here, but need to expect addr register and potentially
         // offset register.
@@ -2373,7 +2375,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn loadMemPtrIntoRegister(self: *Self, ptr_ty: Type, ptr: MCValue) InnerError!Register {
+fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue) InnerError!void {
     switch (ptr) {
         .got_load,
         .direct_load,
@@ -2383,11 +2385,10 @@ fn loadMemPtrIntoRegister(self: *Self, ptr_ty: Type, ptr: MCValue) InnerError!Re
                 .direct_load => 0b01,
                 else => unreachable,
             };
-            const reg = try self.register_manager.allocReg(null);
             _ = try self.addInst(.{
                 .tag = .lea_pie,
                 .ops = (Mir.Ops{
-                    .reg1 = reg.to64(),
+                    .reg1 = registerAlias(reg, @intCast(u32, ptr_ty.abiSize(self.target.*))),
                     .flags = flags,
                 }).encode(),
                 .data = .{
@@ -2397,13 +2398,11 @@ fn loadMemPtrIntoRegister(self: *Self, ptr_ty: Type, ptr: MCValue) InnerError!Re
                     },
                 },
             });
-            return reg.to64();
         },
         .memory => |addr| {
             // TODO: in case the address fits in an imm32 we can use [ds:imm32]
             // instead of wasting an instruction copying the address to a register
-            const reg = try self.copyToTmpRegister(ptr_ty, .{ .immediate = addr });
-            return reg.to64();
+            try self.genSetReg(ptr_ty, reg, .{ .immediate = addr });
         },
         else => unreachable,
     }
@@ -2503,7 +2502,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         .data = .{ .imm = 0 },
                     });
                 },
-                .stack_offset => {
+                .got_load,
+                .direct_load,
+                .memory,
+                .stack_offset,
+                => {
                     if (abi_size <= 8) {
                         const tmp_reg = try self.copyToTmpRegister(value_ty, value);
                         return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
@@ -2526,7 +2529,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             value.freezeIfRegister(&self.register_manager);
             defer value.unfreezeIfRegister(&self.register_manager);
 
-            const addr_reg = try self.loadMemPtrIntoRegister(ptr_ty, ptr);
+            const addr_reg = try self.register_manager.allocReg(null);
+            try self.loadMemPtrIntoRegister(addr_reg, ptr_ty, ptr);
 
             // to get the actual address of the value we want to modify we have to go through the GOT
             // mov reg, [reg]
@@ -4678,43 +4682,38 @@ fn genInlineMemcpy(self: *Self, stack_offset: i32, ty: Type, val: MCValue, opts:
     if (opts.dest_stack_base) |reg| self.register_manager.freezeRegs(&.{reg});
     defer if (opts.dest_stack_base) |reg| self.register_manager.unfreezeRegs(&.{reg});
 
-    const addr_reg: Register = blk: {
-        switch (val) {
-            .memory,
-            .direct_load,
-            .got_load,
-            => {
-                break :blk try self.loadMemPtrIntoRegister(Type.usize, val);
-            },
-            .ptr_stack_offset, .stack_offset => |off| {
-                const addr_reg = (try self.register_manager.allocReg(null)).to64();
-                _ = try self.addInst(.{
-                    .tag = .lea,
-                    .ops = (Mir.Ops{
-                        .reg1 = addr_reg,
-                        .reg2 = opts.source_stack_base orelse .rbp,
-                    }).encode(),
-                    .data = .{ .imm = @bitCast(u32, -off) },
-                });
-                break :blk addr_reg;
-            },
-            .register => |reg| {
-                const addr_reg = try self.register_manager.allocReg(null);
-                _ = try self.addInst(.{
-                    .tag = .mov,
-                    .ops = (Mir.Ops{
-                        .reg1 = registerAlias(addr_reg, @divExact(reg.size(), 8)),
-                        .reg2 = reg,
-                    }).encode(),
-                    .data = undefined,
-                });
-                break :blk addr_reg.to64();
-            },
-            else => {
-                return self.fail("TODO implement memcpy for setting stack from {}", .{val});
-            },
-        }
-    };
+    const addr_reg = try self.register_manager.allocReg(null);
+    switch (val) {
+        .memory,
+        .direct_load,
+        .got_load,
+        => {
+            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, val);
+        },
+        .ptr_stack_offset, .stack_offset => |off| {
+            _ = try self.addInst(.{
+                .tag = .lea,
+                .ops = (Mir.Ops{
+                    .reg1 = addr_reg.to64(),
+                    .reg2 = opts.source_stack_base orelse .rbp,
+                }).encode(),
+                .data = .{ .imm = @bitCast(u32, -off) },
+            });
+        },
+        .register => |reg| {
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = registerAlias(addr_reg, @divExact(reg.size(), 8)),
+                    .reg2 = reg,
+                }).encode(),
+                .data = undefined,
+            });
+        },
+        else => {
+            return self.fail("TODO implement memcpy for setting stack from {}", .{val});
+        },
+    }
 
     self.register_manager.freezeRegs(&.{addr_reg});
     defer self.register_manager.unfreezeRegs(&.{addr_reg});
