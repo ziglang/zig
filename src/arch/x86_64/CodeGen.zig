@@ -5433,24 +5433,14 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     }
 
     switch (typed_value.ty.zigTypeTag()) {
-        .Array => {
-            return self.lowerUnnamedConst(typed_value);
-        },
         .Pointer => switch (typed_value.ty.ptrSize()) {
-            .Slice => {
-                return self.lowerUnnamedConst(typed_value);
-            },
+            .Slice => {},
             else => {
                 switch (typed_value.val.tag()) {
                     .int_u64 => {
                         return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
                     },
-                    .slice => {
-                        return self.lowerUnnamedConst(typed_value);
-                    },
-                    else => {
-                        return self.fail("TODO codegen more kinds of const pointers: {}", .{typed_value.val.tag()});
-                    },
+                    else => {},
                 }
             },
         },
@@ -5459,10 +5449,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             if (info.bits <= ptr_bits and info.signedness == .signed) {
                 return MCValue{ .immediate = @bitCast(u64, typed_value.val.toSignedInt()) };
             }
-            if (info.bits > ptr_bits or info.signedness == .signed) {
-                return self.fail("TODO const int bigger than ptr and signed int", .{});
+            if (!(info.bits > ptr_bits or info.signedness == .signed)) {
+                return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
             }
-            return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
         },
         .Bool => {
             return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
@@ -5482,7 +5471,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             } else if (typed_value.ty.abiSize(self.target.*) == 1) {
                 return MCValue{ .immediate = @boolToInt(typed_value.val.isNull()) };
             }
-            return self.fail("TODO non pointer optionals", .{});
         },
         .Enum => {
             if (typed_value.val.castTag(.enum_field_index)) |field_index| {
@@ -5529,16 +5517,11 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                     return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
                 }
             }
-            return self.lowerUnnamedConst(typed_value);
         },
-        .Struct => {
-            return self.lowerUnnamedConst(typed_value);
-        },
-        .Union => {
-            return self.lowerUnnamedConst(typed_value);
-        },
-        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
+        else => {},
     }
+
+    return self.lowerUnnamedConst(typed_value);
 }
 
 const CallMCValues = struct {
