@@ -341,9 +341,15 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                             const slot_index = @intCast(SlotIndex, used_bits_byte * 8 + bit_index);
                             const stack_trace = bucketStackTrace(bucket, size_class, slot_index, .alloc);
                             const addr = bucket.page + slot_index * size_class;
-                            log.err("memory address 0x{x} leaked: {s}", .{
-                                @ptrToInt(addr), stack_trace,
-                            });
+                            if (builtin.zig_backend == .stage1) {
+                                log.err("memory address 0x{x} leaked: {s}", .{
+                                    @ptrToInt(addr), stack_trace,
+                                });
+                            } else { // TODO
+                                log.err("memory address 0x{x} leaked", .{
+                                    @ptrToInt(addr),
+                                });
+                            }
                             leaks = true;
                         }
                         if (bit_index == math.maxInt(u3))
@@ -372,9 +378,16 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             var it = self.large_allocations.valueIterator();
             while (it.next()) |large_alloc| {
                 if (config.retain_metadata and large_alloc.freed) continue;
-                log.err("memory address 0x{x} leaked: {s}", .{
-                    @ptrToInt(large_alloc.bytes.ptr), large_alloc.getStackTrace(.alloc),
-                });
+                const stack_trace = large_alloc.getStackTrace(.alloc);
+                if (builtin.zig_backend == .stage1) {
+                    log.err("memory address 0x{x} leaked: {s}", .{
+                        @ptrToInt(large_alloc.bytes.ptr), stack_trace,
+                    });
+                } else { // TODO
+                    log.err("memory address 0x{x} leaked", .{
+                        @ptrToInt(large_alloc.bytes.ptr),
+                    });
+                }
                 leaks = true;
             }
             return leaks;
