@@ -9993,12 +9993,19 @@ fn zirRetAddr(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     try sema.requireRuntimeBlock(block, src);
     return try block.addNoOp(.ret_addr);
+}
+
+fn zirFrameAddress(
+    sema: *Sema,
+    block: *Block,
+    extended: Zir.Inst.Extended.InstData,
+) CompileError!Air.Inst.Ref {
+    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+    try sema.requireRuntimeBlock(block, src);
+    return try block.addNoOp(.frame_addr);
 }
 
 fn zirBuiltinSrc(
@@ -11887,16 +11894,6 @@ fn zirFrame(
 ) CompileError!Air.Inst.Ref {
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     return sema.fail(block, src, "TODO: Sema.zirFrame", .{});
-}
-
-fn zirFrameAddress(
-    sema: *Sema,
-    block: *Block,
-    extended: Zir.Inst.Extended.InstData,
-) CompileError!Air.Inst.Ref {
-    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
-    try sema.requireFunctionBlock(block, src);
-    return block.addTy(.frame_address, Type.@"usize");
 }
 
 fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

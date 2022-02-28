@@ -218,6 +218,9 @@ pub const Inst = struct {
         /// Yields the return address of the current function.
         /// Uses the `no_op` field.
         ret_addr,
+        /// Implements @frameAddress builtin.
+        /// Uses the `no_op` field.
+        frame_addr,
         /// Function call.
         /// Result type is the return type of the function being called.
         /// Uses the `pl_op` field with the `Call` payload. operand is the callee.
@@ -580,10 +583,6 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field.
         field_parent_ptr,
 
-        /// Implements @frameAddress builtin.
-        /// Uses the `ty` field.
-        frame_address,
-
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -943,7 +942,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ptrtoint,
         .slice_len,
         .ret_addr,
-        .frame_address,
+        .frame_addr,
         => return Type.initTag(.usize),
 
         .bool_to_int => return Type.initTag(.u1),

@@ -1683,6 +1683,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .assembly,
         .shl_sat,
         .ret_addr,
+        .frame_addr,
         .clz,
         .ctz,
         .popcount,
@@ -1726,7 +1727,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .error_name,
         .errunion_payload_ptr_set,
         .field_parent_ptr,
-        .frame_address,
 
         // For these 4, probably best to wait until https://github.com/ziglang/zig/issues/10248
         // is implemented in the frontend before implementing them here in the wasm backend.

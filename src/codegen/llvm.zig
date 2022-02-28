@@ -2135,6 +2135,7 @@ pub const FuncGen = struct {
                 .switch_br      => try self.airSwitchBr(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
+                .frame_addr     => try self.airFrameAddress(inst),
                 .call           => try self.airCall(inst),
                 .cond_br        => try self.airCondBr(inst),
                 .intcast        => try self.airIntCast(inst),
@@ -2213,8 +2214,6 @@ pub const FuncGen = struct {
                 .wrap_optional         => try self.airWrapOptional(inst),
                 .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
                 .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
-
-                .frame_address => try self.airFrameAddress(inst),
 
                 .constant => unreachable,
                 .const_ty => unreachable,
@@ -3341,16 +3340,6 @@ pub const FuncGen = struct {
         return partial;
     }
 
-    fn airFrameAddress(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst)) return null;
-
-        const llvm_i32 = try self.dg.llvmType(Type.initTag(.i32));
-        const llvm_fn = self.getIntrinsic("llvm.frameaddress", &.{llvm_i32});
-        const ptr_val = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{llvm_i32.constNull()}, 1, .Fast, .Auto, "");
-        const llvm_usize = try self.dg.llvmType(Type.usize);
-        return self.builder.buildPtrToInt(ptr_val, llvm_usize, "");
-    }
-
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
@@ -4112,12 +4101,25 @@ pub const FuncGen = struct {
     }
 
     fn airRetAddr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        _ = inst;
-        const i32_zero = self.context.intType(32).constNull();
-        const usize_llvm_ty = try self.dg.llvmType(Type.usize);
+        if (self.liveness.isUnused(inst)) return null;
+
+        const llvm_i32 = self.context.intType(32);
         const llvm_fn = self.getIntrinsic("llvm.returnaddress", &.{});
-        const ptr_val = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{i32_zero}, 1, .Fast, .Auto, "");
-        return self.builder.buildPtrToInt(ptr_val, usize_llvm_ty, "");
+        const params = [_]*const llvm.Value{llvm_i32.constNull()};
+        const ptr_val = self.builder.buildCall(llvm_fn, &params, params.len, .Fast, .Auto, "");
+        const llvm_usize = try self.dg.llvmType(Type.usize);
+        return self.builder.buildPtrToInt(ptr_val, llvm_usize, "");
+    }
+
+    fn airFrameAddress(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const llvm_i32 = self.context.intType(32);
+        const llvm_fn = self.getIntrinsic("llvm.frameaddress", &.{llvm_i32});
+        const params = [_]*const llvm.Value{llvm_i32.constNull()};
+        const ptr_val = self.builder.buildCall(llvm_fn, &params, params.len, .Fast, .Auto, "");
+        const llvm_usize = try self.dg.llvmType(Type.usize);
+        return self.builder.buildPtrToInt(ptr_val, llvm_usize, "");
     }
 
     fn airFence(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

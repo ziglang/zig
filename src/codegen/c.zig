@@ -1588,7 +1588,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .arg      => airArg(f),
 
             .breakpoint => try airBreakpoint(f),
-            .ret_addr   => try airRetAddr(f),
+            .ret_addr   => try airRetAddr(f, inst),
+            .frame_addr => try airFrameAddress(f, inst),
             .unreach    => try airUnreach(f),
             .fence      => try airFence(f, inst),
 
@@ -1757,8 +1758,6 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .wrap_errunion_payload       => try airWrapErrUnionPay(f, inst),
             .wrap_errunion_err           => try airWrapErrUnionErr(f, inst),
             .errunion_payload_ptr_set    => try airErrUnionPayloadPtrSet(f, inst),
-
-            .frame_address => try airFrameAddress(f, inst),
             // zig fmt: on
         };
         switch (result_value) {
@@ -2719,9 +2718,17 @@ fn airBreakpoint(f: *Function) !CValue {
     return CValue.none;
 }
 
-fn airRetAddr(f: *Function) !CValue {
+fn airRetAddr(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
     const local = try f.allocLocal(Type.usize, .Const);
     try f.object.writer().writeAll(" = zig_return_address();\n");
+    return local;
+}
+
+fn airFrameAddress(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+    const local = try f.allocLocal(Type.usize, .Const);
+    try f.object.writer().writeAll(" = zig_frame_address();\n");
     return local;
 }
 
@@ -3198,11 +3205,6 @@ fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = inst;
     return f.fail("TODO: C backend: implement airErrUnionPayloadPtrSet", .{});
-}
-
-fn airFrameAddress(f: *Function, inst: Air.Inst.Index) !CValue {
-    _ = inst;
-    return f.fail("TODO: C backend: implement airFrameAddress", .{});
 }
 
 fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {

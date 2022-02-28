@@ -662,7 +662,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
             .breakpoint      => try self.airBreakpoint(),
-            .ret_addr        => try self.airRetAddr(),
+            .ret_addr        => try self.airRetAddr(inst),
+            .frame_addr      => try self.airFrameAddress(inst),
             .fence           => try self.airFence(),
             .call            => try self.airCall(inst),
             .cond_br         => try self.airCondBr(inst),
@@ -753,8 +754,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_optional         => try self.airWrapOptional(inst),
             .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
-
-            .frame_address => try self.airFrameAddress(inst),
             // zig fmt: on
         }
 
@@ -1864,15 +1863,6 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         break :result MCValue{ .stack_offset = stack_offset };
     };
 
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-}
-
-fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airFrameAddress for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -3138,8 +3128,14 @@ fn airBreakpoint(self: *Self) !void {
     return self.finishAirBookkeeping();
 }
 
-fn airRetAddr(self: *Self) !void {
-    return self.fail("TODO implement airRetAddr for {}", .{self.target.cpu.arch});
+fn airRetAddr(self: *Self, inst: Air.Inst.Index) !void {
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airRetAddr for x86_64", .{});
+    return self.finishAir(inst, result, .{ .none, .none, .none });
+}
+
+fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airFrameAddress for x86_64", .{});
+    return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
 fn airFence(self: *Self) !void {
