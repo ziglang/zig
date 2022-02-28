@@ -753,6 +753,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_optional         => try self.airWrapOptional(inst),
             .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
+
+            .frame_address => try self.airFrameAddress(inst),
             // zig fmt: on
         }
 
@@ -1862,6 +1864,15 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         break :result MCValue{ .stack_offset = stack_offset };
     };
 
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        return self.fail("TODO implement airFrameAddress for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 

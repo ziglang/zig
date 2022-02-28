@@ -177,6 +177,7 @@ const Writer = struct {
             .alloc,
             .ret_ptr,
             .arg,
+            .frame_address,
             => try w.writeTy(s, inst),
 
             .not,

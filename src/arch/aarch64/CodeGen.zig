@@ -670,6 +670,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_optional         => try self.airWrapOptional(inst),
             .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
+
+            .frame_address => try self.airFrameAddress(inst),
             // zig fmt: on
         }
 
@@ -1515,6 +1517,13 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         return self.fail("TODO implement wrap errunion error for non-empty payloads", .{});
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
+    _ = extra;
+    return self.fail("TODO implement codegen airFrameAddress", .{});
 }
 
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {

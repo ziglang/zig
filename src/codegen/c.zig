@@ -1757,6 +1757,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .wrap_errunion_payload       => try airWrapErrUnionPay(f, inst),
             .wrap_errunion_err           => try airWrapErrUnionErr(f, inst),
             .errunion_payload_ptr_set    => try airErrUnionPayloadPtrSet(f, inst),
+
+            .frame_address => try airFrameAddress(f, inst),
             // zig fmt: on
         };
         switch (result_value) {
@@ -3196,6 +3198,11 @@ fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = inst;
     return f.fail("TODO: C backend: implement airErrUnionPayloadPtrSet", .{});
+}
+
+fn airFrameAddress(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = inst;
+    return f.fail("TODO: C backend: implement airFrameAddress", .{});
 }
 
 fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {

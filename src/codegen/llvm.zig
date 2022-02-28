@@ -2214,6 +2214,8 @@ pub const FuncGen = struct {
                 .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
                 .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
+                .frame_address => try self.airFrameAddress(inst),
+
                 .constant => unreachable,
                 .const_ty => unreachable,
                 .unreach  => self.airUnreach(inst),
@@ -3337,6 +3339,16 @@ pub const FuncGen = struct {
         const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), operand, 0, "");
         // TODO set payload bytes to undef
         return partial;
+    }
+
+    fn airFrameAddress(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const llvm_i32 = try self.dg.llvmType(Type.initTag(.i32));
+        const llvm_fn = self.getIntrinsic("llvm.frameaddress", &.{llvm_i32});
+        const ptr_val = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{llvm_i32.constNull()}, 1, .Fast, .Auto, "");
+        const llvm_usize = try self.dg.llvmType(Type.usize);
+        return self.builder.buildPtrToInt(ptr_val, llvm_usize, "");
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

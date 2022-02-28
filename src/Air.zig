@@ -580,6 +580,10 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field.
         field_parent_ptr,
 
+        /// Implements @frameAddress builtin.
+        /// Uses the `ty` field.
+        frame_address,
+
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -939,6 +943,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ptrtoint,
         .slice_len,
         .ret_addr,
+        .frame_address,
         => return Type.initTag(.usize),
 
         .bool_to_int => return Type.initTag(.u1),

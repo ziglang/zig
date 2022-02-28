@@ -8078,9 +8078,10 @@ fn analyzeTupleCat(
     if (dest_fields == 0) {
         return sema.addConstant(Type.initTag(.empty_struct_literal), Value.initTag(.empty_struct_value));
     }
+    const final_len = try sema.usizeCast(block, rhs_src, dest_fields);
 
-    const types = try sema.arena.alloc(Type, dest_fields);
-    const values = try sema.arena.alloc(Value, dest_fields);
+    const types = try sema.arena.alloc(Type, final_len);
+    const values = try sema.arena.alloc(Value, final_len);
 
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
@@ -8116,7 +8117,7 @@ fn analyzeTupleCat(
 
     try sema.requireRuntimeBlock(block, runtime_src);
 
-    const element_refs = try sema.arena.alloc(Air.Inst.Ref, dest_fields);
+    const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
     for (lhs_tuple.types) |_, i| {
         const operand_src = lhs_src; // TODO better source location
         element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, lhs, @intCast(u32, i), lhs_ty);
@@ -8261,9 +8262,10 @@ fn analyzeTupleMul(
     if (final_len_u64 == 0) {
         return sema.addConstant(Type.initTag(.empty_struct_literal), Value.initTag(.empty_struct_value));
     }
+    const final_len = try sema.usizeCast(block, rhs_src, final_len_u64);
 
-    const types = try sema.arena.alloc(Type, final_len_u64);
-    const values = try sema.arena.alloc(Value, final_len_u64);
+    const types = try sema.arena.alloc(Type, final_len);
+    const values = try sema.arena.alloc(Value, final_len);
 
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
@@ -8295,7 +8297,7 @@ fn analyzeTupleMul(
 
     try sema.requireRuntimeBlock(block, runtime_src);
 
-    const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len_u64);
+    const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
     for (operand_tuple.types) |_, i| {
         const operand_src = lhs_src; // TODO better source location
         element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, operand, @intCast(u32, i), operand_ty);
@@ -11893,7 +11895,8 @@ fn zirFrameAddress(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
-    return sema.fail(block, src, "TODO: Sema.zirFrameAddress", .{});
+    try sema.requireFunctionBlock(block, src);
+    return block.addTy(.frame_address, Type.@"usize");
 }
 
 fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -19257,6 +19260,7 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
 /// Used to convert a u64 value to a usize value, emitting a compile error if the number
 /// is too big to fit.
 fn usizeCast(sema: *Sema, block: *Block, src: LazySrcLoc, int: u64) CompileError!usize {
+    if (@bitSizeOf(u64) <= @bitSizeOf(usize)) return int;
     return std.math.cast(usize, int) catch |err| switch (err) {
         error.Overflow => return sema.fail(block, src, "expression produces integer value {d} which is too big for this compiler implementation to handle", .{int}),
     };
