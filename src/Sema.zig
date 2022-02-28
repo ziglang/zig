@@ -17783,21 +17783,18 @@ fn resolvePeerTypes(
                     const chosen_child_ty = chosen_ty.childType();
                     const candidate_child_ty = candidate_ty.childType();
                     if (chosen_child_ty.zigTypeTag() == .Array and candidate_child_ty.zigTypeTag() == .Array) {
-                        // If there is a sentinel, it must match
-                        if (chosen_child_ty.sentinel()) |chosen_sentinel| {
-                            if (candidate_child_ty.sentinel()) |candidate_sentinel| {
-                                if (!chosen_sentinel.eql(candidate_sentinel, chosen_child_ty)) {
-                                    continue;
-                                }
-                            } else {
-                                continue;
-                            }
-                        }
-
                         // If we can cerce the element types, then we can do this.
                         const chosen_elem_ty = chosen_child_ty.elemType2();
                         const candidate_elem_ty = candidate_child_ty.elemType2();
                         if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
+                            // If there is a sentinel, it must match
+                            if (chosen_child_ty.sentinel()) |chosen_sentinel| {
+                                if (candidate_child_ty.sentinel()) |candidate_sentinel| {
+                                    if (!chosen_sentinel.eql(candidate_sentinel, chosen_elem_ty))
+                                        continue;
+                                } else continue;
+                            }
+
                             chosen = candidate;
                             chosen_i = candidate_i + 1;
 
