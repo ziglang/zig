@@ -13384,11 +13384,11 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const args = sema.resolveInst(extra.data.args);
 
     const modifier: std.builtin.CallOptions.Modifier = modifier: {
-        const export_options_ty = try sema.getBuiltinType(block, options_src, "CallOptions");
-        const coerced_options = try sema.coerce(block, export_options_ty, options, options_src);
+        const call_options_ty = try sema.getBuiltinType(block, options_src, "CallOptions");
+        const coerced_options = try sema.coerce(block, call_options_ty, options, options_src);
         const options_val = try sema.resolveConstValue(block, options_src, coerced_options);
         const fields = options_val.castTag(.@"struct").?.data;
-        const struct_obj = export_options_ty.castTag(.@"struct").?.data;
+        const struct_obj = call_options_ty.castTag(.@"struct").?.data;
         const modifier_index = struct_obj.fields.getIndex("modifier").?;
         const stack_index = struct_obj.fields.getIndex("stack").?;
         if (!fields[stack_index].isNull()) {
@@ -13743,6 +13743,7 @@ fn zirVarExtended(
         .is_extern = small.is_extern,
         .is_mutable = true, // TODO get rid of this unused field
         .is_threadlocal = small.is_threadlocal,
+        .is_weak_linkage = false,
         .lib_name = null,
     };
 
@@ -13937,7 +13938,98 @@ fn zirBuiltinExtern(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
-    return sema.fail(block, src, "TODO: implement Sema.zirBuiltinExtern", .{});
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+
+    var ty = try sema.resolveType(block, ty_src, extra.lhs);
+    const options_inst = sema.resolveInst(extra.rhs);
+
+    const options = options: {
+        const extern_options_ty = try sema.getBuiltinType(block, options_src, "ExternOptions");
+        const coerced_options = try sema.coerce(block, extern_options_ty, options_inst, options_src);
+        const options_val = try sema.resolveConstValue(block, options_src, coerced_options);
+        const fields = options_val.castTag(.@"struct").?.data;
+        const struct_obj = extern_options_ty.castTag(.@"struct").?.data;
+        const name_index = struct_obj.fields.getIndex("name").?;
+        const library_name_index = struct_obj.fields.getIndex("library_name").?;
+        const linkage_index = struct_obj.fields.getIndex("linkage").?;
+        const is_thread_local_index = struct_obj.fields.getIndex("is_thread_local").?;
+
+        var library_name: ?[]const u8 = null;
+        if (!fields[library_name_index].isNull()) {
+            const payload = fields[library_name_index].castTag(.opt_payload).?.data;
+            library_name = try payload.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena);
+        }
+
+        break :options std.builtin.ExternOptions{
+            .name = try fields[name_index].toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena),
+            .library_name = library_name,
+            .linkage = fields[linkage_index].toEnum(std.builtin.GlobalLinkage),
+            .is_thread_local = fields[is_thread_local_index].toBool(),
+        };
+    };
+
+    if (!ty.isPtrAtRuntime()) {
+        return sema.fail(block, options_src, "expected (optional) pointer", .{});
+    }
+
+    if (options.name.len == 0) {
+        return sema.fail(block, options_src, "extern symbol name cannot be empty", .{});
+    }
+
+    if (options.linkage != .Weak and options.linkage != .Strong) {
+        return sema.fail(block, options_src, "extern symbol must use strong or weak linkage", .{});
+    }
+
+    if (options.linkage == .Weak and !ty.ptrAllowsZero()) {
+        ty = try Type.optional(sema.arena, ty);
+    }
+
+    // TODO check duplicate extern
+
+    const new_decl = try sema.mod.allocateNewDecl(try sema.gpa.dupeZ(u8, options.name), sema.owner_decl.src_namespace, sema.owner_decl.src_node, null);
+    errdefer new_decl.destroy(sema.mod);
+
+    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+    errdefer new_decl_arena.deinit();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
+
+    const new_var = try new_decl_arena_allocator.create(Module.Var);
+    errdefer new_decl_arena_allocator.destroy(new_var);
+
+    new_var.* = .{
+        .owner_decl = sema.owner_decl,
+        .init = Value.initTag(.unreachable_value),
+        .is_extern = true,
+        .is_mutable = false, // TODO get rid of this unused field
+        .is_threadlocal = options.is_thread_local,
+        .is_weak_linkage = options.linkage == .Weak,
+        .lib_name = null,
+    };
+
+    if (options.library_name) |library_name| {
+        if (library_name.len == 0) {
+            return sema.fail(block, options_src, "library name name cannot be empty", .{});
+        }
+        new_var.lib_name = try sema.handleExternLibName(block, options_src, library_name);
+    }
+
+    new_decl.src_line = sema.owner_decl.src_line;
+    new_decl.ty = try ty.copy(new_decl_arena_allocator);
+    new_decl.val = try Value.Tag.variable.create(new_decl_arena_allocator, new_var);
+    new_decl.align_val = Value.@"null";
+    new_decl.linksection_val = Value.@"null";
+    new_decl.has_tv = true;
+    new_decl.analysis = .complete;
+    new_decl.generation = sema.mod.generation;
+
+    const arena_state = try new_decl_arena_allocator.create(std.heap.ArenaAllocator.State);
+    arena_state.* = new_decl_arena.state;
+    new_decl.value_arena = arena_state;
+
+    const ref = try sema.analyzeDeclRef(new_decl);
+    try sema.requireRuntimeBlock(block, src);
+    return block.addBitCast(ty, ref);
 }
 
 fn requireFunctionBlock(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
