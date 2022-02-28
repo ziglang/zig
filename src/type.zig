@@ -4531,7 +4531,15 @@ pub const Type = extern union {
     };
 
     pub fn isTuple(ty: Type) bool {
-        return ty.tag() == .tuple;
+        return ty.tag() == .tuple or ty.tag() == .empty_struct_literal;
+    }
+
+    pub fn tupleFields(ty: Type) Payload.Tuple.Data {
+        return switch (ty.tag()) {
+            .tuple => ty.castTag(.tuple).?.data,
+            .empty_struct_literal => .{ .types = &.{}, .values = &.{} },
+            else => unreachable,
+        };
     }
 
     /// The sub-types are named after what fields they contain.
@@ -4683,11 +4691,13 @@ pub const Type = extern union {
 
         pub const Tuple = struct {
             base: Payload = .{ .tag = .tuple },
-            data: struct {
+            data: Data,
+
+            pub const Data = struct {
                 types: []Type,
                 /// unreachable_value elements are used to indicate runtime-known.
                 values: []Value,
-            },
+            };
         };
 
         pub const Union = struct {
