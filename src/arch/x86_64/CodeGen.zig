@@ -1738,13 +1738,21 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
     }
     const err_union_ty = self.air.typeOf(ty_op.operand);
+    const err_ty = err_union_ty.errorUnionSet();
     const payload_ty = err_union_ty.errorUnionPayload();
     const operand = try self.resolveInst(ty_op.operand);
+    operand.freezeIfRegister(&self.register_manager);
+    defer operand.unfreezeIfRegister(&self.register_manager);
+
     const result: MCValue = result: {
         if (!payload_ty.hasRuntimeBits()) break :result operand;
         switch (operand) {
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off };
+            },
+            .register => {
+                // TODO reuse operand
+                break :result try self.copyToRegisterWithInstTracking(inst, err_ty, operand);
             },
             else => return self.fail("TODO implement unwrap_err_err for {}", .{operand}),
         }
@@ -1763,12 +1771,23 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
         if (!payload_ty.hasRuntimeBits()) break :result MCValue.none;
 
         const operand = try self.resolveInst(ty_op.operand);
+        operand.freezeIfRegister(&self.register_manager);
+        defer operand.unfreezeIfRegister(&self.register_manager);
+
         const err_ty = err_union_ty.errorUnionSet();
-        const err_abi_size = @intCast(u32, err_ty.abiSize(self.target.*));
         switch (operand) {
             .stack_offset => |off| {
+                const err_abi_size = @intCast(u32, err_ty.abiSize(self.target.*));
                 const offset = off - @intCast(i32, err_abi_size);
                 break :result MCValue{ .stack_offset = offset };
+            },
+            .register => {
+                // TODO reuse operand
+                const result = try self.copyToRegisterWithInstTracking(inst, err_union_ty, operand);
+                try self.shiftRegister(result.register.to64(), @intCast(u6, err_ty.bitSize(self.target.*)));
+                break :result MCValue{
+                    .register = registerAlias(result.register, @intCast(u32, payload_ty.abiSize(self.target.*))),
+                };
             },
             else => return self.fail("TODO implement unwrap_err_payload for {}", .{operand}),
         }
@@ -2686,27 +2705,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 };
 
                 // Shift by struct_field_offset.
-                const shift_amount = @intCast(u8, struct_field_offset * 8);
-                if (shift_amount > 0) {
-                    if (shift_amount == 1) {
-                        _ = try self.addInst(.{
-                            .tag = .shr,
-                            .ops = (Mir.Ops{
-                                .reg1 = dst_mcv.register,
-                            }).encode(),
-                            .data = undefined,
-                        });
-                    } else {
-                        _ = try self.addInst(.{
-                            .tag = .shr,
-                            .ops = (Mir.Ops{
-                                .reg1 = dst_mcv.register,
-                                .flags = 0b10,
-                            }).encode(),
-                            .data = .{ .imm = shift_amount },
-                        });
-                    }
-                }
+                const shift = @intCast(u8, struct_field_offset * 8);
+                try self.shiftRegister(dst_mcv.register, shift);
 
                 // Mask with reg.size() - struct_field_size
                 const mask_shift = @intCast(u6, (64 - struct_field_ty.bitSize(self.target.*)));
@@ -5766,5 +5766,27 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
         return reg.to64();
     } else {
         unreachable; // TODO handle floating-point registers
+    }
+}
+
+fn shiftRegister(self: *Self, reg: Register, shift: u8) !void {
+    if (shift == 0) return;
+    if (shift == 1) {
+        _ = try self.addInst(.{
+            .tag = .shr,
+            .ops = (Mir.Ops{
+                .reg1 = reg,
+            }).encode(),
+            .data = undefined,
+        });
+    } else {
+        _ = try self.addInst(.{
+            .tag = .shr,
+            .ops = (Mir.Ops{
+                .reg1 = reg,
+                .flags = 0b10,
+            }).encode(),
+            .data = .{ .imm = shift },
+        });
     }
 }
