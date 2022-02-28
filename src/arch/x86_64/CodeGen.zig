@@ -4839,10 +4839,6 @@ fn genInlineMemset(
     try self.register_manager.getReg(.rax, null);
 
     const abi_size = ty.abiSize(self.target.*);
-    if (stack_offset > 128) {
-        return self.fail("TODO inline memset with large stack offset", .{});
-    }
-
     const negative_offset = @bitCast(u32, -stack_offset);
 
     // We are actually counting `abi_size` bytes; however, we reuse the index register

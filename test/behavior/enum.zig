@@ -616,7 +616,6 @@ fn testEnumWithSpecifiedTagValues(x: MultipleChoice) !void {
 }
 
 test "enum with specified tag values" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -625,7 +624,6 @@ test "enum with specified tag values" {
 }
 
 test "non-exhaustive enum" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -691,7 +689,6 @@ test "empty non-exhaustive enum" {
 }
 
 test "single field non-exhaustive enum" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -760,7 +757,6 @@ test "cast integer literal to enum" {
 }
 
 test "enum with specified and unspecified tag values" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -942,7 +938,6 @@ test "enum value allocation" {
 }
 
 test "enum literal casting to tagged union" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -968,7 +963,6 @@ test "enum literal casting to tagged union" {
 const Bar = enum { A, B, C, D };
 
 test "enum literal casting to error union with payload enum" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 

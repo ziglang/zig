@@ -124,7 +124,7 @@ fn testBytesAlign(b: u8) !void {
 
 test "@alignCast slices" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var array align(4) = [_]u32{ 1, 1 };
     const slice = array[0..];
@@ -140,7 +140,8 @@ fn sliceExpects4(slice: []align(4) u32) void {
 
 test "return error union with 128-bit integer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     try expect(3 == try give());
 }

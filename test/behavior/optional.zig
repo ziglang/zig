@@ -28,7 +28,6 @@ pub const EmptyStruct = struct {};
 test "optional pointer to size zero struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var e = EmptyStruct{};
     var o: ?*EmptyStruct = &e;
@@ -37,7 +36,6 @@ test "optional pointer to size zero struct" {
 
 test "equality compare optional pointers" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     try testNullPtrsEql();
     comptime try testNullPtrsEql();
@@ -152,7 +150,6 @@ fn test_cmp_optional_non_optional() !void {
 test "unwrap function call with optional pointer return value" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn entry() !void {

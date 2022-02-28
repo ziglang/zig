@@ -175,7 +175,6 @@ test "while with optional as condition with else" {
 }
 
 test "while with error union condition" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -248,7 +247,6 @@ fn returnTrue() bool {
 }
 
 test "return with implicit cast from while loop" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     returnWithImplicitCastFromWhileLoopTest() catch unreachable;
@@ -260,7 +258,6 @@ fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {
 }
 
 test "while on error union with else result follow else prong" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -271,7 +268,6 @@ test "while on error union with else result follow else prong" {
 }
 
 test "while on error union with else result follow break prong" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
