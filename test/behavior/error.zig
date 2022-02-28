@@ -264,8 +264,6 @@ fn testErrToIntWithOnePossibleValue(
 }
 
 test "error union peer type resolution" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testErrorUnionPeerTypeResolution(1);
 }
 

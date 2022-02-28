@@ -17610,6 +17610,21 @@ fn resolvePeerTypes(
     const target = sema.mod.getTarget();
 
     var chosen = instructions[0];
+    var err_set_ty: ?Type = blk: {
+        const chosen_ty = sema.typeOf(chosen);
+
+        // TODO: is this the right handling of generic poison?
+        if (chosen_ty.tag() == .generic_poison or chosen_ty.zigTypeTag() != .ErrorSet)
+            break :blk null;
+
+        // If our chosen type is inferred, we have to resolve it now.
+        if (chosen_ty.castTag(.error_set_inferred)) |inferred| {
+            try sema.resolveInferredErrorSet(inferred.data);
+        }
+
+        break :blk chosen_ty;
+    };
+
     var any_are_null = false;
     var make_the_slice_const = false;
     var convert_to_slice = false;
@@ -17711,7 +17726,175 @@ fn resolvePeerTypes(
                 },
                 else => {},
             },
+            .ErrorSet => {
+                if (chosen_ty_tag == .ErrorSet) {
+                    assert(err_set_ty != null);
+
+                    // If chosen type is anyerror, then we can use the prev type
+                    if (err_set_ty.?.isAnyError()) continue;
+
+                    // At this point, we must resolve any inferred error sets
+                    if (candidate_ty.castTag(.error_set_inferred)) |inferred| {
+                        try sema.resolveInferredErrorSet(inferred.data);
+                    }
+
+                    // If candidate is anyerror then we use it because it
+                    // is trivially a supserset of previous error set
+                    if (candidate_ty.isAnyError()) {
+                        err_set_ty = candidate_ty;
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+                        continue;
+                    }
+
+                    // If chosen is superset of candidate, keep it.
+                    // If candidate is superset of chosen, switch it.
+                    // If neither is a superset, merge errors.
+                    var prev_is_superset = true;
+                    for (candidate_ty.errorSetNames()) |name| {
+                        if (!err_set_ty.?.errorSetHasField(name)) {
+                            prev_is_superset = false;
+                            break;
+                        }
+                    }
+                    if (prev_is_superset) continue; // use previous
+
+                    var cand_is_superset = true;
+                    for (err_set_ty.?.errorSetNames()) |name| {
+                        if (!candidate_ty.errorSetHasField(name)) {
+                            cand_is_superset = false;
+                            break;
+                        }
+                    }
+                    if (cand_is_superset) {
+                        // Swap to candidate
+                        err_set_ty = candidate_ty;
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+                        continue;
+                    }
+
+                    // Merge errors
+                    err_set_ty = try err_set_ty.?.errorSetMerge(sema.arena, candidate_ty);
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+                    continue;
+                }
+            },
             .ErrorUnion => {
+                if (chosen_ty_tag == .ErrorSet) {
+                    if (err_set_ty.?.isAnyError()) {
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+                        continue;
+                    }
+
+                    const eu_set_ty = candidate_ty.errorUnionSet();
+                    if (eu_set_ty.castTag(.error_set_inferred)) |inferred| {
+                        try sema.resolveInferredErrorSet(inferred.data);
+                    }
+                    if (eu_set_ty.isAnyError()) {
+                        err_set_ty = eu_set_ty;
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+                        continue;
+                    }
+
+                    // If candidate is a superset of the error type, then use it.
+                    var cand_is_superset = true;
+                    for (err_set_ty.?.errorSetNames()) |name| {
+                        if (!candidate_ty.errorSetHasField(name)) {
+                            cand_is_superset = false;
+                            break;
+                        }
+                    }
+                    if (cand_is_superset) {
+                        // Swap to candidate
+                        err_set_ty = candidate_ty;
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+                        continue;
+                    }
+
+                    // Not a superset, create merged error set
+                    err_set_ty = try err_set_ty.?.errorSetMerge(sema.arena, eu_set_ty);
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+                    continue;
+                }
+
+                if (chosen_ty_tag == .ErrorUnion) {
+                    const chosen_payload_ty = chosen_ty.errorUnionPayload();
+                    const candidate_payload_ty = candidate_ty.errorUnionPayload();
+
+                    const coerce_chosen = (try sema.coerceInMemoryAllowed(block, chosen_payload_ty, candidate_payload_ty, false, target, src, src)) == .ok;
+                    const coerce_candidate = (try sema.coerceInMemoryAllowed(block, candidate_payload_ty, chosen_payload_ty, false, target, src, src)) == .ok;
+
+                    if (coerce_chosen or coerce_candidate) {
+                        // If we can coerce to the candidate, we switch to that
+                        // type. This is the same logic as the bare (non-union)
+                        // coercion check we do at the top of this func.
+                        if (coerce_candidate) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                        }
+
+                        const chosen_set_ty = chosen_ty.errorUnionSet();
+                        const candidate_set_ty = chosen_ty.errorUnionSet();
+
+                        // If our error sets match already, then we are done.
+                        if (chosen_set_ty.eql(candidate_set_ty)) continue;
+
+                        // They don't match, so we need to figure out if we
+                        // need to merge them, use the superset, etc. This
+                        // requires resolution.
+                        if (chosen_set_ty.castTag(.error_set_inferred)) |inferred| {
+                            try sema.resolveInferredErrorSet(inferred.data);
+                        }
+                        if (candidate_set_ty.castTag(.error_set_inferred)) |inferred| {
+                            try sema.resolveInferredErrorSet(inferred.data);
+                        }
+
+                        if (chosen_set_ty.isAnyError()) {
+                            err_set_ty = chosen_set_ty;
+                            continue;
+                        }
+
+                        if (candidate_set_ty.isAnyError()) {
+                            err_set_ty = candidate_set_ty;
+                            continue;
+                        }
+
+                        if (err_set_ty == null) err_set_ty = chosen_set_ty;
+
+                        // If the previous error set type is a superset, we're done.
+                        var prev_is_superset = true;
+                        for (candidate_set_ty.errorSetNames()) |name| {
+                            if (!chosen_set_ty.errorSetHasField(name)) {
+                                prev_is_superset = false;
+                                break;
+                            }
+                        }
+                        if (prev_is_superset) continue; // use previous
+
+                        var cand_is_superset = true;
+                        for (chosen_set_ty.errorSetNames()) |name| {
+                            if (!candidate_set_ty.errorSetHasField(name)) {
+                                cand_is_superset = false;
+                                break;
+                            }
+                        }
+                        if (cand_is_superset) {
+                            err_set_ty = candidate_ty;
+                            continue;
+                        }
+
+                        // Merge errors
+                        err_set_ty = try chosen_set_ty.errorSetMerge(sema.arena, candidate_ty);
+                        continue;
+                    }
+                }
+
                 const payload_ty = candidate_ty.errorUnionPayload();
                 if (chosen_ty_tag == .Pointer and
                     chosen_ty.ptrSize() == .One and
@@ -17961,6 +18144,24 @@ fn resolvePeerTypes(
         info.data.mutable = false;
         return Type.ptr(sema.arena, target, info.data);
     }
+
+    if (err_set_ty) |ty| switch (chosen_ty.zigTypeTag()) {
+        .ErrorSet => return ty,
+
+        .ErrorUnion => {
+            const payload_ty = chosen_ty.errorUnionPayload();
+            return try Module.errorUnionType(sema.arena, ty, payload_ty);
+        },
+
+        .ComptimeInt, .ComptimeFloat => return sema.fail(block, src, "unable to make error union out of number literal", .{}),
+
+        .Null => return sema.fail(block, src, "unable to make error union out of null literal", .{}),
+
+        else => {
+            // Create error union of our error set and the chosen type
+            return try Module.errorUnionType(sema.arena, ty, chosen_ty);
+        },
+    };
 
     return chosen_ty;
 }

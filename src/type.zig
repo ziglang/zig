@@ -4216,6 +4216,23 @@ pub const Type = extern union {
         };
     }
 
+    /// Merge ty with ty2.
+    /// Asserts that ty and ty2 are both error sets and are resolved.
+    pub fn errorSetMerge(ty: Type, arena: Allocator, ty2: Type) !Type {
+        const lhs_names = ty.errorSetNames();
+        const rhs_names = ty2.errorSetNames();
+        var names = Module.ErrorSet.NameMap{};
+        try names.ensureUnusedCapacity(arena, @intCast(u32, lhs_names.len + rhs_names.len));
+        for (lhs_names) |name| {
+            names.putAssumeCapacityNoClobber(name, {});
+        }
+        for (rhs_names) |name| {
+            names.putAssumeCapacity(name, {});
+        }
+
+        return try Tag.error_set_merged.create(arena, names);
+    }
+
     pub fn enumFields(ty: Type) Module.EnumFull.NameMap {
         return switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => ty.cast(Payload.EnumFull).?.data.fields,
