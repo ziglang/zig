@@ -78,6 +78,26 @@ pub const Relocation = struct {
     }
 };
 
+/// Unlike the `Import` object defined by the wasm spec, and existing
+/// in the std.wasm namespace, this construct saves the 'module name' and 'name'
+/// of the import using offsets into a string table, rather than the slices itself.
+/// This saves us (potentially) 24 bytes per import on 64bit machines.
+pub const Import = struct {
+    module_name: u32,
+    name: u32,
+    kind: std.wasm.Import.Kind,
+};
+
+/// Unlike the `Export` object defined by the wasm spec, and existing
+/// in the std.wasm namespace, this construct saves the 'name'
+/// of the export using offsets into a string table, rather than the slice itself.
+/// This saves us (potentially) 12 bytes per export on 64bit machines.
+pub const Export = struct {
+    name: u32,
+    index: u32,
+    kind: std.wasm.ExternalKind,
+};
+
 pub const SubsectionType = enum(u8) {
     WASM_SEGMENT_INFO = 5,
     WASM_INIT_FUNCS = 6,

@@ -24,7 +24,7 @@ name: []const u8,
 /// Parsed type section
 func_types: []const std.wasm.Type = &.{},
 /// A list of all imports for this module
-imports: []const std.wasm.Import = &.{},
+imports: []const types.Import = &.{},
 /// Parsed function section
 functions: []const std.wasm.Func = &.{},
 /// Parsed table section
@@ -34,7 +34,7 @@ memories: []const std.wasm.Memory = &.{},
 /// Parsed global section
 globals: []const std.wasm.Global = &.{},
 /// Parsed export section
-exports: []const std.wasm.Export = &.{},
+exports: []const types.Export = &.{},
 /// Parsed element section
 elements: []const std.wasm.Element = &.{},
 /// Represents the function ID that must be called on startup.
@@ -127,18 +127,11 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
         gpa.free(func_ty.returns);
     }
     gpa.free(self.func_types);
-    for (self.imports) |imp| {
-        gpa.free(imp.name);
-        gpa.free(imp.module_name);
-    }
     gpa.free(self.functions);
     gpa.free(self.imports);
     gpa.free(self.tables);
     gpa.free(self.memories);
     gpa.free(self.globals);
-    for (self.exports) |exp| {
-        gpa.free(exp.name);
-    }
     gpa.free(self.exports);
     gpa.free(self.elements);
     gpa.free(self.features);
@@ -163,7 +156,7 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
 
 /// Finds the import within the list of imports from a given kind and index of that kind.
 /// Asserts the import exists
-pub fn findImport(self: *const Object, import_kind: std.wasm.ExternalKind, index: u32) std.wasm.Import {
+pub fn findImport(self: *const Object, import_kind: std.wasm.ExternalKind, index: u32) types.Import {
     var i: u32 = 0;
     return for (self.imports) |import| {
         if (std.meta.activeTag(import.kind) == import_kind) {
@@ -187,7 +180,7 @@ pub fn importedCountByKind(self: *const Object, kind: std.wasm.ExternalKind) u32
 /// we initialize a new table symbol that corresponds to that import and return that symbol.
 ///
 /// When the object file is *NOT* MVP, we return `null`.
-fn checkLegacyIndirectFunctionTable(self: *Object, gpa: Allocator) !?Symbol {
+fn checkLegacyIndirectFunctionTable(self: *Object) !?Symbol {
     var table_count: usize = 0;
     for (self.symtable) |sym| {
         if (sym.tag == .table) table_count += 1;
@@ -217,20 +210,20 @@ fn checkLegacyIndirectFunctionTable(self: *Object, gpa: Allocator) !?Symbol {
         return error.MissingTableSymbols;
     }
 
-    var table_import: std.wasm.Import = for (self.imports) |imp| {
+    var table_import: types.Import = for (self.imports) |imp| {
         if (imp.kind == .table) {
             break imp;
         }
     } else unreachable;
 
-    if (!std.mem.eql(u8, table_import.name, "__indirect_function_table")) {
-        log.err("Non-indirect function table import '{s}' is missing a corresponding symbol", .{table_import.name});
+    if (!std.mem.eql(u8, self.string_table.get(table_import.name), "__indirect_function_table")) {
+        log.err("Non-indirect function table import '{s}' is missing a corresponding symbol", .{self.string_table.get(table_import.name)});
         return error.MissingTableSymbols;
     }
 
     var table_symbol: Symbol = .{
         .flags = 0,
-        .name = try self.string_table.put(gpa, table_import.name),
+        .name = table_import.name,
         .tag = .table,
         .index = 0,
     };
@@ -353,12 +346,12 @@ fn Parser(comptime ReaderType: type) type {
                         for (try readVec(&self.object.imports, reader, gpa)) |*import| {
                             const module_len = try readLeb(u32, reader);
                             const module_name = try gpa.alloc(u8, module_len);
-                            errdefer gpa.free(module_name);
+                            defer gpa.free(module_name);
                             try reader.readNoEof(module_name);
 
                             const name_len = try readLeb(u32, reader);
                             const name = try gpa.alloc(u8, name_len);
-                            errdefer gpa.free(name);
+                            defer gpa.free(name);
                             try reader.readNoEof(name);
 
                             const kind = try readEnum(std.wasm.ExternalKind, reader);
@@ -376,8 +369,8 @@ fn Parser(comptime ReaderType: type) type {
                             };
 
                             import.* = .{
-                                .module_name = module_name,
-                                .name = name,
+                                .module_name = try self.object.string_table.put(gpa, module_name),
+                                .name = try self.object.string_table.put(gpa, name),
                                 .kind = kind_value,
                             };
                         }
@@ -420,10 +413,10 @@ fn Parser(comptime ReaderType: type) type {
                         for (try readVec(&self.object.exports, reader, gpa)) |*exp| {
                             const name_len = try readLeb(u32, reader);
                             const name = try gpa.alloc(u8, name_len);
-                            errdefer gpa.free(name);
+                            defer gpa.free(name);
                             try reader.readNoEof(name);
                             exp.* = .{
-                                .name = name,
+                                .name = try self.object.string_table.put(gpa, name),
                                 .kind = try readEnum(std.wasm.ExternalKind, reader),
                                 .index = try readLeb(u32, reader),
                             };
@@ -675,7 +668,7 @@ fn Parser(comptime ReaderType: type) type {
 
                     // we found all symbols, check for indirect function table
                     // in case of an MVP object file
-                    if (try self.object.checkLegacyIndirectFunctionTable(gpa)) |symbol| {
+                    if (try self.object.checkLegacyIndirectFunctionTable()) |symbol| {
                         try symbols.append(symbol);
                         log.debug("Found legacy indirect function table. Created symbol", .{});
                     }
@@ -720,7 +713,7 @@ fn Parser(comptime ReaderType: type) type {
                 },
                 else => {
                     symbol.index = try leb.readULEB128(u32, reader);
-                    var maybe_import: ?std.wasm.Import = null;
+                    var maybe_import: ?types.Import = null;
 
                     const is_undefined = symbol.isUndefined();
                     if (is_undefined) {
@@ -734,7 +727,7 @@ fn Parser(comptime ReaderType: type) type {
                         try reader.readNoEof(name);
                         symbol.name = try self.object.string_table.put(gpa, name);
                     } else {
-                        symbol.name = try self.object.string_table.put(gpa, maybe_import.?.name);
+                        symbol.name = maybe_import.?.name;
                     }
                 },
             }
