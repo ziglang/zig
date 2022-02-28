@@ -17635,20 +17635,8 @@ fn resolvePeerTypes(
         if (candidate_ty.eql(chosen_ty))
             continue;
 
-        // If the candidate can coerce into our chosen type, we're done.
-        // If the chosen type can coerce into the candidate, use that.
-        if ((try sema.coerceInMemoryAllowed(block, chosen_ty, candidate_ty, false, target, src, src)) == .ok) {
-            continue;
-        }
-        if ((try sema.coerceInMemoryAllowed(block, candidate_ty, chosen_ty, false, target, src, src)) == .ok) {
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-
         const candidate_ty_tag = candidate_ty.zigTypeTag();
         const chosen_ty_tag = chosen_ty.zigTypeTag();
-
         switch (candidate_ty_tag) {
             .NoReturn, .Undefined => continue,
 
@@ -17780,6 +17768,51 @@ fn resolvePeerTypes(
                     chosen_i = candidate_i + 1;
                     continue;
                 }
+
+                // At this point, we must resolve any inferred error sets
+                if (candidate_ty.castTag(.error_set_inferred)) |inferred| {
+                    try sema.resolveInferredErrorSet(inferred.data);
+                }
+
+                // If anything is anyerror, we use anyerror always
+                if (candidate_ty.isAnyError()) {
+                    err_set_ty = candidate_ty;
+                    continue;
+                }
+                if (err_set_ty) |ty|
+                    if (ty.isAnyError()) continue;
+
+                if (err_set_ty == null) {
+                    // Error unions are lazy, we're forced to resolve now.
+                    // Otherwise, our candidate type cause we've never seen
+                    // error sets up to this point
+                    if (chosen_ty_tag == .ErrorUnion) {
+                        err_set_ty = chosen_ty.errorUnionSet();
+
+                        if (err_set_ty.?.castTag(.error_set_inferred)) |inferred| {
+                            try sema.resolveInferredErrorSet(inferred.data);
+                        }
+
+                        if (err_set_ty.?.isAnyError()) continue;
+                    } else {
+                        err_set_ty = candidate_ty;
+                        continue;
+                    }
+                }
+
+                // If previous is superset, keep the previous
+                var prev_is_superset = true;
+                for (candidate_ty.errorSetNames()) |name| {
+                    if (!err_set_ty.?.errorSetHasField(name)) {
+                        prev_is_superset = false;
+                        break;
+                    }
+                }
+                if (prev_is_superset) continue; // use previous
+
+                // Merge
+                err_set_ty = try err_set_ty.?.errorSetMerge(sema.arena, candidate_ty);
+                continue;
             },
             .ErrorUnion => {
                 if (chosen_ty_tag == .ErrorSet) {
@@ -17803,14 +17836,14 @@ fn resolvePeerTypes(
                     // If candidate is a superset of the error type, then use it.
                     var cand_is_superset = true;
                     for (err_set_ty.?.errorSetNames()) |name| {
-                        if (!candidate_ty.errorSetHasField(name)) {
+                        if (!eu_set_ty.errorSetHasField(name)) {
                             cand_is_superset = false;
                             break;
                         }
                     }
                     if (cand_is_superset) {
                         // Swap to candidate
-                        err_set_ty = candidate_ty;
+                        err_set_ty = eu_set_ty;
                         chosen = candidate;
                         chosen_i = candidate_i + 1;
                         continue;
@@ -18083,6 +18116,17 @@ fn resolvePeerTypes(
                 }
             },
             else => {},
+        }
+
+        // If the candidate can coerce into our chosen type, we're done.
+        // If the chosen type can coerce into the candidate, use that.
+        if ((try sema.coerceInMemoryAllowed(block, chosen_ty, candidate_ty, false, target, src, src)) == .ok) {
+            continue;
+        }
+        if ((try sema.coerceInMemoryAllowed(block, candidate_ty, chosen_ty, false, target, src, src)) == .ok) {
+            chosen = candidate;
+            chosen_i = candidate_i + 1;
+            continue;
         }
 
         // At this point, we hit a compile error. We need to recover
