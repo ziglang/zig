@@ -591,7 +591,10 @@ test "@floatCast cast down" {
 }
 
 test "peer type resolution: unreachable, error set, unreachable" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const Error = error{
         FileDescriptorAlreadyPresentInSet,
@@ -616,6 +619,11 @@ test "peer type resolution: unreachable, error set, unreachable" {
 }
 
 test "peer cast: error set any anyerror" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const a: error{ One, Two } = undefined;
     const b: anyerror = undefined;
     try expect(@TypeOf(a, b) == anyerror);
@@ -623,6 +631,11 @@ test "peer cast: error set any anyerror" {
 }
 
 test "peer type resolution: error set supersets" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const a: error{ One, Two } = undefined;
     const b: error{One} = undefined;
 
@@ -648,6 +661,11 @@ test "peer type resolution: error set supersets" {
 }
 
 test "peer type resolution: disjoint error sets" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const a: error{ One, Two } = undefined;
     const b: error{Three} = undefined;
 
@@ -675,6 +693,11 @@ test "peer type resolution: disjoint error sets" {
 }
 
 test "peer type resolution: error union and error set" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const a: error{Three} = undefined;
     const b: error{ One, Two }!u32 = undefined;
 
@@ -706,6 +729,11 @@ test "peer type resolution: error union and error set" {
 }
 
 test "peer type resolution: error union after non-error" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     const a: u32 = undefined;
     const b: error{ One, Two }!u32 = undefined;
 
