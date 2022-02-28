@@ -8072,9 +8072,9 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
 
-    const lhs_info = getArrayCatInfo(lhs_ty) orelse
+    const lhs_info = (try sema.getArrayCatInfo(block, lhs_src, lhs)) orelse
         return sema.fail(block, lhs_src, "expected array, found '{}'", .{lhs_ty});
-    const rhs_info = getArrayCatInfo(rhs_ty) orelse
+    const rhs_info = (try sema.getArrayCatInfo(block, rhs_src, rhs)) orelse
         return sema.fail(block, rhs_src, "expected array, found '{}'", .{rhs_ty});
     if (!lhs_info.elem_type.eql(rhs_info.elem_type)) {
         return sema.fail(block, rhs_src, "expected array of type '{}', found '{}'", .{ lhs_info.elem_type, rhs_ty });
@@ -8095,9 +8095,10 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const rhs_len = try sema.usizeCast(block, lhs_src, rhs_info.len);
             const final_len = lhs_len + rhs_len;
             const final_len_including_sent = final_len + @boolToInt(res_sent != null);
-            const is_pointer = lhs_ty.zigTypeTag() == .Pointer;
-            const lhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
-            const rhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)).? else rhs_val;
+            const lhs_single_ptr = lhs_ty.zigTypeTag() == .Pointer and !lhs_ty.isSlice();
+            const rhs_single_ptr = rhs_ty.zigTypeTag() == .Pointer and !rhs_ty.isSlice();
+            const lhs_sub_val = if (lhs_single_ptr) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
+            const rhs_sub_val = if (rhs_single_ptr) (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)).? else rhs_val;
             var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
             defer anon_decl.deinit();
 
@@ -8129,7 +8130,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             });
             const val = try Value.Tag.array.create(anon_decl.arena(), buf);
             const decl = try anon_decl.finish(ty, val);
-            if (is_pointer) {
+            if (lhs_single_ptr or rhs_single_ptr) {
                 return sema.analyzeDeclRef(decl);
             } else {
                 return sema.analyzeDeclVal(block, .unneeded, decl);
@@ -8142,11 +8143,20 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 }
 
-fn getArrayCatInfo(t: Type) ?Type.ArrayInfo {
+fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, inst: Air.Inst.Ref) !?Type.ArrayInfo {
+    const t = sema.typeOf(inst);
     return switch (t.zigTypeTag()) {
         .Array => t.arrayInfo(),
         .Pointer => blk: {
             const ptrinfo = t.ptrInfo().data;
+            if (ptrinfo.size == .Slice) {
+                const val = try sema.resolveConstValue(block, src, inst);
+                return Type.ArrayInfo{
+                    .elem_type = t.childType(),
+                    .sentinel = t.sentinel(),
+                    .len = val.sliceLen(),
+                };
+            }
             if (ptrinfo.pointee_type.zigTypeTag() != .Array) return null;
             if (ptrinfo.size != .One) return null;
             break :blk ptrinfo.pointee_type.arrayInfo();
@@ -8169,7 +8179,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     // In `**` rhs has to be comptime-known, but lhs can be runtime-known
     const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize);
-    const mulinfo = getArrayCatInfo(lhs_ty) orelse
+    const mulinfo = (try sema.getArrayCatInfo(block, lhs_src, lhs)) orelse
         return sema.fail(block, lhs_src, "expected array, found '{}'", .{lhs_ty});
 
     const final_len_u64 = std.math.mul(u64, mulinfo.len, factor) catch
@@ -8180,7 +8190,8 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         const final_len_including_sent = final_len + @boolToInt(mulinfo.sentinel != null);
         const lhs_len = try sema.usizeCast(block, lhs_src, mulinfo.len);
 
-        const lhs_sub_val = if (lhs_ty.zigTypeTag() == .Pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
+        const is_single_ptr = lhs_ty.zigTypeTag() == .Pointer and !lhs_ty.isSlice();
+        const lhs_sub_val = if (is_single_ptr) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
 
         var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
@@ -8220,7 +8231,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             break :blk try Value.Tag.array.create(anon_decl.arena(), buf);
         };
         const decl = try anon_decl.finish(final_ty, val);
-        if (lhs_ty.zigTypeTag() == .Pointer) {
+        if (is_single_ptr) {
             return sema.analyzeDeclRef(decl);
         } else {
             return sema.analyzeDeclVal(block, .unneeded, decl);
