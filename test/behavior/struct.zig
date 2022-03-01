@@ -80,12 +80,11 @@ const StructWithNoFields = struct {
 const StructFoo = struct {
     a: i32,
     b: bool,
-    c: f32,
+    c: u64,
 };
 
 test "structs" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var foo: StructFoo = undefined;
