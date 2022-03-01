@@ -162,6 +162,16 @@ pub fn main() anyerror!void {
         return mainArgs(gpa_tracy.allocator(), arena, args);
     }
 
+    // WASI: `--dir` instructs the WASM runtime to "preopen" a directory, making
+    // it available to the us, the guest program. This is the only way for us to
+    // access files/dirs on the host filesystem
+    if (builtin.os.tag == .wasi) {
+        // This sets our CWD to "/preopens/cwd"
+        // Dot-prefixed preopens like `--dir=.` are "mounted" at "/preopens/cwd"
+        // Other preopens like `--dir=lib` are "mounted" at "/"
+        try std.os.initPreopensWasi(std.heap.page_allocator, "/preopens/cwd");
+    }
+
     return mainArgs(gpa, arena, args);
 }
 
