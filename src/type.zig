@@ -847,51 +847,105 @@ pub const Type = extern union {
     }
 
     pub fn hashWithHasher(ty: Type, hasher: *std.hash.Wyhash) void {
-        const zig_type_tag = ty.zigTypeTag();
-        std.hash.autoHash(hasher, zig_type_tag);
-        switch (zig_type_tag) {
-            .Type,
-            .Void,
-            .Bool,
-            .NoReturn,
-            .ComptimeFloat,
-            .ComptimeInt,
-            .Undefined,
-            .Null,
-            => {}, // The zig type tag is all that is needed to distinguish.
+        switch (ty.tag()) {
+            .generic_poison => unreachable,
 
-            .Pointer => {
-                const info = ty.ptrInfo().data;
-                hashWithHasher(info.pointee_type, hasher);
-                hashSentinel(info.sentinel, info.pointee_type, hasher);
-                std.hash.autoHash(hasher, info.@"align");
-                std.hash.autoHash(hasher, info.@"addrspace");
-                std.hash.autoHash(hasher, info.bit_offset);
-                std.hash.autoHash(hasher, info.host_size);
-                std.hash.autoHash(hasher, info.@"allowzero");
-                std.hash.autoHash(hasher, info.mutable);
-                std.hash.autoHash(hasher, info.@"volatile");
-                std.hash.autoHash(hasher, info.size);
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            => |ty_tag| {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Int);
+                std.hash.autoHash(hasher, ty_tag);
             },
-            .Int => {
-                // Detect that e.g. u64 != usize, even if the bits match on a particular target.
-                if (ty.isNamedInt()) {
-                    std.hash.autoHash(hasher, ty.tag());
-                } else {
-                    // Remaining cases are arbitrary sized integers.
-                    // The target will not be branched upon, because we handled target-dependent cases above.
-                    const info = ty.intInfo(@as(Target, undefined));
-                    std.hash.autoHash(hasher, info.signedness);
-                    std.hash.autoHash(hasher, info.bits);
-                }
+
+            .f16,
+            .f32,
+            .f64,
+            .f80,
+            .f128,
+            .c_longdouble,
+            => |ty_tag| {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Float);
+                std.hash.autoHash(hasher, ty_tag);
             },
-            .Array, .Vector => {
-                const elem_ty = ty.elemType();
-                std.hash.autoHash(hasher, ty.arrayLen());
-                hashWithHasher(elem_ty, hasher);
-                hashSentinel(ty.sentinel(), elem_ty, hasher);
+
+            .bool => std.hash.autoHash(hasher, std.builtin.TypeId.Bool),
+            .void => std.hash.autoHash(hasher, std.builtin.TypeId.Void),
+            .type => std.hash.autoHash(hasher, std.builtin.TypeId.Type),
+            .comptime_int => std.hash.autoHash(hasher, std.builtin.TypeId.ComptimeInt),
+            .comptime_float => std.hash.autoHash(hasher, std.builtin.TypeId.ComptimeFloat),
+            .noreturn => std.hash.autoHash(hasher, std.builtin.TypeId.NoReturn),
+            .@"null" => std.hash.autoHash(hasher, std.builtin.TypeId.Null),
+            .@"undefined" => std.hash.autoHash(hasher, std.builtin.TypeId.Undefined),
+
+            .@"anyopaque" => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Opaque);
+                std.hash.autoHash(hasher, Tag.@"anyopaque");
             },
-            .Fn => {
+
+            .@"anyframe" => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.AnyFrame);
+                std.hash.autoHash(hasher, Tag.@"anyframe");
+            },
+
+            .enum_literal => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.EnumLiteral);
+                std.hash.autoHash(hasher, Tag.enum_literal);
+            },
+
+            .u1,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .int_signed,
+            .int_unsigned,
+            => {
+                // Arbitrary sized integers. The target will not be branched upon,
+                // because we handled target-dependent cases above.
+                std.hash.autoHash(hasher, std.builtin.TypeId.Int);
+                const info = ty.intInfo(@as(Target, undefined));
+                std.hash.autoHash(hasher, info.signedness);
+                std.hash.autoHash(hasher, info.bits);
+            },
+
+            .error_set,
+            .error_set_single,
+            .anyerror,
+            .error_set_inferred,
+            .error_set_merged,
+            => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.ErrorSet);
+                // TODO implement this after revisiting Type.Eql for error sets
+            },
+
+            .@"opaque" => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Opaque);
+                const opaque_obj = ty.castTag(.@"opaque").?.data;
+                std.hash.autoHash(hasher, opaque_obj);
+            },
+
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Fn);
+
                 const fn_info = ty.fnInfo();
                 hashWithHasher(fn_info.return_type, hasher);
                 std.hash.autoHash(hasher, fn_info.alignment);
@@ -906,26 +960,150 @@ pub const Type = extern union {
                     hashWithHasher(param_ty, hasher);
                 }
             },
-            .Optional => {
+
+            .array,
+            .array_u8_sentinel_0,
+            .array_u8,
+            .array_sentinel,
+            => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Array);
+
+                const elem_ty = ty.elemType();
+                std.hash.autoHash(hasher, ty.arrayLen());
+                hashWithHasher(elem_ty, hasher);
+                hashSentinel(ty.sentinel(), elem_ty, hasher);
+            },
+
+            .vector => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Vector);
+
+                const elem_ty = ty.elemType();
+                std.hash.autoHash(hasher, ty.vectorLen());
+                hashWithHasher(elem_ty, hasher);
+            },
+
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .const_slice_u8_sentinel_0,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .pointer,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
+            => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Pointer);
+
+                const info = ty.ptrInfo().data;
+                hashWithHasher(info.pointee_type, hasher);
+                hashSentinel(info.sentinel, info.pointee_type, hasher);
+                std.hash.autoHash(hasher, info.@"align");
+                std.hash.autoHash(hasher, info.@"addrspace");
+                std.hash.autoHash(hasher, info.bit_offset);
+                std.hash.autoHash(hasher, info.host_size);
+                std.hash.autoHash(hasher, info.@"allowzero");
+                std.hash.autoHash(hasher, info.mutable);
+                std.hash.autoHash(hasher, info.@"volatile");
+                std.hash.autoHash(hasher, info.size);
+            },
+
+            .optional,
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Optional);
+
                 var buf: Payload.ElemType = undefined;
                 hashWithHasher(ty.optionalChild(&buf), hasher);
             },
-            .Float => {
-                std.hash.autoHash(hasher, ty.tag());
+
+            .anyerror_void_error_union, .error_union => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.ErrorUnion);
+
+                const set_ty = ty.errorUnionSet();
+                hashWithHasher(set_ty, hasher);
+
+                const payload_ty = ty.errorUnionPayload();
+                hashWithHasher(payload_ty, hasher);
             },
-            .Struct,
-            .ErrorUnion,
-            .ErrorSet,
-            .Enum,
-            .Union,
-            .BoundFn,
-            .Opaque,
-            .Frame,
-            .AnyFrame,
-            .EnumLiteral,
-            => {
-                // TODO implement more type hashing
+
+            .anyframe_T => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.AnyFrame);
+                hashWithHasher(ty.childType(), hasher);
             },
+
+            .empty_struct => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Struct);
+                const namespace: *const Module.Namespace = ty.castTag(.empty_struct).?.data;
+                std.hash.autoHash(hasher, namespace);
+            },
+            .@"struct" => {
+                const struct_obj: *const Module.Struct = ty.castTag(.@"struct").?.data;
+                std.hash.autoHash(hasher, struct_obj);
+            },
+            .tuple, .empty_struct_literal => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Struct);
+
+                const tuple = ty.tupleFields();
+                std.hash.autoHash(hasher, tuple.types.len);
+
+                for (tuple.types) |field_ty, i| {
+                    hashWithHasher(field_ty, hasher);
+                    const field_val = tuple.values[i];
+                    if (field_val.tag() == .unreachable_value) continue;
+                    field_val.hash(field_ty, hasher);
+                }
+            },
+
+            // we can't hash these based on tags because they wouldn't match the expanded version.
+            .call_options,
+            .prefetch_options,
+            .export_options,
+            .extern_options,
+            => unreachable, // needed to resolve the type before now
+
+            .enum_full, .enum_nonexhaustive => {
+                const enum_obj: *const Module.EnumFull = ty.cast(Payload.EnumFull).?.data;
+                std.hash.autoHash(hasher, std.builtin.TypeId.Enum);
+                std.hash.autoHash(hasher, enum_obj);
+            },
+            .enum_simple => {
+                const enum_obj: *const Module.EnumSimple = ty.cast(Payload.EnumSimple).?.data;
+                std.hash.autoHash(hasher, std.builtin.TypeId.Enum);
+                std.hash.autoHash(hasher, enum_obj);
+            },
+            .enum_numbered => {
+                const enum_obj: *const Module.EnumNumbered = ty.cast(Payload.EnumNumbered).?.data;
+                std.hash.autoHash(hasher, std.builtin.TypeId.Enum);
+                std.hash.autoHash(hasher, enum_obj);
+            },
+            // we can't hash these based on tags because they wouldn't match the expanded version.
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            => unreachable, // needed to resolve the type before now
+
+            .@"union", .union_tagged => {
+                const union_obj: *const Module.Union = ty.cast(Payload.Union).?.data;
+                std.hash.autoHash(hasher, std.builtin.TypeId.Union);
+                std.hash.autoHash(hasher, union_obj);
+            },
+            // we can't hash these based on tags because they wouldn't match the expanded version.
+            .type_info => unreachable, // needed to resolve the type before now
+
+            .bound_fn => unreachable, // TODO delete from the language
+            .var_args_param => unreachable, // can be any type
         }
     }
 

@@ -157,8 +157,8 @@ const MonomorphedFuncsContext = struct {
         // The generic function Decl is guaranteed to be the first dependency
         // of each of its instantiations.
         const generic_owner_decl = key.owner_decl.dependencies.keys()[0];
-        const generic_func = generic_owner_decl.val.castTag(.function).?.data;
-        std.hash.autoHash(&hasher, @ptrToInt(generic_func));
+        const generic_func: *const Fn = generic_owner_decl.val.castTag(.function).?.data;
+        std.hash.autoHash(&hasher, generic_func);
 
         // This logic must be kept in sync with the logic in `analyzeCall` that
         // computes the hash.

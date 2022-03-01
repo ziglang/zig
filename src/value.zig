@@ -2040,9 +2040,19 @@ pub const Value = extern union {
                 }
                 const fields = ty.structFields().values();
                 if (fields.len == 0) return;
-                const field_values = val.castTag(.@"struct").?.data;
-                for (field_values) |field_val, i| {
-                    field_val.hash(fields[i].ty, hasher);
+                switch (val.tag()) {
+                    .empty_struct_value => {
+                        for (fields) |field| {
+                            field.default_val.hash(field.ty, hasher);
+                        }
+                    },
+                    .@"struct" => {
+                        const field_values = val.castTag(.@"struct").?.data;
+                        for (field_values) |field_val, i| {
+                            field_val.hash(fields[i].ty, hasher);
+                        }
+                    },
+                    else => unreachable,
                 }
             },
             .Optional => {
