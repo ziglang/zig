@@ -25,8 +25,21 @@ base: link.File,
 llvm_object: *LlvmObject,
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
-    if (!build_options.have_llvm) return error.TODOArchNotSupported;
+    if (!build_options.have_llvm) return error.PtxArchNotSupported;
+    if (!options.use_llvm) return error.PtxArchNotSupported;
 
+    switch (options.target.cpu.arch) {
+        .nvptx, .nvptx64 => {},
+        else => return error.PtxArchNotSupported,
+    }
+
+    switch (options.target.os.tag) {
+        // TODO: does it also work with nvcl ?
+        .cuda => {},
+        else => return error.PtxArchNotSupported,
+    }
+
+    const llvm_object = try LlvmObject.create(gpa, options);
     const nvptx = try gpa.create(NvPtx);
     nvptx.* = .{
         .base = .{
@@ -35,32 +48,19 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
             .file = null,
             .allocator = gpa,
         },
-        .llvm_object = undefined,
+        .llvm_object = llvm_object,
     };
-
-    switch (options.target.cpu.arch) {
-        .nvptx, .nvptx64 => {},
-        else => return error.TODOArchNotSupported,
-    }
-
-    switch (options.target.os.tag) {
-        // TODO: does it also work with nvcl ?
-        .cuda => {},
-        else => return error.TODOOsNotSupported,
-    }
 
     return nvptx;
 }
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*NvPtx {
     if (!build_options.have_llvm) @panic("nvptx target requires a zig compiler with llvm enabled.");
-    if (!options.use_llvm) return error.TODOArchNotSupported;
+    if (!options.use_llvm) return error.PtxArchNotSupported;
     assert(options.object_format == .nvptx);
 
     const nvptx = try createEmpty(allocator, options);
-    errdefer nvptx.base.destroy();
     log.info("Opening .ptx target file {s}", .{sub_path});
-    nvptx.llvm_object = try LlvmObject.create(allocator, options);
     return nvptx;
 }
 
@@ -117,6 +117,5 @@ pub fn flushModule(self: *NvPtx, comp: *Compilation) !void {
         };
         hack_comp.bin_file.options.emit = null;
     }
-
     return try self.llvm_object.flushModule(hack_comp);
 }
