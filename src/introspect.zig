@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
+const os = std.os;
 const fs = std.fs;
 const Compilation = @import("Compilation.zig");
 
@@ -80,5 +81,15 @@ pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
         }
     }
 
-    return fs.getAppDataDir(allocator, appname);
+    if (builtin.os.tag == .wasi) {
+        // On WASI, we have no way to get an App data dir, so we try to use a fixed
+        // Preopen path "/cache" as a last resort
+        const path = "/cache";
+
+        const file = os.fstatat(os.wasi.AT.FDCWD, path, 0) catch return error.CacheDirUnavailable;
+        if (file.filetype != .DIRECTORY) return error.CacheDirUnavailable;
+        return allocator.dupe(u8, path);
+    } else {
+        return fs.getAppDataDir(allocator, appname);
+    }
 }
