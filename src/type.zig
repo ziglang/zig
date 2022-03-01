@@ -5063,6 +5063,7 @@ pub const Type = extern union {
     };
 
     pub const @"u8" = initTag(.u8);
+    pub const @"u16" = initTag(.u16);
     pub const @"u32" = initTag(.u32);
     pub const @"u64" = initTag(.u64);
 

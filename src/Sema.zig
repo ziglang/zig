@@ -1464,26 +1464,6 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     return error.AnalysisFail;
 }
 
-/// Appropriate to call when the coercion has already been done by result
-/// location semantics. Asserts the value fits in the provided `Int` type.
-/// Only supports `Int` types 64 bits or less.
-/// TODO don't ever call this since we're migrating towards ResultLoc.coerced_ty.
-fn resolveAlreadyCoercedInt(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    zir_ref: Zir.Inst.Ref,
-    comptime Int: type,
-) !Int {
-    comptime assert(@typeInfo(Int).Int.bits <= 64);
-    const air_inst = sema.resolveInst(zir_ref);
-    const val = try sema.resolveConstValue(block, src, air_inst);
-    switch (@typeInfo(Int).Int.signedness) {
-        .signed => return @intCast(Int, val.toSignedInt()),
-        .unsigned => return @intCast(Int, val.toUnsignedInt()),
-    }
-}
-
 fn resolveAlign(
     sema: *Sema,
     block: *Block,
@@ -3380,7 +3360,7 @@ fn storeToInferredAllocComptime(
 fn zirSetEvalBranchQuota(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const quota = try sema.resolveAlreadyCoercedInt(block, src, inst_data.operand, u32);
+    const quota = @intCast(u32, try sema.resolveInt(block, src, inst_data.operand, Type.u32));
     if (sema.branch_quota < quota)
         sema.branch_quota = quota;
 }
@@ -5080,11 +5060,11 @@ fn zirVectorType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const elem_type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const len_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const len = try sema.resolveAlreadyCoercedInt(block, len_src, extra.lhs, u32);
+    const len = try sema.resolveInt(block, len_src, extra.lhs, Type.u32);
     const elem_type = try sema.resolveType(block, elem_type_src, extra.rhs);
     try sema.checkVectorElemType(block, elem_type_src, elem_type);
     const vector_type = try Type.Tag.vector.create(sema.arena, .{
-        .len = len,
+        .len = @intCast(u32, len),
         .elem_type = elem_type,
     });
     return sema.addType(vector_type);
@@ -11341,7 +11321,8 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const abi_align = if (inst_data.flags.has_align) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u32);
+        const abi_align = try sema.resolveInt(block, .unneeded, ref, Type.u32);
+        break :blk @intCast(u32, abi_align);
     } else 0;
 
     const address_space = if (inst_data.flags.has_addrspace) blk: {
@@ -11353,13 +11334,15 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const bit_offset = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);
+        const bit_offset = try sema.resolveInt(block, .unneeded, ref, Type.u16);
+        break :blk @intCast(u16, bit_offset);
     } else 0;
 
     const host_size: u16 = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);
+        const host_size = try sema.resolveInt(block, .unneeded, ref, Type.u16);
+        break :blk @intCast(u16, host_size);
     } else 0;
 
     if (host_size != 0 and bit_offset >= host_size * 8) {
