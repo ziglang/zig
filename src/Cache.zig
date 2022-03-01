@@ -762,18 +762,22 @@ pub const Manifest = struct {
 
     fn downgradeToSharedLock(self: *Manifest) !void {
         if (!self.have_exclusive_lock) return;
-        const manifest_file = self.manifest_file.?;
-        try manifest_file.downgradeLock();
+        if (std.process.can_spawn or !builtin.single_threaded) { // Some targets (WASI) do not support flock
+            const manifest_file = self.manifest_file.?;
+            try manifest_file.downgradeLock();
+        }
         self.have_exclusive_lock = false;
     }
 
     fn upgradeToExclusiveLock(self: *Manifest) !void {
         if (self.have_exclusive_lock) return;
-        const manifest_file = self.manifest_file.?;
-        // Here we intentionally have a period where the lock is released, in case there are
-        // other processes holding a shared lock.
-        manifest_file.unlock();
-        try manifest_file.lock(.Exclusive);
+        if (std.process.can_spawn or !builtin.single_threaded) { // Some targets (WASI) do not support flock
+            const manifest_file = self.manifest_file.?;
+            // Here we intentionally have a period where the lock is released, in case there are
+            // other processes holding a shared lock.
+            manifest_file.unlock();
+            try manifest_file.lock(.Exclusive);
+        }
         self.have_exclusive_lock = true;
     }
 
