@@ -450,10 +450,22 @@ pub const Object = struct {
             DeclGen.removeFnAttr(llvm_func, "cold");
         }
 
+        // Remove all the basic blocks of a function in order to start over, generating
+        // LLVM IR from an empty function body.
+        while (llvm_func.getFirstBasicBlock()) |bb| {
+            bb.deleteBasicBlock();
+        }
+
+        const builder = dg.context.createBuilder();
+
+        const entry_block = dg.context.appendBasicBlock(llvm_func, "Entry");
+        builder.positionBuilderAtEnd(entry_block);
+
         // This gets the LLVM values from the function and stores them in `dg.args`.
         const fn_info = decl.ty.fnInfo();
-        const ret_ty_by_ref = isByRef(fn_info.return_type);
-        const ret_ptr = if (ret_ty_by_ref) llvm_func.getParam(0) else null;
+        const target = dg.module.getTarget();
+        const sret = firstParamSRet(fn_info, target);
+        const ret_ptr = if (sret) llvm_func.getParam(0) else null;
 
         var args = std.ArrayList(*const llvm.Value).init(dg.gpa);
         defer args.deinit();
@@ -466,17 +478,6 @@ pub const Object = struct {
             try args.append(llvm_func.getParam(llvm_arg_i));
         }
 
-        // Remove all the basic blocks of a function in order to start over, generating
-        // LLVM IR from an empty function body.
-        while (llvm_func.getFirstBasicBlock()) |bb| {
-            bb.deleteBasicBlock();
-        }
-
-        const builder = dg.context.createBuilder();
-
-        const entry_block = dg.context.appendBasicBlock(llvm_func, "Entry");
-        builder.positionBuilderAtEnd(entry_block);
-
         var fg: FuncGen = .{
             .gpa = dg.gpa,
             .air = air,
@@ -485,7 +486,7 @@ pub const Object = struct {
             .dg = &dg,
             .builder = builder,
             .ret_ptr = ret_ptr,
-            .args = args.toOwnedSlice(),
+            .args = args.items,
             .arg_index = 0,
             .func_inst_table = .{},
             .llvm_func = llvm_func,
@@ -1977,20 +1978,22 @@ pub const FuncGen = struct {
     air: Air,
     liveness: Liveness,
     context: *const llvm.Context,
-
     builder: *const llvm.Builder,
 
     /// This stores the LLVM values used in a function, such that they can be referred to
     /// in other instructions. This table is cleared before every function is generated.
     func_inst_table: std.AutoHashMapUnmanaged(Air.Inst.Ref, *const llvm.Value),
 
-    /// If the return type isByRef, this is the result pointer. Otherwise null.
+    /// If the return type is sret, this is the result pointer. Otherwise null.
+    /// Note that this can disagree with isByRef for the return type in the case
+    /// of C ABI functions.
     ret_ptr: ?*const llvm.Value,
     /// These fields are used to refer to the LLVM value of the function parameters
     /// in an Arg instruction.
     /// This list may be shorter than the list according to the zig type system;
-    /// it omits 0-bit types.
-    args: []*const llvm.Value,
+    /// it omits 0-bit types. If the function uses sret as the first parameter,
+    /// this slice does not include it.
+    args: []const *const llvm.Value,
     arg_index: usize,
 
     llvm_func: *const llvm.Value,
@@ -2010,7 +2013,6 @@ pub const FuncGen = struct {
     fn deinit(self: *FuncGen) void {
         self.builder.dispose();
         self.func_inst_table.deinit(self.gpa);
-        self.gpa.free(self.args);
         self.blocks.deinit(self.gpa);
     }
 
@@ -2283,12 +2285,35 @@ pub const FuncGen = struct {
         if (return_type.isNoReturn()) {
             _ = self.builder.buildUnreachable();
             return null;
-        } else if (self.liveness.isUnused(inst) or !return_type.hasRuntimeBits()) {
+        }
+
+        if (self.liveness.isUnused(inst) or !return_type.hasRuntimeBits()) {
             return null;
-        } else if (sret) {
+        }
+
+        if (ret_ptr) |rp| {
             const llvm_ret_ty = try self.dg.llvmType(return_type);
             call.setCallSret(llvm_ret_ty);
-            return ret_ptr;
+            if (isByRef(return_type)) {
+                return rp;
+            } else {
+                // our by-ref status disagrees with sret so we must load.
+                const loaded = self.builder.buildLoad(rp, "");
+                loaded.setAlignment(return_type.abiAlignment(target));
+                return loaded;
+            }
+        }
+
+        if (isByRef(return_type)) {
+            // our by-ref status disagrees with sret so we must allocate, store,
+            // and return the allocation pointer.
+            const llvm_ret_ty = try self.dg.llvmType(return_type);
+            const rp = self.buildAlloca(llvm_ret_ty);
+            const alignment = return_type.abiAlignment(target);
+            rp.setAlignment(alignment);
+            const store_inst = self.builder.buildStore(call, rp);
+            store_inst.setAlignment(alignment);
+            return rp;
         } else {
             return call;
         }
@@ -2321,12 +2346,14 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const ptr_ty = self.air.typeOf(un_op);
         const ret_ty = ptr_ty.childType();
-        if (!ret_ty.hasRuntimeBits() or isByRef(ret_ty)) {
+        if (!ret_ty.hasRuntimeBits() or self.ret_ptr != null) {
             _ = self.builder.buildRetVoid();
             return null;
         }
+        const target = self.dg.module.getTarget();
         const ptr = try self.resolveInst(un_op);
         const loaded = self.builder.buildLoad(ptr, "");
+        loaded.setAlignment(ret_ty.abiAlignment(target));
         _ = self.builder.buildRet(loaded);
         return null;
     }
@@ -5456,11 +5483,12 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
         .C => {},
         else => return false,
     }
+    const x86_64_abi = @import("../arch/x86_64/abi.zig");
     switch (target.cpu.arch) {
         .mips, .mipsel => return false,
         .x86_64 => switch (target.os.tag) {
-            .windows => return @import("../arch/x86_64/abi.zig").classifyWindows(fn_info.return_type, target) == .memory,
-            else => return @import("../arch/x86_64/abi.zig").classifySystemV(fn_info.return_type, target)[0] == .memory,
+            .windows => return x86_64_abi.classifyWindows(fn_info.return_type, target) == .memory,
+            else => return x86_64_abi.classifySystemV(fn_info.return_type, target)[0] == .memory,
         },
         else => return false, // TODO investigate C ABI for other architectures
     }

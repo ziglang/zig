@@ -833,12 +833,13 @@ test "packed struct with fp fields" {
 }
 
 test "fn with C calling convention returns struct by value" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn entry() !void {
             var x = makeBar(10);
-            try expectEqual(@as(i32, 10), x.handle);
+            try expect(@as(i32, 10) == x.handle);
         }
 
         const ExternBar = extern struct {
