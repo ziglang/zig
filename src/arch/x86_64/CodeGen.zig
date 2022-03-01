@@ -5224,7 +5224,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ptr_ty = self.air.typeOf(ty_op.operand);
     const ptr = try self.resolveInst(ty_op.operand);
     const array_ty = ptr_ty.childType();
-    const array_len = array_ty.arrayLenIncludingSentinel();
+    const array_len = array_ty.arrayLen();
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
         const stack_offset = @intCast(i32, try self.allocMem(inst, 16, 16));
         try self.genSetStack(ptr_ty, stack_offset, ptr, .{});
