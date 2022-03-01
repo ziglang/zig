@@ -188,6 +188,7 @@ relocs: RelocTable = .{},
 const Reloc = struct {
     target: u32,
     offset: u64,
+    addend: u32,
     prev_vaddr: u64,
 };
 
@@ -421,20 +422,21 @@ pub fn deinit(self: *Elf) void {
     self.atom_by_index_table.deinit(self.base.allocator);
 }
 
-pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
+pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl, reloc_info: File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
     assert(decl.link.elf.local_sym_index != 0);
 
     const target = decl.link.elf.local_sym_index;
     const vaddr = self.local_symbols.items[target].st_value;
-    const atom = self.atom_by_index_table.get(parent_atom_index).?;
+    const atom = self.atom_by_index_table.get(reloc_info.parent_atom_index).?;
     const gop = try self.relocs.getOrPut(self.base.allocator, atom);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     try gop.value_ptr.append(self.base.allocator, .{
         .target = target,
-        .offset = offset,
+        .offset = reloc_info.offset,
+        .addend = reloc_info.addend,
         .prev_vaddr = vaddr,
     });
 
@@ -1039,7 +1041,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
 
             for (relocs.items) |*reloc| {
                 const target_sym = self.local_symbols.items[reloc.target];
-                const target_vaddr = target_sym.st_value;
+                const target_vaddr = target_sym.st_value + reloc.addend;
 
                 if (target_vaddr == reloc.prev_vaddr) continue;
 
@@ -3074,7 +3076,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 
     // TODO implement .debug_info for global variables
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.link.elf.local_sym_index, decl.srcLoc(), .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .{
@@ -3083,6 +3085,8 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             .dbg_info = &dbg_info_buffer,
             .dbg_info_type_relocs = &dbg_info_type_relocs,
         },
+    }, .{
+        .parent_atom_index = decl.link.elf.local_sym_index,
     });
     const code = switch (res) {
         .externally_managed => |x| x,
@@ -3130,8 +3134,10 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
     atom.local_sym_index = try self.allocateLocalSymbol();
     try self.atom_by_index_table.putNoClobber(self.base.allocator, atom.local_sym_index, atom);
 
-    const res = try codegen.generateSymbol(&self.base, atom.local_sym_index, decl.srcLoc(), typed_value, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
         .none = .{},
+    }, .{
+        .parent_atom_index = atom.local_sym_index,
     });
     const code = switch (res) {
         .externally_managed => |x| x,

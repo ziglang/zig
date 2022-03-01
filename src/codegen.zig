@@ -142,11 +142,11 @@ pub fn generateFunction(
 
 pub fn generateSymbol(
     bin_file: *link.File,
-    parent_atom_index: u32,
     src_loc: Module.SrcLoc,
     typed_value: TypedValue,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
+    reloc_info: RelocInfo,
 ) GenerateSymbolError!Result {
     const tracy = trace(@src());
     defer tracy.end();
@@ -178,10 +178,10 @@ pub fn generateSymbol(
                 if (typed_value.ty.sentinel()) |sentinel| {
                     try code.ensureUnusedCapacity(payload.data.len + 1);
                     code.appendSliceAssumeCapacity(payload.data);
-                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = typed_value.ty.elemType(),
                         .val = sentinel,
-                    }, code, debug_output)) {
+                    }, code, debug_output, reloc_info)) {
                         .appended => return Result{ .appended = {} },
                         .externally_managed => |slice| {
                             code.appendSliceAssumeCapacity(slice);
@@ -198,10 +198,10 @@ pub fn generateSymbol(
                 const elem_vals = typed_value.val.castTag(.array).?.data;
                 const elem_ty = typed_value.ty.elemType();
                 for (elem_vals) |elem_val| {
-                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = elem_ty,
                         .val = elem_val,
-                    }, code, debug_output)) {
+                    }, code, debug_output, reloc_info)) {
                         .appended => {},
                         .externally_managed => |slice| {
                             code.appendSliceAssumeCapacity(slice);
@@ -219,10 +219,10 @@ pub fn generateSymbol(
 
                 var index: u64 = 0;
                 while (index < len) : (index += 1) {
-                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = elem_ty,
                         .val = array,
-                    }, code, debug_output)) {
+                    }, code, debug_output, reloc_info)) {
                         .appended => {},
                         .externally_managed => |slice| {
                             code.appendSliceAssumeCapacity(slice);
@@ -232,10 +232,10 @@ pub fn generateSymbol(
                 }
 
                 if (sentinel) |sentinel_val| {
-                    switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                    switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = elem_ty,
                         .val = sentinel_val,
-                    }, code, debug_output)) {
+                    }, code, debug_output, reloc_info)) {
                         .appended => {},
                         .externally_managed => |slice| {
                             code.appendSliceAssumeCapacity(slice);
@@ -249,10 +249,10 @@ pub fn generateSymbol(
             .empty_array_sentinel => {
                 const elem_ty = typed_value.ty.childType();
                 const sentinel_val = typed_value.ty.sentinel().?;
-                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = elem_ty,
                     .val = sentinel_val,
-                }, code, debug_output)) {
+                }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |slice| {
                         code.appendSliceAssumeCapacity(slice);
@@ -273,11 +273,11 @@ pub fn generateSymbol(
         .Pointer => switch (typed_value.val.tag()) {
             .variable => {
                 const decl = typed_value.val.castTag(.variable).?.data.owner_decl;
-                return lowerDeclRef(bin_file, parent_atom_index, src_loc, typed_value, decl, code, debug_output);
+                return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output, reloc_info);
             },
             .decl_ref => {
                 const decl = typed_value.val.castTag(.decl_ref).?.data;
-                return lowerDeclRef(bin_file, parent_atom_index, src_loc, typed_value, decl, code, debug_output);
+                return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output, reloc_info);
             },
             .slice => {
                 const slice = typed_value.val.castTag(.slice).?.data;
@@ -285,10 +285,10 @@ pub fn generateSymbol(
                 // generate ptr
                 var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
-                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = slice_ptr_field_type,
                     .val = slice.ptr,
-                }, code, debug_output)) {
+                }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
                         code.appendSliceAssumeCapacity(external_slice);
@@ -297,10 +297,10 @@ pub fn generateSymbol(
                 }
 
                 // generate length
-                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = Type.initTag(.usize),
                     .val = slice.len,
-                }, code, debug_output)) {
+                }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
                         code.appendSliceAssumeCapacity(external_slice);
@@ -309,6 +309,45 @@ pub fn generateSymbol(
                 }
 
                 return Result{ .appended = {} };
+            },
+            .field_ptr => {
+                const target = bin_file.options.target;
+                const field_ptr = typed_value.val.castTag(.field_ptr).?.data;
+                const container_ptr = field_ptr.container_ptr;
+
+                switch (container_ptr.tag()) {
+                    .decl_ref => {
+                        const decl = container_ptr.castTag(.decl_ref).?.data;
+                        const addend = blk: {
+                            switch (decl.ty.tag()) {
+                                .@"struct" => {
+                                    const addend = decl.ty.structFieldOffset(field_ptr.field_index, target);
+                                    break :blk @intCast(u32, addend);
+                                },
+                                else => return Result{
+                                    .fail = try ErrorMsg.create(
+                                        bin_file.allocator,
+                                        src_loc,
+                                        "TODO implement generateSymbol for pointer type value: '{s}'",
+                                        .{@tagName(typed_value.val.tag())},
+                                    ),
+                                },
+                            }
+                        };
+                        return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output, .{
+                            .parent_atom_index = reloc_info.parent_atom_index,
+                            .addend = (reloc_info.addend orelse 0) + addend,
+                        });
+                    },
+                    else => return Result{
+                        .fail = try ErrorMsg.create(
+                            bin_file.allocator,
+                            src_loc,
+                            "TODO implement generateSymbol for pointer type value: '{s}'",
+                            .{@tagName(typed_value.val.tag())},
+                        ),
+                    },
+                }
             },
             else => return Result{
                 .fail = try ErrorMsg.create(
@@ -441,10 +480,10 @@ pub fn generateSymbol(
                 const field_ty = typed_value.ty.structFieldType(index);
                 if (!field_ty.hasRuntimeBits()) continue;
 
-                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = field_ty,
                     .val = field_val,
-                }, code, debug_output)) {
+                }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
                         code.appendSliceAssumeCapacity(external_slice);
@@ -472,10 +511,10 @@ pub fn generateSymbol(
             const layout = typed_value.ty.unionGetLayout(target);
 
             if (layout.payload_size == 0) {
-                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = typed_value.ty.unionTagType().?,
                     .val = union_obj.tag,
-                }, code, debug_output)) {
+                }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
                         code.appendSliceAssumeCapacity(external_slice);
@@ -486,10 +525,10 @@ pub fn generateSymbol(
 
             // Check if we should store the tag first.
             if (layout.tag_align >= layout.payload_align) {
-                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = typed_value.ty.unionTagType().?,
                     .val = union_obj.tag,
-                }, code, debug_output)) {
+                }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
                         code.appendSliceAssumeCapacity(external_slice);
@@ -505,10 +544,10 @@ pub fn generateSymbol(
             if (!field_ty.hasRuntimeBits()) {
                 try code.writer().writeByteNTimes(0xaa, try math.cast(usize, layout.payload_size));
             } else {
-                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = field_ty,
                     .val = union_obj.val,
-                }, code, debug_output)) {
+                }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
                         code.appendSliceAssumeCapacity(external_slice);
@@ -523,10 +562,10 @@ pub fn generateSymbol(
             }
 
             if (layout.tag_size > 0) {
-                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = union_ty.tag_ty,
                     .val = union_obj.tag,
-                }, code, debug_output)) {
+                }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
                         code.appendSliceAssumeCapacity(external_slice);
@@ -555,10 +594,10 @@ pub fn generateSymbol(
 
             const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
             const begin = code.items.len;
-            switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+            switch (try generateSymbol(bin_file, src_loc, .{
                 .ty = error_ty,
                 .val = error_val,
-            }, code, debug_output)) {
+            }, code, debug_output, reloc_info)) {
                 .appended => {},
                 .externally_managed => |external_slice| {
                     code.appendSliceAssumeCapacity(external_slice);
@@ -568,10 +607,10 @@ pub fn generateSymbol(
 
             if (payload_ty.hasRuntimeBits()) {
                 const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.initTag(.undef);
-                switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+                switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = payload_ty,
                     .val = payload_val,
-                }, code, debug_output)) {
+                }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
                         code.appendSliceAssumeCapacity(external_slice);
@@ -618,23 +657,28 @@ pub fn generateSymbol(
     }
 }
 
+const RelocInfo = struct {
+    parent_atom_index: u32,
+    addend: ?u32 = null,
+};
+
 fn lowerDeclRef(
     bin_file: *link.File,
-    parent_atom_index: u32,
     src_loc: Module.SrcLoc,
     typed_value: TypedValue,
     decl: *Module.Decl,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
+    reloc_info: RelocInfo,
 ) GenerateSymbolError!Result {
     if (typed_value.ty.isSlice()) {
         // generate ptr
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
-        switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+        switch (try generateSymbol(bin_file, src_loc, .{
             .ty = slice_ptr_field_type,
             .val = typed_value.val,
-        }, code, debug_output)) {
+        }, code, debug_output, reloc_info)) {
             .appended => {},
             .externally_managed => |external_slice| {
                 code.appendSliceAssumeCapacity(external_slice);
@@ -647,10 +691,10 @@ fn lowerDeclRef(
             .base = .{ .tag = .int_u64 },
             .data = typed_value.val.sliceLen(),
         };
-        switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
+        switch (try generateSymbol(bin_file, src_loc, .{
             .ty = Type.usize,
             .val = Value.initPayload(&slice_len.base),
-        }, code, debug_output)) {
+        }, code, debug_output, reloc_info)) {
             .appended => {},
             .externally_managed => |external_slice| {
                 code.appendSliceAssumeCapacity(external_slice);
@@ -670,7 +714,11 @@ fn lowerDeclRef(
     }
 
     decl.markAlive();
-    const vaddr = try bin_file.getDeclVAddr(decl, parent_atom_index, code.items.len);
+    const vaddr = try bin_file.getDeclVAddr(decl, .{
+        .parent_atom_index = reloc_info.parent_atom_index,
+        .offset = code.items.len,
+        .addend = reloc_info.addend orelse 0,
+    });
     const endian = target.cpu.arch.endian();
     switch (ptr_width) {
         16 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(u16, vaddr), endian),

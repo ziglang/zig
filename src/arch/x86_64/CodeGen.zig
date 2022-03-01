@@ -2565,7 +2565,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
 
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = 0,
-                        .operand = @intCast(u32, imm),
+                        // TODO check if this logic is correct
+                        .operand = @truncate(u32, imm),
                     });
                     const flags: u2 = switch (abi_size) {
                         1 => 0b00,

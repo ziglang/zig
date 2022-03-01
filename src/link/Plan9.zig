@@ -304,10 +304,12 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
     const sym_index = decl.link.plan9.sym_index orelse 0;
-    const res = try codegen.generateSymbol(&self.base, @intCast(u32, sym_index), decl.srcLoc(), .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
         .ty = decl.ty,
         .val = decl_val,
-    }, &code_buffer, .{ .none = .{} });
+    }, &code_buffer, .{ .none = .{} }, .{
+        .parent_atom_index = @intCast(u32, sym_index),
+    });
     const code = switch (res) {
         .externally_managed => |x| x,
         .appended => code_buffer.items,
@@ -752,9 +754,8 @@ pub fn allocateDeclIndexes(self: *Plan9, decl: *Module.Decl) !void {
     _ = self;
     _ = decl;
 }
-pub fn getDeclVAddr(self: *Plan9, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
-    _ = parent_atom_index;
-    _ = offset;
+pub fn getDeclVAddr(self: *Plan9, decl: *const Module.Decl, reloc_info: link.File.RelocInfo) !u64 {
+    _ = reloc_info;
     if (decl.ty.zigTypeTag() == .Fn) {
         var start = self.bases.text;
         var it_file = self.fn_decl_table.iterator();

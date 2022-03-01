@@ -685,16 +685,22 @@ pub const File = struct {
         }
     }
 
+    pub const RelocInfo = struct {
+        parent_atom_index: u32,
+        offset: u64,
+        addend: u32,
+    };
+
     /// Get allocated `Decl`'s address in virtual memory.
     /// The linker is passed information about the containing atom, `parent_atom_index`, and offset within it's
     /// memory buffer, `offset`, so that it can make a note of potential relocation sites, should the
     /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
-    pub fn getDeclVAddr(base: *File, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
+    pub fn getDeclVAddr(base: *File, decl: *const Module.Decl, reloc_info: RelocInfo) !u64 {
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl, parent_atom_index, offset),
-            .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl, parent_atom_index, offset),
-            .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl, parent_atom_index, offset),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl, parent_atom_index, offset),
+            .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl, reloc_info),
+            .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl, reloc_info),
+            .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl, reloc_info),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl, reloc_info),
             .c => unreachable,
             .wasm => unreachable,
             .spirv => unreachable,
