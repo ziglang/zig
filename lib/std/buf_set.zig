@@ -78,7 +78,7 @@ pub const BufSet = struct {
     ) Allocator.Error!BufSet {
         var cloned_hashmap = try self.hash_map.cloneWithAllocator(new_allocator);
         var cloned = BufSet{ .hash_map = cloned_hashmap };
-        var it = self.hash_map.keyIterator();
+        var it = cloned.hash_map.keyIterator();
         while (it.next()) |key_ptr| {
             key_ptr.* = try cloned.copy(key_ptr.*);
         }
@@ -131,4 +131,17 @@ test "BufSet clone" {
         error.OutOfMemory,
         original.cloneWithAllocator(testing.failing_allocator),
     );
+}
+
+test "BufSet.clone with arena" {
+    var allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var buf = BufSet.init(allocator);
+    defer buf.deinit();
+    try buf.insert("member1");
+    try buf.insert("member2");
+
+    _ = try buf.cloneWithAllocator(arena.allocator());
 }
