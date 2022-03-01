@@ -45,7 +45,7 @@ test "tuple multiplication" {
     comptime try S.doTheTest();
 }
 
-test "tuple concatenation" {
+test "more tuple concatenation" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
     const T = struct {

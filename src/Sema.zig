@@ -19585,8 +19585,9 @@ fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) C
 
         .tuple => {
             const tuple = ty.castTag(.tuple).?.data;
-            for (tuple.types) |field_ty| {
-                if (try sema.typeRequiresComptime(block, src, field_ty)) {
+            for (tuple.types) |field_ty, i| {
+                const have_comptime_val = tuple.values[i].tag() != .unreachable_value;
+                if (!have_comptime_val and try sema.typeRequiresComptime(block, src, field_ty)) {
                     return true;
                 }
             }

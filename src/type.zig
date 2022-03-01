@@ -4050,8 +4050,9 @@ pub const Type = extern union {
 
             .tuple => {
                 const tuple = ty.castTag(.tuple).?.data;
-                for (tuple.types) |field_ty| {
-                    if (field_ty.comptimeOnly()) return true;
+                for (tuple.types) |field_ty, i| {
+                    const have_comptime_val = tuple.values[i].tag() != .unreachable_value;
+                    if (!have_comptime_val and field_ty.comptimeOnly()) return true;
                 }
                 return false;
             },
