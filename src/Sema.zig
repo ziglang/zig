@@ -17612,9 +17612,8 @@ fn resolvePeerTypes(
     var chosen = instructions[0];
     var err_set_ty: ?Type = blk: {
         const chosen_ty = sema.typeOf(chosen);
-
-        // TODO: is this the right handling of generic poison?
-        if (chosen_ty.tag() == .generic_poison or chosen_ty.zigTypeTag() != .ErrorSet)
+        const chosen_ty_tag = try chosen_ty.zigTypeTagOrPoison();
+        if (chosen_ty_tag != .ErrorSet)
             break :blk null;
 
         // If our chosen type is inferred, we have to resolve it now.
