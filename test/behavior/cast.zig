@@ -591,11 +591,10 @@ test "@floatCast cast down" {
 }
 
 test "peer type resolution: unreachable, error set, unreachable" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const Error = error{
         FileDescriptorAlreadyPresentInSet,
@@ -620,11 +619,6 @@ test "peer type resolution: unreachable, error set, unreachable" {
 }
 
 test "peer cast: error set any anyerror" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     const a: error{ One, Two } = undefined;
     const b: anyerror = undefined;
     try expect(@TypeOf(a, b) == anyerror);
@@ -632,11 +626,9 @@ test "peer cast: error set any anyerror" {
 }
 
 test "peer type resolution: error set supersets" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const a: error{ One, Two } = undefined;
     const b: error{One} = undefined;
@@ -663,29 +655,20 @@ test "peer type resolution: error set supersets" {
 }
 
 test "peer type resolution: disjoint error sets" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the order of the error names wrong after merging the sets.
+        return error.SkipZigTest;
+    }
+
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const a: error{ One, Two } = undefined;
     const b: error{Three} = undefined;
 
-    // note: order of error set made to match stage1 during stage2 dev
-
     {
         const ty = @TypeOf(a, b);
-        const error_set_info = @typeInfo(ty);
-        try expect(error_set_info == .ErrorSet);
-        try expect(error_set_info.ErrorSet.?.len == 3);
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "Three"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "One"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
-    }
-
-    {
-        const ty = @TypeOf(b, a);
         const error_set_info = @typeInfo(ty);
         try expect(error_set_info == .ErrorSet);
         try expect(error_set_info.ErrorSet.?.len == 3);
@@ -693,19 +676,30 @@ test "peer type resolution: disjoint error sets" {
         try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
         try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
     }
+
+    {
+        const ty = @TypeOf(b, a);
+        const error_set_info = @typeInfo(ty);
+        try expect(error_set_info == .ErrorSet);
+        try expect(error_set_info.ErrorSet.?.len == 3);
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "Three"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "One"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
+    }
 }
 
 test "peer type resolution: error union and error set" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the order of the error names wrong after merging the sets.
+        return error.SkipZigTest;
+    }
+
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const a: error{Three} = undefined;
     const b: error{ One, Two }!u32 = undefined;
-
-    // note: order of error set made to match stage1 during stage2 dev
 
     {
         const ty = @TypeOf(a, b);
@@ -714,9 +708,9 @@ test "peer type resolution: error union and error set" {
 
         const error_set_info = @typeInfo(info.ErrorUnion.error_set);
         try expect(error_set_info.ErrorSet.?.len == 3);
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "Three"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "One"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
     }
 
     {
@@ -733,16 +727,12 @@ test "peer type resolution: error union and error set" {
 }
 
 test "peer type resolution: error union after non-error" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const a: u32 = undefined;
     const b: error{ One, Two }!u32 = undefined;
-
-    // note: order of error set made to match stage1 during stage2 dev
 
     {
         const ty = @TypeOf(a, b);

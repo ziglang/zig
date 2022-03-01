@@ -4216,18 +4216,18 @@ pub const Type = extern union {
         };
     }
 
-    /// Merge ty with ty2.
-    /// Asserts that ty and ty2 are both error sets and are resolved.
-    pub fn errorSetMerge(ty: Type, arena: Allocator, ty2: Type) !Type {
-        const lhs_names = ty.errorSetNames();
-        const rhs_names = ty2.errorSetNames();
-        var names = Module.ErrorSet.NameMap{};
-        try names.ensureUnusedCapacity(arena, @intCast(u32, lhs_names.len + rhs_names.len));
+    /// Merge lhs with rhs.
+    /// Asserts that lhs and rhs are both error sets and are resolved.
+    pub fn errorSetMerge(lhs: Type, arena: Allocator, rhs: Type) !Type {
+        const lhs_names = lhs.errorSetNames();
+        const rhs_names = rhs.errorSetNames();
+        var names: Module.ErrorSet.NameMap = .{};
+        try names.ensureUnusedCapacity(arena, lhs_names.len);
         for (lhs_names) |name| {
             names.putAssumeCapacityNoClobber(name, {});
         }
         for (rhs_names) |name| {
-            names.putAssumeCapacity(name, {});
+            try names.put(arena, name, {});
         }
 
         return try Tag.error_set_merged.create(arena, names);
