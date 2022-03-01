@@ -1020,10 +1020,20 @@ pub const Dir = struct {
             .write_only => @as(u32, os.O.WRONLY),
             .read_write => @as(u32, os.O.RDWR),
         };
+        // Use open syscall instead of openat when we are dealing with absolute paths,
+        // because openat with AT_FDCWD does not work with tmpfs.
+        const is_absolute = path.isAbsoluteZ(sub_path);
         const fd = if (flags.intended_io_mode != .blocking)
-            try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
+            if (is_absolute) 
+                try std.event.Loop.instance.?.openZ(sub_path, os_flags, 0)
+            else 
+                try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
+            
         else
-            try os.openatZ(self.fd, sub_path, os_flags, 0);
+            if (is_absolute) 
+                try os.openZ(sub_path, os_flags, 0)
+            else
+                try os.openatZ(self.fd, sub_path, os_flags, 0);
         errdefer os.close(fd);
 
         // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
