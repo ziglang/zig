@@ -1464,9 +1464,8 @@ pub const DeclGen = struct {
 
                 if (struct_obj.layout == .Packed) {
                     const target = dg.module.getTarget();
-                    var int_ty_buf: Type.Payload.Bits = undefined;
-                    const int_ty = struct_obj.packedIntegerType(target, &int_ty_buf);
-                    const int_llvm_ty = try dg.llvmType(int_ty);
+                    const big_bits = struct_obj.packedIntegerBits(target);
+                    const int_llvm_ty = dg.context.intType(big_bits);
                     const fields = struct_obj.fields.values();
                     comptime assert(Type.packed_struct_layout_version == 2);
                     var running_int: *const llvm.Value = int_llvm_ty.constNull();
@@ -1483,7 +1482,10 @@ pub const DeclGen = struct {
                         const small_int_ty = dg.context.intType(ty_bit_size);
                         const small_int_val = non_int_val.constBitCast(small_int_ty);
                         const shift_rhs = int_llvm_ty.constInt(running_bits, .False);
-                        const extended_int_val = small_int_val.constZExt(int_llvm_ty);
+                        // If the field is as large as the entire packed struct, this
+                        // zext would go from, e.g. i16 to i16. This is legal with
+                        // constZExtOrBitCast but not legal with constZExt.
+                        const extended_int_val = small_int_val.constZExtOrBitCast(int_llvm_ty);
                         const shifted = extended_int_val.constShl(shift_rhs);
                         running_int = running_int.constOr(shifted);
                         running_bits += ty_bit_size;
@@ -4830,7 +4832,7 @@ pub const FuncGen = struct {
                 index_type.constInt(@boolToInt(layout.tag_align < layout.payload_align), .False),
             };
             const field_ptr = self.builder.buildInBoundsGEP(casted_ptr, &indices, indices.len, "");
-            const llvm_tag = union_llvm_ty.constInt(extra.field_index, .False);
+            const llvm_tag = tag_llvm_ty.constInt(extra.field_index, .False);
             const store_inst = self.builder.buildStore(llvm_tag, field_ptr);
             store_inst.setAlignment(union_obj.tag_ty.abiAlignment(target));
         }

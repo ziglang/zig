@@ -157,6 +157,9 @@ pub const Value = opaque {
     pub const constZExt = LLVMConstZExt;
     extern fn LLVMConstZExt(ConstantVal: *const Value, ToType: *const Type) *const Value;
 
+    pub const constZExtOrBitCast = LLVMConstZExtOrBitCast;
+    extern fn LLVMConstZExtOrBitCast(ConstantVal: *const Value, ToType: *const Type) *const Value;
+
     pub const constNot = LLVMConstNot;
     extern fn LLVMConstNot(ConstantVal: *const Value) *const Value;
 
