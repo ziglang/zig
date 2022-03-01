@@ -46,10 +46,9 @@ pub fn main() void {
 
     var leaks: usize = 0;
     for (test_fn_list) |test_fn, i| {
-        const gpa_works = builtin.zig_backend == .stage1 or builtin.os.tag != .macos;
-        if (gpa_works) std.testing.allocator_instance = .{};
+        std.testing.allocator_instance = .{};
         defer {
-            if (gpa_works and std.testing.allocator_instance.deinit()) {
+            if (std.testing.allocator_instance.deinit()) {
                 leaks += 1;
             }
         }

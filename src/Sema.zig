@@ -12371,7 +12371,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const type_res = try sema.resolveType(block, src, extra.lhs);
     try sema.checkPtrType(block, type_src, type_res);
-    _ = try sema.resolveTypeLayout(block, src, type_res.childType());
+    try sema.resolveTypeLayout(block, src, type_res.elemType2());
     const ptr_align = type_res.ptrAlignment(sema.mod.getTarget());
 
     if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
@@ -15512,6 +15512,14 @@ fn coerce(
                 return sema.addConstant(dest_ty, Value.@"null");
             }
 
+            // cast from ?*T and ?[*]T to ?*anyopaque
+            // but don't do it if the source type is a double pointer
+            if (dest_ty.isPtrLikeOptional() and dest_ty.elemType2().tag() == .anyopaque and
+                inst_ty.isPtrLikeOptional() and inst_ty.elemType2().zigTypeTag() != .Pointer)
+            {
+                return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
+            }
+
             // T to ?T
             const child_type = try dest_ty.optionalChildAlloc(sema.arena);
             const intermediate = try sema.coerce(block, child_type, inst, inst_src);
@@ -16791,6 +16799,7 @@ fn coerceCompatiblePtrs(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
+    // TODO check const/volatile/alignment
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
         // The comptime Value representation is compatible with both types.
         return sema.addConstant(dest_ty, val);
@@ -18506,6 +18515,7 @@ fn resolveInferredErrorSet(sema: *Sema, inferred_error_set: *Module.Fn.InferredE
     if (inferred_error_set.is_resolved) {
         return;
     }
+    inferred_error_set.is_resolved = true;
 
     var it = inferred_error_set.inferred_error_sets.keyIterator();
     while (it.next()) |other_error_set_ptr| {
@@ -18526,8 +18536,6 @@ fn resolveInferredErrorSet(sema: *Sema, inferred_error_set: *Module.Fn.InferredE
         if (other_error_set_ptr.*.is_anyerror)
             inferred_error_set.is_anyerror = true;
     }
-
-    inferred_error_set.is_resolved = true;
 }
 
 fn resolveInferredErrorSetTy(sema: *Sema, ty: Type) CompileError!void {
