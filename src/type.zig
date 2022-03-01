@@ -491,94 +491,115 @@ pub const Type = extern union {
 
     pub fn eql(a: Type, b: Type) bool {
         // As a shortcut, if the small tags / addresses match, we're done.
-        if (a.tag_if_small_enough == b.tag_if_small_enough)
-            return true;
-        const zig_tag_a = a.zigTypeTag();
-        const zig_tag_b = b.zigTypeTag();
-        if (zig_tag_a != zig_tag_b)
-            return false;
-        switch (zig_tag_a) {
-            .EnumLiteral => return true,
-            .Type => return true,
-            .Void => return true,
-            .Bool => return true,
-            .NoReturn => return true,
-            .ComptimeFloat => return true,
-            .ComptimeInt => return true,
-            .Undefined => return true,
-            .Null => return true,
-            .AnyFrame => {
-                return a.elemType().eql(b.elemType());
-            },
-            .Pointer => {
-                const info_a = a.ptrInfo().data;
-                const info_b = b.ptrInfo().data;
-                if (!info_a.pointee_type.eql(info_b.pointee_type))
-                    return false;
-                if (info_a.size != info_b.size)
-                    return false;
-                if (info_a.mutable != info_b.mutable)
-                    return false;
-                if (info_a.@"volatile" != info_b.@"volatile")
-                    return false;
-                if (info_a.@"allowzero" != info_b.@"allowzero")
-                    return false;
-                if (info_a.bit_offset != info_b.bit_offset)
-                    return false;
-                if (info_a.host_size != info_b.host_size)
-                    return false;
-                if (info_a.@"addrspace" != info_b.@"addrspace")
-                    return false;
+        if (a.tag_if_small_enough == b.tag_if_small_enough) return true;
 
-                const sentinel_a = info_a.sentinel;
-                const sentinel_b = info_b.sentinel;
-                if (sentinel_a) |sa| {
-                    if (sentinel_b) |sb| {
-                        if (!sa.eql(sb, info_a.pointee_type))
-                            return false;
-                    } else {
-                        return false;
-                    }
-                } else {
-                    if (sentinel_b != null)
-                        return false;
-                }
+        switch (a.tag()) {
+            .generic_poison => unreachable,
 
-                return true;
+            // Detect that e.g. u64 != usize, even if the bits match on a particular target.
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+
+            .f16,
+            .f32,
+            .f64,
+            .f80,
+            .f128,
+            .c_longdouble,
+
+            .bool,
+            .void,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .@"anyopaque",
+            .@"anyframe",
+            .enum_literal,
+            => |a_tag| {
+                assert(a_tag != b.tag()); // because of the comparison at the top of the function.
+                return false;
             },
-            .Int => {
-                // Detect that e.g. u64 != usize, even if the bits match on a particular target.
-                const a_is_named_int = a.isNamedInt();
-                const b_is_named_int = b.isNamedInt();
-                if (a_is_named_int != b_is_named_int)
-                    return false;
-                if (a_is_named_int)
-                    return a.tag() == b.tag();
-                // Remaining cases are arbitrary sized integers.
-                // The target will not be branched upon, because we handled target-dependent cases above.
+
+            .u1,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .int_signed,
+            .int_unsigned,
+            => {
+                if (b.zigTypeTag() != .Int) return false;
+                if (b.isNamedInt()) return false;
+
+                // Arbitrary sized integers. The target will not be branched upon,
+                // because we handled target-dependent cases above.
                 const info_a = a.intInfo(@as(Target, undefined));
                 const info_b = b.intInfo(@as(Target, undefined));
                 return info_a.signedness == info_b.signedness and info_a.bits == info_b.bits;
             },
-            .Array, .Vector => {
-                if (a.arrayLen() != b.arrayLen())
-                    return false;
-                const elem_ty = a.elemType();
-                if (!elem_ty.eql(b.elemType()))
-                    return false;
-                const sentinel_a = a.sentinel();
-                const sentinel_b = b.sentinel();
-                if (sentinel_a) |sa| {
-                    if (sentinel_b) |sb| {
-                        return sa.eql(sb, elem_ty);
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return sentinel_b == null;
+
+            .error_set,
+            .error_set_single,
+            .anyerror,
+            .error_set_inferred,
+            .error_set_merged,
+            => {
+                if (b.zigTypeTag() != .ErrorSet) return false;
+
+                // TODO: revisit the language specification for how to evaluate equality
+                // for error set types.
+
+                if (a.tag() == .anyerror and b.tag() == .anyerror) {
+                    return true;
                 }
+
+                if (a.tag() == .error_set and b.tag() == .error_set) {
+                    return a.castTag(.error_set).?.data.owner_decl == b.castTag(.error_set).?.data.owner_decl;
+                }
+
+                if (a.tag() == .error_set_inferred and b.tag() == .error_set_inferred) {
+                    return a.castTag(.error_set_inferred).?.data == b.castTag(.error_set_inferred).?.data;
+                }
+
+                if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
+                    const a_data = a.castTag(.error_set_single).?.data;
+                    const b_data = b.castTag(.error_set_single).?.data;
+                    return std.mem.eql(u8, a_data, b_data);
+                }
+                return false;
             },
-            .Fn => {
+
+            .@"opaque" => {
+                const opaque_obj_a = a.castTag(.@"opaque").?.data;
+                const opaque_obj_b = (b.castTag(.@"opaque") orelse return false).data;
+                return opaque_obj_a == opaque_obj_b;
+            },
+
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            => {
+                if (b.zigTypeTag() != .Fn) return false;
+
                 const a_info = a.fnInfo();
                 const b_info = b.fnInfo();
 
@@ -613,76 +634,105 @@ pub const Type = extern union {
 
                 return true;
             },
-            .Optional => {
+
+            .array,
+            .array_u8_sentinel_0,
+            .array_u8,
+            .array_sentinel,
+            .vector,
+            => {
+                if (a.zigTypeTag() != b.zigTypeTag()) return false;
+
+                if (a.arrayLen() != b.arrayLen())
+                    return false;
+                const elem_ty = a.elemType();
+                if (!elem_ty.eql(b.elemType()))
+                    return false;
+                const sentinel_a = a.sentinel();
+                const sentinel_b = b.sentinel();
+                if (sentinel_a) |sa| {
+                    if (sentinel_b) |sb| {
+                        return sa.eql(sb, elem_ty);
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return sentinel_b == null;
+                }
+            },
+
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .const_slice_u8_sentinel_0,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .pointer,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
+            => {
+                if (b.zigTypeTag() != .Pointer) return false;
+
+                const info_a = a.ptrInfo().data;
+                const info_b = b.ptrInfo().data;
+                if (!info_a.pointee_type.eql(info_b.pointee_type))
+                    return false;
+                if (info_a.@"align" != info_b.@"align")
+                    return false;
+                if (info_a.@"addrspace" != info_b.@"addrspace")
+                    return false;
+                if (info_a.bit_offset != info_b.bit_offset)
+                    return false;
+                if (info_a.host_size != info_b.host_size)
+                    return false;
+                if (info_a.@"allowzero" != info_b.@"allowzero")
+                    return false;
+                if (info_a.mutable != info_b.mutable)
+                    return false;
+                if (info_a.@"volatile" != info_b.@"volatile")
+                    return false;
+                if (info_a.size != info_b.size)
+                    return false;
+
+                const sentinel_a = info_a.sentinel;
+                const sentinel_b = info_b.sentinel;
+                if (sentinel_a) |sa| {
+                    if (sentinel_b) |sb| {
+                        if (!sa.eql(sb, info_a.pointee_type))
+                            return false;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    if (sentinel_b != null)
+                        return false;
+                }
+
+                return true;
+            },
+
+            .optional,
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            => {
+                if (b.zigTypeTag() != .Optional) return false;
+
                 var buf_a: Payload.ElemType = undefined;
                 var buf_b: Payload.ElemType = undefined;
                 return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b));
             },
-            .Struct => {
-                if (a.castTag(.@"struct")) |a_payload| {
-                    if (b.castTag(.@"struct")) |b_payload| {
-                        return a_payload.data == b_payload.data;
-                    }
-                }
-                if (a.castTag(.tuple)) |a_payload| {
-                    if (b.castTag(.tuple)) |b_payload| {
-                        if (a_payload.data.types.len != b_payload.data.types.len) return false;
 
-                        for (a_payload.data.types) |a_ty, i| {
-                            const b_ty = b_payload.data.types[i];
-                            if (!eql(a_ty, b_ty)) return false;
-                        }
+            .anyerror_void_error_union, .error_union => {
+                if (b.zigTypeTag() != .ErrorUnion) return false;
 
-                        for (a_payload.data.values) |a_val, i| {
-                            const ty = a_payload.data.types[i];
-                            const b_val = b_payload.data.values[i];
-                            if (a_val.tag() == .unreachable_value) {
-                                if (b_val.tag() == .unreachable_value) {
-                                    continue;
-                                } else {
-                                    return false;
-                                }
-                            } else {
-                                if (b_val.tag() == .unreachable_value) {
-                                    return false;
-                                } else {
-                                    if (!Value.eql(a_val, b_val, ty)) return false;
-                                }
-                            }
-                        }
-
-                        return true;
-                    }
-                }
-                return a.tag() == b.tag();
-            },
-            .Enum => {
-                if (a.cast(Payload.EnumFull)) |a_payload| {
-                    if (b.cast(Payload.EnumFull)) |b_payload| {
-                        return a_payload.data == b_payload.data;
-                    }
-                }
-                if (a.cast(Payload.EnumSimple)) |a_payload| {
-                    if (b.cast(Payload.EnumSimple)) |b_payload| {
-                        return a_payload.data == b_payload.data;
-                    }
-                }
-                return a.tag() == b.tag();
-            },
-            .Opaque => {
-                const opaque_obj_a = a.castTag(.@"opaque").?.data;
-                const opaque_obj_b = b.castTag(.@"opaque").?.data;
-                return opaque_obj_a == opaque_obj_b;
-            },
-            .Union => {
-                if (a.cast(Payload.Union)) |a_payload| {
-                    if (b.cast(Payload.Union)) |b_payload| {
-                        return a_payload.data == b_payload.data;
-                    }
-                }
-                return a.tag() == b.tag();
-            },
-            .ErrorUnion => {
                 const a_set = a.errorUnionSet();
                 const b_set = b.errorUnionSet();
                 if (!a_set.eql(b_set)) return false;
@@ -693,34 +743,100 @@ pub const Type = extern union {
 
                 return true;
             },
-            .ErrorSet => {
-                // TODO: revisit the language specification for how to evaluate equality
-                // for error set types.
 
-                if (a.tag() == .anyerror and b.tag() == .anyerror) {
-                    return true;
-                }
-
-                if (a.tag() == .error_set and b.tag() == .error_set) {
-                    return a.castTag(.error_set).?.data.owner_decl == b.castTag(.error_set).?.data.owner_decl;
-                }
-
-                if (a.tag() == .error_set_inferred and b.tag() == .error_set_inferred) {
-                    return a.castTag(.error_set_inferred).?.data == b.castTag(.error_set_inferred).?.data;
-                }
-
-                if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
-                    const a_data = a.castTag(.error_set_single).?.data;
-                    const b_data = b.castTag(.error_set_single).?.data;
-                    return std.mem.eql(u8, a_data, b_data);
-                }
-                return false;
+            .anyframe_T => {
+                if (b.zigTypeTag() != .AnyFrame) return false;
+                return a.childType().eql(b.childType());
             },
-            .Float => return a.tag() == b.tag(),
 
-            .BoundFn,
-            .Frame,
-            => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
+            .empty_struct => {
+                const a_namespace = a.castTag(.empty_struct).?.data;
+                const b_namespace = (b.castTag(.empty_struct) orelse return false).data;
+                return a_namespace == b_namespace;
+            },
+            .@"struct" => {
+                const a_struct_obj = a.castTag(.@"struct").?.data;
+                const b_struct_obj = (b.castTag(.@"struct") orelse return false).data;
+                return a_struct_obj == b_struct_obj;
+            },
+            .tuple, .empty_struct_literal => {
+                if (!b.isTuple()) return false;
+
+                const a_tuple = a.tupleFields();
+                const b_tuple = b.tupleFields();
+
+                if (a_tuple.types.len != b_tuple.types.len) return false;
+
+                for (a_tuple.types) |a_ty, i| {
+                    const b_ty = b_tuple.types[i];
+                    if (!eql(a_ty, b_ty)) return false;
+                }
+
+                for (a_tuple.values) |a_val, i| {
+                    const ty = a_tuple.types[i];
+                    const b_val = b_tuple.values[i];
+                    if (a_val.tag() == .unreachable_value) {
+                        if (b_val.tag() == .unreachable_value) {
+                            continue;
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        if (b_val.tag() == .unreachable_value) {
+                            return false;
+                        } else {
+                            if (!Value.eql(a_val, b_val, ty)) return false;
+                        }
+                    }
+                }
+
+                return true;
+            },
+
+            // we can't compare these based on tags because it wouldn't detect if,
+            // for example, a was resolved into .@"struct" but b was one of these tags.
+            .call_options,
+            .prefetch_options,
+            .export_options,
+            .extern_options,
+            => unreachable, // needed to resolve the type before now
+
+            .enum_full, .enum_nonexhaustive => {
+                const a_enum_obj = a.cast(Payload.EnumFull).?.data;
+                const b_enum_obj = (b.cast(Payload.EnumFull) orelse return false).data;
+                return a_enum_obj == b_enum_obj;
+            },
+            .enum_simple => {
+                const a_enum_obj = a.cast(Payload.EnumSimple).?.data;
+                const b_enum_obj = (b.cast(Payload.EnumSimple) orelse return false).data;
+                return a_enum_obj == b_enum_obj;
+            },
+            .enum_numbered => {
+                const a_enum_obj = a.cast(Payload.EnumNumbered).?.data;
+                const b_enum_obj = (b.cast(Payload.EnumNumbered) orelse return false).data;
+                return a_enum_obj == b_enum_obj;
+            },
+            // we can't compare these based on tags because it wouldn't detect if,
+            // for example, a was resolved into .enum_simple but b was one of these tags.
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            => unreachable, // needed to resolve the type before now
+
+            .@"union", .union_tagged => {
+                const a_union_obj = a.cast(Payload.Union).?.data;
+                const b_union_obj = (b.cast(Payload.Union) orelse return false).data;
+                return a_union_obj == b_union_obj;
+            },
+            // we can't compare these based on tags because it wouldn't detect if,
+            // for example, a was resolved into .union_tagged but b was one of these tags.
+            .type_info => unreachable, // needed to resolve the type before now
+
+            .bound_fn => unreachable,
+            .var_args_param => unreachable, // can be any type
         }
     }
 
@@ -730,8 +846,8 @@ pub const Type = extern union {
         return hasher.final();
     }
 
-    pub fn hashWithHasher(self: Type, hasher: *std.hash.Wyhash) void {
-        const zig_type_tag = self.zigTypeTag();
+    pub fn hashWithHasher(ty: Type, hasher: *std.hash.Wyhash) void {
+        const zig_type_tag = ty.zigTypeTag();
         std.hash.autoHash(hasher, zig_type_tag);
         switch (zig_type_tag) {
             .Type,
@@ -745,41 +861,58 @@ pub const Type = extern union {
             => {}, // The zig type tag is all that is needed to distinguish.
 
             .Pointer => {
-                // TODO implement more pointer type hashing
+                const info = ty.ptrInfo().data;
+                hashWithHasher(info.pointee_type, hasher);
+                hashSentinel(info.sentinel, info.pointee_type, hasher);
+                std.hash.autoHash(hasher, info.@"align");
+                std.hash.autoHash(hasher, info.@"addrspace");
+                std.hash.autoHash(hasher, info.bit_offset);
+                std.hash.autoHash(hasher, info.host_size);
+                std.hash.autoHash(hasher, info.@"allowzero");
+                std.hash.autoHash(hasher, info.mutable);
+                std.hash.autoHash(hasher, info.@"volatile");
+                std.hash.autoHash(hasher, info.size);
             },
             .Int => {
                 // Detect that e.g. u64 != usize, even if the bits match on a particular target.
-                if (self.isNamedInt()) {
-                    std.hash.autoHash(hasher, self.tag());
+                if (ty.isNamedInt()) {
+                    std.hash.autoHash(hasher, ty.tag());
                 } else {
                     // Remaining cases are arbitrary sized integers.
                     // The target will not be branched upon, because we handled target-dependent cases above.
-                    const info = self.intInfo(@as(Target, undefined));
+                    const info = ty.intInfo(@as(Target, undefined));
                     std.hash.autoHash(hasher, info.signedness);
                     std.hash.autoHash(hasher, info.bits);
                 }
             },
             .Array, .Vector => {
-                std.hash.autoHash(hasher, self.arrayLen());
-                std.hash.autoHash(hasher, self.elemType().hash());
-                // TODO hash array sentinel
+                const elem_ty = ty.elemType();
+                std.hash.autoHash(hasher, ty.arrayLen());
+                hashWithHasher(elem_ty, hasher);
+                hashSentinel(ty.sentinel(), elem_ty, hasher);
             },
             .Fn => {
-                std.hash.autoHash(hasher, self.fnReturnType().hash());
-                std.hash.autoHash(hasher, self.fnCallingConvention());
-                const params_len = self.fnParamLen();
-                std.hash.autoHash(hasher, params_len);
-                var i: usize = 0;
-                while (i < params_len) : (i += 1) {
-                    std.hash.autoHash(hasher, self.fnParamType(i).hash());
+                const fn_info = ty.fnInfo();
+                hashWithHasher(fn_info.return_type, hasher);
+                std.hash.autoHash(hasher, fn_info.alignment);
+                std.hash.autoHash(hasher, fn_info.cc);
+                std.hash.autoHash(hasher, fn_info.is_var_args);
+                std.hash.autoHash(hasher, fn_info.is_generic);
+
+                std.hash.autoHash(hasher, fn_info.param_types.len);
+                for (fn_info.param_types) |param_ty, i| {
+                    std.hash.autoHash(hasher, fn_info.paramIsComptime(i));
+                    if (param_ty.tag() == .generic_poison) continue;
+                    hashWithHasher(param_ty, hasher);
                 }
-                std.hash.autoHash(hasher, self.fnIsVarArgs());
             },
             .Optional => {
                 var buf: Payload.ElemType = undefined;
-                std.hash.autoHash(hasher, self.optionalChild(&buf).hash());
+                hashWithHasher(ty.optionalChild(&buf), hasher);
             },
-            .Float,
+            .Float => {
+                std.hash.autoHash(hasher, ty.tag());
+            },
             .Struct,
             .ErrorUnion,
             .ErrorSet,
@@ -793,6 +926,15 @@ pub const Type = extern union {
             => {
                 // TODO implement more type hashing
             },
+        }
+    }
+
+    fn hashSentinel(opt_val: ?Value, ty: Type, hasher: *std.hash.Wyhash) void {
+        if (opt_val) |s| {
+            std.hash.autoHash(hasher, true);
+            s.hash(ty, hasher);
+        } else {
+            std.hash.autoHash(hasher, false);
         }
     }
 
@@ -2834,8 +2976,8 @@ pub const Type = extern union {
     /// For [*]T, returns *T
     /// For []T, returns *T
     /// Handles const-ness and address spaces in particular.
-    pub fn elemPtrType(ptr_ty: Type, arena: Allocator) !Type {
-        return try Type.ptr(arena, .{
+    pub fn elemPtrType(ptr_ty: Type, arena: Allocator, target: Target) !Type {
+        return try Type.ptr(arena, target, .{
             .pointee_type = ptr_ty.elemType2(),
             .mutable = ptr_ty.ptrIsMutable(),
             .@"addrspace" = ptr_ty.ptrAddressSpace(),
@@ -4635,6 +4777,8 @@ pub const Type = extern union {
                 pointee_type: Type,
                 sentinel: ?Value = null,
                 /// If zero use pointee_type.abiAlignment()
+                /// When creating pointer types, if alignment is equal to pointee type
+                /// abi alignment, this value should be set to 0 instead.
                 @"align": u32 = 0,
                 /// See src/target.zig defaultAddressSpace function for how to obtain
                 /// an appropriate value for this field.
@@ -4643,6 +4787,8 @@ pub const Type = extern union {
                 /// If this is non-zero it means the pointer points to a sub-byte
                 /// range of data, which is backed by a "host integer" with this
                 /// number of bytes.
+                /// When host_size=pointee_abi_size and bit_offset=0, this must be
+                /// represented with host_size=0 instead.
                 host_size: u16 = 0,
                 @"allowzero": bool = false,
                 mutable: bool = true, // TODO rename this to const, not mutable
@@ -4739,10 +4885,30 @@ pub const Type = extern union {
     pub const @"type" = initTag(.type);
     pub const @"anyerror" = initTag(.anyerror);
 
-    pub fn ptr(arena: Allocator, d: Payload.Pointer.Data) !Type {
-        assert(d.host_size == 0 or d.bit_offset < d.host_size * 8);
+    pub fn ptr(arena: Allocator, target: Target, data: Payload.Pointer.Data) !Type {
+        var d = data;
+
         if (d.size == .C) {
-            assert(d.@"allowzero"); // All C pointers must set allowzero to true.
+            d.@"allowzero" = true;
+        }
+
+        // Canonicalize non-zero alignment. If it matches the ABI alignment of the pointee
+        // type, we change it to 0 here. If this causes an assertion trip because the
+        // pointee type needs to be resolved more, that needs to be done before calling
+        // this ptr() function.
+        if (d.@"align" != 0 and d.@"align" == d.pointee_type.abiAlignment(target)) {
+            d.@"align" = 0;
+        }
+
+        // Canonicalize host_size. If it matches the bit size of the pointee type,
+        // we change it to 0 here. If this causes an assertion trip, the pointee type
+        // needs to be resolved before calling this ptr() function.
+        if (d.host_size != 0) {
+            assert(d.bit_offset < d.host_size * 8);
+            if (d.host_size * 8 == d.pointee_type.bitSize(target)) {
+                assert(d.bit_offset == 0);
+                d.host_size = 0;
+            }
         }
 
         if (d.@"align" == 0 and d.@"addrspace" == .generic and
@@ -4789,6 +4955,7 @@ pub const Type = extern union {
                 return Type.initPayload(&type_payload.base);
             }
         }
+
         return Type.Tag.pointer.create(arena, d);
     }
 

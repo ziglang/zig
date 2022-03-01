@@ -63,6 +63,8 @@ const Bytes = struct {
 };
 
 test "comptime ptrcast keeps larger alignment" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     comptime {
         const a: u32 = 1234;
         const p = @ptrCast([*]const u8, &a);

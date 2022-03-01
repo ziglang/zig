@@ -876,8 +876,6 @@ test "union no tag with struct member" {
 }
 
 test "union with comptime_int tag" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const Union = union(enum(comptime_int)) {
         X: u32,
         Y: u16,

@@ -1555,7 +1555,8 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
     const pointee_ty = try sema.resolveType(block, src, bin_inst.lhs);
     const ptr = sema.resolveInst(bin_inst.rhs);
-    const addr_space = target_util.defaultAddressSpace(sema.mod.getTarget(), .local);
+    const target = sema.mod.getTarget();
+    const addr_space = target_util.defaultAddressSpace(target, .local);
 
     if (Air.refToIndex(ptr)) |ptr_inst| {
         if (sema.air_instructions.items(.tag)[ptr_inst] == .constant) {
@@ -1575,7 +1576,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     try inferred_alloc.stored_inst_list.append(sema.arena, operand);
 
                     try sema.requireRuntimeBlock(block, src);
-                    const ptr_ty = try Type.ptr(sema.arena, .{
+                    const ptr_ty = try Type.ptr(sema.arena, target, .{
                         .pointee_type = pointee_ty,
                         .@"align" = inferred_alloc.alignment,
                         .@"addrspace" = addr_space,
@@ -1593,7 +1594,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                         try pointee_ty.copy(anon_decl.arena()),
                         Value.undef,
                     );
-                    const ptr_ty = try Type.ptr(sema.arena, .{
+                    const ptr_ty = try Type.ptr(sema.arena, target, .{
                         .pointee_type = pointee_ty,
                         .@"align" = iac.data.alignment,
                         .@"addrspace" = addr_space,
@@ -1642,7 +1643,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         }
     }
 
-    const ptr_ty = try Type.ptr(sema.arena, .{
+    const ptr_ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = pointee_ty,
         .@"addrspace" = addr_space,
     });
@@ -1663,7 +1664,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 }
                 const ty_op = air_datas[trash_inst].ty_op;
                 const operand_ty = sema.getTmpAir().typeOf(ty_op.operand);
-                const ptr_operand_ty = try Type.ptr(sema.arena, .{
+                const ptr_operand_ty = try Type.ptr(sema.arena, target, .{
                     .pointee_type = operand_ty,
                     .@"addrspace" = addr_space,
                 });
@@ -2225,9 +2226,10 @@ fn zirRetPtr(
         return sema.analyzeComptimeAlloc(block, fn_ret_ty, 0, src);
     }
 
-    const ptr_type = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const ptr_type = try Type.ptr(sema.arena, target, .{
         .pointee_type = sema.fn_ret_ty,
-        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        .@"addrspace" = target_util.defaultAddressSpace(target, .local),
     });
 
     if (block.inlining != null) {
@@ -2389,10 +2391,11 @@ fn zirAllocExtended(
         if (!small.is_const) {
             try sema.validateVarType(block, ty_src, var_ty, false);
         }
-        const ptr_type = try Type.ptr(sema.arena, .{
+        const target = sema.mod.getTarget();
+        const ptr_type = try Type.ptr(sema.arena, target, .{
             .pointee_type = var_ty,
             .@"align" = alignment,
-            .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+            .@"addrspace" = target_util.defaultAddressSpace(target, .local),
         });
         try sema.requireRuntimeBlock(block, src);
         try sema.resolveTypeLayout(block, src, var_ty);
@@ -2450,9 +2453,10 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     if (block.is_comptime) {
         return sema.analyzeComptimeAlloc(block, var_ty, 0, ty_src);
     }
-    const ptr_type = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const ptr_type = try Type.ptr(sema.arena, target, .{
         .pointee_type = var_ty,
-        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        .@"addrspace" = target_util.defaultAddressSpace(target, .local),
     });
     try sema.requireRuntimeBlock(block, var_decl_src);
     try sema.resolveTypeLayout(block, ty_src, var_ty);
@@ -2471,9 +2475,10 @@ fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         return sema.analyzeComptimeAlloc(block, var_ty, 0, ty_src);
     }
     try sema.validateVarType(block, ty_src, var_ty, false);
-    const ptr_type = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const ptr_type = try Type.ptr(sema.arena, target, .{
         .pointee_type = var_ty,
-        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        .@"addrspace" = target_util.defaultAddressSpace(target, .local),
     });
     try sema.requireRuntimeBlock(block, var_decl_src);
     try sema.resolveTypeLayout(block, ty_src, var_ty);
@@ -2542,7 +2547,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             try sema.mod.declareDeclDependency(sema.owner_decl, decl);
 
             const final_elem_ty = try decl.ty.copy(sema.arena);
-            const final_ptr_ty = try Type.ptr(sema.arena, .{
+            const final_ptr_ty = try Type.ptr(sema.arena, target, .{
                 .pointee_type = final_elem_ty,
                 .mutable = var_is_mut,
                 .@"align" = iac.data.alignment,
@@ -2565,7 +2570,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const peer_inst_list = inferred_alloc.data.stored_inst_list.items;
             const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list, .none);
 
-            const final_ptr_ty = try Type.ptr(sema.arena, .{
+            const final_ptr_ty = try Type.ptr(sema.arena, target, .{
                 .pointee_type = final_elem_ty,
                 .mutable = var_is_mut,
                 .@"align" = inferred_alloc.data.alignment,
@@ -3335,10 +3340,11 @@ fn storeToInferredAlloc(
     // for the inferred allocation.
     try inferred_alloc.data.stored_inst_list.append(sema.arena, operand);
     // Create a runtime bitcast instruction with exactly the type the pointer wants.
-    const ptr_ty = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const ptr_ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = operand_ty,
         .@"align" = inferred_alloc.data.alignment,
-        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        .@"addrspace" = target_util.defaultAddressSpace(target, .local),
     });
     const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
     return sema.storePtr(block, src, bitcasted_ptr, operand);
@@ -5444,7 +5450,8 @@ fn analyzeOptionalPayloadPtr(
     }
 
     const child_type = try opt_type.optionalChildAlloc(sema.arena);
-    const child_pointer = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const child_pointer = try Type.ptr(sema.arena, target, .{
         .pointee_type = child_type,
         .mutable = !optional_ptr_ty.isConstPtr(),
         .@"addrspace" = optional_ptr_ty.ptrAddressSpace(),
@@ -5509,7 +5516,8 @@ fn zirOptionalPayload(
                 return sema.failWithExpectedOptionalType(block, src, operand_ty);
             }
             const ptr_info = operand_ty.ptrInfo().data;
-            break :t try Type.ptr(sema.arena, .{
+            const target = sema.mod.getTarget();
+            break :t try Type.ptr(sema.arena, target, .{
                 .pointee_type = try ptr_info.pointee_type.copy(sema.arena),
                 .@"align" = ptr_info.@"align",
                 .@"addrspace" = ptr_info.@"addrspace",
@@ -5607,7 +5615,8 @@ fn analyzeErrUnionPayloadPtr(
         return sema.fail(block, src, "expected error union type, found {}", .{operand_ty.elemType()});
 
     const payload_ty = operand_ty.elemType().errorUnionPayload();
-    const operand_pointer_ty = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const operand_pointer_ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = payload_ty,
         .mutable = !operand_ty.isConstPtr(),
         .@"addrspace" = operand_ty.ptrAddressSpace(),
@@ -6517,7 +6526,8 @@ fn zirSwitchCapture(
             if (is_ref) {
                 assert(operand_is_ref);
 
-                const field_ty_ptr = try Type.ptr(sema.arena, .{
+                const target = sema.mod.getTarget();
+                const field_ty_ptr = try Type.ptr(sema.arena, target, .{
                     .pointee_type = field.ty,
                     .@"addrspace" = .generic,
                     .mutable = operand_ptr_ty.ptrIsMutable(),
@@ -11327,7 +11337,8 @@ fn zirPtrTypeSimple(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 
     const inst_data = sema.code.instructions.items(.data)[inst].ptr_type_simple;
     const elem_type = try sema.resolveType(block, .unneeded, inst_data.elem_type);
-    const ty = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = elem_type,
         .@"addrspace" = .generic,
         .mutable = inst_data.is_mutable,
@@ -11343,6 +11354,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     defer tracy.end();
 
     const src: LazySrcLoc = .unneeded;
+    const elem_ty_src: LazySrcLoc = .unneeded;
     const inst_data = sema.code.instructions.items(.data)[inst].ptr_type;
     const extra = sema.code.extraData(Zir.Inst.PtrType, inst_data.payload_index);
 
@@ -11366,41 +11378,40 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         break :blk try sema.analyzeAddrspace(block, .unneeded, ref, .pointer);
     } else .generic;
 
-    const bit_start = if (inst_data.flags.has_bit_range) blk: {
+    const bit_offset = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);
     } else 0;
 
-    var host_size: u16 = if (inst_data.flags.has_bit_range) blk: {
+    const host_size: u16 = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);
     } else 0;
 
-    const elem_type = try sema.resolveType(block, .unneeded, extra.data.elem_type);
-
-    if (host_size != 0) {
-        if (bit_start >= host_size * 8) {
-            return sema.fail(block, src, "bit offset starts after end of host integer", .{});
-        }
-        const target = sema.mod.getTarget();
-        const elem_type_bits = elem_type.bitSize(target);
-        if (host_size * 8 == elem_type_bits) {
-            assert(bit_start == 0);
-            host_size = 0;
-        }
+    if (host_size != 0 and bit_offset >= host_size * 8) {
+        return sema.fail(block, src, "bit offset starts after end of host integer", .{});
     }
 
-    const ty = try Type.ptr(sema.arena, .{
-        .pointee_type = elem_type,
+    const unresolved_elem_ty = try sema.resolveType(block, elem_ty_src, extra.data.elem_type);
+    const elem_ty = if (abi_align == 0)
+        unresolved_elem_ty
+    else t: {
+        const elem_ty = try sema.resolveTypeFields(block, elem_ty_src, unresolved_elem_ty);
+        try sema.resolveTypeLayout(block, elem_ty_src, elem_ty);
+        break :t elem_ty;
+    };
+    const target = sema.mod.getTarget();
+    const ty = try Type.ptr(sema.arena, target, .{
+        .pointee_type = elem_ty,
         .sentinel = sentinel,
         .@"align" = abi_align,
         .@"addrspace" = address_space,
-        .bit_offset = bit_start,
+        .bit_offset = bit_offset,
         .host_size = host_size,
         .mutable = inst_data.flags.is_mutable,
-        .@"allowzero" = inst_data.flags.is_allowzero or inst_data.size == .C,
+        .@"allowzero" = inst_data.flags.is_allowzero,
         .@"volatile" = inst_data.flags.is_volatile,
         .size = inst_data.size,
     });
@@ -11721,15 +11732,16 @@ fn zirArrayInit(
     try sema.resolveTypeLayout(block, src, elem_ty);
 
     if (is_ref) {
-        const alloc_ty = try Type.ptr(sema.arena, .{
+        const target = sema.mod.getTarget();
+        const alloc_ty = try Type.ptr(sema.arena, target, .{
             .pointee_type = array_ty,
-            .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+            .@"addrspace" = target_util.defaultAddressSpace(target, .local),
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
 
-        const elem_ptr_ty = try Type.ptr(sema.arena, .{
+        const elem_ptr_ty = try Type.ptr(sema.arena, target, .{
             .mutable = true,
-            .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+            .@"addrspace" = target_util.defaultAddressSpace(target, .local),
             .pointee_type = elem_ty,
         });
         const elem_ptr_ty_ref = try sema.addType(elem_ptr_ty);
@@ -11788,12 +11800,13 @@ fn zirArrayInitAnon(
     try sema.requireRuntimeBlock(block, runtime_src);
 
     if (is_ref) {
+        const target = sema.mod.getTarget();
         const alloc = try block.addTy(.alloc, tuple_ty);
         for (operands) |operand, i_usize| {
             const i = @intCast(u32, i_usize);
-            const field_ptr_ty = try Type.ptr(sema.arena, .{
+            const field_ptr_ty = try Type.ptr(sema.arena, target, .{
                 .mutable = true,
-                .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+                .@"addrspace" = target_util.defaultAddressSpace(target, .local),
                 .pointee_type = types[i],
             });
             const field_ptr = try block.addStructFieldPtr(alloc, i, field_ptr_ty);
@@ -12068,6 +12081,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const union_val = val.cast(Value.Payload.Union).?.data;
     const tag_ty = type_info_ty.unionTagType().?;
     const tag_index = tag_ty.enumTagFieldIndex(union_val.tag).?;
+    const target = sema.mod.getTarget();
     switch (@intToEnum(std.builtin.TypeId, tag_index)) {
         .Type => return Air.Inst.Ref.type_type,
         .Void => return Air.Inst.Ref.void_type,
@@ -12146,11 +12160,14 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                     return sema.fail(block, src, "sentinels are only allowed on slices and unknown-length pointers", .{});
                 }
                 const sentinel_ptr_val = sentinel_val.castTag(.opt_payload).?.data;
-                const ptr_ty = try Type.ptr(sema.arena, .{ .@"addrspace" = .generic, .pointee_type = child_ty });
+                const ptr_ty = try Type.ptr(sema.arena, target, .{
+                    .@"addrspace" = .generic,
+                    .pointee_type = child_ty,
+                });
                 actual_sentinel = (try sema.pointerDeref(block, src, sentinel_ptr_val, ptr_ty)).?;
             }
 
-            const ty = try Type.ptr(sema.arena, .{
+            const ty = try Type.ptr(sema.arena, target, .{
                 .size = ptr_size,
                 .mutable = !is_const_val.toBool(),
                 .@"volatile" = is_volatile_val.toBool(),
@@ -12176,7 +12193,10 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             var buffer: Value.ToTypeBuffer = undefined;
             const child_ty = try child_val.toType(&buffer).copy(sema.arena);
             const sentinel = if (sentinel_val.castTag(.opt_payload)) |p| blk: {
-                const ptr_ty = try Type.ptr(sema.arena, .{ .@"addrspace" = .generic, .pointee_type = child_ty });
+                const ptr_ty = try Type.ptr(sema.arena, target, .{
+                    .@"addrspace" = .generic,
+                    .pointee_type = child_ty,
+                });
                 break :blk (try sema.pointerDeref(block, src, p.data, ptr_ty)).?;
             } else null;
 
@@ -12468,7 +12488,8 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     // TODO insert safety check that the alignment is correct
 
     const ptr_info = ptr_ty.ptrInfo().data;
-    const dest_ty = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const dest_ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = ptr_info.pointee_type,
         .@"align" = dest_align,
         .@"addrspace" = ptr_info.@"addrspace",
@@ -13408,11 +13429,12 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         ptr_ty_data.@"align" = @intCast(u32, field.abi_align.toUnsignedInt());
     }
 
-    const actual_field_ptr_ty = try Type.ptr(sema.arena, ptr_ty_data);
+    const target = sema.mod.getTarget();
+    const actual_field_ptr_ty = try Type.ptr(sema.arena, target, ptr_ty_data);
     const casted_field_ptr = try sema.coerce(block, actual_field_ptr_ty, field_ptr, ptr_src);
 
     ptr_ty_data.pointee_type = struct_ty;
-    const result_ptr = try Type.ptr(sema.arena, ptr_ty_data);
+    const result_ptr = try Type.ptr(sema.arena, target, ptr_ty_data);
 
     if (try sema.resolveDefinedValue(block, src, casted_field_ptr)) |field_ptr_val| {
         const payload = field_ptr_val.castTag(.field_ptr).?.data;
@@ -13509,7 +13531,8 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const uncasted_src_ptr_ty = sema.typeOf(uncasted_src_ptr);
     try sema.checkPtrOperand(block, src_src, uncasted_src_ptr_ty);
     const src_ptr_info = uncasted_src_ptr_ty.ptrInfo().data;
-    const wanted_src_ptr_ty = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const wanted_src_ptr_ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = dest_ptr_ty.elemType2(),
         .@"align" = src_ptr_info.@"align",
         .@"addrspace" = src_ptr_info.@"addrspace",
@@ -14149,9 +14172,10 @@ fn panicWithMsg(
     const panic_fn = try sema.getBuiltin(block, src, "panic");
     const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
     const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
-    const ptr_stack_trace_ty = try Type.ptr(arena, .{
+    const target = mod.getTarget();
+    const ptr_stack_trace_ty = try Type.ptr(arena, target, .{
         .pointee_type = stack_trace_ty,
-        .@"addrspace" = target_util.defaultAddressSpace(mod.getTarget(), .global_constant), // TODO might need a place that is more dynamic
+        .@"addrspace" = target_util.defaultAddressSpace(target, .global_constant), // TODO might need a place that is more dynamic
     });
     const null_stack_trace = try sema.addConstant(
         try Type.optional(arena, ptr_stack_trace_ty),
@@ -14405,6 +14429,8 @@ fn fieldPtr(
     else
         object_ty;
 
+    const target = sema.mod.getTarget();
+
     switch (inner_ty.zigTypeTag()) {
         .Array => {
             if (mem.eql(u8, field_name, "len")) {
@@ -14444,7 +14470,7 @@ fn fieldPtr(
                 }
                 try sema.requireRuntimeBlock(block, src);
 
-                const result_ty = try Type.ptr(sema.arena, .{
+                const result_ty = try Type.ptr(sema.arena, target, .{
                     .pointee_type = slice_ptr_ty,
                     .mutable = object_ptr_ty.ptrIsMutable(),
                     .@"addrspace" = object_ptr_ty.ptrAddressSpace(),
@@ -14463,7 +14489,7 @@ fn fieldPtr(
                 }
                 try sema.requireRuntimeBlock(block, src);
 
-                const result_ty = try Type.ptr(sema.arena, .{
+                const result_ty = try Type.ptr(sema.arena, target, .{
                     .pointee_type = Type.usize,
                     .mutable = object_ptr_ty.ptrIsMutable(),
                     .@"addrspace" = object_ptr_ty.ptrAddressSpace(),
@@ -14692,7 +14718,8 @@ fn finishFieldCallBind(
     object_ptr: Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
     const arena = sema.arena;
-    const ptr_field_ty = try Type.ptr(arena, .{
+    const target = sema.mod.getTarget();
+    const ptr_field_ty = try Type.ptr(arena, target, .{
         .pointee_type = field_ty,
         .mutable = ptr_ty.ptrIsMutable(),
         .@"addrspace" = ptr_ty.ptrAddressSpace(),
@@ -14831,7 +14858,8 @@ fn structFieldPtrByIndex(
         }
     }
 
-    const ptr_field_ty = try Type.ptr(sema.arena, ptr_ty_data);
+    const target = sema.mod.getTarget();
+    const ptr_field_ty = try Type.ptr(sema.arena, target, ptr_ty_data);
 
     if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
         return sema.addConstant(
@@ -14959,7 +14987,8 @@ fn unionFieldPtr(
     const field_index = @intCast(u32, field_index_big);
 
     const field = union_obj.fields.values()[field_index];
-    const ptr_field_ty = try Type.ptr(arena, .{
+    const target = sema.mod.getTarget();
+    const ptr_field_ty = try Type.ptr(arena, target, .{
         .pointee_type = field.ty,
         .mutable = union_ptr_ty.ptrIsMutable(),
         .@"addrspace" = union_ptr_ty.ptrAddressSpace(),
@@ -15033,7 +15062,8 @@ fn elemPtr(
         .Pointer => {
             // In all below cases, we have to deref the ptr operand to get the actual array pointer.
             const array = try sema.analyzeLoad(block, array_ptr_src, array_ptr, array_ptr_src);
-            const result_ty = try array_ty.elemPtrType(sema.arena);
+            const target = sema.mod.getTarget();
+            const result_ty = try array_ty.elemPtrType(sema.arena, target);
             switch (array_ty.ptrSize()) {
                 .Slice => {
                     const maybe_slice_val = try sema.resolveDefinedValue(block, array_ptr_src, array);
@@ -15172,7 +15202,8 @@ fn tupleFieldPtr(
     }
 
     const field_ty = tuple_info.types[field_index];
-    const ptr_field_ty = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const ptr_field_ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = field_ty,
         .mutable = tuple_ptr_ty.ptrIsMutable(),
         .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(),
@@ -15264,7 +15295,8 @@ fn elemPtrArray(
     elem_index_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const array_ptr_ty = sema.typeOf(array_ptr);
-    const result_ty = try array_ptr_ty.elemPtrType(sema.arena);
+    const target = sema.mod.getTarget();
+    const result_ty = try array_ptr_ty.elemPtrType(sema.arena, target);
 
     if (try sema.resolveDefinedValue(block, src, array_ptr)) |array_ptr_val| {
         if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| {
@@ -15957,15 +15989,28 @@ fn coerceInMemoryAllowedPtrs(
     // In this case, if they share the same child type, no need to resolve
     // pointee type alignment. Otherwise both pointee types must have their alignment
     // resolved and we compare the alignment numerically.
-    if (src_info.@"align" != 0 or dest_info.@"align" != 0 or
-        !dest_info.pointee_type.eql(src_info.pointee_type))
-    {
-        const src_align = src_info.@"align";
-        const dest_align = dest_info.@"align";
+    alignment: {
+        if (src_info.@"align" == 0 and dest_info.@"align" == 0 and
+            dest_info.pointee_type.eql(src_info.pointee_type))
+        {
+            break :alignment;
+        }
+
+        const src_align = if (src_info.@"align" != 0)
+            src_info.@"align"
+        else
+            src_info.pointee_type.abiAlignment(target);
+
+        const dest_align = if (dest_info.@"align" != 0)
+            dest_info.@"align"
+        else
+            dest_info.pointee_type.abiAlignment(target);
 
         if (dest_align > src_align) {
             return .no_match;
         }
+
+        break :alignment;
     }
 
     return .ok;
@@ -16874,6 +16919,7 @@ fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
     try sema.mod.declareDeclDependency(sema.owner_decl, decl);
     try sema.ensureDeclAnalyzed(decl);
 
+    const target = sema.mod.getTarget();
     const decl_tv = try decl.typedValue();
     if (decl_tv.val.castTag(.variable)) |payload| {
         const variable = payload.data;
@@ -16881,7 +16927,7 @@ fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
             0
         else
             @intCast(u32, decl.align_val.toUnsignedInt());
-        const ty = try Type.ptr(sema.arena, .{
+        const ty = try Type.ptr(sema.arena, target, .{
             .pointee_type = decl_tv.ty,
             .mutable = variable.is_mutable,
             .@"addrspace" = decl.@"addrspace",
@@ -16890,7 +16936,7 @@ fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
         return sema.addConstant(ty, try Value.Tag.decl_ref.create(sema.arena, decl));
     }
     return sema.addConstant(
-        try Type.ptr(sema.arena, .{
+        try Type.ptr(sema.arena, target, .{
             .pointee_type = decl_tv.ty,
             .mutable = false,
             .@"addrspace" = decl.@"addrspace",
@@ -16918,12 +16964,13 @@ fn analyzeRef(
 
     try sema.requireRuntimeBlock(block, src);
     const address_space = target_util.defaultAddressSpace(sema.mod.getTarget(), .local);
-    const ptr_type = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const ptr_type = try Type.ptr(sema.arena, target, .{
         .pointee_type = operand_ty,
         .mutable = false,
         .@"addrspace" = address_space,
     });
-    const mut_ptr_type = try Type.ptr(sema.arena, .{
+    const mut_ptr_type = try Type.ptr(sema.arena, target, .{
         .pointee_type = operand_ty,
         .@"addrspace" = address_space,
     });
@@ -17174,11 +17221,12 @@ fn analyzeSlice(
 
     const new_ptr_ty_info = sema.typeOf(new_ptr).ptrInfo().data;
     const new_allowzero = new_ptr_ty_info.@"allowzero" and sema.typeOf(ptr).ptrSize() != .C;
+    const target = sema.mod.getTarget();
 
     if (opt_new_len_val) |new_len_val| {
         const new_len_int = new_len_val.toUnsignedInt();
 
-        const return_ty = try Type.ptr(sema.arena, .{
+        const return_ty = try Type.ptr(sema.arena, target, .{
             .pointee_type = try Type.array(sema.arena, new_len_int, sentinel, elem_ty),
             .sentinel = null,
             .@"align" = new_ptr_ty_info.@"align",
@@ -17206,7 +17254,7 @@ fn analyzeSlice(
         return sema.fail(block, ptr_src, "non-zero length slice of undefined pointer", .{});
     }
 
-    const return_ty = try Type.ptr(sema.arena, .{
+    const return_ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = elem_ty,
         .sentinel = sentinel,
         .@"align" = new_ptr_ty_info.@"align",
@@ -17904,14 +17952,14 @@ fn resolvePeerTypes(
             else => unreachable,
         };
 
-        return Type.ptr(sema.arena, info.data);
+        return Type.ptr(sema.arena, target, info.data);
     }
 
     if (make_the_slice_const) {
         // turn []T => []const T
         var info = chosen_ty.ptrInfo();
         info.data.mutable = false;
-        return Type.ptr(sema.arena, info.data);
+        return Type.ptr(sema.arena, target, info.data);
     }
 
     return chosen_ty;
@@ -19121,7 +19169,8 @@ fn analyzeComptimeAlloc(
     // Needed to make an anon decl with type `var_type` (the `finish()` call below).
     _ = try sema.typeHasOnePossibleValue(block, src, var_type);
 
-    const ptr_type = try Type.ptr(sema.arena, .{
+    const target = sema.mod.getTarget();
+    const ptr_type = try Type.ptr(sema.arena, target, .{
         .pointee_type = var_type,
         .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .global_constant),
         .@"align" = alignment,

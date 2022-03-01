@@ -657,7 +657,7 @@ fn lowerDeclRef(
             .data = typed_value.val.sliceLen(),
         };
         switch (try generateSymbol(bin_file, parent_atom_index, src_loc, .{
-            .ty = Type.initTag(.usize),
+            .ty = Type.usize,
             .val = Value.initPayload(&slice_len.base),
         }, code, debug_output)) {
             .appended => {},

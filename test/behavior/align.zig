@@ -6,6 +6,8 @@ const native_arch = builtin.target.cpu.arch;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     comptime try expect(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
     comptime try expect(@TypeOf(&foo) == *align(4) u8);
     {
@@ -84,6 +86,8 @@ test "size of extern struct with 128-bit field" {
 }
 
 test "@ptrCast preserves alignment of bigger source" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     var x: u32 align(16) = 1234;
     const ptr = @ptrCast(*u8, &x);
     try expect(@TypeOf(ptr) == *align(16) u8);
@@ -99,6 +103,7 @@ fn fnWithAlignedStack() i32 {
 }
 
 test "implicitly decreasing slice alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
@@ -111,6 +116,7 @@ fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) u32 {
 }
 
 test "specifying alignment allows pointer cast" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
@@ -123,6 +129,7 @@ fn testBytesAlign(b: u8) !void {
 }
 
 test "@alignCast slices" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
@@ -260,9 +267,10 @@ fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
 }
 
 test "runtime known array index has best alignment possible" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
