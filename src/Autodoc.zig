@@ -9,6 +9,7 @@ const Ref = Zir.Inst.Ref;
 module: *Module,
 doc_location: Compilation.EmitLoc,
 arena: std.mem.Allocator,
+files: std.AutoHashMapUnmanaged(*File, DocData.AutodocFile) = .{},
 types: std.ArrayListUnmanaged(DocData.Type) = .{},
 decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
 ast_nodes: std.ArrayListUnmanaged(DocData.AstNode) = .{},
@@ -126,12 +127,20 @@ pub fn generateZirData(self: *Autodoc) !void {
         }
     }
 
-    var root_scope: Scope = .{ .parent = null };
+    var root_scope = Scope{ .parent = null };
     try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
+    try self.files.put(self.arena, file, .{
+        .analyzed = false,
+        .root_struct = self.types.items.len,
+    });
     const main_type_index = try self.walkInstruction(file, &root_scope, Zir.main_struct_inst);
+    self.files.getPtr(file).?.analyzed = true;
+
+    // TODO: solve every single pending declpath whose analysis
+    //       was delayed because of circular imports.
 
     var data = DocData{
-        .files = &[1][]const u8{root_file_path},
+        .files = .{ .data = self.files },
         .types = self.types.items,
         .decls = self.decls.items,
         .astNodes = self.ast_nodes.items,
@@ -221,10 +230,41 @@ const DocData = struct {
 
     // non-hardcoded stuff
     astNodes: []AstNode,
-    files: []const []const u8,
+    files: struct {
+        // this struct is a temporary hack to support json serialization
+        data: std.AutoHashMapUnmanaged(*File, AutodocFile),
+        pub fn jsonStringify(
+            self: @This(),
+            opt: std.json.StringifyOptions,
+            w: anytype,
+        ) !void {
+            var idx: usize = 0;
+            var it = self.data.iterator();
+            try w.writeAll("{\n");
+
+            var options = opt;
+            if (options.whitespace) |*ws| ws.indent_level += 1;
+            while (it.next()) |kv| : (idx += 1) {
+                if (options.whitespace) |ws| try ws.outputIndent(w);
+                try w.print("\"{s}\": {d}", .{
+                    kv.key_ptr.*.sub_file_path,
+                    kv.value_ptr.root_struct,
+                });
+                if (idx != self.data.count() - 1) try w.writeByte(',');
+                try w.writeByte('\n');
+            }
+            if (opt.whitespace) |ws| try ws.outputIndent(w);
+            try w.writeAll("}");
+        }
+    },
     types: []Type,
     decls: []Decl,
     comptimeExprs: []ComptimeExpr,
+
+    const AutodocFile = struct {
+        analyzed: bool, // omitted in json data
+        root_struct: usize, // index into `types`
+    };
 
     const DocTypeKinds = blk: {
         var info = @typeInfo(std.builtin.TypeId);
@@ -289,7 +329,7 @@ const DocData = struct {
             name: []const u8,
             src: ?usize = null, // index into astNodes
             privDecls: ?[]usize = null, // index into decls
-            pubDecls: ?[]usize = null, // index into decls
+            pubDecls: []usize, // index into decls
             fields: ?[]TypeRef = null, // (use src->fields to find names)
         },
         ComptimeExpr: struct { name: []const u8 },
@@ -544,9 +584,27 @@ fn walkInstruction(
             // importFile cannot error out since all files
             // are already loaded at this point
             const new_file = self.module.importFile(file, path) catch unreachable;
-            // TODO: cycles not handled, add file info to outuput
+
+            const result = try self.files.getOrPut(self.arena, new_file.file);
+            if (result.found_existing) {
+                return DocData.WalkResult{ .type = result.value_ptr.root_struct };
+            }
+
+            result.value_ptr.* = .{
+                .analyzed = false,
+                .root_struct = self.types.items.len,
+            };
+
             var new_scope = Scope{ .parent = null };
-            return self.walkInstruction(new_file.file, &new_scope, Zir.main_struct_inst);
+            const new_file_walk_result = self.walkInstruction(
+                new_file.file,
+                &new_scope,
+                Zir.main_struct_inst,
+            );
+            // We re-access the hashmap in case it was modified
+            // by walkInstruction()
+            self.files.getPtr(new_file.file).?.analyzed = true;
+            return new_file_walk_result;
         },
         .block => {
             const res = DocData.WalkResult{ .comptimeExpr = self.comptimeExprs.items.len };
@@ -641,18 +699,69 @@ fn walkInstruction(
             path[0] = decls_slot_index;
             return DocData.WalkResult{ .declPath = path };
         },
-        //.field_val => {
-        //            const pl_node = data[inst_index].pl_node;
-        //            const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
-        //            // In case that we have a path (eg Foo.Bar.Baz.X.Y.Z),
-        //            // then we want to deal with them in a while loop instead
-        //            // of using `walkRef()`.
-        //
-        //            var path = try self.arena.alloc(usize, 1);
-        //            path[0] = decls_slot_index;
-        //            return DocData.WalkResult{ .declPath = path };
+        .field_val => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
 
-        //},
+            var path: std.ArrayListUnmanaged(usize) = .{};
+            var lhs = @enumToInt(extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
+
+            try path.append(self.arena, extra.data.field_name_start);
+            // Put inside path the starting index of each decl name
+            // that we encounter as we navigate through all the field_vals
+            while (tags[lhs] == .field_val) {
+                const lhs_extra = file.zir.extraData(
+                    Zir.Inst.Field,
+                    data[lhs].pl_node.payload_index,
+                );
+
+                try path.append(self.arena, lhs_extra.data.field_name_start);
+                lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
+            }
+
+            if (tags[lhs] != .decl_val) {
+                @panic("TODO: handle non-decl_val endings in walkInstruction.field_val");
+            }
+            const str_tok = data[lhs].str_tok;
+            const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
+            try path.append(self.arena, decls_slot_index);
+
+            // Righ now, every element of `path` is the first index of a
+            // decl name except for the final element, which instead points to
+            // the analyzed data corresponding to the top-most decl of this path.
+            // We are now going to reverse loop over `path` to resolve each name
+            // to its corresponding index in `decls`.
+
+            var i: usize = path.items.len;
+            while (i > 1) {
+                i -= 1;
+                const parent = self.decls.items[path.items[i]];
+                const child_decl_name = file.zir.nullTerminatedString(path.items[i - 1]);
+                switch (parent.value) {
+                    else => {
+                        std.debug.print(
+                            "TODO: handle `{s}`in walkInstruction.field_val\n",
+                            .{@tagName(parent.value)},
+                        );
+                        unreachable;
+                    },
+                    .type => |t_index| {
+                        const t_struct = self.types.items[t_index].Struct; // todo: support more types
+                        for (t_struct.pubDecls) |d| {
+                            // TODO: this could be improved a lot
+                            //       by having our own string table!
+                            const decl = self.decls.items[d];
+                            if (std.mem.eql(u8, decl.name, child_decl_name)) {
+                                path.items[i - 1] = d;
+                                continue;
+                            }
+                        }
+                    },
+                }
+            }
+
+            return DocData.WalkResult{ .declPath = path.items };
+        },
         .int_type => {
             const int_type = data[inst_index].int_type;
             const sign = if (int_type.signedness == .unsigned) "u" else "i";
