@@ -1188,6 +1188,7 @@ pub const TestContext = struct {
                             .wasmtime => |wasmtime_bin_name| if (enable_wasmtime) {
                                 try argv.append(wasmtime_bin_name);
                                 try argv.append("--dir=.");
+                                try argv.append("--mapdir=/cwd::.");
                                 try argv.append(exe_path);
                             } else {
                                 return; // wasmtime not available; pass test.

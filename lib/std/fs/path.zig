@@ -8,6 +8,7 @@ const fmt = std.fmt;
 const Allocator = mem.Allocator;
 const math = std.math;
 const windows = std.os.windows;
+const os = std.os;
 const fs = std.fs;
 const process = std.process;
 const native_os = builtin.target.os.tag;
@@ -733,7 +734,8 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) ![]u8 {
 }
 
 test "resolve" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     const cwd = try process.getCwdAlloc(testing.allocator);
     defer testing.allocator.free(cwd);
@@ -753,7 +755,8 @@ test "resolveWindows" {
         // TODO https://github.com/ziglang/zig/issues/3288
         return error.SkipZigTest;
     }
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
     if (native_os == .windows) {
         const cwd = try process.getCwdAlloc(testing.allocator);
         defer testing.allocator.free(cwd);
@@ -798,7 +801,8 @@ test "resolveWindows" {
 }
 
 test "resolvePosix" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     try testResolvePosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c");
     try testResolvePosix(&[_][]const u8{ "/a/b", "c", "//d", "e///" }, "/d/e");
@@ -1211,7 +1215,8 @@ test "relative" {
         // TODO https://github.com/ziglang/zig/issues/3288
         return error.SkipZigTest;
     }
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");

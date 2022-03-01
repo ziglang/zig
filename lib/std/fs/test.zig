@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const testing = std.testing;
+const os = std.os;
 const fs = std.fs;
 const mem = std.mem;
 const wasi = std.os.wasi;
@@ -45,7 +46,8 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
 }
 
 test "accessAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -63,7 +65,8 @@ test "accessAbsolute" {
 }
 
 test "openDirAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -99,7 +102,8 @@ test "openDir cwd parent .." {
 }
 
 test "readLinkAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -507,7 +511,8 @@ test "rename" {
 }
 
 test "renameAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -941,7 +946,8 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 }
 
 test "walker" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -991,7 +997,8 @@ test "walker" {
 }
 
 test ". and .. in fs.Dir functions" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1019,7 +1026,8 @@ test ". and .. in fs.Dir functions" {
 }
 
 test ". and .. in absolute functions" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/cwd");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
