@@ -2346,7 +2346,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         return self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg }, .{});
                     }
 
-                    try self.genInlineMemcpy(off, elem_ty, ptr, .{});
+                    try self.genInlineMemcpy(dst_mcv, ptr, .{ .immediate = abi_size }, .{});
                 },
                 else => return self.fail("TODO implement loading from register into {}", .{dst_mcv}),
             }
@@ -2392,6 +2392,7 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
         .got_load,
         .direct_load,
         => |sym_index| {
+            const abi_size = @intCast(u32, ptr_ty.abiSize(self.target.*));
             const flags: u2 = switch (ptr) {
                 .got_load => 0b00,
                 .direct_load => 0b01,
@@ -2400,7 +2401,7 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
             _ = try self.addInst(.{
                 .tag = .lea_pie,
                 .ops = (Mir.Ops{
-                    .reg1 = registerAlias(reg, @intCast(u32, ptr_ty.abiSize(self.target.*))),
+                    .reg1 = registerAlias(reg, abi_size),
                     .flags = flags,
                 }).encode(),
                 .data = .{
@@ -2524,7 +2525,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                     }
 
-                    try self.genInlineMemcpy(0, value_ty, value, .{
+                    try self.genInlineMemcpy(.{ .stack_offset = 0 }, value, .{ .immediate = abi_size }, .{
                         .source_stack_base = .rbp,
                         .dest_stack_base = reg.to64(),
                     });
@@ -3464,7 +3465,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
                 .data = undefined,
             });
             try self.ret_backpatches.append(self.gpa, backpatch);
-            try self.genInlineMemcpy(0, elem_ty, ptr, .{
+            try self.genInlineMemcpy(.{ .stack_offset = 0 }, ptr, .{ .immediate = elem_ty.abiSize(self.target.*) }, .{
                 .source_stack_base = .rbp,
                 .dest_stack_base = reg,
             });
@@ -4469,7 +4470,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            try self.genInlineMemcpy(stack_offset, ty, mcv, .{
+            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, .{
                 .source_stack_base = .rbp,
                 .dest_stack_base = .rsp,
             });
@@ -4495,7 +4496,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            try self.genInlineMemcpy(stack_offset, ty, mcv, .{
+            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, .{
                 .source_stack_base = .rbp,
                 .dest_stack_base = .rsp,
             });
@@ -4650,7 +4651,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
             }
 
-            try self.genInlineMemcpy(stack_offset, ty, mcv, opts);
+            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, opts);
         },
         .ptr_stack_offset => {
             const reg = try self.copyToTmpRegister(ty, mcv);
@@ -4667,7 +4668,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
             }
 
-            try self.genInlineMemcpy(stack_offset, ty, mcv, opts);
+            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, opts);
         },
     }
 }
@@ -4677,9 +4678,13 @@ const InlineMemcpyOpts = struct {
     dest_stack_base: ?Register = null,
 };
 
-fn genInlineMemcpy(self: *Self, stack_offset: i32, ty: Type, val: MCValue, opts: InlineMemcpyOpts) InnerError!void {
-    const abi_size = ty.abiSize(self.target.*);
-
+fn genInlineMemcpy(
+    self: *Self,
+    dst_ptr: MCValue,
+    src_ptr: MCValue,
+    len: MCValue,
+    opts: InlineMemcpyOpts,
+) InnerError!void {
     // TODO this is wrong. We should check first if any of the operands is in `.rax` or `.rcx` before
     // spilling. Consolidate with other TODOs regarding register allocation mechanics.
     try self.register_manager.getReg(.rax, null);
@@ -4694,19 +4699,55 @@ fn genInlineMemcpy(self: *Self, stack_offset: i32, ty: Type, val: MCValue, opts:
     if (opts.dest_stack_base) |reg| self.register_manager.freezeRegs(&.{reg});
     defer if (opts.dest_stack_base) |reg| self.register_manager.unfreezeRegs(&.{reg});
 
-    const addr_reg = try self.register_manager.allocReg(null);
-    switch (val) {
+    const dst_addr_reg = try self.register_manager.allocReg(null);
+    switch (dst_ptr) {
+        .got_load => unreachable,
         .memory,
         .direct_load,
-        .got_load,
         => {
-            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, val);
+            try self.loadMemPtrIntoRegister(dst_addr_reg, Type.usize, dst_ptr);
         },
         .ptr_stack_offset, .stack_offset => |off| {
             _ = try self.addInst(.{
                 .tag = .lea,
                 .ops = (Mir.Ops{
-                    .reg1 = addr_reg.to64(),
+                    .reg1 = dst_addr_reg.to64(),
+                    .reg2 = opts.dest_stack_base orelse .rbp,
+                }).encode(),
+                .data = .{ .imm = @bitCast(u32, -off) },
+            });
+        },
+        .register => |reg| {
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = registerAlias(dst_addr_reg, @divExact(reg.size(), 8)),
+                    .reg2 = reg,
+                }).encode(),
+                .data = undefined,
+            });
+        },
+        else => {
+            return self.fail("TODO implement memcpy for setting stack when dest is {}", .{dst_ptr});
+        },
+    }
+
+    self.register_manager.freezeRegs(&.{dst_addr_reg});
+    defer self.register_manager.unfreezeRegs(&.{dst_addr_reg});
+
+    const src_addr_reg = try self.register_manager.allocReg(null);
+    switch (src_ptr) {
+        .got_load => unreachable,
+        .memory,
+        .direct_load,
+        => {
+            try self.loadMemPtrIntoRegister(src_addr_reg, Type.usize, src_ptr);
+        },
+        .ptr_stack_offset, .stack_offset => |off| {
+            _ = try self.addInst(.{
+                .tag = .lea,
+                .ops = (Mir.Ops{
+                    .reg1 = src_addr_reg.to64(),
                     .reg2 = opts.source_stack_base orelse .rbp,
                 }).encode(),
                 .data = .{ .imm = @bitCast(u32, -off) },
@@ -4716,25 +4757,25 @@ fn genInlineMemcpy(self: *Self, stack_offset: i32, ty: Type, val: MCValue, opts:
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = registerAlias(addr_reg, @divExact(reg.size(), 8)),
+                    .reg1 = registerAlias(src_addr_reg, @divExact(reg.size(), 8)),
                     .reg2 = reg,
                 }).encode(),
                 .data = undefined,
             });
         },
         else => {
-            return self.fail("TODO implement memcpy for setting stack from {}", .{val});
+            return self.fail("TODO implement memcpy for setting stack when src is {}", .{src_ptr});
         },
     }
 
-    self.register_manager.freezeRegs(&.{addr_reg});
-    defer self.register_manager.unfreezeRegs(&.{addr_reg});
+    self.register_manager.freezeRegs(&.{src_addr_reg});
+    defer self.register_manager.unfreezeRegs(&.{src_addr_reg});
 
     const regs = try self.register_manager.allocRegs(2, .{ null, null });
     const count_reg = regs[0].to64();
     const tmp_reg = regs[1].to8();
 
-    try self.genSetReg(Type.u32, count_reg, .{ .immediate = @intCast(u32, abi_size) });
+    try self.genSetReg(Type.usize, count_reg, len);
 
     // mov rcx, 0
     _ = try self.addInst(.{
@@ -4776,7 +4817,7 @@ fn genInlineMemcpy(self: *Self, stack_offset: i32, ty: Type, val: MCValue, opts:
         .tag = .mov_scale_src,
         .ops = (Mir.Ops{
             .reg1 = tmp_reg.to8(),
-            .reg2 = addr_reg,
+            .reg2 = src_addr_reg,
         }).encode(),
         .data = .{ .imm = 0 },
     });
@@ -4785,10 +4826,10 @@ fn genInlineMemcpy(self: *Self, stack_offset: i32, ty: Type, val: MCValue, opts:
     _ = try self.addInst(.{
         .tag = .mov_scale_dst,
         .ops = (Mir.Ops{
-            .reg1 = opts.dest_stack_base orelse .rbp,
+            .reg1 = dst_addr_reg,
             .reg2 = tmp_reg.to8(),
         }).encode(),
-        .data = .{ .imm = @bitCast(u32, -stack_offset) },
+        .data = .{ .imm = 0 },
     });
 
     // add rcx, 1
@@ -5076,33 +5117,15 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .data = undefined,
             });
         },
-        .got_load,
         .direct_load,
-        => |sym_index| {
-            const flags: u2 = switch (mcv) {
-                .got_load => 0b00,
-                .direct_load => 0b01,
-                else => unreachable,
-            };
-            _ = try self.addInst(.{
-                .tag = .lea_pie,
-                .ops = (Mir.Ops{
-                    .reg1 = reg,
-                    .flags = flags,
-                }).encode(),
-                .data = .{
-                    .load_reloc = .{
-                        .atom_index = self.mod_fn.owner_decl.link.macho.local_sym_index,
-                        .sym_index = sym_index,
-                    },
-                },
-            });
-            // MOV reg, [reg]
+        .got_load,
+        => {
+            try self.loadMemPtrIntoRegister(reg, Type.usize, mcv);
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
-                    .reg2 = reg,
+                    .reg1 = reg.to64(),
+                    .reg2 = reg.to64(),
                     .flags = 0b01,
                 }).encode(),
                 .data = .{ .imm = 0 },
@@ -5283,8 +5306,25 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airMemcpy for {}", .{self.target.cpu.arch});
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+
+    const dst_ptr = try self.resolveInst(pl_op.operand);
+    dst_ptr.freezeIfRegister(&self.register_manager);
+    defer dst_ptr.unfreezeIfRegister(&self.register_manager);
+
+    const src_ptr = try self.resolveInst(extra.lhs);
+    src_ptr.freezeIfRegister(&self.register_manager);
+    defer src_ptr.unfreezeIfRegister(&self.register_manager);
+
+    const len = try self.resolveInst(extra.rhs);
+    len.freezeIfRegister(&self.register_manager);
+    defer len.unfreezeIfRegister(&self.register_manager);
+
+    log.warn("dst_ptr = {}, src_ptr = {}, len = {}", .{ dst_ptr, src_ptr, len });
+    try self.genInlineMemcpy(dst_ptr, src_ptr, len, .{});
+
+    return self.finishAir(inst, .none, .{ pl_op.operand, .none, .none });
 }
 
 fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
