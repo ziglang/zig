@@ -339,6 +339,19 @@ pub fn generateSymbol(
                             .addend = (reloc_info.addend orelse 0) + addend,
                         });
                     },
+                    .field_ptr => {
+                        switch (try generateSymbol(bin_file, src_loc, .{
+                            .ty = typed_value.ty,
+                            .val = container_ptr,
+                        }, code, debug_output, reloc_info)) {
+                            .appended => {},
+                            .externally_managed => |external_slice| {
+                                code.appendSliceAssumeCapacity(external_slice);
+                            },
+                            .fail => |em| return Result{ .fail = em },
+                        }
+                        return Result{ .appended = {} };
+                    },
                     else => return Result{
                         .fail = try ErrorMsg.create(
                             bin_file.allocator,
