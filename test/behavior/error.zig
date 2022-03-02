@@ -208,6 +208,17 @@ fn testErrorSetType() !void {
     }
 }
 
+test "error set cast at comptime" {
+    const set1 = Set1.A;
+    const x = @errSetCast(Set2, set1);
+    try expect(@TypeOf(x) == Set2);
+    try expect(x == Set2.A);
+    try expect(x == error.A);
+
+    const y = @errSetCast(Set1, x);
+    try expect(y == error.A);
+}
+
 test "explicit error set cast" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
