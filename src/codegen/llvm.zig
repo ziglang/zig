@@ -548,6 +548,10 @@ pub const Object = struct {
             llvm_global.setValueName(decl.name);
             llvm_global.setUnnamedAddr(.False);
             llvm_global.setLinkage(.External);
+            if (decl.val.castTag(.variable)) |variable| {
+                if (variable.data.is_threadlocal) llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
+                if (variable.data.is_weak_linkage) llvm_global.setLinkage(.ExternalWeak);
+            }
         } else if (exports.len != 0) {
             const exp_name = exports[0].options.name;
             llvm_global.setValueName2(exp_name.ptr, exp_name.len);
@@ -557,6 +561,9 @@ pub const Object = struct {
                 .Strong => llvm_global.setLinkage(.External),
                 .Weak => llvm_global.setLinkage(.WeakODR),
                 .LinkOnce => llvm_global.setLinkage(.LinkOnceODR),
+            }
+            if (decl.val.castTag(.variable)) |variable| {
+                if (variable.data.is_threadlocal) llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
             }
             // If a Decl is exported more than one time (which is rare),
             // we add aliases for all but the first export.
@@ -788,8 +795,15 @@ pub const DeclGen = struct {
         const llvm_global = dg.object.llvm_module.addGlobalInAddressSpace(llvm_type, fqn, llvm_addrspace);
         gop.value_ptr.* = llvm_global;
 
-        const is_extern = decl.val.tag() == .unreachable_value;
-        if (!is_extern) {
+        if (decl.isExtern()) {
+            llvm_global.setValueName(decl.name);
+            llvm_global.setUnnamedAddr(.False);
+            llvm_global.setLinkage(.External);
+            if (decl.val.castTag(.variable)) |variable| {
+                if (variable.data.is_threadlocal) llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
+                if (variable.data.is_weak_linkage) llvm_global.setLinkage(.ExternalWeak);
+            }
+        } else {
             llvm_global.setLinkage(.Internal);
             llvm_global.setUnnamedAddr(.True);
         }

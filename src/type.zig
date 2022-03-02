@@ -2168,7 +2168,14 @@ pub const Type = extern union {
             .mut_slice,
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
-            => return self.cast(Payload.ElemType).?.data.abiAlignment(target),
+            => {
+                const child_type = self.cast(Payload.ElemType).?.data;
+                if (child_type.zigTypeTag() == .Opaque) {
+                    return 1;
+                } else {
+                    return child_type.abiAlignment(target);
+                }
+            },
 
             .manyptr_u8,
             .manyptr_const_u8,
@@ -2181,10 +2188,13 @@ pub const Type = extern union {
                 const ptr_info = self.castTag(.pointer).?.data;
                 if (ptr_info.@"align" != 0) {
                     return ptr_info.@"align";
+                } else if (ptr_info.pointee_type.zigTypeTag() == .Opaque) {
+                    return 1;
                 } else {
                     return ptr_info.pointee_type.abiAlignment(target);
                 }
             },
+            .optional => return self.castTag(.optional).?.data.ptrAlignment(target),
 
             else => unreachable,
         }
@@ -3235,8 +3245,9 @@ pub const Type = extern union {
                     return child_ty;
                 }
             },
-
-            // TODO handle optionals
+            .optional => ty.castTag(.optional).?.data.childType(),
+            .optional_single_mut_pointer => ty.castPointer().?.data,
+            .optional_single_const_pointer => ty.castPointer().?.data,
 
             else => unreachable,
         };

@@ -120,6 +120,9 @@ pub const Value = opaque {
     pub const setUnnamedAddr = LLVMSetUnnamedAddr;
     extern fn LLVMSetUnnamedAddr(Global: *const Value, HasUnnamedAddr: Bool) void;
 
+    pub const setThreadLocalMode = LLVMSetThreadLocalMode;
+    extern fn LLVMSetThreadLocalMode(Global: *const Value, Mode: ThreadLocalMode) void;
+
     pub const deleteGlobal = LLVMDeleteGlobal;
     extern fn LLVMDeleteGlobal(GlobalVar: *const Value) void;
 
@@ -1228,6 +1231,14 @@ pub const Linkage = enum(c_uint) {
     Common,
     LinkerPrivate,
     LinkerPrivateWeak,
+};
+
+pub const ThreadLocalMode = enum(c_uint) {
+    NotThreadLocal,
+    GeneralDynamicTLSModel,
+    LocalDynamicTLSModel,
+    InitialExecTLSModel,
+    LocalExecTLSModel,
 };
 
 pub const AtomicOrdering = enum(c_uint) {

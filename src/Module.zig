@@ -1529,6 +1529,7 @@ pub const Var = struct {
     is_extern: bool,
     is_mutable: bool,
     is_threadlocal: bool,
+    is_weak_linkage: bool,
 
     pub fn deinit(variable: *Var, gpa: Allocator) void {
         if (variable.lib_name) |lib_name| {
