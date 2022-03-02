@@ -2083,7 +2083,7 @@ pub const Value = extern union {
             },
             .ErrorSet => {
                 // just hash the literal error value. this is the most stable
-                // thing between compiler invokations. we can't use the error
+                // thing between compiler invocations. we can't use the error
                 // int cause (1) its not stable and (2) we don't have access to mod.
                 const error_data = val.castTag(.@"error").?.data;
                 hasher.update(error_data.name);
