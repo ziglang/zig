@@ -240,12 +240,19 @@ fn add(a: i32, b: i32) i32 {
 }
 
 test "Type.ErrorSet" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    try testing.expect(@Type(TypeInfo{ .ErrorSet = null }) == anyerror);
 
     // error sets don't compare equal so just check if they compile
     _ = @Type(@typeInfo(error{}));
     _ = @Type(@typeInfo(error{A}));
     _ = @Type(@typeInfo(error{ A, B, C }));
+    _ = @Type(TypeInfo{
+        .ErrorSet = &[_]TypeInfo.Error{
+            .{ .name = "A" },
+            .{ .name = "B" },
+            .{ .name = "C" },
+        },
+    });
 }
 
 test "Type.Struct" {

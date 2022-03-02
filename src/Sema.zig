@@ -10397,7 +10397,13 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         vals,
                     ),
                 );
-                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+
+                const new_decl_val = try Value.Tag.decl_ref.create(sema.arena, new_decl);
+                const slice_val = try Value.Tag.slice.create(sema.arena, .{
+                    .ptr = new_decl_val,
+                    .len = try Value.Tag.int_u64.create(sema.arena, vals.len),
+                });
+                break :v try Value.Tag.opt_payload.create(sema.arena, slice_val);
             } else Value.@"null";
 
             // Construct TypeInfo{ .ErrorSet = errors_val }
@@ -12317,7 +12323,31 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             });
             return sema.addType(ty);
         },
-        .ErrorSet => return sema.fail(block, src, "TODO: Sema.zirReify for ErrorSet", .{}),
+        .ErrorSet => {
+            const payload_val = union_val.val.optionalValue() orelse
+                return sema.addType(Type.initTag(.anyerror));
+            const slice_val = payload_val.castTag(.slice).?.data;
+            const decl = slice_val.ptr.castTag(.decl_ref).?.data;
+            try sema.ensureDeclAnalyzed(decl);
+            const array_val = decl.val.castTag(.array).?.data;
+
+            var names: Module.ErrorSet.NameMap = .{};
+            try names.ensureUnusedCapacity(sema.arena, array_val.len);
+            for (array_val) |elem_val| {
+                const struct_val = elem_val.castTag(.@"struct").?.data;
+                // TODO use reflection instead of magic numbers here
+                // error_set: type,
+                const name_val = struct_val[0];
+
+                names.putAssumeCapacityNoClobber(
+                    try name_val.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena),
+                    {},
+                );
+            }
+
+            const ty = try Type.Tag.error_set_merged.create(sema.arena, names);
+            return sema.addType(ty);
+        },
         .Enum => return sema.fail(block, src, "TODO: Sema.zirReify for Enum", .{}),
         .Union => return sema.fail(block, src, "TODO: Sema.zirReify for Union", .{}),
         .Fn => return sema.fail(block, src, "TODO: Sema.zirReify for Fn", .{}),
