@@ -13019,20 +13019,24 @@ fn resolveExportOptions(
 ) CompileError!std.builtin.ExportOptions {
     const export_options_ty = try sema.getBuiltinType(block, src, "ExportOptions");
     const air_ref = sema.resolveInst(zir_ref);
-    const coerced = try sema.coerce(block, export_options_ty, air_ref, src);
-    const val = try sema.resolveConstValue(block, src, coerced);
-    const fields = val.castTag(.@"struct").?.data;
-    const struct_obj = export_options_ty.castTag(.@"struct").?.data;
-    const name_index = struct_obj.fields.getIndex("name").?;
-    const linkage_index = struct_obj.fields.getIndex("linkage").?;
-    const section_index = struct_obj.fields.getIndex("section").?;
-    if (!fields[section_index].isNull()) {
+    const options = try sema.coerce(block, export_options_ty, air_ref, src);
+
+    const name = try sema.fieldVal(block, src, options, "name", src);
+    const name_val = try sema.resolveConstValue(block, src, name);
+
+    const linkage = try sema.fieldVal(block, src, options, "linkage", src);
+    const linkage_val = try sema.resolveConstValue(block, src, linkage);
+
+    const section = try sema.fieldVal(block, src, options, "section", src);
+    const section_val = try sema.resolveConstValue(block, src, section);
+
+    if (!section_val.isNull()) {
         return sema.fail(block, src, "TODO: implement exporting with linksection", .{});
     }
     const name_ty = Type.initTag(.const_slice_u8);
     return std.builtin.ExportOptions{
-        .name = try fields[name_index].toAllocatedBytes(name_ty, sema.arena),
-        .linkage = fields[linkage_index].toEnum(std.builtin.GlobalLinkage),
+        .name = try name_val.toAllocatedBytes(name_ty, sema.arena),
+        .linkage = linkage_val.toEnum(std.builtin.GlobalLinkage),
         .section = null, // TODO
     };
 }
@@ -13386,15 +13390,17 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const modifier: std.builtin.CallOptions.Modifier = modifier: {
         const call_options_ty = try sema.getBuiltinType(block, options_src, "CallOptions");
         const coerced_options = try sema.coerce(block, call_options_ty, options, options_src);
-        const options_val = try sema.resolveConstValue(block, options_src, coerced_options);
-        const fields = options_val.castTag(.@"struct").?.data;
-        const struct_obj = call_options_ty.castTag(.@"struct").?.data;
-        const modifier_index = struct_obj.fields.getIndex("modifier").?;
-        const stack_index = struct_obj.fields.getIndex("stack").?;
-        if (!fields[stack_index].isNull()) {
+
+        const modifier = try sema.fieldVal(block, options_src, coerced_options, "modifier", options_src);
+        const modifier_val = try sema.resolveConstValue(block, options_src, modifier);
+
+        const stack = try sema.fieldVal(block, options_src, coerced_options, "stack", options_src);
+        const stack_val = try sema.resolveConstValue(block, options_src, stack);
+
+        if (!stack_val.isNull()) {
             return sema.fail(block, options_src, "TODO: implement @call with stack", .{});
         }
-        break :modifier fields[modifier_index].toEnum(std.builtin.CallOptions.Modifier);
+        break :modifier modifier_val.toEnum(std.builtin.CallOptions.Modifier);
     };
 
     const args_ty = sema.typeOf(args);
@@ -13946,26 +13952,31 @@ fn zirBuiltinExtern(
 
     const options = options: {
         const extern_options_ty = try sema.getBuiltinType(block, options_src, "ExternOptions");
-        const coerced_options = try sema.coerce(block, extern_options_ty, options_inst, options_src);
-        const options_val = try sema.resolveConstValue(block, options_src, coerced_options);
-        const fields = options_val.castTag(.@"struct").?.data;
-        const struct_obj = extern_options_ty.castTag(.@"struct").?.data;
-        const name_index = struct_obj.fields.getIndex("name").?;
-        const library_name_index = struct_obj.fields.getIndex("library_name").?;
-        const linkage_index = struct_obj.fields.getIndex("linkage").?;
-        const is_thread_local_index = struct_obj.fields.getIndex("is_thread_local").?;
+        const options = try sema.coerce(block, extern_options_ty, options_inst, options_src);
+
+        const name = try sema.fieldVal(block, options_src, options, "name", options_src);
+        const name_val = try sema.resolveConstValue(block, options_src, name);
+
+        const library_name_inst = try sema.fieldVal(block, options_src, options, "library_name", options_src);
+        const library_name_val = try sema.resolveConstValue(block, options_src, library_name_inst);
+
+        const linkage = try sema.fieldVal(block, options_src, options, "linkage", options_src);
+        const linkage_val = try sema.resolveConstValue(block, options_src, linkage);
+
+        const is_thread_local = try sema.fieldVal(block, options_src, options, "is_thread_local", options_src);
+        const is_thread_local_val = try sema.resolveConstValue(block, options_src, is_thread_local);
 
         var library_name: ?[]const u8 = null;
-        if (!fields[library_name_index].isNull()) {
-            const payload = fields[library_name_index].castTag(.opt_payload).?.data;
+        if (!library_name_val.isNull()) {
+            const payload = library_name_val.castTag(.opt_payload).?.data;
             library_name = try payload.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena);
         }
 
         break :options std.builtin.ExternOptions{
-            .name = try fields[name_index].toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena),
+            .name = try name_val.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena),
             .library_name = library_name,
-            .linkage = fields[linkage_index].toEnum(std.builtin.GlobalLinkage),
-            .is_thread_local = fields[is_thread_local_index].toBool(),
+            .linkage = linkage_val.toEnum(std.builtin.GlobalLinkage),
+            .is_thread_local = is_thread_local_val.toBool(),
         };
     };
 
