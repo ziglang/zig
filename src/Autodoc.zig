@@ -9,11 +9,24 @@ const Ref = Zir.Inst.Ref;
 module: *Module,
 doc_location: Compilation.EmitLoc,
 arena: std.mem.Allocator,
-files: std.AutoHashMapUnmanaged(*File, DocData.AutodocFile) = .{},
+files: std.AutoHashMapUnmanaged(*File, usize) = .{},
 types: std.ArrayListUnmanaged(DocData.Type) = .{},
 decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
 ast_nodes: std.ArrayListUnmanaged(DocData.AstNode) = .{},
-comptimeExprs: std.ArrayListUnmanaged(DocData.ComptimeExpr) = .{},
+comptime_exprs: std.ArrayListUnmanaged(DocData.ComptimeExpr) = .{},
+decl_paths_pending_on_decls: std.AutoHashMapUnmanaged(
+    usize,
+    std.ArrayListUnmanaged(DeclPathResumeInfo),
+) = .{},
+decl_paths_pending_on_types: std.AutoHashMapUnmanaged(
+    usize,
+    std.ArrayListUnmanaged(DeclPathResumeInfo),
+) = .{},
+
+const DeclPathResumeInfo = struct {
+    file: *File,
+    path: []usize,
+};
 
 var arena_allocator: std.heap.ArenaAllocator = undefined;
 pub fn init(m: *Module, doc_location: Compilation.EmitLoc) Autodoc {
@@ -129,22 +142,23 @@ pub fn generateZirData(self: *Autodoc) !void {
 
     var root_scope = Scope{ .parent = null };
     try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
-    try self.files.put(self.arena, file, .{
-        .analyzed = false,
-        .root_struct = self.types.items.len,
-    });
+    try self.files.put(self.arena, file, self.types.items.len);
     const main_type_index = try self.walkInstruction(file, &root_scope, Zir.main_struct_inst);
-    self.files.getPtr(file).?.analyzed = true;
 
-    // TODO: solve every single pending declpath whose analysis
-    //       was delayed because of circular imports.
+    if (self.decl_paths_pending_on_decls.count() > 0) {
+        @panic("some decl paths were never fully analized (pending on decls)");
+    }
+
+    if (self.decl_paths_pending_on_types.count() > 0) {
+        @panic("some decl paths were never fully analized (pending on types)");
+    }
 
     var data = DocData{
         .files = .{ .data = self.files },
         .types = self.types.items,
         .decls = self.decls.items,
         .astNodes = self.ast_nodes.items,
-        .comptimeExprs = self.comptimeExprs.items,
+        .comptimeExprs = self.comptime_exprs.items,
     };
 
     data.packages[0].main = main_type_index.type;
@@ -232,7 +246,7 @@ const DocData = struct {
     astNodes: []AstNode,
     files: struct {
         // this struct is a temporary hack to support json serialization
-        data: std.AutoHashMapUnmanaged(*File, AutodocFile),
+        data: std.AutoHashMapUnmanaged(*File, usize),
         pub fn jsonStringify(
             self: @This(),
             opt: std.json.StringifyOptions,
@@ -248,7 +262,7 @@ const DocData = struct {
                 if (options.whitespace) |ws| try ws.outputIndent(w);
                 try w.print("\"{s}\": {d}", .{
                     kv.key_ptr.*.sub_file_path,
-                    kv.value_ptr.root_struct,
+                    kv.value_ptr.*,
                 });
                 if (idx != self.data.count() - 1) try w.writeByte(',');
                 try w.writeByte('\n');
@@ -261,17 +275,17 @@ const DocData = struct {
     decls: []Decl,
     comptimeExprs: []ComptimeExpr,
 
-    const AutodocFile = struct {
-        analyzed: bool, // omitted in json data
-        root_struct: usize, // index into `types`
-    };
-
     const DocTypeKinds = blk: {
         var info = @typeInfo(std.builtin.TypeId);
-        info.Enum.fields = info.Enum.fields ++ [1]std.builtin.TypeInfo.EnumField{
+        const original_len = info.Enum.fields.len;
+        info.Enum.fields = info.Enum.fields ++ [2]std.builtin.TypeInfo.EnumField{
             .{
                 .name = "ComptimeExpr",
-                .value = info.Enum.fields.len,
+                .value = original_len,
+            },
+            .{
+                .name = "Unanalyzed",
+                .value = original_len + 1,
             },
         };
         break :blk @Type(info);
@@ -298,6 +312,7 @@ const DocData = struct {
         value: WalkResult,
         // The index in astNodes of the `test declname { }` node
         decltest: ?usize = null,
+        _analyzed: bool, // omitted in json data
     };
 
     const AstNode = struct {
@@ -310,6 +325,7 @@ const DocData = struct {
     };
 
     const Type = union(DocTypeKinds) {
+        Unanalyzed: void,
         Type: struct { name: []const u8 },
         Void: struct { name: []const u8 },
         Bool: struct { name: []const u8 },
@@ -480,7 +496,7 @@ const DocData = struct {
         @"struct": Struct,
         bool: bool,
         type: usize, // index in `types`
-        declPath: []usize, // indices in `decls`
+        declPath: []usize, // indices in `decl`
         int: struct {
             typeRef: TypeRef,
             value: usize, // direct value
@@ -584,16 +600,12 @@ fn walkInstruction(
             // importFile cannot error out since all files
             // are already loaded at this point
             const new_file = self.module.importFile(file, path) catch unreachable;
-
             const result = try self.files.getOrPut(self.arena, new_file.file);
             if (result.found_existing) {
-                return DocData.WalkResult{ .type = result.value_ptr.root_struct };
+                return DocData.WalkResult{ .type = result.value_ptr.* };
             }
 
-            result.value_ptr.* = .{
-                .analyzed = false,
-                .root_struct = self.types.items.len,
-            };
+            result.value_ptr.* = self.types.items.len;
 
             var new_scope = Scope{ .parent = null };
             const new_file_walk_result = self.walkInstruction(
@@ -601,14 +613,12 @@ fn walkInstruction(
                 &new_scope,
                 Zir.main_struct_inst,
             );
-            // We re-access the hashmap in case it was modified
-            // by walkInstruction()
-            self.files.getPtr(new_file.file).?.analyzed = true;
+
             return new_file_walk_result;
         },
         .block => {
-            const res = DocData.WalkResult{ .comptimeExpr = self.comptimeExprs.items.len };
-            try self.comptimeExprs.append(self.arena, .{
+            const res = DocData.WalkResult{ .comptimeExpr = self.comptime_exprs.items.len };
+            try self.comptime_exprs.append(self.arena, .{
                 .code = "if(banana) 1 else 0",
                 .typeRef = .{ .type = 0 },
             });
@@ -669,7 +679,7 @@ fn walkInstruction(
                 // TODO: Actually, this is a good moment to check if
                 // the result is indeed a type!!
                 .comptimeExpr => {
-                    self.comptimeExprs.items[operand.comptimeExpr].typeRef = dest_type_ref;
+                    self.comptime_exprs.items[operand.comptimeExpr].typeRef = dest_type_ref;
                 },
                 .int => operand.int.typeRef = dest_type_ref,
                 .@"struct" => operand.@"struct".typeRef = dest_type_ref,
@@ -731,35 +741,7 @@ fn walkInstruction(
             // the analyzed data corresponding to the top-most decl of this path.
             // We are now going to reverse loop over `path` to resolve each name
             // to its corresponding index in `decls`.
-
-            var i: usize = path.items.len;
-            while (i > 1) {
-                i -= 1;
-                const parent = self.decls.items[path.items[i]];
-                const child_decl_name = file.zir.nullTerminatedString(path.items[i - 1]);
-                switch (parent.value) {
-                    else => {
-                        std.debug.print(
-                            "TODO: handle `{s}`in walkInstruction.field_val\n",
-                            .{@tagName(parent.value)},
-                        );
-                        unreachable;
-                    },
-                    .type => |t_index| {
-                        const t_struct = self.types.items[t_index].Struct; // todo: support more types
-                        for (t_struct.pubDecls) |d| {
-                            // TODO: this could be improved a lot
-                            //       by having our own string table!
-                            const decl = self.decls.items[d];
-                            if (std.mem.eql(u8, decl.name, child_decl_name)) {
-                                path.items[i - 1] = d;
-                                continue;
-                            }
-                        }
-                    },
-                }
-            }
-
+            try self.tryResolveDeclPath(file, path.items);
             return DocData.WalkResult{ .declPath = path.items };
         },
         .int_type => {
@@ -841,6 +823,29 @@ fn walkInstruction(
             return DocData.WalkResult{ .type = self.types.items.len - 1 };
         },
         .extended => {
+            // TODO: this assumes that we always return a type when analyzing
+            //       an extended instruction. Also we willingfully not reserve
+            //       a slot for functions (handled right above) despite them
+            //       being stored in `types`. The reason why we reserve a slot
+            //       in here, is for decl paths and their resolution system.
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{ .Unanalyzed = {} });
+
+            defer {
+                if (self.decl_paths_pending_on_types.get(type_slot_index)) |paths| {
+                    for (paths.items) |resume_info| {
+                        self.tryResolveDeclPath(resume_info.file, resume_info.path) catch {
+                            @panic("Out of memory");
+                        };
+                    }
+
+                    _ = self.decl_paths_pending_on_types.remove(type_slot_index);
+                    // TODO: we should deallocate the arraylist that holds all the
+                    //       decl paths. not doing it now since it's arena-allocated
+                    //       anyway, but maybe we should put it elsewhere.
+                }
+            }
+
             const extended = data[inst_index].extended;
             switch (extended.opcode) {
                 else => {
@@ -898,6 +903,9 @@ fn walkInstruction(
                     {
                         var it = file.zir.declIterator(@intCast(u32, inst_index));
                         try self.decls.resize(self.arena, decls_first_index + it.decls_len);
+                        for (self.decls.items[decls_first_index..]) |*slot| {
+                            slot._analyzed = false;
+                        }
                         var decls_slot_index = decls_first_index;
                         while (it.next()) |d| : (decls_slot_index += 1) {
                             const decl_name_index = file.zir.extra[d.sub_index + 5];
@@ -937,7 +945,7 @@ fn walkInstruction(
 
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
-                    try self.types.append(self.arena, .{
+                    self.types.items[type_slot_index] = .{
                         .Union = .{
                             .name = "todo_name",
                             .src = self_ast_node_index,
@@ -945,9 +953,9 @@ fn walkInstruction(
                             .pubDecls = decl_indexes.items,
                             .fields = field_type_refs.items,
                         },
-                    });
+                    };
 
-                    return DocData.WalkResult{ .type = self.types.items.len - 1 };
+                    return DocData.WalkResult{ .type = type_slot_index };
                 },
                 .enum_decl => {
                     var scope: Scope = .{ .parent = parent_scope };
@@ -998,6 +1006,9 @@ fn walkInstruction(
                     {
                         var it = file.zir.declIterator(@intCast(u32, inst_index));
                         try self.decls.resize(self.arena, decls_first_index + it.decls_len);
+                        for (self.decls.items[decls_first_index..]) |*slot| {
+                            slot._analyzed = false;
+                        }
                         var decls_slot_index = decls_first_index;
                         while (it.next()) |d| : (decls_slot_index += 1) {
                             const decl_name_index = file.zir.extra[d.sub_index + 5];
@@ -1063,16 +1074,16 @@ fn walkInstruction(
 
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
-                    try self.types.append(self.arena, .{
+                    self.types.items[type_slot_index] = .{
                         .Enum = .{
                             .name = "todo_name",
                             .src = self_ast_node_index,
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
                         },
-                    });
+                    };
 
-                    return DocData.WalkResult{ .type = self.types.items.len - 1 };
+                    return DocData.WalkResult{ .type = type_slot_index };
                 },
                 .struct_decl => {
                     var scope: Scope = .{ .parent = parent_scope };
@@ -1116,6 +1127,9 @@ fn walkInstruction(
                     {
                         var it = file.zir.declIterator(@intCast(u32, inst_index));
                         try self.decls.resize(self.arena, decls_first_index + it.decls_len);
+                        for (self.decls.items[decls_first_index..]) |*slot| {
+                            slot._analyzed = false;
+                        }
                         var decls_slot_index = decls_first_index;
                         while (it.next()) |d| : (decls_slot_index += 1) {
                             const decl_name_index = file.zir.extra[d.sub_index + 5];
@@ -1149,7 +1163,7 @@ fn walkInstruction(
 
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
-                    try self.types.append(self.arena, .{
+                    self.types.items[type_slot_index] = .{
                         .Struct = .{
                             .name = "todo_name",
                             .src = self_ast_node_index,
@@ -1157,9 +1171,9 @@ fn walkInstruction(
                             .pubDecls = decl_indexes.items,
                             .fields = field_type_refs.items,
                         },
-                    });
+                    };
 
-                    return DocData.WalkResult{ .type = self.types.items.len - 1 };
+                    return DocData.WalkResult{ .type = type_slot_index };
                 },
             }
         },
@@ -1310,6 +1324,7 @@ fn walkDecls(
                 };
                 self.decls.items[decl_being_tested].decltest = ast_node_index;
                 self.decls.items[decls_slot_index] = .{
+                    ._analyzed = true,
                     .name = "test",
                     .src = ast_node_index,
                     .value = .{ .type = 0 },
@@ -1368,15 +1383,108 @@ fn walkDecls(
         // };
 
         self.decls.items[decls_slot_index] = .{
+            ._analyzed = true,
             .name = name,
             .src = ast_node_index,
             // .typeRef = decl_type_ref,
             .value = walk_result,
             .kind = "const", // find where this information can be found
         };
+
+        // Unblock any pending decl path that was waiting for this decl.
+        if (self.decl_paths_pending_on_decls.get(decls_slot_index)) |paths| {
+            for (paths.items) |resume_info| {
+                try self.tryResolveDeclPath(resume_info.file, resume_info.path);
+            }
+
+            _ = self.decl_paths_pending_on_decls.remove(decls_slot_index);
+            // TODO: we should deallocate the arraylist that holds all the
+            //       decl paths. not doing it now since it's arena-allocated
+            //       anyway, but maybe we should put it elsewhere.
+        }
     }
 
     return extra_index;
+}
+
+/// An unresolved path has a decl index at its end, while every other element
+/// is an index into the string table. Resolving means resolving iteratively
+/// each string into a decl_index. If we encounter an unanalyzed decl during
+/// the process, we append the unsolved sub-path to `self.decl_paths_pending_on_decls`
+/// and bail out.
+fn tryResolveDeclPath(
+    self: *Autodoc,
+    /// File from which the decl path originates.
+    file: *File,
+    path: []usize,
+) !void {
+    var i: usize = path.len;
+    while (i > 1) {
+        i -= 1;
+        const decl_index = path[i];
+        const string_index = path[i - 1];
+
+        const parent = self.decls.items[decl_index];
+        if (!parent._analyzed) {
+            const res = try self.decl_paths_pending_on_decls.getOrPut(self.arena, decl_index);
+            if (!res.found_existing) res.value_ptr.* = .{};
+            try res.value_ptr.*.append(self.arena, .{
+                .file = file,
+                .path = path[0 .. i + 1],
+            });
+            return;
+        }
+
+        const child_decl_name = file.zir.nullTerminatedString(string_index);
+        switch (parent.value) {
+            else => {
+                std.debug.panic(
+                    "TODO: handle `{s}`in walkInstruction.field_val\n",
+                    .{@tagName(parent.value)},
+                );
+            },
+            .type => |t_index| switch (self.types.items[t_index]) {
+                else => {
+                    std.debug.panic(
+                        "TODO: handle `{s}` in tryResolveDeclPath.type\n",
+                        .{@tagName(self.types.items[t_index])},
+                    );
+                },
+                .Unanalyzed => {
+                    const res = try self.decl_paths_pending_on_types.getOrPut(
+                        self.arena,
+                        t_index,
+                    );
+                    if (!res.found_existing) res.value_ptr.* = .{};
+                    try res.value_ptr.*.append(self.arena, .{
+                        .file = file,
+                        .path = path[0 .. i + 1],
+                    });
+                    return;
+                },
+                .Struct => |t_struct| {
+                    for (t_struct.pubDecls) |d| {
+                        // TODO: this could be improved a lot
+                        //       by having our own string table!
+                        const decl = self.decls.items[d];
+                        if (std.mem.eql(u8, decl.name, child_decl_name)) {
+                            path[i - 1] = d;
+                            continue;
+                        }
+                    }
+                    for (t_struct.privDecls) |d| {
+                        // TODO: this could be improved a lot
+                        //       by having our own string table!
+                        const decl = self.decls.items[d];
+                        if (std.mem.eql(u8, decl.name, child_decl_name)) {
+                            path[i - 1] = d;
+                            continue;
+                        }
+                    }
+                },
+            },
+        }
+    }
 }
 
 fn collectUnionFieldInfo(
