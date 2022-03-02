@@ -1717,6 +1717,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .aggregate_init   => try airAggregateInit(f, inst),
             .union_init       => try airUnionInit(f, inst),
             .prefetch         => try airPrefetch(f, inst),
+            .errcast          => try airErrCast(f, inst),
 
             .int_to_float,
             .float_to_int,
@@ -3588,6 +3589,10 @@ fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
     return CValue.none;
 }
 
+fn airErrCast(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+    return f.fail("TODO: C backend: implement airErrCast", .{});
+}
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {
     return switch (order) {
         .Unordered => "memory_order_relaxed",

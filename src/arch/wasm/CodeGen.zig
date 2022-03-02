@@ -1645,6 +1645,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .aggregate_init => self.airAggregateInit(inst),
         .union_init => self.airUnionInit(inst),
         .prefetch => self.airPrefetch(inst),
+        .errcast => self.airErrCast(inst),
 
         .slice => self.airSlice(inst),
         .slice_len => self.airSliceLen(inst),
@@ -3424,6 +3425,11 @@ fn airPrefetch(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const prefetch = self.air.instructions.items(.data)[inst].prefetch;
     _ = prefetch;
     return WValue{ .none = {} };
+}
+
+fn airErrCast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    _ = inst;
+    return self.fail("TODO implement airErrCast for wasm", .{});
 }
 
 fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {

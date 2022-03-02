@@ -564,6 +564,10 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         error_name,
 
+        /// Convert from a error type to another one.
+        /// Uses the `ty_op` field.
+        errcast,
+
         /// Constructs a vector, tuple, struct, or array value out of runtime-known elements.
         /// Some of the elements may be comptime-known.
         /// Uses the `ty_pl` field, payload is index of an array of elements, each of which
@@ -914,6 +918,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .popcount,
         .byte_swap,
         .bit_reverse,
+        .errcast,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
