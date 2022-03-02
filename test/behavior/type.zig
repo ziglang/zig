@@ -138,8 +138,6 @@ test "Type.Array" {
 }
 
 test "@Type create slice with null sentinel" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const Slice = @Type(TypeInfo{
         .Pointer = .{
             .size = .Slice,
@@ -156,8 +154,6 @@ test "@Type create slice with null sentinel" {
 }
 
 test "@Type picks up the sentinel value from TypeInfo" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testTypes(&[_]type{
         [11:0]u8,                            [4:10]u8,
         [*:0]u8,                             [*:0]const u8,

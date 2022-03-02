@@ -2439,7 +2439,7 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
         .@"addrspace" = target_util.defaultAddressSpace(target, .local),
     });
     try sema.requireRuntimeBlock(block, var_decl_src);
-    try sema.resolveTypeLayout(block, ty_src, var_ty);
+    try sema.resolveTypeFully(block, ty_src, var_ty);
     return block.addTy(.alloc, ptr_type);
 }
 
@@ -2461,7 +2461,7 @@ fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .@"addrspace" = target_util.defaultAddressSpace(target, .local),
     });
     try sema.requireRuntimeBlock(block, var_decl_src);
-    try sema.resolveTypeLayout(block, ty_src, var_ty);
+    try sema.resolveTypeFully(block, ty_src, var_ty);
     return block.addTy(.alloc, ptr_type);
 }
 

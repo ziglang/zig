@@ -5,8 +5,6 @@ const mem = std.mem;
 const reflection = @This();
 
 test "reflection: function return type, var args, and param types" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime {
         const info = @typeInfo(@TypeOf(dummy)).Fn;
         try expect(info.return_type.? == i32);

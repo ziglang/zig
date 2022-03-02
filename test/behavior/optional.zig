@@ -251,7 +251,9 @@ test "coerce an anon struct literal to optional struct" {
 }
 
 test "0-bit child type coerced to optional return ptr result location" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -300,7 +302,9 @@ test "0-bit child type coerced to optional" {
 }
 
 test "array of optional unaligned types" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const Enum = enum { one, two, three };
 
@@ -320,15 +324,15 @@ test "array of optional unaligned types" {
 
     // The index must be a runtime value
     var i: usize = 0;
-    try expectEqual(Enum.one, values[i].?.Num);
+    try expect(Enum.one == values[i].?.Num);
     i += 1;
-    try expectEqual(Enum.two, values[i].?.Num);
+    try expect(Enum.two == values[i].?.Num);
     i += 1;
-    try expectEqual(Enum.three, values[i].?.Num);
+    try expect(Enum.three == values[i].?.Num);
     i += 1;
-    try expectEqual(Enum.one, values[i].?.Num);
+    try expect(Enum.one == values[i].?.Num);
     i += 1;
-    try expectEqual(Enum.two, values[i].?.Num);
+    try expect(Enum.two == values[i].?.Num);
     i += 1;
-    try expectEqual(Enum.three, values[i].?.Num);
+    try expect(Enum.three == values[i].?.Num);
 }

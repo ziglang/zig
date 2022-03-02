@@ -106,8 +106,6 @@ test "if copies its payload" {
 }
 
 test "if prongs cast to expected type instead of peer type resolution" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest(f: bool) !void {
             var x: i32 = 0;

@@ -778,8 +778,6 @@ extern var opaque_extern_var: opaque {};
 var var_to_export: u32 = 42;
 
 test "lazy typeInfo value as generic parameter" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn foo(args: anytype) void {
             _ = args;

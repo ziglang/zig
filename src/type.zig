@@ -4400,7 +4400,7 @@ pub const Type = extern union {
     };
 
     /// Get an iterator that iterates over all the struct field, returning the field and
-    /// offset of that field. Asserts that the type is a none packed struct.
+    /// offset of that field. Asserts that the type is a non-packed struct.
     pub fn iterateStructOffsets(ty: Type, target: Target) StructOffsetIterator {
         const struct_obj = ty.castTag(.@"struct").?.data;
         assert(struct_obj.haveLayout());
