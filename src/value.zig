@@ -2506,6 +2506,15 @@ pub const Value = extern union {
         };
     }
 
+    /// Value of the optional, null if optional has no payload.
+    pub fn optionalValue(val: Value) ?Value {
+        if (val.isNull()) return null;
+
+        // Valid for optional representation to be the direct value
+        // and not use opt_payload.
+        return if (val.castTag(.opt_payload)) |p| p.data else val;
+    }
+
     /// Valid for all types. Asserts the value is not undefined.
     pub fn isFloat(self: Value) bool {
         return switch (self.tag()) {
