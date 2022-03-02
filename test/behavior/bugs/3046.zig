@@ -13,7 +13,6 @@ fn couldFail() anyerror!i32 {
 var some_struct: SomeStruct = undefined;
 
 test "fixed" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;

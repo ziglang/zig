@@ -724,10 +724,12 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const res = try codegen.generateSymbol(&self.base, 0, decl.srcLoc(), .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
         .ty = decl.ty,
         .val = decl.val,
-    }, &code_buffer, .none);
+    }, &code_buffer, .none, .{
+        .parent_atom_index = 0,
+    });
     const code = switch (res) {
         .externally_managed => |x| x,
         .appended => code_buffer.items,
@@ -1463,9 +1465,8 @@ fn findLib(self: *Coff, arena: Allocator, name: []const u8) !?[]const u8 {
     return null;
 }
 
-pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
-    _ = parent_atom_index;
-    _ = offset;
+pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl, reloc_info: link.File.RelocInfo) !u64 {
+    _ = reloc_info;
     assert(self.llvm_object == null);
     return self.text_section_virtual_address + decl.link.coff.text_offset;
 }

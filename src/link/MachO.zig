@@ -3781,8 +3781,10 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
     const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), math.log2(required_alignment));
     try self.atom_by_index_table.putNoClobber(self.base.allocator, local_sym_index, atom);
 
-    const res = try codegen.generateSymbol(&self.base, local_sym_index, decl.srcLoc(), typed_value, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
         .none = .{},
+    }, .{
+        .parent_atom_index = local_sym_index,
     });
     const code = switch (res) {
         .externally_managed => |x| x,
@@ -3790,6 +3792,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, em);
+            log.err("{s}", .{em.msg});
             return error.AnalysisFail;
         },
     };
@@ -3860,7 +3863,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     const res = if (debug_buffers) |dbg|
-        try codegen.generateSymbol(&self.base, decl.link.macho.local_sym_index, decl.srcLoc(), .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .{
@@ -3869,12 +3872,16 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
                 .dbg_info = &dbg.dbg_info_buffer,
                 .dbg_info_type_relocs = &dbg.dbg_info_type_relocs,
             },
+        }, .{
+            .parent_atom_index = decl.link.macho.local_sym_index,
         })
     else
-        try codegen.generateSymbol(&self.base, decl.link.macho.local_sym_index, decl.srcLoc(), .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
-        }, &code_buffer, .none);
+        }, &code_buffer, .none, .{
+            .parent_atom_index = decl.link.macho.local_sym_index,
+        });
 
     const code = blk: {
         switch (res) {
@@ -4357,15 +4364,15 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
     }
 }
 
-pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
+pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl, reloc_info: File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
     assert(decl.link.macho.local_sym_index != 0);
 
-    const atom = self.atom_by_index_table.get(parent_atom_index).?;
+    const atom = self.atom_by_index_table.get(reloc_info.parent_atom_index).?;
     try atom.relocs.append(self.base.allocator, .{
-        .offset = @intCast(u32, offset),
+        .offset = @intCast(u32, reloc_info.offset),
         .target = .{ .local = decl.link.macho.local_sym_index },
-        .addend = 0,
+        .addend = reloc_info.addend,
         .subtractor = null,
         .pcrel = false,
         .length = 3,
@@ -4375,7 +4382,7 @@ pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl, parent_atom_index: u
             else => unreachable,
         },
     });
-    try atom.rebases.append(self.base.allocator, offset);
+    try atom.rebases.append(self.base.allocator, reloc_info.offset);
 
     return 0;
 }
