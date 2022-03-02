@@ -356,7 +356,6 @@ fn analyzeInst(
         .byte_swap,
         .bit_reverse,
         .splat,
-        .errcast,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });

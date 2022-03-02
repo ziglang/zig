@@ -12460,8 +12460,7 @@ fn zirErrSetCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         return sema.addConstant(dest_ty, val);
     }
 
-    try sema.requireRuntimeBlock(block, src);
-    return block.addTyOp(.errcast, dest_ty, operand);
+    return sema.fail(block, src, "TODO: implement runtime errSetCast", .{});
 }
 
 fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

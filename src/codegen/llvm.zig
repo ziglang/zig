@@ -2383,7 +2383,6 @@ pub const FuncGen = struct {
                 .assembly       => try self.airAssembly(inst),
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
-                .errcast        => try self.airErrCast(inst),
 
                 .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
                 .ptr_slice_len_ptr => try self.airPtrSliceFieldPtr(inst, 1),
@@ -4091,20 +4090,6 @@ pub const FuncGen = struct {
         } else {
             return operand;
         }
-    }
-
-    fn airErrCast(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
-
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand = try self.resolveInst(ty_op.operand);
-
-        if (std.debug.runtime_safety) {
-            // TODO
-        }
-
-        return operand;
     }
 
     fn airTrunc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

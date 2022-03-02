@@ -216,7 +216,6 @@ const Writer = struct {
             .popcount,
             .byte_swap,
             .bit_reverse,
-            .errcast,
             => try w.writeTyOp(s, inst),
 
             .block,
