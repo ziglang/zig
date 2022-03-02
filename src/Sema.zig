@@ -812,7 +812,7 @@ fn analyzeBodyInner(
             // These functions match the return type of analyzeBody so that we can
             // tail call them here.
             .compile_error  => break sema.zirCompileError(block, inst),
-            .ret_coerce     => break sema.zirRetCoerce(block, inst),
+            .ret_tok        => break sema.zirRetTok(block, inst),
             .ret_node       => break sema.zirRetNode(block, inst),
             .ret_load       => break sema.zirRetLoad(block, inst),
             .ret_err_value  => break sema.zirRetErrValue(block, inst),
@@ -11189,7 +11189,7 @@ fn zirRetErrValue(
     return sema.analyzeRet(block, result_inst, src);
 }
 
-fn zirRetCoerce(
+fn zirRetTok(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,

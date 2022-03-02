@@ -477,9 +477,7 @@ pub const Inst = struct {
         /// Includes an operand as the return value.
         /// Includes a token source location.
         /// Uses the `un_tok` union field.
-        /// The operand needs to get coerced to the function's return type.
-        /// TODO rename this to `ret_tok` because coercion is now done unconditionally in Sema.
-        ret_coerce,
+        ret_tok,
         /// Sends control flow back to the function's callee.
         /// The return operand is `error.foo` where `foo` is given by the string.
         /// If the current function has an inferred error set, the error given by the
@@ -1217,7 +1215,7 @@ pub const Inst = struct {
                 .compile_error,
                 .ret_node,
                 .ret_load,
-                .ret_coerce,
+                .ret_tok,
                 .ret_err_value,
                 .@"unreachable",
                 .repeat,
@@ -1323,7 +1321,7 @@ pub const Inst = struct {
                 .ref = .un_tok,
                 .ret_node = .un_node,
                 .ret_load = .un_node,
-                .ret_coerce = .un_tok,
+                .ret_tok = .un_tok,
                 .ret_err_value = .str_tok,
                 .ret_err_value_code = .str_tok,
                 .ptr_type_simple = .ptr_type_simple,
