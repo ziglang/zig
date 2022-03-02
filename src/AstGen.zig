@@ -7140,7 +7140,7 @@ fn builtinCall(
         // zig fmt: on
 
         .wasm_memory_size => {
-            const operand = try expr(gz, scope, .{ .ty = .u32_type }, params[0]);
+            const operand = try comptimeExpr(gz, scope, .{ .ty = .u32_type }, params[0]);
             const result = try gz.addExtendedPayload(.wasm_memory_size, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = operand,

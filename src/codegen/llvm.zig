@@ -2314,6 +2314,8 @@ pub const FuncGen = struct {
                 .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
                 .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
+                .wasm_memory_size => try self.airWasmMemorySize(inst),
+
                 .constant => unreachable,
                 .const_ty => unreachable,
                 .unreach  => self.airUnreach(inst),
@@ -3472,6 +3474,11 @@ pub const FuncGen = struct {
         const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), operand, 0, "");
         // TODO set payload bytes to undef
         return partial;
+    }
+
+    fn airWasmMemorySize(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        _ = inst;
+        return self.todo("`@wasmMemorySize()`", .{});
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

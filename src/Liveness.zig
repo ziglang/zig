@@ -318,6 +318,7 @@ fn analyzeInst(
         .fence,
         .ret_addr,
         .frame_addr,
+        .wasm_memory_size,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,

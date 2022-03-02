@@ -14034,7 +14034,17 @@ fn zirWasmMemorySize(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
-    return sema.fail(block, src, "TODO: implement Sema.zirWasmMemorySize", .{});
+
+    const operand = try sema.resolveInt(block, src, extra.operand, Type.u32);
+    const index = @intCast(u32, operand);
+    try sema.requireRuntimeBlock(block, src);
+    return block.addInst(.{
+        .tag = .wasm_memory_size,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(Type.u32),
+            .payload = try sema.addExtra(Air.WasmMemoryIndex{ .index = index }),
+        } },
+    });
 }
 
 fn zirWasmMemoryGrow(

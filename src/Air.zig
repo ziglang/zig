@@ -583,6 +583,10 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field.
         field_parent_ptr,
 
+        /// Implements @wasmMemorySize builtin.
+        /// Uses the `ty_pl` field, payload is `WasmMemoryIndex`.
+        wasm_memory_size,
+
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -715,6 +719,12 @@ pub const Bin = struct {
 pub const FieldParentPtr = struct {
     field_ptr: Inst.Ref,
     field_index: u32,
+};
+
+/// Wasm's memory instructions require a comptime-known index
+/// which represents the memory it operates on.
+pub const WasmMemoryIndex = struct {
+    index: u32,
 };
 
 /// Trailing:
@@ -877,6 +887,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .aggregate_init,
         .union_init,
         .field_parent_ptr,
+        .wasm_memory_size,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,

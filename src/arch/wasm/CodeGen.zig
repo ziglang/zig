@@ -1671,6 +1671,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
         .wrap_errunion_err => self.airWrapErrUnionErr(inst),
 
+        .wasm_memory_size => self.airWasmMemorySize(inst),
+
         .add_sat,
         .sub_sat,
         .mul_sat,
@@ -3424,6 +3426,16 @@ fn airPrefetch(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const prefetch = self.air.instructions.items(.data)[inst].prefetch;
     _ = prefetch;
     return WValue{ .none = {} };
+}
+
+fn airWasmMemorySize(self: *Self, inst: Air.Inst.Index) !WValue {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.WasmMemoryIndex, ty_pl.payload).data;
+
+    const result = try self.allocLocal(Type.usize);
+    try self.addLabel(.memory_size, extra.index);
+    try self.addLabel(.local_set, result.local);
+    return result;
 }
 
 fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
