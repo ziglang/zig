@@ -12417,7 +12417,50 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 fn zirErrSetCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirErrSetCast", .{});
+    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+
+    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    if (dest_ty.zigTypeTag() != .ErrorSet) {
+        return sema.fail(
+            block,
+            dest_ty_src,
+            "expected error set type, found '{}'",
+            .{dest_ty},
+        );
+    }
+
+    const operand = sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+    if (operand_ty.zigTypeTag() != .ErrorSet) {
+        return sema.fail(
+            block,
+            operand_src,
+            "expected error set type, found '{}'",
+            .{operand_ty},
+        );
+    }
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        try sema.resolveInferredErrorSetTy(dest_ty);
+
+        if (!dest_ty.isAnyError()) {
+            const error_name = val.castTag(.@"error").?.data.name;
+            if (!dest_ty.errorSetHasField(error_name)) {
+                return sema.fail(
+                    block,
+                    src,
+                    "error.{s} not a member of error set '{}'",
+                    .{ error_name, dest_ty },
+                );
+            }
+        }
+
+        return sema.addConstant(dest_ty, val);
+    }
+
+    return sema.fail(block, src, "TODO: implement runtime errSetCast", .{});
 }
 
 fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
