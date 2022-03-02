@@ -209,6 +209,12 @@ fn testErrorSetType() !void {
 }
 
 test "error set cast at comptime" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
     const set1 = Set1.A;
     const x = @errSetCast(Set2, set1);
     try expect(@TypeOf(x) == Set2);
@@ -220,6 +226,12 @@ test "error set cast at comptime" {
 }
 
 test "explicit error set cast" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
     try testExplicitErrorSetCast(Set1.A);
     comptime try testExplicitErrorSetCast(Set1.A);
 }
