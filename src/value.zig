@@ -2067,10 +2067,26 @@ pub const Value = extern union {
                 }
             },
             .ErrorUnion => {
-                @panic("TODO implement hashing error union values");
+                if (val.tag() == .@"error") {
+                    std.hash.autoHash(hasher, false); // error
+                    const sub_ty = ty.errorUnionSet();
+                    val.hash(sub_ty, hasher);
+                    return;
+                }
+
+                if (val.castTag(.eu_payload)) |payload| {
+                    std.hash.autoHash(hasher, true); // payload
+                    const sub_ty = ty.errorUnionPayload();
+                    payload.data.hash(sub_ty, hasher);
+                    return;
+                } else unreachable;
             },
             .ErrorSet => {
-                @panic("TODO implement hashing error set values");
+                // just hash the literal error value. this is the most stable
+                // thing between compiler invokations. we can't use the error
+                // int cause (1) its not stable and (2) we don't have access to mod.
+                const error_data = val.castTag(.@"error").?.data;
+                hasher.update(error_data.name);
             },
             .Enum => {
                 var enum_space: Payload.U64 = undefined;
