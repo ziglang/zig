@@ -981,7 +981,10 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
         operand.freezeIfRegister(&self.register_manager);
         defer operand.unfreezeIfRegister(&self.register_manager);
 
-        break :blk try self.copyToRegisterWithInstTracking(inst, dest_ty, operand);
+        const reg = try self.register_manager.allocReg(inst);
+        try self.genSetReg(dest_ty, reg, .{ .immediate = 0 });
+        try self.genSetReg(operand_ty, reg, operand);
+        break :blk MCValue{ .register = reg };
     };
 
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
@@ -1851,21 +1854,28 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const payload_ty = self.air.typeOf(ty_op.operand);
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+    }
+
+    const payload_ty = self.air.typeOf(ty_op.operand);
+    const result: MCValue = result: {
         if (!payload_ty.hasRuntimeBits()) {
             break :result MCValue{ .immediate = 1 };
         }
 
         const optional_ty = self.air.typeOfIndex(inst);
         const operand = try self.resolveInst(ty_op.operand);
-        if (optional_ty.isPtrLikeOptional()) {
-            // TODO should we check if we can reuse the operand?
-            break :result operand;
-        }
-
         operand.freezeIfRegister(&self.register_manager);
         defer operand.unfreezeIfRegister(&self.register_manager);
+
+        if (optional_ty.isPtrLikeOptional()) {
+            // TODO should we check if we can reuse the operand?
+            if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                break :result operand;
+            }
+            break :result try self.copyToRegisterWithInstTracking(inst, payload_ty, operand);
+        }
 
         const optional_abi_size = @intCast(u32, optional_ty.abiSize(self.target.*));
         const optional_abi_align = optional_ty.abiAlignment(self.target.*);

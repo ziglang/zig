@@ -302,7 +302,7 @@ fn implicitIntLitToOptional() void {
 
 test "return u8 coercing into ?u32 return type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -373,7 +373,6 @@ fn testPeerResolveArrayConstSlice(b: bool) !void {
 test "implicitly cast from T to anyerror!?T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try castToOptionalTypeError(1);
     comptime try castToOptionalTypeError(1);
@@ -1036,7 +1035,6 @@ test "implicit cast from [*]T to ?*anyopaque" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var a = [_]u8{ 3, 2, 1 };
     var runtime_zero: usize = 0;
@@ -1073,7 +1071,6 @@ test "implicit ptr to *anyopaque" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var a: u32 = 1;
     var ptr: *align(@alignOf(u32)) anyopaque = &a;
@@ -1087,7 +1084,6 @@ test "implicit ptr to *anyopaque" {
 test "return null from fn() anyerror!?&T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const a = returnNullFromOptionalTypeErrorRef();
     const b = returnNullLitFromOptionalTypeErrorRef();
@@ -1125,7 +1121,6 @@ test "implicitly cast from [N]T to ?[]const T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
     comptime try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
@@ -1177,7 +1172,6 @@ test "implicit cast from *T to ?*anyopaque" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var a: u8 = 1;
     incrementVoidPtrValue(&a);
@@ -1213,7 +1207,6 @@ test "*const [N]null u8 to ?[]const u8" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -1249,7 +1242,6 @@ test "assignment to optional pointer result loc" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var foo: struct { ptr: ?*anyopaque } = .{ .ptr = &global_struct };
     try expect(foo.ptr.? == @ptrCast(*anyopaque, &global_struct));
