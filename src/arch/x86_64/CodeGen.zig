@@ -472,10 +472,14 @@ fn gen(self: *Self) InnerError!void {
                 .regs = 0,
                 .disp = mem.alignForwardGeneric(u32, self.next_stack_offset, 8),
             };
+            var disp = data.disp + 8;
             inline for (callee_preserved_regs) |reg, i| {
                 if (self.register_manager.isRegAllocated(reg)) {
                     if (reg.to64() == .rdi) {
                         for (self.ret_backpatches.items) |inst| {
+                            log.debug(".rdi was spilled, backpatching with mov from stack at offset {}", .{
+                                -@intCast(i32, disp),
+                            });
                             const ops = Mir.Ops.decode(self.mir_instructions.items(.ops)[inst]);
                             self.mir_instructions.set(inst, Mir.Inst{
                                 .tag = .mov,
@@ -484,12 +488,13 @@ fn gen(self: *Self) InnerError!void {
                                     .reg2 = .rbp,
                                     .flags = 0b01,
                                 }).encode(),
-                                .data = .{ .imm = @bitCast(u32, -@intCast(i32, self.max_end_stack + 8)) },
+                                .data = .{ .imm = @bitCast(u32, -@intCast(i32, disp)) },
                             });
                         }
                     }
                     data.regs |= 1 << @intCast(u5, i);
                     self.max_end_stack += 8;
+                    disp += 8;
                 }
             }
             break :blk try self.addExtra(data);
