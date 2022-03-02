@@ -5688,7 +5688,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                     .val = typed_value.val,
                 });
             } else if (typed_value.ty.abiSize(self.target.*) == 1) {
-                return MCValue{ .immediate = @boolToInt(typed_value.val.isNull()) };
+                return MCValue{ .immediate = @boolToInt(!typed_value.val.isNull()) };
             }
         },
         .Enum => {
