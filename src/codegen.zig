@@ -392,6 +392,30 @@ pub fn generateSymbol(
                     },
                 }
             },
+            .elem_ptr => {
+                const elem_ptr = typed_value.val.castTag(.elem_ptr).?.data;
+                const elem_size = typed_value.ty.childType().abiSize(target);
+                const addend = @intCast(u32, elem_ptr.index * elem_size);
+                const array_ptr = elem_ptr.array_ptr;
+
+                switch (array_ptr.tag()) {
+                    .decl_ref => {
+                        const decl = array_ptr.castTag(.decl_ref).?.data;
+                        return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output, .{
+                            .parent_atom_index = reloc_info.parent_atom_index,
+                            .addend = (reloc_info.addend orelse 0) + addend,
+                        });
+                    },
+                    else => return Result{
+                        .fail = try ErrorMsg.create(
+                            bin_file.allocator,
+                            src_loc,
+                            "TODO implement generateSymbol for pointer type value: '{s}'",
+                            .{@tagName(typed_value.val.tag())},
+                        ),
+                    },
+                }
+            },
             else => return Result{
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,

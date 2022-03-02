@@ -2599,6 +2599,9 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             defer value.unfreezeIfRegister(&self.register_manager);
 
             const addr_reg = try self.register_manager.allocReg(null);
+            self.register_manager.freezeRegs(&.{addr_reg});
+            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
             try self.loadMemPtrIntoRegister(addr_reg, ptr_ty, ptr);
 
             // to get the actual address of the value we want to modify we have to go through the GOT
@@ -2661,6 +2664,40 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         }).encode(),
                         .data = .{ .imm = 0 },
                     });
+                },
+                .got_load,
+                .direct_load,
+                .memory,
+                => {
+                    if (abi_size <= 8) {
+                        const tmp_reg = try self.register_manager.allocReg(null);
+                        self.register_manager.freezeRegs(&.{tmp_reg});
+                        defer self.register_manager.unfreezeRegs(&.{tmp_reg});
+
+                        try self.loadMemPtrIntoRegister(tmp_reg, value_ty, value);
+
+                        _ = try self.addInst(.{
+                            .tag = .mov,
+                            .ops = (Mir.Ops{
+                                .reg1 = tmp_reg,
+                                .reg2 = tmp_reg,
+                                .flags = 0b01,
+                            }).encode(),
+                            .data = .{ .imm = 0 },
+                        });
+                        _ = try self.addInst(.{
+                            .tag = .mov,
+                            .ops = (Mir.Ops{
+                                .reg1 = addr_reg.to64(),
+                                .reg2 = tmp_reg,
+                                .flags = 0b10,
+                            }).encode(),
+                            .data = .{ .imm = 0 },
+                        });
+                        return;
+                    }
+
+                    try self.genInlineMemcpy(.{ .register = addr_reg.to64() }, value, .{ .immediate = abi_size }, .{});
                 },
                 else => return self.fail("TODO implement storing {} to MCValue.memory", .{value}),
             }
