@@ -140,6 +140,29 @@ pub fn generateFunction(
     }
 }
 
+fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian, code: []u8) void {
+    if (F == f80) {
+        switch (target.cpu.arch) {
+            .i386, .x86_64 => {
+                const repr = math.break_f80(f);
+                mem.writeIntLittle(u64, code[0..8], repr.fraction);
+                mem.writeIntLittle(u16, code[8..10], repr.exp);
+                // TODO set the rest of the bytes to undefined. should we use 0xaa
+                // or is there a different way?
+                return;
+            },
+            else => {},
+        }
+    } else {
+        const Int = @Type(.{ .Int = .{
+            .signedness = .unsigned,
+            .bits = @typeInfo(F).Float.bits,
+        } });
+        const int = @bitCast(Int, f);
+        mem.writeInt(Int, code[0..@sizeOf(Int)], int, endian);
+    }
+}
+
 pub fn generateSymbol(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
@@ -151,10 +174,12 @@ pub fn generateSymbol(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const target = bin_file.options.target;
+    const endian = target.cpu.arch.endian();
+
     log.debug("generateSymbol: ty = {}, val = {}", .{ typed_value.ty, typed_value.val });
 
     if (typed_value.val.isUndefDeep()) {
-        const target = bin_file.options.target;
         const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
         try code.appendNTimes(0xaa, abi_size);
         return Result{ .appended = {} };
@@ -170,6 +195,18 @@ pub fn generateSymbol(
                     .{},
                 ),
             };
+        },
+        .Float => {
+            const float_bits = typed_value.ty.floatBits(target);
+            switch (float_bits) {
+                16 => writeFloat(f16, typed_value.val.toFloat(f16), target, endian, try code.addManyAsArray(2)),
+                32 => writeFloat(f32, typed_value.val.toFloat(f32), target, endian, try code.addManyAsArray(4)),
+                64 => writeFloat(f64, typed_value.val.toFloat(f64), target, endian, try code.addManyAsArray(8)),
+                80 => writeFloat(f80, typed_value.val.toFloat(f80), target, endian, try code.addManyAsArray(10)),
+                128 => writeFloat(f128, typed_value.val.toFloat(f128), target, endian, try code.addManyAsArray(16)),
+                else => unreachable,
+            }
+            return Result{ .appended = {} };
         },
         .Array => switch (typed_value.val.tag()) {
             .bytes => {
@@ -311,7 +348,6 @@ pub fn generateSymbol(
                 return Result{ .appended = {} };
             },
             .field_ptr => {
-                const target = bin_file.options.target;
                 const field_ptr = typed_value.val.castTag(.field_ptr).?.data;
                 const container_ptr = field_ptr.container_ptr;
 
@@ -373,7 +409,6 @@ pub fn generateSymbol(
         },
         .Int => {
             // TODO populate .debug_info for the integer
-            const endian = bin_file.options.target.cpu.arch.endian();
             const info = typed_value.ty.intInfo(bin_file.options.target);
             if (info.bits <= 8) {
                 const x = @intCast(u8, typed_value.val.toUnsignedInt());
@@ -423,7 +458,6 @@ pub fn generateSymbol(
             var int_buffer: Value.Payload.U64 = undefined;
             const int_val = typed_value.enumToInt(&int_buffer);
 
-            const target = bin_file.options.target;
             const info = typed_value.ty.intInfo(target);
             if (info.bits <= 8) {
                 const x = @intCast(u8, int_val.toUnsignedInt());
@@ -440,7 +474,6 @@ pub fn generateSymbol(
                     ),
                 };
             }
-            const endian = target.cpu.arch.endian();
             switch (info.signedness) {
                 .unsigned => {
                     if (info.bits <= 16) {
@@ -506,7 +539,6 @@ pub fn generateSymbol(
                 const unpadded_field_end = code.items.len - struct_begin;
 
                 // Pad struct members if required
-                const target = bin_file.options.target;
                 const padded_field_end = typed_value.ty.structFieldOffset(index + 1, target);
                 const padding = try math.cast(usize, padded_field_end - unpadded_field_end);
 
@@ -519,7 +551,6 @@ pub fn generateSymbol(
         },
         .Union => {
             // TODO generate debug info for unions
-            const target = bin_file.options.target;
             const union_obj = typed_value.val.castTag(.@"union").?.data;
             const layout = typed_value.ty.unionGetLayout(target);
 
@@ -590,19 +621,69 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Optional => {
-            // TODO generateSymbol for optionals
-            const target = bin_file.options.target;
+            // TODO generate debug info for optionals
+            var opt_buf: Type.Payload.ElemType = undefined;
+            const payload_type = typed_value.ty.optionalChild(&opt_buf);
+            const is_pl = !typed_value.val.isNull();
             const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
-            try code.writer().writeByteNTimes(0xaa, abi_size);
+            const offset = abi_size - try math.cast(usize, payload_type.abiSize(target));
+
+            if (!payload_type.hasRuntimeBits()) {
+                try code.writer().writeByteNTimes(@boolToInt(is_pl), abi_size);
+                return Result{ .appended = {} };
+            }
+
+            if (typed_value.ty.isPtrLikeOptional()) {
+                if (typed_value.val.castTag(.opt_payload)) |payload| {
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = payload_type,
+                        .val = payload.data,
+                    }, code, debug_output, reloc_info)) {
+                        .appended => {},
+                        .externally_managed => |external_slice| {
+                            code.appendSliceAssumeCapacity(external_slice);
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                } else if (!typed_value.val.isNull()) {
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = payload_type,
+                        .val = typed_value.val,
+                    }, code, debug_output, reloc_info)) {
+                        .appended => {},
+                        .externally_managed => |external_slice| {
+                            code.appendSliceAssumeCapacity(external_slice);
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                } else {
+                    try code.writer().writeByteNTimes(0, abi_size);
+                }
+
+                return Result{ .appended = {} };
+            }
+
+            const value = if (typed_value.val.castTag(.opt_payload)) |payload| payload.data else Value.initTag(.undef);
+            try code.writer().writeByteNTimes(@boolToInt(is_pl), offset);
+            switch (try generateSymbol(bin_file, src_loc, .{
+                .ty = payload_type,
+                .val = value,
+            }, code, debug_output, reloc_info)) {
+                .appended => {},
+                .externally_managed => |external_slice| {
+                    code.appendSliceAssumeCapacity(external_slice);
+                },
+                .fail => |em| return Result{ .fail = em },
+            }
 
             return Result{ .appended = {} };
         },
         .ErrorUnion => {
+            // TODO generate debug info for error unions
             const error_ty = typed_value.ty.errorUnionSet();
             const payload_ty = typed_value.ty.errorUnionPayload();
             const is_payload = typed_value.val.errorUnionIsPayload();
 
-            const target = bin_file.options.target;
             const abi_align = typed_value.ty.abiAlignment(target);
 
             const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
@@ -643,12 +724,11 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .ErrorSet => {
-            const target = bin_file.options.target;
+            // TODO generate debug info for error sets
             switch (typed_value.val.tag()) {
                 .@"error" => {
                     const name = typed_value.val.getError().?;
                     const kv = try bin_file.options.module.?.getErrorValue(name);
-                    const endian = target.cpu.arch.endian();
                     try code.writer().writeInt(u32, kv.value, endian);
                 },
                 else => {
