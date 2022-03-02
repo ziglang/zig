@@ -1704,12 +1704,36 @@ fn airShr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand = try self.resolveInst(ty_op.operand);
-        if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
-            break :result operand;
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+    }
+
+    const payload_ty = self.air.typeOfIndex(inst);
+    const optional_ty = self.air.typeOf(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
+    const result: MCValue = result: {
+        if (!payload_ty.hasRuntimeBits()) break :result MCValue.none;
+        if (optional_ty.isPtrLikeOptional()) {
+            if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                break :result operand;
+            }
+            break :result try self.copyToRegisterWithInstTracking(inst, payload_ty, operand);
         }
-        break :result try self.copyToRegisterWithInstTracking(inst, self.air.typeOfIndex(inst), operand);
+
+        const offset = optional_ty.abiSize(self.target.*) - payload_ty.abiSize(self.target.*);
+        switch (operand) {
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off - @intCast(i32, offset) };
+            },
+            .register => {
+                // TODO reuse the operand
+                const result = try self.copyToRegisterWithInstTracking(inst, optional_ty, operand);
+                const shift = @intCast(u8, offset * 8);
+                try self.shiftRegister(result.register, @intCast(u8, shift));
+                break :result result;
+            },
+            else => return self.fail("TODO implement optional_payload when operand is {}", .{operand}),
+        }
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -1828,13 +1852,30 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const optional_ty = self.air.typeOfIndex(inst);
-
-        // Optional with a zero-bit payload type is just a boolean true
-        if (optional_ty.abiSize(self.target.*) == 1)
+        const payload_ty = self.air.typeOf(ty_op.operand);
+        if (!payload_ty.hasRuntimeBits()) {
             break :result MCValue{ .immediate = 1 };
+        }
 
-        return self.fail("TODO implement wrap optional for {}", .{self.target.cpu.arch});
+        const optional_ty = self.air.typeOfIndex(inst);
+        const operand = try self.resolveInst(ty_op.operand);
+        if (optional_ty.isPtrLikeOptional()) {
+            // TODO should we check if we can reuse the operand?
+            break :result operand;
+        }
+
+        operand.freezeIfRegister(&self.register_manager);
+        defer operand.unfreezeIfRegister(&self.register_manager);
+
+        const optional_abi_size = @intCast(u32, optional_ty.abiSize(self.target.*));
+        const optional_abi_align = optional_ty.abiAlignment(self.target.*);
+        const payload_abi_size = @intCast(u32, payload_ty.abiSize(self.target.*));
+        const offset = optional_abi_size - payload_abi_size;
+
+        const stack_offset = @intCast(i32, try self.allocMem(inst, optional_abi_size, optional_abi_align));
+        try self.genSetStack(Type.bool, stack_offset, .{ .immediate = 1 }, .{});
+        try self.genSetStack(payload_ty, stack_offset - @intCast(i32, offset), operand, .{});
+        break :result MCValue{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -3761,7 +3802,14 @@ fn isNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValu
     try self.spillCompareFlagsIfOccupied();
     self.compare_flags_inst = inst;
 
-    try self.genBinMathOpMir(.cmp, ty, operand, MCValue{ .immediate = 0 });
+    const cmp_ty: Type = if (!ty.isPtrLikeOptional()) blk: {
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = ty.optionalChild(&buf);
+        break :blk if (payload_ty.hasRuntimeBits()) Type.bool else ty;
+    } else ty;
+
+    try self.genBinMathOpMir(.cmp, cmp_ty, operand, MCValue{ .immediate = 0 });
+
     return MCValue{ .compare_flags_unsigned = .eq };
 }
 
