@@ -141,26 +141,13 @@ pub fn generateFunction(
 }
 
 fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian, code: []u8) void {
-    if (F == f80) {
-        switch (target.cpu.arch) {
-            .i386, .x86_64 => {
-                const repr = math.break_f80(f);
-                mem.writeIntLittle(u64, code[0..8], repr.fraction);
-                mem.writeIntLittle(u16, code[8..10], repr.exp);
-                // TODO set the rest of the bytes to undefined. should we use 0xaa
-                // or is there a different way?
-                return;
-            },
-            else => {},
-        }
-    } else {
-        const Int = @Type(.{ .Int = .{
-            .signedness = .unsigned,
-            .bits = @typeInfo(F).Float.bits,
-        } });
-        const int = @bitCast(Int, f);
-        mem.writeInt(Int, code[0..@sizeOf(Int)], int, endian);
-    }
+    _ = target;
+    const Int = @Type(.{ .Int = .{
+        .signedness = .unsigned,
+        .bits = @typeInfo(F).Float.bits,
+    } });
+    const int = @bitCast(Int, f);
+    mem.writeInt(Int, code[0..@sizeOf(Int)], int, endian);
 }
 
 pub fn generateSymbol(
@@ -202,7 +189,14 @@ pub fn generateSymbol(
                 16 => writeFloat(f16, typed_value.val.toFloat(f16), target, endian, try code.addManyAsArray(2)),
                 32 => writeFloat(f32, typed_value.val.toFloat(f32), target, endian, try code.addManyAsArray(4)),
                 64 => writeFloat(f64, typed_value.val.toFloat(f64), target, endian, try code.addManyAsArray(8)),
-                80 => writeFloat(f80, typed_value.val.toFloat(f80), target, endian, try code.addManyAsArray(10)),
+                80 => return Result{
+                    .fail = try ErrorMsg.create(
+                        bin_file.allocator,
+                        src_loc,
+                        "TODO handle f80 in generateSymbol",
+                        .{},
+                    ),
+                },
                 128 => writeFloat(f128, typed_value.val.toFloat(f128), target, endian, try code.addManyAsArray(16)),
                 else => unreachable,
             }
