@@ -958,7 +958,7 @@ pub const DeclGen = struct {
                 // reference, we need to copy it here.
                 gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
-                if (t.isTuple()) {
+                if (t.isTupleOrAnonStruct()) {
                     const tuple = t.tupleFields();
                     const llvm_struct_ty = dg.context.structCreateNamed("");
                     gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
@@ -2104,7 +2104,7 @@ pub const DeclGen = struct {
         var zig_big_align: u32 = 0;
         var llvm_big_align: u32 = 0;
 
-        if (ty.isTuple()) {
+        if (ty.isTupleOrAnonStruct()) {
             const tuple = ty.tupleFields();
             var llvm_field_index: c_uint = 0;
             for (tuple.types) |field_ty, i| {
@@ -5704,7 +5704,7 @@ fn isByRef(ty: Type) bool {
         .Struct => {
             // Packed structs are represented to LLVM as integers.
             if (ty.containerLayout() == .Packed) return false;
-            if (ty.isTuple()) {
+            if (ty.isTupleOrAnonStruct()) {
                 const tuple = ty.tupleFields();
                 var count: usize = 0;
                 for (tuple.values) |field_val, i| {

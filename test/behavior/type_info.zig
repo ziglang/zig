@@ -503,9 +503,13 @@ test "Struct.is_tuple for anon list literal" {
 }
 
 test "Struct.is_tuple for anon struct literal" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
-    try expect(!@typeInfo(@TypeOf(.{ .a = 0 })).Struct.is_tuple);
+    const info = @typeInfo(@TypeOf(.{ .a = 0 }));
+    try expect(!info.Struct.is_tuple);
+    try expect(std.mem.eql(u8, info.Struct.fields[0].name, "a"));
 }
 
 test "StructField.is_comptime" {

@@ -930,7 +930,9 @@ test "anonymous struct literal syntax" {
 }
 
 test "fully anonymous struct" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -974,7 +976,7 @@ test "fully anonymous list literal" {
     comptime try S.doTheTest();
 }
 
-test "anonymous struct literal assigned to variable" {
+test "tuple assigned to variable" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
     var vec = .{ @as(i32, 22), @as(i32, 55), @as(i32, 99) };
@@ -995,7 +997,7 @@ test "comptime struct field" {
     comptime try expect(foo.b == 1234);
 }
 
-test "anon struct literal field value initialized with fn call" {
+test "tuple element initialized with fn call" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
     const S = struct {

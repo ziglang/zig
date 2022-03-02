@@ -1895,7 +1895,7 @@ pub const Value = extern union {
                 const a_field_vals = a.castTag(.@"struct").?.data;
                 const b_field_vals = b.castTag(.@"struct").?.data;
                 assert(a_field_vals.len == b_field_vals.len);
-                if (ty.isTuple()) {
+                if (ty.isTupleOrAnonStruct()) {
                     const types = ty.tupleFields().types;
                     assert(types.len == a_field_vals.len);
                     for (types) |field_ty, i| {
@@ -2031,7 +2031,7 @@ pub const Value = extern union {
                 }
             },
             .Struct => {
-                if (ty.isTuple()) {
+                if (ty.isTupleOrAnonStruct()) {
                     const fields = ty.tupleFields();
                     for (fields.values) |field_val, i| {
                         field_val.hash(fields.types[i], hasher);

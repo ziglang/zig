@@ -14,7 +14,9 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "@src" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try doTheTest();
 }

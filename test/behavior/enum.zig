@@ -972,22 +972,6 @@ test "enum literal casting to error union with payload enum" {
     try expect((try bar) == Bar.B);
 }
 
-test "exporting enum type and value" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        const E = enum(c_int) { one, two };
-        comptime {
-            @export(E, .{ .name = "E" });
-        }
-        const e: E = .two;
-        comptime {
-            @export(e, .{ .name = "e" });
-        }
-    };
-    try expect(S.e == .two);
-}
-
 test "constant enum initialization with differing sizes" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;

@@ -2850,7 +2850,9 @@ pub const Inst = struct {
         };
     };
 
-    /// Trailing is an item per field.
+    /// Trailing is an Item per field.
+    /// TODO make this instead array of inits followed by array of names because
+    /// it will be simpler Sema code and better for CPU cache.
     pub const StructInitAnon = struct {
         fields_len: u32,
 

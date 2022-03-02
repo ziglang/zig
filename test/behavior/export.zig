@@ -34,3 +34,17 @@ export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion) void {
         b;
     }
 }
+
+test "exporting enum type and value" {
+    const S = struct {
+        const E = enum(c_int) { one, two };
+        comptime {
+            @export(E, .{ .name = "E" });
+        }
+        const e: E = .two;
+        comptime {
+            @export(e, .{ .name = "e" });
+        }
+    };
+    try expect(S.e == .two);
+}
