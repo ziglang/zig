@@ -2303,7 +2303,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .compile_error,
             .ret_node,
             .ret_load,
-            .ret_coerce,
+            .ret_tok,
             .ret_err_value,
             .@"unreachable",
             .repeat,
@@ -3420,8 +3420,8 @@ fn fnDecl(
 
         if (!fn_gz.endsWithNoReturn()) {
             // Since we are adding the return instruction here, we must handle the coercion.
-            // We do this by using the `ret_coerce` instruction.
-            _ = try fn_gz.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
+            // We do this by using the `ret_tok` instruction.
+            _ = try fn_gz.addUnTok(.ret_tok, .void_value, tree.lastToken(body_node));
         }
 
         break :func try decl_gz.addFunc(.{
@@ -3850,8 +3850,8 @@ fn testDecl(
     const block_result = try expr(&fn_block, &fn_block.base, .none, body_node);
     if (fn_block.isEmpty() or !fn_block.refIsNoReturn(block_result)) {
         // Since we are adding the return instruction here, we must handle the coercion.
-        // We do this by using the `ret_coerce` instruction.
-        _ = try fn_block.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
+        // We do this by using the `ret_tok` instruction.
+        _ = try fn_block.addUnTok(.ret_tok, .void_value, tree.lastToken(body_node));
     }
 
     const func_inst = try decl_block.addFunc(.{
