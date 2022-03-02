@@ -394,11 +394,11 @@ pub const Block = struct {
 
     fn addAggregateInit(
         block: *Block,
-        vector_ty: Type,
+        aggregate_ty: Type,
         elements: []const Air.Inst.Ref,
     ) !Air.Inst.Ref {
         const sema = block.sema;
-        const ty_ref = try sema.addType(vector_ty);
+        const ty_ref = try sema.addType(aggregate_ty);
         try sema.air_extra.ensureUnusedCapacity(sema.gpa, elements.len);
         const extra_index = @intCast(u32, sema.air_extra.items.len);
         sema.appendRefsAssumeCapacity(elements);

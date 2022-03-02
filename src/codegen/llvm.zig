@@ -2106,7 +2106,7 @@ pub const DeclGen = struct {
     fn llvmFieldIndex(
         dg: *DeclGen,
         ty: Type,
-        field_index: u32,
+        field_index: usize,
         ptr_pl_buf: *Type.Payload.Pointer,
     ) ?c_uint {
         const target = dg.module.getTarget();
@@ -4921,38 +4921,37 @@ pub const FuncGen = struct {
                 return vector;
             },
             .Struct => {
-                const tuple = result_ty.castTag(.tuple).?.data;
+                var ptr_ty_buf: Type.Payload.Pointer = undefined;
 
                 if (isByRef(result_ty)) {
                     const llvm_u32 = self.context.intType(32);
                     const alloca_inst = self.buildAlloca(llvm_result_ty);
+                    // TODO in debug builds init to undef so that the padding will be 0xaa
+                    // even if we fully populate the fields.
                     const target = self.dg.module.getTarget();
                     alloca_inst.setAlignment(result_ty.abiAlignment(target));
 
                     var indices: [2]*const llvm.Value = .{ llvm_u32.constNull(), undefined };
-                    var llvm_i: u32 = 0;
-
                     for (elements) |elem, i| {
-                        if (tuple.values[i].tag() != .unreachable_value) continue;
-                        const field_ty = tuple.types[i];
+                        if (result_ty.structFieldValueComptime(i) != null) continue;
+
                         const llvm_elem = try self.resolveInst(elem);
+                        const llvm_i = self.dg.llvmFieldIndex(result_ty, i, &ptr_ty_buf).?;
                         indices[1] = llvm_u32.constInt(llvm_i, .False);
-                        llvm_i += 1;
                         const field_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
                         const store_inst = self.builder.buildStore(llvm_elem, field_ptr);
-                        store_inst.setAlignment(field_ty.abiAlignment(target));
+                        store_inst.setAlignment(result_ty.structFieldAlign(i, target));
                     }
 
                     return alloca_inst;
                 } else {
                     var result = llvm_result_ty.getUndef();
-                    var llvm_i: u32 = 0;
                     for (elements) |elem, i| {
-                        if (tuple.values[i].tag() != .unreachable_value) continue;
+                        if (result_ty.structFieldValueComptime(i) != null) continue;
 
                         const llvm_elem = try self.resolveInst(elem);
+                        const llvm_i = self.dg.llvmFieldIndex(result_ty, i, &ptr_ty_buf).?;
                         result = self.builder.buildInsertValue(result, llvm_elem, llvm_i, "");
-                        llvm_i += 1;
                     }
                     return result;
                 }

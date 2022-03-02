@@ -4479,6 +4479,55 @@ pub const Type = extern union {
         }
     }
 
+    pub fn structFieldAlign(ty: Type, index: usize, target: Target) u32 {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.layout != .Packed);
+                return struct_obj.fields.values()[index].normalAlignment(target);
+            },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                return union_obj.fields.values()[index].normalAlignment(target);
+            },
+            .tuple => return ty.castTag(.tuple).?.data.types[index].abiAlignment(target),
+            .anon_struct => return ty.castTag(.anon_struct).?.data.types[index].abiAlignment(target),
+            else => unreachable,
+        }
+    }
+
+    pub fn structFieldValueComptime(ty: Type, index: usize) ?Value {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.layout != .Packed);
+                const field = struct_obj.fields.values()[index];
+                if (field.is_comptime) {
+                    return field.default_val;
+                } else {
+                    return null;
+                }
+            },
+            .tuple => {
+                const val = ty.castTag(.tuple).?.data.values[index];
+                if (val.tag() == .unreachable_value) {
+                    return null;
+                } else {
+                    return val;
+                }
+            },
+            .anon_struct => {
+                const val = ty.castTag(.anon_struct).?.data.values[index];
+                if (val.tag() == .unreachable_value) {
+                    return null;
+                } else {
+                    return val;
+                }
+            },
+            else => unreachable,
+        }
+    }
+
     pub const FieldOffset = struct {
         field: usize,
         offset: u64,
