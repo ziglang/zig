@@ -124,9 +124,9 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
             self: *Self,
             i: usize,
             item: T,
-        ) error{ Overflow, IndexOutOfBounds }!void {
+        ) error{Overflow}!void {
             if (i > self.len) {
-                return error.IndexOutOfBounds;
+                return error.Overflow;
             }
             _ = try self.addOne();
             var s = self.slice();
