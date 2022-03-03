@@ -18270,7 +18270,7 @@ fn resolvePeerTypes(
 
                     convert_to_slice = false;
 
-                    if (chosen_ty.childType().isConstPtr() and !candidate_ty.childType().isConstPtr())
+                    if (chosen_ty.isConstPtr() and !candidate_ty.isConstPtr())
                         seen_const = true;
 
                     continue;
@@ -18282,7 +18282,7 @@ fn resolvePeerTypes(
                     chosen_ty_tag == .Pointer and
                     chosen_ty.ptrSize() == .Many)
                 {
-                    if (candidate_ty.childType().isConstPtr() and !chosen_ty.childType().isConstPtr())
+                    if (candidate_ty.isConstPtr() and !chosen_ty.isConstPtr())
                         seen_const = true;
 
                     continue;
@@ -18303,7 +18303,7 @@ fn resolvePeerTypes(
                         convert_to_slice = false; // it already is a slice
 
                         // If the pointer is const then we need to const
-                        if (candidate_ty.childType().isConstPtr())
+                        if (candidate_ty.isConstPtr())
                             seen_const = true;
 
                         continue;
@@ -18326,7 +18326,7 @@ fn resolvePeerTypes(
                         convert_to_slice = false; // it already is a slice
 
                         // If the prev pointer is const then we need to const
-                        if (chosen_child_ty.isConstPtr())
+                        if (chosen_ty.isConstPtr())
                             seen_const = true;
 
                         continue;
