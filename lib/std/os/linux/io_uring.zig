@@ -537,6 +537,36 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `recvmsg(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn recvmsg(
+        self: *IO_Uring,
+        user_data: u64,
+        fd: os.fd_t,
+        msg: *os.msghdr,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_recvmsg(sqe, fd, msg, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    /// Queues (but does not submit) an SQE to perform a `sendmsg(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn sendmsg(
+        self: *IO_Uring,
+        user_data: u64,
+        fd: os.fd_t,
+        msg: *const os.msghdr_const,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_sendmsg(sqe, fd, msg, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Queues (but does not submit) an SQE to perform an `openat(2)`.
     /// Returns a pointer to the SQE.
     pub fn openat(
@@ -1237,6 +1267,26 @@ pub fn io_uring_prep_send(sqe: *io_uring_sqe, fd: os.fd_t, buffer: []const u8, f
     sqe.rw_flags = flags;
 }
 
+pub fn io_uring_prep_recvmsg(
+    sqe: *io_uring_sqe,
+    fd: os.fd_t,
+    msg: *os.msghdr,
+    flags: u32,
+) void {
+    linux.io_uring_prep_rw(.RECVMSG, sqe, fd, @ptrToInt(msg), 1, 0);
+    sqe.rw_flags = flags;
+}
+
+pub fn io_uring_prep_sendmsg(
+    sqe: *io_uring_sqe,
+    fd: os.fd_t,
+    msg: *const os.msghdr_const,
+    flags: u32,
+) void {
+    linux.io_uring_prep_rw(.SENDMSG, sqe, fd, @ptrToInt(msg), 1, 0);
+    sqe.rw_flags = flags;
+}
+
 pub fn io_uring_prep_openat(
     sqe: *io_uring_sqe,
     fd: os.fd_t,
@@ -1904,6 +1954,88 @@ test "accept/connect/send/recv" {
         .res = buffer_recv.len,
         .flags = 0,
     }, cqe_recv);
+
+    try testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
+}
+
+test "sendmsg/recvmsg" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const address_server = try net.Address.parseIp4("127.0.0.1", 3131);
+
+    const server = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
+    defer os.close(server);
+    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEPORT, &mem.toBytes(@as(c_int, 1)));
+    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+    try os.bind(server, &address_server.any, address_server.getOsSockLen());
+
+    const client = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
+    defer os.close(client);
+
+    const buffer_send = [_]u8{42} ** 128;
+    var iovecs_send = [_]os.iovec_const{
+        os.iovec_const{ .iov_base = &buffer_send, .iov_len = buffer_send.len },
+    };
+    const msg_send = os.msghdr_const{
+        .name = &address_server.any,
+        .namelen = address_server.getOsSockLen(),
+        .iov = &iovecs_send,
+        .iovlen = 1,
+        .control = null,
+        .controllen = 0,
+        .flags = 0,
+    };
+    const sqe_sendmsg = try ring.sendmsg(0x11111111, client, &msg_send, 0);
+    sqe_sendmsg.flags |= linux.IOSQE_IO_LINK;
+    try testing.expectEqual(linux.IORING_OP.SENDMSG, sqe_sendmsg.opcode);
+    try testing.expectEqual(client, sqe_sendmsg.fd);
+
+    var buffer_recv = [_]u8{0} ** 128;
+    var iovecs_recv = [_]os.iovec{
+        os.iovec{ .iov_base = &buffer_recv, .iov_len = buffer_recv.len },
+    };
+    var addr = [_]u8{0} ** 4;
+    var address_recv = net.Address.initIp4(addr, 0);
+    var msg_recv: os.msghdr = os.msghdr{
+        .name = &address_recv.any,
+        .namelen = address_recv.getOsSockLen(),
+        .iov = &iovecs_recv,
+        .iovlen = 1,
+        .control = null,
+        .controllen = 0,
+        .flags = 0,
+    };
+    const sqe_recvmsg = try ring.recvmsg(0x22222222, server, &msg_recv, 0);
+    try testing.expectEqual(linux.IORING_OP.RECVMSG, sqe_recvmsg.opcode);
+    try testing.expectEqual(server, sqe_recvmsg.fd);
+
+    try testing.expectEqual(@as(u32, 2), ring.sq_ready());
+    try testing.expectEqual(@as(u32, 2), try ring.submit_and_wait(2));
+    try testing.expectEqual(@as(u32, 0), ring.sq_ready());
+    try testing.expectEqual(@as(u32, 2), ring.cq_ready());
+
+    const cqe_sendmsg = try ring.copy_cqe();
+    if (cqe_sendmsg.res == -@as(i32, @enumToInt(linux.E.INVAL))) return error.SkipZigTest;
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x11111111,
+        .res = buffer_send.len,
+        .flags = 0,
+    }, cqe_sendmsg);
+
+    const cqe_recvmsg = try ring.copy_cqe();
+    if (cqe_recvmsg.res == -@as(i32, @enumToInt(linux.E.INVAL))) return error.SkipZigTest;
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x22222222,
+        .res = buffer_recv.len,
+        .flags = 0,
+    }, cqe_recvmsg);
 
     try testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
 }

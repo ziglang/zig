@@ -2,8 +2,8 @@ const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
-const iovec = linux.iovec;
-const iovec_const = linux.iovec_const;
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
@@ -651,23 +651,23 @@ pub const Flock = extern struct {
 };
 
 pub const msghdr = extern struct {
-    msg_name: ?*sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec,
-    msg_iovlen: usize,
-    msg_control: ?*anyopaque,
-    msg_controllen: socklen_t,
-    msg_flags: i32,
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: usize,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    flags: i32,
 };
 
 pub const msghdr_const = extern struct {
-    msg_name: ?*const sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec_const,
-    msg_iovlen: usize,
-    msg_control: ?*anyopaque,
-    msg_controllen: socklen_t,
-    msg_flags: i32,
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec_const,
+    iovlen: usize,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    flags: i32,
 };
 
 pub const blksize_t = i32;
