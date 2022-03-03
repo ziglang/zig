@@ -2737,6 +2737,7 @@ fn zirValidateStructInit(
             init_src,
             instrs,
             object_ptr,
+            is_comptime,
         ),
         else => unreachable,
     }
@@ -2749,6 +2750,7 @@ fn validateUnionInit(
     init_src: LazySrcLoc,
     instrs: []const Zir.Inst.Index,
     union_ptr: Air.Inst.Ref,
+    is_comptime: bool,
 ) CompileError!void {
     if (instrs.len != 1) {
         const msg = msg: {
@@ -2771,6 +2773,11 @@ fn validateUnionInit(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
+    if (is_comptime or block.is_comptime) {
+        // In this case, comptime machinery already did everything. No work to do here.
+        return;
+    }
+
     const field_ptr = instrs[0];
     const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
     const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_ptr_data.src_node };
@@ -2779,44 +2786,72 @@ fn validateUnionInit(
     const field_index_big = union_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
     const field_index = @intCast(u32, field_index_big);
+    const air_tags = sema.air_instructions.items(.tag);
+    const air_datas = sema.air_instructions.items(.data);
+    const field_ptr_air_ref = sema.inst_map.get(field_ptr).?;
+    const field_ptr_air_inst = Air.refToIndex(field_ptr_air_ref).?;
 
-    // Handle the possibility of the union value being comptime-known.
-    const union_ptr_inst = Air.refToIndex(union_ptr).?;
-    switch (sema.air_instructions.items(.tag)[union_ptr_inst]) {
-        .constant => {
-            if (try sema.resolveDefinedValue(block, init_src, union_ptr)) |ptr_val| {
-                if (ptr_val.isComptimeMutablePtr()) {
-                    // In this case the tag has already been set. No validation to do.
-                    return;
-                }
-            }
-        },
-        .bitcast => {
-            // TODO here we need to go back and see if we need to convert the union
-            // to a comptime-known value. In such case, we must delete all the instructions
-            // added to the current block starting with the bitcast.
-            // If the bitcast result ptr is an alloc, the alloc should be replaced with
-            // a constant decl_ref.
-            // Otherwise, the bitcast should be preserved and a store instruction should be
-            // emitted to store the constant union value through the bitcast.
-        },
-        .alloc => {},
-        else => |t| {
-            if (std.debug.runtime_safety) {
-                std.debug.panic("unexpected AIR tag for union pointer: {s}", .{@tagName(t)});
-            } else {
-                unreachable;
-            }
-        },
+    // Our task here is to determine if the union is comptime-known. In such case,
+    // we erase the runtime AIR instructions for initializing the union, and replace
+    // the mapping with the comptime value. Either way, we will need to populate the tag.
+
+    // We expect to see something like this in the current block AIR:
+    //   %a = alloc(*const U)
+    //   %b = bitcast(*U, %a)
+    //   %c = field_ptr(..., %b)
+    //   %e!= store(%c!, %d!)
+    // If %d is a comptime operand, the union is comptime.
+    // If the union is comptime, we want `first_block_index`
+    // to point at %c so that the bitcast becomes the last instruction in the block.
+    //
+    // In the case of a comptime-known pointer to a union, the
+    // the field_ptr instruction is missing, so we have to pattern-match
+    // based only on the store instructions.
+    // `first_block_index` needs to point to the `field_ptr` if it exists;
+    // the `store` otherwise.
+    //
+    // It's also possible for there to be no store instruction, in the case
+    // of nested `coerce_result_ptr` instructions. If we see the `field_ptr`
+    // but we have not found a `store`, treat as a runtime-known field.
+    var first_block_index = block.instructions.items.len;
+    var block_index = block.instructions.items.len - 1;
+    var init_val: ?Value = null;
+    while (block_index > 0) : (block_index -= 1) {
+        const store_inst = block.instructions.items[block_index];
+        if (store_inst == field_ptr_air_inst) break;
+        if (air_tags[store_inst] != .store) continue;
+        const bin_op = air_datas[store_inst].bin_op;
+        if (bin_op.lhs != field_ptr_air_ref) continue;
+        if (block_index > 0 and
+            field_ptr_air_inst == block.instructions.items[block_index - 1])
+        {
+            first_block_index = @minimum(first_block_index, block_index - 1);
+        } else {
+            first_block_index = @minimum(first_block_index, block_index);
+        }
+        init_val = try sema.resolveMaybeUndefValAllowVariables(block, init_src, bin_op.rhs);
+        break;
     }
 
-    // Otherwise, we set the new union tag now.
-    const new_tag = try sema.addConstant(
-        union_obj.tag_ty,
-        try Value.Tag.enum_field_index.create(sema.arena, field_index),
-    );
+    const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+
+    if (init_val) |val| {
+        // Our task is to delete all the `field_ptr` and `store` instructions, and insert
+        // instead a single `store` to the result ptr with a comptime union value.
+        block.instructions.shrinkRetainingCapacity(first_block_index);
+
+        const union_val = try Value.Tag.@"union".create(sema.arena, .{
+            .tag = tag_val,
+            .val = val,
+        });
+        const union_ty = sema.typeOf(union_ptr).childType();
+        const union_init = try sema.addConstant(union_ty, union_val);
+        try sema.storePtr2(block, init_src, union_ptr, init_src, union_init, init_src, .store);
+        return;
+    }
 
     try sema.requireRuntimeBlock(block, init_src);
+    const new_tag = try sema.addConstant(union_obj.tag_ty, tag_val);
     _ = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
 }
 
@@ -3084,7 +3119,7 @@ fn zirValidateArrayInit(
     }
 
     var array_is_comptime = true;
-    var first_block_index: usize = std.math.maxInt(u32);
+    var first_block_index = block.instructions.items.len;
 
     // Collect the comptime element values in case the array literal ends up
     // being comptime-known.
@@ -15147,7 +15182,32 @@ fn unionFieldPtr(
     });
 
     if (try sema.resolveDefinedValue(block, src, union_ptr)) |union_ptr_val| {
-        // TODO detect inactive union field and emit compile error
+        switch (union_obj.layout) {
+            .Auto => {
+                // TODO emit the access of inactive union field error commented out below.
+                // In order to do that, we need to first solve the problem that AstGen
+                // emits field_ptr instructions in order to initialize union values.
+                // In such case we need to know that the field_ptr instruction (which is
+                // calling this unionFieldPtr function) is *initializing* the union,
+                // in which case we would skip this check, and in fact we would actually
+                // set the union tag here and the payload to undefined.
+
+                //const tag_and_val = union_val.castTag(.@"union").?.data;
+                //var field_tag_buf: Value.Payload.U32 = .{
+                //    .base = .{ .tag = .enum_field_index },
+                //    .data = field_index,
+                //};
+                //const field_tag = Value.initPayload(&field_tag_buf.base);
+                //const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty);
+                //if (!tag_matches) {
+                //    // TODO enhance this saying which one was active
+                //    // and which one was accessed, and showing where the union was declared.
+                //    return sema.fail(block, src, "access of inactive union field", .{});
+                //}
+                // TODO add runtime safety check for the active tag
+            },
+            .Packed, .Extern => {},
+        }
         return sema.addConstant(
             ptr_field_ty,
             try Value.Tag.field_ptr.create(arena, .{
@@ -15183,9 +15243,33 @@ fn unionFieldVal(
     if (try sema.resolveMaybeUndefVal(block, src, union_byval)) |union_val| {
         if (union_val.isUndef()) return sema.addConstUndef(field.ty);
 
-        // TODO detect inactive union field and emit compile error
-        const active_val = union_val.castTag(.@"union").?.data.val;
-        return sema.addConstant(field.ty, active_val);
+        const tag_and_val = union_val.castTag(.@"union").?.data;
+        var field_tag_buf: Value.Payload.U32 = .{
+            .base = .{ .tag = .enum_field_index },
+            .data = field_index,
+        };
+        const field_tag = Value.initPayload(&field_tag_buf.base);
+        const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty);
+        switch (union_obj.layout) {
+            .Auto => {
+                if (tag_matches) {
+                    return sema.addConstant(field.ty, tag_and_val.val);
+                } else {
+                    // TODO enhance this saying which one was active
+                    // and which one was accessed, and showing where the union was declared.
+                    return sema.fail(block, src, "access of inactive union field", .{});
+                }
+            },
+            .Packed, .Extern => {
+                if (tag_matches) {
+                    return sema.addConstant(field.ty, tag_and_val.val);
+                } else {
+                    const old_ty = union_ty.unionFieldType(tag_and_val.tag);
+                    const new_val = try sema.bitCastVal(block, src, tag_and_val.val, old_ty, field.ty);
+                    return sema.addConstant(field.ty, new_val);
+                }
+            },
+        }
     }
 
     try sema.requireRuntimeBlock(block, src);

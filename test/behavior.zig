@@ -51,6 +51,7 @@ test {
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");
+    _ = @import("behavior/floatop.zig");
     _ = @import("behavior/fn.zig");
     _ = @import("behavior/fn_delegation.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
@@ -79,6 +80,7 @@ test {
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/src.zig");
     _ = @import("behavior/struct.zig");
+    _ = @import("behavior/switch.zig");
     _ = @import("behavior/this.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/try.zig");
@@ -93,7 +95,6 @@ test {
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
 
-    // tests that don't pass for stage1
     if (builtin.zig_backend != .stage1) {
         _ = @import("behavior/decltest.zig");
     }
@@ -116,13 +117,11 @@ test {
         if (builtin.zig_backend != .stage2_c) {
             // Tests that pass for stage1 and the llvm backend.
             _ = @import("behavior/atomics.zig");
-            _ = @import("behavior/floatop.zig");
             _ = @import("behavior/math.zig");
             _ = @import("behavior/maximum_minimum.zig");
             _ = @import("behavior/popcount.zig");
             _ = @import("behavior/saturating_arithmetic.zig");
             _ = @import("behavior/sizeof_and_typeof.zig");
-            _ = @import("behavior/switch.zig");
             _ = @import("behavior/widening.zig");
             _ = @import("behavior/bugs/421.zig");
             _ = @import("behavior/bugs/726.zig");

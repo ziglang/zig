@@ -108,15 +108,19 @@ test "array len field" {
 }
 
 test "array with sentinels" {
+    if (builtin.zig_backend == .stage1) {
+        // Stage1 test coverage disabled at runtime because of
+        // https://github.com/ziglang/zig/issues/4372
+        return error.SkipZigTest;
+    }
+
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(is_ct: bool) !void {
-            if (is_ct or builtin.zig_backend != .stage1) {
+            {
                 var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
-                // Stage1 test coverage disabled at runtime because of
-                // https://github.com/ziglang/zig/issues/4372
                 try expect(zero_sized[0] == 0xde);
                 var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
                 try expect(reinterpreted[0] == 0xde);

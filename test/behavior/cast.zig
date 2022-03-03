@@ -1050,9 +1050,9 @@ fn incrementVoidPtrArray(array: ?*anyopaque, len: usize) void {
 }
 
 test "compile time int to ptr of function" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -1060,11 +1060,13 @@ test "compile time int to ptr of function" {
     try foobar(FUNCTION_CONSTANT);
 }
 
-pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, maxInt(usize));
+// On some architectures function pointers must be aligned.
+const hardcoded_fn_addr = maxInt(usize) & ~@as(usize, 0xf);
+pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, hardcoded_fn_addr);
 pub const PFN_void = *const fn (*anyopaque) callconv(.C) void;
 
 fn foobar(func: PFN_void) !void {
-    try std.testing.expect(@ptrToInt(func) == maxInt(usize));
+    try std.testing.expect(@ptrToInt(func) == hardcoded_fn_addr);
 }
 
 test "implicit ptr to *anyopaque" {

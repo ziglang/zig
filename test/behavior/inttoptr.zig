@@ -2,7 +2,6 @@ const builtin = @import("builtin");
 
 test "casting integer address to function pointer" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -11,7 +10,7 @@ test "casting integer address to function pointer" {
 }
 
 fn addressToFunction() void {
-    var addr: usize = 0xdeadbeef;
+    var addr: usize = 0xdeadbee0;
     _ = @intToPtr(*const fn () void, addr);
 }
 
