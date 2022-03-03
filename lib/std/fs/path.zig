@@ -735,7 +735,7 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) ![]u8 {
 
 test "resolve" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, ".");
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     const cwd = try process.getCwdAlloc(testing.allocator);
     defer testing.allocator.free(cwd);
@@ -756,7 +756,7 @@ test "resolveWindows" {
         return error.SkipZigTest;
     }
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, ".");
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
     if (native_os == .windows) {
         const cwd = try process.getCwdAlloc(testing.allocator);
         defer testing.allocator.free(cwd);
@@ -802,7 +802,7 @@ test "resolveWindows" {
 
 test "resolvePosix" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, ".");
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     try testResolvePosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c");
     try testResolvePosix(&[_][]const u8{ "/a/b", "c", "//d", "e///" }, "/d/e");
@@ -1216,7 +1216,7 @@ test "relative" {
         return error.SkipZigTest;
     }
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, ".");
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");

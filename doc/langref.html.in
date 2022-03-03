@@ -11279,7 +11279,7 @@ pub fn main() !void {
     var preopens = PreopenList.init(gpa);
     defer preopens.deinit();
 
-    try preopens.populate();
+    try preopens.populate(null);
 
     for (preopens.asSlice()) |preopen, i| {
         std.debug.print("{}: {}\n", .{ i, preopen });

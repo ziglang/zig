@@ -1431,10 +1431,8 @@ var wasi_cwd = if (builtin.os.tag == .wasi and !builtin.link_libc) struct {
     preopens: ?PreopenList = null,
     // Memory buffer for storing the relative portion of the CWD
     path_buffer: [MAX_PATH_BYTES]u8 = undefined,
-    // Current Working Directory, stored as an fd_t and a relative path
-    cwd: ?RelativePathWasi = null,
-    // Preopen associated with `cwd`, if any
-    cwd_preopen: ?Preopen = null,
+    // The absolute path associated with the current working directory
+    cwd: []const u8 = "/",
 }{} else undefined;
 
 /// Initialize the available Preopen list on WASI and set the CWD to `cwd_init`.
@@ -1444,31 +1442,33 @@ var wasi_cwd = if (builtin.os.tag == .wasi and !builtin.link_libc) struct {
 /// This must be called before using any relative or absolute paths with `std.os`
 /// functions, if you are on WASI without linking libc.
 ///
+/// The current working directory is initialized to `cwd_root`, and `cwd_root`
+/// is inserted as a prefix for any Preopens whose dir begins with "."
+///   For example:
+///      "./foo/bar" - canonicalizes to -> "{cwd_root}/foo/bar"
+///      "foo/bar"   - canonicalizes to -> "/foo/bar"
+///      "/foo/bar"  - canonicalizes to -> "/foo/bar"
+///
+/// `cwd_root` must be an absolute path. For initialization behavior similar to
+/// wasi-libc, use "/" as the `cwd_root`
+///
 /// `alloc` must not be a temporary or leak-detecting allocator, since `std.os`
 /// retains ownership of allocations internally and may never call free().
-pub fn initPreopensWasi(alloc: Allocator, cwd_init: ?[]const u8) !void {
+pub fn initPreopensWasi(alloc: Allocator, cwd_root: []const u8) !void {
     if (builtin.os.tag == .wasi) {
         if (!builtin.link_libc) {
-            if (wasi_cwd.preopens == null) {
-                var preopen_list = PreopenList.init(alloc);
-                try preopen_list.populate();
-                wasi_cwd.preopens = preopen_list;
-            }
-            if (cwd_init) |cwd| {
-                const preopen = wasi_cwd.preopens.?.findContaining(.{ .Dir = cwd });
-                if (preopen) |po| {
-                    wasi_cwd.cwd_preopen = po.base;
-                    wasi_cwd.cwd = RelativePathWasi{
-                        .dir_fd = po.base.fd,
-                        .relative_path = po.relative_path,
-                    };
-                } else {
-                    // No matching preopen found
-                    return error.FileNotFound;
-                }
-            }
+            var preopen_list = PreopenList.init(alloc);
+            errdefer preopen_list.deinit();
+            try preopen_list.populate(cwd_root);
+
+            var path_alloc = std.heap.FixedBufferAllocator.init(&wasi_cwd.path_buffer);
+            wasi_cwd.cwd = try path_alloc.allocator().dupe(u8, cwd_root);
+
+            if (wasi_cwd.preopens) |preopens| preopens.deinit();
+            wasi_cwd.preopens = preopen_list;
         } else {
-            if (cwd_init) |cwd| try chdir(cwd);
+            // wasi-libc defaults to an effective CWD root of "/"
+            if (!mem.eql(u8, cwd_root, "/")) return error.UnsupportedDirectory;
         }
     }
 }
@@ -1477,69 +1477,22 @@ pub fn initPreopensWasi(alloc: Allocator, cwd_init: ?[]const u8) !void {
 ///
 /// For absolute paths, this automatically searches among available Preopens to find
 /// a match. For relative paths, it uses the "emulated" CWD.
+/// Automatically looks up the correct Preopen corresponding to the provided path.
 pub fn resolvePathWasi(path: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) !RelativePathWasi {
-    // Note: Due to WASI's "sandboxed" file handles, operations with this RelativePathWasi
-    // will fail if the relative path navigates outside of `dir_fd` using ".."
-    return resolvePathAndGetWasiPreopen(path, null, out_buffer);
-}
-
-fn resolvePathAndGetWasiPreopen(path: []const u8, preopen: ?*?Preopen, out_buffer: *[MAX_PATH_BYTES]u8) !RelativePathWasi {
     var allocator = std.heap.FixedBufferAllocator.init(out_buffer);
     var alloc = allocator.allocator();
 
-    if (fs.path.isAbsolute(path) or wasi_cwd.cwd == null) {
-        if (wasi_cwd.preopens == null) @panic("On WASI, `initPreopensWasi` must be called to initialize preopens " ++
-            "before using any CWD-relative or absolute paths.\n");
+    const abs_path = fs.path.resolve(alloc, &.{ wasi_cwd.cwd, path }) catch return error.NameTooLong;
+    const preopen_uri = wasi_cwd.preopens.?.findContaining(.{ .Dir = abs_path });
 
-        if (mem.startsWith(u8, path, "/preopens/fd/")) {
-            // "/preopens/fd/<N>" is a special prefix, which refers to a Preopen directly by fd
-            const fd_start = "/preopens/fd/".len;
-            const fd_end = mem.indexOfScalarPos(u8, path, fd_start, '/') orelse path.len;
-            const fd = std.fmt.parseUnsigned(fd_t, path[fd_start..fd_end], 10) catch unreachable;
-            const rel_path = if (path.len > fd_end + 1) path[fd_end + 1 ..] else ".";
-
-            if (preopen) |p| p.* = wasi_cwd.preopens.?.findByFd(fd);
-            return RelativePathWasi{
-                .dir_fd = fd,
-                .relative_path = alloc.dupe(u8, rel_path) catch return error.NameTooLong,
-            };
-        }
-
-        // For any other absolute path, we need to lookup a containing Preopen
-        const abs_path = fs.path.resolve(alloc, &.{ "/", path }) catch return error.NameTooLong;
-        const preopen_uri = wasi_cwd.preopens.?.findContaining(.{ .Dir = abs_path });
-
-        if (preopen_uri) |po| {
-            if (preopen) |p| p.* = po.base;
-            return RelativePathWasi{
-                .dir_fd = po.base.fd,
-                .relative_path = po.relative_path,
-            };
-        } else {
-            // No matching preopen found
-            return error.AccessDenied;
-        }
-    } else {
-        const cwd = wasi_cwd.cwd.?;
-
-        // If the path is empty or "." or "./", return CWD
-        if (std.mem.eql(u8, path, ".") or std.mem.eql(u8, path, "./")) {
-            return cwd;
-        }
-
-        // First resolve a combined path, where the "/" corresponds to `cwd.dir_fd`
-        // not the true filesystem root
-        const paths = &.{ "/", cwd.relative_path, path };
-        const resolved_path = fs.path.resolve(alloc, paths) catch return error.NameTooLong;
-
-        // Strip off the fake root to get the relative path w.r.t. `cwd.dir_fd`
-        const resolved_relative_path = resolved_path[1..];
-
-        if (preopen) |p| p.* = wasi_cwd.cwd_preopen;
+    if (preopen_uri) |po| {
         return RelativePathWasi{
-            .dir_fd = cwd.dir_fd,
-            .relative_path = resolved_relative_path,
+            .dir_fd = po.base.fd,
+            .relative_path = po.relative_path,
         };
+    } else {
+        // No matching preopen found
+        return error.AccessDenied;
     }
 }
 
@@ -1980,11 +1933,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
     if (builtin.os.tag == .windows) {
         return windows.GetCurrentDirectory(out_buffer);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var buf: [MAX_PATH_BYTES]u8 = undefined;
-        const path = realpathWasi(".", &buf) catch |err| switch (err) {
-            error.NameTooLong => return error.NameTooLong,
-            error.InvalidHandle => return error.CurrentWorkingDirectoryUnlinked,
-        };
+        const path = wasi_cwd.cwd;
         if (out_buffer.len < path.len) return error.NameTooLong;
         std.mem.copy(u8, out_buffer, path);
         return out_buffer[0..path.len];
@@ -2949,16 +2898,17 @@ pub const ChangeCurDirError = error{
 /// `dir_path` is recommended to be a UTF-8 encoded string.
 pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var preopen: ?Preopen = null;
-        const path = try resolvePathAndGetWasiPreopen(dir_path, &preopen, &wasi_cwd.path_buffer);
+        var buf: [MAX_PATH_BYTES]u8 = undefined;
+        var alloc = std.heap.FixedBufferAllocator.init(&buf);
+        const path = try fs.resolve(alloc.allocator(), &.{ wasi_cwd.cwd, dir_path });
 
-        const dirinfo = try fstatat(path.dir_fd, path.relative_path, 0);
+        const dirinfo = try fstatat(AT.FDCWD, path, 0);
         if (dirinfo.filetype != .DIRECTORY) {
             return error.NotDir;
         }
 
-        wasi_cwd.cwd_preopen = preopen;
-        wasi_cwd.cwd = path;
+        var cwd_alloc = std.heap.FixedBufferAllocator.init(&wasi_cwd.path_buffer);
+        wasi_cwd.cwd = try cwd_alloc.allocator().dupe(u8, path);
         return;
     } else if (builtin.os.tag == .windows) {
         var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
@@ -3010,29 +2960,15 @@ pub const FchdirError = error{
 } || UnexpectedError;
 
 pub fn fchdir(dirfd: fd_t) FchdirError!void {
-    if (builtin.os.tag == .wasi) {
-        // Check that this is a directory
-        const dirinfo = fstatat(dirfd, ".", 0) catch unreachable;
-        if (dirinfo.filetype != .DIRECTORY) {
-            return error.NotDir;
-        }
-
-        wasi_cwd.cwd = .{
-            .dir_fd = dirfd,
-            .relative_path = ".",
-        };
-        wasi_cwd.cwd_preopen = null;
-    } else {
-        while (true) {
-            switch (errno(system.fchdir(dirfd))) {
-                .SUCCESS => return,
-                .ACCES => return error.AccessDenied,
-                .BADF => unreachable,
-                .NOTDIR => return error.NotDir,
-                .INTR => continue,
-                .IO => return error.FileSystem,
-                else => |err| return unexpectedErrno(err),
-            }
+    while (true) {
+        switch (errno(system.fchdir(dirfd))) {
+            .SUCCESS => return,
+            .ACCES => return error.AccessDenied,
+            .BADF => unreachable,
+            .NOTDIR => return error.NotDir,
+            .INTR => continue,
+            .IO => return error.FileSystem,
+            else => |err| return unexpectedErrno(err),
         }
     }
 }
@@ -5102,45 +5038,15 @@ pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathE
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);
         return realpathW(pathname_w.span(), out_buffer);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        return realpathWasi(pathname, out_buffer);
+        var alloc = std.heap.FixedBufferAllocator.init(out_buffer);
+
+        // NOTE: This emulation is incomplete. Symbolic links are not
+        //       currently expanded during path canonicalization.
+        const paths = &.{ wasi_cwd.cwd, pathname };
+        return fs.path.resolve(alloc.allocator(), paths) catch error.NameTooLong;
     }
     const pathname_c = try toPosixPath(pathname);
     return realpathZ(&pathname_c, out_buffer);
-}
-
-/// Return an emulated canonicalized absolute pathname on WASI.
-///
-/// NOTE: This emulation is incomplete. Symbolic links are not
-///       currently expanded during path canonicalization.
-fn realpathWasi(pathname: []const u8, out_buffer: []u8) ![]u8 {
-    var alloc = std.heap.FixedBufferAllocator.init(out_buffer);
-    if (fs.path.isAbsolute(pathname))
-        return try fs.path.resolve(alloc.allocator(), &.{pathname}) catch error.NameTooLong;
-    if (wasi_cwd.cwd) |cwd| {
-        if (wasi_cwd.cwd_preopen) |po| {
-            var base_cwd_dir = switch (po.@"type") {
-                .Dir => |dir| dir,
-            };
-            const paths: [][]const u8 = if (fs.path.isAbsolute(base_cwd_dir)) blk: {
-                break :blk &.{ base_cwd_dir, cwd.relative_path, pathname };
-            } else blk: {
-                // No absolute path is associated with this preopen, so
-                // instead we use a special "/preopens/fd/<N>/" prefix
-                var buf: [16]u8 = undefined;
-                var fbs = std.io.fixedBufferStream(&buf);
-                std.fmt.formatInt(po.fd, 10, .lower, .{}, fbs.writer()) catch return error.NameTooLong;
-                break :blk &.{ "/preopens/fd/", fbs.getWritten(), cwd.relative_path, pathname };
-            };
-
-            return fs.path.resolve(alloc.allocator(), paths) catch error.NameTooLong;
-        } else {
-            // The CWD is not rooted to an existing Preopen,
-            // so we have no way to know its absolute path
-            return error.InvalidHandle;
-        }
-    } else {
-        return try fs.path.resolve(alloc.allocator(), &.{ "/", pathname }) catch error.NameTooLong;
-    }
 }
 
 /// Same as `realpath` except `pathname` is null-terminated.

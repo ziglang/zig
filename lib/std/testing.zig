@@ -380,7 +380,7 @@ fn getCwdOrWasiPreopen() std.fs.Dir {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var preopens = std.fs.wasi.PreopenList.init(allocator);
         defer preopens.deinit();
-        preopens.populate() catch
+        preopens.populate(null) catch
             @panic("unable to make tmp dir for testing: unable to populate preopens");
         const preopen = preopens.find(std.fs.wasi.PreopenType{ .Dir = "." }) orelse
             @panic("unable to make tmp dir for testing: didn't find '.' in the preopens");
