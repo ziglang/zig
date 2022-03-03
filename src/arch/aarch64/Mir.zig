@@ -28,6 +28,8 @@ pub const Inst = struct {
         add_immediate,
         /// Add (shifted register)
         add_shifted_register,
+        /// Bitwise AND (shifted register)
+        and_shifted_register,
         /// Branch conditionally
         b_cond,
         /// Branch
@@ -108,6 +110,8 @@ pub const Inst = struct {
         mvn,
         /// No Operation
         nop,
+        /// Bitwise inclusive OR (shifted register)
+        orr_shifted_register,
         /// Pseudo-instruction: Pop multiple registers
         pop_regs,
         /// Psuedo-instruction: Push multiple registers

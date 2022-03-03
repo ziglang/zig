@@ -108,7 +108,9 @@ pub fn emitMir(
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
 
+            .and_shifted_register => try emit.mirLogicalShiftedRegister(inst),
             .eor_shifted_register => try emit.mirLogicalShiftedRegister(inst),
+            .orr_shifted_register => try emit.mirLogicalShiftedRegister(inst),
 
             .load_memory_got => try emit.mirLoadMemoryPie(inst),
             .load_memory_direct => try emit.mirLoadMemoryPie(inst),
@@ -660,7 +662,9 @@ fn mirLogicalShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     const imm6 = rrr_imm6_logical_shift.imm6;
 
     switch (tag) {
+        .and_shifted_register => try emit.writeInstruction(Instruction.andShiftedRegister(rd, rn, rm, shift, imm6)),
         .eor_shifted_register => try emit.writeInstruction(Instruction.eorShiftedRegister(rd, rn, rm, shift, imm6)),
+        .orr_shifted_register => try emit.writeInstruction(Instruction.orrShiftedRegister(rd, rn, rm, shift, imm6)),
         else => unreachable,
     }
 }
