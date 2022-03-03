@@ -1635,6 +1635,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .trunc_float,
             => |tag| return f.fail("TODO: C backend: implement unary op for tag '{s}'", .{@tagName(tag)}),
 
+            .mul_add => return f.fail("TODO: C backend: implement @mulAdd", .{}),
+
             .add_with_overflow => try airAddWithOverflow(f, inst),
             .sub_with_overflow => try airSubWithOverflow(f, inst),
             .mul_with_overflow => try airMulWithOverflow(f, inst),

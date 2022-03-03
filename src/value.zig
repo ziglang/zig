@@ -2931,7 +2931,7 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
-    /// operands must be integers; handles undefined. 
+    /// operands must be integers; handles undefined.
     pub fn bitwiseAnd(lhs: Value, rhs: Value, arena: Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
@@ -2951,7 +2951,7 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
-    /// operands must be integers; handles undefined. 
+    /// operands must be integers; handles undefined.
     pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: Allocator, target: Target) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
@@ -2965,7 +2965,7 @@ pub const Value = extern union {
         return bitwiseXor(anded, all_ones, arena);
     }
 
-    /// operands must be integers; handles undefined. 
+    /// operands must be integers; handles undefined.
     pub fn bitwiseOr(lhs: Value, rhs: Value, arena: Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
@@ -2984,7 +2984,7 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
-    /// operands must be integers; handles undefined. 
+    /// operands must be integers; handles undefined.
     pub fn bitwiseXor(lhs: Value, rhs: Value, arena: Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
@@ -4015,6 +4015,42 @@ pub const Value = extern union {
                 }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @trunc(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn mulAdd(float_type: Type, mulend1: Value, mulend2: Value, addend: Value, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                if (true) {
+                    // TODO: missing f16 implementation of FMA in `std.math.fma` or compiler-rt
+                    @panic("TODO implement mulAdd for f16");
+                }
+            },
+            32 => {
+                const m1 = mulend1.toFloat(f32);
+                const m2 = mulend2.toFloat(f32);
+                const a = addend.toFloat(f32);
+                return Value.Tag.float_32.create(arena, std.math.fma(f32, m1, m2, a));
+            },
+            64 => {
+                const m1 = mulend1.toFloat(f64);
+                const m2 = mulend2.toFloat(f64);
+                const a = addend.toFloat(f64);
+                return Value.Tag.float_64.create(arena, std.math.fma(f64, m1, m2, a));
+            },
+            80 => {
+                if (true) {
+                    // TODO: missing f80 implementation of FMA in `std.math.fma` or compiler-rt
+                    @panic("TODO implement mulAdd for f80");
+                }
+            },
+            128 => {
+                const m1 = mulend1.toFloat(f128);
+                const m2 = mulend2.toFloat(f128);
+                const a = addend.toFloat(f128);
+                return Value.Tag.float_128.create(arena, std.math.fma(f128, m1, m2, a));
             },
             else => unreachable,
         }

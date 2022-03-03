@@ -464,6 +464,10 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.Cmpxchg, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.ptr, extra.expected_value, extra.new_value });
         },
+        .mul_add => {
+            const extra = a.air.extraData(Air.MulAdd, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.mulend1, extra.mulend2, extra.addend });
+        },
         .atomic_load => {
             const ptr = inst_datas[inst].atomic_load.ptr;
             return trackOperands(a, new_set, inst, main_tomb, .{ ptr, .none, .none });

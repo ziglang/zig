@@ -579,6 +579,10 @@ pub const Inst = struct {
         /// Uses the `prefetch` field.
         prefetch,
 
+        /// Computes `(a * b) + c`, but only rounds once.
+        /// Uses the `ty_pl` field.
+        mul_add,
+
         /// Implements @fieldParentPtr builtin.
         /// Uses the `ty_pl` field.
         field_parent_ptr,
@@ -722,6 +726,12 @@ pub const StructField = struct {
 pub const Bin = struct {
     lhs: Inst.Ref,
     rhs: Inst.Ref,
+};
+
+pub const MulAdd = struct {
+    mulend1: Inst.Ref,
+    mulend2: Inst.Ref,
+    addend: Inst.Ref,
 };
 
 pub const FieldParentPtr = struct {
@@ -889,6 +899,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .aggregate_init,
         .union_init,
         .field_parent_ptr,
+        .mul_add,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,

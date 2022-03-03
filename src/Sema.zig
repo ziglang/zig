@@ -13518,8 +13518,84 @@ fn zirAtomicStore(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
 fn zirMulAdd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.MulAdd, inst_data.payload_index).data;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirMulAdd", .{});
+
+    const mulend1_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const mulend2_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+    const addend_src: LazySrcLoc = .{ .node_offset_builtin_call_arg3 = inst_data.src_node };
+
+    const mulend1 = sema.resolveInst(extra.mulend1);
+    const mulend2 = sema.resolveInst(extra.mulend2);
+    const addend = sema.resolveInst(extra.addend);
+    // All args have the same type
+    const ty = sema.typeOf(mulend1);
+    switch (ty.zigTypeTag()) {
+        .ComptimeFloat, .Float => {},
+        .Vector => {
+            const scalar_ty = ty.scalarType();
+            switch (scalar_ty.zigTypeTag()) {
+                .ComptimeFloat, .Float => {},
+                else => return sema.fail(block, src, "expected vector of floats or float type, found '{}'", .{scalar_ty}),
+            }
+        },
+        else => return sema.fail(block, src, "expected vector of floats or float type, found '{}'", .{ty}),
+    }
+
+    const target = sema.mod.getTarget();
+    switch (ty.zigTypeTag()) {
+        .ComptimeFloat, .Float => {
+            const maybe_mulend1 = try sema.resolveMaybeUndefVal(block, mulend1_src, mulend1);
+            const maybe_mulend2 = try sema.resolveMaybeUndefVal(block, mulend2_src, mulend2);
+            const maybe_addend = try sema.resolveMaybeUndefVal(block, addend_src, addend);
+
+            if (maybe_mulend1) |mulend1_val| {
+                if (mulend1_val.isUndef())
+                    return sema.addConstUndef(ty);
+            }
+
+            if (maybe_mulend2) |mulend2_val| {
+                if (mulend2_val.isUndef())
+                    return sema.addConstUndef(ty);
+            }
+
+            if (maybe_addend) |addend_val| {
+                if (addend_val.isUndef())
+                    return sema.addConstUndef(ty);
+            }
+
+            if (maybe_mulend1) |mulend1_val| {
+                if (maybe_mulend2) |mulend2_val| {
+                    if (maybe_addend) |addend_val| {
+                        const result_val = try Value.mulAdd(
+                            ty,
+                            mulend1_val,
+                            mulend2_val,
+                            addend_val,
+                            sema.arena,
+                            target,
+                        );
+                        return sema.addConstant(ty, result_val);
+                    }
+                }
+            }
+
+            try sema.requireRuntimeBlock(block, src);
+            return block.addInst(.{
+                .tag = .mul_add,
+                .data = .{ .ty_pl = .{
+                    .ty = try sema.addType(ty),
+                    .payload = try sema.addExtra(Air.MulAdd{
+                        .mulend1 = mulend1,
+                        .mulend2 = mulend2,
+                        .addend = addend,
+                    }),
+                } },
+            });
+        },
+        .Vector => return sema.fail(block, src, "TODO: implement @mulAdd for vectors", .{}),
+        else => unreachable,
+    }
 }
 
 fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

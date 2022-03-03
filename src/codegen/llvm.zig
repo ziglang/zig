@@ -2194,6 +2194,7 @@ pub const FuncGen = struct {
                 .sub_with_overflow => try self.airOverflow(inst, "llvm.ssub.with.overflow", "llvm.usub.with.overflow"),
                 .mul_with_overflow => try self.airOverflow(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
                 .shl_with_overflow => try self.airShlWithOverflow(inst),
+                .mul_add           => try self.airMulAdd(inst),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
@@ -3840,6 +3841,46 @@ pub const FuncGen = struct {
         self.store(ptr, ptr_ty, result, .NotAtomic);
 
         return overflow_bit;
+    }
+
+    fn airMulAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.MulAdd, ty_pl.payload).data;
+
+        const mulend1 = try self.resolveInst(extra.mulend1);
+        const mulend2 = try self.resolveInst(extra.mulend2);
+        const addend = try self.resolveInst(extra.addend);
+
+        const ty = self.air.typeOfIndex(inst);
+        const llvm_ty = try self.dg.llvmType(ty);
+        const target = self.dg.module.getTarget();
+
+        const fn_val = switch (ty.floatBits(target)) {
+            16, 32, 64 => blk: {
+                break :blk self.getIntrinsic("llvm.fma", &.{llvm_ty});
+            },
+            // TODO: using `llvm.fma` for f80 does not seem to work for all targets, needs further investigation.
+            80 => return self.dg.todo("Implement mulAdd for f80", .{}),
+            128 => blk: {
+                // LLVM incorrectly lowers the fma builtin for f128 to fmal, which is for
+                // `long double`. On some targets this will be correct; on others it will be incorrect.
+                if (target.longDoubleIsF128()) {
+                    break :blk self.getIntrinsic("llvm.fma", &.{llvm_ty});
+                } else {
+                    break :blk self.dg.object.llvm_module.getNamedFunction("fmaq") orelse fn_blk: {
+                        const param_types = [_]*const llvm.Type{ llvm_ty, llvm_ty, llvm_ty };
+                        const fn_type = llvm.functionType(llvm_ty, &param_types, param_types.len, .False);
+                        break :fn_blk self.dg.object.llvm_module.addFunction("fmaq", fn_type);
+                    };
+                }
+            },
+            else => unreachable,
+        };
+        const params = [_]*const llvm.Value{ mulend1, mulend2, addend };
+        return self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
     }
 
     fn airShlWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
