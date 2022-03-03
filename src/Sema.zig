@@ -12465,7 +12465,39 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 fn zirErrSetCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirErrSetCast", .{});
+    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const operand = sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+    try sema.checkErrorSetType(block, dest_ty_src, dest_ty);
+    try sema.checkErrorSetType(block, operand_src, operand_ty);
+
+    if (try sema.resolveDefinedValue(block, operand_src, operand)) |val| {
+        try sema.resolveInferredErrorSetTy(dest_ty);
+
+        if (!dest_ty.isAnyError()) {
+            const error_name = val.castTag(.@"error").?.data.name;
+            if (!dest_ty.errorSetHasField(error_name)) {
+                return sema.fail(
+                    block,
+                    src,
+                    "error.{s} not a member of error set '{}'",
+                    .{ error_name, dest_ty },
+                );
+            }
+        }
+
+        return sema.addConstant(dest_ty, val);
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    if (block.wantSafety()) {
+        // TODO
+    }
+
+    return block.addBitCast(dest_ty, operand);
 }
 
 fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12980,6 +13012,13 @@ fn checkIntOrVector(
         else => return sema.fail(block, operand_src, "expected integer or vector, found '{}'", .{
             operand_ty,
         }),
+    }
+}
+
+fn checkErrorSetType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!void {
+    switch (ty.zigTypeTag()) {
+        .ErrorSet => return,
+        else => return sema.fail(block, src, "expected error set type, found '{}'", .{ty}),
     }
 }
 
