@@ -245,31 +245,8 @@ pub inline fn __builtin_constant_p(expr: anytype) c_int {
     _ = expr;
     return @boolToInt(false);
 }
-
-fn multiplyAs(a: anytype, b: anytype, comptime T: type) !T {
-    const allocator = std.heap.c_allocator;
-    var big_a = try std.math.big.int.Managed.initSet(allocator, a);
-    defer big_a.deinit();
-    var big_b = try std.math.big.int.Managed.initSet(allocator, b);
-    defer big_b.deinit();
-    var product = try std.math.big.int.Managed.init(allocator);
-    defer product.deinit();
-    try product.mul(big_a.toConst(), big_b.toConst());
-    return try product.to(T);
-}
-
-pub fn __builtin_mul_overflow(a: anytype, b: anytype, result: anytype) c_int {
-    const ResultType = @TypeOf(result);
-    const result_type_info = @typeInfo(ResultType);
-    if (result_type_info != .Pointer) {
-        @compileError("Expected pointer, found " ++ @typeName(ResultType));
-    }
-    if (multiplyAs(a, b, result_type_info.Pointer.child)) |product| {
-        result.* = product;
-        return @boolToInt(false);
-    } else |_| {
-        return @boolToInt(true);
-    }
+pub fn __builtin_mul_overflow(a: anytype, b: anytype, result: *@TypeOf(a, b)) c_int {
+    return @boolToInt(@mulWithOverflow(@TypeOf(a, b), a, b, result));
 }
 
 // __builtin_alloca_with_align is not currently implemented.
