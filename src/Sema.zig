@@ -16852,7 +16852,7 @@ fn beginComptimePtrLoad(
                     };
                     return ComptimePtrLoadKit{
                         .root_val = parent.root_val,
-                        .root_ty = parent.ty,
+                        .root_ty = parent.root_ty,
                         .val = try parent.val.elemValue(sema.arena, elem_ptr.index),
                         .ty = elem_ty,
                         .byte_offset = byte_offset,
@@ -16868,7 +16868,7 @@ fn beginComptimePtrLoad(
                     }
                     return ComptimePtrLoadKit{
                         .root_val = parent.root_val,
-                        .root_ty = parent.ty,
+                        .root_ty = parent.root_ty,
                         .val = parent.val,
                         .ty = parent.ty,
                         .byte_offset = parent.byte_offset,
@@ -16896,7 +16896,7 @@ fn beginComptimePtrLoad(
             };
             return ComptimePtrLoadKit{
                 .root_val = parent.root_val,
-                .root_ty = parent.ty,
+                .root_ty = parent.root_ty,
                 .val = try parent.val.fieldValue(sema.arena, field_index),
                 .ty = parent.ty.structFieldType(field_index),
                 .byte_offset = byte_offset,
