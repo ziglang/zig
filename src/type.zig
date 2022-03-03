@@ -5036,6 +5036,13 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isAnonStruct(ty: Type) bool {
+        return switch (ty.tag()) {
+            .anon_struct => true,
+            else => false,
+        };
+    }
+
     pub fn isTupleOrAnonStruct(ty: Type) bool {
         return switch (ty.tag()) {
             .tuple, .empty_struct_literal, .anon_struct => true,
