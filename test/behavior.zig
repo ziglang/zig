@@ -65,6 +65,7 @@ test {
     _ = @import("behavior/int_div.zig");
     _ = @import("behavior/inttoptr.zig");
     _ = @import("behavior/ir_block_deps.zig");
+    _ = @import("behavior/math.zig");
     _ = @import("behavior/member_func.zig");
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
@@ -117,7 +118,6 @@ test {
         if (builtin.zig_backend != .stage2_c) {
             // Tests that pass for stage1 and the llvm backend.
             _ = @import("behavior/atomics.zig");
-            _ = @import("behavior/math.zig");
             _ = @import("behavior/maximum_minimum.zig");
             _ = @import("behavior/popcount.zig");
             _ = @import("behavior/saturating_arithmetic.zig");
