@@ -219,7 +219,11 @@ pub const LOG = struct {
     pub const DEBUG = 7;
 };
 
-pub const RelativePath = struct {
+/// An fd-relative file path
+///
+/// This is currently only used for WASI-specific functionality, but the concept
+/// is the same as the dirfd/pathname pairs in the `*at(...)` POSIX functions.
+pub const RelativePathWasi = struct {
     /// Handle to directory
     dir_fd: fd_t,
     /// Path to resource within `dir_fd`.
@@ -1425,7 +1429,7 @@ var wasi_cwd = if (builtin.os.tag == .wasi and !builtin.link_libc) struct {
     // Memory buffer for storing the relative portion of the CWD
     path_buffer: [MAX_PATH_BYTES]u8 = undefined,
     // Current Working Directory, stored as an fd_t and a relative path
-    cwd: ?RelativePath = null,
+    cwd: ?RelativePathWasi = null,
     // Preopen associated with `cwd`, if any
     cwd_preopen: ?Preopen = null,
 }{} else undefined;
@@ -1451,7 +1455,7 @@ pub fn initPreopensWasi(alloc: Allocator, cwd_init: ?[]const u8) !void {
                 const preopen = wasi_cwd.preopens.?.findContaining(.{ .Dir = cwd });
                 if (preopen) |po| {
                     wasi_cwd.cwd_preopen = po.base;
-                    wasi_cwd.cwd = RelativePath{
+                    wasi_cwd.cwd = RelativePathWasi{
                         .dir_fd = po.base.fd,
                         .relative_path = po.relative_path,
                     };
@@ -1470,13 +1474,13 @@ pub fn initPreopensWasi(alloc: Allocator, cwd_init: ?[]const u8) !void {
 ///
 /// For absolute paths, this automatically searches among available Preopens to find 
 /// a match. For relative paths, it uses the "emulated" CWD.
-pub fn resolvePathWasi(path: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) !RelativePath {
-    // Note: Due to WASI's "sandboxed" file handles, operations with this RelativePath
+pub fn resolvePathWasi(path: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) !RelativePathWasi {
+    // Note: Due to WASI's "sandboxed" file handles, operations with this RelativePathWasi
     // will fail if the relative path navigates outside of `dir_fd` using ".."
     return resolvePathAndGetWasiPreopen(path, null, out_buffer);
 }
 
-fn resolvePathAndGetWasiPreopen(path: []const u8, preopen: ?*?Preopen, out_buffer: *[MAX_PATH_BYTES]u8) !RelativePath {
+fn resolvePathAndGetWasiPreopen(path: []const u8, preopen: ?*?Preopen, out_buffer: *[MAX_PATH_BYTES]u8) !RelativePathWasi {
     var allocator = std.heap.FixedBufferAllocator.init(out_buffer);
     var alloc = allocator.allocator();
 
@@ -1492,7 +1496,7 @@ fn resolvePathAndGetWasiPreopen(path: []const u8, preopen: ?*?Preopen, out_buffe
             const rel_path = if (path.len > fd_end + 1) path[fd_end + 1 ..] else ".";
 
             if (preopen) |p| p.* = wasi_cwd.preopens.?.findByFd(fd);
-            return RelativePath{
+            return RelativePathWasi{
                 .dir_fd = fd,
                 .relative_path = alloc.dupe(u8, rel_path) catch return error.NameTooLong,
             };
@@ -1504,7 +1508,7 @@ fn resolvePathAndGetWasiPreopen(path: []const u8, preopen: ?*?Preopen, out_buffe
 
         if (preopen_uri) |po| {
             if (preopen) |p| p.* = po.base;
-            return RelativePath{
+            return RelativePathWasi{
                 .dir_fd = po.base.fd,
                 .relative_path = po.relative_path,
             };
@@ -1529,7 +1533,7 @@ fn resolvePathAndGetWasiPreopen(path: []const u8, preopen: ?*?Preopen, out_buffe
         const resolved_relative_path = resolved_path[1..];
 
         if (preopen) |p| p.* = wasi_cwd.cwd_preopen;
-        return RelativePath{
+        return RelativePathWasi{
             .dir_fd = cwd.dir_fd,
             .relative_path = resolved_relative_path,
         };
@@ -1568,6 +1572,7 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) Ope
     return openatZ(dir_fd, &file_path_c, flags, mode);
 }
 
+/// A struct to contain all lookup/rights flags accepted by `wasi.path_open`
 const WasiOpenOptions = struct {
     oflags: wasi.oflags_t,
     lookup_flags: wasi.lookupflags_t,
@@ -2232,8 +2237,8 @@ pub fn linkat(
         var resolve_olddir: bool = (olddir == wasi.AT.FDCWD or fs.path.isAbsolute(oldpath));
         var resolve_newdir: bool = (newdir == wasi.AT.FDCWD or fs.path.isAbsolute(newpath));
 
-        var old: RelativePath = .{ .dir_fd = olddir, .relative_path = oldpath };
-        var new: RelativePath = .{ .dir_fd = newdir, .relative_path = newpath };
+        var old: RelativePathWasi = .{ .dir_fd = olddir, .relative_path = oldpath };
+        var new: RelativePathWasi = .{ .dir_fd = newdir, .relative_path = newpath };
 
         // Resolve absolute or CWD-relative paths to a path within a Preopen
         if (resolve_olddir or resolve_newdir) {
@@ -2257,7 +2262,7 @@ pub fn linkat(
 
 /// WASI-only. The same as `linkat` but targeting WASI.
 /// See also `linkat`.
-pub fn linkatWasi(old: RelativePath, new: RelativePath, flags: i32) LinkatError!void {
+pub fn linkatWasi(old: RelativePathWasi, new: RelativePathWasi, flags: i32) LinkatError!void {
     var old_flags: wasi.lookupflags_t = 0;
     // TODO: Why is this not defined in wasi-libc?
     if (flags & linux.AT.SYMLINK_FOLLOW != 0) old_flags |= wasi.LOOKUP_SYMLINK_FOLLOW;
@@ -2545,8 +2550,8 @@ pub fn renameat(
         var resolve_old: bool = (old_dir_fd == wasi.AT.FDCWD or fs.path.isAbsolute(old_path));
         var resolve_new: bool = (new_dir_fd == wasi.AT.FDCWD or fs.path.isAbsolute(new_path));
 
-        var old: RelativePath = .{ .dir_fd = old_dir_fd, .relative_path = old_path };
-        var new: RelativePath = .{ .dir_fd = new_dir_fd, .relative_path = new_path };
+        var old: RelativePathWasi = .{ .dir_fd = old_dir_fd, .relative_path = old_path };
+        var new: RelativePathWasi = .{ .dir_fd = new_dir_fd, .relative_path = new_path };
 
         // Resolve absolute or CWD-relative paths to a path within a Preopen
         if (resolve_old or resolve_new) {
@@ -2570,7 +2575,7 @@ pub fn renameat(
 
 /// WASI-only. Same as `renameat` expect targeting WASI.
 /// See also `renameat`.
-pub fn renameatWasi(old: RelativePath, new: RelativePath) RenameError!void {
+pub fn renameatWasi(old: RelativePathWasi, new: RelativePathWasi) RenameError!void {
     switch (wasi.path_rename(old.dir_fd, old.relative_path.ptr, old.relative_path.len, new.dir_fd, new.relative_path.ptr, new.relative_path.len)) {
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,
@@ -4495,7 +4500,7 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
         const path_w = try windows.sliceToPrefixedFileW(path);
         return faccessatW(dirfd, path_w.span().ptr, mode, flags);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var resolved = RelativePath{ .dir_fd = dirfd, .relative_path = path };
+        var resolved = RelativePathWasi{ .dir_fd = dirfd, .relative_path = path };
 
         const file = blk: {
             if (dirfd == wasi.AT.FDCWD or fs.path.isAbsolute(path)) {
