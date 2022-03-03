@@ -2707,8 +2707,6 @@ pub const LibExeObjStep = struct {
                         try zig_args.append("--test-cmd");
                         try zig_args.append("--dir=.");
                         try zig_args.append("--test-cmd");
-                        try zig_args.append("--mapdir=/cwd::.");
-                        try zig_args.append("--test-cmd");
                         try zig_args.append("--allow-unknown-exports"); // TODO: Remove when stage2 is default compiler
                         try zig_args.append("--test-cmd-bin");
                     } else {

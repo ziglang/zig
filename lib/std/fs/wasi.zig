@@ -194,6 +194,17 @@ pub const PreopenList = struct {
         return null;
     }
 
+    /// Find preopen by fd. If the preopen exists, return it.
+    /// Otherwise, return `null`.
+    pub fn findByFd(self: Self, fd: fd_t) ?Preopen {
+        for (self.buffer.items) |preopen| {
+            if (preopen.fd == fd) {
+                return preopen;
+            }
+        }
+        return null;
+    }
+
     /// Find preopen by type. If the preopen exists, return it.
     /// Otherwise, return `null`.
     pub fn find(self: Self, preopen_type: PreopenType) ?*const Preopen {
@@ -224,6 +235,6 @@ test "extracting WASI preopens" {
 
     try preopens.populate();
 
-    const preopen = preopens.find(PreopenType{ .Dir = "/cwd" }) orelse unreachable;
-    try std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "/cwd" }));
+    const preopen = preopens.find(PreopenType{ .Dir = "." }) orelse unreachable;
+    try std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "." }));
 }
