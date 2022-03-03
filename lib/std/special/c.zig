@@ -108,6 +108,9 @@ comptime {
 
     @export(fmax, .{ .name = "fmax", .linkage = .Strong });
     @export(fmaxf, .{ .name = "fmaxf", .linkage = .Strong });
+
+    @export(sqrt, .{ .name = "sqrt", .linkage = .Strong });
+    @export(sqrtf, .{ .name = "sqrtf", .linkage = .Strong });
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
