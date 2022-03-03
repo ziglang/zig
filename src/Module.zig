@@ -1254,6 +1254,7 @@ pub const Union = struct {
         payload_align: u32,
         tag_align: u32,
         tag_size: u64,
+        padding: u32,
     };
 
     pub fn haveLayout(u: Union) bool {
@@ -1309,24 +1310,30 @@ pub const Union = struct {
             .payload_align = payload_align,
             .tag_align = 0,
             .tag_size = 0,
+            .padding = 0,
         };
         // Put the tag before or after the payload depending on which one's
         // alignment is greater.
         const tag_size = u.tag_ty.abiSize(target);
         const tag_align = @maximum(1, u.tag_ty.abiAlignment(target));
         var size: u64 = 0;
+        var padding: u32 = undefined;
         if (tag_align >= payload_align) {
             // {Tag, Payload}
             size += tag_size;
             size = std.mem.alignForwardGeneric(u64, size, payload_align);
             size += payload_size;
+            const prev_size = size;
             size = std.mem.alignForwardGeneric(u64, size, tag_align);
+            padding = @intCast(u32, size - prev_size);
         } else {
             // {Payload, Tag}
             size += payload_size;
             size = std.mem.alignForwardGeneric(u64, size, tag_align);
             size += tag_size;
+            const prev_size = size;
             size = std.mem.alignForwardGeneric(u64, size, payload_align);
+            padding = @intCast(u32, size - prev_size);
         }
         return .{
             .abi_size = size,
@@ -1338,6 +1345,7 @@ pub const Union = struct {
             .payload_align = payload_align,
             .tag_align = tag_align,
             .tag_size = tag_size,
+            .padding = padding,
         };
     }
 };
