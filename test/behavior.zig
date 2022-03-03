@@ -96,6 +96,10 @@ test {
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
 
+    if (builtin.zig_backend == .stage2_wasm) {
+        _ = @import("behavior/wasm.zig");
+    }
+
     if (builtin.zig_backend != .stage1) {
         _ = @import("behavior/decltest.zig");
     }

@@ -2315,6 +2315,7 @@ pub const FuncGen = struct {
                 .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
                 .wasm_memory_size => try self.airWasmMemorySize(inst),
+                .wasm_memory_grow => try self.airWasmMemoryGrow(inst),
 
                 .constant => unreachable,
                 .const_ty => unreachable,
