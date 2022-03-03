@@ -1183,7 +1183,10 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\    if (a == 10) @compileError("bad");
                 \\    return a + b + c;
                 \\}
-            , &[_][]const u8{":8:18: error: bad"});
+            , &[_][]const u8{
+                ":8:18: error: bad",
+                ":3:18: note: called from here",
+            });
 
             case.addCompareOutput(
                 \\pub fn main() void {

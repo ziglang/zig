@@ -2170,11 +2170,7 @@ pub const Type = extern union {
             .optional_single_mut_pointer,
             => {
                 const child_type = self.cast(Payload.ElemType).?.data;
-                if (child_type.zigTypeTag() == .Opaque) {
-                    return 1;
-                } else {
-                    return child_type.abiAlignment(target);
-                }
+                return child_type.abiAlignment(target);
             },
 
             .manyptr_u8,
@@ -2188,8 +2184,6 @@ pub const Type = extern union {
                 const ptr_info = self.castTag(.pointer).?.data;
                 if (ptr_info.@"align" != 0) {
                     return ptr_info.@"align";
-                } else if (ptr_info.pointee_type.zigTypeTag() == .Opaque) {
-                    return 1;
                 } else {
                     return ptr_info.pointee_type.abiAlignment(target);
                 }
@@ -2246,6 +2240,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .@"opaque",
+            .anyopaque,
             => return 1,
 
             .fn_noreturn_no_args, // represents machine code; not a pointer
@@ -2419,7 +2414,6 @@ pub const Type = extern union {
 
             .empty_struct,
             .void,
-            .anyopaque,
             .empty_struct_literal,
             .type,
             .comptime_int,
