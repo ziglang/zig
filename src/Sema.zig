@@ -9494,6 +9494,8 @@ fn analyzePtrArithmetic(
                 }
 
                 const offset_int = try sema.usizeCast(block, offset_src, offset_val.toUnsignedInt());
+                // TODO I tried to put this check earlier but it the LLVM backend generate invalid instructinons
+                if (offset_int == 0) return ptr;
                 if (ptr_val.getUnsignedInt()) |addr| {
                     const target = sema.mod.getTarget();
                     const ptr_child_ty = ptr_ty.childType();
