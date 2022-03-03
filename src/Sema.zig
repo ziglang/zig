@@ -12538,6 +12538,8 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
+    const target = sema.mod.getTarget();
+
     try sema.checkPtrType(block, dest_ty_src, dest_ty);
     try sema.checkPtrOperand(block, operand_src, operand_ty);
     if (dest_ty.isSlice()) {
@@ -12547,7 +12549,28 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty)
     else
         operand;
-    return sema.coerceCompatiblePtrs(block, dest_ty, ptr, operand_src);
+
+    try sema.resolveTypeLayout(block, dest_ty_src, dest_ty.elemType2());
+    const dest_align = dest_ty.ptrAlignment(target);
+    try sema.resolveTypeLayout(block, operand_src, operand_ty.elemType2());
+    const operand_align = operand_ty.ptrAlignment(target);
+
+    // If the destination is less aligned than the source, preserve the source alignment
+    var aligned_dest_ty = if (operand_align <= dest_align) dest_ty else blk: {
+        // Unwrap the pointer (or pointer-like optional) type, set alignment, and re-wrap into result
+        if (dest_ty.zigTypeTag() == .Optional) {
+            var buf: Type.Payload.ElemType = undefined;
+            var dest_ptr_info = dest_ty.optionalChild(&buf).ptrInfo().data;
+            dest_ptr_info.@"align" = operand_align;
+            break :blk try Type.optional(sema.arena, try Type.ptr(sema.arena, target, dest_ptr_info));
+        } else {
+            var dest_ptr_info = dest_ty.ptrInfo().data;
+            dest_ptr_info.@"align" = operand_align;
+            break :blk try Type.ptr(sema.arena, target, dest_ptr_info);
+        }
+    };
+
+    return sema.coerceCompatiblePtrs(block, aligned_dest_ty, ptr, operand_src);
 }
 
 fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
