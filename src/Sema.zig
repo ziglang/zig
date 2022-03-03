@@ -11481,6 +11481,19 @@ fn zirUnionInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const union_ty = try sema.resolveType(block, ty_src, extra.union_type);
     const field_name = try sema.resolveConstString(block, field_src, extra.field_name);
     const init = sema.resolveInst(extra.init);
+    return sema.unionInit(block, init, init_src, union_ty, ty_src, field_name, field_src);
+}
+
+fn unionInit(
+    sema: *Sema,
+    block: *Block,
+    init: Air.Inst.Ref,
+    init_src: LazySrcLoc,
+    union_ty: Type,
+    union_ty_src: LazySrcLoc,
+    field_name: []const u8,
+    field_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
     const union_obj = union_ty.cast(Type.Payload.Union).?.data;
     const field_index_usize = union_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
@@ -11488,14 +11501,14 @@ fn zirUnionInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     if (try sema.resolveMaybeUndefVal(block, init_src, init)) |init_val| {
         const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
-        return sema.addConstant(
-            union_ty,
-            try Value.Tag.@"union".create(sema.arena, .{ .tag = tag_val, .val = init_val }),
-        );
+        return sema.addConstant(union_ty, try Value.Tag.@"union".create(sema.arena, .{
+            .tag = tag_val,
+            .val = init_val,
+        }));
     }
 
     try sema.requireRuntimeBlock(block, init_src);
-    try sema.resolveTypeLayout(block, ty_src, union_ty);
+    try sema.resolveTypeLayout(block, union_ty_src, union_ty);
     return block.addUnionInit(union_ty, field_index, init);
 }
 
@@ -15903,6 +15916,11 @@ fn coerce(
         },
         .Union => switch (inst_ty.zigTypeTag()) {
             .Enum, .EnumLiteral => return sema.coerceEnumToUnion(block, dest_ty, dest_ty_src, inst, inst_src),
+            .Struct => {
+                if (inst_ty.castTag(.anon_struct)) |anon_struct| {
+                    return sema.coerceAnonStructToUnion(block, dest_ty, dest_ty_src, inst, inst_src, anon_struct.data);
+                }
+            },
             else => {},
         },
         .Array => switch (inst_ty.zigTypeTag()) {
@@ -16981,6 +16999,40 @@ fn coerceEnumToUnion(
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(msg);
+}
+
+fn coerceAnonStructToUnion(
+    sema: *Sema,
+    block: *Block,
+    union_ty: Type,
+    union_ty_src: LazySrcLoc,
+    inst: Air.Inst.Ref,
+    inst_src: LazySrcLoc,
+    anon_struct: Type.Payload.AnonStruct.Data,
+) !Air.Inst.Ref {
+    if (anon_struct.types.len != 1) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                inst_src,
+                "cannot initialize multiple union fields at once, unions can only have one active field",
+                .{},
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            // TODO add notes for where the anon struct was created to point out
+            // the extra fields.
+
+            try sema.addDeclaredHereNote(msg, union_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    const field_name = anon_struct.names[0];
+    const inst_ty = sema.typeOf(inst);
+    const init = try sema.structFieldVal(block, inst_src, inst, field_name, inst_src, inst_ty);
+    return sema.unionInit(block, init, inst_src, union_ty, union_ty_src, field_name, inst_src);
 }
 
 /// If the lengths match, coerces element-wise.
