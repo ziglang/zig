@@ -1758,6 +1758,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .wrap_errunion_payload       => try airWrapErrUnionPay(f, inst),
             .wrap_errunion_err           => try airWrapErrUnionErr(f, inst),
             .errunion_payload_ptr_set    => try airErrUnionPayloadPtrSet(f, inst),
+
+            .wasm_memory_size => unreachable,
+            .wasm_memory_grow => unreachable,
             // zig fmt: on
         };
         switch (result_value) {

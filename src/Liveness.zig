@@ -707,6 +707,10 @@ fn analyzeInst(
 
             return trackOperands(a, new_set, inst, main_tomb, .{ condition, .none, .none });
         },
+        .wasm_memory_grow => {
+            const pl_op = inst_datas[inst].pl_op;
+            return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, .none, .none });
+        },
     }
 }
 

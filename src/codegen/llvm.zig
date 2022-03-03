@@ -3478,7 +3478,12 @@ pub const FuncGen = struct {
 
     fn airWasmMemorySize(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         _ = inst;
-        return self.todo("`@wasmMemorySize()`", .{});
+        return self.todo("implement builtin `@wasmMemorySize()`", .{});
+    }
+
+    fn airWasmMemoryGrow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        _ = inst;
+        return self.todo("implement builtin `@wasmMemoryGrow()`", .{});
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

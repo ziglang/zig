@@ -7148,7 +7148,7 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
         .wasm_memory_grow => {
-            const index_arg = try expr(gz, scope, .{ .ty = .u32_type }, params[0]);
+            const index_arg = try comptimeExpr(gz, scope, .{ .ty = .u32_type }, params[0]);
             const delta_arg = try expr(gz, scope, .{ .ty = .u32_type }, params[1]);
             const result = try gz.addExtendedPayload(.wasm_memory_grow, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),

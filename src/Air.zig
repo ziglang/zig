@@ -587,6 +587,10 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field, payload is `WasmMemoryIndex`.
         wasm_memory_size,
 
+        /// Implements @wasmMemoryGrow builtin.
+        /// Uses the `pl_op` field, payload is `WasmMemoryIndex`.
+        wasm_memory_grow,
+
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -955,6 +959,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ret_addr,
         .frame_addr,
         => return Type.initTag(.usize),
+
+        .wasm_memory_grow => return Type.initTag(.i32),
 
         .bool_to_int => return Type.initTag(.u1),
 

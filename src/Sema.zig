@@ -14034,6 +14034,9 @@ fn zirWasmMemorySize(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
+    if (!sema.mod.getTarget().isWasm()) {
+        return sema.fail(block, src, "builtin '@wasmMemorySize' is a wasm feature only", .{});
+    }
 
     const operand = try sema.resolveInt(block, src, extra.operand, Type.u32);
     const index = @intCast(u32, operand);
@@ -14054,7 +14057,22 @@ fn zirWasmMemoryGrow(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
-    return sema.fail(block, src, "TODO: implement Sema.zirWasmMemoryGrow", .{});
+    if (!sema.mod.getTarget().isWasm()) {
+        return sema.fail(block, src, "builtin '@wasmMemoryGrow' is a wasm feature only", .{});
+    }
+
+    const index_arg = try sema.resolveInt(block, src, extra.lhs, Type.u32);
+    const index = @intCast(u32, index_arg);
+    const delta_arg = sema.resolveInst(extra.rhs);
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addInst(.{
+        .tag = .wasm_memory_grow,
+        .data = .{ .pl_op = .{
+            .operand = delta_arg,
+            .payload = try sema.addExtra(Air.WasmMemoryIndex{ .index = index }),
+        } },
+    });
 }
 
 fn zirPrefetch(
