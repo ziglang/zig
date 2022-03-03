@@ -2882,7 +2882,7 @@ pub const FuncGen = struct {
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const elem_ty = ptr_ty.childType();
-        if (!elem_ty.hasRuntimeBits()) return null;
+        if (!elem_ty.hasRuntimeBits()) return self.dg.lowerPtrToVoid(ptr_ty);
 
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);

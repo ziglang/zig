@@ -2245,6 +2245,7 @@ pub const Type = extern union {
             .prefetch_options,
             .export_options,
             .extern_options,
+            .@"opaque",
             => return 1,
 
             .fn_noreturn_no_args, // represents machine code; not a pointer
@@ -2432,7 +2433,6 @@ pub const Type = extern union {
             .noreturn,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"opaque",
             .var_args_param,
             .bound_fn,
             => unreachable,
