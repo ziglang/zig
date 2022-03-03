@@ -5287,8 +5287,10 @@ pub const Type = extern union {
         // type, we change it to 0 here. If this causes an assertion trip because the
         // pointee type needs to be resolved more, that needs to be done before calling
         // this ptr() function.
-        if (d.@"align" != 0 and d.@"align" == d.pointee_type.abiAlignment(target)) {
-            d.@"align" = 0;
+        if (d.@"align" != 0) {
+            if (d.pointee_type.zigTypeTag() == .Opaque or d.@"align" == d.pointee_type.abiAlignment(target)) {
+                d.@"align" = 0;
+            }
         }
 
         // Canonicalize host_size. If it matches the bit size of the pointee type,

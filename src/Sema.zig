@@ -15363,7 +15363,7 @@ fn unionFieldVal(
                     return sema.addConstant(field.ty, tag_and_val.val);
                 } else {
                     const old_ty = union_ty.unionFieldType(tag_and_val.tag);
-                    const new_val = try sema.bitCastVal(block, src, tag_and_val.val, old_ty, field.ty);
+                    const new_val = try sema.bitCastVal(block, src, tag_and_val.val, old_ty, field.ty, 0);
                     return sema.addConstant(field.ty, new_val);
                 }
             },
@@ -16470,7 +16470,7 @@ fn storePtrVal(
     var kit = try beginComptimePtrMutation(sema, block, src, ptr_val);
     try sema.checkComptimeVarStore(block, src, kit.decl_ref_mut);
 
-    const bitcasted_val = try sema.bitCastVal(block, src, operand_val, operand_ty, kit.ty);
+    const bitcasted_val = try sema.bitCastVal(block, src, operand_val, operand_ty, kit.ty, 0);
 
     const arena = kit.beginArena(sema.gpa);
     defer kit.finishArena();
@@ -16764,6 +16764,8 @@ fn beginComptimePtrMutation(
 const ComptimePtrLoadKit = struct {
     /// The Value of the Decl that owns this memory.
     root_val: Value,
+    /// The Type of the Decl that owns this memory.
+    root_ty: Type,
     /// Parent Value.
     val: Value,
     /// The Type of the parent Value.
@@ -16794,6 +16796,7 @@ fn beginComptimePtrLoad(
             if (decl_val.tag() == .variable) return error.RuntimeLoad;
             return ComptimePtrLoadKit{
                 .root_val = decl_val,
+                .root_ty = decl.ty,
                 .val = decl_val,
                 .ty = decl.ty,
                 .byte_offset = 0,
@@ -16806,6 +16809,7 @@ fn beginComptimePtrLoad(
             if (decl_val.tag() == .variable) return error.RuntimeLoad;
             return ComptimePtrLoadKit{
                 .root_val = decl_val,
+                .root_ty = decl.ty,
                 .val = decl_val,
                 .ty = decl.ty,
                 .byte_offset = 0,
@@ -16840,6 +16844,7 @@ fn beginComptimePtrLoad(
                     };
                     return ComptimePtrLoadKit{
                         .root_val = parent.root_val,
+                        .root_ty = parent.ty,
                         .val = try parent.val.elemValue(sema.arena, elem_ptr.index),
                         .ty = elem_ty,
                         .byte_offset = byte_offset,
@@ -16855,6 +16860,7 @@ fn beginComptimePtrLoad(
                     }
                     return ComptimePtrLoadKit{
                         .root_val = parent.root_val,
+                        .root_ty = parent.ty,
                         .val = parent.val,
                         .ty = parent.ty,
                         .byte_offset = parent.byte_offset,
@@ -16882,6 +16888,7 @@ fn beginComptimePtrLoad(
             };
             return ComptimePtrLoadKit{
                 .root_val = parent.root_val,
+                .root_ty = parent.ty,
                 .val = try parent.val.fieldValue(sema.arena, field_index),
                 .ty = parent.ty.structFieldType(field_index),
                 .byte_offset = byte_offset,
@@ -16893,6 +16900,7 @@ fn beginComptimePtrLoad(
             const parent = try beginComptimePtrLoad(sema, block, src, err_union_ptr);
             return ComptimePtrLoadKit{
                 .root_val = parent.root_val,
+                .root_ty = parent.root_ty,
                 .val = parent.val.castTag(.eu_payload).?.data,
                 .ty = parent.ty.errorUnionPayload(),
                 .byte_offset = null,
@@ -16904,6 +16912,7 @@ fn beginComptimePtrLoad(
             const parent = try beginComptimePtrLoad(sema, block, src, opt_ptr);
             return ComptimePtrLoadKit{
                 .root_val = parent.root_val,
+                .root_ty = parent.root_ty,
                 .val = parent.val.castTag(.opt_payload).?.data,
                 .ty = try parent.ty.optionalChildAlloc(sema.arena),
                 .byte_offset = null,
@@ -16941,7 +16950,7 @@ fn bitCast(
 
     // TODO validate the type size and other compile errors
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
-        const result_val = try sema.bitCastVal(block, inst_src, val, old_ty, dest_ty);
+        const result_val = try sema.bitCastVal(block, inst_src, val, old_ty, dest_ty, 0);
         return sema.addConstant(dest_ty, result_val);
     }
     try sema.requireRuntimeBlock(block, inst_src);
@@ -16955,6 +16964,7 @@ pub fn bitCastVal(
     val: Value,
     old_ty: Type,
     new_ty: Type,
+    buffer_offset: usize,
 ) !Value {
     if (old_ty.eql(new_ty)) return val;
 
@@ -16965,7 +16975,7 @@ pub fn bitCastVal(
     const buffer = try sema.gpa.alloc(u8, abi_size);
     defer sema.gpa.free(buffer);
     val.writeToMemory(old_ty, target, buffer);
-    return Value.readFromMemory(new_ty, target, buffer, sema.arena);
+    return Value.readFromMemory(new_ty, target, buffer[buffer_offset..], sema.arena);
 }
 
 fn coerceArrayPtrToSlice(
@@ -19831,13 +19841,10 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
         // The Type it is stored as in the compiler has an ABI size greater or equal to
         // the ABI size of `load_ty`. We may perform the bitcast based on
         // `parent.val` alone (more efficient).
-        return try sema.bitCastVal(block, src, parent.val, parent.ty, load_ty);
+        return try sema.bitCastVal(block, src, parent.val, parent.ty, load_ty, 0);
+    } else {
+        return try sema.bitCastVal(block, src, parent.root_val, parent.root_ty, load_ty, parent.byte_offset.?);
     }
-
-    // The Type it is stored as in the compiler has an ABI size less than the ABI size
-    // of `load_ty`. The bitcast must be performed based on the `parent.root_val`
-    // and reinterpreted starting at `parent.byte_offset`.
-    return sema.fail(block, src, "TODO: implement bitcast with index offset", .{});
 }
 
 /// Used to convert a u64 value to a usize value, emitting a compile error if the number
