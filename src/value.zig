@@ -2085,8 +2085,7 @@ pub const Value = extern union {
                 // just hash the literal error value. this is the most stable
                 // thing between compiler invocations. we can't use the error
                 // int cause (1) its not stable and (2) we don't have access to mod.
-                const error_data = val.castTag(.@"error").?.data;
-                hasher.update(error_data.name);
+                hasher.update(val.getError().?);
             },
             .Enum => {
                 var enum_space: Payload.U64 = undefined;
