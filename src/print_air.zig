@@ -627,16 +627,12 @@ const Writer = struct {
 
     fn writeWasmMemorySize(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const extra = w.air.extraData(Air.WasmMemoryIndex, ty_pl.payload).data;
-
-        try s.print("{d}", .{extra.index});
+        try s.print("{d}", .{ty_pl.payload});
     }
 
     fn writeWasmMemoryGrow(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
-        const extra = w.air.extraData(Air.WasmMemoryIndex, pl_op.payload).data;
-
-        try s.print("{d}, ", .{extra.index});
+        try s.print("{d}, ", .{pl_op.payload});
         try w.writeOperand(s, inst, 0, pl_op.operand);
     }
 

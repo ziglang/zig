@@ -1759,8 +1759,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .wrap_errunion_err           => try airWrapErrUnionErr(f, inst),
             .errunion_payload_ptr_set    => try airErrUnionPayloadPtrSet(f, inst),
 
-            .wasm_memory_size => unreachable,
-            .wasm_memory_grow => unreachable,
+            .wasm_memory_size => try airWasmMemorySize(f, inst),
+            .wasm_memory_grow => try airWasmMemoryGrow(f, inst),
             // zig fmt: on
         };
         switch (result_value) {
@@ -3589,6 +3589,34 @@ fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
         @enumToInt(prefetch.rw), prefetch.locality,
     });
     return CValue.none;
+}
+
+fn airWasmMemorySize(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+
+    try writer.writeAll(" = ");
+    try writer.print("zig_wasm_memory_size({d});\n", .{ty_pl.payload});
+
+    return local;
+}
+
+fn airWasmMemoryGrow(f: *Function, inst: Air.Inst.Index) !CValue {
+    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const operand = try f.resolveInst(pl_op.operand);
+    const local = try f.allocLocal(inst_ty, .Const);
+
+    try writer.writeAll(" = ");
+    try writer.print("zig_wasm_memory_grow({d}, ", .{pl_op.payload});
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(");\n");
+    return local;
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {

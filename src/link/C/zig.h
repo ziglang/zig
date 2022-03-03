@@ -89,6 +89,18 @@
 #define zig_prefetch(addr, rw, locality)
 #endif
 
+#if defined(__clang__)
+#define zig_wasm_memory_size(index) __builtin_wasm_memory_size(index)
+#else
+#define zig_wasm_memory_size(index) 0
+#endif
+
+#if defined(__clang__)
+#define zig_wasm_memory_grow(index, delta) __builtin_wasm_memory_grow(index, delta)
+#else
+#define zig_wasm_memory_grow(index, delta) 0
+#endif
+
 #if __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
 #include <stdatomic.h>
 #define zig_cmpxchg_strong(obj, expected, desired, succ, fail) atomic_compare_exchange_strong_explicit(obj, &(expected), desired, succ, fail)

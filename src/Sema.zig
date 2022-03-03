@@ -14034,7 +14034,7 @@ fn zirWasmMemorySize(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
-    if (!sema.mod.getTarget().isWasm()) {
+    if (!sema.mod.getTarget().isWasm() and sema.mod.comp.bin_file.options.object_format != .c) {
         return sema.fail(block, src, "builtin '@wasmMemorySize' is a wasm feature only", .{});
     }
 
@@ -14045,7 +14045,7 @@ fn zirWasmMemorySize(
         .tag = .wasm_memory_size,
         .data = .{ .ty_pl = .{
             .ty = try sema.addType(Type.u32),
-            .payload = try sema.addExtra(Air.WasmMemoryIndex{ .index = index }),
+            .payload = index,
         } },
     });
 }
@@ -14057,7 +14057,7 @@ fn zirWasmMemoryGrow(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
-    if (!sema.mod.getTarget().isWasm()) {
+    if (!sema.mod.getTarget().isWasm() and sema.mod.comp.bin_file.options.object_format != .c) {
         return sema.fail(block, src, "builtin '@wasmMemoryGrow' is a wasm feature only", .{});
     }
 
@@ -14070,7 +14070,7 @@ fn zirWasmMemoryGrow(
         .tag = .wasm_memory_grow,
         .data = .{ .pl_op = .{
             .operand = delta_arg,
-            .payload = try sema.addExtra(Air.WasmMemoryIndex{ .index = index }),
+            .payload = index,
         } },
     });
 }

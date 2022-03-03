@@ -584,11 +584,11 @@ pub const Inst = struct {
         field_parent_ptr,
 
         /// Implements @wasmMemorySize builtin.
-        /// Uses the `ty_pl` field, payload is `WasmMemoryIndex`.
+        /// Uses the `ty_pl` field, payload represents the index of the target memory.
         wasm_memory_size,
 
         /// Implements @wasmMemoryGrow builtin.
-        /// Uses the `pl_op` field, payload is `WasmMemoryIndex`.
+        /// Uses the `pl_op` field, payload represents the index of the target memory.
         wasm_memory_grow,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
@@ -723,12 +723,6 @@ pub const Bin = struct {
 pub const FieldParentPtr = struct {
     field_ptr: Inst.Ref,
     field_index: u32,
-};
-
-/// Wasm's memory instructions require a comptime-known index
-/// which represents the memory it operates on.
-pub const WasmMemoryIndex = struct {
-    index: u32,
 };
 
 /// Trailing:
