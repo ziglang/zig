@@ -10,6 +10,7 @@ module: *Module,
 doc_location: Compilation.EmitLoc,
 arena: std.mem.Allocator,
 files: std.AutoHashMapUnmanaged(*File, usize) = .{},
+calls: std.ArrayListUnmanaged(DocData.Call) = .{},
 types: std.ArrayListUnmanaged(DocData.Type) = .{},
 decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
 ast_nodes: std.ArrayListUnmanaged(DocData.AstNode) = .{},
@@ -155,6 +156,7 @@ pub fn generateZirData(self: *Autodoc) !void {
 
     var data = DocData{
         .files = .{ .data = self.files },
+        .calls = self.calls.items,
         .types = self.types.items,
         .decls = self.decls.items,
         .astNodes = self.ast_nodes.items,
@@ -240,10 +242,10 @@ const DocData = struct {
     } = .{},
     packages: [1]Package = .{.{}},
     errors: []struct {} = &.{},
-    calls: []struct {} = &.{},
 
     // non-hardcoded stuff
     astNodes: []AstNode,
+    calls: []Call,
     files: struct {
         // this struct is a temporary hack to support json serialization
         data: std.AutoHashMapUnmanaged(*File, usize),
@@ -274,7 +276,11 @@ const DocData = struct {
     types: []Type,
     decls: []Decl,
     comptimeExprs: []ComptimeExpr,
-
+    const Call = struct {
+        func: TypeRef,
+        args: []WalkResult,
+        ret: WalkResult,
+    };
     const DocTypeKinds = blk: {
         var info = @typeInfo(std.builtin.TypeId);
         const original_len = info.Enum.fields.len;
@@ -344,8 +350,8 @@ const DocData = struct {
         Struct: struct {
             name: []const u8,
             src: ?usize = null, // index into astNodes
-            privDecls: ?[]usize = null, // index into decls
-            pubDecls: []usize, // index into decls
+            privDecls: []usize = &.{}, // index into decls
+            pubDecls: []usize = &.{}, // index into decls
             fields: ?[]TypeRef = null, // (use src->fields to find names)
         },
         ComptimeExpr: struct { name: []const u8 },
@@ -507,6 +513,7 @@ const DocData = struct {
             value: f64, // direct value
             negated: bool = false,
         },
+        call: usize, // index in `calls`
 
         const Struct = struct {
             typeRef: TypeRef,
@@ -526,7 +533,7 @@ const DocData = struct {
                         \\{{ "{s}":{{}} }}
                     , .{@tagName(self)});
                 },
-                .type, .comptimeExpr => |v| {
+                .type, .comptimeExpr, .call => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
@@ -616,14 +623,7 @@ fn walkInstruction(
 
             return new_file_walk_result;
         },
-        .block => {
-            const res = DocData.WalkResult{ .comptimeExpr = self.comptime_exprs.items.len };
-            try self.comptime_exprs.append(self.arena, .{
-                .code = "if(banana) 1 else 0",
-                .typeRef = .{ .type = 0 },
-            });
-            return res;
-        },
+
         .int => {
             const int = data[inst_index].int;
             return DocData.WalkResult{
@@ -755,15 +755,41 @@ fn walkInstruction(
             });
             return DocData.WalkResult{ .type = self.types.items.len - 1 };
         },
-        //.block => {
-        //const pl_node = data[inst_index].pl_node;
-        //const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
-        //const last_instr_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
-        //const break_operand = data[break_index].@"break".operand;
-        //return self.walkRef(file, parent_scope, break_operand);
-        //},
+        .block => {
+            const res = DocData.WalkResult{ .comptimeExpr = self.comptime_exprs.items.len };
+            try self.comptime_exprs.append(self.arena, .{
+                .code = "if(banana) 1 else 0",
+                .typeRef = .{ .type = 0 },
+            });
+            return res;
+        },
         .block_inline => {
             return self.walkRef(file, parent_scope, getBlockInlineBreak(file.zir, inst_index));
+        },
+        .call => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Call, pl_node.payload_index);
+
+            // TODO: handle the way scoping works with fn args
+            const callee = DocData.TypeRef.fromWalkResult(
+                try self.walkRef(file, parent_scope, extra.data.callee),
+            );
+
+            const args_len = extra.data.flags.args_len;
+            var args = try self.arena.alloc(DocData.WalkResult, args_len);
+            const arg_refs = file.zir.refSlice(extra.end, args_len);
+            for (arg_refs) |ref, idx| {
+                args[idx] = try self.walkRef(file, parent_scope, ref);
+            }
+
+            const call_slot_index = self.calls.items.len;
+            try self.calls.append(self.arena, .{
+                .func = callee,
+                .args = args,
+                .ret = .{ .void = {} }, // TODO: handle returns!
+            });
+
+            return DocData.WalkResult{ .call = call_slot_index };
         },
         .func => {
             const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
