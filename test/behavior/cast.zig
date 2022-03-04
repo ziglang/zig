@@ -223,8 +223,6 @@ test "@intToEnum passed a comptime_int to an enum with one item" {
 }
 
 test "@intCast to u0 and use the result" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest(zero: u1, one: u1, bigzero: i32) !void {
             try expect((one << @intCast(u0, bigzero)) == 1);
@@ -818,7 +816,6 @@ test "peer resolution of string literals" {
 test "peer cast [:x]T to []T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
