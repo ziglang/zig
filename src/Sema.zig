@@ -18280,12 +18280,32 @@ fn resolvePeerTypes(
             },
             .Pointer => {
                 if (candidate_ty.ptrSize() == .C) {
+                    // *T to [*c]T
+                    if (chosen_ty_tag == .Pointer) {
+                        const chosen_elem_ty = chosen_ty.childType();
+                        const candidate_elem_ty = candidate_ty.childType();
+                        if ((try sema.coerceInMemoryAllowed(block, chosen_elem_ty, candidate_elem_ty, false, target, src, src)) == .ok) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                            continue;
+                        }
+                    }
+
                     if (chosen_ty_tag == .Int or chosen_ty_tag == .ComptimeInt) {
                         chosen = candidate;
                         chosen_i = candidate_i + 1;
                         continue;
                     }
                     if (chosen_ty_tag == .Pointer and chosen_ty.ptrSize() != .Slice) {
+                        continue;
+                    }
+                }
+
+                // [*c]T and *T
+                if (chosen_ty_tag == .Pointer and chosen_ty.ptrSize() == .C) {
+                    const chosen_elem_ty = chosen_ty.childType();
+                    const candidate_elem_ty = candidate_ty.childType();
+                    if ((try sema.coerceInMemoryAllowed(block, chosen_elem_ty, candidate_elem_ty, false, target, src, src)) == .ok) {
                         continue;
                     }
                 }
