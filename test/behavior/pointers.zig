@@ -142,6 +142,15 @@ test "peer type resolution with C pointers" {
     try expect(@TypeOf(x4) == [*c]u8);
 }
 
+test "peer type resolution with C pointer and const pointer" {
+    // stage1 incorrectly resolves to [*]u8
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    var ptr_c: [*c]u8 = undefined;
+    const ptr_const: u8 = undefined;
+    try expect(@TypeOf(ptr_c, &ptr_const) == [*c]const u8);
+}
+
 test "implicit casting between C pointer and optional non-C pointer" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
