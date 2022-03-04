@@ -584,10 +584,13 @@ pub const Inst = struct {
         field_parent_ptr,
 
         /// Implements @wasmMemorySize builtin.
-        /// Uses the `ty_pl` field, payload represents the index of the target memory.
+        /// Result type is always `u32`,
+        /// Uses the `pl_op` field, payload represents the index of the target memory.
+        /// The operand is unused and always set to `Ref.none`.
         wasm_memory_size,
 
         /// Implements @wasmMemoryGrow builtin.
+        /// Result type is always `i32`,
         /// Uses the `pl_op` field, payload represents the index of the target memory.
         wasm_memory_grow,
 
@@ -626,6 +629,7 @@ pub const Inst = struct {
     pub const Data = union {
         no_op: void,
         un_op: Ref,
+
         bin_op: struct {
             lhs: Ref,
             rhs: Ref,
@@ -885,7 +889,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .aggregate_init,
         .union_init,
         .field_parent_ptr,
-        .wasm_memory_size,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
@@ -954,7 +957,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .frame_addr,
         => return Type.initTag(.usize),
 
-        .wasm_memory_grow => return Type.initTag(.i32),
+        .wasm_memory_grow => return Type.i32,
+        .wasm_memory_size => return Type.u32,
 
         .bool_to_int => return Type.initTag(.u1),
 

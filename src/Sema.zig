@@ -14033,18 +14033,19 @@ fn zirWasmMemorySize(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
-    if (!sema.mod.getTarget().isWasm() and sema.mod.comp.bin_file.options.object_format != .c) {
-        return sema.fail(block, src, "builtin '@wasmMemorySize' is a wasm feature only", .{});
+    const index_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const builtin_src: LazySrcLoc = .{ .node_offset = extra.node };
+    const target = sema.mod.getTarget();
+    if (!target.isWasm()) {
+        return sema.fail(block, builtin_src, "builtin @wasmMemorySize is available when targeting WebAssembly; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
     }
 
-    const operand = try sema.resolveInt(block, src, extra.operand, Type.u32);
-    const index = @intCast(u32, operand);
-    try sema.requireRuntimeBlock(block, src);
+    const index = @intCast(u32, try sema.resolveInt(block, index_src, extra.operand, Type.u32));
+    try sema.requireRuntimeBlock(block, builtin_src);
     return block.addInst(.{
         .tag = .wasm_memory_size,
-        .data = .{ .ty_pl = .{
-            .ty = try sema.addType(Type.u32),
+        .data = .{ .pl_op = .{
+            .operand = .none,
             .payload = index,
         } },
     });
@@ -14056,20 +14057,22 @@ fn zirWasmMemoryGrow(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
-    if (!sema.mod.getTarget().isWasm() and sema.mod.comp.bin_file.options.object_format != .c) {
-        return sema.fail(block, src, "builtin '@wasmMemoryGrow' is a wasm feature only", .{});
+    const builtin_src: LazySrcLoc = .{ .node_offset = extra.node };
+    const index_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const delta_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+    const target = sema.mod.getTarget();
+    if (!target.isWasm()) {
+        return sema.fail(block, builtin_src, "builtin @wasmMemoryGrow is available when targeting WebAssembly; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
     }
 
-    const index_arg = try sema.resolveInt(block, src, extra.lhs, Type.u32);
-    const index = @intCast(u32, index_arg);
-    const delta_arg = sema.resolveInst(extra.rhs);
+    const index = @intCast(u32, try sema.resolveInt(block, index_src, extra.lhs, Type.u32));
+    const delta = try sema.coerce(block, Type.u32, sema.resolveInst(extra.rhs), delta_src);
 
-    try sema.requireRuntimeBlock(block, src);
+    try sema.requireRuntimeBlock(block, builtin_src);
     return block.addInst(.{
         .tag = .wasm_memory_grow,
         .data = .{ .pl_op = .{
-            .operand = delta_arg,
+            .operand = delta,
             .payload = index,
         } },
     });

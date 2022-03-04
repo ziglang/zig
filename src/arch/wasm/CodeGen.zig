@@ -3430,10 +3430,12 @@ fn airPrefetch(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn airWasmMemorySize(self: *Self, inst: Air.Inst.Index) !WValue {
-    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
 
     const result = try self.allocLocal(self.air.typeOfIndex(inst));
-    try self.addLabel(.memory_size, ty_pl.payload);
+    try self.addLabel(.memory_size, pl_op.payload);
     try self.addLabel(.local_set, result.local);
     return result;
 }

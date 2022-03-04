@@ -91,14 +91,10 @@
 
 #if defined(__clang__)
 #define zig_wasm_memory_size(index) __builtin_wasm_memory_size(index)
-#else
-#define zig_wasm_memory_size(index) 0
-#endif
-
-#if defined(__clang__)
 #define zig_wasm_memory_grow(index, delta) __builtin_wasm_memory_grow(index, delta)
 #else
-#define zig_wasm_memory_grow(index, delta) 0
+#define zig_wasm_memory_size(index) zig_unimplemented()
+#define zig_wasm_memory_grow(index, delta) zig_unimplemented()
 #endif
 
 #if __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)

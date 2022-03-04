@@ -96,7 +96,7 @@ test {
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
 
-    if (builtin.zig_backend == .stage2_wasm) {
+    if (builtin.stage2_arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
     }
 
@@ -172,9 +172,6 @@ test {
                 _ = @import("behavior/struct_contains_slice_of_itself.zig");
                 _ = @import("behavior/typename.zig");
                 _ = @import("behavior/vector.zig");
-                if (builtin.target.cpu.arch == .wasm32) {
-                    _ = @import("behavior/wasm.zig");
-                }
             }
         }
     }

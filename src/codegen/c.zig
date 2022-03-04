@@ -3592,14 +3592,16 @@ fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airWasmMemorySize(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
 
     const writer = f.object.writer();
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
 
     try writer.writeAll(" = ");
-    try writer.print("zig_wasm_memory_size({d});\n", .{ty_pl.payload});
+    try writer.print("zig_wasm_memory_size({d});\n", .{pl_op.payload});
 
     return local;
 }

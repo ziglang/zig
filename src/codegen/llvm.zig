@@ -3478,13 +3478,27 @@ pub const FuncGen = struct {
     }
 
     fn airWasmMemorySize(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        _ = inst;
-        return self.todo("implement builtin `@wasmMemorySize()`", .{});
+        if (self.liveness.isUnused(inst)) return null;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const index = pl_op.payload;
+        const llvm_u32 = self.context.intType(32);
+        const llvm_fn = self.getIntrinsic("llvm.wasm.memory.size.i32", &.{llvm_u32});
+        const args: [1]*const llvm.Value = .{llvm_u32.constInt(index, .False)};
+        return self.builder.buildCall(llvm_fn, &args, args.len, .Fast, .Auto, "");
     }
 
     fn airWasmMemoryGrow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        _ = inst;
-        return self.todo("implement builtin `@wasmMemoryGrow()`", .{});
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const index = pl_op.payload;
+        const operand = try self.resolveInst(pl_op.operand);
+        const llvm_u32 = self.context.intType(32);
+        const llvm_fn = self.getIntrinsic("llvm.wasm.memory.grow.i32", &.{ llvm_u32, llvm_u32 });
+        const args: [2]*const llvm.Value = .{
+            llvm_u32.constInt(index, .False),
+            operand,
+        };
+        return self.builder.buildCall(llvm_fn, &args, args.len, .Fast, .Auto, "");
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
