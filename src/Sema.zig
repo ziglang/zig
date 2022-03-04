@@ -18279,126 +18279,126 @@ fn resolvePeerTypes(
                 },
             },
             .Pointer => {
-                if (candidate_ty.ptrSize() == .C) {
-                    if (chosen_ty_tag == .Int or chosen_ty_tag == .ComptimeInt) {
-                        chosen = candidate;
-                        chosen_i = candidate_i + 1;
-                        continue;
-                    }
-                    if (chosen_ty_tag == .Pointer and chosen_ty.ptrSize() != .Slice) {
-                        continue;
-                    }
-                }
+                const cand_info = candidate_ty.ptrInfo().data;
+                switch (chosen_ty_tag) {
+                    .Pointer => {
+                        const chosen_info = chosen_ty.ptrInfo().data;
 
-                // *[N]T to [*]T
-                if (candidate_ty.ptrSize() == .Many and
-                    chosen_ty_tag == .Pointer and
-                    chosen_ty.ptrSize() == .One and
-                    chosen_ty.childType().zigTypeTag() == .Array)
-                {
-                    chosen = candidate;
-                    chosen_i = candidate_i + 1;
+                        seen_const = seen_const or !chosen_info.mutable or !cand_info.mutable;
 
-                    convert_to_slice = false;
-
-                    if (chosen_ty.isConstPtr() and !candidate_ty.isConstPtr())
-                        seen_const = true;
-
-                    continue;
-                }
-
-                // *[N]T to [*]T (prev is many pointer)
-                if (candidate_ty.ptrSize() == .One and
-                    candidate_ty.childType().zigTypeTag() == .Array and
-                    chosen_ty_tag == .Pointer and
-                    chosen_ty.ptrSize() == .Many)
-                {
-                    if (candidate_ty.isConstPtr() and !chosen_ty.isConstPtr())
-                        seen_const = true;
-
-                    continue;
-                }
-
-                // *[N]T to []T (prev is slice)
-                // *[N]T to E![]T
-                if ((chosen_ty.isSlice() or (chosen_ty_tag == .ErrorUnion and chosen_ty.errorUnionPayload().isSlice())) and
-                    candidate_ty.ptrSize() == .One and
-                    candidate_ty.childType().zigTypeTag() == .Array)
-                {
-                    const chosen_elem_ty = switch (chosen_ty_tag) {
-                        .ErrorUnion => chosen_ty.errorUnionPayload().elemType2(),
-                        else => chosen_ty.elemType2(),
-                    };
-                    const candidate_elem_ty = candidate_ty.childType().elemType2();
-                    if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
-                        convert_to_slice = false; // it already is a slice
-
-                        // If the pointer is const then we need to const
-                        if (candidate_ty.isConstPtr())
-                            seen_const = true;
-
-                        continue;
-                    }
-                }
-
-                // *[N]T to []T (current is slice)
-                if (chosen_ty_tag == .Pointer and
-                    chosen_ty.ptrSize() == .One and
-                    chosen_ty.childType().zigTypeTag() == .Array and
-                    candidate_ty.isSlice())
-                {
-                    const chosen_child_ty = chosen_ty.childType();
-                    const chosen_elem_ty = chosen_child_ty.elemType2();
-                    const candidate_elem_ty = candidate_ty.elemType2();
-                    if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
-                        chosen = candidate;
-                        chosen_i = candidate_i + 1;
-
-                        convert_to_slice = false; // it already is a slice
-
-                        // If the prev pointer is const then we need to const
-                        if (chosen_ty.isConstPtr())
-                            seen_const = true;
-
-                        continue;
-                    }
-                }
-
-                // *[N]T and *[M]T
-                // verify both are pointers to known lengths
-                if (chosen_ty_tag == .Pointer and
-                    chosen_ty.ptrSize() == .One and
-                    candidate_ty.ptrSize() == .One)
-                {
-                    // verify both pointers are two arrays
-                    const chosen_child_ty = chosen_ty.childType();
-                    const candidate_child_ty = candidate_ty.childType();
-                    if (chosen_child_ty.zigTypeTag() == .Array and candidate_child_ty.zigTypeTag() == .Array) {
-                        // If we can cerce the element types, then we can do this.
-                        const chosen_elem_ty = chosen_child_ty.elemType2();
-                        const candidate_elem_ty = candidate_child_ty.elemType2();
-                        if ((try sema.coerceInMemoryAllowed(block, candidate_elem_ty, chosen_elem_ty, false, target, src, src)) == .ok) {
-                            // If there is a sentinel, it must match
-                            if (chosen_child_ty.sentinel()) |chosen_sentinel| {
-                                if (candidate_child_ty.sentinel()) |candidate_sentinel| {
-                                    if (!chosen_sentinel.eql(candidate_sentinel, chosen_elem_ty))
-                                        continue;
-                                } else continue;
-                            }
-
+                        // *[N]T to [*]T
+                        // *[N]T to []T
+                        if ((cand_info.size == .Many or cand_info.size == .Slice) and
+                            chosen_info.size == .One and
+                            chosen_info.pointee_type.zigTypeTag() == .Array)
+                        {
+                            // In case we see i.e.: `*[1]T`, `*[2]T`, `[*]T`
+                            convert_to_slice = false;
                             chosen = candidate;
                             chosen_i = candidate_i + 1;
-
-                            convert_to_slice = true;
-
-                            // If one of the pointers is to const data, the slice
-                            // must also be const.
-                            if (candidate_child_ty.isConstPtr() or chosen_child_ty.isConstPtr())
-                                seen_const = true;
-
                             continue;
                         }
-                    }
+                        if (cand_info.size == .One and
+                            cand_info.pointee_type.zigTypeTag() == .Array and
+                            (chosen_info.size == .Many or chosen_info.size == .Slice))
+                        {
+                            // In case we see i.e.: `*[1]T`, `*[2]T`, `[*]T`
+                            convert_to_slice = false;
+                            continue;
+                        }
+
+                        // *[N]T and *[M]T
+                        // Verify both are single-pointers to arrays.
+                        // Keep the one whose element type can be coerced into.
+                        if (chosen_info.size == .One and
+                            cand_info.size == .One and
+                            chosen_info.pointee_type.zigTypeTag() == .Array and
+                            cand_info.pointee_type.zigTypeTag() == .Array)
+                        {
+                            const chosen_elem_ty = chosen_info.pointee_type.childType();
+                            const cand_elem_ty = cand_info.pointee_type.childType();
+
+                            const chosen_ok = .ok == try sema.coerceInMemoryAllowed(block, chosen_elem_ty, cand_elem_ty, chosen_info.mutable, target, src, src);
+                            if (chosen_ok) {
+                                convert_to_slice = true;
+                                continue;
+                            }
+
+                            const cand_ok = .ok == try sema.coerceInMemoryAllowed(block, cand_elem_ty, chosen_elem_ty, cand_info.mutable, target, src, src);
+                            if (cand_ok) {
+                                convert_to_slice = true;
+                                chosen = candidate;
+                                chosen_i = candidate_i + 1;
+                                continue;
+                            }
+
+                            // They're both bad. Report error.
+                            // In the future we probably want to use the
+                            // coerceInMemoryAllowed error reporting mechanism,
+                            // however, for now we just fall through for the
+                            // "incompatible types" error below.
+                        }
+
+                        // [*c]T and any other pointer size
+                        // Whichever element type can coerce to the other one, is
+                        // the one we will keep. If they're both OK then we keep the
+                        // C pointer since it matches both single and many pointers.
+                        if (cand_info.size == .C or chosen_info.size == .C) {
+                            const cand_ok = .ok == try sema.coerceInMemoryAllowed(block, cand_info.pointee_type, chosen_info.pointee_type, cand_info.mutable, target, src, src);
+                            const chosen_ok = .ok == try sema.coerceInMemoryAllowed(block, chosen_info.pointee_type, cand_info.pointee_type, chosen_info.mutable, target, src, src);
+
+                            if (cand_ok) {
+                                if (chosen_ok) {
+                                    if (chosen_info.size == .C) {
+                                        continue;
+                                    } else {
+                                        chosen = candidate;
+                                        chosen_i = candidate_i + 1;
+                                        continue;
+                                    }
+                                } else {
+                                    chosen = candidate;
+                                    chosen_i = candidate_i + 1;
+                                    continue;
+                                }
+                            } else {
+                                if (chosen_ok) {
+                                    continue;
+                                } else {
+                                    // They're both bad. Report error.
+                                    // In the future we probably want to use the
+                                    // coerceInMemoryAllowed error reporting mechanism,
+                                    // however, for now we just fall through for the
+                                    // "incompatible types" error below.
+                                }
+                            }
+                        }
+                    },
+                    .Int, .ComptimeInt => {
+                        if (cand_info.size == .C) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                            continue;
+                        }
+                    },
+                    .ErrorUnion => {
+                        const chosen_ptr_ty = chosen_ty.errorUnionPayload();
+                        if (chosen_ptr_ty.zigTypeTag() == .Pointer) {
+                            const chosen_info = chosen_ptr_ty.ptrInfo().data;
+
+                            seen_const = seen_const or !chosen_info.mutable or !cand_info.mutable;
+
+                            // *[N]T to E![*]T
+                            // *[N]T to E![]T
+                            if (cand_info.size == .One and
+                                cand_info.pointee_type.zigTypeTag() == .Array and
+                                (chosen_info.size == .Many or chosen_info.size == .Slice))
+                            {
+                                continue;
+                            }
+                        }
+                    },
+                    else => {},
                 }
             },
             .Optional => {
@@ -18492,20 +18492,13 @@ fn resolvePeerTypes(
 
     const chosen_ty = sema.typeOf(chosen);
 
-    if (any_are_null) {
-        switch (chosen_ty.zigTypeTag()) {
-            .Null, .Optional => return chosen_ty,
-            else => return Type.optional(sema.arena, chosen_ty),
-        }
-    }
-
     if (convert_to_slice) {
         // turn *[N]T => []T
         const chosen_child_ty = chosen_ty.childType();
         var info = chosen_ty.ptrInfo();
         info.data.sentinel = chosen_child_ty.sentinel();
         info.data.size = .Slice;
-        info.data.mutable = seen_const or chosen_child_ty.isConstPtr();
+        info.data.mutable = !(seen_const or chosen_child_ty.isConstPtr());
         info.data.pointee_type = switch (chosen_child_ty.tag()) {
             .array => chosen_child_ty.elemType2(),
             .array_u8, .array_u8_sentinel_0 => Type.initTag(.u8),
@@ -18513,8 +18506,12 @@ fn resolvePeerTypes(
         };
 
         const new_ptr_ty = try Type.ptr(sema.arena, target, info.data);
-        const set_ty = err_set_ty orelse return new_ptr_ty;
-        return try Module.errorUnionType(sema.arena, set_ty, new_ptr_ty);
+        const opt_ptr_ty = if (any_are_null)
+            try Type.optional(sema.arena, new_ptr_ty)
+        else
+            new_ptr_ty;
+        const set_ty = err_set_ty orelse return opt_ptr_ty;
+        return try Module.errorUnionType(sema.arena, set_ty, opt_ptr_ty);
     }
 
     if (seen_const) {
@@ -18525,18 +18522,35 @@ fn resolvePeerTypes(
                 var info = ptr_ty.ptrInfo();
                 info.data.mutable = false;
                 const new_ptr_ty = try Type.ptr(sema.arena, target, info.data);
+                const opt_ptr_ty = if (any_are_null)
+                    try Type.optional(sema.arena, new_ptr_ty)
+                else
+                    new_ptr_ty;
                 const set_ty = err_set_ty orelse chosen_ty.errorUnionSet();
-                return try Module.errorUnionType(sema.arena, set_ty, new_ptr_ty);
+                return try Module.errorUnionType(sema.arena, set_ty, opt_ptr_ty);
             },
             .Pointer => {
                 var info = chosen_ty.ptrInfo();
                 info.data.mutable = false;
                 const new_ptr_ty = try Type.ptr(sema.arena, target, info.data);
-                const set_ty = err_set_ty orelse return new_ptr_ty;
-                return try Module.errorUnionType(sema.arena, set_ty, new_ptr_ty);
+                const opt_ptr_ty = if (any_are_null)
+                    try Type.optional(sema.arena, new_ptr_ty)
+                else
+                    new_ptr_ty;
+                const set_ty = err_set_ty orelse return opt_ptr_ty;
+                return try Module.errorUnionType(sema.arena, set_ty, opt_ptr_ty);
             },
             else => return chosen_ty,
         }
+    }
+
+    if (any_are_null) {
+        const opt_ty = switch (chosen_ty.zigTypeTag()) {
+            .Null, .Optional => chosen_ty,
+            else => try Type.optional(sema.arena, chosen_ty),
+        };
+        const set_ty = err_set_ty orelse return opt_ty;
+        return try Module.errorUnionType(sema.arena, set_ty, opt_ty);
     }
 
     if (err_set_ty) |ty| switch (chosen_ty.zigTypeTag()) {

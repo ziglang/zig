@@ -128,8 +128,6 @@ fn testDerefPtrOneVal() !void {
 }
 
 test "peer type resolution with C pointers" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var ptr_one: *u8 = undefined;
     var ptr_many: [*]u8 = undefined;
     var ptr_c: [*c]u8 = undefined;
@@ -159,7 +157,11 @@ test "implicit casting between C pointer and optional non-C pointer" {
 }
 
 test "implicit cast error unions with non-optional to optional pointer" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -376,8 +378,6 @@ test "pointer arithmetic affects the alignment" {
 }
 
 test "@ptrToInt on null optional at comptime" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     {
         const pointer = @intToPtr(?*u8, 0x000);
         const x = @ptrToInt(pointer);
