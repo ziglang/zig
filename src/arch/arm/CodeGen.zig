@@ -445,16 +445,17 @@ fn gen(self: *Self) !void {
         });
 
         // exitlude jumps
-        const only_one_exitlude_jump = self.exitlude_jump_relocs.items.len == 1 and
-            self.exitlude_jump_relocs.items[0] == self.mir_instructions.len - 1;
-        if (only_one_exitlude_jump) {
-            // There is only one relocation. Hence,
-            // this relocation must be at the end of
-            // the code. Therefore, we can just delete
-            // the space initially reserved for the
-            // jump
-            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.items[0]);
-        } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+        if (self.exitlude_jump_relocs.items.len > 0 and
+            self.exitlude_jump_relocs.items[self.exitlude_jump_relocs.items.len - 1] == self.mir_instructions.len - 2)
+        {
+            // If the last Mir instruction (apart from the
+            // dbg_epilogue_begin) is the last exitlude jump
+            // relocation (which would just jump one instruction
+            // further), it can be safely removed
+            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop());
+        }
+
+        for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             self.mir_instructions.set(jmp_reloc, .{
                 .tag = .b,
                 .data = .{ .inst = @intCast(u32, self.mir_instructions.len) },
@@ -3197,7 +3198,17 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     const body = self.air.extra[extra.end..][0..extra.data.body_len];
     try self.genBody(body);
 
-    for (self.blocks.getPtr(inst).?.relocs.items) |reloc| try self.performReloc(reloc);
+    // relocations for `br` instructions
+    const relocs = &self.blocks.getPtr(inst).?.relocs;
+    if (relocs.items.len > 0 and relocs.items[relocs.items.len - 1] == self.mir_instructions.len - 1) {
+        // If the last Mir instruction is the last relocation (which
+        // would just jump one instruction further), it can be safely
+        // removed
+        self.mir_instructions.orderedRemove(relocs.pop());
+    }
+    for (relocs.items) |reloc| {
+        try self.performReloc(reloc);
+    }
 
     const result = self.blocks.getPtr(inst).?.mcv;
     return self.finishAir(inst, result, .{ .none, .none, .none });
@@ -3952,7 +3963,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const ptr_ty = self.air.typeOf(ty_op.operand);
         const ptr = try self.resolveInst(ty_op.operand);
         const array_ty = ptr_ty.childType();
-        const array_len = @intCast(u32, array_ty.arrayLenIncludingSentinel());
+        const array_len = @intCast(u32, array_ty.arrayLen());
 
         const stack_offset = try self.allocMem(inst, 8, 8);
         try self.genSetStack(ptr_ty, stack_offset + 4, ptr);
