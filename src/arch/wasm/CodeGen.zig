@@ -1671,6 +1671,9 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
         .wrap_errunion_err => self.airWrapErrUnionErr(inst),
 
+        .wasm_memory_size => self.airWasmMemorySize(inst),
+        .wasm_memory_grow => self.airWasmMemoryGrow(inst),
+
         .add_sat,
         .sub_sat,
         .mul_sat,
@@ -3424,6 +3427,28 @@ fn airPrefetch(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const prefetch = self.air.instructions.items(.data)[inst].prefetch;
     _ = prefetch;
     return WValue{ .none = {} };
+}
+
+fn airWasmMemorySize(self: *Self, inst: Air.Inst.Index) !WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+
+    const result = try self.allocLocal(self.air.typeOfIndex(inst));
+    try self.addLabel(.memory_size, pl_op.payload);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn airWasmMemoryGrow(self: *Self, inst: Air.Inst.Index) !WValue {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const operand = try self.resolveInst(pl_op.operand);
+
+    const result = try self.allocLocal(self.air.typeOfIndex(inst));
+    try self.emitWValue(operand);
+    try self.addLabel(.memory_grow, pl_op.payload);
+    try self.addLabel(.local_set, result.local);
+    return result;
 }
 
 fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {

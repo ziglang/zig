@@ -250,6 +250,8 @@ const Writer = struct {
             .memcpy => try w.writeMemcpy(s, inst),
             .memset => try w.writeMemset(s, inst),
             .field_parent_ptr => try w.writeFieldParentPtr(s, inst),
+            .wasm_memory_size => try w.writeWasmMemorySize(s, inst),
+            .wasm_memory_grow => try w.writeWasmMemoryGrow(s, inst),
 
             .add_with_overflow,
             .sub_with_overflow,
@@ -621,6 +623,17 @@ const Writer = struct {
         try s.writeAll("\n");
         try s.writeByteNTimes(' ', old_indent);
         try s.writeAll("}");
+    }
+
+    fn writeWasmMemorySize(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        try s.print("{d}", .{pl_op.payload});
+    }
+
+    fn writeWasmMemoryGrow(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        try s.print("{d}, ", .{pl_op.payload});
+        try w.writeOperand(s, inst, 0, pl_op.operand);
     }
 
     fn writeOperand(

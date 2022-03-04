@@ -759,6 +759,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_optional         => try self.airWrapOptional(inst),
             .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
+
+            .wasm_memory_size => unreachable,
+            .wasm_memory_grow => unreachable,
             // zig fmt: on
         }
 

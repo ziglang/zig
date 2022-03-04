@@ -89,10 +89,10 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .local_set => try emit.emitLabel(tag, inst),
             .local_tee => try emit.emitLabel(tag, inst),
             .memory_grow => try emit.emitLabel(tag, inst),
+            .memory_size => try emit.emitLabel(tag, inst),
 
             // no-ops
             .end => try emit.emitTag(tag),
-            .memory_size => try emit.emitTag(tag),
             .@"return" => try emit.emitTag(tag),
             .@"unreachable" => try emit.emitTag(tag),
 

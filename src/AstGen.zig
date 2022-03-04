@@ -7140,7 +7140,7 @@ fn builtinCall(
         // zig fmt: on
 
         .wasm_memory_size => {
-            const operand = try expr(gz, scope, .{ .ty = .u32_type }, params[0]);
+            const operand = try comptimeExpr(gz, scope, .{ .coerced_ty = .u32_type }, params[0]);
             const result = try gz.addExtendedPayload(.wasm_memory_size, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = operand,
@@ -7148,8 +7148,8 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
         .wasm_memory_grow => {
-            const index_arg = try expr(gz, scope, .{ .ty = .u32_type }, params[0]);
-            const delta_arg = try expr(gz, scope, .{ .ty = .u32_type }, params[1]);
+            const index_arg = try comptimeExpr(gz, scope, .{ .coerced_ty = .u32_type }, params[0]);
+            const delta_arg = try expr(gz, scope, .{ .coerced_ty = .u32_type }, params[1]);
             const result = try gz.addExtendedPayload(.wasm_memory_grow, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = index_arg,

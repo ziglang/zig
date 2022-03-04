@@ -2314,6 +2314,9 @@ pub const FuncGen = struct {
                 .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
                 .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
+                .wasm_memory_size => try self.airWasmMemorySize(inst),
+                .wasm_memory_grow => try self.airWasmMemoryGrow(inst),
+
                 .constant => unreachable,
                 .const_ty => unreachable,
                 .unreach  => self.airUnreach(inst),
@@ -3472,6 +3475,30 @@ pub const FuncGen = struct {
         const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), operand, 0, "");
         // TODO set payload bytes to undef
         return partial;
+    }
+
+    fn airWasmMemorySize(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const index = pl_op.payload;
+        const llvm_u32 = self.context.intType(32);
+        const llvm_fn = self.getIntrinsic("llvm.wasm.memory.size.i32", &.{llvm_u32});
+        const args: [1]*const llvm.Value = .{llvm_u32.constInt(index, .False)};
+        return self.builder.buildCall(llvm_fn, &args, args.len, .Fast, .Auto, "");
+    }
+
+    fn airWasmMemoryGrow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const index = pl_op.payload;
+        const operand = try self.resolveInst(pl_op.operand);
+        const llvm_u32 = self.context.intType(32);
+        const llvm_fn = self.getIntrinsic("llvm.wasm.memory.grow.i32", &.{ llvm_u32, llvm_u32 });
+        const args: [2]*const llvm.Value = .{
+            llvm_u32.constInt(index, .False),
+            operand,
+        };
+        return self.builder.buildCall(llvm_fn, &args, args.len, .Fast, .Auto, "");
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

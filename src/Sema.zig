@@ -14033,8 +14033,22 @@ fn zirWasmMemorySize(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
-    return sema.fail(block, src, "TODO: implement Sema.zirWasmMemorySize", .{});
+    const index_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const builtin_src: LazySrcLoc = .{ .node_offset = extra.node };
+    const target = sema.mod.getTarget();
+    if (!target.isWasm()) {
+        return sema.fail(block, builtin_src, "builtin @wasmMemorySize is available when targeting WebAssembly; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
+    }
+
+    const index = @intCast(u32, try sema.resolveInt(block, index_src, extra.operand, Type.u32));
+    try sema.requireRuntimeBlock(block, builtin_src);
+    return block.addInst(.{
+        .tag = .wasm_memory_size,
+        .data = .{ .pl_op = .{
+            .operand = .none,
+            .payload = index,
+        } },
+    });
 }
 
 fn zirWasmMemoryGrow(
@@ -14043,8 +14057,25 @@ fn zirWasmMemoryGrow(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
-    return sema.fail(block, src, "TODO: implement Sema.zirWasmMemoryGrow", .{});
+    const builtin_src: LazySrcLoc = .{ .node_offset = extra.node };
+    const index_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const delta_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+    const target = sema.mod.getTarget();
+    if (!target.isWasm()) {
+        return sema.fail(block, builtin_src, "builtin @wasmMemoryGrow is available when targeting WebAssembly; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
+    }
+
+    const index = @intCast(u32, try sema.resolveInt(block, index_src, extra.lhs, Type.u32));
+    const delta = try sema.coerce(block, Type.u32, sema.resolveInst(extra.rhs), delta_src);
+
+    try sema.requireRuntimeBlock(block, builtin_src);
+    return block.addInst(.{
+        .tag = .wasm_memory_grow,
+        .data = .{ .pl_op = .{
+            .operand = delta,
+            .payload = index,
+        } },
+    });
 }
 
 fn zirPrefetch(

@@ -226,9 +226,9 @@ pub const Inst = struct {
         i64_store32 = 0x3E,
         /// Returns the memory size in amount of pages.
         ///
-        /// Uses `nop`
+        /// Uses `label`
         memory_size = 0x3F,
-        /// Increases the memory at by given number of pages.
+        /// Increases the memory by given number of pages.
         ///
         /// Uses `label`
         memory_grow = 0x40,
