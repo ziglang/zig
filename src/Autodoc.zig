@@ -328,6 +328,7 @@ const DocData = struct {
         name: ?[]const u8 = null,
         docs: ?[]const u8 = null,
         fields: ?[]usize = null, // index into astNodes
+        @"comptime": bool = false,
     };
 
     const Type = union(DocTypeKinds) {
@@ -709,7 +710,7 @@ fn walkInstruction(
             path[0] = decls_slot_index;
             return DocData.WalkResult{ .declPath = path };
         },
-        .field_val => {
+        .field_val, .field_call_bind, .field_ptr => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
 
@@ -719,7 +720,10 @@ fn walkInstruction(
             try path.append(self.arena, extra.data.field_name_start);
             // Put inside path the starting index of each decl name
             // that we encounter as we navigate through all the field_vals
-            while (tags[lhs] == .field_val) {
+            while (tags[lhs] == .field_val or
+                tags[lhs] == .field_call_bind or
+                tags[lhs] == .field_ptr)
+            {
                 const lhs_extra = file.zir.extraData(
                     Zir.Inst.Field,
                     data[lhs].pl_node.payload_index,
@@ -729,8 +733,11 @@ fn walkInstruction(
                 lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
             }
 
-            if (tags[lhs] != .decl_val) {
-                @panic("TODO: handle non-decl_val endings in walkInstruction.field_val");
+            if (tags[lhs] != .decl_val and tags[lhs] != .decl_ref) {
+                std.debug.panic(
+                    "TODO: handle `{s}` endings in walkInstruction.field_val",
+                    .{@tagName(tags[lhs])},
+                );
             }
             const str_tok = data[lhs].str_tok;
             const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
@@ -770,7 +777,6 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Call, pl_node.payload_index);
 
-            // TODO: handle the way scoping works with fn args
             const callee = DocData.TypeRef.fromWalkResult(
                 try self.walkRef(file, parent_scope, extra.data.callee),
             );
@@ -794,9 +800,7 @@ fn walkInstruction(
         .func => {
             const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
 
-            // TODO: change this to a resize and change the appends accordingly
             try self.ast_nodes.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
-            try self.types.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
             var param_type_refs = try std.ArrayListUnmanaged(DocData.TypeRef).initCapacity(
                 self.arena,
                 fn_info.total_params_len,
@@ -805,28 +809,39 @@ fn walkInstruction(
                 self.arena,
                 fn_info.total_params_len,
             );
+            // TODO: handle scope rules for fn parameters
             for (fn_info.param_body[0..fn_info.total_params_len]) |param_index| {
-                if (tags[param_index] != .param) unreachable; // TODO: handle more param types
-                const pl_tok = data[param_index].pl_tok;
-                const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
-                const doc_comment = if (extra.data.doc_comment != 0)
-                    file.zir.nullTerminatedString(extra.data.doc_comment)
-                else
-                    "";
+                switch (tags[param_index]) {
+                    else => {
+                        std.debug.panic(
+                            "TODO: handle `{s}` in walkInstruction.func\n",
+                            .{@tagName(tags[param_index])},
+                        );
+                    },
+                    .param, .param_comptime => {
+                        const pl_tok = data[param_index].pl_tok;
+                        const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
+                        const doc_comment = if (extra.data.doc_comment != 0)
+                            file.zir.nullTerminatedString(extra.data.doc_comment)
+                        else
+                            "";
 
-                param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
-                try self.ast_nodes.append(self.arena, .{
-                    .name = file.zir.nullTerminatedString(extra.data.name),
-                    .docs = doc_comment,
-                });
+                        param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
+                        self.ast_nodes.appendAssumeCapacity(.{
+                            .name = file.zir.nullTerminatedString(extra.data.name),
+                            .docs = doc_comment,
+                            .@"comptime" = tags[param_index] == .param_comptime,
+                        });
 
-                const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
-                const break_operand = data[break_index].@"break".operand;
-                const param_type_ref = try self.walkRef(file, parent_scope, break_operand);
+                        const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
+                        const break_operand = data[break_index].@"break".operand;
+                        const param_type_ref = try self.walkRef(file, parent_scope, break_operand);
 
-                param_type_refs.appendAssumeCapacity(
-                    DocData.TypeRef.fromWalkResult(param_type_ref),
-                );
+                        param_type_refs.appendAssumeCapacity(
+                            DocData.TypeRef.fromWalkResult(param_type_ref),
+                        );
+                    },
+                }
             }
 
             // ret
