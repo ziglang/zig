@@ -1,1 +1,1 @@
-export const foo = @typeInfo(@This()).Struct.decls;
+export const foo: c_int = @boolToInt(@typeInfo(@This()).Struct.is_tuple);

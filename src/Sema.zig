@@ -13831,13 +13831,11 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const src_ptr = try sema.coerce(block, wanted_src_ptr_ty, uncasted_src_ptr, src_src);
     const len = try sema.coerce(block, Type.usize, sema.resolveInst(extra.byte_count), len_src);
 
-    const maybe_dest_ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr);
-    const maybe_src_ptr_val = try sema.resolveDefinedValue(block, src_src, src_ptr);
-    const maybe_len_val = try sema.resolveDefinedValue(block, len_src, len);
-
-    const runtime_src = if (maybe_dest_ptr_val) |dest_ptr_val| rs: {
-        if (maybe_src_ptr_val) |src_ptr_val| {
-            if (maybe_len_val) |len_val| {
+    const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |dest_ptr_val| rs: {
+        if (!dest_ptr_val.isComptimeMutablePtr()) break :rs dest_src;
+        if (try sema.resolveDefinedValue(block, src_src, src_ptr)) |src_ptr_val| {
+            if (!src_ptr_val.isComptimeMutablePtr()) break :rs src_src;
+            if (try sema.resolveDefinedValue(block, len_src, len)) |len_val| {
                 _ = dest_ptr_val;
                 _ = src_ptr_val;
                 _ = len_val;
@@ -13876,11 +13874,9 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const value = try sema.coerce(block, elem_ty, sema.resolveInst(extra.byte), value_src);
     const len = try sema.coerce(block, Type.usize, sema.resolveInst(extra.byte_count), len_src);
 
-    const maybe_dest_ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr);
-    const maybe_len_val = try sema.resolveDefinedValue(block, len_src, len);
-
-    const runtime_src = if (maybe_dest_ptr_val) |ptr_val| rs: {
-        if (maybe_len_val) |len_val| {
+    const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {
+        if (!ptr_val.isComptimeMutablePtr()) break :rs dest_src;
+        if (try sema.resolveDefinedValue(block, len_src, len)) |len_val| {
             if (try sema.resolveMaybeUndefVal(block, value_src, value)) |val| {
                 _ = ptr_val;
                 _ = len_val;
