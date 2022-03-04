@@ -2663,7 +2663,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
 /// using a fixed executable directory path: "/zig"
 ///
 /// This path can be configured in wasmtime using `--mapdir=/zig::/path/to/zig/dir/`
-fn selfExePathWasi(out_buffer: []u8, exe_name: []const u8) SelfExePathError![]const u8 {
+fn selfExePathWasi(out_buffer: []u8, argv0: []const u8) SelfExePathError![]const u8 {
     var allocator = std.heap.FixedBufferAllocator.init(out_buffer);
     var alloc = allocator.allocator();
 
@@ -2671,22 +2671,25 @@ fn selfExePathWasi(out_buffer: []u8, exe_name: []const u8) SelfExePathError![]co
     //  1. "/zig/{exe_name}"
     //  2. "/zig/bin/{exe_name}"
     const base_paths_to_check = &[_][]const u8{ "/zig", "/zig/bin" };
+    const exe_names_to_check = &[_][]const u8{ path.basename(argv0), "zig.wasm" };
 
     for (base_paths_to_check) |base_path| {
-        const test_path = path.join(alloc, &.{ base_path, path.basename(exe_name) }) catch continue;
+        for (exe_names_to_check) |exe_name| {
+            const test_path = path.join(alloc, &.{ base_path, exe_name }) catch continue;
 
-        // Make sure it's a file we're pointing to
-        const file = os.fstatat(os.wasi.AT.FDCWD, test_path, 0) catch continue;
-        if (file.filetype != .REGULAR_FILE) continue;
+            // Make sure it's a file we're pointing to
+            const file = os.fstatat(os.wasi.AT.FDCWD, test_path, 0) catch continue;
+            if (file.filetype != .REGULAR_FILE) continue;
 
-        // Path seems to be valid, let's try to turn it into an absolute path
-        var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-        if (os.realpath(test_path, &real_path_buf)) |real_path| {
-            if (real_path.len > out_buffer.len)
-                return error.NameTooLong;
-            mem.copy(u8, out_buffer, real_path);
-            return out_buffer[0..real_path.len];
-        } else |_| continue;
+            // Path seems to be valid, let's try to turn it into an absolute path
+            var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+            if (os.realpath(test_path, &real_path_buf)) |real_path| {
+                if (real_path.len > out_buffer.len)
+                    return error.NameTooLong;
+                mem.copy(u8, out_buffer, real_path);
+                return out_buffer[0..real_path.len];
+            } else |_| continue;
+        }
     }
     return error.FileNotFound;
 }
