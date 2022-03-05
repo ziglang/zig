@@ -810,6 +810,21 @@ pub const Decl = struct {
         // as also alive, so that any Decl referenced does not get garbage collected.
         decl.val.markReferencedDeclsAlive();
     }
+
+    /// Two decls are considering equal if they were created in the same
+    /// scope from the exact same AST node.
+    pub fn eql(decl: *Decl, decl2: *Decl) bool {
+        // In most cases, the decls are pointer equivalent. Trivial.
+        if (decl == decl2) return true;
+
+        // In some cases, decls aren't pointer equiv but still equal.
+        // Example: &a == &a creates two decls, but are equal so long
+        // as its created in the same scope from the same node.
+        // TODO would be much better to intern decls rather than store
+        // duplicates and perform this comparison.
+        return decl.src_scope == decl2.src_scope and
+            decl.src_node == decl2.src_node;
+    }
 };
 
 /// This state is attached to every Decl when Module emit_h is non-null.

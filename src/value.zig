@@ -1788,8 +1788,8 @@ pub const Value = extern union {
         if (lhs.pointerDecl()) |lhs_decl| {
             if (rhs.pointerDecl()) |rhs_decl| {
                 switch (op) {
-                    .eq => return lhs_decl == rhs_decl,
-                    .neq => return lhs_decl != rhs_decl,
+                    .eq => return lhs_decl.eql(rhs_decl),
+                    .neq => return !lhs_decl.eql(rhs_decl),
                     else => {},
                 }
             } else {
@@ -1936,7 +1936,7 @@ pub const Value = extern union {
 
         if (a.pointerDecl()) |a_decl| {
             if (b.pointerDecl()) |b_decl| {
-                return a_decl == b_decl;
+                return a_decl.eql(b_decl);
             } else {
                 return false;
             }
