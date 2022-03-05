@@ -2178,6 +2178,34 @@ fn writeAllAtoms(self: *MachO) !void {
     }
 }
 
+fn writePadding(self: *MachO, match: MatchingSection, size: usize, writer: anytype) !void {
+    const is_code = match.seg == self.text_segment_cmd_index.? and match.sect == self.text_section_index.?;
+    const min_alignment: u3 = if (!is_code)
+        1
+    else switch (self.base.options.target.cpu.arch) {
+        .aarch64 => @sizeOf(u32),
+        .x86_64 => @as(u3, 1),
+        else => unreachable,
+    };
+
+    const len = @divExact(size, min_alignment);
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        if (!is_code) {
+            try writer.writeByte(0);
+        } else switch (self.base.options.target.cpu.arch) {
+            .aarch64 => {
+                const inst = aarch64.Instruction.nop();
+                try writer.writeIntLittle(u32, inst.toU32());
+            },
+            .x86_64 => {
+                try writer.writeByte(0x90);
+            },
+            else => unreachable,
+        }
+    }
+}
+
 fn writeAtoms(self: *MachO) !void {
     var buffer = std.ArrayList(u8).init(self.base.allocator);
     defer buffer.deinit();
@@ -2213,11 +2241,7 @@ fn writeAtoms(self: *MachO) !void {
                 try atom.resolveRelocs(self);
                 try buffer.appendSlice(atom.code.items);
                 try buffer.ensureUnusedCapacity(padding_size);
-
-                var i: usize = 0;
-                while (i < padding_size) : (i += 1) {
-                    buffer.appendAssumeCapacity(0);
-                }
+                try self.writePadding(match, padding_size, buffer.writer());
 
                 if (file_offset == null) {
                     file_offset = sect.offset + atom_sym.n_value - sect.addr;
