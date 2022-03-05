@@ -17,6 +17,7 @@ const fmt_lib = std.fmt;
 const File = std.fs.File;
 const CrossTarget = std.zig.CrossTarget;
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
+const Sha256 = std.crypto.hash.sha2.Sha256;
 
 pub const FmtStep = @import("build/FmtStep.zig");
 pub const TranslateCStep = @import("build/TranslateCStep.zig");
@@ -2891,6 +2892,41 @@ pub const LibExeObjStep = struct {
         }
 
         try zig_args.append("--enable-cache");
+
+        // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
+        // 2,097,152. If our args exceed 30 KiB, we instead write them to a "response file" and
+        // pass that to zig, e.g. via 'zig build-lib @args.rsp'
+        var args_length: usize = 0;
+        for (zig_args.items) |arg| {
+            args_length += arg.len + 1; // +1 to account for null terminator
+        }
+        if (args_length >= 30 * 1024) {
+            const args_dir = try fs.path.join(
+                builder.allocator,
+                &[_][]const u8{ builder.pathFromRoot("zig-cache"), "args" },
+            );
+            try std.fs.cwd().makePath(args_dir);
+
+            // Write the args to zig-cache/args/<SHA256 hash of args> to avoid conflicts with
+            // other zig build commands running in parallel.
+            const partially_quoted = try std.mem.join(builder.allocator, "\" \"", zig_args.items[2..]);
+            const args = try std.mem.concat(builder.allocator, u8, &[_][]const u8{ "\"", partially_quoted, "\"" });
+
+            var args_hash: [Sha256.digest_length]u8 = undefined;
+            Sha256.hash(args, &args_hash, .{});
+            var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
+            _ = try std.fmt.bufPrint(
+                &args_hex_hash,
+                "{s}",
+                .{std.fmt.fmtSliceHexLower(&args_hash)},
+            );
+
+            const args_file = try fs.path.join(builder.allocator, &[_][]const u8{ args_dir, args_hex_hash[0..] });
+            try std.fs.cwd().writeFile(args_file, args);
+
+            zig_args.shrinkRetainingCapacity(2);
+            try zig_args.append(try std.mem.concat(builder.allocator, u8, &[_][]const u8{ "@", args_file }));
+        }
 
         const output_dir_nl = try builder.execFromStep(zig_args.items, &self.step);
         const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
