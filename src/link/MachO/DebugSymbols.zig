@@ -78,16 +78,15 @@ debug_aranges_section_dirty: bool = false,
 debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
-const abbrev_compile_unit = 1;
-const abbrev_subprogram = 2;
-const abbrev_subprogram_retvoid = 3;
-const abbrev_base_type = 4;
-const abbrev_ptr_type = 5;
-const abbrev_struct_type = 6;
-const abbrev_anon_struct_type = 7;
-const abbrev_struct_member = 8;
-const abbrev_pad1 = 9;
-const abbrev_parameter = 10;
+pub const abbrev_compile_unit = 1;
+pub const abbrev_subprogram = 2;
+pub const abbrev_subprogram_retvoid = 3;
+pub const abbrev_base_type = 4;
+pub const abbrev_ptr_type = 5;
+pub const abbrev_struct_type = 6;
+pub const abbrev_struct_member = 7;
+pub const abbrev_pad1 = 8;
+pub const abbrev_parameter = 9;
 
 /// The reloc offset for the virtual address of a function in its Line Number Program.
 /// Size is a virtual address integer.
@@ -351,13 +350,6 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
             DW.FORM.sdata,
             DW.AT.name,
             DW.FORM.string,
-            0,
-            0, // table sentinel
-            abbrev_anon_struct_type,
-            DW.TAG.structure_type,
-            DW.CHILDREN.yes, // header
-            DW.AT.byte_size,
-            DW.FORM.sdata,
             0,
             0, // table sentinel
             abbrev_struct_member,

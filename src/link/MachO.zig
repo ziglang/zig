@@ -27,7 +27,6 @@ const Atom = @import("MachO/Atom.zig");
 const Cache = @import("../Cache.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
-const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const File = link.File;
 const Object = @import("MachO/Object.zig");
@@ -43,6 +42,7 @@ const TypedValue = @import("../TypedValue.zig");
 const Value = @import("../value.zig").Value;
 
 pub const TextBlock = Atom;
+pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 

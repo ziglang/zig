@@ -1019,7 +1019,14 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, max_stack: u32
             switch (emit.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_info.ensureUnusedCapacity(3);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+
+                    // TODO this will go away once we pull DWARF into a cross-platform module.
+                    if (emit.bin_file.cast(link.File.MachO)) |_| {
+                        dbg_out.dbg_info.appendAssumeCapacity(link.File.MachO.DebugSymbols.abbrev_parameter);
+                    } else if (emit.bin_file.cast(link.File.Elf)) |_| {
+                        dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+                    } else return emit.fail("TODO DWARF in non-MachO and non-ELF backend", .{});
+
                     dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // ULEB128 dwarf expression length
                         reg.dwarfLocOp(),
@@ -1042,7 +1049,14 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, max_stack: u32
                     // for example when -fomit-frame-pointer is set.
                     const disp = @intCast(i32, max_stack) - off + 16;
                     try dbg_out.dbg_info.ensureUnusedCapacity(8);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+
+                    // TODO this will go away once we pull DWARF into a cross-platform module.
+                    if (emit.bin_file.cast(link.File.MachO)) |_| {
+                        dbg_out.dbg_info.appendAssumeCapacity(link.File.MachO.DebugSymbols.abbrev_parameter);
+                    } else if (emit.bin_file.cast(link.File.Elf)) |_| {
+                        dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+                    } else return emit.fail("TODO DWARF in non-MachO and non-ELF backend", .{});
+
                     const fixup = dbg_out.dbg_info.items.len;
                     dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // we will backpatch it after we encode the displacement in LEB128
