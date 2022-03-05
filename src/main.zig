@@ -799,9 +799,9 @@ fn buildOutputType(
                         return cleanExit();
                     } else if (mem.eql(u8, arg, "--")) {
                         if (arg_mode == .run) {
-                            // The index refers to all_args so skip `zig` `run`
-                            // and `--`
-                            runtime_args_start = args_iter.i + 3;
+                            // args_iter.i is 1, referring the next arg after "--" in ["--", ...]
+                            // Add +2 to the index so it is relative to all_args
+                            runtime_args_start = args_iter.i + 2;
                             break :args_loop;
                         } else {
                             fatal("unexpected end-of-parameter mark: --", .{});
