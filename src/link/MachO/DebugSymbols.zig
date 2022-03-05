@@ -1126,18 +1126,6 @@ pub fn commitDeclDebugInfo(
                 mem.writeIntLittle(u32, ptr, @intCast(u32, text_block.size));
             }
 
-            {
-                // Advance line and PC.
-                // TODO encapsulate logic in a helper function.
-                try dbg_line_buffer.append(DW.LNS.advance_pc);
-                try leb.writeULEB128(dbg_line_buffer.writer(), text_block.size);
-
-                try dbg_line_buffer.append(DW.LNS.advance_line);
-                const func = decl.val.castTag(.function).?.data;
-                const line_off = @intCast(u28, func.rbrace_line - func.lbrace_line);
-                try leb.writeULEB128(dbg_line_buffer.writer(), line_off);
-            }
-
             try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS.extended_op, 1, DW.LNE.end_sequence });
 
             // Now we have the full contents and may allocate a region to store it.
