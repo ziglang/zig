@@ -8664,7 +8664,7 @@ fn func() void {
       {#header_close#}
 
       {#header_open|@frameSize#}
-      <pre>{#syntax#}@frameSize() usize{#endsyntax#}</pre>
+      <pre>{#syntax#}@frameSize(func: anytype) usize{#endsyntax#}</pre>
       <p>
       This is the same as {#syntax#}@sizeOf(@Frame(func)){#endsyntax#}, where {#syntax#}func{#endsyntax#}
       may be runtime-known.
