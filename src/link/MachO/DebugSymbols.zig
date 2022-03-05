@@ -1332,8 +1332,43 @@ fn addDbgInfoType(
                 // DW.AT.name,  DW.FORM.string
                 try dbg_info_buffer.writer().print("{}\x00", .{ty});
             } else {
-                log.debug("TODO implement .debug_info for type '{}'", .{ty});
-                try dbg_info_buffer.append(abbrev_pad1);
+                // Non-pointer optionals are structs: struct { .maybe = *, .val = * }
+                var buf = try arena.create(Type.Payload.ElemType);
+                const payload_ty = ty.optionalChild(buf);
+                // DW.AT.structure_type
+                try dbg_info_buffer.append(abbrev_struct_type);
+                // DW.AT.byte_size, DW.FORM.sdata
+                const abi_size = ty.abiSize(target);
+                try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+                // DW.AT.name, DW.FORM.string
+                try dbg_info_buffer.writer().print("{}\x00", .{ty});
+                // DW.AT.member
+                try dbg_info_buffer.ensureUnusedCapacity(7);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("maybe");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                var index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = Type.bool, .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                try dbg_info_buffer.ensureUnusedCapacity(6);
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.member
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("val");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = payload_ty, .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                const offset = abi_size - payload_ty.abiSize(target);
+                try leb128.writeULEB128(dbg_info_buffer.writer(), offset);
+                // DW.AT.structure_type delimit children
+                try dbg_info_buffer.append(0);
             }
         },
         .Pointer => {
