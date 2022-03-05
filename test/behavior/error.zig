@@ -6,16 +6,12 @@ const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 test "error values" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const a = @errorToInt(error.err1);
     const b = @errorToInt(error.err2);
     try expect(a != b);
 }
 
 test "redefinition of error values allowed" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     shouldBeNotEqual(error.AnError, error.SecondError);
 }
 fn shouldBeNotEqual(a: anyerror, b: anyerror) void {
@@ -36,8 +32,6 @@ fn errBinaryOperatorG(x: bool) anyerror!isize {
 }
 
 test "empty error union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const x = error{} || error{};
     _ = x;
 }
@@ -91,8 +85,6 @@ fn makeANonErr() anyerror!i32 {
 }
 
 test "syntax: optional operator in front of error union operator" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     comptime {
         try expect(?(anyerror!i32) == ?(anyerror!i32));
     }
@@ -147,8 +139,6 @@ test "implicit cast to optional to error union to return result loc" {
 }
 
 test "error: fn returning empty error set can be passed as fn returning any error" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     entry();
     comptime entry();
 }
@@ -165,7 +155,6 @@ fn foo2(f: fn () anyerror!void) void {
 fn bar2() (error{}!void) {}
 
 test "error union type " {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
@@ -182,7 +171,6 @@ fn testErrorUnionType() !void {
 }
 
 test "error set type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
@@ -209,7 +197,6 @@ fn testErrorSetType() !void {
 }
 
 test "explicit error set cast" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO

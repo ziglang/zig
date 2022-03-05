@@ -11,8 +11,6 @@ const C = struct {
 };
 
 test "basic usingnamespace" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     try std.testing.expect(C.B == bool);
 }
 
@@ -23,8 +21,6 @@ fn Foo(comptime T: type) type {
 }
 
 test "usingnamespace inside a generic struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const std2 = Foo(std);
     const testing2 = Foo(std.testing);
     try std2.testing.expect(true);
@@ -36,8 +32,6 @@ usingnamespace struct {
 };
 
 test "usingnamespace does not redeclare an imported variable" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     comptime try std.testing.expect(@This().foo == 42);
 }
 
@@ -54,8 +48,6 @@ fn privateFunction() bool {
 }
 
 test {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     _ = @import("usingnamespace/import_segregation.zig");
 }
 

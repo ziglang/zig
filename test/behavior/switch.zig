@@ -190,8 +190,6 @@ test "switch with disjoint range" {
 }
 
 test "switch variable for range and multiple prongs" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             var u: u8 = 16;
@@ -357,8 +355,6 @@ fn returnsFalse() bool {
     }
 }
 test "switch on const enum with var" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     try expect(!returnsFalse());
 }
 
