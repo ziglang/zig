@@ -1373,13 +1373,16 @@ fn addDbgInfoType(
         },
         .Pointer => {
             if (ty.isSlice()) {
-                // Slices are anonymous structs: struct { .ptr = *, .len = N }
-                try dbg_info_buffer.ensureUnusedCapacity(23);
+                // Slices are structs: struct { .ptr = *, .len = N }
                 // DW.AT.structure_type
-                dbg_info_buffer.appendAssumeCapacity(abbrev_anon_struct_type);
+                try dbg_info_buffer.ensureUnusedCapacity(2);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_type);
                 // DW.AT.byte_size, DW.FORM.sdata
-                dbg_info_buffer.appendAssumeCapacity(16);
+                dbg_info_buffer.appendAssumeCapacity(@sizeOf(usize) * 2);
+                // DW.AT.name, DW.FORM.string
+                try dbg_info_buffer.writer().print("{}\x00", .{ty});
                 // DW.AT.member
+                try dbg_info_buffer.ensureUnusedCapacity(5);
                 dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
                 // DW.AT.name, DW.FORM.string
                 dbg_info_buffer.appendSliceAssumeCapacity("ptr");
@@ -1391,6 +1394,7 @@ fn addDbgInfoType(
                 const ptr_ty = ty.slicePtrFieldType(buf);
                 try relocs.append(.{ .ty = ptr_ty, .reloc = @intCast(u32, index) });
                 // DW.AT.data_member_location, DW.FORM.sdata
+                try dbg_info_buffer.ensureUnusedCapacity(6);
                 dbg_info_buffer.appendAssumeCapacity(0);
                 // DW.AT.member
                 dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
@@ -1402,7 +1406,8 @@ fn addDbgInfoType(
                 try dbg_info_buffer.resize(index + 4);
                 try relocs.append(.{ .ty = Type.initTag(.usize), .reloc = @intCast(u32, index) });
                 // DW.AT.data_member_location, DW.FORM.sdata
-                dbg_info_buffer.appendAssumeCapacity(8);
+                try dbg_info_buffer.ensureUnusedCapacity(2);
+                dbg_info_buffer.appendAssumeCapacity(@sizeOf(usize));
                 // DW.AT.structure_type delimit children
                 dbg_info_buffer.appendAssumeCapacity(0);
             } else {
