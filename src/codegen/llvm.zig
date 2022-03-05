@@ -708,6 +708,14 @@ pub const DeclGen = struct {
         if (!is_extern) {
             llvm_fn.setLinkage(.Internal);
             llvm_fn.setUnnamedAddr(.True);
+        } else if (dg.module.getTarget().isWasm()) {
+            dg.addFnAttrString(llvm_fn, "wasm-import-name", std.mem.sliceTo(decl.name, 0));
+            if (decl.getExternFn().?.lib_name) |lib_name| {
+                const module_name = std.mem.sliceTo(lib_name, 0);
+                if (!std.mem.eql(u8, module_name, "c")) {
+                    dg.addFnAttrString(llvm_fn, "wasm-import-module", module_name);
+                }
+            }
         }
 
         if (sret) {
@@ -3483,7 +3491,7 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const index = pl_op.payload;
         const llvm_u32 = self.context.intType(32);
-        const llvm_fn = self.getIntrinsic("llvm.wasm.memory.size.i32", &.{llvm_u32});
+        const llvm_fn = self.getIntrinsic("llvm.wasm.memory.size", &.{llvm_u32});
         const args: [1]*const llvm.Value = .{llvm_u32.constInt(index, .False)};
         return self.builder.buildCall(llvm_fn, &args, args.len, .Fast, .Auto, "");
     }
@@ -3493,7 +3501,7 @@ pub const FuncGen = struct {
         const index = pl_op.payload;
         const operand = try self.resolveInst(pl_op.operand);
         const llvm_u32 = self.context.intType(32);
-        const llvm_fn = self.getIntrinsic("llvm.wasm.memory.grow.i32", &.{ llvm_u32, llvm_u32 });
+        const llvm_fn = self.getIntrinsic("llvm.wasm.memory.grow", &.{llvm_u32});
         const args: [2]*const llvm.Value = .{
             llvm_u32.constInt(index, .False),
             operand,

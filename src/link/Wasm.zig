@@ -466,6 +466,7 @@ pub fn deinit(self: *Wasm) void {
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
+    if (self.llvm_object) |_| return;
     if (decl.link.wasm.sym_index != 0) return;
 
     try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
@@ -1365,9 +1366,14 @@ pub fn flush(self: *Wasm, comp: *Compilation) !void {
 }
 
 pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
-    _ = comp;
     const tracy = trace(@src());
     defer tracy.end();
+
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| {
+            return try llvm_object.flushModule(comp);
+        }
+    }
 
     // The amount of sections that will be written
     var section_count: u32 = 0;
