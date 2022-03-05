@@ -23,9 +23,7 @@ fn processArgs() void {
 }
 
 pub fn main() void {
-    if (builtin.zig_backend != .stage1 and
-        builtin.zig_backend != .stage2_llvm)
-    {
+    if (builtin.zig_backend != .stage1) {
         return main2() catch @panic("test failure");
     }
     if (builtin.zig_backend == .stage1) processArgs();
@@ -144,7 +142,8 @@ pub fn main2() anyerror!void {
         };
     }
     if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_x86_64)
+        builtin.zig_backend == .stage2_x86_64 or
+        builtin.zig_backend == .stage2_llvm)
     {
         const passed = builtin.test_functions.len - skipped - failed;
         const stderr = std.io.getStdErr();

@@ -1340,8 +1340,18 @@ fn arrayInitExpr(
                 return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, elem_type, .array_init);
             }
         },
-        .ptr, .inferred_ptr => |ptr_inst| {
+        .ptr => |ptr_inst| {
             return arrayInitExprRlPtr(gz, scope, rl, node, ptr_inst, array_init.ast.elements, types.array);
+        },
+        .inferred_ptr => |ptr_inst| {
+            if (types.array == .none) {
+                // We treat this case differently so that we don't get a crash when
+                // analyzing array_base_ptr against an alloc_inferred_mut.
+                const result = try arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
+                return rvalue(gz, rl, result, node);
+            } else {
+                return arrayInitExprRlPtr(gz, scope, rl, node, ptr_inst, array_init.ast.elements, types.array);
+            }
         },
         .block_ptr => |block_gz| {
             return arrayInitExprRlPtr(gz, scope, rl, node, block_gz.rl_ptr, array_init.ast.elements, types.array);

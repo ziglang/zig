@@ -16458,11 +16458,13 @@ fn storePtr2(
     // To generate better code for tuples, we detect a tuple operand here, and
     // analyze field loads and stores directly. This avoids an extra allocation + memcpy
     // which would occur if we used `coerce`.
+    // However, we avoid this mechanism if the destination element type is
+    // the same tuple as the source, because the regular store will be better for this case.
     const operand_ty = sema.typeOf(uncasted_operand);
-    if (operand_ty.castTag(.tuple)) |payload| {
-        const tuple_fields_len = payload.data.types.len;
-        var i: u32 = 0;
-        while (i < tuple_fields_len) : (i += 1) {
+    if (operand_ty.isTuple() and !elem_ty.eql(operand_ty)) {
+        const tuple = operand_ty.tupleFields();
+        for (tuple.types) |_, i_usize| {
+            const i = @intCast(u32, i_usize);
             const elem_src = operand_src; // TODO better source location
             const elem = try tupleField(sema, block, uncasted_operand, i, operand_src, elem_src);
             const elem_index = try sema.addIntUnsigned(Type.usize, i);

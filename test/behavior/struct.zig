@@ -976,12 +976,13 @@ test "fully anonymous list literal" {
 }
 
 test "tuple assigned to variable" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var vec = .{ @as(i32, 22), @as(i32, 55), @as(i32, 99) };
     try expect(vec.@"0" == 22);
     try expect(vec.@"1" == 55);
     try expect(vec.@"2" == 99);
+    try expect(vec[0] == 22);
+    try expect(vec[1] == 55);
+    try expect(vec[2] == 99);
 }
 
 test "comptime struct field" {
