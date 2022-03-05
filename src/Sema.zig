@@ -19939,6 +19939,7 @@ fn typePtrOrOptionalPtrTy(
         .many_mut_pointer,
         .manyptr_u8,
         .manyptr_const_u8,
+        .manyptr_const_u8_sentinel_0,
         => return ty,
 
         .pointer => switch (ty.ptrSize()) {
