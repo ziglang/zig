@@ -25,10 +25,26 @@ pub const PreopenType = union(PreopenTypeTag) {
     const Self = @This();
 
     pub fn eql(self: Self, other: PreopenType) bool {
-        if (!mem.eql(u8, @tagName(self), @tagName(other))) return false;
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
 
         switch (self) {
             PreopenTypeTag.Dir => |this_path| return mem.eql(u8, this_path, other.Dir),
+        }
+    }
+
+    // Checks whether `other` refers to a subdirectory of `self` and, if so,
+    // returns the relative path to `other` from `self`
+    pub fn getRelativePath(self: Self, other: PreopenType) ?[]const u8 {
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return null;
+
+        switch (self) {
+            PreopenTypeTag.Dir => |this_path| {
+                const other_path = other.Dir;
+                if (mem.indexOfDiff(u8, this_path, other_path)) |index| {
+                    if (index < this_path.len) return null;
+                }
+                return other_path[this_path.len..];
+            },
         }
     }
 
@@ -60,6 +76,15 @@ pub const Preopen = struct {
             .@"type" = preopen_type,
         };
     }
+};
+
+/// WASI resource identifier struct. This is effectively a path within
+/// a WASI Preopen.
+pub const PreopenUri = struct {
+    /// WASI Preopen containing the resource.
+    base: Preopen,
+    /// Path to resource within `base`.
+    relative_path: []const u8,
 };
 
 /// Dynamically-sized array list of WASI preopens. This struct is a
@@ -137,10 +162,47 @@ pub const PreopenList = struct {
                 .SUCCESS => {},
                 else => |err| return os.unexpectedErrno(err),
             }
+
             const preopen = Preopen.new(fd, PreopenType{ .Dir = path_buf });
             try self.buffer.append(preopen);
             fd = try math.add(fd_t, fd, 1);
         }
+    }
+
+    /// Find a preopen which includes access to `preopen_type`.
+    ///
+    /// If the preopen exists, `relative_path` is updated to point to the relative
+    /// portion of `preopen_type` and the matching Preopen is returned. If multiple
+    /// preopens match the provided resource, the most recent one is used.
+    pub fn findContaining(self: Self, preopen_type: PreopenType) ?PreopenUri {
+        // Search in reverse, so that most recently added preopens take precedence
+        var k: usize = self.buffer.items.len;
+        while (k > 0) {
+            k -= 1;
+
+            const preopen = self.buffer.items[k];
+            if (preopen.@"type".getRelativePath(preopen_type)) |rel_path_orig| {
+                var rel_path = rel_path_orig;
+                while (rel_path.len > 0 and rel_path[0] == '/') rel_path = rel_path[1..];
+
+                return PreopenUri{
+                    .base = preopen,
+                    .relative_path = if (rel_path.len == 0) "." else rel_path,
+                };
+            }
+        }
+        return null;
+    }
+
+    /// Find preopen by fd. If the preopen exists, return it.
+    /// Otherwise, return `null`.
+    pub fn findByFd(self: Self, fd: fd_t) ?Preopen {
+        for (self.buffer.items) |preopen| {
+            if (preopen.fd == fd) {
+                return preopen;
+            }
+        }
+        return null;
     }
 
     /// Find preopen by type. If the preopen exists, return it.
@@ -173,8 +235,6 @@ test "extracting WASI preopens" {
 
     try preopens.populate();
 
-    try std.testing.expectEqual(@as(usize, 1), preopens.asSlice().len);
     const preopen = preopens.find(PreopenType{ .Dir = "." }) orelse unreachable;
     try std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "." }));
-    try std.testing.expectEqual(@as(i32, 3), preopen.fd);
 }
