@@ -1318,13 +1318,14 @@ pub const DeclGen = struct {
         if (decl.link.wasm.sym_index == 0) {
             try writer.writeIntLittle(u32, 0);
         } else {
-            try writer.writeIntLittle(u32, try self.bin_file.getDeclVAddr(
-                self.decl, // parent decl that owns the atom of the symbol
-                self.symbol_index, // source symbol index
-                decl, // target decl that contains the target symbol
-                @intCast(u32, self.code.items.len), // offset
-                @intCast(u32, offset), // addend
-            ));
+            try writer.writeIntLittle(u32, @intCast(u32, try self.bin_file.getDeclVAddr(
+                decl,
+                .{
+                    .parent_atom_index = self.symbol_index,
+                    .offset = self.code.items.len,
+                    .addend = @intCast(u32, offset),
+                },
+            )));
         }
         return Result{ .appended = {} };
     }
@@ -1809,8 +1810,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
         if (func_val.castTag(.function)) |func| {
             break :blk func.data.owner_decl;
-        } else if (func_val.castTag(.extern_fn)) |ext_fn| {
-            break :blk ext_fn.data.owner_decl;
+        } else if (func_val.castTag(.extern_fn)) |extern_fn| {
+            const ext_decl = extern_fn.data.owner_decl;
+            var func_type = try genFunctype(self.gpa, ext_decl.ty, self.target);
+            defer func_type.deinit(self.gpa);
+            ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
+            break :blk ext_decl;
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {
             break :blk decl_ref.data;
         }
