@@ -984,7 +984,6 @@ test "peer type resolve array pointers, one of them const" {
 test "peer type resolve array pointer and unknown pointer" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
@@ -1255,7 +1254,6 @@ test "assignment to optional pointer result loc" {
 }
 
 test "cast between *[N]void and []void" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var a: [4]void = undefined;

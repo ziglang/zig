@@ -218,8 +218,6 @@ test "compile time slice of pointer to hard coded address" {
 }
 
 test "slice string literal has correct type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     comptime {
         try expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
         const array = [_]i32{ 1, 2, 3, 4 };

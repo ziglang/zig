@@ -818,9 +818,7 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
 
     if (reg_ok) {
         // Make sure the type can fit in a register before we try to allocate one.
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-        if (abi_size <= ptr_bytes) {
+        if (abi_size <= 8) {
             if (self.register_manager.tryAllocReg(inst)) |reg| {
                 return MCValue{ .register = registerAlias(reg, abi_size) };
             }
@@ -1038,7 +1036,20 @@ fn airMax(self: *Self, inst: Air.Inst.Index) !void {
 fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr = try self.resolveInst(bin_op.lhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const len = try self.resolveInst(bin_op.rhs);
+        const len_ty = self.air.typeOf(bin_op.rhs);
+
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes = @divExact(ptr_bits, 8);
+
+        const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
+        try self.genSetStack(ptr_ty, stack_offset + ptr_bytes, ptr);
+        try self.genSetStack(len_ty, stack_offset, len);
+        break :result MCValue{ .stack_offset = stack_offset };
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1602,22 +1613,39 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes = @divExact(ptr_bits, 8);
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach, .none => unreachable,
+            .register => unreachable, // a slice doesn't fit in one register
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off + ptr_bytes };
+            },
+            .memory => |addr| {
+                break :result MCValue{ .memory = addr };
+            },
+            else => return self.fail("TODO implement slice_len for {}", .{mcv}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes = @divExact(ptr_bits, 8);
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
-            .dead, .unreach => unreachable,
+            .dead, .unreach, .none => unreachable,
             .register => unreachable, // a slice doesn't fit in one register
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off };
             },
             .memory => |addr| {
-                break :result MCValue{ .memory = addr + 8 };
+                break :result MCValue{ .memory = addr + ptr_bytes };
             },
             else => return self.fail("TODO implement slice_len for {}", .{mcv}),
         }
@@ -1627,13 +1655,33 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_slice_len_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes = @divExact(ptr_bits, 8);
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach, .none => unreachable,
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off + ptr_bytes };
+            },
+            else => return self.fail("TODO implement ptr_slice_len_ptr for {}", .{mcv}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_slice_ptr_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach, .none => unreachable,
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off };
+            },
+            else => return self.fail("TODO implement ptr_slice_len_ptr for {}", .{mcv}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -3475,9 +3523,20 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airArrayToSlice for {}", .{
-        self.target.cpu.arch,
-    });
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_ty = self.air.typeOf(ty_op.operand);
+        const ptr = try self.resolveInst(ty_op.operand);
+        const array_ty = ptr_ty.childType();
+        const array_len = @intCast(u32, array_ty.arrayLen());
+
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes = @divExact(ptr_bits, 8);
+
+        const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
+        try self.genSetStack(ptr_ty, stack_offset + ptr_bytes, ptr);
+        try self.genSetStack(Type.initTag(.usize), stack_offset, .{ .immediate = array_len });
+        break :result MCValue{ .stack_offset = stack_offset };
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 

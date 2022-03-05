@@ -247,8 +247,6 @@ fn returnTrue() bool {
 }
 
 test "return with implicit cast from while loop" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     returnWithImplicitCastFromWhileLoopTest() catch unreachable;
 }
 fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {

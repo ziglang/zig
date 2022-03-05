@@ -125,8 +125,6 @@ fn baz(x: ?Empty) ?Empty {
 }
 
 test "null with default unwrap" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const x: i32 = null orelse 1;
     try expect(x == 1);
 }

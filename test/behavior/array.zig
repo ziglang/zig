@@ -142,8 +142,6 @@ test "array with sentinels" {
 }
 
 test "void arrays" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
