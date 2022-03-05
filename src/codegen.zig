@@ -639,7 +639,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Optional => {
-            // TODO generate debug info for optionals
             var opt_buf: Type.Payload.ElemType = undefined;
             const payload_type = typed_value.ty.optionalChild(&opt_buf);
             const is_pl = !typed_value.val.isNull();
