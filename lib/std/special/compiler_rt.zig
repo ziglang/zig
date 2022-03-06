@@ -763,10 +763,14 @@ comptime {
     @export(fma, .{ .name = "fma", .linkage = linkage });
     @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
     @export(fmal, .{ .name = "fmal", .linkage = linkage });
-    if (!long_double_is_f80) {
+    if (long_double_is_f80) {
+        @export(fmal, .{ .name = "__fmax", .linkage = linkage });
+    } else {
         @export(__fmax, .{ .name = "__fmax", .linkage = linkage });
     }
-    if (!long_double_is_f128) {
+    if (long_double_is_f128) {
+        @export(fmal, .{ .name = "fmaq", .linkage = linkage });
+    } else {
         @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
     }
 }
