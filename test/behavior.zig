@@ -110,7 +110,16 @@ test {
         builtin.zig_backend != .stage2_wasm)
     {
         // Tests that pass for stage1, llvm backend, C backend
+        _ = @import("behavior/bugs/421.zig");
+        _ = @import("behavior/bugs/726.zig");
+        _ = @import("behavior/bugs/828.zig");
+        _ = @import("behavior/bugs/1421.zig");
+        _ = @import("behavior/bugs/1607.zig");
+        _ = @import("behavior/bugs/3384.zig");
+        _ = @import("behavior/bugs/5398.zig");
+        _ = @import("behavior/bugs/5413.zig");
         _ = @import("behavior/bugs/5474.zig");
+        _ = @import("behavior/bugs/7003.zig");
         _ = @import("behavior/bugs/9584.zig");
         _ = @import("behavior/bugs/10970.zig");
         _ = @import("behavior/cast_int.zig");
@@ -127,19 +136,10 @@ test {
             _ = @import("behavior/saturating_arithmetic.zig");
             _ = @import("behavior/sizeof_and_typeof.zig");
             _ = @import("behavior/widening.zig");
-            _ = @import("behavior/bugs/421.zig");
-            _ = @import("behavior/bugs/726.zig");
-            _ = @import("behavior/bugs/828.zig");
-            _ = @import("behavior/bugs/1421.zig");
             _ = @import("behavior/bugs/1442.zig");
-            _ = @import("behavior/bugs/1607.zig");
             _ = @import("behavior/bugs/2114.zig");
-            _ = @import("behavior/bugs/3384.zig");
             _ = @import("behavior/bugs/3742.zig");
-            _ = @import("behavior/bugs/5398.zig");
-            _ = @import("behavior/bugs/5413.zig");
             _ = @import("behavior/bugs/5487.zig");
-            _ = @import("behavior/bugs/7003.zig");
             _ = @import("behavior/struct_contains_null_ptr_itself.zig");
             _ = @import("behavior/switch_prong_err_enum.zig");
             _ = @import("behavior/switch_prong_implicit_cast.zig");
