@@ -503,7 +503,7 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
     const decl = func.owner_decl;
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
-    decl.link.wasm.clear();
+    decl.link.wasm.clear(self.base.allocator);
 
     var codegen_: CodeGen = .{
         .gpa = self.base.allocator,
@@ -544,7 +544,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
-    decl.link.wasm.clear();
+    decl.link.wasm.clear(self.base.allocator);
 
     if (decl.isExtern()) {
         return self.addOrUpdateImport(decl);
@@ -607,7 +607,9 @@ pub fn lowerUnnamedConst(self: *Wasm, decl: *Module.Decl, tv: TypedValue) !u32 {
 
     // Create and initialize a new local symbol and atom
     const local_index = decl.link.wasm.locals.items.len;
-    const name = try std.fmt.allocPrintZ(self.base.allocator, "__unnamed_{s}_{d}", .{ decl.name, local_index });
+    const fqdn = try decl.getFullyQualifiedName(self.base.allocator);
+    defer self.base.allocator.free(fqdn);
+    const name = try std.fmt.allocPrintZ(self.base.allocator, "__unnamed_{s}_{d}", .{ fqdn, local_index });
     defer self.base.allocator.free(name);
     var symbol: Symbol = .{
         .name = try self.string_table.put(self.base.allocator, name),
@@ -636,27 +638,25 @@ pub fn lowerUnnamedConst(self: *Wasm, decl: *Module.Decl, tv: TypedValue) !u32 {
     defer value_bytes.deinit();
 
     const module = self.base.options.module.?;
-    var decl_gen: CodeGen.DeclGen = .{
-        .bin_file = self,
-        .decl = decl,
-        .err_msg = undefined,
-        .gpa = self.base.allocator,
-        .module = module,
-        .code = &value_bytes,
-        .symbol_index = atom.sym_index,
-    };
-
-    const result = decl_gen.genTypedValue(tv.ty, tv.val) catch |err| switch (err) {
-        error.CodegenFail => {
+    const result = try codegen.generateSymbol(
+        &self.base,
+        decl.srcLoc(),
+        tv,
+        &value_bytes,
+        .none,
+        .{
+            .parent_atom_index = atom.sym_index,
+            .addend = null,
+        },
+    );
+    const code = switch (result) {
+        .externally_managed => |x| x,
+        .appended => value_bytes.items,
+        .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, decl_gen.err_msg);
+            try module.failed_decls.put(module.gpa, decl, em);
             return error.AnalysisFail;
         },
-        else => |e| return e,
-    };
-    const code = switch (result) {
-        .appended => value_bytes.items,
-        .externally_managed => |data| data,
     };
 
     atom.size = @intCast(u32, code.len);
@@ -989,6 +989,7 @@ fn allocateAtoms(self: *Wasm) !void {
                 atom.size,
             });
             offset += atom.size;
+            self.symbol_atom.putAssumeCapacity(atom.symbolLoc(), atom); // Update atom pointers
             atom = atom.next orelse break;
         }
     }
