@@ -1714,9 +1714,55 @@ pub const Target = struct {
         };
     }
 
-    pub inline fn longDoubleIsF128(target: Target) bool {
-        return switch (target.cpu.arch) {
-            .riscv64, .aarch64, .aarch64_be, .aarch64_32, .s390x, .mips64, .mips64el => true,
+    pub inline fn longDoubleIs(target: Target, comptime F: type) bool {
+        if (target.abi == .msvc) {
+            return F == f64;
+        }
+        return switch (F) {
+            f128 => switch (target.cpu.arch) {
+                .riscv64,
+                .aarch64,
+                .aarch64_be,
+                .aarch64_32,
+                .s390x,
+                .mips64,
+                .mips64el,
+                .sparc,
+                .sparcv9,
+                .sparcel,
+                .powerpc,
+                .powerpcle,
+                .powerpc64,
+                .powerpc64le,
+                => true,
+
+                else => false,
+            },
+            f80 => switch (target.cpu.arch) {
+                .x86_64, .i386 => true,
+                else => false,
+            },
+            f64 => switch (target.cpu.arch) {
+                .x86_64,
+                .i386,
+                .riscv64,
+                .aarch64,
+                .aarch64_be,
+                .aarch64_32,
+                .s390x,
+                .mips64,
+                .mips64el,
+                .sparc,
+                .sparcv9,
+                .sparcel,
+                .powerpc,
+                .powerpcle,
+                .powerpc64,
+                .powerpc64le,
+                => false,
+
+                else => true,
+            },
             else => false,
         };
     }

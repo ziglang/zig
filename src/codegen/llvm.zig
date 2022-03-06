@@ -18,6 +18,7 @@ const target_util = @import("../target.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const LazySrcLoc = Module.LazySrcLoc;
+const CType = @import("../type.zig").CType;
 
 const Error = error{ OutOfMemory, CodegenFail };
 
@@ -2189,12 +2190,12 @@ pub const FuncGen = struct {
                 .min       => try self.airMin(inst),
                 .max       => try self.airMax(inst),
                 .slice     => try self.airSlice(inst),
+                .mul_add   => try self.airMulAdd(inst),
 
                 .add_with_overflow => try self.airOverflow(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
                 .sub_with_overflow => try self.airOverflow(inst, "llvm.ssub.with.overflow", "llvm.usub.with.overflow"),
                 .mul_with_overflow => try self.airOverflow(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
                 .shl_with_overflow => try self.airShlWithOverflow(inst),
-                .mul_add           => try self.airMulAdd(inst),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
@@ -3844,43 +3845,43 @@ pub const FuncGen = struct {
     }
 
     fn airMulAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-        const extra = self.air.extraData(Air.MulAdd, ty_pl.payload).data;
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
 
-        const mulend1 = try self.resolveInst(extra.mulend1);
-        const mulend2 = try self.resolveInst(extra.mulend2);
-        const addend = try self.resolveInst(extra.addend);
+        const mulend1 = try self.resolveInst(extra.lhs);
+        const mulend2 = try self.resolveInst(extra.rhs);
+        const addend = try self.resolveInst(pl_op.operand);
 
         const ty = self.air.typeOfIndex(inst);
         const llvm_ty = try self.dg.llvmType(ty);
         const target = self.dg.module.getTarget();
 
-        const fn_val = switch (ty.floatBits(target)) {
-            16, 32, 64 => blk: {
-                break :blk self.getIntrinsic("llvm.fma", &.{llvm_ty});
-            },
-            // TODO: using `llvm.fma` for f80 does not seem to work for all targets, needs further investigation.
-            80 => return self.dg.todo("Implement mulAdd for f80", .{}),
-            128 => blk: {
-                // LLVM incorrectly lowers the fma builtin for f128 to fmal, which is for
-                // `long double`. On some targets this will be correct; on others it will be incorrect.
-                if (target.longDoubleIsF128()) {
-                    break :blk self.getIntrinsic("llvm.fma", &.{llvm_ty});
-                } else {
-                    break :blk self.dg.object.llvm_module.getNamedFunction("fmaq") orelse fn_blk: {
-                        const param_types = [_]*const llvm.Type{ llvm_ty, llvm_ty, llvm_ty };
-                        const fn_type = llvm.functionType(llvm_ty, &param_types, param_types.len, .False);
-                        break :fn_blk self.dg.object.llvm_module.addFunction("fmaq", fn_type);
-                    };
-                }
-            },
+        const Strat = union(enum) {
+            intrinsic,
+            libc: [*:0]const u8,
+        };
+        const strat: Strat = switch (ty.floatBits(target)) {
+            16, 32, 64 => Strat.intrinsic,
+            80 => if (CType.longdouble.sizeInBits(target) == 80) Strat{ .intrinsic = {} } else Strat{ .libc = "__fmax" },
+            // LLVM always lowers the fma builtin for f128 to fmal, which is for `long double`.
+            // On some targets this will be correct; on others it will be incorrect.
+            128 => if (CType.longdouble.sizeInBits(target) == 128) Strat{ .intrinsic = {} } else Strat{ .libc = "fmaq" },
             else => unreachable,
         };
+
+        const llvm_fn = switch (strat) {
+            .intrinsic => self.getIntrinsic("llvm.fma", &.{llvm_ty}),
+            .libc => |fn_name| self.dg.object.llvm_module.getNamedFunction(fn_name) orelse b: {
+                const param_types = [_]*const llvm.Type{ llvm_ty, llvm_ty, llvm_ty };
+                const fn_type = llvm.functionType(llvm_ty, &param_types, param_types.len, .False);
+                break :b self.dg.object.llvm_module.addFunction(fn_name, fn_type);
+            },
+        };
+
         const params = [_]*const llvm.Value{ mulend1, mulend2, addend };
-        return self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
+        return self.builder.buildCall(llvm_fn, &params, params.len, .C, .Auto, "");
     }
 
     fn airShlWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -4061,8 +4062,15 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
-        const dest_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
-
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const dest_ty = self.air.typeOfIndex(inst);
+        const target = self.dg.module.getTarget();
+        const dest_bits = dest_ty.floatBits(target);
+        const src_bits = operand_ty.floatBits(target);
+        if (!backendSupportsF80(target) and (src_bits == 80 or dest_bits == 80)) {
+            return softF80TruncOrExt(self, operand, src_bits, dest_bits);
+        }
+        const dest_llvm_ty = try self.dg.llvmType(dest_ty);
         return self.builder.buildFPTrunc(operand, dest_llvm_ty, "");
     }
 
@@ -4072,8 +4080,15 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const dest_ty = self.air.typeOfIndex(inst);
+        const target = self.dg.module.getTarget();
+        const dest_bits = dest_ty.floatBits(target);
+        const src_bits = operand_ty.floatBits(target);
+        if (!backendSupportsF80(target) and (src_bits == 80 or dest_bits == 80)) {
+            return softF80TruncOrExt(self, operand, src_bits, dest_bits);
+        }
         const dest_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
-
         return self.builder.buildFPExt(operand, dest_llvm_ty, "");
     }
 
@@ -5103,6 +5118,87 @@ pub const FuncGen = struct {
         };
         _ = self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
         return null;
+    }
+
+    fn softF80TruncOrExt(
+        self: *FuncGen,
+        operand: *const llvm.Value,
+        src_bits: u16,
+        dest_bits: u16,
+    ) !?*const llvm.Value {
+        const target = self.dg.module.getTarget();
+
+        var param_llvm_ty: *const llvm.Type = self.context.intType(80);
+        var ret_llvm_ty: *const llvm.Type = param_llvm_ty;
+        var fn_name: [*:0]const u8 = undefined;
+        var arg = operand;
+        var final_cast: ?*const llvm.Type = null;
+
+        assert(src_bits == 80 or dest_bits == 80);
+
+        if (src_bits == 80) switch (dest_bits) {
+            16 => {
+                // See corresponding condition at definition of
+                // __truncxfhf2 in compiler-rt.
+                if (target.cpu.arch.isAARCH64()) {
+                    ret_llvm_ty = self.context.halfType();
+                } else {
+                    ret_llvm_ty = self.context.intType(16);
+                    final_cast = self.context.halfType();
+                }
+                fn_name = "__truncxfhf2";
+            },
+            32 => {
+                ret_llvm_ty = self.context.floatType();
+                fn_name = "__truncxfsf2";
+            },
+            64 => {
+                ret_llvm_ty = self.context.doubleType();
+                fn_name = "__truncxfdf2";
+            },
+            80 => return operand,
+            128 => {
+                ret_llvm_ty = self.context.fp128Type();
+                fn_name = "__extendxftf2";
+            },
+            else => unreachable,
+        } else switch (src_bits) {
+            16 => {
+                // See corresponding condition at definition of
+                // __extendhfxf2 in compiler-rt.
+                param_llvm_ty = if (target.cpu.arch.isAARCH64())
+                    self.context.halfType()
+                else
+                    self.context.intType(16);
+                arg = self.builder.buildBitCast(arg, param_llvm_ty, "");
+                fn_name = "__extendhfxf2";
+            },
+            32 => {
+                param_llvm_ty = self.context.floatType();
+                fn_name = "__extendsfxf2";
+            },
+            64 => {
+                param_llvm_ty = self.context.doubleType();
+                fn_name = "__extenddfxf2";
+            },
+            80 => return operand,
+            128 => {
+                param_llvm_ty = self.context.fp128Type();
+                fn_name = "__trunctfxf2";
+            },
+            else => unreachable,
+        }
+
+        const llvm_fn = self.dg.object.llvm_module.getNamedFunction(fn_name) orelse f: {
+            const param_types = [_]*const llvm.Type{param_llvm_ty};
+            const fn_type = llvm.functionType(ret_llvm_ty, &param_types, param_types.len, .False);
+            break :f self.dg.object.llvm_module.addFunction(fn_name, fn_type);
+        };
+
+        var args: [1]*const llvm.Value = .{arg};
+        const result = self.builder.buildCall(llvm_fn, &args, args.len, .C, .Auto, "");
+        const final_cast_llvm_ty = final_cast orelse return result;
+        return self.builder.buildBitCast(result, final_cast_llvm_ty, "");
     }
 
     fn getErrorNameTable(self: *FuncGen) !*const llvm.Value {

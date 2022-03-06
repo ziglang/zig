@@ -19,7 +19,8 @@ const strong_linkage = if (is_test)
 else
     std.builtin.GlobalLinkage.Strong;
 
-const long_double_is_f128 = builtin.target.longDoubleIsF128();
+const long_double_is_f80 = builtin.target.longDoubleIs(f80);
+const long_double_is_f128 = builtin.target.longDoubleIs(f128);
 
 comptime {
     // These files do their own comptime exporting logic.
@@ -758,13 +759,34 @@ comptime {
     @export(floorf, .{ .name = "floorf", .linkage = linkage });
     @export(floor, .{ .name = "floor", .linkage = linkage });
     @export(floorl, .{ .name = "floorl", .linkage = linkage });
-    @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
+
+    @export(fma, .{ .name = "fma", .linkage = linkage });
+    @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
+    @export(fmal, .{ .name = "fmal", .linkage = linkage });
+    if (!long_double_is_f80) {
+        @export(__fmax, .{ .name = "__fmax", .linkage = linkage });
+    }
+    if (!long_double_is_f128) {
+        @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
+    }
 }
 
 const math = std.math;
 
+fn fmaf(a: f32, b: f32, c: f32) callconv(.C) f32 {
+    return math.fma(f32, a, b, c);
+}
+fn fma(a: f64, b: f64, c: f64) callconv(.C) f64 {
+    return math.fma(f64, a, b, c);
+}
+fn __fmax(a: f80, b: f80, c: f80) callconv(.C) f80 {
+    return math.fma(f80, a, b, c);
+}
 fn fmaq(a: f128, b: f128, c: f128) callconv(.C) f128 {
     return math.fma(f128, a, b, c);
+}
+fn fmal(a: c_longdouble, b: c_longdouble, c: c_longdouble) callconv(.C) c_longdouble {
+    return math.fma(c_longdouble, a, b, c);
 }
 
 // TODO add intrinsics for these (and probably the double version too)

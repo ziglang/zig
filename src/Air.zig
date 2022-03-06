@@ -580,7 +580,8 @@ pub const Inst = struct {
         prefetch,
 
         /// Computes `(a * b) + c`, but only rounds once.
-        /// Uses the `ty_pl` field.
+        /// Uses the `pl_op` field with payload `Bin`.
+        /// The operand is the addend. The mulends are lhs and rhs.
         mul_add,
 
         /// Implements @fieldParentPtr builtin.
@@ -726,12 +727,6 @@ pub const StructField = struct {
 pub const Bin = struct {
     lhs: Inst.Ref,
     rhs: Inst.Ref,
-};
-
-pub const MulAdd = struct {
-    mulend1: Inst.Ref,
-    mulend2: Inst.Ref,
-    addend: Inst.Ref,
 };
 
 pub const FieldParentPtr = struct {
@@ -899,7 +894,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .aggregate_init,
         .union_init,
         .field_parent_ptr,
-        .mul_add,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
@@ -996,6 +990,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const ptr_ty = air.typeOf(datas[inst].pl_op.operand);
             return ptr_ty.elemType();
         },
+
+        .mul_add => return air.typeOf(datas[inst].pl_op.operand),
 
         .add_with_overflow,
         .sub_with_overflow,

@@ -360,14 +360,14 @@ const Writer = struct {
     }
 
     fn writeMulAdd(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const extra = w.air.extraData(Air.MulAdd, ty_pl.payload).data;
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
 
-        try w.writeOperand(s, inst, 0, extra.mulend1);
+        try w.writeOperand(s, inst, 0, extra.lhs);
         try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.mulend2);
+        try w.writeOperand(s, inst, 1, extra.rhs);
         try s.writeAll(", ");
-        try w.writeOperand(s, inst, 2, extra.addend);
+        try w.writeOperand(s, inst, 2, pl_op.operand);
     }
 
     fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
