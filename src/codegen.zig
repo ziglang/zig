@@ -573,16 +573,10 @@ pub fn generateSymbol(
             const layout = typed_value.ty.unionGetLayout(target);
 
             if (layout.payload_size == 0) {
-                switch (try generateSymbol(bin_file, src_loc, .{
+                return generateSymbol(bin_file, src_loc, .{
                     .ty = typed_value.ty.unionTagType().?,
                     .val = union_obj.tag,
-                }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
-                    .fail => |em| return Result{ .fail = em },
-                }
+                }, code, debug_output, reloc_info);
             }
 
             // Check if we should store the tag first.
@@ -703,20 +697,30 @@ pub fn generateSymbol(
 
             const abi_align = typed_value.ty.abiAlignment(target);
 
-            const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
-            const begin = code.items.len;
-            switch (try generateSymbol(bin_file, src_loc, .{
-                .ty = error_ty,
-                .val = error_val,
-            }, code, debug_output, reloc_info)) {
-                .appended => {},
-                .externally_managed => |external_slice| {
-                    code.appendSliceAssumeCapacity(external_slice);
-                },
-                .fail => |em| return Result{ .fail = em },
+            {
+                const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
+                const begin = code.items.len;
+                switch (try generateSymbol(bin_file, src_loc, .{
+                    .ty = error_ty,
+                    .val = error_val,
+                }, code, debug_output, reloc_info)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+                const unpadded_end = code.items.len - begin;
+                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padding = try math.cast(usize, padded_end - unpadded_end);
+
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
+                }
             }
 
             if (payload_ty.hasRuntimeBits()) {
+                const begin = code.items.len;
                 const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.initTag(.undef);
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = payload_ty,
@@ -728,14 +732,13 @@ pub fn generateSymbol(
                     },
                     .fail => |em| return Result{ .fail = em },
                 }
-            }
+                const unpadded_end = code.items.len - begin;
+                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padding = try math.cast(usize, padded_end - unpadded_end);
 
-            const unpadded_end = code.items.len - begin;
-            const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
-            const padding = try math.cast(usize, padded_end - unpadded_end);
-
-            if (padding > 0) {
-                try code.writer().writeByteNTimes(0, padding);
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
+                }
             }
 
             return Result{ .appended = {} };
