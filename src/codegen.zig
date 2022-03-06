@@ -83,8 +83,6 @@ pub fn generateFunction(
     debug_output: DebugInfoOutput,
 ) GenerateSymbolError!FnResult {
     switch (bin_file.options.target.cpu.arch) {
-        .wasm32 => unreachable, // has its own code path
-        .wasm64 => unreachable, // has its own code path
         .arm,
         .armeb,
         => return @import("arch/arm/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
@@ -136,6 +134,9 @@ pub fn generateFunction(
         //.renderscript32 => return Function(.renderscript32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.renderscript64 => return Function(.renderscript64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.ve => return Function(.ve).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .wasm32,
+        .wasm64,
+        => return @import("arch/wasm/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         else => @panic("Backend architectures that don't have good support yet are commented out, to improve compilation performance. If you are interested in one of these other backends feel free to uncomment them. Eventually these will be completed, but stage1 is slow and a memory hog."),
     }
 }

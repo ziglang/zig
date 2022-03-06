@@ -8,6 +8,7 @@ const mem = std.mem;
 const wasm = std.wasm;
 const log = std.log.scoped(.codegen);
 
+const codegen = @import("../../codegen.zig");
 const Module = @import("../../Module.zig");
 const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;
@@ -546,7 +547,7 @@ blocks: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, struct {
     value: WValue,
 }) = .{},
 /// `bytes` contains the wasm bytecode belonging to the 'code' section.
-code: ArrayList(u8),
+code: *ArrayList(u8),
 /// The index the next local generated will have
 /// NOTE: arguments share the index with locals therefore the first variable
 /// will have the index that comes after the last argument's index
@@ -566,9 +567,6 @@ locals: std.ArrayListUnmanaged(u8),
 target: std.Target,
 /// Represents the wasm binary file that is being linked.
 bin_file: *link.File.Wasm,
-/// Reference to the Module that this decl is part of.
-/// Used to find the error value.
-module: *Module,
 /// List of MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// Contains extra data for MIR
@@ -611,7 +609,6 @@ pub fn deinit(self: *Self) void {
     self.locals.deinit(self.gpa);
     self.mir_instructions.deinit(self.gpa);
     self.mir_extra.deinit(self.gpa);
-    self.code.deinit();
     self.* = undefined;
 }
 
@@ -822,7 +819,40 @@ fn genFunctype(gpa: Allocator, fn_ty: Type, target: std.Target) !wasm.Type {
     };
 }
 
-pub fn genFunc(self: *Self) InnerError!void {
+pub fn generate(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    func: *Module.Fn,
+    air: Air,
+    liveness: Liveness,
+    code: *std.ArrayList(u8),
+    debug_output: codegen.DebugInfoOutput,
+) codegen.GenerateSymbolError!codegen.FnResult {
+    _ = debug_output; // TODO
+    _ = src_loc;
+    var code_gen: Self = .{
+        .gpa = bin_file.allocator,
+        .air = air,
+        .liveness = liveness,
+        .values = .{},
+        .code = code,
+        .decl = func.owner_decl,
+        .err_msg = undefined,
+        .locals = .{},
+        .target = bin_file.options.target,
+        .bin_file = bin_file.cast(link.File.Wasm).?,
+    };
+    defer code_gen.deinit();
+
+    genFunc(&code_gen) catch |err| switch (err) {
+        error.CodegenFail => return codegen.FnResult{ .fail = code_gen.err_msg },
+        else => |e| return e,
+    };
+
+    return codegen.FnResult{ .appended = {} };
+}
+
+fn genFunc(self: *Self) InnerError!void {
     var func_type = try genFunctype(self.gpa, self.decl.ty, self.target);
     defer func_type.deinit(self.gpa);
     self.decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
@@ -889,7 +919,7 @@ pub fn genFunc(self: *Self) InnerError!void {
     var emit: Emit = .{
         .mir = mir,
         .bin_file = &self.bin_file.base,
-        .code = &self.code,
+        .code = self.code,
         .locals = self.locals.items,
         .decl = self.decl,
     };
@@ -1761,7 +1791,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         },
         .ErrorSet => switch (val.tag()) {
             .@"error" => {
-                const kv = try self.module.getErrorValue(val.getError().?);
+                const kv = try self.bin_file.base.options.module.?.getErrorValue(val.getError().?);
                 return WValue{ .imm32 = kv.value };
             },
             else => return WValue{ .imm32 = 0 },
@@ -1852,7 +1882,7 @@ fn valueAsI32(self: Self, val: Value, ty: Type) i32 {
             .unsigned => return @bitCast(i32, @truncate(u32, val.toUnsignedInt())),
         },
         .ErrorSet => {
-            const kv = self.module.getErrorValue(val.getError().?) catch unreachable; // passed invalid `Value` to function
+            const kv = self.bin_file.base.options.module.?.getErrorValue(val.getError().?) catch unreachable; // passed invalid `Value` to function
             return @bitCast(i32, kv.value);
         },
         else => unreachable, // Programmer called this function for an illegal type

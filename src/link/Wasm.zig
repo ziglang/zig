@@ -505,31 +505,28 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
 
     decl.link.wasm.clear(self.base.allocator);
 
-    var codegen_: CodeGen = .{
-        .gpa = self.base.allocator,
-        .air = air,
-        .liveness = liveness,
-        .values = .{},
-        .code = std.ArrayList(u8).init(self.base.allocator),
-        .decl = decl,
-        .err_msg = undefined,
-        .locals = .{},
-        .target = self.base.options.target,
-        .bin_file = self,
-        .module = module,
-    };
-    defer codegen_.deinit();
+    var code_writer = std.ArrayList(u8).init(self.base.allocator);
+    defer code_writer.deinit();
+    const result = try codegen.generateFunction(
+        &self.base,
+        decl.srcLoc(),
+        func,
+        air,
+        liveness,
+        &code_writer,
+        .none,
+    );
 
-    // generate the 'code' section for the function declaration
-    codegen_.genFunc() catch |err| switch (err) {
-        error.CodegenFail => {
+    const code = switch (result) {
+        .appended => code_writer.items,
+        .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, codegen_.err_msg);
+            try module.failed_decls.put(module.gpa, decl, em);
             return;
         },
-        else => |e| return e,
     };
-    return self.finishUpdateDecl(decl, codegen_.code.items);
+
+    return self.finishUpdateDecl(decl, code);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
