@@ -209,7 +209,6 @@ test "compile time slice of pointer to hard coded address" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     try expect(@ptrToInt(x) == 0x1000);
     try expect(x.len == 0x500);

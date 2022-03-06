@@ -8,7 +8,6 @@ const mem = std.mem;
 const wasm = std.wasm;
 const log = std.log.scoped(.codegen);
 
-const codegen = @import("../../codegen.zig");
 const Module = @import("../../Module.zig");
 const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;
@@ -547,7 +546,7 @@ blocks: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, struct {
     value: WValue,
 }) = .{},
 /// `bytes` contains the wasm bytecode belonging to the 'code' section.
-code: *ArrayList(u8),
+code: ArrayList(u8),
 /// The index the next local generated will have
 /// NOTE: arguments share the index with locals therefore the first variable
 /// will have the index that comes after the last argument's index
@@ -567,6 +566,9 @@ locals: std.ArrayListUnmanaged(u8),
 target: std.Target,
 /// Represents the wasm binary file that is being linked.
 bin_file: *link.File.Wasm,
+/// Reference to the Module that this decl is part of.
+/// Used to find the error value.
+module: *Module,
 /// List of MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// Contains extra data for MIR
@@ -609,6 +611,7 @@ pub fn deinit(self: *Self) void {
     self.locals.deinit(self.gpa);
     self.mir_instructions.deinit(self.gpa);
     self.mir_extra.deinit(self.gpa);
+    self.code.deinit();
     self.* = undefined;
 }
 
@@ -636,7 +639,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!WValue {
     }
 
     // When we need to pass the value by reference (such as a struct), we will
-    // leverage `generateSymbol` to lower the constant to bytes and emit it
+    // leverage `genTypedValue` to lower the constant to bytes and emit it
     // to the 'rodata' section. We then return the index into the section as `WValue`.
     //
     // In the other cases, we will simply lower the constant to a value that fits
@@ -819,40 +822,7 @@ fn genFunctype(gpa: Allocator, fn_ty: Type, target: std.Target) !wasm.Type {
     };
 }
 
-pub fn generate(
-    bin_file: *link.File,
-    src_loc: Module.SrcLoc,
-    func: *Module.Fn,
-    air: Air,
-    liveness: Liveness,
-    code: *std.ArrayList(u8),
-    debug_output: codegen.DebugInfoOutput,
-) codegen.GenerateSymbolError!codegen.FnResult {
-    _ = debug_output; // TODO
-    _ = src_loc;
-    var code_gen: Self = .{
-        .gpa = bin_file.allocator,
-        .air = air,
-        .liveness = liveness,
-        .values = .{},
-        .code = code,
-        .decl = func.owner_decl,
-        .err_msg = undefined,
-        .locals = .{},
-        .target = bin_file.options.target,
-        .bin_file = bin_file.cast(link.File.Wasm).?,
-    };
-    defer code_gen.deinit();
-
-    genFunc(&code_gen) catch |err| switch (err) {
-        error.CodegenFail => return codegen.FnResult{ .fail = code_gen.err_msg },
-        else => |e| return e,
-    };
-
-    return codegen.FnResult{ .appended = {} };
-}
-
-fn genFunc(self: *Self) InnerError!void {
+pub fn genFunc(self: *Self) InnerError!void {
     var func_type = try genFunctype(self.gpa, self.decl.ty, self.target);
     defer func_type.deinit(self.gpa);
     self.decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
@@ -919,7 +889,7 @@ fn genFunc(self: *Self) InnerError!void {
     var emit: Emit = .{
         .mir = mir,
         .bin_file = &self.bin_file.base,
-        .code = self.code,
+        .code = &self.code,
         .locals = self.locals.items,
         .decl = self.decl,
     };
@@ -932,6 +902,433 @@ fn genFunc(self: *Self) InnerError!void {
         else => |e| return e,
     };
 }
+
+pub const DeclGen = struct {
+    /// The decl we are generating code for.
+    decl: *Decl,
+    /// The symbol we're generating code for.
+    /// This can either be the symbol of the Decl itself,
+    /// or one of its locals.
+    symbol_index: u32,
+    gpa: Allocator,
+    /// A reference to the linker, that will process the decl's
+    /// code and create any relocations it deems neccesary.
+    bin_file: *link.File.Wasm,
+    /// This will be set when `InnerError` has been returned.
+    /// In any other case, this will be 'undefined'.
+    err_msg: *Module.ErrorMsg,
+    /// Reference to the Module that is being compiled.
+    /// Used to find the error value of an error.
+    module: *Module,
+    /// The list of bytes that have been generated so far,
+    /// can be used to calculate the offset into a section.
+    code: *std.ArrayList(u8),
+
+    /// Sets `err_msg` on `DeclGen` and returns `error.CodegenFail` which is caught in link/Wasm.zig
+    fn fail(self: *DeclGen, comptime fmt: []const u8, args: anytype) InnerError {
+        const src: LazySrcLoc = .{ .node_offset = 0 };
+        const src_loc = src.toSrcLoc(self.decl);
+        self.err_msg = try Module.ErrorMsg.create(self.gpa, src_loc, fmt, args);
+        return error.CodegenFail;
+    }
+
+    fn target(self: *const DeclGen) std.Target {
+        return self.bin_file.base.options.target;
+    }
+
+    pub fn genDecl(self: *DeclGen) InnerError!Result {
+        const decl = self.decl;
+        assert(decl.has_tv);
+
+        log.debug("gen: {s} type: {}, value: {}", .{ decl.name, decl.ty, decl.val });
+
+        if (decl.val.castTag(.function)) |func_payload| {
+            _ = func_payload;
+            return self.fail("TODO wasm backend genDecl function pointer", .{});
+        } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
+            const ext_decl = extern_fn.data.owner_decl;
+            var func_type = try genFunctype(self.gpa, ext_decl.ty, self.target());
+            defer func_type.deinit(self.gpa);
+            ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
+            return Result{ .appended = {} };
+        } else {
+            const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
+                break :init_val payload.data.init;
+            } else decl.val;
+            if (init_val.tag() != .unreachable_value) {
+                return self.genTypedValue(decl.ty, init_val);
+            }
+            return Result{ .appended = {} };
+        }
+    }
+
+    /// Generates the wasm bytecode for the declaration belonging to `Context`
+    pub fn genTypedValue(self: *DeclGen, ty: Type, val: Value) InnerError!Result {
+        log.debug("genTypedValue: ty = {}, val = {}", .{ ty, val });
+
+        const writer = self.code.writer();
+        if (val.isUndef()) {
+            try writer.writeByteNTimes(0xaa, @intCast(usize, ty.abiSize(self.target())));
+            return Result{ .appended = {} };
+        }
+        switch (ty.zigTypeTag()) {
+            .Fn => {
+                const fn_decl = switch (val.tag()) {
+                    .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
+                    .function => val.castTag(.function).?.data.owner_decl,
+                    else => unreachable,
+                };
+                return try self.lowerDeclRefValue(ty, val, fn_decl, 0);
+            },
+            .Optional => {
+                var opt_buf: Type.Payload.ElemType = undefined;
+                const payload_type = ty.optionalChild(&opt_buf);
+                const is_pl = !val.isNull();
+                const abi_size = @intCast(usize, ty.abiSize(self.target()));
+                const offset = abi_size - @intCast(usize, payload_type.abiSize(self.target()));
+
+                if (!payload_type.hasRuntimeBits()) {
+                    try writer.writeByteNTimes(@boolToInt(is_pl), abi_size);
+                    return Result{ .appended = {} };
+                }
+
+                if (ty.isPtrLikeOptional()) {
+                    if (val.castTag(.opt_payload)) |payload| {
+                        return self.genTypedValue(payload_type, payload.data);
+                    } else if (!val.isNull()) {
+                        return self.genTypedValue(payload_type, val);
+                    } else {
+                        try writer.writeByteNTimes(0, abi_size);
+                        return Result{ .appended = {} };
+                    }
+                }
+
+                // `null-tag` bytes
+                try writer.writeByteNTimes(@boolToInt(is_pl), offset);
+                switch (try self.genTypedValue(
+                    payload_type,
+                    if (val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
+                )) {
+                    .appended => {},
+                    .externally_managed => |payload| try writer.writeAll(payload),
+                }
+                return Result{ .appended = {} };
+            },
+            .Array => switch (val.tag()) {
+                .bytes => {
+                    const payload = val.castTag(.bytes).?;
+                    return Result{ .externally_managed = payload.data };
+                },
+                .array => {
+                    const elem_vals = val.castTag(.array).?.data;
+                    const elem_ty = ty.childType();
+                    for (elem_vals) |elem_val| {
+                        switch (try self.genTypedValue(elem_ty, elem_val)) {
+                            .appended => {},
+                            .externally_managed => |data| try writer.writeAll(data),
+                        }
+                    }
+                    return Result{ .appended = {} };
+                },
+                .repeated => {
+                    const array = val.castTag(.repeated).?.data;
+                    const elem_ty = ty.childType();
+                    const sentinel = ty.sentinel();
+                    const len = ty.arrayLen();
+
+                    var index: u32 = 0;
+                    while (index < len) : (index += 1) {
+                        switch (try self.genTypedValue(elem_ty, array)) {
+                            .externally_managed => |data| try writer.writeAll(data),
+                            .appended => {},
+                        }
+                    }
+                    if (sentinel) |sentinel_value| {
+                        return self.genTypedValue(elem_ty, sentinel_value);
+                    }
+                    return Result{ .appended = {} };
+                },
+                .empty_array_sentinel => {
+                    const elem_ty = ty.childType();
+                    const sent_val = ty.sentinel().?;
+                    return self.genTypedValue(elem_ty, sent_val);
+                },
+                else => unreachable,
+            },
+            .Int => {
+                const info = ty.intInfo(self.target());
+                const abi_size = @intCast(usize, ty.abiSize(self.target()));
+                if (info.bits <= 64) {
+                    var buf: [8]u8 = undefined;
+                    if (info.signedness == .unsigned) {
+                        std.mem.writeIntLittle(u64, &buf, val.toUnsignedInt());
+                    } else std.mem.writeIntLittle(i64, &buf, val.toSignedInt());
+                    try writer.writeAll(buf[0..abi_size]);
+                    return Result{ .appended = {} };
+                }
+                var space: Value.BigIntSpace = undefined;
+                const bigint = val.toBigInt(&space);
+                const iterations = @divExact(abi_size, @sizeOf(usize));
+                for (bigint.limbs) |_, index| {
+                    const limb = bigint.limbs[bigint.limbs.len - index - 1];
+                    try writer.writeIntLittle(usize, limb);
+                } else if (bigint.limbs.len < iterations) {
+                    // When the value is saved in less limbs than the required
+                    // abi size, we fill the remaining parts with 0's.
+                    var it_left = iterations - bigint.limbs.len;
+                    while (it_left > 0) {
+                        it_left -= 1;
+                        try writer.writeIntLittle(usize, 0);
+                    }
+                }
+                return Result{ .appended = {} };
+            },
+            .Float => {
+                const float_bits = ty.floatBits(self.target());
+                if (float_bits > 64) {
+                    return self.fail("Wasm TODO: Implement f80 and f128", .{});
+                }
+
+                switch (float_bits) {
+                    16, 32 => try writer.writeIntLittle(u32, @bitCast(u32, val.toFloat(f32))),
+                    64 => try writer.writeIntLittle(u64, @bitCast(u64, val.toFloat(f64))),
+                    else => unreachable,
+                }
+
+                return Result{ .appended = {} };
+            },
+            .Enum => {
+                var int_buffer: Value.Payload.U64 = undefined;
+                const int_val = val.enumToInt(ty, &int_buffer);
+                var buf: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buf);
+                return self.genTypedValue(int_ty, int_val);
+            },
+            .Bool => {
+                try writer.writeByte(@boolToInt(val.toBool()));
+                return Result{ .appended = {} };
+            },
+            .Struct => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                if (struct_obj.layout == .Packed) {
+                    return self.fail("TODO: Packed structs for wasm", .{});
+                }
+
+                const struct_begin = self.code.items.len;
+                const field_vals = val.castTag(.@"struct").?.data;
+                for (field_vals) |field_val, index| {
+                    const field_ty = ty.structFieldType(index);
+                    if (!field_ty.hasRuntimeBits()) continue;
+
+                    switch (try self.genTypedValue(field_ty, field_val)) {
+                        .appended => {},
+                        .externally_managed => |payload| try writer.writeAll(payload),
+                    }
+                    const unpadded_field_len = self.code.items.len - struct_begin;
+
+                    // Pad struct members if required
+                    const padded_field_end = ty.structFieldOffset(index + 1, self.target());
+                    const padding = try std.math.cast(usize, padded_field_end - unpadded_field_len);
+
+                    if (padding > 0) {
+                        try writer.writeByteNTimes(0, padding);
+                    }
+                }
+                return Result{ .appended = {} };
+            },
+            .Union => {
+                const union_val = val.castTag(.@"union").?.data;
+                const layout = ty.unionGetLayout(self.target());
+
+                if (layout.payload_size == 0) {
+                    return self.genTypedValue(ty.unionTagType().?, union_val.tag);
+                }
+
+                // Check if we should store the tag first, in which case, do so now:
+                if (layout.tag_align >= layout.payload_align) {
+                    switch (try self.genTypedValue(ty.unionTagType().?, union_val.tag)) {
+                        .appended => {},
+                        .externally_managed => |payload| try writer.writeAll(payload),
+                    }
+                }
+
+                const union_ty = ty.cast(Type.Payload.Union).?.data;
+                const field_index = union_ty.tag_ty.enumTagFieldIndex(union_val.tag).?;
+                assert(union_ty.haveFieldTypes());
+                const field_ty = union_ty.fields.values()[field_index].ty;
+                if (!field_ty.hasRuntimeBits()) {
+                    try writer.writeByteNTimes(0xaa, @intCast(usize, layout.payload_size));
+                } else {
+                    switch (try self.genTypedValue(field_ty, union_val.val)) {
+                        .appended => {},
+                        .externally_managed => |payload| try writer.writeAll(payload),
+                    }
+
+                    // Unions have the size of the largest field, so we must pad
+                    // whenever the active field has a smaller size.
+                    const diff = layout.payload_size - field_ty.abiSize(self.target());
+                    if (diff > 0) {
+                        try writer.writeByteNTimes(0xaa, @intCast(usize, diff));
+                    }
+                }
+
+                if (layout.tag_size == 0) {
+                    return Result{ .appended = {} };
+                }
+                return self.genTypedValue(union_ty.tag_ty, union_val.tag);
+            },
+            .Pointer => switch (val.tag()) {
+                .variable => {
+                    const decl = val.castTag(.variable).?.data.owner_decl;
+                    return self.lowerDeclRefValue(ty, val, decl, 0);
+                },
+                .decl_ref => {
+                    const decl = val.castTag(.decl_ref).?.data;
+                    return self.lowerDeclRefValue(ty, val, decl, 0);
+                },
+                .slice => {
+                    const slice = val.castTag(.slice).?.data;
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&buf);
+                    switch (try self.genTypedValue(ptr_ty, slice.ptr)) {
+                        .externally_managed => |data| try writer.writeAll(data),
+                        .appended => {},
+                    }
+                    switch (try self.genTypedValue(Type.usize, slice.len)) {
+                        .externally_managed => |data| try writer.writeAll(data),
+                        .appended => {},
+                    }
+                    return Result{ .appended = {} };
+                },
+                .zero => {
+                    try writer.writeByteNTimes(0, @divExact(self.target().cpu.arch.ptrBitWidth(), 8));
+                    return Result{ .appended = {} };
+                },
+                .elem_ptr => {
+                    const elem_ptr = val.castTag(.elem_ptr).?.data;
+                    const elem_size = ty.childType().abiSize(self.target());
+                    const offset = elem_ptr.index * elem_size;
+                    return self.lowerParentPtr(elem_ptr.array_ptr, @intCast(usize, offset));
+                },
+                .int_u64 => return self.genTypedValue(Type.usize, val),
+                else => return self.fail("TODO: Implement zig decl gen for pointer type value: '{s}'", .{@tagName(val.tag())}),
+            },
+            .ErrorUnion => {
+                const error_ty = ty.errorUnionSet();
+                const payload_ty = ty.errorUnionPayload();
+                const is_pl = val.errorUnionIsPayload();
+                const abi_align = ty.abiAlignment(self.target());
+
+                {
+                    const err_val = if (!is_pl) val else Value.initTag(.zero);
+                    const start = self.code.items.len;
+                    switch (try self.genTypedValue(error_ty, err_val)) {
+                        .externally_managed => |data| try writer.writeAll(data),
+                        .appended => {},
+                    }
+                    const unpadded_end = self.code.items.len - start;
+                    const padded_end = mem.alignForwardGeneric(usize, unpadded_end, abi_align);
+                    const padding = padded_end - unpadded_end;
+                    if (padding > 0) {
+                        try writer.writeByteNTimes(0, padding);
+                    }
+                }
+
+                if (payload_ty.hasRuntimeBits()) {
+                    const start = self.code.items.len;
+                    const pl_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
+                    switch (try self.genTypedValue(payload_ty, pl_val)) {
+                        .externally_managed => |data| try writer.writeAll(data),
+                        .appended => {},
+                    }
+
+                    const unpadded_end = self.code.items.len - start;
+                    const padded_end = mem.alignForwardGeneric(usize, unpadded_end, abi_align);
+                    const padding = padded_end - unpadded_end;
+                    if (padding > 0) {
+                        try writer.writeByteNTimes(0, padding);
+                    }
+                }
+
+                return Result{ .appended = {} };
+            },
+            .ErrorSet => {
+                switch (val.tag()) {
+                    .@"error" => {
+                        const name = val.castTag(.@"error").?.data.name;
+                        const kv = try self.module.getErrorValue(name);
+                        try writer.writeIntLittle(u32, kv.value);
+                    },
+                    else => {
+                        try writer.writeByteNTimes(0, @intCast(usize, ty.abiSize(self.target())));
+                    },
+                }
+                return Result{ .appended = {} };
+            },
+            else => |tag| return self.fail("TODO: Implement zig type codegen for type: '{s}'", .{tag}),
+        }
+    }
+
+    fn lowerParentPtr(self: *DeclGen, ptr_value: Value, offset: usize) InnerError!Result {
+        switch (ptr_value.tag()) {
+            .decl_ref => {
+                const decl = ptr_value.castTag(.decl_ref).?.data;
+                return self.lowerParentPtrDecl(ptr_value, decl, offset);
+            },
+            else => |tag| return self.fail("TODO: Implement lowerParentPtr for pointer value tag: {s}", .{tag}),
+        }
+    }
+
+    fn lowerParentPtrDecl(self: *DeclGen, ptr_val: Value, decl: *Module.Decl, offset: usize) InnerError!Result {
+        decl.markAlive();
+        var ptr_ty_payload: Type.Payload.ElemType = .{
+            .base = .{ .tag = .single_mut_pointer },
+            .data = decl.ty,
+        };
+        const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+        return self.lowerDeclRefValue(ptr_ty, ptr_val, decl, offset);
+    }
+
+    fn lowerDeclRefValue(
+        self: *DeclGen,
+        ty: Type,
+        val: Value,
+        /// The target decl that is being pointed to
+        decl: *Module.Decl,
+        /// When lowering to an indexed pointer, we can specify the offset
+        /// which will then be used as 'addend' to the relocation.
+        offset: usize,
+    ) InnerError!Result {
+        const writer = self.code.writer();
+        if (ty.isSlice()) {
+            var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+            const slice_ty = ty.slicePtrFieldType(&buf);
+            switch (try self.genTypedValue(slice_ty, val)) {
+                .appended => {},
+                .externally_managed => |payload| try writer.writeAll(payload),
+            }
+            var slice_len: Value.Payload.U64 = .{
+                .base = .{ .tag = .int_u64 },
+                .data = val.sliceLen(),
+            };
+            return self.genTypedValue(Type.usize, Value.initPayload(&slice_len.base));
+        }
+
+        decl.markAlive();
+        if (decl.link.wasm.sym_index == 0) {
+            try writer.writeIntLittle(u32, 0);
+        } else {
+            try writer.writeIntLittle(u32, try self.bin_file.getDeclVAddr(
+                self.decl, // parent decl that owns the atom of the symbol
+                self.symbol_index, // source symbol index
+                decl, // target decl that contains the target symbol
+                @intCast(u32, self.code.items.len), // offset
+                @intCast(u32, offset), // addend
+            ));
+        }
+        return Result{ .appended = {} };
+    }
+};
 
 const CallWValues = struct {
     args: []WValue,
@@ -1412,12 +1809,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
         if (func_val.castTag(.function)) |func| {
             break :blk func.data.owner_decl;
-        } else if (func_val.castTag(.extern_fn)) |extern_fn| {
-            const ext_decl = extern_fn.data.owner_decl;
-            var func_type = try genFunctype(self.gpa, ext_decl.ty, self.target);
-            defer func_type.deinit(self.gpa);
-            ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
-            break :blk ext_decl;
+        } else if (func_val.castTag(.extern_fn)) |ext_fn| {
+            break :blk ext_fn.data.owner_decl;
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {
             break :blk decl_ref.data;
         }
@@ -1791,7 +2184,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         },
         .ErrorSet => switch (val.tag()) {
             .@"error" => {
-                const kv = try self.bin_file.base.options.module.?.getErrorValue(val.getError().?);
+                const kv = try self.module.getErrorValue(val.getError().?);
                 return WValue{ .imm32 = kv.value };
             },
             else => return WValue{ .imm32 = 0 },
@@ -1882,7 +2275,7 @@ fn valueAsI32(self: Self, val: Value, ty: Type) i32 {
             .unsigned => return @bitCast(i32, @truncate(u32, val.toUnsignedInt())),
         },
         .ErrorSet => {
-            const kv = self.bin_file.base.options.module.?.getErrorValue(val.getError().?) catch unreachable; // passed invalid `Value` to function
+            const kv = self.module.getErrorValue(val.getError().?) catch unreachable; // passed invalid `Value` to function
             return @bitCast(i32, kv.value);
         },
         else => unreachable, // Programmer called this function for an illegal type

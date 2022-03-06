@@ -702,7 +702,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl, reloc_info),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl, reloc_info),
             .c => unreachable,
-            .wasm => return @fieldParentPtr(Wasm, "base", base).getDeclVAddr(decl, reloc_info),
+            .wasm => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
         }

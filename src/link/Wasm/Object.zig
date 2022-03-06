@@ -861,7 +861,6 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
         }
 
         try atom.code.appendSlice(gpa, relocatable_data.data[0..relocatable_data.size]);
-        try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom);
 
         const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];
         segment.alignment = std.math.max(segment.alignment, atom.alignment);

@@ -62,14 +62,9 @@ pub fn deinit(self: *Atom, gpa: Allocator) void {
 
 /// Sets the length of relocations and code to '0',
 /// effectively resetting them and allowing them to be re-populated.
-pub fn clear(self: *Atom, gpa: Allocator) void {
+pub fn clear(self: *Atom) void {
     self.relocs.clearRetainingCapacity();
     self.code.clearRetainingCapacity();
-
-    // locals will be re-generated
-    for (self.locals.items) |*local| {
-        local.deinit(gpa);
-    }
 }
 
 pub fn format(self: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {

@@ -14,7 +14,6 @@ const Atom = @import("Wasm/Atom.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
-const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;
 const trace = @import("../tracy.zig").trace;
@@ -490,8 +489,10 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
         self.symbols.appendAssumeCapacity(symbol);
     }
 
-    try self.resolved_symbols.putNoClobber(self.base.allocator, atom.symbolLoc(), {});
-    try self.symbol_atom.putNoClobber(self.base.allocator, atom.symbolLoc(), atom);
+    try self.resolved_symbols.putNoClobber(self.base.allocator, .{
+        .index = atom.sym_index,
+        .file = null,
+    }, {});
 }
 
 pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -504,30 +505,33 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
     const decl = func.owner_decl;
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
-    decl.link.wasm.clear(self.base.allocator);
+    decl.link.wasm.clear();
 
-    var code_writer = std.ArrayList(u8).init(self.base.allocator);
-    defer code_writer.deinit();
-    const result = try codegen.generateFunction(
-        &self.base,
-        decl.srcLoc(),
-        func,
-        air,
-        liveness,
-        &code_writer,
-        .none,
-    );
+    var codegen: CodeGen = .{
+        .gpa = self.base.allocator,
+        .air = air,
+        .liveness = liveness,
+        .values = .{},
+        .code = std.ArrayList(u8).init(self.base.allocator),
+        .decl = decl,
+        .err_msg = undefined,
+        .locals = .{},
+        .target = self.base.options.target,
+        .bin_file = self,
+        .module = module,
+    };
+    defer codegen.deinit();
 
-    const code = switch (result) {
-        .appended => code_writer.items,
-        .fail => |em| {
+    // generate the 'code' section for the function declaration
+    codegen.genFunc() catch |err| switch (err) {
+        error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
             return;
         },
+        else => |e| return e,
     };
-
-    return self.finishUpdateDecl(decl, code);
+    return self.finishUpdateDecl(decl, codegen.code.items);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -542,39 +546,33 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
-    decl.link.wasm.clear(self.base.allocator);
-
-    if (decl.isExtern()) {
-        return self.addOrUpdateImport(decl);
-    }
-
-    if (decl.val.castTag(.function)) |_| {
-        return;
-    } else if (decl.val.castTag(.extern_fn)) |_| {
-        return;
-    }
-    const val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
+    decl.link.wasm.clear();
 
     var code_writer = std.ArrayList(u8).init(self.base.allocator);
     defer code_writer.deinit();
+    var decl_gen: CodeGen.DeclGen = .{
+        .gpa = self.base.allocator,
+        .decl = decl,
+        .symbol_index = decl.link.wasm.sym_index,
+        .bin_file = self,
+        .err_msg = undefined,
+        .code = &code_writer,
+        .module = module,
+    };
 
-    const res = try codegen.generateSymbol(
-        &self.base,
-        decl.srcLoc(),
-        .{ .ty = decl.ty, .val = val },
-        &code_writer,
-        .none,
-        .{ .parent_atom_index = decl.link.wasm.sym_index },
-    );
-
-    const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_writer.items,
-        .fail => |em| {
+    // generate the 'code' section for the function declaration
+    const result = decl_gen.genDecl() catch |err| switch (err) {
+        error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.failed_decls.put(module.gpa, decl, decl_gen.err_msg);
             return;
         },
+        else => |e| return e,
+    };
+
+    const code = switch (result) {
+        .externally_managed => |data| data,
+        .appended => code_writer.items,
     };
 
     return self.finishUpdateDecl(decl, code);
@@ -605,9 +603,7 @@ pub fn lowerUnnamedConst(self: *Wasm, decl: *Module.Decl, tv: TypedValue) !u32 {
 
     // Create and initialize a new local symbol and atom
     const local_index = decl.link.wasm.locals.items.len;
-    const fqdn = try decl.getFullyQualifiedName(self.base.allocator);
-    defer self.base.allocator.free(fqdn);
-    const name = try std.fmt.allocPrintZ(self.base.allocator, "__unnamed_{s}_{d}", .{ fqdn, local_index });
+    const name = try std.fmt.allocPrintZ(self.base.allocator, "__unnamed_{s}_{d}", .{ decl.name, local_index });
     defer self.base.allocator.free(name);
     var symbol: Symbol = .{
         .name = try self.string_table.put(self.base.allocator, name),
@@ -629,32 +625,36 @@ pub fn lowerUnnamedConst(self: *Wasm, decl: *Module.Decl, tv: TypedValue) !u32 {
         atom.sym_index = @intCast(u32, self.symbols.items.len);
         self.symbols.appendAssumeCapacity(symbol);
     }
-    try self.resolved_symbols.putNoClobber(self.base.allocator, atom.symbolLoc(), {});
-    try self.symbol_atom.putNoClobber(self.base.allocator, atom.symbolLoc(), atom);
+    try self.resolved_symbols.putNoClobber(self.base.allocator, .{
+        .file = null,
+        .index = atom.sym_index,
+    }, {});
 
     var value_bytes = std.ArrayList(u8).init(self.base.allocator);
     defer value_bytes.deinit();
 
     const module = self.base.options.module.?;
-    const result = try codegen.generateSymbol(
-        &self.base,
-        decl.srcLoc(),
-        tv,
-        &value_bytes,
-        .none,
-        .{
-            .parent_atom_index = atom.sym_index,
-            .addend = null,
-        },
-    );
-    const code = switch (result) {
-        .externally_managed => |x| x,
-        .appended => value_bytes.items,
-        .fail => |em| {
+    var decl_gen: CodeGen.DeclGen = .{
+        .bin_file = self,
+        .decl = decl,
+        .err_msg = undefined,
+        .gpa = self.base.allocator,
+        .module = module,
+        .code = &value_bytes,
+        .symbol_index = atom.sym_index,
+    };
+
+    const result = decl_gen.genTypedValue(tv.ty, tv.val) catch |err| switch (err) {
+        error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.failed_decls.put(module.gpa, decl, decl_gen.err_msg);
             return error.AnalysisFail;
         },
+        else => |e| return e,
+    };
+    const code = switch (result) {
+        .appended => value_bytes.items,
+        .externally_managed => |data| data,
     };
 
     atom.size = @intCast(u32, code.len);
@@ -666,31 +666,35 @@ pub fn lowerUnnamedConst(self: *Wasm, decl: *Module.Decl, tv: TypedValue) !u32 {
 /// Returns the given pointer address
 pub fn getDeclVAddr(
     self: *Wasm,
-    decl: *const Module.Decl,
-    reloc_info: link.File.RelocInfo,
-) !u64 {
-    const target_symbol_index = decl.link.wasm.sym_index;
+    decl: *Module.Decl,
+    symbol_index: u32,
+    target_decl: *Module.Decl,
+    offset: u32,
+    addend: u32,
+) !u32 {
+    const target_symbol_index = target_decl.link.wasm.sym_index;
     assert(target_symbol_index != 0);
-    assert(reloc_info.parent_atom_index != 0);
-    const atom = self.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
+    assert(symbol_index != 0);
+
+    const atom = decl.link.wasm.symbolAtom(symbol_index);
     const is_wasm32 = self.base.options.target.cpu.arch == .wasm32;
-    if (decl.ty.zigTypeTag() == .Fn) {
-        assert(reloc_info.addend == 0); // addend not allowed for function relocations
+    if (target_decl.ty.zigTypeTag() == .Fn) {
+        assert(addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
         // They are instead stored in a function table which are called by index.
         try self.addTableFunction(target_symbol_index);
         try atom.relocs.append(self.base.allocator, .{
             .index = target_symbol_index,
-            .offset = @intCast(u32, reloc_info.offset),
+            .offset = offset,
             .relocation_type = if (is_wasm32) .R_WASM_TABLE_INDEX_I32 else .R_WASM_TABLE_INDEX_I64,
         });
     } else {
         try atom.relocs.append(self.base.allocator, .{
             .index = target_symbol_index,
-            .offset = @intCast(u32, reloc_info.offset),
+            .offset = offset,
             .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
-            .addend = reloc_info.addend,
+            .addend = addend,
         });
     }
     // we do not know the final address at this point,
@@ -820,14 +824,12 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
         local_symbol.tag = .dead; // also for any local symbol
         self.symbols_free_list.append(self.base.allocator, local_atom.sym_index) catch {};
         assert(self.resolved_symbols.swapRemove(local_atom.symbolLoc()));
-        assert(self.symbol_atom.remove(local_atom.symbolLoc()));
     }
 
     if (decl.isExtern()) {
         assert(self.imports.remove(atom.symbolLoc()));
     }
     assert(self.resolved_symbols.swapRemove(atom.symbolLoc()));
-    assert(self.symbol_atom.remove(atom.symbolLoc()));
     atom.deinit(self.base.allocator);
 }
 
@@ -987,7 +989,7 @@ fn allocateAtoms(self: *Wasm) !void {
                 atom.size,
             });
             offset += atom.size;
-            self.symbol_atom.putAssumeCapacity(atom.symbolLoc(), atom); // Update atom pointers
+            try self.symbol_atom.putNoClobber(self.base.allocator, symbol_loc, atom);
             atom = atom.next orelse break;
         }
     }
