@@ -409,7 +409,7 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_info.ensureUnusedCapacity(3);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
                     dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // ULEB128 dwarf expression length
                         reg.dwarfLocOp(),
@@ -440,7 +440,7 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
                         else => unreachable,
                     };
 
-                    try dbg_out.dbg_info.append(link.File.Elf.abbrev_parameter);
+                    try dbg_out.dbg_info.append(link.File.Dwarf.abbrev_parameter);
 
                     // Get length of the LEB128 stack offset
                     var counting_writer = std.io.countingWriter(std.io.null_writer);

@@ -4438,8 +4438,8 @@ pub fn clearDecl(
             };
             decl.fn_link = switch (mod.comp.bin_file.tag) {
                 .coff => .{ .coff = {} },
-                .elf => .{ .elf = link.File.Elf.SrcFn.empty },
-                .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+                .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
+                .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
                 .plan9 => .{ .plan9 = {} },
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
@@ -4775,8 +4775,8 @@ pub fn allocateNewDecl(
         },
         .fn_link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = {} },
-            .elf => .{ .elf = link.File.Elf.SrcFn.empty },
-            .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+            .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
+            .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
             .plan9 => .{ .plan9 = {} },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
