@@ -504,7 +504,7 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
     const decl = func.owner_decl;
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
-    decl.link.wasm.clear(self.base.allocator);
+    decl.link.wasm.clear();
 
     var code_writer = std.ArrayList(u8).init(self.base.allocator);
     defer code_writer.deinit();
@@ -542,7 +542,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
-    decl.link.wasm.clear(self.base.allocator);
+    decl.link.wasm.clear();
 
     if (decl.isExtern()) {
         return self.addOrUpdateImport(decl);
@@ -827,7 +827,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
         assert(self.imports.remove(atom.symbolLoc()));
     }
     assert(self.resolved_symbols.swapRemove(atom.symbolLoc()));
-    assert(self.symbol_atom.remove(atom.symbolLoc()));
+    _ = self.symbol_atom.remove(atom.symbolLoc()); // not all decl's exist in symbol_atom
     atom.deinit(self.base.allocator);
 }
 
