@@ -47,7 +47,7 @@ fn testMulAdd80() !void {
     var a: f16 = 5.5;
     var b: f80 = 2.5;
     var c: f80 = 6.25;
-    try expect(@mulAdd(f80, a, b, c) == 20.0);
+    try expect(@mulAdd(f80, a, b, c) == 20);
 }
 
 test "@mulAdd f128" {
@@ -59,6 +59,12 @@ test "@mulAdd f128" {
 
     if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/9900
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend == .stage1 and
+        builtin.cpu.arch == .i386 and builtin.os.tag == .linux)
+    {
         return error.SkipZigTest;
     }
 
