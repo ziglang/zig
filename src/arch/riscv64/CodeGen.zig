@@ -1384,7 +1384,7 @@ fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_info.ensureUnusedCapacity(3);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
                     dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // ULEB128 dwarf expression length
                         reg.dwarfLocOp(),

@@ -221,9 +221,9 @@ pub const File = struct {
     };
 
     pub const LinkFn = union {
-        elf: Elf.SrcFn,
+        elf: Dwarf.SrcFn,
         coff: Coff.SrcFn,
-        macho: MachO.SrcFn,
+        macho: Dwarf.SrcFn,
         plan9: void,
         c: void,
         wasm: Wasm.FnData,
@@ -915,6 +915,7 @@ pub const File = struct {
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
     pub const NvPtx = @import("link/NvPtx.zig");
+    pub const Dwarf = @import("link/Dwarf.zig");
 };
 
 pub fn determineMode(options: Options) fs.File.Mode {

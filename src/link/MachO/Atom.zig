@@ -13,6 +13,7 @@ const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
+const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const StringIndexAdapter = std.hash_map.StringIndexAdapter;
@@ -71,14 +72,7 @@ stab: ?Stab = null,
 next: ?*Atom,
 prev: ?*Atom,
 
-/// Previous/next linked list pointers.
-/// This is the linked list node for this Decl's corresponding .debug_info tag.
-dbg_info_prev: ?*Atom,
-dbg_info_next: ?*Atom,
-/// Offset into .debug_info pointing to the tag for this Decl.
-dbg_info_off: u32,
-/// Size of the .debug_info tag for this Decl, not including padding.
-dbg_info_len: u32,
+dbg_info_atom: Dwarf.DebugInfoAtom,
 
 dirty: bool = true,
 
@@ -188,10 +182,7 @@ pub const empty = Atom{
     .alignment = 0,
     .prev = null,
     .next = null,
-    .dbg_info_prev = null,
-    .dbg_info_next = null,
-    .dbg_info_off = undefined,
-    .dbg_info_len = undefined,
+    .dbg_info_atom = undefined,
 };
 
 pub fn deinit(self: *Atom, allocator: Allocator) void {
