@@ -674,6 +674,27 @@ comptime {
         @export(_aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
+    const fmodl = @import("compiler_rt/floatfmodl.zig").fmodl;
+    @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
+
+    @export(floorf, .{ .name = "floorf", .linkage = linkage });
+    @export(floor, .{ .name = "floor", .linkage = linkage });
+    @export(floorl, .{ .name = "floorl", .linkage = linkage });
+
+    @export(fma, .{ .name = "fma", .linkage = linkage });
+    @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
+    @export(fmal, .{ .name = "fmal", .linkage = linkage });
+    if (long_double_is_f80) {
+        @export(fmal, .{ .name = "__fmax", .linkage = linkage });
+    } else {
+        @export(__fmax, .{ .name = "__fmax", .linkage = linkage });
+    }
+    if (long_double_is_f128) {
+        @export(fmal, .{ .name = "fmaq", .linkage = linkage });
+    } else {
+        @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
+    }
+
     if (arch.isSPARC()) {
         // SPARC systems use a different naming scheme
         const _Qp_add = @import("compiler_rt/sparc.zig")._Qp_add;
@@ -726,7 +747,7 @@ comptime {
         @export(_Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
     }
 
-    if ((arch == .powerpc or arch.isPPC64()) and !is_test) {
+    if ((arch.isPPC() or arch.isPPC64()) and !is_test) {
         @export(__addtf3, .{ .name = "__addkf3", .linkage = linkage });
         @export(__subtf3, .{ .name = "__subkf3", .linkage = linkage });
         @export(__multf3, .{ .name = "__mulkf3", .linkage = linkage });
@@ -751,27 +772,9 @@ comptime {
         @export(__letf2, .{ .name = "__lekf2", .linkage = linkage });
         @export(__getf2, .{ .name = "__gtkf2", .linkage = linkage });
         @export(__unordtf2, .{ .name = "__unordkf2", .linkage = linkage });
-    }
 
-    const fmodl = @import("compiler_rt/floatfmodl.zig").fmodl;
-    @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
-
-    @export(floorf, .{ .name = "floorf", .linkage = linkage });
-    @export(floor, .{ .name = "floor", .linkage = linkage });
-    @export(floorl, .{ .name = "floorl", .linkage = linkage });
-
-    @export(fma, .{ .name = "fma", .linkage = linkage });
-    @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
-    @export(fmal, .{ .name = "fmal", .linkage = linkage });
-    if (long_double_is_f80) {
-        @export(fmal, .{ .name = "__fmax", .linkage = linkage });
-    } else {
-        @export(__fmax, .{ .name = "__fmax", .linkage = linkage });
-    }
-    if (long_double_is_f128) {
-        @export(fmal, .{ .name = "fmaq", .linkage = linkage });
-    } else {
-        @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
+        // LLVM PPC backend lowers f128 fma to `fmaf128`.
+        @export(fmal, .{ .name = "fmaf128", .linkage = linkage });
     }
 }
 
