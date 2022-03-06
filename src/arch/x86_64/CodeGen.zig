@@ -1032,7 +1032,8 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     const dst_bit_size = dst_ty.bitSize(self.target.*);
     const is_power_of_two = (dst_bit_size & (dst_bit_size - 1)) == 0;
     if (!is_power_of_two or dst_bit_size < 8) {
-        const shift = @intCast(u6, 64 - dst_ty.bitSize(self.target.*));
+        const max_reg_bit_width = Register.rax.size();
+        const shift = @intCast(u6, max_reg_bit_width - dst_ty.bitSize(self.target.*));
         const mask = (~@as(u64, 0)) >> shift;
         try self.genBinMathOpMir(.@"and", Type.usize, .{ .register = reg }, .{ .immediate = mask });
 
@@ -1739,7 +1740,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
             .register => {
                 // TODO reuse the operand
                 const result = try self.copyToRegisterWithInstTracking(inst, optional_ty, operand);
-                const shift = @intCast(u8, offset * 8);
+                const shift = @intCast(u8, offset * @sizeOf(usize));
                 try self.shiftRegister(result.register, @intCast(u8, shift));
                 break :result result;
             },
@@ -1809,16 +1810,17 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
         operand.freezeIfRegister(&self.register_manager);
         defer operand.unfreezeIfRegister(&self.register_manager);
 
+        const abi_align = err_union_ty.abiAlignment(self.target.*);
         const err_ty = err_union_ty.errorUnionSet();
+        const err_abi_size = mem.alignForwardGeneric(u32, @intCast(u32, err_ty.abiSize(self.target.*)), abi_align);
         switch (operand) {
             .stack_offset => |off| {
-                const err_abi_size = @intCast(u32, err_ty.abiSize(self.target.*));
                 const offset = off - @intCast(i32, err_abi_size);
                 break :result MCValue{ .stack_offset = offset };
             },
             .register => {
                 // TODO reuse operand
-                const shift = @intCast(u6, err_ty.bitSize(self.target.*));
+                const shift = @intCast(u6, err_abi_size * @sizeOf(usize));
                 const result = try self.copyToRegisterWithInstTracking(inst, err_union_ty, operand);
                 try self.shiftRegister(result.register.to64(), shift);
                 break :result MCValue{
@@ -1914,8 +1916,9 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
     const abi_align = error_union_ty.abiAlignment(self.target.*);
     const err_abi_size = @intCast(u32, error_ty.abiSize(self.target.*));
     const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
+    const offset = mem.alignForwardGeneric(u32, err_abi_size, abi_align);
     try self.genSetStack(error_ty, stack_offset, .{ .immediate = 0 }, .{});
-    try self.genSetStack(payload_ty, stack_offset - @intCast(i32, err_abi_size), operand, .{});
+    try self.genSetStack(payload_ty, stack_offset - @intCast(i32, offset), operand, .{});
 
     return self.finishAir(inst, .{ .stack_offset = stack_offset }, .{ ty_op.operand, .none, .none });
 }
@@ -1937,8 +1940,9 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         const abi_align = error_union_ty.abiAlignment(self.target.*);
         const err_abi_size = @intCast(u32, error_ty.abiSize(self.target.*));
         const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
+        const offset = mem.alignForwardGeneric(u32, err_abi_size, abi_align);
         try self.genSetStack(error_ty, stack_offset, err, .{});
-        try self.genSetStack(payload_ty, stack_offset - @intCast(i32, err_abi_size), .undef, .{});
+        try self.genSetStack(payload_ty, stack_offset - @intCast(i32, offset), .undef, .{});
         break :result MCValue{ .stack_offset = stack_offset };
     };
 
@@ -2243,7 +2247,7 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
             },
             .register => {
                 const shift: u6 = if (layout.tag_align < layout.payload_align)
-                    @intCast(u6, layout.payload_size * 8)
+                    @intCast(u6, layout.payload_size * @sizeOf(usize))
                 else
                     0;
                 const result = try self.copyToRegisterWithInstTracking(inst, union_ty, operand);
@@ -2819,11 +2823,12 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 };
 
                 // Shift by struct_field_offset.
-                const shift = @intCast(u8, struct_field_offset * 8);
+                const shift = @intCast(u8, struct_field_offset * @sizeOf(usize));
                 try self.shiftRegister(dst_mcv.register, shift);
 
                 // Mask with reg.size() - struct_field_size
-                const mask_shift = @intCast(u6, (64 - struct_field_ty.bitSize(self.target.*)));
+                const max_reg_bit_width = Register.rax.size();
+                const mask_shift = @intCast(u6, (max_reg_bit_width - struct_field_ty.bitSize(self.target.*)));
                 const mask = (~@as(u64, 0)) >> mask_shift;
                 try self.genBinMathOpMir(.@"and", Type.usize, dst_mcv, .{ .immediate = mask });
 
