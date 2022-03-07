@@ -217,7 +217,7 @@ test "union with specified enum tag" {
     comptime try doTest();
 }
 
-test "packed union generates correctly aligned LLVM type" {
+test "packed union generates correctly aligned type" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -1104,8 +1104,6 @@ test "@unionInit on union with tag but no fields" {
 }
 
 test "union enum type gets a separate scope" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         const U = union(enum) {
             a: u8,

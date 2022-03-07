@@ -7747,14 +7747,9 @@ fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const container_type = try sema.resolveType(block, lhs_src, extra.lhs);
     const decl_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
 
-    // tuples are structs but they don't have a namespace
-    if (container_type.isTupleOrAnonStruct()) return Air.Inst.Ref.bool_false;
-    const namespace = container_type.getNamespace() orelse return sema.fail(
-        block,
-        lhs_src,
-        "expected struct, enum, union, or opaque, found '{}'",
-        .{container_type},
-    );
+    try checkNamespaceType(sema, block, lhs_src, container_type);
+
+    const namespace = container_type.getNamespace() orelse return Air.Inst.Ref.bool_false;
     if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |decl| {
         if (decl.is_pub or decl.getFileScope() == block.getFileScope()) {
             return Air.Inst.Ref.bool_true;
@@ -12879,6 +12874,13 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
                 }
             } else unreachable;
         },
+    }
+}
+
+fn checkNamespaceType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!void {
+    switch (ty.zigTypeTag()) {
+        .Struct, .Enum, .Union, .Opaque => return,
+        else => return sema.fail(block, src, "expected struct, enum, union, or opaque; found '{}'", .{ty}),
     }
 }
 
