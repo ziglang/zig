@@ -675,24 +675,26 @@ comptime {
     }
 
     const fmodl = @import("compiler_rt/floatfmodl.zig").fmodl;
-    @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
+    if (!is_test) {
+        @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
 
-    @export(floorf, .{ .name = "floorf", .linkage = linkage });
-    @export(floor, .{ .name = "floor", .linkage = linkage });
-    @export(floorl, .{ .name = "floorl", .linkage = linkage });
+        @export(floorf, .{ .name = "floorf", .linkage = linkage });
+        @export(floor, .{ .name = "floor", .linkage = linkage });
+        @export(floorl, .{ .name = "floorl", .linkage = linkage });
 
-    @export(fma, .{ .name = "fma", .linkage = linkage });
-    @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
-    @export(fmal, .{ .name = "fmal", .linkage = linkage });
-    if (long_double_is_f80) {
-        @export(fmal, .{ .name = "__fmax", .linkage = linkage });
-    } else {
-        @export(__fmax, .{ .name = "__fmax", .linkage = linkage });
-    }
-    if (long_double_is_f128) {
-        @export(fmal, .{ .name = "fmaq", .linkage = linkage });
-    } else {
-        @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
+        @export(fma, .{ .name = "fma", .linkage = linkage });
+        @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
+        @export(fmal, .{ .name = "fmal", .linkage = linkage });
+        if (long_double_is_f80) {
+            @export(fmal, .{ .name = "__fmax", .linkage = linkage });
+        } else {
+            @export(__fmax, .{ .name = "__fmax", .linkage = linkage });
+        }
+        if (long_double_is_f128) {
+            @export(fmal, .{ .name = "fmaq", .linkage = linkage });
+        } else {
+            @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
+        }
     }
 
     if (arch.isSPARC()) {
