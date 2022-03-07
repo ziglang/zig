@@ -984,7 +984,6 @@ test "peer type resolve array pointers, one of them const" {
 test "peer type resolve array pointer and unknown pointer" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const const_array: [4]u8 = undefined;
