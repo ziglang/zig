@@ -174,7 +174,7 @@ jobs:
   strategy:
     maxParallel: 1
   pool:
-    vmImage: 'ubuntu-18.04'
+    vmImage: 'ubuntu-20.04'
   variables:
     version: $[ dependencies.BuildMacOS.outputs['main.version'] ]
   steps:
