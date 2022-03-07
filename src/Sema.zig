@@ -18383,6 +18383,24 @@ fn resolvePeerTypes(
                             continue;
                         }
                     },
+                    .Optional => {
+                        var opt_child_buf: Type.Payload.ElemType = undefined;
+                        const chosen_ptr_ty = chosen_ty.optionalChild(&opt_child_buf);
+                        if (chosen_ptr_ty.zigTypeTag() == .Pointer) {
+                            const chosen_info = chosen_ptr_ty.ptrInfo().data;
+
+                            seen_const = seen_const or !chosen_info.mutable or !cand_info.mutable;
+
+                            // *[N]T to ?![*]T
+                            // *[N]T to ?![]T
+                            if (cand_info.size == .One and
+                                cand_info.pointee_type.zigTypeTag() == .Array and
+                                (chosen_info.size == .Many or chosen_info.size == .Slice))
+                            {
+                                continue;
+                            }
+                        }
+                    },
                     .ErrorUnion => {
                         const chosen_ptr_ty = chosen_ty.errorUnionPayload();
                         if (chosen_ptr_ty.zigTypeTag() == .Pointer) {
@@ -18406,15 +18424,17 @@ fn resolvePeerTypes(
             .Optional => {
                 var opt_child_buf: Type.Payload.ElemType = undefined;
                 const opt_child_ty = candidate_ty.optionalChild(&opt_child_buf);
-                if ((try sema.coerceInMemoryAllowed(block, opt_child_ty, chosen_ty, false, target, src, src)) == .ok) {
-                    chosen = candidate;
-                    chosen_i = candidate_i + 1;
-                    continue;
-                }
                 if ((try sema.coerceInMemoryAllowed(block, chosen_ty, opt_child_ty, false, target, src, src)) == .ok) {
+                    seen_const = seen_const or opt_child_ty.isConstPtr();
                     any_are_null = true;
                     continue;
                 }
+
+                seen_const = seen_const or chosen_ty.isConstPtr();
+                any_are_null = false;
+                chosen = candidate;
+                chosen_i = candidate_i + 1;
+                continue;
             },
             else => {},
         }

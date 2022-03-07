@@ -333,17 +333,15 @@ test "obtaining a null terminated slice" {
 }
 
 test "empty array to slice" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             const empty: []align(16) u8 = &[_]u8{};
             const align_1: []align(1) u8 = empty;
             const align_4: []align(4) u8 = empty;
             const align_16: []align(16) u8 = empty;
-            try expectEqual(1, @typeInfo(@TypeOf(align_1)).Pointer.alignment);
-            try expectEqual(4, @typeInfo(@TypeOf(align_4)).Pointer.alignment);
-            try expectEqual(16, @typeInfo(@TypeOf(align_16)).Pointer.alignment);
+            try expect(1 == @typeInfo(@TypeOf(align_1)).Pointer.alignment);
+            try expect(4 == @typeInfo(@TypeOf(align_4)).Pointer.alignment);
+            try expect(16 == @typeInfo(@TypeOf(align_16)).Pointer.alignment);
         }
     };
 
@@ -478,6 +476,10 @@ test "slice syntax resulting in pointer-to-array" {
             var array: [2]u8 = [2]u8{ 1, 2 };
             var slice: ?[]u8 = &array;
             comptime try expect(@TypeOf(&array, slice) == ?[]u8);
+            if (builtin.zig_backend != .stage1) {
+                // stage1 is not passing this case
+                comptime try expect(@TypeOf(slice, &array) == ?[]u8);
+            }
             comptime try expect(@TypeOf(slice.?[0..2]) == *[2]u8);
         }
 
