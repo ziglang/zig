@@ -1388,12 +1388,15 @@ fn walkDecls(
         // const pub_str = if (is_pub) "pub " else "";
         // const hash_bytes = @bitCast([16]u8, hash_u32s.*);
 
+        var is_test = false; // we discover if it's a test by lookin at its name
         const name: []const u8 = blk: {
             if (decl_name_index == 0) {
                 break :blk if (is_exported) "usingnamespace" else "comptime";
             } else if (decl_name_index == 1) {
+                is_test = true;
                 break :blk "test";
             } else if (decl_name_index == 2) {
+                is_test = true;
                 // it is a decltest
                 const decl_being_tested = scope.resolveDeclName(doc_comment_index);
                 const ast_node_index = idx: {
@@ -1471,6 +1474,7 @@ fn walkDecls(
             } else {
                 const raw_decl_name = file.zir.nullTerminatedString(decl_name_index);
                 if (raw_decl_name.len == 0) {
+                    is_test = true;
                     break :blk file.zir.nullTerminatedString(decl_name_index + 1);
                 } else {
                     break :blk raw_decl_name;
@@ -1496,7 +1500,10 @@ fn walkDecls(
             break :idx idx;
         };
 
-        const walk_result = try self.walkInstruction(file, scope, decl_index);
+        const walk_result = if (is_test) // TODO: decide if tests should show up at all
+            DocData.WalkResult{ .void = {} }
+        else
+            try self.walkInstruction(file, scope, decl_index);
 
         if (is_pub) {
             try decl_indexes.append(self.arena, decls_slot_index);
