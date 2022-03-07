@@ -86,7 +86,6 @@ pub fn generateZirData(self: *Autodoc) !void {
                         break :blk .{
                             .Array = .{
                                 .len = 1,
-                                .name = tmpbuf.toOwnedSlice(),
                                 .child = .{ .type = 0 },
                             },
                         };
@@ -352,7 +351,6 @@ const DocData = struct {
             child: TypeRef,
         },
         Array: struct {
-            name: []const u8,
             len: usize,
             child: TypeRef,
         },
@@ -522,6 +520,7 @@ const DocData = struct {
             value: f64, // direct value
             negated: bool = false,
         },
+        array: Array,
         call: usize, // index in `calls`
 
         const Struct = struct {
@@ -531,6 +530,11 @@ const DocData = struct {
                 val: WalkResult,
             },
         };
+        const Array = struct {
+            typeRef: TypeRef,
+            data: []WalkResult,
+        };
+
         pub fn jsonStringify(
             self: WalkResult,
             options: std.json.StringifyOptions,
@@ -586,6 +590,24 @@ const DocData = struct {
                         try w.print("{d}{s}", .{ d, comma });
                     }
                 },
+                .array => |v| try std.json.stringify(
+                    struct { @"array": Array }{ .@"array" = v },
+                    options,
+                    w,
+                ),
+
+                // try w.print("{ len: {},\n", .{v.len});
+
+                // if (options.whitespace) |ws| try ws.outputIndent(w);
+                // try w.print("typeRef: ", .{});
+                // try v.typeRef.jsonStringify(options, w);
+
+                // try w.print("{{ \"data\": [", .{});
+                // for (v.data) |d, i| {
+                //     const comma = if (i == v.len - 1) "]}" else ",";
+                //     try w.print("{d}{s}", .{ d, comma });
+                // }
+
             }
         }
     };
@@ -615,6 +637,16 @@ fn walkInstruction(
             const path = str_tok.get(file.zir);
             // importFile cannot error out since all files
             // are already loaded at this point
+            if (file.pkg.table.get(path) != null) {
+                const cte_slot_index = self.comptime_exprs.items.len;
+                try self.comptime_exprs.append(self.arena, .{
+                    .code = path,
+                    .typeRef = .{ .type = @enumToInt(DocData.DocTypeKinds.Type) },
+                });
+                return DocData.WalkResult{
+                    .comptimeExpr = cte_slot_index,
+                };
+            }
             const new_file = self.module.importFile(file, path) catch unreachable;
             const result = try self.files.getOrPut(self.arena, new_file.file);
             if (result.found_existing) {
@@ -643,6 +675,28 @@ fn walkInstruction(
                     .value = int,
                 },
             };
+        },
+        .array_init => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
+            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
+            const array_data = try self.arena.alloc(DocData.WalkResult, operands.len);
+            for (operands) |op, idx| {
+                array_data[idx] = try self.walkRef(file, parent_scope, op);
+            }
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .Array = .{
+                    .len = operands.len,
+                    .child = typeOfWalkResult(array_data[0]),
+                },
+            });
+
+            return DocData.WalkResult{ .array = .{
+                .typeRef = .{ .type = type_slot_index },
+                .data = array_data,
+            } };
         },
         .float => {
             const float = data[inst_index].float;
@@ -1555,7 +1609,8 @@ fn tryResolveDeclPath(
                 // with the final decl in `dp`.
                 // We then write the original value back as soon as we're done with the
                 // recoursive call. This will work out correctly even if the path
-                // will not get fully resolved.
+                // will not get fully resolved (also in the case that final_decl is
+                // not resolved yet).
                 path[i] = final_decl_index;
                 try self.tryResolveDeclPath(file, path);
                 path[i] = decl_index;
@@ -1867,6 +1922,19 @@ fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
 
         .declPath => |v| .{ .declPath = v },
         .type => |v| .{ .type = v },
+    };
+}
+
+fn typeOfWalkResult(wr: DocData.WalkResult) DocData.TypeRef {
+    return switch (wr) {
+        else => std.debug.panic(
+            "TODO: handle `{s}` in typeOfWalkResult\n",
+            .{@tagName(wr)},
+        ),
+        .type => .{ .type = @enumToInt(DocData.DocTypeKinds.Type) },
+        .int => |v| v.typeRef,
+        .float => |v| v.typeRef,
+        .array => |v| v.typeRef,
     };
 }
 
