@@ -212,7 +212,8 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             16 => switch (args.valtype1.?) {
                 .i32 => if (args.signedness.? == .signed) return .i32_load16_s else return .i32_load16_u,
                 .i64 => if (args.signedness.? == .signed) return .i64_load16_s else return .i64_load16_u,
-                .f32, .f64 => unreachable,
+                .f32 => return .f32_load,
+                .f64 => unreachable,
             },
             32 => switch (args.valtype1.?) {
                 .i64 => if (args.signedness.? == .signed) return .i64_load32_s else return .i64_load32_u,
@@ -242,7 +243,8 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
                 16 => switch (args.valtype1.?) {
                     .i32 => return .i32_store16,
                     .i64 => return .i64_store16,
-                    .f32, .f64 => unreachable,
+                    .f32 => return .f32_store,
+                    .f64 => unreachable,
                 },
                 32 => switch (args.valtype1.?) {
                     .i64 => return .i64_store32,
@@ -1064,7 +1066,7 @@ fn allocStackPtr(self: *Self, inst: Air.Inst.Index) !WValue {
 }
 
 /// From given zig bitsize, returns the wasm bitsize
-fn toWasmIntBits(bits: u16) ?u16 {
+fn toWasmBits(bits: u16) ?u16 {
     return for ([_]u16{ 32, 64 }) |wasm_bits| {
         if (bits <= wasm_bits) return wasm_bits;
     } else null;
@@ -1120,11 +1122,11 @@ fn isByRef(ty: Type, target: std.Target) bool {
         .ErrorSet,
         .Fn,
         .Enum,
-        .Vector,
         .AnyFrame,
         => return false,
 
         .Array,
+        .Vector,
         .Struct,
         .Frame,
         .Union,
@@ -1218,6 +1220,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .cond_br => self.airCondBr(inst),
         .dbg_stmt => WValue.none,
         .intcast => self.airIntcast(inst),
+        .fpext => self.airFpext(inst),
         .float_to_int => self.airFloatToInt(inst),
         .get_union_tag => self.airGetUnionTag(inst),
 
@@ -1298,7 +1301,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .is_err_ptr,
         .is_non_err_ptr,
         .fptrunc,
-        .fpext,
         .unwrap_errunion_payload_ptr,
         .unwrap_errunion_err_ptr,
 
@@ -1513,7 +1515,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
 
             return self.memCopy(ty, lhs, rhs);
         },
-        .Struct, .Array, .Union => {
+        .Struct, .Array, .Union, .Vector => {
             return self.memCopy(ty, lhs, rhs);
         },
         .Pointer => {
@@ -2408,9 +2410,9 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ref_info = ref_ty.intInfo(self.target);
     const wanted_info = ty.intInfo(self.target);
 
-    const op_bits = toWasmIntBits(ref_info.bits) orelse
+    const op_bits = toWasmBits(ref_info.bits) orelse
         return self.fail("TODO: Wasm intcast integer types of bitsize: {d}", .{ref_info.bits});
-    const wanted_bits = toWasmIntBits(wanted_info.bits) orelse
+    const wanted_bits = toWasmBits(wanted_info.bits) orelse
         return self.fail("TODO: Wasm intcast integer types of bitsize: {d}", .{wanted_info.bits});
 
     // hot path
@@ -2651,7 +2653,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const result = try self.allocLocal(self.air.getRefType(ty_op.ty));
     const op_bits = op_ty.intInfo(self.target).bits;
 
-    const wasm_bits = toWasmIntBits(wanted_bits) orelse
+    const wasm_bits = toWasmBits(wanted_bits) orelse
         return self.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{wanted_bits});
 
     // Use wasm's instruction to wrap from 64bit to 32bit integer when possible
@@ -3181,4 +3183,29 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         break :blk @intCast(u32, layout.payload_size);
     } else @as(u32, 0);
     return self.load(operand, tag_ty, offset);
+}
+
+fn airFpext(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const ty = self.air.typeOfIndex(inst);
+    const wanted_bits = ty.floatBits(self.target);
+    const have_bits = self.air.typeOf(ty_op.operand).floatBits(self.target);
+    const operand = try self.resolveInst(ty_op.operand);
+
+    const have = toWasmBits(have_bits) orelse {
+        return self.fail("TODO: Implement 'fpext' for floats with bitsize: {d}", .{have_bits});
+    };
+    const wanted = toWasmBits(wanted_bits) orelse {
+        return self.fail("TODO: Implement 'fpext' for floats with bitsize: {d}", .{wanted_bits});
+    };
+    if (have == wanted) return operand;
+
+    assert(have < wanted);
+    const result = try self.allocLocal(ty);
+    try self.emitWValue(operand);
+    try self.addTag(.f64_promote_f32);
+    try self.addLabel(.local_set, result.local);
+    return result;
 }

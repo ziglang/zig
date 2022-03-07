@@ -391,6 +391,8 @@ pub const Inst = struct {
         /// Uses `tag`
         i64_trunc_f64_u = 0xB1,
         /// Uses `tag`
+        f64_promote_f32 = 0xBB,
+        /// Uses `tag`
         i32_reinterpret_f32 = 0xBC,
         /// Uses `tag`
         i64_reinterpret_f64 = 0xBD,
