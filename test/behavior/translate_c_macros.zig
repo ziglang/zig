@@ -56,3 +56,7 @@ test "casting to union with a macro" {
     casted = h.UNION_CAST(d);
     try expectEqual(d, casted.d);
 }
+
+test "nested comma operator" {
+    try expectEqual(@as(c_int, 3), h.NESTED_COMMA_OPERATOR);
+}
