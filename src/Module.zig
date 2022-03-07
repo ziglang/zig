@@ -1278,7 +1278,8 @@ pub const Union = struct {
         var biggest_field: u32 = undefined;
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
-        for (u.fields.values()) |field, i| {
+        const fields = u.fields.values();
+        for (fields) |field, i| {
             if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
@@ -1300,7 +1301,7 @@ pub const Union = struct {
             }
         }
         payload_align = @maximum(payload_align, 1);
-        if (!have_tag) return .{
+        if (!have_tag or fields.len <= 1) return .{
             .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
             .abi_align = payload_align,
             .most_aligned_field = most_aligned_field,
