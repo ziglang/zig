@@ -5,12 +5,14 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.codegen);
 const math = std.math;
 const native_endian = builtin.cpu.arch.endian();
+const DW = std.dwarf;
 
 const llvm = @import("llvm/bindings.zig");
 const link = @import("../link.zig");
 const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
 const Module = @import("../Module.zig");
+const Package = @import("../Package.zig");
 const TypedValue = @import("../TypedValue.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
@@ -159,6 +161,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
 
 pub const Object = struct {
     llvm_module: *const llvm.Module,
+    dibuilder: ?*llvm.DIBuilder,
     context: *const llvm.Context,
     target_machine: *const llvm.TargetMachine,
     target_data: *const llvm.TargetData,
@@ -180,8 +183,9 @@ pub const Object = struct {
     /// The backing memory for `type_map`. Periodically garbage collected after flush().
     /// The code for doing the periodical GC is not yet implemented.
     type_map_arena: std.heap.ArenaAllocator,
-    /// The LLVM global table which holds the names corresponding to Zig errors. Note that the values
-    /// are not added until flushModule, when all errors in the compilation are known.
+    /// The LLVM global table which holds the names corresponding to Zig errors.
+    /// Note that the values are not added until flushModule, when all errors in
+    /// the compilation are known.
     error_name_table: ?*const llvm.Value,
 
     pub const TypeMap = std.HashMapUnmanaged(
@@ -204,9 +208,7 @@ pub const Object = struct {
 
         initializeLLVMTarget(options.target.cpu.arch);
 
-        const root_nameZ = try gpa.dupeZ(u8, options.root_name);
-        defer gpa.free(root_nameZ);
-        const llvm_module = llvm.Module.createWithName(root_nameZ.ptr, context);
+        const llvm_module = llvm.Module.createWithName(options.root_name.ptr, context);
         errdefer llvm_module.dispose();
 
         const llvm_target_triple = try targetTriple(gpa, options.target);
@@ -219,6 +221,58 @@ pub const Object = struct {
 
             log.err("LLVM failed to parse '{s}': {s}", .{ llvm_target_triple, error_message });
             return error.InvalidLlvmTriple;
+        }
+
+        llvm_module.setTarget(llvm_target_triple.ptr);
+        var opt_dbuilder: ?*llvm.DIBuilder = null;
+        errdefer if (opt_dbuilder) |dibuilder| dibuilder.dispose();
+
+        if (!options.strip) {
+            switch (options.object_format) {
+                .coff => llvm_module.addModuleCodeViewFlag(),
+                else => llvm_module.addModuleDebugInfoFlag(),
+            }
+            const dibuilder = llvm_module.createDIBuilder(true);
+            opt_dbuilder = dibuilder;
+
+            // Don't use the version string here; LLVM misparses it when it
+            // includes the git revision.
+            const producer = try std.fmt.allocPrintZ(gpa, "zig {d}.{d}.{d}", .{
+                build_options.semver.major,
+                build_options.semver.minor,
+                build_options.semver.patch,
+            });
+            defer gpa.free(producer);
+
+            // For macOS stack traces, we want to avoid having to parse the compilation unit debug
+            // info. As long as each debug info file has a path independent of the compilation unit
+            // directory (DW_AT_comp_dir), then we never have to look at the compilation unit debug
+            // info. If we provide an absolute path to LLVM here for the compilation unit debug
+            // info, LLVM will emit DWARF info that depends on DW_AT_comp_dir. To avoid this, we
+            // pass "." for the compilation unit directory. This forces each debug file to have a
+            // directory rather than be relative to DW_AT_comp_dir. According to DWARF 5, debug
+            // files will no longer reference DW_AT_comp_dir, for the purpose of being able to
+            // support the common practice of stripping all but the line number sections from an
+            // executable.
+            const compile_unit_dir = d: {
+                if (options.target.isDarwin()) break :d ".";
+                const mod = options.module orelse break :d ".";
+                break :d mod.root_pkg.root_src_directory.path orelse ".";
+            };
+            const compile_unit_dir_z = try gpa.dupeZ(u8, compile_unit_dir);
+            defer gpa.free(compile_unit_dir_z);
+
+            _ = dibuilder.createCompileUnit(
+                DW.LANG.C99,
+                dibuilder.createFile(options.root_name, compile_unit_dir_z),
+                producer,
+                options.optimize_mode != .Debug,
+                "", // flags
+                0, // runtime version
+                "", // split name
+                0, // dwo id
+                true, // emit debug info
+            );
         }
 
         const opt_level: llvm.CodeGenOptLevel = if (options.optimize_mode == .Debug)
@@ -266,6 +320,7 @@ pub const Object = struct {
 
         return Object{
             .llvm_module = llvm_module,
+            .dibuilder = opt_dbuilder,
             .context = context,
             .target_machine = target_machine,
             .target_data = target_data,
@@ -277,6 +332,7 @@ pub const Object = struct {
     }
 
     pub fn deinit(self: *Object, gpa: Allocator) void {
+        if (self.dibuilder) |dib| dib.dispose();
         self.target_data.dispose();
         self.target_machine.dispose();
         self.llvm_module.dispose();
