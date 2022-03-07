@@ -252,6 +252,7 @@ const Writer = struct {
             .field_parent_ptr => try w.writeFieldParentPtr(s, inst),
             .wasm_memory_size => try w.writeWasmMemorySize(s, inst),
             .wasm_memory_grow => try w.writeWasmMemoryGrow(s, inst),
+            .mul_add => try w.writeMulAdd(s, inst),
 
             .add_with_overflow,
             .sub_with_overflow,
@@ -356,6 +357,17 @@ const Writer = struct {
         try s.print(", {s}, {s}", .{
             @tagName(extra.successOrder()), @tagName(extra.failureOrder()),
         });
+    }
+
+    fn writeMulAdd(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
+
+        try w.writeOperand(s, inst, 0, extra.lhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.rhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 2, pl_op.operand);
     }
 
     fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

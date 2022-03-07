@@ -7309,8 +7309,8 @@ fn builtinCall(
         },
         .mul_add => {
             const float_type = try typeExpr(gz, scope, params[0]);
-            const mulend1 = try expr(gz, scope, .{ .ty = float_type }, params[1]);
-            const mulend2 = try expr(gz, scope, .{ .ty = float_type }, params[2]);
+            const mulend1 = try expr(gz, scope, .{ .coerced_ty = float_type }, params[1]);
+            const mulend2 = try expr(gz, scope, .{ .coerced_ty = float_type }, params[2]);
             const addend = try expr(gz, scope, .{ .ty = float_type }, params[3]);
             const result = try gz.addPlNode(.mul_add, node, Zir.Inst.MulAdd{
                 .mulend1 = mulend1,

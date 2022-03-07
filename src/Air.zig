@@ -579,6 +579,11 @@ pub const Inst = struct {
         /// Uses the `prefetch` field.
         prefetch,
 
+        /// Computes `(a * b) + c`, but only rounds once.
+        /// Uses the `pl_op` field with payload `Bin`.
+        /// The operand is the addend. The mulends are lhs and rhs.
+        mul_add,
+
         /// Implements @fieldParentPtr builtin.
         /// Uses the `ty_pl` field.
         field_parent_ptr,
@@ -985,6 +990,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const ptr_ty = air.typeOf(datas[inst].pl_op.operand);
             return ptr_ty.elemType();
         },
+
+        .mul_add => return air.typeOf(datas[inst].pl_op.operand),
 
         .add_with_overflow,
         .sub_with_overflow,

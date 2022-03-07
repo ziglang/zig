@@ -891,6 +891,8 @@ pub const Inst = struct {
         atomic_store,
         /// Implements the `@mulAdd` builtin.
         /// Uses the `pl_node` union field with payload `MulAdd`.
+        /// The addend communicates the type of the builtin.
+        /// The mulends need to be coerced to the same type.
         mul_add,
         /// Implements the `@call` builtin.
         /// Uses the `pl_node` union field with payload `BuiltinCall`.

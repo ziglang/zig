@@ -2931,7 +2931,7 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
-    /// operands must be integers; handles undefined. 
+    /// operands must be integers; handles undefined.
     pub fn bitwiseAnd(lhs: Value, rhs: Value, arena: Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
@@ -2951,7 +2951,7 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
-    /// operands must be integers; handles undefined. 
+    /// operands must be integers; handles undefined.
     pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: Allocator, target: Target) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
@@ -2965,7 +2965,7 @@ pub const Value = extern union {
         return bitwiseXor(anded, all_ones, arena);
     }
 
-    /// operands must be integers; handles undefined. 
+    /// operands must be integers; handles undefined.
     pub fn bitwiseOr(lhs: Value, rhs: Value, arena: Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
@@ -2984,7 +2984,7 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
-    /// operands must be integers; handles undefined. 
+    /// operands must be integers; handles undefined.
     pub fn bitwiseXor(lhs: Value, rhs: Value, arena: Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
@@ -4015,6 +4015,49 @@ pub const Value = extern union {
                 }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @trunc(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn mulAdd(
+        float_type: Type,
+        mulend1: Value,
+        mulend2: Value,
+        addend: Value,
+        arena: Allocator,
+        target: Target,
+    ) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const m1 = mulend1.toFloat(f16);
+                const m2 = mulend2.toFloat(f16);
+                const a = addend.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @mulAdd(f16, m1, m2, a));
+            },
+            32 => {
+                const m1 = mulend1.toFloat(f32);
+                const m2 = mulend2.toFloat(f32);
+                const a = addend.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @mulAdd(f32, m1, m2, a));
+            },
+            64 => {
+                const m1 = mulend1.toFloat(f64);
+                const m2 = mulend2.toFloat(f64);
+                const a = addend.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @mulAdd(f64, m1, m2, a));
+            },
+            80 => {
+                const m1 = mulend1.toFloat(f80);
+                const m2 = mulend2.toFloat(f80);
+                const a = addend.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @mulAdd(f80, m1, m2, a));
+            },
+            128 => {
+                const m1 = mulend1.toFloat(f128);
+                const m2 = mulend2.toFloat(f128);
+                const a = addend.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @mulAdd(f128, m1, m2, a));
             },
             else => unreachable,
         }

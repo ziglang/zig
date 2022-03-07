@@ -19,7 +19,8 @@ const strong_linkage = if (is_test)
 else
     std.builtin.GlobalLinkage.Strong;
 
-const long_double_is_f128 = builtin.target.longDoubleIsF128();
+const long_double_is_f80 = builtin.target.longDoubleIs(f80);
+const long_double_is_f128 = builtin.target.longDoubleIs(f128);
 
 comptime {
     // These files do their own comptime exporting logic.
@@ -673,6 +674,29 @@ comptime {
         @export(_aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
+    const fmodl = @import("compiler_rt/floatfmodl.zig").fmodl;
+    if (!is_test) {
+        @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
+
+        @export(floorf, .{ .name = "floorf", .linkage = linkage });
+        @export(floor, .{ .name = "floor", .linkage = linkage });
+        @export(floorl, .{ .name = "floorl", .linkage = linkage });
+
+        @export(fma, .{ .name = "fma", .linkage = linkage });
+        @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
+        @export(fmal, .{ .name = "fmal", .linkage = linkage });
+        if (long_double_is_f80) {
+            @export(fmal, .{ .name = "__fmax", .linkage = linkage });
+        } else {
+            @export(__fmax, .{ .name = "__fmax", .linkage = linkage });
+        }
+        if (long_double_is_f128) {
+            @export(fmal, .{ .name = "fmaq", .linkage = linkage });
+        } else {
+            @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
+        }
+    }
+
     if (arch.isSPARC()) {
         // SPARC systems use a different naming scheme
         const _Qp_add = @import("compiler_rt/sparc.zig")._Qp_add;
@@ -725,7 +749,7 @@ comptime {
         @export(_Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
     }
 
-    if ((arch == .powerpc or arch.isPPC64()) and !is_test) {
+    if ((arch.isPPC() or arch.isPPC64()) and !is_test) {
         @export(__addtf3, .{ .name = "__addkf3", .linkage = linkage });
         @export(__subtf3, .{ .name = "__subkf3", .linkage = linkage });
         @export(__multf3, .{ .name = "__mulkf3", .linkage = linkage });
@@ -750,21 +774,28 @@ comptime {
         @export(__letf2, .{ .name = "__lekf2", .linkage = linkage });
         @export(__getf2, .{ .name = "__gtkf2", .linkage = linkage });
         @export(__unordtf2, .{ .name = "__unordkf2", .linkage = linkage });
+
+        // LLVM PPC backend lowers f128 fma to `fmaf128`.
+        @export(fmal, .{ .name = "fmaf128", .linkage = linkage });
     }
-
-    const fmodl = @import("compiler_rt/floatfmodl.zig").fmodl;
-    @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
-
-    @export(floorf, .{ .name = "floorf", .linkage = linkage });
-    @export(floor, .{ .name = "floor", .linkage = linkage });
-    @export(floorl, .{ .name = "floorl", .linkage = linkage });
-    @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
 }
 
 const math = std.math;
 
+fn fmaf(a: f32, b: f32, c: f32) callconv(.C) f32 {
+    return math.fma(f32, a, b, c);
+}
+fn fma(a: f64, b: f64, c: f64) callconv(.C) f64 {
+    return math.fma(f64, a, b, c);
+}
+fn __fmax(a: f80, b: f80, c: f80) callconv(.C) f80 {
+    return math.fma(f80, a, b, c);
+}
 fn fmaq(a: f128, b: f128, c: f128) callconv(.C) f128 {
     return math.fma(f128, a, b, c);
+}
+fn fmal(a: c_longdouble, b: c_longdouble, c: c_longdouble) callconv(.C) c_longdouble {
+    return math.fma(c_longdouble, a, b, c);
 }
 
 // TODO add intrinsics for these (and probably the double version too)

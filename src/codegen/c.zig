@@ -16,6 +16,7 @@ const trace = @import("../tracy.zig").trace;
 const LazySrcLoc = Module.LazySrcLoc;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const CType = @import("../type.zig").CType;
 
 const Mutability = enum { Const, Mut };
 const BigIntConst = std.math.big.int.Const;
@@ -1634,6 +1635,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .round,
             .trunc_float,
             => |tag| return f.fail("TODO: C backend: implement unary op for tag '{s}'", .{@tagName(tag)}),
+
+            .mul_add => try airMulAdd(f, inst),
 
             .add_with_overflow => try airAddWithOverflow(f, inst),
             .sub_with_overflow => try airSubWithOverflow(f, inst),
@@ -3617,6 +3620,35 @@ fn airWasmMemoryGrow(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = ");
     try writer.print("zig_wasm_memory_grow({d}, ", .{pl_op.payload});
     try f.writeCValue(writer, operand);
+    try writer.writeAll(");\n");
+    return local;
+}
+
+fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const extra = f.air.extraData(Air.Bin, pl_op.payload).data;
+    const inst_ty = f.air.typeOfIndex(inst);
+    const mulend1 = try f.resolveInst(extra.lhs);
+    const mulend2 = try f.resolveInst(extra.rhs);
+    const addend = try f.resolveInst(pl_op.operand);
+    const writer = f.object.writer();
+    const target = f.object.dg.module.getTarget();
+    const fn_name = switch (inst_ty.floatBits(target)) {
+        16, 32 => "fmaf",
+        64 => "fma",
+        80 => if (CType.longdouble.sizeInBits(target) == 80) "fmal" else "__fmax",
+        128 => if (CType.longdouble.sizeInBits(target) == 128) "fmal" else "fmaq",
+        else => unreachable,
+    };
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+    try writer.print("{s}(", .{fn_name});
+    try f.writeCValue(writer, mulend1);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, mulend2);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, addend);
     try writer.writeAll(");\n");
     return local;
 }
