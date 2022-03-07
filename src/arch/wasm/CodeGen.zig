@@ -1886,6 +1886,8 @@ fn valueAsI32(self: Self, val: Value, ty: Type) i32 {
             const kv = self.bin_file.base.options.module.?.getErrorValue(val.getError().?) catch unreachable; // passed invalid `Value` to function
             return @bitCast(i32, kv.value);
         },
+        .Bool => return @intCast(i32, val.toSignedInt()),
+        .Pointer => return @intCast(i32, val.toSignedInt()),
         else => unreachable, // Programmer called this function for an illegal type
     }
 }
@@ -2164,8 +2166,8 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         self.gpa.free(case.values);
     } else case_list.deinit();
 
-    var lowest: i32 = 0;
-    var highest: i32 = 0;
+    var lowest_maybe: ?i32 = null;
+    var highest_maybe: ?i32 = null;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
         const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
@@ -2177,11 +2179,11 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         for (items) |ref, i| {
             const item_val = self.air.value(ref).?;
             const int_val = self.valueAsI32(item_val, target_ty);
-            if (int_val < lowest) {
-                lowest = int_val;
+            if (lowest_maybe == null or int_val < lowest_maybe.?) {
+                lowest_maybe = int_val;
             }
-            if (int_val > highest) {
-                highest = int_val;
+            if (highest_maybe == null or int_val > highest_maybe.?) {
+                highest_maybe = int_val;
             }
             values[i] = .{ .integer = int_val, .value = item_val };
         }
@@ -2190,6 +2192,9 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         try self.startBlock(.block, blocktype);
     }
 
+    // When highest and lowest are null, we have no cases and can use a jump table
+    const lowest = lowest_maybe orelse 0;
+    const highest = highest_maybe orelse 0;
     // When the highest and lowest values are seperated by '50',
     // we define it as sparse and use an if/else-chain, rather than a jump table.
     // When the target is an integer size larger than u32, we have no way to use the value
@@ -2215,6 +2220,10 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             // we put inside, are atleast 0.
             try self.addImm32(lowest * -1);
             try self.addTag(.i32_add);
+        } else if (lowest > 0) {
+            // make the index start from 0 by substracting the lowest value
+            try self.addImm32(lowest);
+            try self.addTag(.i32_sub);
         }
 
         // Account for default branch so always add '1'
@@ -2223,12 +2232,13 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const table_extra_index = try self.addExtra(jump_table);
         try self.addInst(.{ .tag = .br_table, .data = .{ .payload = table_extra_index } });
         try self.mir_extra.ensureUnusedCapacity(self.gpa, depth);
-        while (lowest <= highest) : (lowest += 1) {
+        var value = lowest;
+        while (value <= highest) : (value += 1) {
             // idx represents the branch we jump to
             const idx = blk: {
                 for (case_list.items) |case, idx| {
                     for (case.values) |case_value| {
-                        if (case_value.integer == lowest) break :blk @intCast(u32, idx);
+                        if (case_value.integer == value) break :blk @intCast(u32, idx);
                     }
                 }
                 break :blk if (has_else_body) case_i else unreachable;
