@@ -1220,6 +1220,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .cond_br => self.airCondBr(inst),
         .dbg_stmt => WValue.none,
         .intcast => self.airIntcast(inst),
+        .fptrunc => self.airFptrunc(inst),
         .fpext => self.airFpext(inst),
         .float_to_int => self.airFloatToInt(inst),
         .get_union_tag => self.airGetUnionTag(inst),
@@ -1300,7 +1301,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .bit_reverse,
         .is_err_ptr,
         .is_non_err_ptr,
-        .fptrunc,
         .unwrap_errunion_payload_ptr,
         .unwrap_errunion_err_ptr,
 
@@ -3189,23 +3189,40 @@ fn airFpext(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const ty = self.air.typeOfIndex(inst);
-    const wanted_bits = ty.floatBits(self.target);
-    const have_bits = self.air.typeOf(ty_op.operand).floatBits(self.target);
+    const dest_ty = self.air.typeOfIndex(inst);
+    const dest_bits = dest_ty.floatBits(self.target);
+    const src_bits = self.air.typeOf(ty_op.operand).floatBits(self.target);
     const operand = try self.resolveInst(ty_op.operand);
 
-    const have = toWasmBits(have_bits) orelse {
-        return self.fail("TODO: Implement 'fpext' for floats with bitsize: {d}", .{have_bits});
-    };
-    const wanted = toWasmBits(wanted_bits) orelse {
-        return self.fail("TODO: Implement 'fpext' for floats with bitsize: {d}", .{wanted_bits});
-    };
-    if (have == wanted) return operand;
+    if (dest_bits == 64 and src_bits == 32) {
+        const result = try self.allocLocal(dest_ty);
+        try self.emitWValue(operand);
+        try self.addTag(.f64_promote_f32);
+        try self.addLabel(.local_set, result.local);
+        return result;
+    } else {
+        // TODO: Emit a call to compiler-rt to extend the float. e.g. __extendhfsf2
+        return self.fail("TODO: Implement 'fpext' for floats with bitsize: {d}", .{dest_bits});
+    }
+}
 
-    assert(have < wanted);
-    const result = try self.allocLocal(ty);
-    try self.emitWValue(operand);
-    try self.addTag(.f64_promote_f32);
-    try self.addLabel(.local_set, result.local);
-    return result;
+fn airFptrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const dest_ty = self.air.typeOfIndex(inst);
+    const dest_bits = dest_ty.floatBits(self.target);
+    const src_bits = self.air.typeOf(ty_op.operand).floatBits(self.target);
+    const operand = try self.resolveInst(ty_op.operand);
+
+    if (dest_bits == 32 and src_bits == 64) {
+        const result = try self.allocLocal(dest_ty);
+        try self.emitWValue(operand);
+        try self.addTag(.f32_demote_f64);
+        try self.addLabel(.local_set, result.local);
+        return result;
+    } else {
+        // TODO: Emit a call to compiler-rt to trunc the float. e.g. __truncdfhf2
+        return self.fail("TODO: Implement 'fptrunc' for floats with bitsize: {d}", .{dest_bits});
+    }
 }
