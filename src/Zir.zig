@@ -710,12 +710,20 @@ pub const Inst = struct {
         /// Array initialization syntax.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init,
+        /// Array initialization with sentinel.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        /// Final op in MultiOp is the sentinel.
+        array_init_sent,
         /// Anonymous array initialization syntax.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon,
         /// Array initialization syntax, make the result a pointer.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_ref,
+        /// Array initialization with sentinel.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        /// Final op in MultiOp is the sentinel.
+        array_init_sent_ref,
         /// Anonymous array initialization syntax, make the result a pointer.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon_ref,
@@ -1119,8 +1127,10 @@ pub const Inst = struct {
                 .struct_init_anon,
                 .struct_init_anon_ref,
                 .array_init,
+                .array_init_sent,
                 .array_init_anon,
                 .array_init_ref,
+                .array_init_sent_ref,
                 .array_init_anon_ref,
                 .union_init,
                 .field_type,
@@ -1377,8 +1387,10 @@ pub const Inst = struct {
                 .struct_init_anon = .pl_node,
                 .struct_init_anon_ref = .pl_node,
                 .array_init = .pl_node,
+                .array_init_sent = .pl_node,
                 .array_init_anon = .pl_node,
                 .array_init_ref = .pl_node,
+                .array_init_sent_ref = .pl_node,
                 .array_init_anon_ref = .pl_node,
                 .union_init = .pl_node,
                 .type_info = .un_node,

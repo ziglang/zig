@@ -1259,10 +1259,12 @@ fn arrayInitExpr(
     const types: struct {
         array: Zir.Inst.Ref,
         elem: Zir.Inst.Ref,
+        sentinel: Zir.Inst.Ref,
     } = inst: {
         if (array_init.ast.type_expr == 0) break :inst .{
             .array = .none,
             .elem = .none,
+            .sentinel = .none,
         };
 
         infer: {
@@ -1282,6 +1284,7 @@ fn arrayInitExpr(
                     break :inst .{
                         .array = array_type_inst,
                         .elem = elem_type,
+                        .sentinel = .none,
                     };
                 } else {
                     const sentinel = try comptimeExpr(gz, scope, .{ .ty = elem_type }, array_type.ast.sentinel);
@@ -1297,6 +1300,7 @@ fn arrayInitExpr(
                     break :inst .{
                         .array = array_type_inst,
                         .elem = elem_type,
+                        .sentinel = sentinel,
                     };
                 }
             }
@@ -1307,6 +1311,7 @@ fn arrayInitExpr(
         break :inst .{
             .array = array_type_inst,
             .elem = elem_type,
+            .sentinel = .none,
         };
     };
 
@@ -1319,25 +1324,25 @@ fn arrayInitExpr(
         },
         .ref => {
             if (types.array != .none) {
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.array, .array_init_ref);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.sentinel, true);
             } else {
                 return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon_ref);
             }
         },
         .none => {
             if (types.array != .none) {
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.array, .array_init);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.sentinel, false);
             } else {
                 return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
             }
         },
         .ty, .coerced_ty => |ty_inst| {
             if (types.array != .none) {
-                const result = try arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.array, .array_init);
+                const result = try arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.sentinel, false);
                 return rvalue(gz, rl, result, node);
             } else {
                 const elem_type = try gz.addUnNode(.elem_type, ty_inst, node);
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, elem_type, types.array, .array_init);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, elem_type, types.sentinel, false);
             }
         },
         .ptr => |ptr_inst| {
@@ -1387,18 +1392,32 @@ fn arrayInitExprRlTy(
     node: Ast.Node.Index,
     elements: []const Ast.Node.Index,
     elem_ty_inst: Zir.Inst.Ref,
-    array_ty: Zir.Inst.Ref,
-    tag: Zir.Inst.Tag,
+    sentinel: Zir.Inst.Ref,
+    ref: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
 
-    const payload_index = try addExtra(astgen, Zir.Inst.MultiOp{
-        .operands_len = @intCast(u32, elements.len + 1),
-    });
-    var extra_index = try reserveExtra(astgen, elements.len + 1);
+    const info: struct {
+        len: usize,
+        tag: Zir.Inst.Tag,
+    } = blk: {
+        if (sentinel != .none) {
+            break :blk .{
+                .len = elements.len + 1,
+                .tag = if (ref) .array_init_sent_ref else .array_init_sent,
+            };
+        } else {
+            break :blk .{
+                .len = elements.len,
+                .tag = if (ref) .array_init_ref else .array_init,
+            };
+        }
+    };
 
-    astgen.extra.items[extra_index] = @enumToInt(array_ty);
-    extra_index += 1;
+    const payload_index = try addExtra(astgen, Zir.Inst.MultiOp{
+        .operands_len = @intCast(u32, info.len),
+    });
+    var extra_index = try reserveExtra(astgen, info.len);
 
     const elem_rl: ResultLoc = .{ .ty = elem_ty_inst };
     for (elements) |elem_init| {
@@ -1406,7 +1425,13 @@ fn arrayInitExprRlTy(
         astgen.extra.items[extra_index] = @enumToInt(elem_ref);
         extra_index += 1;
     }
-    return try gz.addPlNodePayloadIndex(tag, node, payload_index);
+
+    if (sentinel != .none) {
+        astgen.extra.items[extra_index] = @enumToInt(sentinel);
+        extra_index += 1;
+    }
+
+    return try gz.addPlNodePayloadIndex(info.tag, node, payload_index);
 }
 
 fn arrayInitExprRlPtr(
@@ -2221,8 +2246,10 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .struct_init_anon_ref,
             .array_init,
             .array_init_anon,
+            .array_init_sent,
             .array_init_ref,
             .array_init_anon_ref,
+            .array_init_sent_ref,
             .union_init,
             .field_type,
             .field_type_ref,

@@ -712,8 +712,10 @@ fn analyzeBodyInner(
             .struct_init_ref              => try sema.zirStructInit(block, inst, true),
             .struct_init_anon             => try sema.zirStructInitAnon(block, inst, false),
             .struct_init_anon_ref         => try sema.zirStructInitAnon(block, inst, true),
-            .array_init                   => try sema.zirArrayInit(block, inst, false),
-            .array_init_ref               => try sema.zirArrayInit(block, inst, true),
+            .array_init                   => try sema.zirArrayInit(block, inst, false, false),
+            .array_init_sent              => try sema.zirArrayInit(block, inst, false, true),
+            .array_init_ref               => try sema.zirArrayInit(block, inst, true, false),
+            .array_init_sent_ref          => try sema.zirArrayInit(block, inst, true, true),
             .array_init_anon              => try sema.zirArrayInitAnon(block, inst, false),
             .array_init_anon_ref          => try sema.zirArrayInitAnon(block, inst, true),
             .union_init                   => try sema.zirUnionInit(block, inst),
@@ -11782,6 +11784,7 @@ fn zirArrayInit(
     block: *Block,
     inst: Zir.Inst.Index,
     is_ref: bool,
+    is_sent: bool,
 ) CompileError!Air.Inst.Ref {
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
@@ -11796,23 +11799,28 @@ fn zirArrayInit(
 
     for (args) |arg, i| resolved_args[i] = sema.resolveInst(arg);
 
-    const elem_ty = sema.typeOf(resolved_args[1]);
-    const array_ty = switch (resolved_args[0]) {
-        .none => try Type.Tag.array.create(sema.arena, .{
-            .len = resolved_args.len,
-            .elem_type = elem_ty,
-        }),
+    const elem_ty = sema.typeOf(resolved_args[0]);
+    const array_ty = blk: {
+        if (!is_sent) {
+            break :blk try Type.Tag.array.create(sema.arena, .{
+                .len = resolved_args.len,
+                .elem_type = elem_ty,
+            });
+        }
 
-        else => |ref| blk: {
-            assert(sema.typeOf(ref).zigTypeTag() == .Type);
-            var buffer: Value.ToTypeBuffer = undefined;
-            const val = try sema.resolveConstValue(block, src, ref);
-            const ty = val.toType(&buffer);
-            break :blk try ty.copy(sema.arena);
-        },
+        const sentinel_ref = resolved_args[resolved_args.len - 1];
+        const val = try sema.resolveConstValue(block, src, sentinel_ref);
+        break :blk try Type.Tag.array_sentinel.create(sema.arena, .{
+            .len = resolved_args.len - 1,
+            .sentinel = val,
+            .elem_type = elem_ty,
+        });
     };
 
-    const elems = resolved_args[1..];
+    const elems = if (!is_sent)
+        resolved_args
+    else
+        resolved_args[0 .. resolved_args.len - 1];
 
     const opt_runtime_src: ?LazySrcLoc = for (elems) |arg| {
         const arg_src = src; // TODO better source location
