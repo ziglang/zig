@@ -712,8 +712,10 @@ fn analyzeBodyInner(
             .struct_init_ref              => try sema.zirStructInit(block, inst, true),
             .struct_init_anon             => try sema.zirStructInitAnon(block, inst, false),
             .struct_init_anon_ref         => try sema.zirStructInitAnon(block, inst, true),
-            .array_init                   => try sema.zirArrayInit(block, inst, false),
-            .array_init_ref               => try sema.zirArrayInit(block, inst, true),
+            .array_init                   => try sema.zirArrayInit(block, inst, false, false),
+            .array_init_sent              => try sema.zirArrayInit(block, inst, false, true),
+            .array_init_ref               => try sema.zirArrayInit(block, inst, true, false),
+            .array_init_sent_ref          => try sema.zirArrayInit(block, inst, true, true),
             .array_init_anon              => try sema.zirArrayInitAnon(block, inst, false),
             .array_init_anon_ref          => try sema.zirArrayInitAnon(block, inst, true),
             .union_init                   => try sema.zirUnionInit(block, inst),
@@ -11782,6 +11784,7 @@ fn zirArrayInit(
     block: *Block,
     inst: Zir.Inst.Index,
     is_ref: bool,
+    is_sent: bool,
 ) CompileError!Air.Inst.Ref {
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
@@ -11797,22 +11800,38 @@ fn zirArrayInit(
     for (args) |arg, i| resolved_args[i] = sema.resolveInst(arg);
 
     const elem_ty = sema.typeOf(resolved_args[0]);
+    const array_ty = blk: {
+        if (!is_sent) {
+            break :blk try Type.Tag.array.create(sema.arena, .{
+                .len = resolved_args.len,
+                .elem_type = elem_ty,
+            });
+        }
 
-    const array_ty = try Type.Tag.array.create(sema.arena, .{
-        .len = resolved_args.len,
-        .elem_type = elem_ty,
-    });
+        const sentinel_ref = resolved_args[resolved_args.len - 1];
+        const val = try sema.resolveConstValue(block, src, sentinel_ref);
+        break :blk try Type.Tag.array_sentinel.create(sema.arena, .{
+            .len = resolved_args.len - 1,
+            .sentinel = val,
+            .elem_type = elem_ty,
+        });
+    };
 
-    const opt_runtime_src: ?LazySrcLoc = for (resolved_args) |arg| {
+    const elems = if (!is_sent)
+        resolved_args
+    else
+        resolved_args[0 .. resolved_args.len - 1];
+
+    const opt_runtime_src: ?LazySrcLoc = for (elems) |arg| {
         const arg_src = src; // TODO better source location
         const comptime_known = try sema.isComptimeKnown(block, arg_src, arg);
         if (!comptime_known) break arg_src;
     } else null;
 
     const runtime_src = opt_runtime_src orelse {
-        const elem_vals = try sema.arena.alloc(Value, resolved_args.len);
+        const elem_vals = try sema.arena.alloc(Value, elems.len);
 
-        for (resolved_args) |arg, i| {
+        for (elems) |arg, i| {
             // We checked that all args are comptime above.
             elem_vals[i] = (sema.resolveMaybeUndefVal(block, src, arg) catch unreachable).?;
         }
@@ -11839,7 +11858,7 @@ fn zirArrayInit(
         });
         const elem_ptr_ty_ref = try sema.addType(elem_ptr_ty);
 
-        for (resolved_args) |arg, i| {
+        for (elems) |arg, i| {
             const index = try sema.addIntUnsigned(Type.usize, i);
             const elem_ptr = try block.addPtrElemPtrTypeRef(alloc, index, elem_ptr_ty_ref);
             _ = try block.addBinOp(.store, elem_ptr, arg);
@@ -11847,7 +11866,7 @@ fn zirArrayInit(
         return alloc;
     }
 
-    return block.addAggregateInit(array_ty, resolved_args);
+    return block.addAggregateInit(array_ty, elems);
 }
 
 fn zirArrayInitAnon(
