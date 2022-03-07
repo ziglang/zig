@@ -2138,6 +2138,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .alloc_inferred_mut,
             .alloc_inferred_comptime,
             .alloc_inferred_comptime_mut,
+            .make_ptr_const,
             .array_cat,
             .array_mul,
             .array_type,
@@ -2754,12 +2755,13 @@ fn varDecl(
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
+            const const_ptr = try gz.addUnNode(.make_ptr_const, init_scope.rl_ptr, node);
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
                 .gen_zir = gz,
                 .name = ident_name,
-                .ptr = init_scope.rl_ptr,
+                .ptr = const_ptr,
                 .token_src = name_token,
                 .maybe_comptime = true,
                 .id_cat = .@"local constant",

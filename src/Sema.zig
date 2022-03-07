@@ -607,6 +607,7 @@ fn analyzeBodyInner(
             .alloc_inferred_comptime_mut  => try sema.zirAllocInferredComptime(inst, Type.initTag(.inferred_alloc_mut)),
             .alloc_mut                    => try sema.zirAllocMut(block, inst),
             .alloc_comptime_mut           => try sema.zirAllocComptime(block, inst),
+            .make_ptr_const               => try sema.zirMakePtrConst(block, inst),
             .anyframe_type                => try sema.zirAnyframeType(block, inst),
             .array_cat                    => try sema.zirArrayCat(block, inst),
             .array_mul                    => try sema.zirArrayMul(block, inst),
@@ -2407,6 +2408,21 @@ fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
     return sema.analyzeComptimeAlloc(block, var_ty, 0, ty_src);
+}
+
+fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const ptr = sema.resolveInst(inst_data.operand);
+    const ptr_ty = sema.typeOf(ptr);
+    var ptr_info = ptr_ty.ptrInfo().data;
+    ptr_info.mutable = false;
+    const const_ptr_ty = try Type.ptr(sema.arena, sema.mod.getTarget(), ptr_info);
+
+    if (try sema.resolveMaybeUndefVal(block, inst_data.src(), ptr)) |val| {
+        return sema.addConstant(const_ptr_ty, val);
+    }
+    try sema.requireRuntimeBlock(block, inst_data.src());
+    return block.addBitCast(const_ptr_ty, ptr);
 }
 
 fn zirAllocInferredComptime(

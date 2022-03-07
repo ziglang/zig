@@ -954,6 +954,10 @@ pub const Inst = struct {
         /// is the allocation that needs to have its type inferred.
         /// Uses the `un_node` field. The AST node is the var decl.
         resolve_inferred_alloc,
+        /// Turns a pointer coming from an `alloc`, `alloc_inferred`, `alloc_inferred_comptime` or
+        /// `Extended.alloc` into a constant version of the same pointer.
+        /// Uses the `un_node` union field.
+        make_ptr_const,
 
         /// Implements `resume` syntax. Uses `un_node` field.
         @"resume",
@@ -993,6 +997,7 @@ pub const Inst = struct {
                 .alloc_inferred_mut,
                 .alloc_inferred_comptime,
                 .alloc_inferred_comptime_mut,
+                .make_ptr_const,
                 .array_cat,
                 .array_mul,
                 .array_type,
@@ -1496,6 +1501,7 @@ pub const Inst = struct {
                 .alloc_inferred_comptime = .node,
                 .alloc_inferred_comptime_mut = .node,
                 .resolve_inferred_alloc = .un_node,
+                .make_ptr_const = .un_node,
 
                 .@"resume" = .un_node,
                 .@"await" = .un_node,
