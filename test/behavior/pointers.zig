@@ -270,6 +270,14 @@ test "assign null directly to C pointer and test null equality" {
     comptime try expect((y1 orelse &othery) == y1);
 }
 
+test "array initialization types" {
+    const E = enum { A, B, C };
+    try expect(@TypeOf([_]u8{}) == [0]u8);
+    try expect(@TypeOf([_:0]u8{}) == [0:0]u8);
+    try expect(@TypeOf([_:.A]E{}) == [0:.A]E);
+    try expect(@TypeOf([_:0]u8{ 1, 2, 3 }) == [3:0]u8);
+}
+
 test "null terminated pointer" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 

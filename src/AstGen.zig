@@ -1319,25 +1319,25 @@ fn arrayInitExpr(
         },
         .ref => {
             if (types.array != .none) {
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init_ref);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.array, .array_init_ref);
             } else {
                 return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon_ref);
             }
         },
         .none => {
             if (types.array != .none) {
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.array, .array_init);
             } else {
                 return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
             }
         },
         .ty, .coerced_ty => |ty_inst| {
             if (types.array != .none) {
-                const result = try arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init);
+                const result = try arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.array, .array_init);
                 return rvalue(gz, rl, result, node);
             } else {
                 const elem_type = try gz.addUnNode(.elem_type, ty_inst, node);
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, elem_type, .array_init);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, elem_type, types.array, .array_init);
             }
         },
         .ptr => |ptr_inst| {
@@ -1387,14 +1387,18 @@ fn arrayInitExprRlTy(
     node: Ast.Node.Index,
     elements: []const Ast.Node.Index,
     elem_ty_inst: Zir.Inst.Ref,
+    array_ty: Zir.Inst.Ref,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
 
     const payload_index = try addExtra(astgen, Zir.Inst.MultiOp{
-        .operands_len = @intCast(u32, elements.len),
+        .operands_len = @intCast(u32, elements.len + 1),
     });
-    var extra_index = try reserveExtra(astgen, elements.len);
+    var extra_index = try reserveExtra(astgen, elements.len + 1);
+
+    astgen.extra.items[extra_index] = @enumToInt(array_ty);
+    extra_index += 1;
 
     const elem_rl: ResultLoc = .{ .ty = elem_ty_inst };
     for (elements) |elem_init| {

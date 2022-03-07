@@ -11796,23 +11796,34 @@ fn zirArrayInit(
 
     for (args) |arg, i| resolved_args[i] = sema.resolveInst(arg);
 
-    const elem_ty = sema.typeOf(resolved_args[0]);
+    const elem_ty = sema.typeOf(resolved_args[1]);
+    const array_ty = switch (resolved_args[0]) {
+        .none => try Type.Tag.array.create(sema.arena, .{
+            .len = resolved_args.len,
+            .elem_type = elem_ty,
+        }),
 
-    const array_ty = try Type.Tag.array.create(sema.arena, .{
-        .len = resolved_args.len,
-        .elem_type = elem_ty,
-    });
+        else => |ref| blk: {
+            assert(sema.typeOf(ref).zigTypeTag() == .Type);
+            var buffer: Value.ToTypeBuffer = undefined;
+            const val = try sema.resolveConstValue(block, src, ref);
+            const ty = val.toType(&buffer);
+            break :blk try ty.copy(sema.arena);
+        },
+    };
 
-    const opt_runtime_src: ?LazySrcLoc = for (resolved_args) |arg| {
+    const elems = resolved_args[1..];
+
+    const opt_runtime_src: ?LazySrcLoc = for (elems) |arg| {
         const arg_src = src; // TODO better source location
         const comptime_known = try sema.isComptimeKnown(block, arg_src, arg);
         if (!comptime_known) break arg_src;
     } else null;
 
     const runtime_src = opt_runtime_src orelse {
-        const elem_vals = try sema.arena.alloc(Value, resolved_args.len);
+        const elem_vals = try sema.arena.alloc(Value, elems.len);
 
-        for (resolved_args) |arg, i| {
+        for (elems) |arg, i| {
             // We checked that all args are comptime above.
             elem_vals[i] = (sema.resolveMaybeUndefVal(block, src, arg) catch unreachable).?;
         }
@@ -11839,7 +11850,7 @@ fn zirArrayInit(
         });
         const elem_ptr_ty_ref = try sema.addType(elem_ptr_ty);
 
-        for (resolved_args) |arg, i| {
+        for (elems) |arg, i| {
             const index = try sema.addIntUnsigned(Type.usize, i);
             const elem_ptr = try block.addPtrElemPtrTypeRef(alloc, index, elem_ptr_ty_ref);
             _ = try block.addBinOp(.store, elem_ptr, arg);
@@ -11847,7 +11858,7 @@ fn zirArrayInit(
         return alloc;
     }
 
-    return block.addAggregateInit(array_ty, resolved_args);
+    return block.addAggregateInit(array_ty, elems);
 }
 
 fn zirArrayInitAnon(
