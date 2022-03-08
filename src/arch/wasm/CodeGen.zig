@@ -1277,6 +1277,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .unwrap_errunion_err => self.airUnwrapErrUnionError(inst),
         .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
         .wrap_errunion_err => self.airWrapErrUnionErr(inst),
+        .errunion_payload_ptr_set => self.airErrUnionPayloadPtrSet(inst),
 
         .wasm_memory_size => self.airWasmMemorySize(inst),
         .wasm_memory_grow => self.airWasmMemoryGrow(inst),
@@ -1333,7 +1334,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .atomic_rmw,
         .tag_name,
         .error_name,
-        .errunion_payload_ptr_set,
         .field_parent_ptr,
         .mul_add,
 
@@ -1372,7 +1372,10 @@ fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const child_type = self.air.typeOfIndex(inst).childType();
-    if (child_type.abiSize(self.target) == 0) return WValue{ .none = {} };
+
+    if (!child_type.isFnOrHasRuntimeBits()) {
+        return self.allocStack(Type.usize); // create pointer to void
+    }
 
     if (isByRef(child_type, self.target)) {
         return self.return_value;
@@ -3225,4 +3228,27 @@ fn airFptrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         // TODO: Emit a call to compiler-rt to trunc the float. e.g. __truncdfhf2
         return self.fail("TODO: Implement 'fptrunc' for floats with bitsize: {d}", .{dest_bits});
     }
+}
+
+fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const err_set_ty = self.air.typeOf(ty_op.operand).childType();
+    const err_ty = err_set_ty.errorUnionSet();
+    const payload_ty = err_set_ty.errorUnionPayload();
+    const operand = try self.resolveInst(ty_op.operand);
+
+    // set error-tag to '0' to annotate error union is non-error
+    try self.store(operand, .{ .imm32 = 0 }, err_ty, 0);
+
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    if (!payload_ty.hasRuntimeBits()) {
+        return operand;
+    }
+
+    const err_align = err_set_ty.abiAlignment(self.target);
+    const set_size = err_ty.abiSize(self.target);
+    const offset = mem.alignForwardGeneric(u64, set_size, err_align);
+
+    return self.buildPointerOffset(operand, @intCast(u32, offset), .new);
 }
