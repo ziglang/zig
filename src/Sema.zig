@@ -2623,10 +2623,9 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 // block so that codegen does not see it.
                 block.instructions.shrinkRetainingCapacity(block.instructions.items.len - 3);
                 sema.air_values.items[value_index] = try Value.Tag.decl_ref.create(sema.arena, new_decl);
-                // Would be nice if we could just assign `bitcast_ty_ref` to
-                // `air_datas[ptr_inst].ty_pl.ty`, wouldn't it? Alas, that is almost correct,
-                // except that the pointer is mutable and we need to make it constant here.
-                air_datas[ptr_inst].ty_pl.ty = try sema.addType(final_ptr_ty);
+                // if bitcast ty ref needs to be made const, make_ptr_const
+                // ZIR handles it later, so we can just use the ty ref here.
+                air_datas[ptr_inst].ty_pl.ty = air_datas[bitcast_inst].ty_op.ty;
 
                 return;
             }
