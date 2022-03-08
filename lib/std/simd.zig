@@ -85,7 +85,7 @@ pub fn braid(vecs: anytype) Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len, st
     //  On MIPS, the test that braids small_base gives { 0, 2, 0, 0, 64, 255, 248, 200, 0, 0 }.
     //  Calling this with two inputs seems to work fine, but I'll let the compile error trigger for all inputs, just to be safe.
     comptime if (builtin.cpu.arch.isMIPS() and !builtin.is_test) @compileError("TODO: Find out why braid() doesn't work on MIPS");
-    
+
     const VecType = @TypeOf(vecs[0]);
     const vecs_arr = @as([vecs.len]VecType, vecs);
     const Child = std.meta.Child(@TypeOf(vecs_arr[0]));
@@ -151,7 +151,7 @@ test "vector patterns" {
         Vector(2, u8){ 6, 7 },
         Vector(2, u8){ 8, 9 },
     };
-    
+
     try std.testing.expectEqual([6]u32{ 10, 20, 30, 40, 10, 20 }, repeat(6, base));
     try std.testing.expectEqual([8]u32{ 10, 20, 30, 40, 55, 66, 77, 88 }, join(base, other_base));
     try std.testing.expectEqual([2]u32{ 20, 30 }, extract(base, 1, 2));
@@ -341,7 +341,7 @@ test "vector accum" {
     if (comptime builtin.cpu.arch.isMIPS()) {
         return error.SkipZigTest;
     }
-    
+
     const int_base = Vector(4, i32){ 11, 23, 9, -21 };
     const float_base = Vector(4, f32){ 2, 0.5, -10, 6.54321 };
     const bool_base = Vector(4, bool){ true, false, true, false };
