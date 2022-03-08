@@ -54,8 +54,6 @@ test "pointer-to-array constness for zero-size elements, var" {
 }
 
 test "pointer-to-array constness for zero-size elements, const" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try constant();
     comptime try constant();
 }

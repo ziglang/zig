@@ -238,6 +238,7 @@ const Writer = struct {
             .field_base_ptr,
             .validate_array_init_ty,
             .validate_struct_init_ty,
+            .make_ptr_const,
             => try self.writeUnNode(stream, inst),
 
             .ref,

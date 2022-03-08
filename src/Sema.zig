@@ -607,6 +607,7 @@ fn analyzeBodyInner(
             .alloc_inferred_comptime_mut  => try sema.zirAllocInferredComptime(inst, Type.initTag(.inferred_alloc_mut)),
             .alloc_mut                    => try sema.zirAllocMut(block, inst),
             .alloc_comptime_mut           => try sema.zirAllocComptime(block, inst),
+            .make_ptr_const               => try sema.zirMakePtrConst(block, inst),
             .anyframe_type                => try sema.zirAnyframeType(block, inst),
             .array_cat                    => try sema.zirArrayCat(block, inst),
             .array_mul                    => try sema.zirArrayMul(block, inst),
@@ -2407,6 +2408,21 @@ fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
     return sema.analyzeComptimeAlloc(block, var_ty, 0, ty_src);
+}
+
+fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const ptr = sema.resolveInst(inst_data.operand);
+    const ptr_ty = sema.typeOf(ptr);
+    var ptr_info = ptr_ty.ptrInfo().data;
+    ptr_info.mutable = false;
+    const const_ptr_ty = try Type.ptr(sema.arena, sema.mod.getTarget(), ptr_info);
+
+    if (try sema.resolveMaybeUndefVal(block, inst_data.src(), ptr)) |val| {
+        return sema.addConstant(const_ptr_ty, val);
+    }
+    try sema.requireRuntimeBlock(block, inst_data.src());
+    return block.addBitCast(const_ptr_ty, ptr);
 }
 
 fn zirAllocInferredComptime(
@@ -13831,13 +13847,11 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const src_ptr = try sema.coerce(block, wanted_src_ptr_ty, uncasted_src_ptr, src_src);
     const len = try sema.coerce(block, Type.usize, sema.resolveInst(extra.byte_count), len_src);
 
-    const maybe_dest_ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr);
-    const maybe_src_ptr_val = try sema.resolveDefinedValue(block, src_src, src_ptr);
-    const maybe_len_val = try sema.resolveDefinedValue(block, len_src, len);
-
-    const runtime_src = if (maybe_dest_ptr_val) |dest_ptr_val| rs: {
-        if (maybe_src_ptr_val) |src_ptr_val| {
-            if (maybe_len_val) |len_val| {
+    const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |dest_ptr_val| rs: {
+        if (!dest_ptr_val.isComptimeMutablePtr()) break :rs dest_src;
+        if (try sema.resolveDefinedValue(block, src_src, src_ptr)) |src_ptr_val| {
+            if (!src_ptr_val.isComptimeMutablePtr()) break :rs src_src;
+            if (try sema.resolveDefinedValue(block, len_src, len)) |len_val| {
                 _ = dest_ptr_val;
                 _ = src_ptr_val;
                 _ = len_val;
@@ -13876,11 +13890,9 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const value = try sema.coerce(block, elem_ty, sema.resolveInst(extra.byte), value_src);
     const len = try sema.coerce(block, Type.usize, sema.resolveInst(extra.byte_count), len_src);
 
-    const maybe_dest_ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr);
-    const maybe_len_val = try sema.resolveDefinedValue(block, len_src, len);
-
-    const runtime_src = if (maybe_dest_ptr_val) |ptr_val| rs: {
-        if (maybe_len_val) |len_val| {
+    const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {
+        if (!ptr_val.isComptimeMutablePtr()) break :rs dest_src;
+        if (try sema.resolveDefinedValue(block, len_src, len)) |len_val| {
             if (try sema.resolveMaybeUndefVal(block, value_src, value)) |val| {
                 _ = ptr_val;
                 _ = len_val;
