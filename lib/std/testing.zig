@@ -339,11 +339,6 @@ pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:s
         std.debug.print("expectEqualSentinel: 'actual' sentinel in memory is different from its type sentinel. type sentinel {}, in memory sentinel {}\n", .{ sentinel, actual_value_sentinel });
         return error.TestExpectedEqual;
     }
-
-    if (!std.meta.eql(expected_value_sentinel, actual_value_sentinel)) {
-        std.debug.print("expectEqualSentinel: 'expected' and 'actual' parameters have different sentinels in memory. expected {}, found {}\n", .{ expected_value_sentinel, actual_value_sentinel });
-        return error.TestExpectedEqual;
-    }
 }
 
 /// This function is intended to be used only in tests. When `ok` is false, the test fails.
