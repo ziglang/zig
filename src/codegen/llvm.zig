@@ -188,6 +188,7 @@ pub const Object = struct {
     /// The backing memory for `type_map`. Periodically garbage collected after flush().
     /// The code for doing the periodical GC is not yet implemented.
     type_map_arena: std.heap.ArenaAllocator,
+    di_type_map: DITypeMap,
     /// The LLVM global table which holds the names corresponding to Zig errors.
     /// Note that the values are not added until flushModule, when all errors in
     /// the compilation are known.
@@ -196,6 +197,13 @@ pub const Object = struct {
     pub const TypeMap = std.HashMapUnmanaged(
         Type,
         *const llvm.Type,
+        Type.HashContext64,
+        std.hash_map.default_max_load_percentage,
+    );
+
+    pub const DITypeMap = std.HashMapUnmanaged(
+        Type,
+        *llvm.DIType,
         Type.HashContext64,
         std.hash_map.default_max_load_percentage,
     );
@@ -336,6 +344,7 @@ pub const Object = struct {
             .decl_map = .{},
             .type_map = .{},
             .type_map_arena = std.heap.ArenaAllocator.init(gpa),
+            .di_type_map = .{},
             .error_name_table = null,
         };
     }
@@ -344,6 +353,7 @@ pub const Object = struct {
         if (self.di_builder) |dib| {
             dib.dispose();
             self.di_map.deinit(gpa);
+            self.di_type_map.deinit(gpa);
         }
         self.target_data.dispose();
         self.target_machine.dispose();
@@ -558,19 +568,7 @@ pub const Object = struct {
         var di_scope: ?*llvm.DIScope = null;
 
         if (dg.object.di_builder) |dib| {
-            di_file = s: {
-                const file = decl.src_namespace.file_scope;
-                const gop = try dg.object.di_map.getOrPut(gpa, file);
-                if (!gop.found_existing) {
-                    const dir_path = file.pkg.root_src_directory.path orelse ".";
-                    const sub_file_path_z = try gpa.dupeZ(u8, file.sub_file_path);
-                    defer gpa.free(sub_file_path_z);
-                    const dir_path_z = try gpa.dupeZ(u8, dir_path);
-                    defer gpa.free(dir_path_z);
-                    gop.value_ptr.* = dib.createFile(sub_file_path_z, dir_path_z).toScope();
-                }
-                break :s @ptrCast(*llvm.DIFile, gop.value_ptr.*);
-            };
+            di_file = try dg.object.getDIFile(gpa, decl.src_namespace.file_scope);
 
             const line_number = decl.src_line + 1;
             const is_internal_linkage = decl.val.tag() != .extern_fn and
@@ -717,6 +715,22 @@ pub const Object = struct {
     pub fn freeDecl(self: *Object, decl: *Module.Decl) void {
         const llvm_value = self.decl_map.get(decl) orelse return;
         llvm_value.deleteGlobal();
+    }
+
+    fn getDIFile(o: *Object, gpa: Allocator, file: *const Module.File) !*llvm.DIFile {
+        const gop = try o.di_map.getOrPut(gpa, file);
+        errdefer assert(o.di_map.remove(file));
+        if (gop.found_existing) {
+            return @ptrCast(*llvm.DIFile, gop.value_ptr.*);
+        }
+        const dir_path = file.pkg.root_src_directory.path orelse ".";
+        const sub_file_path_z = try gpa.dupeZ(u8, file.sub_file_path);
+        defer gpa.free(sub_file_path_z);
+        const dir_path_z = try gpa.dupeZ(u8, dir_path);
+        defer gpa.free(dir_path_z);
+        const di_file = o.di_builder.?.createFile(sub_file_path_z, dir_path_z);
+        gop.value_ptr.* = di_file.toScope();
+        return di_file;
     }
 };
 
@@ -1891,9 +1905,18 @@ pub const DeclGen = struct {
     }
 
     fn lowerDebugType(dg: *DeclGen, ty: Type) Allocator.Error!*llvm.DIType {
-        const gpa = dg.gpa;
+        const gop = try dg.object.di_type_map.getOrPut(dg.gpa, ty);
+        errdefer assert(dg.object.di_type_map.remove(ty));
+        if (!gop.found_existing) {
+            gop.value_ptr.* = try lowerDebugTypeRaw(dg, ty);
+        }
+        return gop.value_ptr.*;
+    }
+
+    fn lowerDebugTypeRaw(dg: *DeclGen, ty: Type) Allocator.Error!*llvm.DIType {
         const target = dg.module.getTarget();
         const dib = dg.object.di_builder.?;
+        const gpa = dg.gpa;
         switch (ty.zigTypeTag()) {
             .Void, .NoReturn => return dib.createBasicType("void", 0, DW.ATE.signed),
             .Int => {
@@ -1907,12 +1930,54 @@ pub const DeclGen = struct {
                 return dib.createBasicType(name, info.bits, dwarf_encoding);
             },
             .Enum => {
-                @panic("TODO debug info type for enums");
-                //var buffer: Type.Payload.Bits = undefined;
-                //const int_ty = ty.intTagType(&buffer);
-                //const bit_count = int_ty.intInfo(target).bits;
-                //assert(bit_count != 0);
-                //return dg.context.intType(bit_count);
+                const owner_decl = ty.getOwnerDecl();
+
+                if (!ty.hasRuntimeBits()) {
+                    return dg.makeEmptyNamespaceDIType(owner_decl);
+                }
+
+                const field_names = ty.enumFields().keys();
+
+                const enumerators = try gpa.alloc(*llvm.DIEnumerator, field_names.len);
+                defer gpa.free(enumerators);
+
+                var buf_field_index: Value.Payload.U32 = .{
+                    .base = .{ .tag = .enum_field_index },
+                    .data = undefined,
+                };
+                const field_index_val = Value.initPayload(&buf_field_index.base);
+
+                for (field_names) |field_name, i| {
+                    const field_name_z = try gpa.dupeZ(u8, field_name);
+                    defer gpa.free(field_name_z);
+
+                    buf_field_index.data = @intCast(u32, i);
+                    var buf_u64: Value.Payload.U64 = undefined;
+                    const field_int_val = field_index_val.enumToInt(ty, &buf_u64);
+                    // See https://github.com/ziglang/zig/issues/645
+                    const field_int = field_int_val.toSignedInt();
+                    enumerators[i] = dib.createEnumerator(field_name_z, field_int);
+                }
+
+                const di_file = try dg.object.getDIFile(gpa, owner_decl.src_namespace.file_scope);
+                const di_scope = try dg.namespaceToDebugScope(owner_decl.src_namespace);
+
+                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                var buffer: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buffer);
+
+                return dib.createEnumerationType(
+                    di_scope,
+                    name,
+                    di_file,
+                    owner_decl.src_node + 1,
+                    ty.abiSize(target) * 8,
+                    ty.abiAlignment(target) * 8,
+                    enumerators.ptr,
+                    @intCast(c_int, enumerators.len),
+                    try lowerDebugType(dg, int_ty),
+                    "",
+                );
             },
             .Float => {
                 const bits = ty.floatBits(target);
@@ -2300,6 +2365,33 @@ pub const DeclGen = struct {
             .Frame => @panic("TODO implement lowerDebugType for Frame types"),
             .AnyFrame => @panic("TODO implement lowerDebugType for AnyFrame types"),
         }
+    }
+
+    fn namespaceToDebugScope(dg: *DeclGen, namespace: *const Module.Namespace) !*llvm.DIScope {
+        const di_type = try dg.lowerDebugType(namespace.ty);
+        return di_type.toScope();
+    }
+
+    /// This is to be used instead of void for debug info types, to avoid tripping
+    /// Assertion `!isa<DIType>(Scope) && "shouldn't make a namespace scope for a type"'
+    /// when targeting CodeView (Windows).
+    fn makeEmptyNamespaceDIType(dg: *DeclGen, decl: *const Module.Decl) !*llvm.DIType {
+        const fields: [0]*llvm.DIType = .{};
+        return dg.object.di_builder.?.createStructType(
+            try dg.namespaceToDebugScope(decl.src_namespace),
+            decl.name, // TODO use fully qualified name
+            try dg.object.getDIFile(dg.gpa, decl.src_namespace.file_scope),
+            decl.src_line + 1,
+            0, // size in bits
+            0, // align in bits
+            0, // flags
+            null, // derived from
+            undefined, // TODO should be able to pass &fields,
+            fields.len,
+            0, // run time lang
+            null, // vtable holder
+            "", // unique id
+        );
     }
 
     const ParentPtr = struct {
