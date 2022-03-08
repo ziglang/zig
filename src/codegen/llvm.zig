@@ -2313,7 +2313,29 @@ pub const DeclGen = struct {
                 return gop.value_ptr.*;
             },
             .Struct => {
+                const owner_decl = ty.getOwnerDecl();
+
+                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const fwd_decl = dib.createReplaceableCompositeType(
+                    DW.TAG.structure_type,
+                    name.ptr,
+                    dg.object.di_compile_unit.?.toScope(),
+                    null, // file
+                    0, // line
+                );
+                gop.value_ptr.* = fwd_decl;
+
+                const TODO_implement_this = true; // TODO
+                if (TODO_implement_this or !ty.hasRuntimeBits()) {
+                    const struct_di_ty = try dg.makeEmptyNamespaceDIType(owner_decl);
+                    dib.replaceTemporary(fwd_decl, struct_di_ty);
+                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
+                    // means we can't use `gop` anymore.
+                    try dg.object.di_type_map.put(gpa, ty, struct_di_ty);
+                    return struct_di_ty;
+                }
                 @panic("TODO debug info type for struct");
+
                 //const gop = try dg.object.type_map.getOrPut(gpa, ty);
                 //if (gop.found_existing) return gop.value_ptr.*;
 
@@ -2437,6 +2459,28 @@ pub const DeclGen = struct {
                 //return llvm_struct_ty;
             },
             .Union => {
+                const owner_decl = ty.getOwnerDecl();
+
+                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const fwd_decl = dib.createReplaceableCompositeType(
+                    DW.TAG.structure_type,
+                    name.ptr,
+                    dg.object.di_compile_unit.?.toScope(),
+                    null, // file
+                    0, // line
+                );
+                gop.value_ptr.* = fwd_decl;
+
+                const TODO_implement_this = true; // TODO
+                if (TODO_implement_this or !ty.hasRuntimeBits()) {
+                    const union_di_ty = try dg.makeEmptyNamespaceDIType(owner_decl);
+                    dib.replaceTemporary(fwd_decl, union_di_ty);
+                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
+                    // means we can't use `gop` anymore.
+                    try dg.object.di_type_map.put(gpa, ty, union_di_ty);
+                    return union_di_ty;
+                }
+
                 @panic("TODO debug info type for union");
                 //const gop = try dg.object.type_map.getOrPut(gpa, ty);
                 //if (gop.found_existing) return gop.value_ptr.*;
@@ -2561,6 +2605,10 @@ pub const DeclGen = struct {
     }
 
     fn namespaceToDebugScope(dg: *DeclGen, namespace: *const Module.Namespace) !*llvm.DIScope {
+        if (namespace.parent == null) {
+            const di_file = try dg.object.getDIFile(dg.gpa, namespace.file_scope);
+            return di_file.toScope();
+        }
         const di_type = try dg.lowerDebugType(namespace.ty);
         return di_type.toScope();
     }
@@ -3862,7 +3910,7 @@ pub const FuncGen = struct {
         const di_scope = self.di_scope orelse return null;
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
         self.builder.setCurrentDebugLocation(
-            @intCast(c_int, dbg_stmt.line + 1),
+            @intCast(c_int, self.dg.decl.src_line + dbg_stmt.line + 1),
             @intCast(c_int, dbg_stmt.column + 1),
             di_scope,
         );
