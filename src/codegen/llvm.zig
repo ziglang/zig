@@ -1075,15 +1075,13 @@ pub const DeclGen = struct {
             },
             .Optional => {
                 var buf: Type.Payload.ElemType = undefined;
-                const child_type = t.optionalChild(&buf);
-                if (!child_type.hasRuntimeBits()) {
+                const child_ty = t.optionalChild(&buf);
+                if (!child_ty.hasRuntimeBits()) {
                     return dg.context.intType(1);
                 }
-                const payload_llvm_ty = try dg.llvmType(child_type);
+                const payload_llvm_ty = try dg.llvmType(child_ty);
                 if (t.isPtrLikeOptional()) {
                     return payload_llvm_ty;
-                } else if (!child_type.hasRuntimeBits()) {
-                    return dg.context.intType(1);
                 }
 
                 const fields: [2]*const llvm.Type = .{
@@ -1905,20 +1903,19 @@ pub const DeclGen = struct {
     }
 
     fn lowerDebugType(dg: *DeclGen, ty: Type) Allocator.Error!*llvm.DIType {
-        const gop = try dg.object.di_type_map.getOrPut(dg.gpa, ty);
+        const gpa = dg.gpa;
+        // Be careful not to reference this `gop` variable after any recursive calls
+        // to `lowerDebugType`.
+        const gop = try dg.object.di_type_map.getOrPut(gpa, ty);
+        if (gop.found_existing) return gop.value_ptr.*;
         errdefer assert(dg.object.di_type_map.remove(ty));
-        if (!gop.found_existing) {
-            gop.value_ptr.* = try lowerDebugTypeRaw(dg, ty);
-        }
-        return gop.value_ptr.*;
-    }
-
-    fn lowerDebugTypeRaw(dg: *DeclGen, ty: Type) Allocator.Error!*llvm.DIType {
         const target = dg.module.getTarget();
         const dib = dg.object.di_builder.?;
-        const gpa = dg.gpa;
         switch (ty.zigTypeTag()) {
-            .Void, .NoReturn => return dib.createBasicType("void", 0, DW.ATE.signed),
+            .Void, .NoReturn => {
+                gop.value_ptr.* = dib.createBasicType("void", 0, DW.ATE.signed);
+                return gop.value_ptr.*;
+            },
             .Int => {
                 const info = ty.intInfo(target);
                 assert(info.bits != 0);
@@ -1927,13 +1924,18 @@ pub const DeclGen = struct {
                     .signed => DW.ATE.signed,
                     .unsigned => DW.ATE.unsigned,
                 };
-                return dib.createBasicType(name, info.bits, dwarf_encoding);
+                gop.value_ptr.* = dib.createBasicType(name, info.bits, dwarf_encoding);
+                return gop.value_ptr.*;
             },
             .Enum => {
                 const owner_decl = ty.getOwnerDecl();
 
                 if (!ty.hasRuntimeBits()) {
-                    return dg.makeEmptyNamespaceDIType(owner_decl);
+                    const enum_di_ty = try dg.makeEmptyNamespaceDIType(owner_decl);
+                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
+                    // means we can't use `gop` anymore.
+                    try dg.object.di_type_map.put(gpa, ty, enum_di_ty);
+                    return enum_di_ty;
                 }
 
                 const field_names = ty.enumFields().keys();
@@ -1966,7 +1968,7 @@ pub const DeclGen = struct {
                 var buffer: Type.Payload.Bits = undefined;
                 const int_ty = ty.intTagType(&buffer);
 
-                return dib.createEnumerationType(
+                const enum_di_ty = dib.createEnumerationType(
                     di_scope,
                     name,
                     di_file,
@@ -1978,79 +1980,264 @@ pub const DeclGen = struct {
                     try lowerDebugType(dg, int_ty),
                     "",
                 );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try dg.object.di_type_map.put(gpa, ty, enum_di_ty);
+                return enum_di_ty;
             },
             .Float => {
                 const bits = ty.floatBits(target);
                 const name = try ty.nameAlloc(gpa); // TODO this is a leak
-                return dib.createBasicType(name, bits, DW.ATE.float);
+                gop.value_ptr.* = dib.createBasicType(name, bits, DW.ATE.float);
+                return gop.value_ptr.*;
             },
-            .Bool => return dib.createBasicType("bool", 1, DW.ATE.boolean),
+            .Bool => {
+                gop.value_ptr.* = dib.createBasicType("bool", 1, DW.ATE.boolean);
+                return gop.value_ptr.*;
+            },
             .Pointer => {
-                if (ty.isSlice()) {
-                    @panic("TODO debug info type for slices");
-                    //var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    //const ptr_type = ty.slicePtrFieldType(&buf);
+                // Normalize everything that the debug info does not represent.
+                const ptr_info = ty.ptrInfo().data;
 
-                    //const fields: [2]*const llvm.Type = .{
-                    //    try dg.llvmType(ptr_type),
-                    //    try dg.llvmType(Type.usize),
-                    //};
-                    //return dg.context.structType(&fields, fields.len, .False);
+                if (ptr_info.sentinel != null or
+                    ptr_info.@"addrspace" != .generic or
+                    ptr_info.bit_offset != 0 or
+                    ptr_info.host_size != 0 or
+                    ptr_info.@"allowzero" or
+                    !ptr_info.mutable or
+                    ptr_info.@"volatile" or
+                    ptr_info.size == .Many or ptr_info.size == .C)
+                {
+                    var payload: Type.Payload.Pointer = .{
+                        .data = .{
+                            .pointee_type = ptr_info.pointee_type,
+                            .sentinel = null,
+                            .@"align" = ptr_info.@"align",
+                            .@"addrspace" = .generic,
+                            .bit_offset = 0,
+                            .host_size = 0,
+                            .@"allowzero" = false,
+                            .mutable = true,
+                            .@"volatile" = false,
+                            .size = switch (ptr_info.size) {
+                                .Many, .C, .One => .One,
+                                .Slice => .Slice,
+                            },
+                        },
+                    };
+                    const bland_ptr_ty = Type.initPayload(&payload.base);
+                    const ptr_di_ty = try dg.lowerDebugType(bland_ptr_ty);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try dg.object.di_type_map.put(gpa, ty, ptr_di_ty);
+                    return ptr_di_ty;
                 }
 
-                const ptr_info = ty.ptrInfo().data;
+                if (ty.isSlice()) {
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&buf);
+                    const len_ty = Type.usize;
+
+                    const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                    const di_file: ?*llvm.DIFile = null;
+                    const line = 0;
+                    const compile_unit_scope = dg.object.di_compile_unit.?.toScope();
+                    const fwd_decl = dib.createReplaceableCompositeType(
+                        DW.TAG.structure_type,
+                        name.ptr,
+                        compile_unit_scope,
+                        di_file,
+                        line,
+                    );
+                    gop.value_ptr.* = fwd_decl;
+
+                    const ptr_size = ptr_ty.abiSize(target);
+                    const ptr_align = ptr_ty.abiAlignment(target);
+                    const len_size = len_ty.abiSize(target);
+                    const len_align = len_ty.abiAlignment(target);
+
+                    var offset: u64 = 0;
+                    offset += ptr_size;
+                    offset = std.mem.alignForwardGeneric(u64, offset, len_align);
+                    const len_offset = offset;
+
+                    const fields: [2]*llvm.DIType = .{
+                        dib.createMemberType(
+                            fwd_decl.toScope(),
+                            "ptr",
+                            di_file,
+                            line,
+                            ptr_size * 8, // size in bits
+                            ptr_align * 8, // align in bits
+                            0, // offset in bits
+                            0, // flags
+                            try dg.lowerDebugType(ptr_ty),
+                        ),
+                        dib.createMemberType(
+                            fwd_decl.toScope(),
+                            "len",
+                            di_file,
+                            line,
+                            len_size * 8, // size in bits
+                            len_align * 8, // align in bits
+                            len_offset * 8, // offset in bits
+                            0, // flags
+                            try dg.lowerDebugType(len_ty),
+                        ),
+                    };
+
+                    const replacement_di_type = dib.createStructType(
+                        compile_unit_scope,
+                        name.ptr,
+                        di_file,
+                        line,
+                        ty.abiSize(target) * 8, // size in bits
+                        ty.abiAlignment(target) * 8, // align in bits
+                        0, // flags
+                        null, // derived from
+                        &fields,
+                        fields.len,
+                        0, // run time lang
+                        null, // vtable holder
+                        "", // unique id
+                    );
+                    dib.replaceTemporary(fwd_decl, replacement_di_type);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try dg.object.di_type_map.put(gpa, ty, replacement_di_type);
+                    return replacement_di_type;
+                }
+
                 const elem_di_ty = try lowerDebugType(dg, ptr_info.pointee_type);
                 const name = try ty.nameAlloc(gpa); // TODO this is a leak
-                return dib.createPointerType(
+                const ptr_di_ty = dib.createPointerType(
                     elem_di_ty,
                     target.cpu.arch.ptrBitWidth(),
                     ty.ptrAlignment(target) * 8,
                     name,
                 );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try dg.object.di_type_map.put(gpa, ty, ptr_di_ty);
+                return ptr_di_ty;
             },
             .Opaque => {
-                @panic("TODO debug info type for opaque");
+                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const owner_decl = ty.getOwnerDecl();
+                const opaque_di_ty = dib.createForwardDeclType(
+                    DW.TAG.structure_type,
+                    name,
+                    try dg.namespaceToDebugScope(owner_decl.src_namespace),
+                    try dg.object.getDIFile(gpa, owner_decl.src_namespace.file_scope),
+                    owner_decl.src_node + 1,
+                );
+                // The recursive call to `lowerDebugType` va `namespaceToDebugScope`
+                // means we can't use `gop` anymore.
+                try dg.object.di_type_map.put(gpa, ty, opaque_di_ty);
+                return opaque_di_ty;
             },
             .Array => {
-                const elem_di_ty = try lowerDebugType(dg, ty.childType());
-                return dib.createArrayType(
+                const array_di_ty = dib.createArrayType(
                     ty.abiSize(target) * 8,
                     ty.abiAlignment(target) * 8,
-                    elem_di_ty,
+                    try lowerDebugType(dg, ty.childType()),
                     @intCast(c_int, ty.arrayLen()),
                 );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try dg.object.di_type_map.put(gpa, ty, array_di_ty);
+                return array_di_ty;
             },
             .Vector => {
                 @panic("TODO debug info type for vector");
             },
             .Optional => {
-                @panic("TODO debug info type for optional");
-                //var buf: Type.Payload.ElemType = undefined;
-                //const child_type = ty.optionalChild(&buf);
-                //if (!child_type.hasRuntimeBits()) {
-                //    return dg.context.intType(1);
-                //}
-                //const payload_llvm_ty = try dg.llvmType(child_type);
-                //if (ty.isPtrLikeOptional()) {
-                //    return payload_llvm_ty;
-                //} else if (!child_type.hasRuntimeBits()) {
-                //    return dg.context.intType(1);
-                //}
+                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                var buf: Type.Payload.ElemType = undefined;
+                const child_ty = ty.optionalChild(&buf);
+                if (!child_ty.hasRuntimeBits()) {
+                    gop.value_ptr.* = dib.createBasicType(name, 1, DW.ATE.boolean);
+                    return gop.value_ptr.*;
+                }
+                if (ty.isPtrLikeOptional()) {
+                    const ptr_di_ty = try dg.lowerDebugType(child_ty);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try dg.object.di_type_map.put(gpa, ty, ptr_di_ty);
+                    return ptr_di_ty;
+                }
 
-                //const fields: [2]*const llvm.Type = .{
-                //    payload_llvm_ty, dg.context.intType(1),
-                //};
-                //return dg.context.structType(&fields, fields.len, .False);
+                const di_file: ?*llvm.DIFile = null;
+                const line = 0;
+                const compile_unit_scope = dg.object.di_compile_unit.?.toScope();
+                const fwd_decl = dib.createReplaceableCompositeType(
+                    DW.TAG.structure_type,
+                    name.ptr,
+                    compile_unit_scope,
+                    di_file,
+                    line,
+                );
+                gop.value_ptr.* = fwd_decl;
+
+                const non_null_ty = Type.bool;
+                const payload_size = child_ty.abiSize(target);
+                const payload_align = child_ty.abiAlignment(target);
+                const non_null_size = non_null_ty.abiSize(target);
+                const non_null_align = non_null_ty.abiAlignment(target);
+
+                var offset: u64 = 0;
+                offset += payload_size;
+                offset = std.mem.alignForwardGeneric(u64, offset, non_null_align);
+                const non_null_offset = offset;
+
+                const fields: [2]*llvm.DIType = .{
+                    dib.createMemberType(
+                        fwd_decl.toScope(),
+                        "data",
+                        di_file,
+                        line,
+                        payload_size * 8, // size in bits
+                        payload_align * 8, // align in bits
+                        0, // offset in bits
+                        0, // flags
+                        try dg.lowerDebugType(child_ty),
+                    ),
+                    dib.createMemberType(
+                        fwd_decl.toScope(),
+                        "some",
+                        di_file,
+                        line,
+                        non_null_size * 8, // size in bits
+                        non_null_align * 8, // align in bits
+                        non_null_offset * 8, // offset in bits
+                        0, // flags
+                        try dg.lowerDebugType(non_null_ty),
+                    ),
+                };
+
+                const replacement_di_type = dib.createStructType(
+                    compile_unit_scope,
+                    name.ptr,
+                    di_file,
+                    line,
+                    ty.abiSize(target) * 8, // size in bits
+                    ty.abiAlignment(target) * 8, // align in bits
+                    0, // flags
+                    null, // derived from
+                    &fields,
+                    fields.len,
+                    0, // run time lang
+                    null, // vtable holder
+                    "", // unique id
+                );
+                dib.replaceTemporary(fwd_decl, replacement_di_type);
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try dg.object.di_type_map.put(gpa, ty, replacement_di_type);
+                return replacement_di_type;
             },
             .ErrorUnion => {
                 const err_set_ty = ty.errorUnionSet();
-                const err_set_di_ty = try dg.lowerDebugType(err_set_ty);
                 const payload_ty = ty.errorUnionPayload();
                 if (!payload_ty.hasRuntimeBits()) {
+                    const err_set_di_ty = try dg.lowerDebugType(err_set_ty);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try dg.object.di_type_map.put(gpa, ty, err_set_di_ty);
                     return err_set_di_ty;
                 }
-                const payload_di_ty = try dg.lowerDebugType(payload_ty);
-
                 const name = try ty.nameAlloc(gpa); // TODO this is a leak
                 const di_file: ?*llvm.DIFile = null;
                 const line = 0;
@@ -2062,6 +2249,7 @@ pub const DeclGen = struct {
                     di_file,
                     line,
                 );
+                gop.value_ptr.* = fwd_decl;
 
                 const err_set_size = err_set_ty.abiSize(target);
                 const err_set_align = err_set_ty.abiAlignment(target);
@@ -2083,7 +2271,7 @@ pub const DeclGen = struct {
                         err_set_align * 8, // align in bits
                         0, // offset in bits
                         0, // flags
-                        err_set_di_ty,
+                        try dg.lowerDebugType(err_set_ty),
                     ),
                     dib.createMemberType(
                         fwd_decl.toScope(),
@@ -2094,7 +2282,7 @@ pub const DeclGen = struct {
                         payload_align * 8, // align in bits
                         payload_offset * 8, // offset in bits
                         0, // flags
-                        payload_di_ty,
+                        try dg.lowerDebugType(payload_ty),
                     ),
                 };
 
@@ -2114,13 +2302,15 @@ pub const DeclGen = struct {
                     "", // unique id
                 );
                 dib.replaceTemporary(fwd_decl, replacement_di_type);
-
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try dg.object.di_type_map.put(gpa, ty, replacement_di_type);
                 return replacement_di_type;
             },
             .ErrorSet => {
                 // TODO make this a proper enum with all the error codes in it.
                 // will need to consider how to take incremental compilation into account.
-                return dib.createBasicType("anyerror", 16, DW.ATE.unsigned);
+                gop.value_ptr.* = dib.createBasicType("anyerror", 16, DW.ATE.unsigned);
+                return gop.value_ptr.*;
             },
             .Struct => {
                 @panic("TODO debug info type for struct");
@@ -2347,11 +2537,14 @@ pub const DeclGen = struct {
                     }
                 }
 
-                return dib.createSubroutineType(
+                const fn_di_ty = dib.createSubroutineType(
                     param_di_types.items.ptr,
                     @intCast(c_int, param_di_types.items.len),
                     0,
                 );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try dg.object.di_type_map.put(gpa, ty, fn_di_ty);
+                return fn_di_ty;
             },
             .ComptimeInt => unreachable,
             .ComptimeFloat => unreachable,
