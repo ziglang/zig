@@ -4683,7 +4683,10 @@ pub const Type = extern union {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.owner_decl;
             },
-            .@"opaque" => @panic("TODO"),
+            .@"opaque" => {
+                const opaque_obj = ty.cast(Payload.Opaque).?.data;
+                return opaque_obj.owner_decl;
+            },
             .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
@@ -4695,7 +4698,8 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
-            => @panic("TODO resolve std.builtin types"),
+            => unreachable, // These need to be resolved earlier.
+
             else => unreachable,
         }
     }
