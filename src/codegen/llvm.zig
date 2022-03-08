@@ -5117,31 +5117,48 @@ pub const FuncGen = struct {
         self.arg_index += 1;
 
         const inst_ty = self.air.typeOfIndex(inst);
-        const result = r: {
+        const result: struct { ptr: *const llvm.Value, operand: *const llvm.Value } = r: {
             if (isByRef(inst_ty)) {
-                break :r arg_val;
+                break :r .{ .ptr = arg_val, .operand = arg_val };
             } else {
                 const ptr_val = self.buildAlloca(try self.dg.llvmType(inst_ty));
                 _ = self.builder.buildStore(arg_val, ptr_val);
-                break :r arg_val;
+                break :r .{ .ptr = ptr_val, .operand = arg_val };
             }
         };
 
         if (self.dg.object.di_builder) |dib| {
+            const src_index = self.getSrcArgIndex(self.arg_index - 1);
             const func = self.dg.decl.getFunction().?;
-            _ = dib.createParameterVariable(
+            const lbrace_line = func.owner_decl.src_line + func.lbrace_line + 1;
+            const lbrace_col = func.lbrace_column + 1;
+            const di_local_var = dib.createParameterVariable(
                 self.di_scope.?,
-                func.getParamName(self.arg_index - 1).ptr, // TODO test 0 bit args
+                func.getParamName(src_index).ptr, // TODO test 0 bit args
                 self.di_file.?,
-                func.owner_decl.src_line + func.lbrace_line + 1,
+                lbrace_line,
                 try self.dg.lowerDebugType(inst_ty),
                 true, // always preserve
                 0, // flags
                 self.arg_index, // includes +1 because 0 is return type
             );
+
+            const debug_loc = llvm.getDebugLoc(lbrace_line, lbrace_col, self.di_scope.?);
+            const insert_block = self.builder.getInsertBlock();
+            _ = dib.insertDeclareAtEnd(result.ptr, di_local_var, debug_loc, insert_block);
         }
 
-        return result;
+        return result.operand;
+    }
+
+    fn getSrcArgIndex(self: *FuncGen, runtime_index: u32) u32 {
+        const fn_info = self.dg.decl.ty.fnInfo();
+        var i: u32 = 0;
+        for (fn_info.param_types) |param_ty, src_index| {
+            if (!param_ty.hasRuntimeBits()) continue;
+            if (i == runtime_index) return @intCast(u32, src_index);
+            i += 1;
+        } else unreachable;
     }
 
     fn airAlloc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
