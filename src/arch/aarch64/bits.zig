@@ -356,6 +356,16 @@ pub const Instruction = union(enum) {
         op54: u2,
         sf: u1,
     },
+    data_processing_2_source: packed struct {
+        rd: u5,
+        rn: u5,
+        opcode: u6,
+        rm: u5,
+        fixed_1: u8 = 0b11010110,
+        s: u1,
+        fixed_2: u1 = 0b0,
+        sf: u1,
+    },
 
     pub const Condition = enum(u4) {
         /// Integer: Equal
@@ -479,6 +489,7 @@ pub const Instruction = union(enum) {
             .compare_and_branch => |v| @as(u32, v.rt) | (@as(u32, v.imm19) << 5) | (@as(u32, v.op) << 24) | (@as(u32, v.fixed) << 25) | (@as(u32, v.sf) << 31),
             .conditional_select => |v| @as(u32, v.rd) | @as(u32, v.rn) << 5 | @as(u32, v.op2) << 10 | @as(u32, v.cond) << 12 | @as(u32, v.rm) << 16 | @as(u32, v.fixed) << 21 | @as(u32, v.s) << 29 | @as(u32, v.op) << 30 | @as(u32, v.sf) << 31,
             .data_processing_3_source => |v| @bitCast(u32, v),
+            .data_processing_2_source => |v| @bitCast(u32, v),
         };
     }
 
@@ -1031,6 +1042,29 @@ pub const Instruction = union(enum) {
         };
     }
 
+    fn dataProcessing2Source(
+        s: u1,
+        opcode: u6,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+    ) Instruction {
+        return Instruction{
+            .data_processing_2_source = .{
+                .rd = rd.enc(),
+                .rn = rn.enc(),
+                .opcode = opcode,
+                .rm = rm.enc(),
+                .s = s,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
     // Helper functions for assembly syntax functions
 
     // Move wide (immediate)
@@ -1393,6 +1427,20 @@ pub const Instruction = union(enum) {
     pub fn mneg(rd: Register, rn: Register, rm: Register) Instruction {
         return msub(rd, rn, rm, .xzr);
     }
+
+    // Data processing (2 source)
+
+    pub fn lslv(rd: Register, rn: Register, rm: Register) Instruction {
+        return dataProcessing2Source(0b0, 0b001000, rd, rn, rm);
+    }
+
+    pub fn lsrv(rd: Register, rn: Register, rm: Register) Instruction {
+        return dataProcessing2Source(0b0, 0b001001, rd, rn, rm);
+    }
+
+    pub fn asrv(rd: Register, rn: Register, rm: Register) Instruction {
+        return dataProcessing2Source(0b0, 0b001010, rd, rn, rm);
+    }
 };
 
 test {
@@ -1569,6 +1617,10 @@ test "serialize instructions" {
         .{ // eor x3, x5, #1
             .inst = Instruction.eorImmediate(.x3, .x5, 0b000000, 0b000000, 0b1),
             .expected = 0b1_10_100100_1_000000_000000_00101_00011,
+        },
+        .{ // lslv x6, x9, x10
+            .inst = Instruction.lslv(.x6, .x9, .x10),
+            .expected = 0b1_0_0_11010110_01010_0010_00_01001_00110,
         },
     };
 

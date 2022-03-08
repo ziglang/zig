@@ -541,7 +541,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .mul_sat         => try self.airMulSat(inst),
             .rem             => try self.airRem(inst),
             .mod             => try self.airMod(inst),
-            .shl, .shl_exact => try self.airShl(inst),
+            .shl, .shl_exact => try self.airBinOp(inst),
             .shl_sat         => try self.airShlSat(inst),
             .min             => try self.airMin(inst),
             .max             => try self.airMax(inst),
@@ -581,7 +581,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bit_and         => try self.airBinOp(inst),
             .bit_or          => try self.airBinOp(inst),
             .xor             => try self.airBinOp(inst),
-            .shr, .shr_exact => try self.airShr(inst),
+            .shr, .shr_exact => try self.airBinOp(inst),
 
             .alloc           => try self.airAlloc(inst),
             .ret_ptr         => try self.airRetPtr(inst),
@@ -1156,6 +1156,15 @@ fn binOpRegister(
         .bit_or,
         .bool_or,
         => .orr_shifted_register,
+        .shl,
+        .shl_exact,
+        => .lsl_register,
+        .shr,
+        .shr_exact,
+        => switch (lhs_ty.intInfo(self.target.*).signedness) {
+            .signed => Mir.Inst.Tag.asr_register,
+            .unsigned => Mir.Inst.Tag.lsr_register,
+        },
         .xor => .eor_shifted_register,
         else => unreachable,
     };
@@ -1171,7 +1180,12 @@ fn binOpRegister(
             .imm6 = 0,
             .shift = .lsl,
         } },
-        .mul => .{ .rrr = .{
+        .mul,
+        .shl,
+        .shl_exact,
+        .shr,
+        .shr_exact,
+        => .{ .rrr = .{
             .rd = dest_reg,
             .rn = lhs_reg,
             .rm = rhs_reg,
@@ -1385,6 +1399,23 @@ fn binOp(
                 else => unreachable,
             }
         },
+        .shl,
+        .shr,
+        => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Vector => return self.fail("TODO binary operations on vectors", .{}),
+                .Int => {
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 64) {
+                        // TODO immediate shifts
+                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                    } else {
+                        return self.fail("TODO binary operations on int with bits > 64", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
         .bool_and,
         .bool_or,
         => {
@@ -1514,21 +1545,9 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airShl(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airShr(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shr for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 

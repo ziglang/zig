@@ -30,6 +30,8 @@ pub const Inst = struct {
         add_shifted_register,
         /// Bitwise AND (shifted register)
         and_shifted_register,
+        /// Arithmetic Shift Right (register)
+        asr_register,
         /// Branch conditionally
         b_cond,
         /// Branch
@@ -96,6 +98,10 @@ pub const Inst = struct {
         ldrh_immediate,
         /// Load Register Halfword (register)
         ldrh_register,
+        /// Logical Shift Left (register)
+        lsl_register,
+        /// Logical Shift Right (register)
+        lsr_register,
         /// Move (to/from SP)
         mov_to_from_sp,
         /// Move (register)

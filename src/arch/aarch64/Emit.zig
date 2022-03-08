@@ -80,6 +80,10 @@ pub fn emitMir(
             .cmp_immediate => try emit.mirAddSubtractImmediate(inst),
             .sub_immediate => try emit.mirAddSubtractImmediate(inst),
 
+            .asr_register => try emit.mirShiftRegister(inst),
+            .lsl_register => try emit.mirShiftRegister(inst),
+            .lsr_register => try emit.mirShiftRegister(inst),
+
             .b_cond => try emit.mirConditionalBranchImmediate(inst),
 
             .b => try emit.mirBranch(inst),
@@ -465,6 +469,21 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
             try emit.writeInstruction(Instruction.subs(.xzr, rn, imm12, sh));
         },
+        else => unreachable,
+    }
+}
+
+fn mirShiftRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rrr = emit.mir.instructions.items(.data)[inst].rrr;
+    const rd = rrr.rd;
+    const rn = rrr.rn;
+    const rm = rrr.rm;
+
+    switch (tag) {
+        .asr_register => try emit.writeInstruction(Instruction.asrv(rd, rn, rm)),
+        .lsl_register => try emit.writeInstruction(Instruction.lslv(rd, rn, rm)),
+        .lsr_register => try emit.writeInstruction(Instruction.lsrv(rd, rn, rm)),
         else => unreachable,
     }
 }
