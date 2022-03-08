@@ -1157,22 +1157,24 @@ fn isByRef(ty: Type, target: std.Target) bool {
 /// local value to store the pointer. This allows for local re-use and improves binary size.
 fn buildPointerOffset(self: *Self, ptr_value: WValue, offset: u64, action: enum { modify, new }) InnerError!WValue {
     // do not perform arithmetic when offset is 0.
-    if (offset == 0 and ptr_value.offset() == 0) return ptr_value;
+    if (offset == 0 and ptr_value.offset() == 0 and action == .modify) return ptr_value;
     const result_ptr: WValue = switch (action) {
         .new => try self.allocLocal(Type.usize),
         .modify => ptr_value,
     };
     try self.emitWValue(ptr_value);
-    switch (self.arch()) {
-        .wasm32 => {
-            try self.addImm32(@bitCast(i32, @intCast(u32, offset + ptr_value.offset())));
-            try self.addTag(.i32_add);
-        },
-        .wasm64 => {
-            try self.addImm64(offset + ptr_value.offset());
-            try self.addTag(.i64_add);
-        },
-        else => unreachable,
+    if (offset + ptr_value.offset() > 0) {
+        switch (self.arch()) {
+            .wasm32 => {
+                try self.addImm32(@bitCast(i32, @intCast(u32, offset + ptr_value.offset())));
+                try self.addTag(.i32_add);
+            },
+            .wasm64 => {
+                try self.addImm64(offset + ptr_value.offset());
+                try self.addTag(.i64_add);
+            },
+            else => unreachable,
+        }
     }
     try self.addLabel(.local_set, result_ptr.local);
     return result_ptr;
@@ -1267,6 +1269,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .struct_field_ptr_index_2 => self.airStructFieldPtrIndex(inst, 2),
         .struct_field_ptr_index_3 => self.airStructFieldPtrIndex(inst, 3),
         .struct_field_val => self.airStructFieldVal(inst),
+        .field_parent_ptr => self.airFieldParentPtr(inst),
 
         .switch_br => self.airSwitchBr(inst),
         .trunc => self.airTrunc(inst),
@@ -1334,7 +1337,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .atomic_rmw,
         .tag_name,
         .error_name,
-        .field_parent_ptr,
         .mul_add,
 
         // For these 4, probably best to wait until https://github.com/ziglang/zig/issues/10248
@@ -3251,4 +3253,26 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     const offset = mem.alignForwardGeneric(u64, set_size, err_align);
 
     return self.buildPointerOffset(operand, @intCast(u32, offset), .new);
+}
+
+fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
+    const field_ptr = try self.resolveInst(extra.field_ptr);
+
+    const struct_ty = self.air.getRefType(ty_pl.ty).childType();
+    const field_offset = struct_ty.structFieldOffset(extra.field_index, self.target);
+
+    if (field_offset == 0) {
+        return field_ptr;
+    }
+
+    const base = try self.buildPointerOffset(field_ptr, 0, .new);
+    try self.addLabel(.local_get, base.local);
+    try self.addImm32(@bitCast(i32, @intCast(u32, field_offset)));
+    try self.addTag(.i32_sub);
+    try self.addLabel(.local_set, base.local);
+    return base;
 }
