@@ -1922,7 +1922,8 @@ pub const DeclGen = struct {
             .Int => {
                 const info = ty.intInfo(target);
                 assert(info.bits != 0);
-                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
                 const dwarf_encoding: c_uint = switch (info.signedness) {
                     .signed => DW.ATE.signed,
                     .unsigned => DW.ATE.unsigned,
@@ -1967,7 +1968,8 @@ pub const DeclGen = struct {
                 const di_file = try dg.object.getDIFile(gpa, owner_decl.src_namespace.file_scope);
                 const di_scope = try dg.namespaceToDebugScope(owner_decl.src_namespace);
 
-                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
                 var buffer: Type.Payload.Bits = undefined;
                 const int_ty = ty.intTagType(&buffer);
 
@@ -1989,7 +1991,8 @@ pub const DeclGen = struct {
             },
             .Float => {
                 const bits = ty.floatBits(target);
-                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
                 gop.value_ptr.* = dib.createBasicType(name, bits, DW.ATE.float);
                 return gop.value_ptr.*;
             },
@@ -2039,7 +2042,8 @@ pub const DeclGen = struct {
                     const ptr_ty = ty.slicePtrFieldType(&buf);
                     const len_ty = Type.usize;
 
-                    const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                    const name = try ty.nameAlloc(gpa);
+                    defer gpa.free(name);
                     const di_file: ?*llvm.DIFile = null;
                     const line = 0;
                     const compile_unit_scope = dg.object.di_compile_unit.?.toScope();
@@ -2109,7 +2113,8 @@ pub const DeclGen = struct {
                 }
 
                 const elem_di_ty = try lowerDebugType(dg, ptr_info.pointee_type);
-                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
                 const ptr_di_ty = dib.createPointerType(
                     elem_di_ty,
                     target.cpu.arch.ptrBitWidth(),
@@ -2125,7 +2130,8 @@ pub const DeclGen = struct {
                     gop.value_ptr.* = dib.createBasicType("anyopaque", 0, DW.ATE.signed);
                     return gop.value_ptr.*;
                 }
-                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
                 const owner_decl = ty.getOwnerDecl();
                 const opaque_di_ty = dib.createForwardDeclType(
                     DW.TAG.structure_type,
@@ -2162,7 +2168,8 @@ pub const DeclGen = struct {
                 return vector_di_ty;
             },
             .Optional => {
-                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
                 var buf: Type.Payload.ElemType = undefined;
                 const child_ty = ty.optionalChild(&buf);
                 if (!child_ty.hasRuntimeBits()) {
@@ -2253,7 +2260,8 @@ pub const DeclGen = struct {
                     try dg.object.di_type_map.put(gpa, ty, err_set_di_ty);
                     return err_set_di_ty;
                 }
-                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
                 const di_file: ?*llvm.DIFile = null;
                 const line = 0;
                 const compile_unit_scope = dg.object.di_compile_unit.?.toScope();
@@ -2329,7 +2337,8 @@ pub const DeclGen = struct {
             },
             .Struct => {
                 const compile_unit_scope = dg.object.di_compile_unit.?.toScope();
-                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
                 const fwd_decl = dib.createReplaceableCompositeType(
                     DW.TAG.structure_type,
                     name.ptr,
@@ -2477,7 +2486,8 @@ pub const DeclGen = struct {
             .Union => {
                 const owner_decl = ty.getOwnerDecl();
 
-                const name = try ty.nameAlloc(gpa); // TODO this is a leak
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
                 const fwd_decl = dib.createReplaceableCompositeType(
                     DW.TAG.structure_type,
                     name.ptr,
