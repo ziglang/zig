@@ -17,7 +17,6 @@ fn checkSize(comptime T: type) usize {
 }
 
 test "simple generic fn" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(max(i32, 3, -1) == 3);

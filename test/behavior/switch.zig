@@ -108,7 +108,6 @@ fn returnsFive() i32 {
 }
 
 test "switch on type" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expect(trueIfBoolFalseOtherwise(bool));

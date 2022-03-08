@@ -138,7 +138,6 @@ fn returnEmptyStructInstance() StructWithNoFields {
 
 test "fn call of struct field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const Foo = struct {
         ptr: fn () i32,
@@ -196,7 +195,6 @@ const MemberFnRand = struct {
 
 test "return struct byval from function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const bar = makeBar2(1234, 5678);
     try expect(bar.y == 5678);
@@ -325,7 +323,6 @@ test "return empty struct from fn" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     _ = testReturnEmptyStructFromFn();
 }
