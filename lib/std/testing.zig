@@ -299,6 +299,48 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     }
 }
 
+/// This function is intended to be used only in tests. Checks that two slices or two arrays are equal,
+/// including that their sentinel (if any) are the same. Will error if given another type.
+pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:sentinel]const T, actual: [:sentinel]const T) !void {
+    try expectEqualSlices(T, expected, actual);
+
+    const expected_value_sentinel = blk: {
+        switch (@typeInfo(@TypeOf(expected))) {
+            .Pointer => {
+                break :blk expected[expected.len];
+            },
+            .Array => |array_info| {
+                const indexable_outside_of_bounds = @as([]const array_info.child, &expected);
+                break :blk indexable_outside_of_bounds[indexable_outside_of_bounds.len];
+            },
+            else => {},
+        }
+    };
+
+    const actual_value_sentinel = blk: {
+        switch (@typeInfo(@TypeOf(actual))) {
+            .Pointer => {
+                break :blk actual[actual.len];
+            },
+            .Array => |array_info| {
+                const indexable_outside_of_bounds = @as([]const array_info.child, &actual);
+                break :blk indexable_outside_of_bounds[indexable_outside_of_bounds.len];
+            },
+            else => {},
+        }
+    };
+
+    if (!std.meta.eql(sentinel, expected_value_sentinel)) {
+        std.debug.print("expectEqualSentinel: 'expected' sentinel in memory is different from its type sentinel. type sentinel {}, in memory sentinel {}\n", .{ sentinel, expected_value_sentinel });
+        return error.TestExpectedEqual;
+    }
+
+    if (!std.meta.eql(sentinel, actual_value_sentinel)) {
+        std.debug.print("expectEqualSentinel: 'actual' sentinel in memory is different from its type sentinel. type sentinel {}, in memory sentinel {}\n", .{ sentinel, actual_value_sentinel });
+        return error.TestExpectedEqual;
+    }
+}
+
 /// This function is intended to be used only in tests. When `ok` is false, the test fails.
 /// A message is printed to stderr and then abort is called.
 pub fn expect(ok: bool) !void {
