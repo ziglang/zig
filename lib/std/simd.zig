@@ -1,3 +1,6 @@
+// Note: Some functions here are known to malfunction on MIPS.
+// Functions whose tests fail on MIPS will trigger compile errors when compiled for that platform.
+
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -5,7 +8,7 @@ pub const Vector = std.meta.Vector;
 
 /// Suggests a vector size for a given type and CPU, or null if it doesn't support SIMD natively.
 /// Not yet implemented for every CPU architecture.
-pub fn suggestedVectorSizeForCpu(comptime T: type, cpu: std.Target.Cpu) ?usize {
+pub fn suggestVectorSizeForCpu(comptime T: type, cpu: std.Target.Cpu) ?usize {
     switch (cpu.arch) {
         .x86_64 => {
             if (T == bool and std.Target.x86.featureSetHas(.prefer_mask_registers)) return 64;
@@ -20,8 +23,8 @@ pub fn suggestedVectorSizeForCpu(comptime T: type, cpu: std.Target.Cpu) ?usize {
 
 /// Suggests a vector size for a given type, or null if the target CPU doesn't support SIMD natively.
 /// Not yet implemented for every CPU architecture.
-pub fn suggestedVectorSize(comptime T: type) ?usize {
-    return suggestedVectorSizeForCpu(T, builtin.cpu);
+pub fn suggestVectorSize(comptime T: type) ?usize {
+    return suggestVectorSizeForCpu(T, builtin.cpu);
 }
 
 pub fn vectorLength(comptime VectorType: type) comptime_int {
@@ -76,6 +79,13 @@ pub fn join(a: anytype, b: anytype) Vector(vectorLength(@TypeOf(a)) + vectorLeng
 /// Returns a vector whose elements alternates between those of each input vector.
 /// For example, braid(.{[4]u32{11, 12, 13, 14}, [4]u32{21, 22, 23, 24}}) returns a vector containing {11, 21, 12, 22, 13, 23, 14, 24}.
 pub fn braid(vecs: anytype) Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len, std.meta.Child(@TypeOf(vecs[0]))) {
+    // braid doesn't work on MIPS, for some reason.
+    // Notes from earlier debug attempt:
+    //  The indices are correct. The problem seems to be with the @shuffle builtin.
+    //  On MIPS, the test that braids small_base gives { 0, 2, 0, 0, 64, 255, 248, 200, 0, 0 }.
+    //  Calling this with two inputs seems to work fine, but I'll let the compile error trigger for all inputs, just to be safe.
+    comptime if (builtin.cpu.arch.isMIPS() and !builtin.is_test) @compileError("TODO: Find out why braid() doesn't work on MIPS");
+    
     const VecType = @TypeOf(vecs[0]);
     const vecs_arr = @as([vecs.len]VecType, vecs);
     const Child = std.meta.Child(@TypeOf(vecs_arr[0]));
@@ -141,13 +151,18 @@ test "vector patterns" {
         Vector(2, u8){ 6, 7 },
         Vector(2, u8){ 8, 9 },
     };
-
+    
     try std.testing.expectEqual([6]u32{ 10, 20, 30, 40, 10, 20 }, repeat(6, base));
     try std.testing.expectEqual([8]u32{ 10, 20, 30, 40, 55, 66, 77, 88 }, join(base, other_base));
-    try std.testing.expectEqual([8]u32{ 10, 55, 20, 66, 30, 77, 40, 88 }, braid(.{ base, other_base }));
-    try std.testing.expectEqual([10]u8{ 0, 2, 4, 6, 8, 1, 3, 5, 7, 9 }, braid(small_bases));
-    try std.testing.expectEqual(small_bases, unbraid(small_bases.len, braid(small_bases)));
     try std.testing.expectEqual([2]u32{ 20, 30 }, extract(base, 1, 2));
+
+    if (!builtin.cpu.arch.isMIPS()) {
+        try std.testing.expectEqual([8]u32{ 10, 55, 20, 66, 30, 77, 40, 88 }, braid(.{ base, other_base }));
+
+        const small_braid = braid(small_bases);
+        try std.testing.expectEqual([10]u8{ 0, 2, 4, 6, 8, 1, 3, 5, 7, 9 }, small_braid);
+        try std.testing.expectEqual(small_bases, unbraid(small_bases.len, small_braid));
+    }
 }
 
 pub fn shiftElementsUp(vec: anytype, comptime amount: VectorCount(@TypeOf(vec)), shift_in: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
@@ -252,6 +267,9 @@ test "vector searching" {
 /// Same as accum, but with a user-provided function that mathematically must be associative.
 /// The function must also do nothing when called with identity as either argument.
 pub fn accumWithFunc(comptime hop: isize, vec: anytype, comptime func: fn (@TypeOf(vec), @TypeOf(vec)) @TypeOf(vec), comptime identity: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
+    // I haven't debugged this, but it might be a cousin of sorts to what's going on with braid.
+    comptime if (builtin.cpu.arch.isMIPS() and !builtin.is_test) @compileError("TODO: Find out why accum doesn't work on MIPS");
+
     const len = vectorLength(@TypeOf(vec));
 
     if (hop == 0) @compileError("hop can not be 0; you'd be going nowhere forever!");
@@ -320,12 +338,15 @@ pub fn accum(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: anytyp
 }
 
 test "vector accum" {
+    if (comptime builtin.cpu.arch.isMIPS()) {
+        return error.SkipZigTest;
+    }
+    
     const int_base = Vector(4, i32){ 11, 23, 9, -21 };
     const float_base = Vector(4, f32){ 2, 0.5, -10, 6.54321 };
     const bool_base = Vector(4, bool){ true, false, true, false };
 
     try std.testing.expectEqual(countUp(u8, 32) + @splat(32, @as(u8, 1)), accum(.Add, 1, @splat(32, @as(u8, 1))));
-
     try std.testing.expectEqual(Vector(4, i32){ 11, 3, 1, 1 }, accum(.And, 1, int_base));
     try std.testing.expectEqual(Vector(4, i32){ 11, 31, 31, -1 }, accum(.Or, 1, int_base));
     try std.testing.expectEqual(Vector(4, i32){ 11, 28, 21, -2 }, accum(.Xor, 1, int_base));
