@@ -5117,16 +5117,6 @@ pub const FuncGen = struct {
         self.arg_index += 1;
 
         const inst_ty = self.air.typeOfIndex(inst);
-        const result: struct { ptr: *const llvm.Value, operand: *const llvm.Value } = r: {
-            if (isByRef(inst_ty)) {
-                break :r .{ .ptr = arg_val, .operand = arg_val };
-            } else {
-                const ptr_val = self.buildAlloca(try self.dg.llvmType(inst_ty));
-                _ = self.builder.buildStore(arg_val, ptr_val);
-                break :r .{ .ptr = ptr_val, .operand = arg_val };
-            }
-        };
-
         if (self.dg.object.di_builder) |dib| {
             const src_index = self.getSrcArgIndex(self.arg_index - 1);
             const func = self.dg.decl.getFunction().?;
@@ -5145,10 +5135,14 @@ pub const FuncGen = struct {
 
             const debug_loc = llvm.getDebugLoc(lbrace_line, lbrace_col, self.di_scope.?);
             const insert_block = self.builder.getInsertBlock();
-            _ = dib.insertDeclareAtEnd(result.ptr, di_local_var, debug_loc, insert_block);
+            if (isByRef(inst_ty)) {
+                _ = dib.insertDeclareAtEnd(arg_val, di_local_var, debug_loc, insert_block);
+            } else {
+                _ = dib.insertDbgValueIntrinsicAtEnd(arg_val, di_local_var, debug_loc, insert_block);
+            }
         }
 
-        return result.operand;
+        return arg_val;
     }
 
     fn getSrcArgIndex(self: *FuncGen, runtime_index: u32) u32 {

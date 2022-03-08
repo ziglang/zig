@@ -1700,6 +1700,15 @@ pub const DIBuilder = opaque {
         debug_loc: *DILocation,
         insert_before_instr: *const Value,
     ) *const Value;
+
+    pub const insertDbgValueIntrinsicAtEnd = ZigLLVMInsertDbgValueIntrinsicAtEnd;
+    extern fn ZigLLVMInsertDbgValueIntrinsicAtEnd(
+        dib: *DIBuilder,
+        val: *const Value,
+        var_info: *DILocalVariable,
+        debug_loc: *DILocation,
+        basic_block_ref: *const BasicBlock,
+    ) *const Value;
 };
 
 pub const DIFlags = opaque {
