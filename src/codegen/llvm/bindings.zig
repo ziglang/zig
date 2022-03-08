@@ -193,6 +193,9 @@ pub const Value = opaque {
     pub const setValueName2 = LLVMSetValueName2;
     extern fn LLVMSetValueName2(Val: *const Value, Name: [*]const u8, NameLen: usize) void;
 
+    pub const getValueName = LLVMGetValueName;
+    extern fn LLVMGetValueName(Val: *const Value) [*:0]const u8;
+
     pub const takeName = ZigLLVMTakeName;
     extern fn ZigLLVMTakeName(new_owner: *const Value, victim: *const Value) void;
 
@@ -836,7 +839,7 @@ pub const Builder = opaque {
     pub const buildExactSDiv = LLVMBuildExactSDiv;
     extern fn LLVMBuildExactSDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
-    pub const zigSetCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation;
+    pub const setCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation;
     extern fn ZigLLVMSetCurrentDebugLocation(builder: *const Builder, line: c_int, column: c_int, scope: *DIScope) void;
 
     pub const clearCurrentDebugLocation = ZigLLVMClearCurrentDebugLocation;
@@ -1505,16 +1508,16 @@ pub const DIBuilder = opaque {
         dib: *DIBuilder,
         scope: *DIScope,
         name: [*:0]const u8,
-        file: *DIFile,
+        file: ?*DIFile,
         line_number: c_uint,
         size_in_bits: u64,
         align_in_bits: u64,
         flags: c_uint,
-        derived_from: *DIType,
+        derived_from: ?*DIType,
         types_array: [*]const *DIType,
         types_array_len: c_int,
         run_time_lang: c_uint,
-        vtable_holder: *DIType,
+        vtable_holder: ?*DIType,
         unique_id: [*:0]const u8,
     ) *DIType;
 
@@ -1539,7 +1542,7 @@ pub const DIBuilder = opaque {
         dib: *DIBuilder,
         scope: *DIScope,
         name: [*:0]const u8,
-        file: *DIFile,
+        file: ?*DIFile,
         line: c_uint,
         size_in_bits: u64,
         align_in_bits: u64,
@@ -1554,7 +1557,7 @@ pub const DIBuilder = opaque {
         tag: c_uint,
         name: [*:0]const u8,
         scope: *DIScope,
-        file: *DIFile,
+        file: ?*DIFile,
         line: c_uint,
     ) *DIType;
 
@@ -1668,7 +1671,7 @@ pub const DIBuilder = opaque {
         scope_line: c_uint,
         flags: c_uint,
         is_optimized: bool,
-        decl_subprogram: *DISubprogram,
+        decl_subprogram: ?*DISubprogram,
     ) *DISubprogram;
 
     pub const createVectorType = ZigLLVMDIBuilderCreateVectorType;
@@ -1697,4 +1700,42 @@ pub const DIBuilder = opaque {
         debug_loc: *DILocation,
         insert_before_instr: *const Value,
     ) *const Value;
+};
+
+pub const DIFlags = opaque {
+    pub const Zero = 0;
+    pub const Private = 1;
+    pub const Protected = 2;
+    pub const Public = 3;
+
+    pub const FwdDecl = 1 << 2;
+    pub const AppleBlock = 1 << 3;
+    pub const BlockByrefStruct = 1 << 4;
+    pub const Virtual = 1 << 5;
+    pub const Artificial = 1 << 6;
+    pub const Explicit = 1 << 7;
+    pub const Prototyped = 1 << 8;
+    pub const ObjcClassComplete = 1 << 9;
+    pub const ObjectPointer = 1 << 10;
+    pub const Vector = 1 << 11;
+    pub const StaticMember = 1 << 12;
+    pub const LValueReference = 1 << 13;
+    pub const RValueReference = 1 << 14;
+    pub const Reserved = 1 << 15;
+
+    pub const SingleInheritance = 1 << 16;
+    pub const MultipleInheritance = 2 << 16;
+    pub const VirtualInheritance = 3 << 16;
+
+    pub const IntroducedVirtual = 1 << 18;
+    pub const BitField = 1 << 19;
+    pub const NoReturn = 1 << 20;
+    pub const TypePassByValue = 1 << 22;
+    pub const TypePassByReference = 1 << 23;
+    pub const EnumClass = 1 << 24;
+    pub const Thunk = 1 << 25;
+    pub const NonTrivial = 1 << 26;
+    pub const BigEndian = 1 << 27;
+    pub const LittleEndian = 1 << 28;
+    pub const AllCallsDescribed = 1 << 29;
 };
