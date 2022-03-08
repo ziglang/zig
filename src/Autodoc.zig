@@ -30,7 +30,7 @@ decl_paths_pending_on_types: std.AutoHashMapUnmanaged(
 
 const DeclPathResumeInfo = struct {
     file: *File,
-    path: []usize,
+    decl_path: DocData.DeclPath,
 };
 
 var arena_allocator: std.heap.ArenaAllocator = undefined;
@@ -347,7 +347,7 @@ const DocData = struct {
         Int: struct { name: []const u8 },
         Float: struct { name: []const u8 },
         Pointer: struct {
-            name: []const u8,
+            size: std.builtin.TypeInfo.Pointer.Size,
             child: TypeRef,
         },
         Array: struct {
@@ -427,6 +427,20 @@ const DocData = struct {
                 .Int => |v| try printTypeBody(v, options, w),
                 .Float => |v| try printTypeBody(v, options, w),
                 .Type => |v| try printTypeBody(v, options, w),
+                .Pointer => |v| {
+                    if (options.whitespace) |ws| try ws.outputIndent(w);
+                    try w.print(
+                        \\"size": {},
+                        \\
+                    , .{@enumToInt(v.size)});
+                    if (options.whitespace) |ws| try ws.outputIndent(w);
+                    try w.print(
+                        \\"child":
+                    , .{});
+
+                    if (options.whitespace) |*ws| ws.indent_level += 1;
+                    try v.child.jsonStringify(options, w);
+                },
                 else => {
                     std.debug.print(
                         "TODO: add {s} to `DocData.Type.jsonStringify`\n",
@@ -458,9 +472,14 @@ const DocData = struct {
         }
     };
 
+    const DeclPath = struct {
+        path: []usize, // indexes in `decls`
+        hasCte: bool = false, // a prefix of this path could not be resolved
+    };
+
     const TypeRef = union(enum) {
         unspecified,
-        declPath: []usize, // indexes in `decls`
+        declPath: DeclPath,
         type: usize, // index in `types`
         comptimeExpr: usize, // index in `comptimeExprs`
 
@@ -490,9 +509,9 @@ const DocData = struct {
                     , .{ @tagName(self), v });
                 },
                 .declPath => |v| {
-                    try w.print("{{ \"declPath\": [", .{});
-                    for (v) |d, i| {
-                        const comma = if (i == v.len - 1) "]}" else ",";
+                    try w.print("{{ \"hasCte\": {}, \"declPath\": [", .{v.hasCte});
+                    for (v.path) |d, i| {
+                        const comma = if (i == v.path.len - 1) "]}" else ",";
                         try w.print("{d}{s}", .{ d, comma });
                     }
                 },
@@ -509,7 +528,7 @@ const DocData = struct {
         @"struct": Struct,
         bool: bool,
         type: usize, // index in `types`
-        declPath: []usize, // indices in `decl`
+        declPath: DeclPath,
         int: struct {
             typeRef: TypeRef,
             value: usize, // direct value
@@ -584,9 +603,9 @@ const DocData = struct {
                     w,
                 ),
                 .declPath => |v| {
-                    try w.print("{{ \"declPath\": [", .{});
-                    for (v) |d, i| {
-                        const comma = if (i == v.len - 1) "]}" else ",";
+                    try w.print("{{ \"hasCte\": {}, \"declPath\": [", .{v.hasCte});
+                    for (v.path) |d, i| {
+                        const comma = if (i == v.path.len - 1) "]}" else ",";
                         try w.print("{d}{s}", .{ d, comma });
                     }
                 },
@@ -675,6 +694,19 @@ fn walkInstruction(
                     .value = int,
                 },
             };
+        },
+        .ptr_type_simple => {
+            const ptr = data[inst_index].ptr_type_simple;
+            const type_slot_index = self.types.items.len;
+            const elem_type_ref = try self.walkRef(file, parent_scope, ptr.elem_type);
+            try self.types.append(self.arena, .{
+                .Pointer = .{
+                    .size = ptr.size,
+                    .child = walkResultToTypeRef(elem_type_ref),
+                },
+            });
+
+            return DocData.WalkResult{ .type = type_slot_index };
         },
         .array_init => {
             const pl_node = data[inst_index].pl_node;
@@ -770,7 +802,7 @@ fn walkInstruction(
             const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
             var path = try self.arena.alloc(usize, 1);
             path[0] = decls_slot_index;
-            return DocData.WalkResult{ .declPath = path };
+            return DocData.WalkResult{ .declPath = .{ .path = path } };
         },
         .field_val, .field_call_bind, .field_ptr => {
             const pl_node = data[inst_index].pl_node;
@@ -844,8 +876,9 @@ fn walkInstruction(
             // the analyzed data corresponding to the top-most decl of this path.
             // We are now going to reverse loop over `path` to resolve each name
             // to its corresponding index in `decls`.
-            try self.tryResolveDeclPath(file, path.items);
-            return DocData.WalkResult{ .declPath = path.items };
+            var decl_path: DocData.DeclPath = .{ .path = path.items };
+            try self.tryResolveDeclPath(file, &decl_path);
+            return DocData.WalkResult{ .declPath = decl_path };
         },
         .int_type => {
             const int_type = data[inst_index].int_type;
@@ -893,7 +926,7 @@ fn walkInstruction(
 
             return DocData.WalkResult{ .call = call_slot_index };
         },
-        .func => {
+        .func, .func_inferred => {
             const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
 
             try self.ast_nodes.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
@@ -960,18 +993,18 @@ fn walkInstruction(
             return DocData.WalkResult{ .type = self.types.items.len - 1 };
         },
         .extended => {
-            // TODO: this assumes that we always return a type when analyzing
-            //       an extended instruction. Also we willingfully not reserve
-            //       a slot for functions (handled right above) despite them
-            //       being stored in `types`. The reason why we reserve a slot
-            //       in here, is for decl paths and their resolution system.
+            // NOTE: this code + the subsequent defer block are working towards
+            // solving pending decl paths that depend on a type to be analyzed.
+            // When we don't find a type, the defer will run anyway but shouldn't
+            // ever be able to find a match inside `decl_paths_pending_on_types`
+            // TODO: extract this logic into a function and only call it when appropriate.
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{ .Unanalyzed = {} });
 
             defer {
                 if (self.decl_paths_pending_on_types.get(type_slot_index)) |paths| {
-                    for (paths.items) |resume_info| {
-                        self.tryResolveDeclPath(resume_info.file, resume_info.path) catch {
+                    for (paths.items) |*resume_info| {
+                        self.tryResolveDeclPath(resume_info.file, &resume_info.decl_path) catch {
                             @panic("Out of memory");
                         };
                     }
@@ -1537,8 +1570,8 @@ fn walkDecls(
 
         // Unblock any pending decl path that was waiting for this decl.
         if (self.decl_paths_pending_on_decls.get(decls_slot_index)) |paths| {
-            for (paths.items) |resume_info| {
-                try self.tryResolveDeclPath(resume_info.file, resume_info.path);
+            for (paths.items) |*resume_info| {
+                try self.tryResolveDeclPath(resume_info.file, &resume_info.decl_path);
             }
 
             _ = self.decl_paths_pending_on_decls.remove(decls_slot_index);
@@ -1560,10 +1593,12 @@ fn tryResolveDeclPath(
     self: *Autodoc,
     /// File from which the decl path originates.
     file: *File,
-    path: []usize,
+    decl_path: *DocData.DeclPath,
 ) error{OutOfMemory}!void {
+    const path: []usize = decl_path.path;
+
     var i: usize = path.len;
-    while (i > 1) {
+    outer: while (i > 1) {
         i -= 1;
         const decl_index = path[i];
         const string_index = path[i - 1];
@@ -1580,7 +1615,7 @@ fn tryResolveDeclPath(
             if (!res.found_existing) res.value_ptr.* = .{};
             try res.value_ptr.*.append(self.arena, .{
                 .file = file,
-                .path = path[0 .. i + 1],
+                .decl_path = .{ .path = path[0 .. i + 1] },
             });
 
             return;
@@ -1590,15 +1625,25 @@ fn tryResolveDeclPath(
         switch (parent.value) {
             else => {
                 std.debug.panic(
-                    "TODO: handle `{s}`in walkInstruction.field_val\n \"{s}\":{}",
+                    "TODO: handle `{s}`in tryResolveDecl.field_val\n \"{s}\":{}",
                     .{ @tagName(parent.value), parent.name, parent.value },
                 );
             },
+            .comptimeExpr => {
+                // Since we hit a cte, we leave the remaining strings unresolved
+                // and completely give up on resolving this decl path.
+                decl_path.hasCte = true;
+                break :outer;
+            },
             .declPath => |dp| {
-                if (self.pending_decl_paths.getPtr(&dp[0])) |waiter_list| {
+                if (dp.hasCte) {
+                    decl_path.hasCte = true;
+                    break :outer;
+                }
+                if (self.pending_decl_paths.getPtr(&dp.path[0])) |waiter_list| {
                     try waiter_list.append(self.arena, .{
                         .file = file,
-                        .path = path[0 .. i + 1],
+                        .decl_path = .{ .path = path[0 .. i + 1] },
                     });
 
                     // This decl path is pending completion
@@ -1610,7 +1655,7 @@ fn tryResolveDeclPath(
                     return;
                 }
 
-                const final_decl_index = dp[0];
+                const final_decl_index = dp.path[0];
                 // For the purpose of being able to call tryResolveDeclPath again,
                 // we momentarily replace the decl index present in `path[i]`
                 // with the final decl in `dp`.
@@ -1619,7 +1664,7 @@ fn tryResolveDeclPath(
                 // will not get fully resolved (also in the case that final_decl is
                 // not resolved yet).
                 path[i] = final_decl_index;
-                try self.tryResolveDeclPath(file, path);
+                try self.tryResolveDeclPath(file, decl_path);
                 path[i] = decl_index;
             },
             .type => |t_index| switch (self.types.items[t_index]) {
@@ -1643,7 +1688,7 @@ fn tryResolveDeclPath(
                     if (!res.found_existing) res.value_ptr.* = .{};
                     try res.value_ptr.*.append(self.arena, .{
                         .file = file,
-                        .path = path[0 .. i + 1],
+                        .decl_path = .{ .path = path[0 .. i + 1] },
                     });
 
                     return;
@@ -1677,8 +1722,8 @@ fn tryResolveDeclPath(
         // attempting to resolve any other decl.
         _ = self.pending_decl_paths.remove(&path[0]);
 
-        for (waiter_list.items) |resume_info| {
-            try self.tryResolveDeclPath(resume_info.file, resume_info.path);
+        for (waiter_list.items) |*resume_info| {
+            try self.tryResolveDeclPath(resume_info.file, &resume_info.decl_path);
         }
         // TODO: this is where we should free waiter_list, but its in the arena
         //       that said, we might want to store it elsewhere and reclaim memory asap
