@@ -37,3 +37,5 @@ union U {
 #define IGNORE_ME_10(x) (volatile const void)(x)
 
 #define UNION_CAST(X) (union U)(X)
+
+#define NESTED_COMMA_OPERATOR (1, (2, 3))

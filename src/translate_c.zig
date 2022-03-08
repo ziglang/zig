@@ -5563,7 +5563,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         const ignore = try Tag.discard.create(c.arena, .{ .should_skip = false, .value = last });
         try block_scope.statements.append(ignore);
 
-        last = try parseCCondExpr(c, m, scope);
+        last = try parseCCondExpr(c, m, &block_scope.base);
         if (m.next().? != .Comma) {
             m.i -= 1;
             break;
