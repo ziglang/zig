@@ -864,8 +864,27 @@ fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
-    const stack_offset = try self.allocMemPtr(inst);
-    return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+    const result: MCValue = switch (self.ret_mcv) {
+        .none, .register => .{ .ptr_stack_offset = try self.allocMemPtr(inst) },
+        .stack_offset => blk: {
+            // self.ret_mcv is an address to where this function
+            // should store its result into
+            const ret_ty = self.fn_type.fnReturnType();
+            var ptr_ty_payload: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = ret_ty,
+            };
+            const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+
+            // addr_reg will contain the address of where to store the
+            // result into
+            const addr_reg = try self.copyToTmpRegister(ptr_ty, self.ret_mcv);
+            break :blk .{ .register = addr_reg };
+        },
+        else => unreachable, // invalid return result
+    };
+
+    return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
 fn airFptrunc(self: *Self, inst: Air.Inst.Index) !void {
@@ -1577,9 +1596,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .ptr_embedded_in_code => |off| {
             try self.setRegOrMem(elem_ty, dst_mcv, .{ .embedded_in_code = off });
         },
-        .embedded_in_code => {
-            return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
-        },
         .register => |reg| {
             self.register_manager.freezeRegs(&.{reg});
             defer self.register_manager.unfreezeRegs(&.{reg});
@@ -1626,6 +1642,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
             }
         },
         .memory,
+        .embedded_in_code,
         .stack_offset,
         .stack_argument_offset,
         => {
@@ -1684,9 +1701,6 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .ptr_embedded_in_code => |off| {
             try self.setRegOrMem(value_ty, .{ .embedded_in_code = off }, value);
         },
-        .embedded_in_code => {
-            return self.fail("TODO implement storing to MCValue.embedded_in_code", .{});
-        },
         .register => |addr_reg| {
             self.register_manager.freezeRegs(&.{addr_reg});
             defer self.register_manager.unfreezeRegs(&.{addr_reg});
@@ -1719,7 +1733,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         switch (value) {
                             .stack_offset => |off| {
                                 // sub src_reg, fp, #off
-                                try self.genSetReg(ptr_ty, dst_reg, .{ .ptr_stack_offset = off });
+                                try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                             },
                             .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = @intCast(u32, addr) }),
                             else => return self.fail("TODO store {} to register", .{value}),
@@ -1735,6 +1749,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             }
         },
         .memory,
+        .embedded_in_code,
         .stack_offset,
         .stack_argument_offset,
         => {
@@ -2656,13 +2671,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     return bt.finishAir(result);
 }
 
-fn ret(self: *Self, mcv: MCValue) !void {
+fn airRet(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
     const ret_ty = self.fn_type.fnReturnType();
+
     switch (self.ret_mcv) {
         .none => {},
         .register => |reg| {
             // Return result by value
-            try self.genSetReg(ret_ty, reg, mcv);
+            try self.genSetReg(ret_ty, reg, operand);
         },
         .stack_offset => {
             // Return result by reference
@@ -2674,28 +2692,66 @@ fn ret(self: *Self, mcv: MCValue) !void {
                 .data = ret_ty,
             };
             const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-            try self.store(self.ret_mcv, mcv, ptr_ty, ret_ty);
+            try self.store(self.ret_mcv, operand, ptr_ty, ret_ty);
         },
         else => unreachable, // invalid return result
     }
 
     // Just add space for an instruction, patch this later
     try self.exitlude_jump_relocs.append(self.gpa, try self.addNop());
-}
 
-fn airRet(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const operand = try self.resolveInst(un_op);
-    try self.ret(operand);
     return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ptr = try self.resolveInst(un_op);
-    _ = ptr;
-    return self.fail("TODO implement airRetLoad for {}", .{self.target.cpu.arch});
-    //return self.finishAir(inst, .dead, .{ un_op, .none, .none });
+    const ptr_ty = self.air.typeOf(un_op);
+    const ret_ty = self.fn_type.fnReturnType();
+
+    switch (self.ret_mcv) {
+        .none => {},
+        .register => {
+            // Return result by value
+            try self.load(self.ret_mcv, ptr, ptr_ty);
+        },
+        .stack_offset => {
+            // Return result by reference
+            //
+            // self.ret_mcv is an address to where this function
+            // should store its result into
+            //
+            // If the operand is a ret_ptr instruction, we are done
+            // here. Else we need to load the result from the location
+            // pointed to by the operand and store it to the result
+            // location.
+            const op_inst = Air.refToIndex(un_op).?;
+            if (self.air.instructions.items(.tag)[op_inst] != .ret_ptr) {
+                const abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                const abi_align = ret_ty.abiAlignment(self.target.*);
+
+                // This is essentially allocMem without the
+                // instruction tracking
+                if (abi_align > self.stack_align)
+                    self.stack_align = abi_align;
+                // TODO find a free slot instead of always appending
+                const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align);
+                self.next_stack_offset = offset + abi_size;
+                if (self.next_stack_offset > self.max_end_stack)
+                    self.max_end_stack = self.next_stack_offset;
+
+                const tmp_mcv = MCValue{ .stack_offset = offset };
+                try self.load(tmp_mcv, ptr, ptr_ty);
+                try self.store(self.ret_mcv, tmp_mcv, ptr_ty, ret_ty);
+            }
+        },
+        else => unreachable, // invalid return result
+    }
+
+    // Just add space for an instruction, patch this later
+    try self.exitlude_jump_relocs.append(self.gpa, try self.addNop());
+
+    return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
