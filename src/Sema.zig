@@ -15617,15 +15617,13 @@ fn elemVal(
                 return block.addBinOp(.slice_elem_val, array, elem_index);
             },
             .Many, .C => {
-                const maybe_ptr_val = try sema.resolveDefinedValue(block, array_src, array);
+                const maybe_array_val = try sema.resolveDefinedValue(block, array_src, array);
                 const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
 
                 const runtime_src = rs: {
-                    const ptr_val = maybe_ptr_val orelse break :rs array_src;
+                    const array_val = maybe_array_val orelse break :rs array_src;
                     const index_val = maybe_index_val orelse break :rs elem_index_src;
                     const index = @intCast(usize, index_val.toUnsignedInt());
-                    const maybe_array_val = try sema.pointerDeref(block, array_src, ptr_val, array_ty);
-                    const array_val = maybe_array_val orelse break :rs array_src;
                     const elem_val = try array_val.elemValue(sema.arena, index);
                     return sema.addConstant(array_ty.elemType2(), elem_val);
                 };
