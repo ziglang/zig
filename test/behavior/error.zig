@@ -156,7 +156,6 @@ fn bar2() (error{}!void) {}
 
 test "error union type " {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     try testErrorUnionType();
     comptime try testErrorUnionType();
@@ -199,7 +198,6 @@ fn testErrorSetType() !void {
 test "explicit error set cast" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     try testExplicitErrorSetCast(Set1.A);
     comptime try testExplicitErrorSetCast(Set1.A);
@@ -296,7 +294,6 @@ test "error: Infer error set from literals" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     _ = nullLiteral("n") catch |err| handleErrors(err);
     _ = floatLiteral("n") catch |err| handleErrors(err);
