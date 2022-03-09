@@ -312,8 +312,6 @@ test "comptime_int multi-limb partial shift right" {
 test "xor" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try test_xor();
     comptime try test_xor();
@@ -565,7 +563,6 @@ test "bit shift a u1" {
 test "truncating shift right" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try testShrTrunc(maxInt(u16));
     comptime try testShrTrunc(maxInt(u16));
@@ -734,8 +731,6 @@ test "overflow arithmetic with u0 values" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var result: u0 = undefined;
     try expect(!@addWithOverflow(u0, 0, 0, &result));

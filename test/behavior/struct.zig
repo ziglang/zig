@@ -138,7 +138,6 @@ fn returnEmptyStructInstance() StructWithNoFields {
 
 test "fn call of struct field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const Foo = struct {
         ptr: fn () i32,
@@ -196,7 +195,6 @@ const MemberFnRand = struct {
 
 test "return struct byval from function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const bar = makeBar2(1234, 5678);
     try expect(bar.y == 5678);
@@ -213,8 +211,6 @@ fn makeBar2(x: i32, y: i32) Bar {
 }
 
 test "call method with mutable reference to struct with no fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const S = struct {
         fn doC(s: *const @This()) bool {
             _ = s;
@@ -327,7 +323,6 @@ test "return empty struct from fn" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     _ = testReturnEmptyStructFromFn();
 }
@@ -431,6 +426,7 @@ test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.stage2_arch == .wasm32) return error.SkipZigTest; // TODO
 
     comptime {
         try expect(@sizeOf(Foo24Bits) == 4);
@@ -768,7 +764,6 @@ test "pointer to packed struct member in a stack variable" {
 test "packed struct with u0 field access" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const S = packed struct {
@@ -859,6 +854,7 @@ test "non-packed struct with u128 entry in union" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const U = union(enum) {
         Num: u128,
@@ -976,16 +972,18 @@ test "fully anonymous list literal" {
 }
 
 test "tuple assigned to variable" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var vec = .{ @as(i32, 22), @as(i32, 55), @as(i32, 99) };
     try expect(vec.@"0" == 22);
     try expect(vec.@"1" == 55);
     try expect(vec.@"2" == 99);
+    try expect(vec[0] == 22);
+    try expect(vec[1] == 55);
+    try expect(vec[2] == 99);
 }
 
 test "comptime struct field" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const T = struct {
         a: i32,
@@ -997,7 +995,11 @@ test "comptime struct field" {
 }
 
 test "tuple element initialized with fn call" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -1013,11 +1015,7 @@ test "tuple element initialized with fn call" {
 }
 
 test "struct with union field" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const Value = struct {
         ref: u32 = 2,
@@ -1035,7 +1033,11 @@ test "struct with union field" {
 }
 
 test "type coercion of anon struct literal to struct" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         const S2 = struct {

@@ -217,7 +217,7 @@ test "union with specified enum tag" {
     comptime try doTest();
 }
 
-test "packed union generates correctly aligned LLVM type" {
+test "packed union generates correctly aligned type" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -1011,7 +1011,9 @@ test "cast from pointer to anonymous struct to pointer to union" {
 }
 
 test "switching on non exhaustive union" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         const E = enum(u8) {
@@ -1027,7 +1029,8 @@ test "switching on non exhaustive union" {
             var a = U{ .a = 2 };
             switch (a) {
                 .a => |val| try expect(val == 2),
-                .b => unreachable,
+                .b => return error.Fail,
+                _ => return error.Fail,
             }
         }
     };
@@ -1036,11 +1039,9 @@ test "switching on non exhaustive union" {
 }
 
 test "containers with single-field enums" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const S = struct {
         const A = union(enum) { f1 };
@@ -1065,8 +1066,10 @@ test "containers with single-field enums" {
     comptime try S.doTheTest();
 }
 
-test "@unionInit on union w/ tag but no fields" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+test "@unionInit on union with tag but no fields" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Type = enum(u8) { no_op = 105 };
@@ -1081,7 +1084,11 @@ test "@unionInit on union w/ tag but no fields" {
         };
 
         comptime {
-            std.debug.assert(@sizeOf(Data) != 0);
+            if (builtin.zig_backend == .stage1) {
+                // stage1 gets the wrong answer here
+            } else {
+                std.debug.assert(@sizeOf(Data) == 0);
+            }
         }
 
         fn doTheTest() !void {
@@ -1097,8 +1104,6 @@ test "@unionInit on union w/ tag but no fields" {
 }
 
 test "union enum type gets a separate scope" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         const U = union(enum) {
             a: u8,

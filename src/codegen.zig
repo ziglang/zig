@@ -83,8 +83,6 @@ pub fn generateFunction(
     debug_output: DebugInfoOutput,
 ) GenerateSymbolError!FnResult {
     switch (bin_file.options.target.cpu.arch) {
-        .wasm32 => unreachable, // has its own code path
-        .wasm64 => unreachable, // has its own code path
         .arm,
         .armeb,
         => return @import("arch/arm/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
@@ -136,6 +134,9 @@ pub fn generateFunction(
         //.renderscript32 => return Function(.renderscript32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.renderscript64 => return Function(.renderscript64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.ve => return Function(.ve).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .wasm32,
+        .wasm64,
+        => return @import("arch/wasm/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         else => @panic("Backend architectures that don't have good support yet are commented out, to improve compilation performance. If you are interested in one of these other backends feel free to uncomment them. Eventually these will be completed, but stage1 is slow and a memory hog."),
     }
 }
@@ -573,16 +574,10 @@ pub fn generateSymbol(
             const layout = typed_value.ty.unionGetLayout(target);
 
             if (layout.payload_size == 0) {
-                switch (try generateSymbol(bin_file, src_loc, .{
+                return generateSymbol(bin_file, src_loc, .{
                     .ty = typed_value.ty.unionTagType().?,
                     .val = union_obj.tag,
-                }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
-                    .fail => |em| return Result{ .fail = em },
-                }
+                }, code, debug_output, reloc_info);
             }
 
             // Check if we should store the tag first.
@@ -639,7 +634,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Optional => {
-            // TODO generate debug info for optionals
             var opt_buf: Type.Payload.ElemType = undefined;
             const payload_type = typed_value.ty.optionalChild(&opt_buf);
             const is_pl = !typed_value.val.isNull();
@@ -704,20 +698,30 @@ pub fn generateSymbol(
 
             const abi_align = typed_value.ty.abiAlignment(target);
 
-            const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
-            const begin = code.items.len;
-            switch (try generateSymbol(bin_file, src_loc, .{
-                .ty = error_ty,
-                .val = error_val,
-            }, code, debug_output, reloc_info)) {
-                .appended => {},
-                .externally_managed => |external_slice| {
-                    code.appendSliceAssumeCapacity(external_slice);
-                },
-                .fail => |em| return Result{ .fail = em },
+            {
+                const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
+                const begin = code.items.len;
+                switch (try generateSymbol(bin_file, src_loc, .{
+                    .ty = error_ty,
+                    .val = error_val,
+                }, code, debug_output, reloc_info)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+                const unpadded_end = code.items.len - begin;
+                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padding = try math.cast(usize, padded_end - unpadded_end);
+
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
+                }
             }
 
             if (payload_ty.hasRuntimeBits()) {
+                const begin = code.items.len;
                 const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.initTag(.undef);
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = payload_ty,
@@ -729,14 +733,13 @@ pub fn generateSymbol(
                     },
                     .fail => |em| return Result{ .fail = em },
                 }
-            }
+                const unpadded_end = code.items.len - begin;
+                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padding = try math.cast(usize, padded_end - unpadded_end);
 
-            const unpadded_end = code.items.len - begin;
-            const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
-            const padding = try math.cast(usize, padded_end - unpadded_end);
-
-            if (padding > 0) {
-                try code.writer().writeByteNTimes(0, padding);
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
+                }
             }
 
             return Result{ .appended = {} };

@@ -17971,7 +17971,7 @@ static void ensure_field_index(ZigType *type, const char *field_name, size_t ind
 
 static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, ZigType *root) {
     Error err;
-    ZigType *type_info_type = get_builtin_type(ira->codegen, "TypeInfo");
+    ZigType *type_info_type = get_builtin_type(ira->codegen, "Type");
     assert(type_info_type->id == ZigTypeIdUnion);
     if ((err = type_resolve(ira->codegen, type_info_type, ResolveStatusSizeKnown))) {
         zig_unreachable();
@@ -18403,7 +18403,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 fields[1]->special = ConstValSpecialStatic;
                 fields[1]->type = g->builtin_types.entry_type;
                 fields[1]->data.x_type = type_entry->data.enumeration.tag_int_type;
-                // fields: []TypeInfo.EnumField
+                // fields: []Type.EnumField
                 ensure_field_index(result->type, "fields", 2);
 
                 ZigType *type_info_enum_field_type = ir_type_info_get_type(ira, "EnumField", nullptr);
@@ -18429,7 +18429,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                     enum_field_val->parent.data.p_array.array_val = enum_field_array;
                     enum_field_val->parent.data.p_array.elem_index = enum_field_index;
                 }
-                // decls: []TypeInfo.Declaration
+                // decls: []Type.Declaration
                 ensure_field_index(result->type, "decls", 3);
                 if ((err = ir_make_type_info_decls(ira, source_node, fields[3],
                             type_entry->data.enumeration.decls_scope, false)))
@@ -18553,7 +18553,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 } else {
                     fields[1]->data.x_optional = nullptr;
                 }
-                // fields: []TypeInfo.UnionField
+                // fields: []Type.UnionField
                 ensure_field_index(result->type, "fields", 2);
 
                 ZigType *type_info_union_field_type = ir_type_info_get_type(ira, "UnionField", nullptr);
@@ -18595,7 +18595,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                     union_field_val->parent.data.p_array.array_val = union_field_array;
                     union_field_val->parent.data.p_array.elem_index = union_field_index;
                 }
-                // decls: []TypeInfo.Declaration
+                // decls: []Type.Declaration
                 ensure_field_index(result->type, "decls", 3);
                 if ((err = ir_make_type_info_decls(ira, source_node, fields[3],
                                 type_entry->data.unionation.decls_scope, false)))
@@ -18629,7 +18629,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 fields[0]->special = ConstValSpecialStatic;
                 fields[0]->type = ir_type_info_get_type(ira, "ContainerLayout", nullptr);
                 bigint_init_unsigned(&fields[0]->data.x_enum_tag, type_entry->data.structure.layout);
-                // fields: []TypeInfo.StructField
+                // fields: []Type.StructField
                 ensure_field_index(result->type, "fields", 1);
 
                 ZigType *type_info_struct_field_type = ir_type_info_get_type(ira, "StructField", nullptr);
@@ -18690,7 +18690,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                     struct_field_val->parent.data.p_array.array_val = struct_field_array;
                     struct_field_val->parent.data.p_array.elem_index = struct_field_index;
                 }
-                // decls: []TypeInfo.Declaration
+                // decls: []Type.Declaration
                 ensure_field_index(result->type, "decls", 2);
                 if ((err = ir_make_type_info_decls(ira, source_node, fields[2],
                                 type_entry->data.structure.decls_scope, false)))
@@ -18715,7 +18715,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 ZigValue **fields = alloc_const_vals_ptrs(g, 7);
                 result->data.x_struct.fields = fields;
 
-                // calling_convention: TypeInfo.CallingConvention
+                // calling_convention: Type.CallingConvention
                 ensure_field_index(result->type, "calling_convention", 0);
                 fields[0]->special = ConstValSpecialStatic;
                 fields[0]->type = get_builtin_type(g, "CallingConvention");
@@ -18750,7 +18750,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                     return_type->data.x_type = type_entry->data.fn.fn_type_id.return_type;
                     fields[4]->data.x_optional = return_type;
                 }
-                // args: []TypeInfo.Fn.Param
+                // args: []Type.Fn.Param
                 ZigType *type_info_fn_arg_type = ir_type_info_get_type(ira, "Param", result->type);
                 if ((err = type_resolve(g, type_info_fn_arg_type, ResolveStatusSizeKnown))) {
                     zig_unreachable();
@@ -18821,7 +18821,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 ZigValue **fields = alloc_const_vals_ptrs(g, 1);
                 result->data.x_struct.fields = fields;
 
-                // decls: []TypeInfo.Declaration
+                // decls: []Type.Declaration
                 ensure_field_index(result->type, "decls", 0);
                 if ((err = ir_make_type_info_decls(ira, source_node, fields[0],
                             type_entry->data.opaque.decls_scope, false)))
@@ -19194,7 +19194,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             ZigValue *decls_len_value = decls_value->data.x_struct.fields[slice_len_index];
             size_t decls_len = bigint_as_usize(&decls_len_value->data.x_bigint);
             if (decls_len != 0) {
-                ir_add_error_node(ira, source_node, buf_create_from_str("TypeInfo.Struct.decls must be empty for @Type"));
+                ir_add_error_node(ira, source_node, buf_create_from_str("Type.Struct.decls must be empty for @Type"));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 
@@ -19311,7 +19311,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             ZigValue *decls_len_value = decls_value->data.x_struct.fields[slice_len_index];
             size_t decls_len = bigint_as_usize(&decls_len_value->data.x_bigint);
             if (decls_len != 0) {
-                ir_add_error_node(ira, source_node, buf_create_from_str("TypeInfo.Struct.decls must be empty for @Type"));
+                ir_add_error_node(ira, source_node, buf_create_from_str("Type.Struct.decls must be empty for @Type"));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 
@@ -19395,7 +19395,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
                 return ira->codegen->invalid_inst_gen->value->type;
             if (tag_type->id != ZigTypeIdInt) {
                 ir_add_error_node(ira, source_node, buf_sprintf(
-                    "TypeInfo.Enum.tag_type must be an integer type, not '%s'", buf_ptr(&tag_type->name)));
+                    "Type.Enum.tag_type must be an integer type, not '%s'", buf_ptr(&tag_type->name)));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 
@@ -19418,7 +19418,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             ZigValue *decls_len_value = decls_value->data.x_struct.fields[slice_len_index];
             size_t decls_len = bigint_as_usize(&decls_len_value->data.x_bigint);
             if (decls_len != 0) {
-                ir_add_error_node(ira, source_node, buf_create_from_str("TypeInfo.Enum.decls must be empty for @Type"));
+                ir_add_error_node(ira, source_node, buf_create_from_str("Type.Enum.decls must be empty for @Type"));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 
@@ -19505,7 +19505,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             ZigValue *decls_len_value = decls_value->data.x_struct.fields[slice_len_index];
             size_t decls_len = bigint_as_usize(&decls_len_value->data.x_bigint);
             if (decls_len != 0) {
-                ir_add_error_node(ira, source_node, buf_create_from_str("TypeInfo.Union.decls must be empty for @Type"));
+                ir_add_error_node(ira, source_node, buf_create_from_str("Type.Union.decls must be empty for @Type"));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 
@@ -19571,7 +19571,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             if ((err = get_const_field_bool(ira, source_node, payload, "is_generic", 2, &is_generic)))
                 return ira->codegen->invalid_inst_gen->value->type;
             if (is_generic) {
-                ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.Fn.is_generic must be false for @Type"));
+                ir_add_error_node(ira, source_node, buf_sprintf("Type.Fn.is_generic must be false for @Type"));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 
@@ -19585,7 +19585,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
 
             ZigType *return_type = get_const_field_meta_type_optional(ira, source_node, payload, "return_type", 4);
             if (return_type == nullptr) {
-                ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.Fn.return_type must be non-null for @Type"));
+                ir_add_error_node(ira, source_node, buf_sprintf("Type.Fn.return_type must be non-null for @Type"));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 
@@ -19620,7 +19620,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
                 if ((err = get_const_field_bool(ira, source_node, arg_value, "is_generic", 0, &is_generic)))
                     return ira->codegen->invalid_inst_gen->value->type;
                 if (is_generic) {
-                    ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.Fn.Param.is_generic must be false for @Type"));
+                    ir_add_error_node(ira, source_node, buf_sprintf("Type.Fn.Param.is_generic must be false for @Type"));
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
                 if ((err = get_const_field_bool(ira, source_node, arg_value, "is_noalias", 1, &info->is_noalias)))
@@ -19628,7 +19628,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
                 ZigType *type = get_const_field_meta_type_optional(
                     ira, source_node, arg_value, "arg_type", 2);
                 if (type == nullptr) {
-                    ir_add_error_node(ira, source_node, buf_sprintf("TypeInfo.Fn.Param.arg_type must be non-null for @Type"));
+                    ir_add_error_node(ira, source_node, buf_sprintf("Type.Fn.Param.arg_type must be non-null for @Type"));
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
                 info->type = type;

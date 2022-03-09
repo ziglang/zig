@@ -56,6 +56,7 @@ stage2/bin/zig test test/behavior.zig -I test -fLLVM -target aarch64-linux --tes
 stage2/bin/zig test test/behavior.zig -I test        -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
 stage2/bin/zig test test/behavior.zig -I test -ofmt=c
 stage2/bin/zig test test/behavior.zig -I test        -target  wasm32-wasi  --test-cmd wasmtime     --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test -fLLVM -target  wasm32-wasi  --test-cmd wasmtime     --test-cmd-bin
 stage2/bin/zig test test/behavior.zig -I test        -target     arm-linux --test-cmd qemu-arm     --test-cmd-bin
 stage2/bin/zig test test/behavior.zig -I test -fLLVM -target aarch64-macos --test-no-exec
 stage2/bin/zig test test/behavior.zig -I test        -target aarch64-macos --test-no-exec

@@ -2,7 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 const S = struct {
-    fn method() std.builtin.TypeInfo {
+    fn method() std.builtin.Type {
         return @typeInfo(S);
     }
 };

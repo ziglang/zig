@@ -27,7 +27,6 @@ const Atom = @import("MachO/Atom.zig");
 const Cache = @import("../Cache.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
-const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const File = link.File;
 const Object = @import("MachO/Object.zig");
@@ -43,6 +42,7 @@ const TypedValue = @import("../TypedValue.zig");
 const Value = @import("../value.zig").Value;
 
 pub const TextBlock = Atom;
+pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
@@ -295,26 +295,6 @@ pub const Export = struct {
     sym_index: ?u32 = null,
 };
 
-pub const SrcFn = struct {
-    /// Offset from the beginning of the Debug Line Program header that contains this function.
-    off: u32,
-    /// Size of the line number program component belonging to this function, not
-    /// including padding.
-    len: u32,
-
-    /// Points to the previous and next neighbors, based on the offset from .debug_line.
-    /// This can be used to find, for example, the capacity of this `SrcFn`.
-    prev: ?*SrcFn,
-    next: ?*SrcFn,
-
-    pub const empty: SrcFn = .{
-        .off = 0,
-        .len = 0,
-        .prev = null,
-        .next = null,
-    };
-};
-
 pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     assert(options.object_format == .macho);
 
@@ -376,6 +356,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
         self.d_sym = .{
             .base = self,
+            .dwarf = link.File.Dwarf.init(allocator, .macho, options.target),
             .file = d_sym_file,
         };
     }
@@ -2178,6 +2159,34 @@ fn writeAllAtoms(self: *MachO) !void {
     }
 }
 
+fn writePadding(self: *MachO, match: MatchingSection, size: usize, writer: anytype) !void {
+    const is_code = match.seg == self.text_segment_cmd_index.? and match.sect == self.text_section_index.?;
+    const min_alignment: u3 = if (!is_code)
+        1
+    else switch (self.base.options.target.cpu.arch) {
+        .aarch64 => @sizeOf(u32),
+        .x86_64 => @as(u3, 1),
+        else => unreachable,
+    };
+
+    const len = @divExact(size, min_alignment);
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        if (!is_code) {
+            try writer.writeByte(0);
+        } else switch (self.base.options.target.cpu.arch) {
+            .aarch64 => {
+                const inst = aarch64.Instruction.nop();
+                try writer.writeIntLittle(u32, inst.toU32());
+            },
+            .x86_64 => {
+                try writer.writeByte(0x90);
+            },
+            else => unreachable,
+        }
+    }
+}
+
 fn writeAtoms(self: *MachO) !void {
     var buffer = std.ArrayList(u8).init(self.base.allocator);
     defer buffer.deinit();
@@ -2213,11 +2222,7 @@ fn writeAtoms(self: *MachO) !void {
                 try atom.resolveRelocs(self);
                 try buffer.appendSlice(atom.code.items);
                 try buffer.ensureUnusedCapacity(padding_size);
-
-                var i: usize = 0;
-                while (i < padding_size) : (i += 1) {
-                    buffer.appendAssumeCapacity(0);
-                }
+                try self.writePadding(match, padding_size, buffer.writer());
 
                 if (file_offset == null) {
                     file_offset = sect.offset + atom_sym.n_value - sect.addr;
@@ -3499,7 +3504,6 @@ fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection, owns_atom: bool) 
             i += 1;
         }
     }
-    // TODO process free list for dbg info just like we do above for vaddrs
 
     if (self.atoms.getPtr(match)) |last_atom| {
         if (last_atom.* == atom) {
@@ -3509,16 +3513,6 @@ fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection, owns_atom: bool) 
             } else {
                 _ = self.atoms.fetchRemove(match);
             }
-        }
-    }
-
-    if (self.d_sym) |*d_sym| {
-        if (d_sym.dbg_info_decl_first == atom) {
-            d_sym.dbg_info_decl_first = atom.dbg_info_next;
-        }
-        if (d_sym.dbg_info_decl_last == atom) {
-            // TODO shrink the .debug_info section size here
-            d_sym.dbg_info_decl_last = atom.dbg_info_prev;
         }
     }
 
@@ -3540,18 +3534,8 @@ fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection, owns_atom: bool) 
         atom.next = null;
     }
 
-    if (atom.dbg_info_prev) |prev| {
-        prev.dbg_info_next = atom.dbg_info_next;
-
-        // TODO the free list logic like we do for atoms above
-    } else {
-        atom.dbg_info_prev = null;
-    }
-
-    if (atom.dbg_info_next) |next| {
-        next.dbg_info_prev = atom.dbg_info_prev;
-    } else {
-        atom.dbg_info_next = null;
+    if (self.d_sym) |*d_sym| {
+        d_sym.dwarf.freeAtom(&atom.dbg_info_atom);
     }
 }
 
@@ -3701,9 +3685,9 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
+    var debug_buffers_buf: link.File.Dwarf.DeclDebugBuffers = undefined;
     const debug_buffers = if (self.d_sym) |*d_sym| blk: {
-        debug_buffers_buf = try d_sym.initDeclDebugBuffers(self.base.allocator, module, decl);
+        debug_buffers_buf = try d_sym.initDeclDebugInfo(module, decl);
         break :blk &debug_buffers_buf;
     } else null;
     defer {
@@ -3742,7 +3726,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
 
     if (debug_buffers) |db| {
         if (self.d_sym) |*d_sym| {
-            try d_sym.commitDeclDebugInfo(self.base.allocator, module, decl, db);
+            try d_sym.commitDeclDebugInfo(module, decl, db);
         }
     }
 
@@ -3781,9 +3765,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
     const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), math.log2(required_alignment));
     try self.atom_by_index_table.putNoClobber(self.base.allocator, local_sym_index, atom);
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
-        .none = .{},
-    }, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none, .{
         .parent_atom_index = local_sym_index,
     });
     const code = switch (res) {
@@ -3845,9 +3827,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
+    var debug_buffers_buf: link.File.Dwarf.DeclDebugBuffers = undefined;
     const debug_buffers = if (self.d_sym) |*d_sym| blk: {
-        debug_buffers_buf = try d_sym.initDeclDebugBuffers(self.base.allocator, module, decl);
+        debug_buffers_buf = try d_sym.initDeclDebugInfo(module, decl);
         break :blk &debug_buffers_buf;
     } else null;
     defer {
@@ -4340,27 +4322,7 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
         decl.link.macho.local_sym_index = 0;
     }
     if (self.d_sym) |*d_sym| {
-        // TODO make this logic match freeAtom. Maybe abstract the logic
-        // out since the same thing is desired for both.
-        _ = d_sym.dbg_line_fn_free_list.remove(&decl.fn_link.macho);
-        if (decl.fn_link.macho.prev) |prev| {
-            d_sym.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
-            prev.next = decl.fn_link.macho.next;
-            if (decl.fn_link.macho.next) |next| {
-                next.prev = prev;
-            } else {
-                d_sym.dbg_line_fn_last = prev;
-            }
-        } else if (decl.fn_link.macho.next) |next| {
-            d_sym.dbg_line_fn_first = next;
-            next.prev = null;
-        }
-        if (d_sym.dbg_line_fn_first == &decl.fn_link.macho) {
-            d_sym.dbg_line_fn_first = decl.fn_link.macho.next;
-        }
-        if (d_sym.dbg_line_fn_last == &decl.fn_link.macho) {
-            d_sym.dbg_line_fn_last = decl.fn_link.macho.prev;
-        }
+        d_sym.dwarf.freeDecl(decl);
     }
 }
 

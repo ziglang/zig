@@ -223,8 +223,6 @@ test "@intToEnum passed a comptime_int to an enum with one item" {
 }
 
 test "@intCast to u0 and use the result" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest(zero: u1, one: u1, bigzero: i32) !void {
             try expect((one << @intCast(u0, bigzero)) == 1);
@@ -523,7 +521,11 @@ fn testCastPtrOfArrayToSliceAndPtr() !void {
 }
 
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
@@ -818,7 +820,6 @@ test "peer resolution of string literals" {
 test "peer cast [:x]T to []T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -965,7 +966,6 @@ test "cast between C pointer with different but compatible types" {
 
 test "peer type resolve string lit with sentinel-terminated mutable slice" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
@@ -986,9 +986,6 @@ test "peer type resolve array pointers, one of them const" {
 
 test "peer type resolve array pointer and unknown pointer" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const const_array: [4]u8 = undefined;
@@ -1064,6 +1061,7 @@ test "compile time int to ptr of function" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     try foobar(FUNCTION_CONSTANT);
 }
@@ -1145,6 +1143,7 @@ test "cast u128 to f128 and back" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     comptime try testCast128();
     try testCast128();
@@ -1258,7 +1257,6 @@ test "assignment to optional pointer result loc" {
 }
 
 test "cast between *[N]void and []void" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var a: [4]void = undefined;
@@ -1268,7 +1266,6 @@ test "cast between *[N]void and []void" {
 
 test "peer resolve arrays of different size to const slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, boolToStr(true), "true"));
     try expect(mem.eql(u8, boolToStr(false), "false"));

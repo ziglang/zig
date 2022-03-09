@@ -314,7 +314,7 @@ pub fn Reader(
 
         pub fn readStruct(self: Self, comptime T: type) !T {
             // Only extern and packed structs have defined in-memory layout.
-            comptime assert(@typeInfo(T).Struct.layout != std.builtin.TypeInfo.ContainerLayout.Auto);
+            comptime assert(@typeInfo(T).Struct.layout != .Auto);
             var res: [1]T = undefined;
             try self.readNoEof(mem.sliceAsBytes(res[0..]));
             return res[0];

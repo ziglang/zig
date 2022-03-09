@@ -238,6 +238,7 @@ const Writer = struct {
             .field_base_ptr,
             .validate_array_init_ty,
             .validate_struct_init_ty,
+            .make_ptr_const,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -268,6 +269,10 @@ const Writer = struct {
             .array_init_anon,
             .array_init_anon_ref,
             => try self.writeArrayInit(stream, inst),
+
+            .array_init_sent,
+            .array_init_sent_ref,
+            => try self.writeArrayInitSent(stream, inst),
 
             .slice_start => try self.writeSliceStart(stream, inst),
             .slice_end => try self.writeSliceEnd(stream, inst),
@@ -2017,6 +2022,26 @@ const Writer = struct {
         for (args) |arg, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, arg);
+        }
+        try stream.writeAll("}) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeArrayInitSent(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+
+        const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
+        const args = self.code.refSlice(extra.end, extra.data.operands_len);
+        const sent = args[args.len - 1];
+        const elems = args[0 .. args.len - 1];
+
+        try self.writeInstRef(stream, sent);
+        try stream.writeAll(", ");
+
+        try stream.writeAll(".{");
+        for (elems) |elem, i| {
+            if (i != 0) try stream.writeAll(", ");
+            try self.writeInstRef(stream, elem);
         }
         try stream.writeAll("}) ");
         try self.writeSrc(stream, inst_data.src());

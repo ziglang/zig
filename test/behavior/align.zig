@@ -105,7 +105,6 @@ fn fnWithAlignedStack() i32 {
 test "implicitly decreasing slice alignment" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
@@ -149,6 +148,7 @@ test "return error union with 128-bit integer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     try expect(3 == try give());
 }
@@ -269,9 +269,7 @@ fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
 
 test "runtime known array index has best alignment possible" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };

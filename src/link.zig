@@ -72,7 +72,7 @@ pub const Options = struct {
     object_format: std.Target.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     machine_code_model: std.builtin.CodeModel,
-    root_name: []const u8,
+    root_name: [:0]const u8,
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
     module: ?*Module,
     dynamic_linker: ?[]const u8,
@@ -221,9 +221,9 @@ pub const File = struct {
     };
 
     pub const LinkFn = union {
-        elf: Elf.SrcFn,
+        elf: Dwarf.SrcFn,
         coff: Coff.SrcFn,
-        macho: MachO.SrcFn,
+        macho: Dwarf.SrcFn,
         plan9: void,
         c: void,
         wasm: Wasm.FnData,
@@ -702,7 +702,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl, reloc_info),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl, reloc_info),
             .c => unreachable,
-            .wasm => unreachable,
+            .wasm => return @fieldParentPtr(Wasm, "base", base).getDeclVAddr(decl, reloc_info),
             .spirv => unreachable,
             .nvptx => unreachable,
         }
@@ -915,6 +915,7 @@ pub const File = struct {
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
     pub const NvPtx = @import("link/NvPtx.zig");
+    pub const Dwarf = @import("link/Dwarf.zig");
 };
 
 pub fn determineMode(options: Options) fs.File.Mode {

@@ -369,6 +369,7 @@ fn detectAbiAndDynamicLinker(
 
         error.IsDir,
         error.NotDir,
+        error.InvalidHandle,
         error.AccessDenied,
         error.NoDevice,
         error.FileNotFound,
@@ -670,6 +671,7 @@ pub fn abiAndDynamicLinkerFromFile(
 
                         error.FileNotFound,
                         error.NotDir,
+                        error.InvalidHandle,
                         error.AccessDenied,
                         error.NoDevice,
                         => continue,

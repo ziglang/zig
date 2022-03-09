@@ -12,7 +12,7 @@ const maxInt = std.math.maxInt;
 const native_os = builtin.os.tag;
 const native_arch = builtin.cpu.arch;
 const native_abi = builtin.abi;
-const long_double_is_f128 = builtin.target.longDoubleIsF128();
+const long_double_is_f128 = builtin.target.longDoubleIs(f128);
 
 const is_wasm = switch (native_arch) {
     .wasm32, .wasm64 => true,
@@ -89,10 +89,6 @@ comptime {
 
     @export(fmod, .{ .name = "fmod", .linkage = .Strong });
     @export(fmodf, .{ .name = "fmodf", .linkage = .Strong });
-
-    @export(fma, .{ .name = "fma", .linkage = .Strong });
-    @export(fmaf, .{ .name = "fmaf", .linkage = .Strong });
-    @export(fmal, .{ .name = "fmal", .linkage = .Strong });
 
     @export(sincos, .{ .name = "sincos", .linkage = .Strong });
     @export(sincosf, .{ .name = "sincosf", .linkage = .Strong });
@@ -559,20 +555,6 @@ test "fmod, fmodf" {
         try std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, 10.0));
         try std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, -10.0));
     }
-}
-
-fn fmaf(a: f32, b: f32, c: f32) callconv(.C) f32 {
-    return math.fma(f32, a, b, c);
-}
-
-fn fma(a: f64, b: f64, c: f64) callconv(.C) f64 {
-    return math.fma(f64, a, b, c);
-}
-fn fmal(a: c_longdouble, b: c_longdouble, c: c_longdouble) callconv(.C) c_longdouble {
-    if (!long_double_is_f128) {
-        @panic("TODO implement this");
-    }
-    return math.fma(c_longdouble, a, b, c);
 }
 
 fn sincos(a: f64, r_sin: *f64, r_cos: *f64) callconv(.C) void {

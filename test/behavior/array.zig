@@ -8,7 +8,6 @@ const expectEqual = testing.expectEqual;
 test "array to slice" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
@@ -142,8 +141,6 @@ test "array with sentinels" {
 }
 
 test "void arrays" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];

@@ -1259,10 +1259,12 @@ fn arrayInitExpr(
     const types: struct {
         array: Zir.Inst.Ref,
         elem: Zir.Inst.Ref,
+        sentinel: Zir.Inst.Ref,
     } = inst: {
         if (array_init.ast.type_expr == 0) break :inst .{
             .array = .none,
             .elem = .none,
+            .sentinel = .none,
         };
 
         infer: {
@@ -1282,6 +1284,7 @@ fn arrayInitExpr(
                     break :inst .{
                         .array = array_type_inst,
                         .elem = elem_type,
+                        .sentinel = .none,
                     };
                 } else {
                     const sentinel = try comptimeExpr(gz, scope, .{ .ty = elem_type }, array_type.ast.sentinel);
@@ -1297,6 +1300,7 @@ fn arrayInitExpr(
                     break :inst .{
                         .array = array_type_inst,
                         .elem = elem_type,
+                        .sentinel = sentinel,
                     };
                 }
             }
@@ -1307,6 +1311,7 @@ fn arrayInitExpr(
         break :inst .{
             .array = array_type_inst,
             .elem = elem_type,
+            .sentinel = .none,
         };
     };
 
@@ -1319,29 +1324,39 @@ fn arrayInitExpr(
         },
         .ref => {
             if (types.array != .none) {
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init_ref);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.sentinel, true);
             } else {
                 return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon_ref);
             }
         },
         .none => {
             if (types.array != .none) {
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.sentinel, false);
             } else {
                 return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
             }
         },
         .ty, .coerced_ty => |ty_inst| {
             if (types.array != .none) {
-                const result = try arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init);
+                const result = try arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.sentinel, false);
                 return rvalue(gz, rl, result, node);
             } else {
                 const elem_type = try gz.addUnNode(.elem_type, ty_inst, node);
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, elem_type, .array_init);
+                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, elem_type, types.sentinel, false);
             }
         },
-        .ptr, .inferred_ptr => |ptr_inst| {
+        .ptr => |ptr_inst| {
             return arrayInitExprRlPtr(gz, scope, rl, node, ptr_inst, array_init.ast.elements, types.array);
+        },
+        .inferred_ptr => |ptr_inst| {
+            if (types.array == .none) {
+                // We treat this case differently so that we don't get a crash when
+                // analyzing array_base_ptr against an alloc_inferred_mut.
+                const result = try arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
+                return rvalue(gz, rl, result, node);
+            } else {
+                return arrayInitExprRlPtr(gz, scope, rl, node, ptr_inst, array_init.ast.elements, types.array);
+            }
         },
         .block_ptr => |block_gz| {
             return arrayInitExprRlPtr(gz, scope, rl, node, block_gz.rl_ptr, array_init.ast.elements, types.array);
@@ -1377,14 +1392,32 @@ fn arrayInitExprRlTy(
     node: Ast.Node.Index,
     elements: []const Ast.Node.Index,
     elem_ty_inst: Zir.Inst.Ref,
-    tag: Zir.Inst.Tag,
+    sentinel: Zir.Inst.Ref,
+    ref: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
 
+    const info: struct {
+        len: usize,
+        tag: Zir.Inst.Tag,
+    } = blk: {
+        if (sentinel != .none) {
+            break :blk .{
+                .len = elements.len + 1,
+                .tag = if (ref) .array_init_sent_ref else .array_init_sent,
+            };
+        } else {
+            break :blk .{
+                .len = elements.len,
+                .tag = if (ref) .array_init_ref else .array_init,
+            };
+        }
+    };
+
     const payload_index = try addExtra(astgen, Zir.Inst.MultiOp{
-        .operands_len = @intCast(u32, elements.len),
+        .operands_len = @intCast(u32, info.len),
     });
-    var extra_index = try reserveExtra(astgen, elements.len);
+    var extra_index = try reserveExtra(astgen, info.len);
 
     const elem_rl: ResultLoc = .{ .ty = elem_ty_inst };
     for (elements) |elem_init| {
@@ -1392,7 +1425,13 @@ fn arrayInitExprRlTy(
         astgen.extra.items[extra_index] = @enumToInt(elem_ref);
         extra_index += 1;
     }
-    return try gz.addPlNodePayloadIndex(tag, node, payload_index);
+
+    if (sentinel != .none) {
+        astgen.extra.items[extra_index] = @enumToInt(sentinel);
+        extra_index += 1;
+    }
+
+    return try gz.addPlNodePayloadIndex(info.tag, node, payload_index);
 }
 
 fn arrayInitExprRlPtr(
@@ -2099,6 +2138,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .alloc_inferred_mut,
             .alloc_inferred_comptime,
             .alloc_inferred_comptime_mut,
+            .make_ptr_const,
             .array_cat,
             .array_mul,
             .array_type,
@@ -2207,8 +2247,10 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .struct_init_anon_ref,
             .array_init,
             .array_init_anon,
+            .array_init_sent,
             .array_init_ref,
             .array_init_anon_ref,
+            .array_init_sent_ref,
             .union_init,
             .field_type,
             .field_type_ref,
@@ -2713,12 +2755,13 @@ fn varDecl(
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
+            const const_ptr = try gz.addUnNode(.make_ptr_const, init_scope.rl_ptr, node);
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
                 .gen_zir = gz,
                 .name = ident_name,
-                .ptr = init_scope.rl_ptr,
+                .ptr = const_ptr,
                 .token_src = name_token,
                 .maybe_comptime = true,
                 .id_cat = .@"local constant",
@@ -3899,7 +3942,7 @@ fn structDeclInner(
     scope: *Scope,
     node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
 ) InnerError!Zir.Inst.Ref {
     const decl_inst = try gz.reserveInstructionIndex();
 
@@ -4035,7 +4078,7 @@ fn unionDeclInner(
     scope: *Scope,
     node: Ast.Node.Index,
     members: []const Ast.Node.Index,
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     arg_node: Ast.Node.Index,
     have_auto_enum: bool,
 ) InnerError!Zir.Inst.Ref {
@@ -4201,10 +4244,10 @@ fn containerDecl(
     switch (token_tags[container_decl.ast.main_token]) {
         .keyword_struct => {
             const layout = if (container_decl.layout_token) |t| switch (token_tags[t]) {
-                .keyword_packed => std.builtin.TypeInfo.ContainerLayout.Packed,
-                .keyword_extern => std.builtin.TypeInfo.ContainerLayout.Extern,
+                .keyword_packed => std.builtin.Type.ContainerLayout.Packed,
+                .keyword_extern => std.builtin.Type.ContainerLayout.Extern,
                 else => unreachable,
-            } else std.builtin.TypeInfo.ContainerLayout.Auto;
+            } else std.builtin.Type.ContainerLayout.Auto;
 
             assert(container_decl.ast.arg == 0);
 
@@ -4213,10 +4256,10 @@ fn containerDecl(
         },
         .keyword_union => {
             const layout = if (container_decl.layout_token) |t| switch (token_tags[t]) {
-                .keyword_packed => std.builtin.TypeInfo.ContainerLayout.Packed,
-                .keyword_extern => std.builtin.TypeInfo.ContainerLayout.Extern,
+                .keyword_packed => std.builtin.Type.ContainerLayout.Packed,
+                .keyword_extern => std.builtin.Type.ContainerLayout.Extern,
                 else => unreachable,
-            } else std.builtin.TypeInfo.ContainerLayout.Auto;
+            } else std.builtin.Type.ContainerLayout.Auto;
 
             const have_auto_enum = container_decl.ast.enum_token != null;
 
@@ -7299,8 +7342,8 @@ fn builtinCall(
         },
         .mul_add => {
             const float_type = try typeExpr(gz, scope, params[0]);
-            const mulend1 = try expr(gz, scope, .{ .ty = float_type }, params[1]);
-            const mulend2 = try expr(gz, scope, .{ .ty = float_type }, params[2]);
+            const mulend1 = try expr(gz, scope, .{ .coerced_ty = float_type }, params[1]);
+            const mulend2 = try expr(gz, scope, .{ .coerced_ty = float_type }, params[2]);
             const addend = try expr(gz, scope, .{ .ty = float_type }, params[3]);
             const result = try gz.addPlNode(.mul_add, node, Zir.Inst.MulAdd{
                 .mulend1 = mulend1,
@@ -10454,7 +10497,7 @@ const GenZir = struct {
         body_len: u32,
         fields_len: u32,
         decls_len: u32,
-        layout: std.builtin.TypeInfo.ContainerLayout,
+        layout: std.builtin.Type.ContainerLayout,
         known_non_opv: bool,
         known_comptime_only: bool,
     }) !void {
@@ -10502,7 +10545,7 @@ const GenZir = struct {
         body_len: u32,
         fields_len: u32,
         decls_len: u32,
-        layout: std.builtin.TypeInfo.ContainerLayout,
+        layout: std.builtin.Type.ContainerLayout,
         auto_enum_tag: bool,
     }) !void {
         const astgen = gz.astgen;

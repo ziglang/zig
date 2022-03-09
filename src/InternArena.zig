@@ -30,7 +30,7 @@ pub const Key = union(enum) {
         elem_type: Index,
         sentinel: Index,
         alignment: u16,
-        size: std.builtin.TypeInfo.Pointer.Size,
+        size: std.builtin.Type.Pointer.Size,
         is_const: bool,
         is_volatile: bool,
         is_allowzero: bool,

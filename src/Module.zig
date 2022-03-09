@@ -853,7 +853,7 @@ pub const Struct = struct {
     /// Index of the struct_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     status: enum {
         none,
         field_types_wip,
@@ -884,6 +884,7 @@ pub const Struct = struct {
         default_val: Value,
         /// undefined until `status` is `have_layout`.
         offset: u32,
+        /// If true then `default_val` is the comptime field value.
         is_comptime: bool,
 
         /// Returns the field alignment, assuming the struct is not packed.
@@ -1105,7 +1106,7 @@ pub const Union = struct {
     /// Index of the union_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     status: enum {
         none,
         field_types_wip,
@@ -1278,7 +1279,8 @@ pub const Union = struct {
         var biggest_field: u32 = undefined;
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
-        for (u.fields.values()) |field, i| {
+        const fields = u.fields.values();
+        for (fields) |field, i| {
             if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
@@ -1300,7 +1302,7 @@ pub const Union = struct {
             }
         }
         payload_align = @maximum(payload_align, 1);
-        if (!have_tag) return .{
+        if (!have_tag or fields.len <= 1) return .{
             .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
             .abi_align = payload_align,
             .most_aligned_field = most_aligned_field,
@@ -4438,8 +4440,8 @@ pub fn clearDecl(
             };
             decl.fn_link = switch (mod.comp.bin_file.tag) {
                 .coff => .{ .coff = {} },
-                .elf => .{ .elf = link.File.Elf.SrcFn.empty },
-                .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+                .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
+                .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
                 .plan9 => .{ .plan9 = {} },
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
@@ -4775,8 +4777,8 @@ pub fn allocateNewDecl(
         },
         .fn_link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = {} },
-            .elf => .{ .elf = link.File.Elf.SrcFn.empty },
-            .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+            .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
+            .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
             .plan9 => .{ .plan9 = {} },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },

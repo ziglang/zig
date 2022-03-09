@@ -3,14 +3,14 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
-const EnumField = std.builtin.TypeInfo.EnumField;
+const EnumField = std.builtin.Type.EnumField;
 
 /// Returns a struct with a field matching each unique named enum element.
 /// If the enum is extern and has multiple names for the same value, only
 /// the first name is used.  Each field is of type Data and has the provided
 /// default, which may be undefined.
 pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_default: ?Data) type {
-    const StructField = std.builtin.TypeInfo.StructField;
+    const StructField = std.builtin.Type.StructField;
     var fields: []const StructField = &[_]StructField{};
     for (std.meta.fields(E)) |field| {
         fields = fields ++ &[_]StructField{.{
@@ -24,7 +24,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
     return @Type(.{ .Struct = .{
         .layout = .Auto,
         .fields = fields,
-        .decls = &[_]std.builtin.TypeInfo.Declaration{},
+        .decls = &.{},
         .is_tuple = false,
     } });
 }

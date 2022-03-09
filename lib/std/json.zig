@@ -138,11 +138,10 @@ const AggregateContainerType = enum(u1) { object, array };
 fn AggregateContainerStack(comptime n: usize) type {
     return struct {
         const Self = @This();
-        const TypeInfo = std.builtin.TypeInfo;
 
         const element_bitcount = 8 * @sizeOf(usize);
         const element_count = n / element_bitcount;
-        const ElementType = @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = element_bitcount } });
+        const ElementType = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = element_bitcount } });
         const ElementShiftAmountType = std.math.Log2Int(ElementType);
 
         comptime {
@@ -1871,20 +1870,34 @@ fn parseInternal(
                                 const v = try parseInternal(ptrInfo.child, tok, tokens, options);
                                 arraylist.appendAssumeCapacity(v);
                             }
+
+                            if (ptrInfo.sentinel) |some| {
+                                const sentinel_value = @ptrCast(*const ptrInfo.child, some).*;
+                                try arraylist.append(sentinel_value);
+                                const output = arraylist.toOwnedSlice();
+                                return output[0 .. output.len - 1 :sentinel_value];
+                            }
+
                             return arraylist.toOwnedSlice();
                         },
                         .String => |stringToken| {
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                            const len = stringToken.decodedLength();
+                            const output = try allocator.alloc(u8, len + @boolToInt(ptrInfo.sentinel != null));
+                            errdefer allocator.free(output);
                             switch (stringToken.escapes) {
-                                .None => return allocator.dupe(u8, source_slice),
-                                .Some => {
-                                    const output = try allocator.alloc(u8, stringToken.decodedLength());
-                                    errdefer allocator.free(output);
-                                    try unescapeValidString(output, source_slice);
-                                    return output;
-                                },
+                                .None => mem.copy(u8, output, source_slice),
+                                .Some => try unescapeValidString(output, source_slice),
                             }
+
+                            if (ptrInfo.sentinel) |some| {
+                                const char = @ptrCast(*const u8, some).*;
+                                output[len] = char;
+                                return output[0..len :char];
+                            }
+
+                            return output;
                         },
                         else => return error.UnexpectedToken,
                     }
@@ -2215,6 +2228,35 @@ test "parse into struct with misc fields" {
     try testing.expectEqualSlices(u8, "zig", r.veryComplex[0].foo);
     try testing.expectEqualSlices(u8, "rocks", r.veryComplex[1].foo);
     try testing.expectEqual(T.Union{ .float = 100000 }, r.a_union);
+}
+
+test "parse into struct with strings and arrays with sentinels" {
+    @setEvalBranchQuota(10000);
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const T = struct {
+        language: [:0]const u8,
+        language_without_sentinel: []const u8,
+        data: [:99]const i32,
+        simple_data: []const i32,
+    };
+    const r = try parse(T, &TokenStream.init(
+        \\{
+        \\  "language": "zig",
+        \\  "language_without_sentinel": "zig again!",
+        \\  "data": [1, 2, 3],
+        \\  "simple_data": [4, 5, 6]
+        \\}
+    ), options);
+    defer parseFree(T, r, options);
+
+    try testing.expectEqualSentinel(u8, 0, "zig", r.language);
+
+    const data = [_:99]i32{ 1, 2, 3 };
+    try testing.expectEqualSentinel(i32, 99, data[0..data.len], r.data);
+
+    // Make sure that arrays who aren't supposed to have a sentinel still parse without one.
+    try testing.expectEqual(@as(?i32, null), std.meta.sentinel(@TypeOf(r.simple_data)));
+    try testing.expectEqual(@as(?u8, null), std.meta.sentinel(@TypeOf(r.language_without_sentinel)));
 }
 
 test "parse into struct with duplicate field" {

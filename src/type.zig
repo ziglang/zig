@@ -1527,7 +1527,7 @@ pub const Type = extern union {
                 .prefetch_options => return writer.writeAll("std.builtin.PrefetchOptions"),
                 .export_options => return writer.writeAll("std.builtin.ExportOptions"),
                 .extern_options => return writer.writeAll("std.builtin.ExternOptions"),
-                .type_info => return writer.writeAll("std.builtin.TypeInfo"),
+                .type_info => return writer.writeAll("std.builtin.Type"),
                 .function => {
                     const payload = ty.castTag(.function).?.data;
                     try writer.writeAll("fn(");
@@ -1766,8 +1766,20 @@ pub const Type = extern union {
         }
     }
 
+    pub fn nameAllocArena(ty: Type, arena: Allocator) Allocator.Error![:0]const u8 {
+        return nameAllocAdvanced(ty, arena, true);
+    }
+
+    pub fn nameAlloc(ty: Type, gpa: Allocator) Allocator.Error![:0]const u8 {
+        return nameAllocAdvanced(ty, gpa, false);
+    }
+
     /// Returns a name suitable for `@typeName`.
-    pub fn nameAlloc(ty: Type, arena: Allocator) Allocator.Error![:0]const u8 {
+    pub fn nameAllocAdvanced(
+        ty: Type,
+        ally: Allocator,
+        is_arena: bool,
+    ) Allocator.Error![:0]const u8 {
         const t = ty.tag();
         switch (t) {
             .inferred_alloc_const => unreachable,
@@ -1812,68 +1824,76 @@ pub const Type = extern union {
             .noreturn,
             .var_args_param,
             .bound_fn,
-            => return @tagName(t),
+            => return maybeDupe(@tagName(t), ally, is_arena),
 
-            .enum_literal => return "@Type(.EnumLiteral)",
-            .@"null" => return "@Type(.Null)",
-            .@"undefined" => return "@Type(.Undefined)",
+            .enum_literal => return maybeDupe("@Type(.EnumLiteral)", ally, is_arena),
+            .@"null" => return maybeDupe("@Type(.Null)", ally, is_arena),
+            .@"undefined" => return maybeDupe("@Type(.Undefined)", ally, is_arena),
 
-            .empty_struct, .empty_struct_literal => return "struct {}",
+            .empty_struct, .empty_struct_literal => return maybeDupe("struct {}", ally, is_arena),
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                return try arena.dupeZ(u8, std.mem.sliceTo(struct_obj.owner_decl.name, 0));
+                return try ally.dupeZ(u8, std.mem.sliceTo(struct_obj.owner_decl.name, 0));
             },
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                return try arena.dupeZ(u8, std.mem.sliceTo(union_obj.owner_decl.name, 0));
+                return try ally.dupeZ(u8, std.mem.sliceTo(union_obj.owner_decl.name, 0));
             },
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return try arena.dupeZ(u8, std.mem.sliceTo(enum_full.owner_decl.name, 0));
+                return try ally.dupeZ(u8, std.mem.sliceTo(enum_full.owner_decl.name, 0));
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                return try arena.dupeZ(u8, std.mem.sliceTo(enum_simple.owner_decl.name, 0));
+                return try ally.dupeZ(u8, std.mem.sliceTo(enum_simple.owner_decl.name, 0));
             },
             .enum_numbered => {
                 const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                return try arena.dupeZ(u8, std.mem.sliceTo(enum_numbered.owner_decl.name, 0));
+                return try ally.dupeZ(u8, std.mem.sliceTo(enum_numbered.owner_decl.name, 0));
             },
             .@"opaque" => {
-                // TODO use declaration name
-                return "opaque {}";
+                const opaque_obj = ty.cast(Payload.Opaque).?.data;
+                return try ally.dupeZ(u8, std.mem.sliceTo(opaque_obj.owner_decl.name, 0));
             },
 
-            .anyerror_void_error_union => return "anyerror!void",
-            .const_slice_u8 => return "[]const u8",
-            .const_slice_u8_sentinel_0 => return "[:0]const u8",
-            .fn_noreturn_no_args => return "fn() noreturn",
-            .fn_void_no_args => return "fn() void",
-            .fn_naked_noreturn_no_args => return "fn() callconv(.Naked) noreturn",
-            .fn_ccc_void_no_args => return "fn() callconv(.C) void",
-            .single_const_pointer_to_comptime_int => return "*const comptime_int",
-            .manyptr_u8 => return "[*]u8",
-            .manyptr_const_u8 => return "[*]const u8",
-            .manyptr_const_u8_sentinel_0 => return "[*:0]const u8",
-            .atomic_order => return "AtomicOrder",
-            .atomic_rmw_op => return "AtomicRmwOp",
-            .calling_convention => return "CallingConvention",
-            .address_space => return "AddressSpace",
-            .float_mode => return "FloatMode",
-            .reduce_op => return "ReduceOp",
-            .call_options => return "CallOptions",
-            .prefetch_options => return "PrefetchOptions",
-            .export_options => return "ExportOptions",
-            .extern_options => return "ExternOptions",
-            .type_info => return "TypeInfo",
+            .anyerror_void_error_union => return maybeDupe("anyerror!void", ally, is_arena),
+            .const_slice_u8 => return maybeDupe("[]const u8", ally, is_arena),
+            .const_slice_u8_sentinel_0 => return maybeDupe("[:0]const u8", ally, is_arena),
+            .fn_noreturn_no_args => return maybeDupe("fn() noreturn", ally, is_arena),
+            .fn_void_no_args => return maybeDupe("fn() void", ally, is_arena),
+            .fn_naked_noreturn_no_args => return maybeDupe("fn() callconv(.Naked) noreturn", ally, is_arena),
+            .fn_ccc_void_no_args => return maybeDupe("fn() callconv(.C) void", ally, is_arena),
+            .single_const_pointer_to_comptime_int => return maybeDupe("*const comptime_int", ally, is_arena),
+            .manyptr_u8 => return maybeDupe("[*]u8", ally, is_arena),
+            .manyptr_const_u8 => return maybeDupe("[*]const u8", ally, is_arena),
+            .manyptr_const_u8_sentinel_0 => return maybeDupe("[*:0]const u8", ally, is_arena),
+            .atomic_order => return maybeDupe("AtomicOrder", ally, is_arena),
+            .atomic_rmw_op => return maybeDupe("AtomicRmwOp", ally, is_arena),
+            .calling_convention => return maybeDupe("CallingConvention", ally, is_arena),
+            .address_space => return maybeDupe("AddressSpace", ally, is_arena),
+            .float_mode => return maybeDupe("FloatMode", ally, is_arena),
+            .reduce_op => return maybeDupe("ReduceOp", ally, is_arena),
+            .call_options => return maybeDupe("CallOptions", ally, is_arena),
+            .prefetch_options => return maybeDupe("PrefetchOptions", ally, is_arena),
+            .export_options => return maybeDupe("ExportOptions", ally, is_arena),
+            .extern_options => return maybeDupe("ExternOptions", ally, is_arena),
+            .type_info => return maybeDupe("Type", ally, is_arena),
 
             else => {
                 // TODO this is wasteful and also an incorrect implementation of `@typeName`
-                var buf = std.ArrayList(u8).init(arena);
+                var buf = std.ArrayList(u8).init(ally);
                 try buf.writer().print("{}", .{ty});
                 return try buf.toOwnedSliceSentinel(0);
             },
+        }
+    }
+
+    fn maybeDupe(s: [:0]const u8, ally: Allocator, is_arena: bool) Allocator.Error![:0]const u8 {
+        if (is_arena) {
+            return s;
+        } else {
+            return try ally.dupeZ(u8, s);
         }
     }
 
@@ -2856,7 +2876,7 @@ pub const Type = extern union {
     }
 
     /// Asserts the `Type` is a pointer.
-    pub fn ptrSize(self: Type) std.builtin.TypeInfo.Pointer.Size {
+    pub fn ptrSize(self: Type) std.builtin.Type.Pointer.Size {
         return switch (self.tag()) {
             .const_slice,
             .mut_slice,
@@ -3392,7 +3412,7 @@ pub const Type = extern union {
         }
     }
 
-    pub fn containerLayout(ty: Type) std.builtin.TypeInfo.ContainerLayout {
+    pub fn containerLayout(ty: Type) std.builtin.Type.ContainerLayout {
         return switch (ty.tag()) {
             .tuple, .empty_struct_literal, .anon_struct => .Auto,
             .@"struct" => ty.castTag(.@"struct").?.data.layout,
@@ -4499,21 +4519,23 @@ pub const Type = extern union {
                 if (field.is_comptime) {
                     return field.default_val;
                 } else {
-                    return null;
+                    return field.ty.onePossibleValue();
                 }
             },
             .tuple => {
-                const val = ty.castTag(.tuple).?.data.values[index];
+                const tuple = ty.castTag(.tuple).?.data;
+                const val = tuple.values[index];
                 if (val.tag() == .unreachable_value) {
-                    return null;
+                    return tuple.types[index].onePossibleValue();
                 } else {
                     return val;
                 }
             },
             .anon_struct => {
-                const val = ty.castTag(.anon_struct).?.data.values[index];
+                const anon_struct = ty.castTag(.anon_struct).?.data;
+                const val = anon_struct.values[index];
                 if (val.tag() == .unreachable_value) {
-                    return null;
+                    return anon_struct.types[index].onePossibleValue();
                 } else {
                     return val;
                 }
@@ -4683,7 +4705,10 @@ pub const Type = extern union {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.owner_decl;
             },
-            .@"opaque" => @panic("TODO"),
+            .@"opaque" => {
+                const opaque_obj = ty.cast(Payload.Opaque).?.data;
+                return opaque_obj.owner_decl;
+            },
             .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
@@ -4695,7 +4720,8 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
-            => @panic("TODO resolve std.builtin types"),
+            => unreachable, // These need to be resolved earlier.
+
             else => unreachable,
         }
     }
@@ -5165,7 +5191,7 @@ pub const Type = extern union {
                 @"allowzero": bool = false,
                 mutable: bool = true, // TODO rename this to const, not mutable
                 @"volatile": bool = false,
-                size: std.builtin.TypeInfo.Pointer.Size = .One,
+                size: std.builtin.Type.Pointer.Size = .One,
             };
         };
 
@@ -5436,33 +5462,36 @@ pub const CType = enum {
         switch (target.os.tag) {
             .freestanding, .other => switch (target.cpu.arch) {
                 .msp430 => switch (self) {
-                    .short,
-                    .ushort,
-                    .int,
-                    .uint,
-                    => return 16,
-                    .long,
-                    .ulong,
-                    => return 32,
-                    .longlong,
-                    .ulonglong,
-                    => return 64,
-                    .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
+                    .short, .ushort, .int, .uint => return 16,
+                    .long, .ulong => return 32,
+                    .longlong, .ulonglong, .longdouble => return 64,
                 },
                 else => switch (self) {
-                    .short,
-                    .ushort,
-                    => return 16,
-                    .int,
-                    .uint,
-                    => return 32,
-                    .long,
-                    .ulong,
-                    => return target.cpu.arch.ptrBitWidth(),
-                    .longlong,
-                    .ulonglong,
-                    => return 64,
-                    .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
+                    .short, .ushort => return 16,
+                    .int, .uint => return 32,
+                    .long, .ulong => return target.cpu.arch.ptrBitWidth(),
+                    .longlong, .ulonglong => return 64,
+                    .longdouble => switch (target.cpu.arch) {
+                        .i386, .x86_64 => return 80,
+
+                        .riscv64,
+                        .aarch64,
+                        .aarch64_be,
+                        .aarch64_32,
+                        .s390x,
+                        .mips64,
+                        .mips64el,
+                        .sparc,
+                        .sparcv9,
+                        .sparcel,
+                        .powerpc,
+                        .powerpcle,
+                        .powerpc64,
+                        .powerpc64le,
+                        => return 128,
+
+                        else => return 64,
+                    },
                 },
             },
 
@@ -5477,19 +5506,13 @@ pub const CType = enum {
             .plan9,
             .solaris,
             => switch (self) {
-                .short,
-                .ushort,
-                => return 16,
-                .int,
-                .uint,
-                => return 32,
-                .long,
-                .ulong,
-                => return target.cpu.arch.ptrBitWidth(),
-                .longlong,
-                .ulonglong,
-                => return 64,
+                .short, .ushort => return 16,
+                .int, .uint => return 32,
+                .long, .ulong => return target.cpu.arch.ptrBitWidth(),
+                .longlong, .ulonglong => return 64,
                 .longdouble => switch (target.cpu.arch) {
+                    .i386, .x86_64 => return 80,
+
                     .riscv64,
                     .aarch64,
                     .aarch64_be,
@@ -5497,40 +5520,33 @@ pub const CType = enum {
                     .s390x,
                     .mips64,
                     .mips64el,
+                    .sparc,
+                    .sparcv9,
+                    .sparcel,
+                    .powerpc,
+                    .powerpcle,
+                    .powerpc64,
+                    .powerpc64le,
                     => return 128,
 
-                    else => return 80,
+                    else => return 64,
                 },
             },
 
             .windows, .uefi => switch (self) {
-                .short,
-                .ushort,
-                => return 16,
-                .int,
-                .uint,
-                .long,
-                .ulong,
-                => return 32,
-                .longlong,
-                .ulonglong,
-                => return 64,
-                .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
+                .short, .ushort => return 16,
+                .int, .uint, .long, .ulong => return 32,
+                .longlong, .ulonglong, .longdouble => return 64,
             },
 
-            .ios => switch (self) {
-                .short,
-                .ushort,
-                => return 16,
-                .int,
-                .uint,
-                => return 32,
-                .long,
-                .ulong,
-                .longlong,
-                .ulonglong,
-                => return 64,
-                .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
+            .ios, .tvos, .watchos => switch (self) {
+                .short, .ushort => return 16,
+                .int, .uint => return 32,
+                .long, .ulong, .longlong, .ulonglong => return 64,
+                .longdouble => switch (target.cpu.arch) {
+                    .i386, .x86_64 => return 80,
+                    else => return 64,
+                },
             },
 
             .ananas,
@@ -5549,8 +5565,6 @@ pub const CType = enum {
             .amdhsa,
             .ps4,
             .elfiamcu,
-            .tvos,
-            .watchos,
             .mesa3d,
             .contiki,
             .amdpal,

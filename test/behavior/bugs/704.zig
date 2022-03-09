@@ -6,8 +6,6 @@ const xxx = struct {
     }
 };
 test "bug 704" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     var x: xxx = undefined;
     x.bar();
 }

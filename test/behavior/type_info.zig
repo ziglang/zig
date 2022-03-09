@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
 
-const TypeInfo = std.builtin.TypeInfo;
+const Type = std.builtin.Type;
 const TypeId = std.builtin.TypeId;
 
 const expect = std.testing.expect;
@@ -64,7 +64,7 @@ test "type info: tag type, void info" {
 }
 
 fn testBasic() !void {
-    try expect(@typeInfo(TypeInfo).Union.tag_type == TypeId);
+    try expect(@typeInfo(Type).Union.tag_type == TypeId);
     const void_info = @typeInfo(void);
     try expect(void_info == TypeId.Void);
     try expect(void_info.Void == {});
@@ -78,7 +78,7 @@ test "type info: pointer type info" {
 fn testPointer() !void {
     const u32_ptr_info = @typeInfo(*u32);
     try expect(u32_ptr_info == .Pointer);
-    try expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.One);
+    try expect(u32_ptr_info.Pointer.size == .One);
     try expect(u32_ptr_info.Pointer.is_const == false);
     try expect(u32_ptr_info.Pointer.is_volatile == false);
     try expect(u32_ptr_info.Pointer.alignment == @alignOf(u32));
@@ -94,7 +94,7 @@ test "type info: unknown length pointer type info" {
 fn testUnknownLenPtr() !void {
     const u32_ptr_info = @typeInfo([*]const volatile f64);
     try expect(u32_ptr_info == .Pointer);
-    try expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
+    try expect(u32_ptr_info.Pointer.size == .Many);
     try expect(u32_ptr_info.Pointer.is_const == true);
     try expect(u32_ptr_info.Pointer.is_volatile == true);
     try expect(u32_ptr_info.Pointer.sentinel == null);
@@ -110,7 +110,7 @@ test "type info: null terminated pointer type info" {
 fn testNullTerminatedPtr() !void {
     const ptr_info = @typeInfo([*:0]u8);
     try expect(ptr_info == .Pointer);
-    try expect(ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
+    try expect(ptr_info.Pointer.size == .Many);
     try expect(ptr_info.Pointer.is_const == false);
     try expect(ptr_info.Pointer.is_volatile == false);
     try expect(@ptrCast(*const u8, ptr_info.Pointer.sentinel.?).* == 0);
@@ -254,7 +254,7 @@ test "type info: union info" {
 }
 
 fn testUnion() !void {
-    const typeinfo_info = @typeInfo(TypeInfo);
+    const typeinfo_info = @typeInfo(Type);
     try expect(typeinfo_info == .Union);
     try expect(typeinfo_info.Union.layout == .Auto);
     try expect(typeinfo_info.Union.tag_type.? == TypeId);
@@ -437,12 +437,12 @@ test "type info: pass to function" {
     _ = comptime passTypeInfo(@typeInfo(void));
 }
 
-fn passTypeInfo(comptime info: TypeInfo) type {
+fn passTypeInfo(comptime info: Type) type {
     _ = info;
     return void;
 }
 
-test "type info: TypeId -> TypeInfo impl cast" {
+test "type info: TypeId -> Type impl cast" {
     _ = passTypeInfo(TypeId.Void);
     _ = comptime passTypeInfo(TypeId.Void);
 }

@@ -1004,6 +1004,9 @@ bool target_has_debug_info(const ZigTarget *target) {
 }
 
 bool target_long_double_is_f128(const ZigTarget *target) {
+    if (target->abi == ZigLLVM_MSVC) {
+        return false;
+    }
     switch (target->arch) {
         case ZigLLVM_riscv64:
         case ZigLLVM_aarch64:
@@ -1012,6 +1015,13 @@ bool target_long_double_is_f128(const ZigTarget *target) {
         case ZigLLVM_systemz:
         case ZigLLVM_mips64:
         case ZigLLVM_mips64el:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
             return true;
 
         default:

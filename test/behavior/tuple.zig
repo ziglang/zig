@@ -5,7 +5,11 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "tuple concatenation" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -125,23 +129,23 @@ test "tuple initializer for var" {
 test "array-like initializer for tuple types" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
-    const T = @Type(std.builtin.TypeInfo{
-        .Struct = std.builtin.TypeInfo.Struct{
+    const T = @Type(.{
+        .Struct = .{
             .is_tuple = true,
             .layout = .Auto,
-            .decls = &[_]std.builtin.TypeInfo.Declaration{},
-            .fields = &[_]std.builtin.TypeInfo.StructField{
+            .decls = &.{},
+            .fields = &.{
                 .{
                     .name = "0",
                     .field_type = i32,
-                    .default_value = @as(?i32, null),
+                    .default_value = null,
                     .is_comptime = false,
                     .alignment = @alignOf(i32),
                 },
                 .{
                     .name = "1",
                     .field_type = u8,
-                    .default_value = @as(?i32, null),
+                    .default_value = null,
                     .is_comptime = false,
                     .alignment = @alignOf(i32),
                 },

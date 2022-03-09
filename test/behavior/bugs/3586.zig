@@ -7,8 +7,6 @@ const Container = struct {
 };
 
 test "fixed" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     var ctr = Container{
         .params = NoteParams{},
     };

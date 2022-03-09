@@ -15,6 +15,11 @@ comptime {
     // assert(@alignOf(u64) == 8);
 }
 
+pub const F_OK = 0;
+pub const X_OK = 1;
+pub const W_OK = 2;
+pub const R_OK = 4;
+
 pub const iovec_t = std.os.iovec;
 pub const ciovec_t = std.os.iovec_const;
 

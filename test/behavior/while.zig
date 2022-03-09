@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "while loop" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var i: i32 = 0;
@@ -23,7 +22,6 @@ fn whileLoop2() i32 {
 }
 
 test "static eval while" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(static_eval_while_number == 1);
@@ -247,8 +245,6 @@ fn returnTrue() bool {
 }
 
 test "return with implicit cast from while loop" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     returnWithImplicitCastFromWhileLoopTest() catch unreachable;
 }
 fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {

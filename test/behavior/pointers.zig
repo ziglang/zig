@@ -142,6 +142,15 @@ test "peer type resolution with C pointers" {
     try expect(@TypeOf(x4) == [*c]u8);
 }
 
+test "peer type resolution with C pointer and const pointer" {
+    // stage1 incorrectly resolves to [*]u8
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    var ptr_c: [*c]u8 = undefined;
+    const ptr_const: u8 = undefined;
+    try expect(@TypeOf(ptr_c, &ptr_const) == [*c]const u8);
+}
+
 test "implicit casting between C pointer and optional non-C pointer" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -261,8 +270,20 @@ test "assign null directly to C pointer and test null equality" {
     comptime try expect((y1 orelse &othery) == y1);
 }
 
+test "array initialization types" {
+    const E = enum { A, B, C };
+    try expect(@TypeOf([_]u8{}) == [0]u8);
+    try expect(@TypeOf([_:0]u8{}) == [0:0]u8);
+    try expect(@TypeOf([_:.A]E{}) == [0:.A]E);
+    try expect(@TypeOf([_:0]u8{ 1, 2, 3 }) == [3:0]u8);
+}
+
 test "null terminated pointer" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -278,7 +299,11 @@ test "null terminated pointer" {
 }
 
 test "allow any sentinel" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -292,7 +317,11 @@ test "allow any sentinel" {
 }
 
 test "pointer sentinel with enums" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Number = enum {
@@ -311,7 +340,11 @@ test "pointer sentinel with enums" {
 }
 
 test "pointer sentinel with optional element" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -324,7 +357,11 @@ test "pointer sentinel with optional element" {
 }
 
 test "pointer sentinel with +inf" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {

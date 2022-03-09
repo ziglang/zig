@@ -710,12 +710,20 @@ pub const Inst = struct {
         /// Array initialization syntax.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init,
+        /// Array initialization with sentinel.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        /// Final op in MultiOp is the sentinel.
+        array_init_sent,
         /// Anonymous array initialization syntax.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon,
         /// Array initialization syntax, make the result a pointer.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_ref,
+        /// Array initialization with sentinel.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        /// Final op in MultiOp is the sentinel.
+        array_init_sent_ref,
         /// Anonymous array initialization syntax, make the result a pointer.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon_ref,
@@ -891,6 +899,8 @@ pub const Inst = struct {
         atomic_store,
         /// Implements the `@mulAdd` builtin.
         /// Uses the `pl_node` union field with payload `MulAdd`.
+        /// The addend communicates the type of the builtin.
+        /// The mulends need to be coerced to the same type.
         mul_add,
         /// Implements the `@call` builtin.
         /// Uses the `pl_node` union field with payload `BuiltinCall`.
@@ -944,6 +954,10 @@ pub const Inst = struct {
         /// is the allocation that needs to have its type inferred.
         /// Uses the `un_node` field. The AST node is the var decl.
         resolve_inferred_alloc,
+        /// Turns a pointer coming from an `alloc`, `alloc_inferred`, `alloc_inferred_comptime` or
+        /// `Extended.alloc` into a constant version of the same pointer.
+        /// Uses the `un_node` union field.
+        make_ptr_const,
 
         /// Implements `resume` syntax. Uses `un_node` field.
         @"resume",
@@ -983,6 +997,7 @@ pub const Inst = struct {
                 .alloc_inferred_mut,
                 .alloc_inferred_comptime,
                 .alloc_inferred_comptime_mut,
+                .make_ptr_const,
                 .array_cat,
                 .array_mul,
                 .array_type,
@@ -1119,8 +1134,10 @@ pub const Inst = struct {
                 .struct_init_anon,
                 .struct_init_anon_ref,
                 .array_init,
+                .array_init_sent,
                 .array_init_anon,
                 .array_init_ref,
+                .array_init_sent_ref,
                 .array_init_anon_ref,
                 .union_init,
                 .field_type,
@@ -1377,8 +1394,10 @@ pub const Inst = struct {
                 .struct_init_anon = .pl_node,
                 .struct_init_anon_ref = .pl_node,
                 .array_init = .pl_node,
+                .array_init_sent = .pl_node,
                 .array_init_anon = .pl_node,
                 .array_init_ref = .pl_node,
+                .array_init_sent_ref = .pl_node,
                 .array_init_anon_ref = .pl_node,
                 .union_init = .pl_node,
                 .type_info = .un_node,
@@ -1482,6 +1501,7 @@ pub const Inst = struct {
                 .alloc_inferred_comptime = .node,
                 .alloc_inferred_comptime_mut = .node,
                 .resolve_inferred_alloc = .un_node,
+                .make_ptr_const = .un_node,
 
                 .@"resume" = .un_node,
                 .@"await" = .un_node,
@@ -2143,7 +2163,7 @@ pub const Inst = struct {
             is_allowzero: bool,
             is_mutable: bool,
             is_volatile: bool,
-            size: std.builtin.TypeInfo.Pointer.Size,
+            size: std.builtin.Type.Pointer.Size,
             elem_type: Ref,
         },
         ptr_type: struct {
@@ -2157,7 +2177,7 @@ pub const Inst = struct {
                 has_bit_range: bool,
                 _: u1 = undefined,
             },
-            size: std.builtin.TypeInfo.Pointer.Size,
+            size: std.builtin.Type.Pointer.Size,
             /// Index into extra. See `PtrType`.
             payload_index: u32,
         },
@@ -2645,7 +2665,7 @@ pub const Inst = struct {
             known_non_opv: bool,
             known_comptime_only: bool,
             name_strategy: NameStrategy,
-            layout: std.builtin.TypeInfo.ContainerLayout,
+            layout: std.builtin.Type.ContainerLayout,
             _: u6 = undefined,
         };
     };
@@ -2764,7 +2784,7 @@ pub const Inst = struct {
             has_fields_len: bool,
             has_decls_len: bool,
             name_strategy: NameStrategy,
-            layout: std.builtin.TypeInfo.ContainerLayout,
+            layout: std.builtin.Type.ContainerLayout,
             /// has_tag_type | auto_enum_tag | result
             /// -------------------------------------
             ///    false     | false         |  union { }

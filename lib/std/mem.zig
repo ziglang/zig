@@ -608,7 +608,7 @@ pub fn Span(comptime T: type) type {
                 .Many, .Slice => {},
             }
             new_ptr_info.size = .Slice;
-            return @Type(std.builtin.TypeInfo{ .Pointer = new_ptr_info });
+            return @Type(.{ .Pointer = new_ptr_info });
         },
         else => @compileError("invalid type given to std.mem.Span"),
     }
@@ -720,7 +720,7 @@ fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
                     new_ptr_info.is_allowzero = false;
                 },
             }
-            return @Type(std.builtin.TypeInfo{ .Pointer = new_ptr_info });
+            return @Type(.{ .Pointer = new_ptr_info });
         },
         else => {},
     }
@@ -2588,7 +2588,7 @@ test "alignPointer" {
 
 fn CopyPtrAttrs(
     comptime source: type,
-    comptime size: std.builtin.TypeInfo.Pointer.Size,
+    comptime size: std.builtin.Type.Pointer.Size,
     comptime child: type,
 ) type {
     const info = @typeInfo(source).Pointer;

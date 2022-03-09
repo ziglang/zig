@@ -898,7 +898,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
         const comp = try arena.create(Compilation);
-        const root_name = try arena.dupe(u8, options.root_name);
+        const root_name = try arena.dupeZ(u8, options.root_name);
 
         const ofmt = options.object_format orelse options.target.getObjectFormat();
 
