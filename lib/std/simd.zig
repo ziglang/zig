@@ -1,33 +1,38 @@
-// Note: Some functions here are known to malfunction on MIPS.
-// Functions whose tests fail on MIPS will trigger compile errors when compiled for that platform.
+//! This module provides functions for working conveniently with SIMD (Single Instruction; Multiple Data),
+//! which may offer a potential boost in performance on some targets by performing the same operations on
+//! multiple elements at once.
+//! Please be aware that some functions are known to not work on MIPS.
 
 const std = @import("std");
 const builtin = @import("builtin");
 
 pub const Vector = std.meta.Vector;
 
-/// Suggests a vector size for a given type and CPU, or null if it doesn't support SIMD natively.
-/// Not yet implemented for every CPU architecture.
 pub fn suggestVectorSizeForCpu(comptime T: type, cpu: std.Target.Cpu) ?usize {
     switch (cpu.arch) {
         .x86_64 => {
             if (T == bool and std.Target.x86.featureSetHas(.prefer_mask_registers)) return 64;
 
-            const vector_bit_size = if (std.Target.x86.featureSetHas(.avx512f)) 512 else if (std.Target.x86.featureSetHas(.prefer_256_bit)) 256 else if (std.Target.x86.featureSetHas(.prefer_128_bit)) 128 else return null;
+            const vector_bit_size = blk: {
+                if (std.Target.x86.featureSetHas(.avx512f)) break :blk 512;
+                if (std.Target.x86.featureSetHas(.prefer_256_bit)) break :blk 256;
+                if (std.Target.x86.featureSetHas(.prefer_128_bit)) break :blk 128;
+                return null;
+            };
             const element_bit_size = std.math.max(8, std.math.ceilPowerOfTwo(T, @bitSizeOf(T)));
-            return vector_bit_size / element_bit_size;
+            return @divExact(vector_bit_size, element_bit_size);
         },
         else => @compileError("No vector sizes for this CPU architecture have yet been recommended"),
     }
 }
 
-/// Suggests a vector size for a given type, or null if the target CPU doesn't support SIMD natively.
+/// Suggests a target-dependant vector size for a given type, or null if scalars are recommended.
 /// Not yet implemented for every CPU architecture.
 pub fn suggestVectorSize(comptime T: type) ?usize {
     return suggestVectorSizeForCpu(T, builtin.cpu);
 }
 
-pub fn vectorLength(comptime VectorType: type) comptime_int {
+fn vectorLength(comptime VectorType: type) comptime_int {
     return switch (@typeInfo(VectorType)) {
         .Vector => |info| info.len,
         .Array => |info| info.len,
@@ -84,7 +89,7 @@ pub fn braid(vecs: anytype) Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len, st
     //  The indices are correct. The problem seems to be with the @shuffle builtin.
     //  On MIPS, the test that braids small_base gives { 0, 2, 0, 0, 64, 255, 248, 200, 0, 0 }.
     //  Calling this with two inputs seems to work fine, but I'll let the compile error trigger for all inputs, just to be safe.
-    comptime if (builtin.cpu.arch.isMIPS() and !builtin.is_test) @compileError("TODO: Find out why braid() doesn't work on MIPS");
+    comptime if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why braid() doesn't work on MIPS");
 
     const VecType = @TypeOf(vecs[0]);
     const vecs_arr = @as([vecs.len]VecType, vecs);
@@ -116,7 +121,13 @@ pub fn braid(vecs: anytype) Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len, st
 
 /// The contents of braided is evenly split between vec_count vectors that are returned as an array. They "take turns",
 /// recieving one element from braided at a time.
-pub fn unbraid(comptime vec_count: usize, braided: anytype) [vec_count]Vector(vectorLength(@TypeOf(braided)) / vec_count, std.meta.Child(@TypeOf(braided))) {
+pub fn unbraid(
+    comptime vec_count: usize,
+    braided: anytype,
+) [vec_count]Vector(
+    vectorLength(@TypeOf(braided)) / vec_count,
+    std.meta.Child(@TypeOf(braided)),
+) {
     const vec_len = vectorLength(@TypeOf(braided)) / vec_count;
     const Child = std.meta.Child(@TypeOf(braided));
 
@@ -131,7 +142,11 @@ pub fn unbraid(comptime vec_count: usize, braided: anytype) [vec_count]Vector(ve
     return out;
 }
 
-pub fn extract(vec: anytype, comptime first: VectorIndex(@TypeOf(vec)), comptime count: VectorCount(@TypeOf(vec))) Vector(count, std.meta.Child(@TypeOf(vec))) {
+pub fn extract(
+    vec: anytype,
+    comptime first: VectorIndex(@TypeOf(vec)),
+    comptime count: VectorCount(@TypeOf(vec)),
+) Vector(count, std.meta.Child(@TypeOf(vec))) {
     const Child = std.meta.Child(@TypeOf(vec));
     const len = vectorLength(@TypeOf(vec));
 
@@ -156,7 +171,7 @@ test "vector patterns" {
     try std.testing.expectEqual([8]u32{ 10, 20, 30, 40, 55, 66, 77, 88 }, join(base, other_base));
     try std.testing.expectEqual([2]u32{ 20, 30 }, extract(base, 1, 2));
 
-    if (!builtin.cpu.arch.isMIPS()) {
+    if (comptime !builtin.cpu.arch.isMIPS()) {
         try std.testing.expectEqual([8]u32{ 10, 55, 20, 66, 30, 77, 40, 88 }, braid(.{ base, other_base }));
 
         const small_braid = braid(small_bases);
@@ -165,16 +180,19 @@ test "vector patterns" {
     }
 }
 
+/// Elements are shifted to higher indices. Elements that pass the top are discarded.
 pub fn shiftElementsUp(vec: anytype, comptime amount: VectorCount(@TypeOf(vec)), shift_in: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
     return join(@splat(amount, shift_in), extract(vec, 0, vectorLength(@TypeOf(vec)) - amount));
 }
 
+/// Elements are shifted to lower indices. Elements that pass the bottom are discarded.
 pub fn shiftElementsDown(vec: anytype, comptime amount: VectorCount(@TypeOf(vec)), shift_in: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
     const len = vectorLength(@TypeOf(vec));
 
     return join(extract(vec, amount, len - amount), @splat(amount, shift_in));
 }
 
+/// Elements are shifted to lower indices. Elements that pass the bottom return to the top.
 pub fn rotateElementsDown(vec: anytype, comptime amount: VectorCount(@TypeOf(vec))) @TypeOf(vec) {
     const Child = std.meta.Child(@TypeOf(vec));
     const len = vectorLength(@TypeOf(vec));
@@ -186,11 +204,12 @@ pub fn rotateElementsDown(vec: anytype, comptime amount: VectorCount(@TypeOf(vec
     return @shuffle(Child, vec, undefined, indices);
 }
 
+/// Elements are shifted to higher indices. Elements that pass the top return to the bottom.
 pub fn rotateElementsUp(vec: anytype, comptime amount: VectorCount(@TypeOf(vec))) @TypeOf(vec) {
     return rotateElementsDown(vec, vectorLength(@TypeOf(vec)) - amount);
 }
 
-pub fn reverse(vec: anytype) @TypeOf(vec) {
+pub fn reverseOrder(vec: anytype) @TypeOf(vec) {
     const Child = std.meta.Child(@TypeOf(vec));
     const len = vectorLength(@TypeOf(vec));
 
@@ -204,7 +223,7 @@ test "vector shifting" {
     try std.testing.expectEqual([4]u32{ 999, 999, 10, 20 }, shiftElementsUp(base, 2, 999));
     try std.testing.expectEqual([4]u32{ 20, 30, 40, 10 }, rotateElementsDown(base, 1));
     try std.testing.expectEqual([4]u32{ 40, 10, 20, 30 }, rotateElementsUp(base, 1));
-    try std.testing.expectEqual([4]u32{ 40, 30, 20, 10 }, reverse(base));
+    try std.testing.expectEqual([4]u32{ 40, 30, 20, 10 }, reverseOrder(base));
 }
 
 pub fn firstTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
@@ -214,8 +233,8 @@ pub fn firstTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     if (!@reduce(.Or, vec)) {
         return null;
     }
-    const indexes = @select(IndexInt, vec, countUp(IndexInt, len), @splat(len, ~@as(IndexInt, 0)));
-    return @reduce(.Min, indexes);
+    const indices = @select(IndexInt, vec, countUp(IndexInt, len), @splat(len, ~@as(IndexInt, 0)));
+    return @reduce(.Min, indices);
 }
 
 pub fn lastTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
@@ -225,8 +244,8 @@ pub fn lastTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     if (!@reduce(.Or, vec)) {
         return null;
     }
-    const indexes = @select(IndexInt, vec, countUp(IndexInt, len), @splat(len, @as(IndexInt, 0)));
-    return @reduce(.Max, indexes);
+    const indices = @select(IndexInt, vec, countUp(IndexInt, len), @splat(len, @as(IndexInt, 0)));
+    return @reduce(.Max, indices);
 }
 
 pub fn countTrues(vec: anytype) VectorCount(@TypeOf(vec)) {
@@ -266,9 +285,16 @@ test "vector searching" {
 
 /// Same as accum, but with a user-provided function that mathematically must be associative.
 /// The function must also do nothing when called with identity as either argument.
-pub fn accumWithFunc(comptime hop: isize, vec: anytype, comptime func: fn (@TypeOf(vec), @TypeOf(vec)) @TypeOf(vec), comptime identity: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
+/// Set ErrorType to void if func doesn't return an error union.
+pub fn accumWithFunc(
+    comptime hop: isize,
+    vec: anytype,
+    comptime ErrorType: type,
+    comptime func: fn (@TypeOf(vec), @TypeOf(vec)) if (ErrorType == void) @TypeOf(vec) else ErrorType!@TypeOf(vec),
+    comptime identity: std.meta.Child(@TypeOf(vec)),
+) if (ErrorType == void) @TypeOf(vec) else ErrorType!@TypeOf(vec) {
     // I haven't debugged this, but it might be a cousin of sorts to what's going on with braid.
-    comptime if (builtin.cpu.arch.isMIPS() and !builtin.is_test) @compileError("TODO: Find out why accum doesn't work on MIPS");
+    comptime if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why accum doesn't work on MIPS");
 
     const len = vectorLength(@TypeOf(vec));
 
@@ -280,7 +306,7 @@ pub fn accumWithFunc(comptime hop: isize, vec: anytype, comptime func: fn (@Type
     inline while ((abs_hop << i) < len) : (i += 1) {
         const shifted = if (hop < 0) shiftElementsDown(acc, abs_hop << i, identity) else shiftElementsUp(acc, abs_hop << i, identity);
 
-        acc = func(acc, shifted);
+        acc = if (ErrorType == void) func(acc, shifted) else try func(acc, shifted);
     }
     return acc;
 }
@@ -334,7 +360,7 @@ pub fn accum(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: anytyp
         }
     };
 
-    return accumWithFunc(hop, vec, fn_container.opFn, identity);
+    return accumWithFunc(hop, vec, void, fn_container.opFn, identity);
 }
 
 test "vector accum" {
