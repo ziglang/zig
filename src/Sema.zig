@@ -15724,7 +15724,7 @@ fn tupleField(
     field_index_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const tuple_ty = sema.typeOf(tuple);
-    const tuple_info = tuple_ty.castTag(.tuple).?.data;
+    const tuple_info = tuple_ty.tupleFields();
 
     if (field_index > tuple_info.types.len) {
         return sema.fail(block, field_index_src, "index {d} outside tuple of length {d}", .{
@@ -16194,6 +16194,9 @@ fn coerce(
         .Struct => {
             if (inst == .empty_struct) {
                 return structInitEmpty(sema, block, dest_ty, dest_ty_src, inst_src);
+            }
+            if (inst_ty.isTupleOrAnonStruct()) {
+                return sema.coerceTupleToStruct(block, dest_ty, dest_ty_src, inst, inst_src);
             }
         },
         else => {},
@@ -17439,6 +17442,94 @@ fn coerceTupleToArray(
     return sema.addConstant(
         dest_ty,
         try Value.Tag.array.create(sema.arena, element_vals),
+    );
+}
+
+/// Handles both tuples and anon struct literals. Coerces field-wise. Reports
+/// errors for both extra fields and missing fields.
+fn coerceTupleToStruct(
+    sema: *Sema,
+    block: *Block,
+    dest_ty: Type,
+    dest_ty_src: LazySrcLoc,
+    inst: Air.Inst.Ref,
+    inst_src: LazySrcLoc,
+) !Air.Inst.Ref {
+    if (dest_ty.isTupleOrAnonStruct()) {
+        return sema.fail(block, dest_ty_src, "TODO: implement coercion from tuples to tuples", .{});
+    }
+
+    const fields = dest_ty.structFields();
+    const field_vals = try sema.arena.alloc(Value, fields.count());
+    const field_refs = try sema.arena.alloc(Air.Inst.Ref, field_vals.len);
+    mem.set(Air.Inst.Ref, field_refs, .none);
+
+    const inst_ty = sema.typeOf(inst);
+    const tuple = inst_ty.tupleFields();
+    var runtime_src: ?LazySrcLoc = null;
+    for (tuple.types) |_, i_usize| {
+        const i = @intCast(u32, i_usize);
+        const field_src = inst_src; // TODO better source location
+        const field_name = if (inst_ty.castTag(.anon_struct)) |payload|
+            payload.data.names[i]
+        else
+            try std.fmt.allocPrint(sema.arena, "{d}", .{i});
+        const field_index = try sema.structFieldIndex(block, dest_ty, field_name, field_src);
+        const field = fields.values()[field_index];
+        if (field.is_comptime) {
+            return sema.fail(block, dest_ty_src, "TODO: implement coercion from tuples to structs when one of the destination struct fields is comptime", .{});
+        }
+        const elem_ref = try tupleField(sema, block, inst, i, inst_src, field_src);
+        const coerced = try sema.coerce(block, field.ty, elem_ref, field_src);
+        field_refs[field_index] = coerced;
+        if (runtime_src == null) {
+            if (try sema.resolveMaybeUndefVal(block, field_src, coerced)) |field_val| {
+                field_vals[field_index] = field_val;
+            } else {
+                runtime_src = field_src;
+            }
+        }
+    }
+
+    // Populate default field values and report errors for missing fields.
+    var root_msg: ?*Module.ErrorMsg = null;
+
+    for (field_refs) |*field_ref, i| {
+        if (field_ref.* != .none) continue;
+
+        const field_name = fields.keys()[i];
+        const field = fields.values()[i];
+        const field_src = inst_src; // TODO better source location
+        if (field.default_val.tag() == .unreachable_value) {
+            const template = "missing struct field: {s}";
+            const args = .{field_name};
+            if (root_msg) |msg| {
+                try sema.errNote(block, field_src, msg, template, args);
+            } else {
+                root_msg = try sema.errMsg(block, field_src, template, args);
+            }
+            continue;
+        }
+        if (runtime_src == null) {
+            field_vals[i] = field.default_val;
+        } else {
+            field_ref.* = try sema.addConstant(field.ty, field.default_val);
+        }
+    }
+
+    if (root_msg) |msg| {
+        try sema.addDeclaredHereNote(msg, dest_ty);
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+
+    if (runtime_src) |rs| {
+        try sema.requireRuntimeBlock(block, rs);
+        return block.addAggregateInit(dest_ty, field_refs);
+    }
+
+    return sema.addConstant(
+        dest_ty,
+        try Value.Tag.@"struct".create(sema.arena, field_vals),
     );
 }
 
@@ -20363,5 +20454,19 @@ fn unionFieldIndex(
     const union_obj = union_ty.cast(Type.Payload.Union).?.data;
     const field_index_usize = union_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
+    return @intCast(u32, field_index_usize);
+}
+
+fn structFieldIndex(
+    sema: *Sema,
+    block: *Block,
+    unresolved_struct_ty: Type,
+    field_name: []const u8,
+    field_src: LazySrcLoc,
+) !u32 {
+    const struct_ty = try sema.resolveTypeFields(block, field_src, unresolved_struct_ty);
+    const struct_obj = struct_ty.castTag(.@"struct").?.data;
+    const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
+        return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
     return @intCast(u32, field_index_usize);
 }

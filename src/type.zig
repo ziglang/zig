@@ -4519,21 +4519,23 @@ pub const Type = extern union {
                 if (field.is_comptime) {
                     return field.default_val;
                 } else {
-                    return null;
+                    return field.ty.onePossibleValue();
                 }
             },
             .tuple => {
-                const val = ty.castTag(.tuple).?.data.values[index];
+                const tuple = ty.castTag(.tuple).?.data;
+                const val = tuple.values[index];
                 if (val.tag() == .unreachable_value) {
-                    return null;
+                    return tuple.types[index].onePossibleValue();
                 } else {
                     return val;
                 }
             },
             .anon_struct => {
-                const val = ty.castTag(.anon_struct).?.data.values[index];
+                const anon_struct = ty.castTag(.anon_struct).?.data;
+                const val = anon_struct.values[index];
                 if (val.tag() == .unreachable_value) {
-                    return null;
+                    return anon_struct.types[index].onePossibleValue();
                 } else {
                     return val;
                 }
