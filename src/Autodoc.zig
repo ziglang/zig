@@ -9,12 +9,19 @@ const Ref = Zir.Inst.Ref;
 module: *Module,
 doc_location: Compilation.EmitLoc,
 arena: std.mem.Allocator,
+
+// The goal of autodoc is to fill up these arrays
+// that will then be serialized as JSON and consumed
+// by the JS frontend.
 files: std.AutoHashMapUnmanaged(*File, usize) = .{},
 calls: std.ArrayListUnmanaged(DocData.Call) = .{},
 types: std.ArrayListUnmanaged(DocData.Type) = .{},
 decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
 ast_nodes: std.ArrayListUnmanaged(DocData.AstNode) = .{},
 comptime_exprs: std.ArrayListUnmanaged(DocData.ComptimeExpr) = .{},
+
+// These fields hold temporary state of the analysis process
+// and are mainly used by the decl path resolving algorithm.
 pending_decl_paths: std.AutoHashMapUnmanaged(
     *usize, // pointer to declpath head (ie `&decl_path[0]`)
     std.ArrayListUnmanaged(DeclPathResumeInfo),
@@ -47,6 +54,7 @@ pub fn deinit(_: *Autodoc) void {
     arena_allocator.deinit();
 }
 
+/// The entry point of the Autodoc generation process.
 pub fn generateZirData(self: *Autodoc) !void {
     if (self.doc_location.directory) |dir| {
         if (dir.path) |path| {
@@ -66,7 +74,7 @@ pub fn generateZirData(self: *Autodoc) !void {
     defer self.arena.free(abs_root_path);
     const file = self.module.import_table.get(abs_root_path).?;
 
-    // append all the types in Zir.Inst.Ref
+    // Append all the types in Zir.Inst.Ref.
     {
         try self.types.append(self.arena, .{
             .ComptimeExpr = .{ .name = "ComptimeExpr" },
@@ -80,9 +88,8 @@ pub fn generateZirData(self: *Autodoc) !void {
                 self.arena,
                 switch (@intToEnum(Ref, i)) {
                     else => blk: {
-                        //std.debug.print("TODO: categorize `{s}` in typeKinds\n", .{
-                        //    @tagName(t),
-                        //});
+                        // TODO: map the remaining refs to a correct type
+                        //       instead of just assinging "array" to them.
                         break :blk .{
                             .Array = .{
                                 .len = 1,
@@ -213,6 +220,8 @@ pub fn generateZirData(self: *Autodoc) !void {
     special_dir.copyFile("index.html", output_dir, "index.html", .{}) catch unreachable;
 }
 
+/// Represents a chain of scopes, used to resolve decl references to the
+/// corresponding entry in `self.decls`.
 const Scope = struct {
     parent: ?*Scope,
     map: std.AutoHashMapUnmanaged(u32, usize) = .{}, // index into `decls`
@@ -237,6 +246,7 @@ const Scope = struct {
     }
 };
 
+/// The output of our analysis process.
 const DocData = struct {
     typeKinds: []const []const u8 = std.meta.fieldNames(DocTypeKinds),
     rootPkg: u32 = 0,
@@ -290,6 +300,17 @@ const DocData = struct {
         args: []WalkResult,
         ret: WalkResult,
     };
+
+    /// All the type "families" as described by `std.builtin.TypeId`
+    /// plus a couple extra that are unique to our use case.
+    ///
+    /// `Unanalyzed` is used so that we can refer to types that have started
+    /// analysis but that haven't been fully analyzed yet (in case we find
+    /// self-referential stuff, like `@This()`).
+    ///
+    /// `ComptimeExpr` represents the result of a piece of comptime logic
+    /// that we weren't able to analyze fully. Examples of that are comptime
+    /// function calls and comptime if / switch / ... expressions.
     const DocTypeKinds = blk: {
         var info = @typeInfo(std.builtin.TypeId);
         const original_len = info.Enum.fields.len;
@@ -474,12 +495,25 @@ const DocData = struct {
         }
     };
 
+    /// A DeclPath represents an expression such as `foo.bar.baz` where each
+    /// component has been resolved to a corresponding index in `self.decls`.
+    /// If a DeclPath has a component that can't be fully solved (eg the
+    /// function call in `foo.bar().baz`), then it will be solved up until the
+    /// unresolved component, leaving the remaining part unresolved.
+    ///
+    /// Note that DeclPaths are currently stored in inverse order: the innermost
+    /// component is at index 0.
     const DeclPath = struct {
         path: []usize, // indexes in `decls`
         hasCte: bool = false, // a prefix of this path could not be resolved
         // TODO: make hasCte return the actual index where the cte is!
     };
 
+    /// A TypeRef is a subset of WalkResult that refers a type in a direct or
+    /// indirect manner.
+    ///
+    /// An example of directness is `const foo = struct {...};`.
+    /// An example of indidirectness is `const bar = foo;`.
     const TypeRef = union(enum) {
         unspecified,
         declPath: DeclPath,
@@ -488,7 +522,7 @@ const DocData = struct {
         // TODO: maybe we should not consider calls to be typerefs and instread
         // directly refer to their return value. The problem at the moment
         // is that we can't analyze function calls at all.
-        call: usize, // index in `call`
+        call: usize, // index in `calls`
 
         pub fn jsonStringify(
             self: TypeRef,
@@ -518,6 +552,12 @@ const DocData = struct {
         }
     };
 
+    /// A WalkResult represents the result of the analysis process done to a
+    /// declaration. This includes: decls, fields, etc.
+    ///
+    /// The data in WalkResult is mostly normalized, which means that a
+    /// WalkResult that results in a type definition will hold an index into
+    /// `self.types`.
     const WalkResult = union(enum) {
         comptimeExpr: usize, // index in `comptimeExprs`
         void,
@@ -637,6 +677,14 @@ const DocData = struct {
     };
 };
 
+/// Called when we need to analyze a Zir instruction.
+/// For example it gets called by `generateZirData` on instruction 0,
+/// which represents the top-level struct corresponding to the root file.
+/// Note that in some situations where we're analyzing code that only allows
+/// for a limited subset of Zig syntax, we don't always resort to calling
+/// `walkInstruction` and instead sometimes we handle Zir directly.
+/// The best example of that are instructions corresponding to function
+/// params, as those can only occur while analyzing a function definition.
 fn walkInstruction(
     self: *Autodoc,
     file: *File,
@@ -1399,13 +1447,13 @@ fn walkInstruction(
     }
 }
 
-/// Called by `walkInstruction` when encountering a container type,
-/// iterates over all decl definitions in its body.
-/// It also analyzes each decl's body recursively.
+/// Called by `walkInstruction` when encountering a container type.
+/// Iterates over all decl definitions in its body and it also analyzes each
+/// decl's body recursively by calling into `walkInstruction`.
 ///
 /// Does not append to `self.decls` directly because `walkInstruction`
-/// is expected to (look-ahead) scan all decls and reserve `body_len`
-/// slots in `self.decls`, which are then filled out by `walkDecls`.
+/// is expected to look-ahead scan all decls and reserve `body_len`
+/// slots in `self.decls`, which are then filled out by this function.
 fn walkDecls(
     self: *Autodoc,
     file: *File,
@@ -1634,10 +1682,27 @@ fn walkDecls(
 }
 
 /// An unresolved path has a decl index at its end, while every other element
-/// is an index into the string table. Resolving means resolving iteratively
-/// each string into a decl_index. If we encounter an unanalyzed decl during
-/// the process, we append the unsolved sub-path to `self.decl_paths_pending_on_decls`
-/// and bail out.
+/// is an index into the string table. Resolving means iteratively map each
+/// string to a decl_index.
+///
+/// If we encounter an unanalyzed decl during the process, we append the
+/// unsolved sub-path to `self.decl_paths_pending_on_decls` and bail out.
+/// Same happens when a decl holds a type definition that hasn't been fully
+/// analyzed yet (except that we append to `self.decl_paths_pending_on_types`.
+///
+/// When a decl or a type is fully analyzed if will then check if there's any
+/// pending decl path blocked on it and, if any, will progress their resolution
+/// by calling tryResolveDeclPath again.
+///
+/// Decl paths can also depend on other decl paths. See
+/// `self.pending_decl_paths` for more info.
+///
+/// A decl path that has a component that resolves into a comptimeExpr will
+/// give up its resolution process entirely.
+///
+/// TODO: when giving up, translate remaining string indexes into data that
+///       can be used by the frontend. Requires implementing a frontend string
+///       table.
 fn tryResolveDeclPath(
     self: *Autodoc,
     /// File from which the decl path originates.
@@ -1920,6 +1985,8 @@ fn collectStructFieldInfo(
     }
 }
 
+/// A Zir Ref can either refer to common types and values, or to a Zir index.
+/// WalkRef resolves common cases and delegates to `walkInstruction` otherwise.
 fn walkRef(
     self: *Autodoc,
     file: *File,
@@ -2014,6 +2081,9 @@ fn walkRef(
     }
 }
 
+/// Maps some `DocData.WalkResult` cases to `DocData.TypeRef`.
+/// Correct code should never cause this function to fail but
+/// incorrect code might (eg: `const foo: 5 = undefined;`)
 fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
     return switch (wr) {
         else => std.debug.panic(
@@ -2027,6 +2097,9 @@ fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
     };
 }
 
+/// Given a WalkResult, tries to find its type.
+/// Used to analyze instructions like `array_init`, which require us to
+/// inspect its first element to find out the array type.
 fn typeOfWalkResult(wr: DocData.WalkResult) DocData.TypeRef {
     return switch (wr) {
         else => std.debug.panic(
@@ -2040,9 +2113,6 @@ fn typeOfWalkResult(wr: DocData.WalkResult) DocData.TypeRef {
     };
 }
 
-//fn collectParamInfo(self: *Autodoc, file: *File, scope: *Scope, inst_idx: Zir.Index) void {
-
-//}
 fn getBlockInlineBreak(zir: Zir, inst_index: usize) Zir.Inst.Ref {
     const data = zir.instructions.items(.data);
     const pl_node = data[inst_index].pl_node;
