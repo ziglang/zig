@@ -1991,6 +1991,9 @@ fn labeledBlockExpr(
     defer block_scope.labeled_breaks.deinit(astgen.gpa);
 
     try blockExprStmts(&block_scope, &block_scope.base, statements);
+    if (!block_scope.endsWithNoReturn()) {
+        _ = try block_scope.addBreak(.break_inline, block_inst, .void_value);
+    }
 
     if (!block_scope.label.?.used) {
         try astgen.appendErrorTok(label_token, "unused block label", .{});

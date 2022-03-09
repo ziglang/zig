@@ -846,3 +846,10 @@ test "discarding the result of various expressions" {
     _ = while (S.bar()) |some| break some else {};
     _ = for ("foo") |char| break char else {};
 }
+
+test "labeled block implicitly ends in a break" {
+    var a = false;
+    blk: {
+        if (a) break :blk;
+    }
+}
