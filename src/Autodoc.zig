@@ -540,6 +540,7 @@ const DocData = struct {
         },
         array: Array,
         call: usize, // index in `calls`
+        enumLiteral: []const u8,
 
         const Struct = struct {
             typeRef: TypeRef,
@@ -610,6 +611,11 @@ const DocData = struct {
                 },
                 .array => |v| try std.json.stringify(
                     struct { @"array": Array }{ .@"array" = v },
+                    options,
+                    w,
+                ),
+                .enumLiteral => |v| try std.json.stringify(
+                    struct { @"enumLiteral": []const u8 }{ .@"enumLiteral" = v },
                     options,
                     w,
                 ),
@@ -685,7 +691,11 @@ fn walkInstruction(
 
             return new_file_walk_result;
         },
-
+        .enum_literal => {
+            const str_tok = data[inst_index].str_tok;
+            const literal = file.zir.nullTerminatedString(str_tok.start);
+            return DocData.WalkResult{ .enumLiteral = literal };
+        },
         .int => {
             const int = data[inst_index].int;
             return DocData.WalkResult{
