@@ -6158,6 +6158,9 @@ fn zirParamAnytype(
             // function type of the function instruction in this block.
             return;
         }
+        if (null != try sema.typeHasOnePossibleValue(block, src, param_ty)) {
+            return;
+        }
         // The map is already populated but we do need to add a runtime parameter.
         try block.params.append(sema.gpa, .{
             .ty = param_ty,

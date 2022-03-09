@@ -39,7 +39,7 @@ test "reference to a struct type" {
 }
 
 test "cast negative integer to pointer" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try expectEqual(@intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))), h.MAP_FAILED);
 }
