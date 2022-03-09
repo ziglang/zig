@@ -369,6 +369,62 @@ pub const Inst = struct {
         /// Uses `tag`
         i64_shr_u = 0x88,
         /// Uses `tag`
+        f32_abs = 0x8B,
+        /// Uses `tag`
+        f32_neg = 0x8C,
+        /// Uses `tag`
+        f32_ceil = 0x8D,
+        /// Uses `tag`
+        f32_floor = 0x8E,
+        /// Uses `tag`
+        f32_trunc = 0x8F,
+        /// Uses `tag`
+        f32_nearest = 0x90,
+        /// Uses `tag`
+        f32_sqrt = 0x91,
+        /// Uses `tag`
+        f32_add = 0x92,
+        /// Uses `tag`
+        f32_sub = 0x93,
+        /// Uses `tag`
+        f32_mul = 0x94,
+        /// Uses `tag`
+        f32_div = 0x95,
+        /// Uses `tag`
+        f32_min = 0x96,
+        /// Uses `tag`
+        f32_max = 0x97,
+        /// Uses `tag`
+        f32_copysign = 0x98,
+        /// Uses `tag`
+        f64_abs = 0x99,
+        /// Uses `tag`
+        f64_neg = 0x9A,
+        /// Uses `tag`
+        f64_ceil = 0x9B,
+        /// Uses `tag`
+        f64_floor = 0x9C,
+        /// Uses `tag`
+        f64_trunc = 0x9D,
+        /// Uses `tag`
+        f64_nearest = 0x9E,
+        /// Uses `tag`
+        f64_sqrt = 0x9F,
+        /// Uses `tag`
+        f64_add = 0xA0,
+        /// Uses `tag`
+        f64_sub = 0xA1,
+        /// Uses `tag`
+        f64_mul = 0xA2,
+        /// Uses `tag`
+        f64_div = 0xA3,
+        /// Uses `tag`
+        f64_min = 0xA4,
+        /// Uses `tag`
+        f64_max = 0xA5,
+        /// Uses `tag`
+        f64_copysign = 0xA6,
+        /// Uses `tag`
         i32_wrap_i64 = 0xA7,
         /// Uses `tag`
         i32_trunc_f32_s = 0xA8,
