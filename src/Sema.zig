@@ -15282,6 +15282,19 @@ fn structFieldPtrByIndex(
     const target = sema.mod.getTarget();
     const ptr_field_ty = try Type.ptr(sema.arena, target, ptr_ty_data);
 
+    if (field.is_comptime) {
+        var anon_decl = try block.startAnonDecl(field_src);
+        defer anon_decl.deinit();
+        const decl = try anon_decl.finish(
+            try field.ty.copy(anon_decl.arena()),
+            try field.default_val.copy(anon_decl.arena()),
+        );
+        if (ptr_ty_data.@"align" != 0) {
+            decl.align_val = field.abi_align;
+        }
+        return sema.analyzeDeclRef(decl);
+    }
+
     if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
         return sema.addConstant(
             ptr_field_ty,
@@ -15329,6 +15342,10 @@ fn structFieldVal(
                 return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
             const field_index = @intCast(u32, field_index_usize);
             const field = struct_obj.fields.values()[field_index];
+
+            if (field.is_comptime) {
+                return sema.addConstant(field.ty, field.default_val);
+            }
 
             if (try sema.resolveMaybeUndefVal(block, src, struct_byval)) |struct_val| {
                 if (struct_val.isUndef()) return sema.addConstUndef(field.ty);

@@ -884,6 +884,7 @@ pub const Struct = struct {
         default_val: Value,
         /// undefined until `status` is `have_layout`.
         offset: u32,
+        /// If true then `default_val` is the comptime field value.
         is_comptime: bool,
 
         /// Returns the field alignment, assuming the struct is not packed.
