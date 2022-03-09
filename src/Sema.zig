@@ -1034,8 +1034,8 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
-            .ensure_err_payload_void => {
-                try sema.zirEnsureErrPayloadVoid(block, inst);
+            .ensure_err_union_payload_void => {
+                try sema.zirEnsureErrUnionPayloadVoid(block, inst);
                 i += 1;
                 continue;
             },
@@ -3097,6 +3097,33 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             return sema.failWithOwnedErrorMsg(msg);
         },
         else => return,
+    }
+}
+
+fn zirEnsureErrUnionPayloadVoid(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand = try sema.resolveInst(inst_data.operand);
+    const operand_ty = sema.typeOf(operand);
+    const err_union_ty = if (operand_ty.zigTypeTag() == .Pointer)
+        operand_ty.childType()
+    else
+        operand_ty;
+    // TODO this should be validated in a more generic instruction that is
+    // emitted for all ifs and whiles with an error union condition.
+    if (err_union_ty.zigTypeTag() != .ErrorUnion) return;
+    const payload_ty = err_union_ty.errorUnionPayload().zigTypeTag();
+    if (payload_ty != .Void and payload_ty != .NoReturn) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "error union payload is ignored", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, src, msg, "payload value can be explicitly ignored with '|_|'", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 }
 
@@ -7679,24 +7706,6 @@ fn zirErrUnionCodePtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
 
     try sema.requireRuntimeBlock(block, src, null);
     return block.addTyOp(.unwrap_errunion_err_ptr, result_ty, operand);
-}
-
-fn zirEnsureErrPayloadVoid(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
-    const src = inst_data.src();
-    const operand = try sema.resolveInst(inst_data.operand);
-    const operand_ty = sema.typeOf(operand);
-    if (operand_ty.zigTypeTag() != .ErrorUnion) {
-        return sema.fail(block, src, "expected error union type, found '{}'", .{
-            operand_ty.fmt(sema.mod),
-        });
-    }
-    if (operand_ty.errorUnionPayload().zigTypeTag() != .Void) {
-        return sema.fail(block, src, "expression value is ignored", .{});
-    }
 }
 
 fn zirFunc(

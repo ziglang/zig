@@ -2505,10 +2505,10 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .dbg_block_end,
             .ensure_result_used,
             .ensure_result_non_error,
+            .ensure_err_union_payload_void,
             .@"export",
             .export_value,
             .set_eval_branch_quota,
-            .ensure_err_payload_void,
             .atomic_store,
             .store,
             .store_node,
@@ -5492,6 +5492,7 @@ fn ifExpr(
                 try then_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
                 break :s &payload_val_scope.base;
             } else {
+                _ = try then_scope.addUnNode(.ensure_err_union_payload_void, cond.inst, node);
                 break :s &then_scope.base;
             }
         } else if (if_full.payload_token) |payload_token| {
@@ -5829,6 +5830,7 @@ fn whileExpr(
                 dbg_var_inst = indexToRef(payload_inst);
                 break :s &payload_val_scope.base;
             } else {
+                _ = try then_scope.addUnNode(.ensure_err_union_payload_void, cond.inst, node);
                 break :s &then_scope.base;
             }
         } else if (while_full.payload_token) |payload_token| {
