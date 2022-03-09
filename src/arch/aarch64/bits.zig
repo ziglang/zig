@@ -308,6 +308,16 @@ pub const Instruction = union(enum) {
         opc: u2,
         sf: u1,
     },
+    bitfield: packed struct {
+        rd: u5,
+        rn: u5,
+        imms: u6,
+        immr: u6,
+        n: u1,
+        fixed: u6 = 0b100110,
+        opc: u2,
+        sf: u1,
+    },
     add_subtract_shifted_register: packed struct {
         rd: u5,
         rn: u5,
@@ -483,6 +493,7 @@ pub const Instruction = union(enum) {
             .logical_shifted_register => |v| @bitCast(u32, v),
             .add_subtract_immediate => |v| @bitCast(u32, v),
             .logical_immediate => |v| @bitCast(u32, v),
+            .bitfield => |v| @bitCast(u32, v),
             .add_subtract_shifted_register => |v| @bitCast(u32, v),
             // TODO once packed structs work, this can be refactored
             .conditional_branch => |v| @as(u32, v.cond) | (@as(u32, v.o0) << 4) | (@as(u32, v.imm19) << 5) | (@as(u32, v.o1) << 24) | (@as(u32, v.fixed) << 25),
@@ -922,6 +933,31 @@ pub const Instruction = union(enum) {
         };
     }
 
+    fn bitfield(
+        opc: u2,
+        n: u1,
+        rd: Register,
+        rn: Register,
+        immr: u6,
+        imms: u6,
+    ) Instruction {
+        return Instruction{
+            .bitfield = .{
+                .rd = rd.enc(),
+                .rn = rn.enc(),
+                .imms = imms,
+                .immr = immr,
+                .n = n,
+                .opc = opc,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
     pub const AddSubtractShiftedRegisterShift = enum(u2) { lsl, lsr, asr, _ };
 
     fn addSubtractShiftedRegister(
@@ -1334,6 +1370,50 @@ pub const Instruction = union(enum) {
         return logicalImmediate(0b11, rd, rn, imms, immr, n);
     }
 
+    // Bitfield
+
+    pub fn sbfm(rd: Register, rn: Register, immr: u6, imms: u6) Instruction {
+        const n: u1 = switch (rd.size()) {
+            32 => 0b0,
+            64 => 0b1,
+            else => unreachable, // unexpected register size
+        };
+        return bitfield(0b00, n, rd, rn, immr, imms);
+    }
+
+    pub fn bfm(rd: Register, rn: Register, immr: u6, imms: u6) Instruction {
+        const n: u1 = switch (rd.size()) {
+            32 => 0b0,
+            64 => 0b1,
+            else => unreachable, // unexpected register size
+        };
+        return bitfield(0b01, n, rd, rn, immr, imms);
+    }
+
+    pub fn ubfm(rd: Register, rn: Register, immr: u6, imms: u6) Instruction {
+        const n: u1 = switch (rd.size()) {
+            32 => 0b0,
+            64 => 0b1,
+            else => unreachable, // unexpected register size
+        };
+        return bitfield(0b10, n, rd, rn, immr, imms);
+    }
+
+    pub fn asrImmediate(rd: Register, rn: Register, shift: u6) Instruction {
+        const imms = @intCast(u6, rd.size() - 1);
+        return sbfm(rd, rn, shift, imms);
+    }
+
+    pub fn lslImmediate(rd: Register, rn: Register, shift: u6) Instruction {
+        const size = @intCast(u6, rd.size() - 1);
+        return ubfm(rd, rn, size - shift + 1, size - shift);
+    }
+
+    pub fn lsrImmediate(rd: Register, rn: Register, shift: u6) Instruction {
+        const imms = @intCast(u6, rd.size() - 1);
+        return ubfm(rd, rn, shift, imms);
+    }
+
     // Add/subtract (shifted register)
 
     pub fn addShiftedRegister(
@@ -1441,6 +1521,10 @@ pub const Instruction = union(enum) {
     pub fn asrv(rd: Register, rn: Register, rm: Register) Instruction {
         return dataProcessing2Source(0b0, 0b001010, rd, rn, rm);
     }
+
+    pub const asrRegister = asrv;
+    pub const lslRegister = lslv;
+    pub const lsrRegister = lsrv;
 };
 
 test {
@@ -1621,6 +1705,22 @@ test "serialize instructions" {
         .{ // lslv x6, x9, x10
             .inst = Instruction.lslv(.x6, .x9, .x10),
             .expected = 0b1_0_0_11010110_01010_0010_00_01001_00110,
+        },
+        .{ // lsl x4, x2, #42
+            .inst = Instruction.lslImmediate(.x4, .x2, 42),
+            .expected = 0b1_10_100110_1_010110_010101_00010_00100,
+        },
+        .{ // lsl x4, x2, #63
+            .inst = Instruction.lslImmediate(.x4, .x2, 63),
+            .expected = 0b1_10_100110_1_000001_000000_00010_00100,
+        },
+        .{ // lsr x4, x2, #42
+            .inst = Instruction.lsrImmediate(.x4, .x2, 42),
+            .expected = 0b1_10_100110_1_101010_111111_00010_00100,
+        },
+        .{ // lsr x4, x2, #63
+            .inst = Instruction.lsrImmediate(.x4, .x2, 63),
+            .expected = 0b1_10_100110_1_111111_111111_00010_00100,
         },
     };
 

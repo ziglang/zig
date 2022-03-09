@@ -1277,6 +1277,15 @@ fn binOpImmediate(
     const mir_tag: Mir.Inst.Tag = switch (tag) {
         .add => .add_immediate,
         .sub => .sub_immediate,
+        .shl,
+        .shl_exact,
+        => .lsl_immediate,
+        .shr,
+        .shr_exact,
+        => switch (lhs_ty.intInfo(self.target.*).signedness) {
+            .signed => Mir.Inst.Tag.asr_immediate,
+            .unsigned => Mir.Inst.Tag.lsr_immediate,
+        },
         else => unreachable,
     };
     const mir_data: Mir.Inst.Data = switch (tag) {
@@ -1286,6 +1295,15 @@ fn binOpImmediate(
             .rd = dest_reg,
             .rn = lhs_reg,
             .imm12 = @intCast(u12, rhs.immediate),
+        } },
+        .shl,
+        .shl_exact,
+        .shr,
+        .shr_exact,
+        => .{ .rr_shift = .{
+            .rd = dest_reg,
+            .rn = lhs_reg,
+            .shift = @intCast(u6, rhs.immediate),
         } },
         else => unreachable,
     };
@@ -1407,8 +1425,13 @@ fn binOp(
                 .Int => {
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 64) {
-                        // TODO immediate shifts
-                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        const rhs_immediate_ok = rhs == .immediate;
+
+                        if (rhs_immediate_ok) {
+                            return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                        } else {
+                            return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        }
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
