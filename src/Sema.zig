@@ -5027,6 +5027,7 @@ fn finishGenericCall(
     try sema.requireRuntimeBlock(block, call_src);
 
     const comptime_args = callee.comptime_args.?;
+    const new_fn_info = callee.owner_decl.ty.fnInfo();
     const runtime_args_len = count: {
         var count: u32 = 0;
         var arg_i: usize = 0;
@@ -5045,7 +5046,6 @@ fn finishGenericCall(
     };
     const runtime_args = try sema.arena.alloc(Air.Inst.Ref, runtime_args_len);
     {
-        const new_fn_ty = callee.owner_decl.ty;
         var runtime_i: u32 = 0;
         var total_i: u32 = 0;
         for (fn_info.param_body) |inst| {
@@ -5055,7 +5055,7 @@ fn finishGenericCall(
             }
             const is_runtime = comptime_args[total_i].val.tag() == .generic_poison;
             if (is_runtime) {
-                const param_ty = new_fn_ty.fnParamType(runtime_i);
+                const param_ty = new_fn_info.param_types[runtime_i];
                 const arg_src = call_src; // TODO: better source location
                 const uncasted_arg = uncasted_args[total_i];
                 try sema.resolveTypeFully(block, arg_src, param_ty);
@@ -5066,7 +5066,7 @@ fn finishGenericCall(
             total_i += 1;
         }
 
-        try sema.resolveTypeFully(block, call_src, new_fn_ty.fnReturnType());
+        try sema.resolveTypeFully(block, call_src, new_fn_info.return_type);
     }
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
         runtime_args_len);
@@ -15222,6 +15222,19 @@ fn structFieldPtr(
 
     const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_ty);
     try sema.resolveStructLayout(block, src, struct_ty);
+
+    if (struct_ty.isTuple()) {
+        if (mem.eql(u8, field_name, "len")) {
+            const len_inst = try sema.addIntUnsigned(Type.usize, struct_ty.structFieldCount());
+            return sema.analyzeRef(block, src, len_inst);
+        }
+        const field_index = try sema.tupleFieldIndex(block, struct_ty, field_name, field_name_src);
+        return sema.tupleFieldPtr(block, struct_ptr, field_index, src, field_name_src);
+    } else if (struct_ty.isAnonStruct()) {
+        const field_index = try sema.anonStructFieldIndex(block, struct_ty, field_name, field_name_src);
+        return sema.tupleFieldPtr(block, struct_ptr, field_index, src, field_name_src);
+    }
+
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
     const field_index_big = struct_obj.fields.getIndex(field_name) orelse
@@ -15324,15 +15337,7 @@ fn structFieldVal(
     switch (struct_ty.tag()) {
         .tuple, .empty_struct_literal => return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty),
         .anon_struct => {
-            const anon_struct = struct_ty.castTag(.anon_struct).?.data;
-
-            const field_index = for (anon_struct.names) |name, i| {
-                if (mem.eql(u8, name, field_name)) break @intCast(u32, i);
-            } else {
-                return sema.fail(block, field_name_src, "anonymous struct {} has no such field '{s}'", .{
-                    struct_ty, field_name,
-                });
-            };
+            const field_index = try sema.anonStructFieldIndex(block, struct_ty, field_name, field_name_src);
             return tupleFieldValByIndex(sema, block, src, struct_byval, field_index, struct_ty);
         },
         .@"struct" => {
@@ -15376,7 +15381,18 @@ fn tupleFieldVal(
     if (mem.eql(u8, field_name, "len")) {
         return sema.addIntUnsigned(Type.usize, tuple_ty.structFieldCount());
     }
+    const field_index = try sema.tupleFieldIndex(block, tuple_ty, field_name, field_name_src);
+    return tupleFieldValByIndex(sema, block, src, tuple_byval, field_index, tuple_ty);
+}
 
+/// Don't forget to check for "len" before calling this.
+fn tupleFieldIndex(
+    sema: *Sema,
+    block: *Block,
+    tuple_ty: Type,
+    field_name: []const u8,
+    field_name_src: LazySrcLoc,
+) CompileError!u32 {
     const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch |err| {
         return sema.fail(block, field_name_src, "tuple {} has no such field '{s}': {s}", .{
             tuple_ty, field_name, @errorName(err),
@@ -15387,7 +15403,7 @@ fn tupleFieldVal(
             tuple_ty, field_name,
         });
     }
-    return tupleFieldValByIndex(sema, block, src, tuple_byval, field_index, tuple_ty);
+    return field_index;
 }
 
 fn tupleFieldValByIndex(
@@ -15685,15 +15701,15 @@ fn tupleFieldPtr(
 ) CompileError!Air.Inst.Ref {
     const tuple_ptr_ty = sema.typeOf(tuple_ptr);
     const tuple_ty = tuple_ptr_ty.childType();
-    const tuple_info = tuple_ty.castTag(.tuple).?.data;
+    const tuple = tuple_ty.tupleFields();
 
-    if (field_index > tuple_info.types.len) {
+    if (field_index > tuple.types.len) {
         return sema.fail(block, field_index_src, "index {d} outside tuple of length {d}", .{
-            field_index, tuple_info.types.len,
+            field_index, tuple.types.len,
         });
     }
 
-    const field_ty = tuple_info.types[field_index];
+    const field_ty = tuple.types[field_index];
     const target = sema.mod.getTarget();
     const ptr_field_ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = field_ty,
@@ -20469,4 +20485,22 @@ fn structFieldIndex(
     const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
     return @intCast(u32, field_index_usize);
+}
+
+fn anonStructFieldIndex(
+    sema: *Sema,
+    block: *Block,
+    struct_ty: Type,
+    field_name: []const u8,
+    field_src: LazySrcLoc,
+) !u32 {
+    const anon_struct = struct_ty.castTag(.anon_struct).?.data;
+    for (anon_struct.names) |name, i| {
+        if (mem.eql(u8, name, field_name)) {
+            return @intCast(u32, i);
+        }
+    }
+    return sema.fail(block, field_src, "anonymous struct {} has no such field '{s}'", .{
+        struct_ty, field_name,
+    });
 }
