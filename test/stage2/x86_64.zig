@@ -1413,25 +1413,6 @@ pub fn addCases(ctx: *TestContext) !void {
         }
 
         {
-            var case = ctx.exe("error set equality", target);
-
-            case.addCompareOutput(
-                \\pub fn main() void {
-                \\    assert(@TypeOf(error.Foo) == @TypeOf(error.Foo));
-                \\    assert(@TypeOf(error.Bar) != @TypeOf(error.Foo));
-                \\    assert(anyerror == anyerror);
-                \\    assert(error{Foo} != error{Foo});
-                \\    // TODO put inferred error sets here when @typeInfo works
-                \\}
-                \\fn assert(b: bool) void {
-                \\    if (!b) unreachable;
-                \\}
-            ,
-                "",
-            );
-        }
-
-        {
             var case = ctx.exe("comptime var", target);
 
             case.addError(

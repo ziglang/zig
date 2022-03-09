@@ -824,7 +824,7 @@ pub const ErrorSet = struct {
     /// Offset from Decl node index, points to the error set AST node.
     node_offset: i32,
     /// The string bytes are stored in the owner Decl arena.
-    /// They are in the same order they appear in the AST.
+    /// These must be in sorted order. See sortNames.
     names: NameMap,
 
     pub const NameMap = std.StringArrayHashMapUnmanaged(void);
@@ -835,6 +835,18 @@ pub const ErrorSet = struct {
             .parent_decl_node = self.owner_decl.src_node,
             .lazy = .{ .node_offset = self.node_offset },
         };
+    }
+
+    /// sort the NameMap. This should be called whenever the map is modified.
+    /// alloc should be the allocator used for the NameMap data.
+    pub fn sortNames(names: *NameMap) void {
+        const Context = struct {
+            keys: [][]const u8,
+            pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+                return std.mem.lessThan(u8, ctx.keys[a_index], ctx.keys[b_index]);
+            }
+        };
+        names.sort(Context{ .keys = names.keys() });
     }
 };
 

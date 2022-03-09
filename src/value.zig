@@ -1870,6 +1870,16 @@ pub const Value = extern union {
 
                 return eql(a_payload.container_ptr, b_payload.container_ptr, ty);
             },
+            .@"error" => {
+                const a_name = a.castTag(.@"error").?.data.name;
+                const b_name = b.castTag(.@"error").?.data.name;
+                return std.mem.eql(u8, a_name, b_name);
+            },
+            .eu_payload => {
+                const a_payload = a.castTag(.eu_payload).?.data;
+                const b_payload = b.castTag(.eu_payload).?.data;
+                return eql(a_payload, b_payload, ty.errorUnionPayload());
+            },
             .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
             .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
             .array => {

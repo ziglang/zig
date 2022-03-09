@@ -564,27 +564,30 @@ pub const Type = extern union {
             => {
                 if (b.zigTypeTag() != .ErrorSet) return false;
 
-                // TODO: revisit the language specification for how to evaluate equality
-                // for error set types.
+                // inferred error sets are only equal if both are inferred
+                // and they originate from the exact same function.
+                if (a.castTag(.error_set_inferred)) |a_pl| {
+                    if (b.castTag(.error_set_inferred)) |b_pl| {
+                        return a_pl.data.func == b_pl.data.func;
+                    }
+                    return false;
+                }
+                if (b.tag() == .error_set_inferred) return false;
 
-                if (a.tag() == .anyerror and b.tag() == .anyerror) {
-                    return true;
+                // anyerror matches exactly.
+                const a_is_any = a.isAnyError();
+                const b_is_any = b.isAnyError();
+                if (a_is_any or b_is_any) return a_is_any and b_is_any;
+
+                // two resolved sets match if their error set names match.
+                const a_set = a.errorSetNames();
+                const b_set = b.errorSetNames();
+                if (a_set.len != b_set.len) return false;
+                for (b_set) |b_val| {
+                    if (!a.errorSetHasField(b_val)) return false;
                 }
 
-                if (a.tag() == .error_set and b.tag() == .error_set) {
-                    return a.castTag(.error_set).?.data.owner_decl == b.castTag(.error_set).?.data.owner_decl;
-                }
-
-                if (a.tag() == .error_set_inferred and b.tag() == .error_set_inferred) {
-                    return a.castTag(.error_set_inferred).?.data == b.castTag(.error_set_inferred).?.data;
-                }
-
-                if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
-                    const a_data = a.castTag(.error_set_single).?.data;
-                    const b_data = b.castTag(.error_set_single).?.data;
-                    return std.mem.eql(u8, a_data, b_data);
-                }
-                return false;
+                return true;
             },
 
             .@"opaque" => {
@@ -961,12 +964,30 @@ pub const Type = extern union {
 
             .error_set,
             .error_set_single,
-            .anyerror,
-            .error_set_inferred,
             .error_set_merged,
             => {
+                // all are treated like an "error set" for hashing
                 std.hash.autoHash(hasher, std.builtin.TypeId.ErrorSet);
-                // TODO implement this after revisiting Type.Eql for error sets
+                std.hash.autoHash(hasher, Tag.error_set);
+
+                const names = ty.errorSetNames();
+                std.hash.autoHash(hasher, names.len);
+                assert(std.sort.isSorted([]const u8, names, u8, std.mem.lessThan));
+                for (names) |name| hasher.update(name);
+            },
+
+            .anyerror => {
+                // anyerror is distinct from other error sets
+                std.hash.autoHash(hasher, std.builtin.TypeId.ErrorSet);
+                std.hash.autoHash(hasher, Tag.anyerror);
+            },
+
+            .error_set_inferred => {
+                // inferred error sets are compared using their data pointer
+                const data = ty.castTag(.error_set_inferred).?.data.func;
+                std.hash.autoHash(hasher, std.builtin.TypeId.ErrorSet);
+                std.hash.autoHash(hasher, Tag.error_set_inferred);
+                std.hash.autoHash(hasher, data);
             },
 
             .@"opaque" => {
@@ -4364,6 +4385,9 @@ pub const Type = extern union {
         for (rhs_names) |name| {
             try names.put(arena, name, {});
         }
+
+        // names must be sorted
+        Module.ErrorSet.sortNames(&names);
 
         return try Tag.error_set_merged.create(arena, names);
     }
