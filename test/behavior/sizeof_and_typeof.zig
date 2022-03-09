@@ -233,7 +233,10 @@ test "@bitSizeOf" {
 }
 
 test "@sizeOf comparison against zero" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the wrong answer for size of pointers to zero bit types
+        return error.SkipZigTest;
+    }
 
     const S0 = struct {
         f: *@This(),
@@ -263,12 +266,13 @@ test "@sizeOf comparison against zero" {
     };
     const S = struct {
         fn doTheTest(comptime T: type, comptime result: bool) !void {
-            try expectEqual(result, @sizeOf(T) > 0);
+            try expect(result == (@sizeOf(T) > 0));
         }
     };
     // Zero-sized type
     try S.doTheTest(u0, false);
-    try S.doTheTest(*u0, false);
+    // Pointers to zero sized types still have addresses.
+    try S.doTheTest(*u0, true);
     // Non byte-sized type
     try S.doTheTest(u1, true);
     try S.doTheTest(*u1, true);

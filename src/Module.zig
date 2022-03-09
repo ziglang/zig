@@ -1281,7 +1281,7 @@ pub const Union = struct {
         var payload_align: u32 = 0;
         const fields = u.fields.values();
         for (fields) |field, i| {
-            if (!field.ty.hasRuntimeBits()) continue;
+            if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             const field_align = a: {
                 if (field.abi_align.tag() == .abi_align_default) {

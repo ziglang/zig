@@ -9955,6 +9955,7 @@ fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         .BoundFn,
         .Opaque,
         => return sema.fail(block, src, "no size available for type '{}'", .{operand_ty}),
+
         .Type,
         .EnumLiteral,
         .ComptimeFloat,

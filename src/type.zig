@@ -1967,7 +1967,9 @@ pub const Type = extern union {
     /// There are two reasons a type will return false:
     /// * the type is a comptime-only type. For example, the type `type` itself.
     /// * the type has only one possible value, making its ABI size 0.
-    pub fn hasRuntimeBits(ty: Type) bool {
+    /// When `ignore_comptime_only` is true, then types that are comptime only
+    /// may return false positives.
+    pub fn hasRuntimeBitsAdvanced(ty: Type, ignore_comptime_only: bool) bool {
         return switch (ty.tag()) {
             .u1,
             .u8,
@@ -2063,7 +2065,7 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .pointer,
-            => !ty.comptimeOnly(),
+            => if (ignore_comptime_only) true else !comptimeOnly(ty),
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
@@ -2075,7 +2077,7 @@ pub const Type = extern union {
                 }
                 assert(struct_obj.haveFieldTypes());
                 for (struct_obj.fields.values()) |value| {
-                    if (value.ty.hasRuntimeBits())
+                    if (value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only))
                         return true;
                 } else {
                     return false;
@@ -2093,14 +2095,14 @@ pub const Type = extern union {
             .enum_numbered, .enum_nonexhaustive => {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = ty.intTagType(&buffer);
-                return int_tag_ty.hasRuntimeBits();
+                return int_tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only);
             },
 
             .@"union" => {
                 const union_obj = ty.castTag(.@"union").?.data;
                 assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
-                    if (value.ty.hasRuntimeBits())
+                    if (value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only))
                         return true;
                 } else {
                     return false;
@@ -2108,27 +2110,29 @@ pub const Type = extern union {
             },
             .union_tagged => {
                 const union_obj = ty.castTag(.union_tagged).?.data;
-                if (union_obj.tag_ty.hasRuntimeBits()) {
+                if (union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only)) {
                     return true;
                 }
                 assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
-                    if (value.ty.hasRuntimeBits())
+                    if (value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only))
                         return true;
                 } else {
                     return false;
                 }
             },
 
-            .array, .vector => ty.arrayLen() != 0 and ty.elemType().hasRuntimeBits(),
+            .array, .vector => ty.arrayLen() != 0 and
+                ty.elemType().hasRuntimeBitsAdvanced(ignore_comptime_only),
             .array_u8 => ty.arrayLen() != 0,
-            .array_sentinel => ty.childType().hasRuntimeBits(),
+            .array_sentinel => ty.childType().hasRuntimeBitsAdvanced(ignore_comptime_only),
 
             .int_signed, .int_unsigned => ty.cast(Payload.Bits).?.data != 0,
 
             .error_union => {
                 const payload = ty.castTag(.error_union).?.data;
-                return payload.error_set.hasRuntimeBits() or payload.payload.hasRuntimeBits();
+                return payload.error_set.hasRuntimeBitsAdvanced(ignore_comptime_only) or
+                    payload.payload.hasRuntimeBitsAdvanced(ignore_comptime_only);
             },
 
             .tuple, .anon_struct => {
@@ -2136,7 +2140,7 @@ pub const Type = extern union {
                 for (tuple.types) |field_ty, i| {
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) continue; // comptime field
-                    if (field_ty.hasRuntimeBits()) return true;
+                    if (field_ty.hasRuntimeBitsAdvanced(ignore_comptime_only)) return true;
                 }
                 return false;
             },
@@ -2146,6 +2150,14 @@ pub const Type = extern union {
             .var_args_param => unreachable,
             .generic_poison => unreachable,
         };
+    }
+
+    pub fn hasRuntimeBits(ty: Type) bool {
+        return hasRuntimeBitsAdvanced(ty, false);
+    }
+
+    pub fn hasRuntimeBitsIgnoreComptime(ty: Type) bool {
+        return hasRuntimeBitsAdvanced(ty, true);
     }
 
     pub fn isFnOrHasRuntimeBits(ty: Type) bool {
