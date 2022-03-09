@@ -1991,6 +1991,9 @@ fn labeledBlockExpr(
     defer block_scope.labeled_breaks.deinit(astgen.gpa);
 
     try blockExprStmts(&block_scope, &block_scope.base, statements);
+    if (!block_scope.endsWithNoReturn()) {
+        _ = try block_scope.addBreak(.break_inline, block_inst, .void_value);
+    }
 
     if (!block_scope.label.?.used) {
         try astgen.appendErrorTok(label_token, "unused block label", .{});
@@ -7646,6 +7649,7 @@ fn cImport(
 
     const block_inst = try gz.makeBlockInst(.c_import, node);
     const block_result = try expr(&block_scope, &block_scope.base, .none, body_node);
+    _ = try gz.addUnNode(.ensure_result_used, block_result, node);
     if (!gz.refIsNoReturn(block_result)) {
         _ = try block_scope.addBreak(.break_inline, block_inst, .void_value);
     }
