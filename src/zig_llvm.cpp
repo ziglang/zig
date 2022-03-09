@@ -942,6 +942,19 @@ LLVMValueRef ZigLLVMInsertDeclareAtEnd(ZigLLVMDIBuilder *dibuilder, LLVMValueRef
     return wrap(result);
 }
 
+LLVMValueRef ZigLLVMInsertDbgValueIntrinsicAtEnd(ZigLLVMDIBuilder *dib, LLVMValueRef val,
+        ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc,
+        LLVMBasicBlockRef basic_block_ref)
+{
+    Instruction *result = reinterpret_cast<DIBuilder*>(dib)->insertDbgValueIntrinsic(
+            unwrap(val),
+            reinterpret_cast<DILocalVariable *>(var_info),
+            reinterpret_cast<DIBuilder*>(dib)->createExpression(),
+            reinterpret_cast<DILocation*>(debug_loc),
+            static_cast<BasicBlock*>(unwrap(basic_block_ref)));
+    return wrap(result);
+}
+
 LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
         ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMValueRef insert_before_instr)
 {

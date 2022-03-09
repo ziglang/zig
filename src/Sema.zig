@@ -12399,7 +12399,7 @@ fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
     defer anon_decl.deinit();
 
-    const bytes = try ty.nameAlloc(anon_decl.arena());
+    const bytes = try ty.nameAllocArena(anon_decl.arena());
 
     const new_decl = try anon_decl.finish(
         try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),

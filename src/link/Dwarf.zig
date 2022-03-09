@@ -882,7 +882,7 @@ fn addDbgInfoType(
             const abi_size = ty.abiSize(target);
             try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
             // DW.AT.name, DW.FORM.string
-            const struct_name = try ty.nameAlloc(arena);
+            const struct_name = try ty.nameAllocArena(arena);
             try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
             dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
             dbg_info_buffer.appendAssumeCapacity(0);

@@ -226,6 +226,21 @@ pub const LNCT = struct {
     pub const hi_user = 0x3fff;
 };
 
+pub const CC = enum(u8) {
+    normal = 0x1,
+    program = 0x2,
+    nocall = 0x3,
+
+    pass_by_reference = 0x4,
+    pass_by_value = 0x5,
+
+    lo_user = 0x40,
+    hi_user = 0xff,
+
+    GNU_renesas_sh = 0x40,
+    GNU_borland_fastcall_i386 = 0x41,
+};
+
 const PcRange = struct {
     start: u64,
     end: u64,
