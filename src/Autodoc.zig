@@ -144,10 +144,11 @@ pub fn generateZirData(self: *Autodoc) !void {
         }
     }
 
-    var root_scope = Scope{ .parent = null };
+    const main_type_index = self.types.items.len;
+    var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
     try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
-    try self.files.put(self.arena, file, self.types.items.len);
-    const main_type_index = try self.walkInstruction(file, &root_scope, Zir.main_struct_inst);
+    try self.files.put(self.arena, file, main_type_index);
+    _ = try self.walkInstruction(file, &root_scope, Zir.main_struct_inst);
 
     if (self.decl_paths_pending_on_decls.count() > 0) {
         @panic("some decl paths were never fully analized (pending on decls)");
@@ -170,7 +171,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         .comptimeExprs = self.comptime_exprs.items,
     };
 
-    data.packages[0].main = main_type_index.type;
+    data.packages[0].main = main_type_index;
 
     if (self.doc_location.directory) |d| {
         d.handle.makeDir(
@@ -215,6 +216,7 @@ pub fn generateZirData(self: *Autodoc) !void {
 const Scope = struct {
     parent: ?*Scope,
     map: std.AutoHashMapUnmanaged(u32, usize) = .{}, // index into `decls`
+    enclosing_type: usize, // index into `types`
 
     /// Assumes all decls in present scope and upper scopes have already
     /// been either fully resolved or at least reserved.
@@ -475,6 +477,7 @@ const DocData = struct {
     const DeclPath = struct {
         path: []usize, // indexes in `decls`
         hasCte: bool = false, // a prefix of this path could not be resolved
+        // TODO: make hasCte return the actual index where the cte is!
     };
 
     const TypeRef = union(enum) {
@@ -482,14 +485,10 @@ const DocData = struct {
         declPath: DeclPath,
         type: usize, // index in `types`
         comptimeExpr: usize, // index in `comptimeExprs`
-
-        pub fn fromWalkResult(wr: WalkResult) TypeRef {
-            return switch (wr) {
-                .declPath => |v| .{ .declPath = v },
-                .type => |v| .{ .type = v },
-                else => @panic("Found non-type WalkResult"),
-            };
-        }
+        // TODO: maybe we should not consider calls to be typerefs and instread
+        // directly refer to their return value. The problem at the moment
+        // is that we can't analyze function calls at all.
+        call: usize, // index in `call`
 
         pub fn jsonStringify(
             self: TypeRef,
@@ -503,7 +502,7 @@ const DocData = struct {
                     , .{});
                 },
 
-                .type, .comptimeExpr => |v| {
+                .type, .comptimeExpr, .call => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
@@ -647,7 +646,7 @@ fn walkInstruction(
     switch (tags[inst_index]) {
         else => {
             std.debug.panic(
-                "TODO: implement `walkInstruction` for {s}\n\n",
+                "TODO: implement `{s}` for walkInstruction\n\n",
                 .{@tagName(tags[inst_index])},
             );
         },
@@ -674,7 +673,10 @@ fn walkInstruction(
 
             result.value_ptr.* = self.types.items.len;
 
-            var new_scope = Scope{ .parent = null };
+            var new_scope = Scope{
+                .parent = null,
+                .enclosing_type = self.types.items.len,
+            };
             const new_file_walk_result = self.walkInstruction(
                 new_file.file,
                 &new_scope,
@@ -849,7 +851,7 @@ fn walkInstruction(
                         });
                         break :idx idx;
                     };
-                    const str_tok = data[inst_index].str_tok;
+                    const str_tok = data[lhs].str_tok;
                     const file_path = str_tok.get(file.zir);
 
                     const name = try std.fmt.allocPrint(self.arena, "@import({s})", .{file_path});
@@ -906,7 +908,7 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Call, pl_node.payload_index);
 
-            const callee = DocData.TypeRef.fromWalkResult(
+            const callee = walkResultToTypeRef(
                 try self.walkRef(file, parent_scope, extra.data.callee),
             );
 
@@ -917,11 +919,21 @@ fn walkInstruction(
                 args[idx] = try self.walkRef(file, parent_scope, ref);
             }
 
+            // TODO: see if we can ever do something better than just always
+            //       resolve function calls to a comptimeExpr.
+            const cte_slot_index = self.comptime_exprs.items.len;
+            try self.comptime_exprs.append(self.arena, .{
+                .code = "func call",
+                .typeRef = .{
+                    .type = @enumToInt(DocData.DocTypeKinds.ComptimeExpr),
+                }, // TODO: extract return type from callee when available
+            });
+
             const call_slot_index = self.calls.items.len;
             try self.calls.append(self.arena, .{
                 .func = callee,
                 .args = args,
-                .ret = .{ .void = {} }, // TODO: handle returns!
+                .ret = .{ .comptimeExpr = cte_slot_index },
             });
 
             return DocData.WalkResult{ .call = call_slot_index };
@@ -967,7 +979,7 @@ fn walkInstruction(
                         const param_type_ref = try self.walkRef(file, parent_scope, break_operand);
 
                         param_type_refs.appendAssumeCapacity(
-                            DocData.TypeRef.fromWalkResult(param_type_ref),
+                            walkResultToTypeRef(param_type_ref),
                         );
                     },
                 }
@@ -978,7 +990,7 @@ fn walkInstruction(
                 const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
                 const break_operand = data[last_instr_index].@"break".operand;
                 const wr = try self.walkRef(file, parent_scope, break_operand);
-                break :blk DocData.TypeRef.fromWalkResult(wr);
+                break :blk walkResultToTypeRef(wr);
             };
 
             self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
@@ -1025,7 +1037,10 @@ fn walkInstruction(
                     );
                 },
                 .union_decl => {
-                    var scope: Scope = .{ .parent = parent_scope };
+                    var scope: Scope = .{
+                        .parent = parent_scope,
+                        .enclosing_type = type_slot_index,
+                    };
 
                     const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
                     var extra_index: usize = extended.operand;
@@ -1128,7 +1143,10 @@ fn walkInstruction(
                     return DocData.WalkResult{ .type = type_slot_index };
                 },
                 .enum_decl => {
-                    var scope: Scope = .{ .parent = parent_scope };
+                    var scope: Scope = .{
+                        .parent = parent_scope,
+                        .enclosing_type = type_slot_index,
+                    };
 
                     const small = @bitCast(Zir.Inst.EnumDecl.Small, extended.small);
                     var extra_index: usize = extended.operand;
@@ -1256,7 +1274,10 @@ fn walkInstruction(
                     return DocData.WalkResult{ .type = type_slot_index };
                 },
                 .struct_decl => {
-                    var scope: Scope = .{ .parent = parent_scope };
+                    var scope: Scope = .{
+                        .parent = parent_scope,
+                        .enclosing_type = type_slot_index,
+                    };
 
                     const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
                     var extra_index: usize = extended.operand;
@@ -1344,6 +1365,24 @@ fn walkInstruction(
                     };
 
                     return DocData.WalkResult{ .type = type_slot_index };
+                },
+                .this => {
+                    // TODO: consider if we should reuse an existing decl
+                    //       that points to this type (if present).
+                    const decl_slot_index = self.decls.items.len;
+                    try self.decls.append(self.arena, .{
+                        .name = "@This()",
+                        .value = .{ .type = parent_scope.enclosing_type },
+                        .src = 0,
+                        .kind = "const",
+                        ._analyzed = false,
+                    });
+                    const dpath = try self.arena.alloc(usize, 1);
+                    dpath[0] = decl_slot_index;
+                    return DocData.WalkResult{ .declPath = .{
+                        .hasCte = false,
+                        .path = dpath,
+                    } };
                 },
             }
         },
@@ -1625,11 +1664,11 @@ fn tryResolveDeclPath(
         switch (parent.value) {
             else => {
                 std.debug.panic(
-                    "TODO: handle `{s}`in tryResolveDecl.field_val\n \"{s}\":{}",
+                    "TODO: handle `{s}`in tryResolveDecl\n \"{s}\":{}",
                     .{ @tagName(parent.value), parent.name, parent.value },
                 );
             },
-            .comptimeExpr => {
+            .comptimeExpr, .call => {
                 // Since we hit a cte, we leave the remaining strings unresolved
                 // and completely give up on resolving this decl path.
                 decl_path.hasCte = true;
@@ -1968,12 +2007,13 @@ fn walkRef(
 fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
     return switch (wr) {
         else => std.debug.panic(
-            "TODO: handle `{s}` in `walkResultToTypeRef.as_node.dest_type`\n",
+            "TODO: handle `{s}` in `walkResultToTypeRef`\n",
             .{@tagName(wr)},
         ),
 
         .declPath => |v| .{ .declPath = v },
         .type => |v| .{ .type = v },
+        .call => |v| .{ .call = v },
     };
 }
 
