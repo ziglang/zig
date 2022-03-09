@@ -46,6 +46,7 @@ test {
     _ = @import("behavior/bugs/4954.zig");
     _ = @import("behavior/bugs/6850.zig");
     _ = @import("behavior/bugs/7250.zig");
+    _ = @import("behavior/bugs/11100.zig");
     _ = @import("behavior/call.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/comptime_memory.zig");

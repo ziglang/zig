@@ -3739,9 +3739,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const inst_data = zir_datas[zir_block_index].pl_node;
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
-    const break_index = try sema.analyzeBody(&block_scope, body);
+    const result_ref = (try sema.analyzeBodyBreak(&block_scope, body)).?.operand;
     try wip_captures.finalize();
-    const result_ref = zir_datas[break_index].@"break".operand;
     const src: LazySrcLoc = .{ .node_offset = 0 };
     const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
     const align_val = blk: {
@@ -4681,12 +4680,11 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
-    _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+    sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
         // TODO make these unreachable instead of @panic
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
         error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
         error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
-        error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
         else => |e| return e,
     };
 

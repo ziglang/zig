@@ -520,14 +520,14 @@ fn resolveBody(
     /// use to return from the body.
     body_inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const break_inst = try sema.analyzeBody(block, body);
-    const break_data = sema.code.instructions.items(.data)[break_inst].@"break";
+    const break_data = (try sema.analyzeBodyBreak(block, body)) orelse
+        return Air.Inst.Ref.unreachable_value;
     // For comptime control flow, we need to detect when `analyzeBody` reports
     // that we need to break from an outer block. In such case we
     // use Zig's error mechanism to send control flow up the stack until
     // we find the corresponding block to this break.
     if (block.is_comptime and break_data.block_inst != body_inst) {
-        sema.comptime_break_inst = break_inst;
+        sema.comptime_break_inst = break_data.inst;
         return error.ComptimeBreak;
     }
     return sema.resolveInst(break_data.operand);
@@ -537,10 +537,36 @@ pub fn analyzeBody(
     sema: *Sema,
     block: *Block,
     body: []const Zir.Inst.Index,
-) CompileError!Zir.Inst.Index {
-    return sema.analyzeBodyInner(block, body) catch |err| switch (err) {
+) !void {
+    _ = sema.analyzeBodyInner(block, body) catch |err| switch (err) {
+        error.ComptimeBreak => unreachable, // unexpected comptime control flow
+        else => |e| return e,
+    };
+}
+
+const BreakData = struct {
+    block_inst: Zir.Inst.Index,
+    operand: Air.Inst.Ref,
+    inst: Air.Inst.Index,
+};
+
+pub fn analyzeBodyBreak(
+    sema: *Sema,
+    block: *Block,
+    body: []const Zir.Inst.Index,
+) CompileError!?BreakData {
+    const break_inst = sema.analyzeBodyInner(block, body) catch |err| switch (err) {
         error.ComptimeBreak => sema.comptime_break_inst,
         else => |e| return e,
+    };
+    if (block.instructions.items.len != 0 and
+        sema.typeOf(Air.indexToRef(block.instructions.items[block.instructions.items.len - 1])).isNoReturn())
+        return null;
+    const break_data = sema.code.instructions.items(.data)[break_inst].@"break";
+    return BreakData{
+        .block_inst = break_data.block_inst,
+        .operand = break_data.operand,
+        .inst = break_inst,
     };
 }
 
@@ -1045,12 +1071,12 @@ fn analyzeBodyInner(
                 const inst_data = datas[inst].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-                const break_inst = try sema.analyzeBody(block, inline_body);
-                const break_data = datas[break_inst].@"break";
+                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
+                    break always_noreturn;
                 if (inst == break_data.block_inst) {
                     break :blk sema.resolveInst(break_data.operand);
                 } else {
-                    break break_inst;
+                    break break_data.inst;
                 }
             },
             .block => blk: {
@@ -1068,12 +1094,12 @@ fn analyzeBodyInner(
                     block.params.deinit(sema.gpa);
                     block.params = prev_params;
                 }
-                const break_inst = try sema.analyzeBody(block, inline_body);
-                const break_data = datas[break_inst].@"break";
+                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
+                    break always_noreturn;
                 if (inst == break_data.block_inst) {
                     break :blk sema.resolveInst(break_data.operand);
                 } else {
-                    break break_inst;
+                    break break_data.inst;
                 }
             },
             .block_inline => blk: {
@@ -1090,12 +1116,12 @@ fn analyzeBodyInner(
                     block.params.deinit(sema.gpa);
                     block.params = prev_params;
                 }
-                const break_inst = try sema.analyzeBody(block, inline_body);
-                const break_data = datas[break_inst].@"break";
+                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
+                    break always_noreturn;
                 if (inst == break_data.block_inst) {
                     break :blk sema.resolveInst(break_data.operand);
                 } else {
-                    break break_inst;
+                    break break_data.inst;
                 }
             },
             .condbr => blk: {
@@ -1108,12 +1134,12 @@ fn analyzeBodyInner(
                 const else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
                 const cond = try sema.resolveInstConst(block, cond_src, extra.data.condition);
                 const inline_body = if (cond.val.toBool()) then_body else else_body;
-                const break_inst = try sema.analyzeBody(block, inline_body);
-                const break_data = datas[break_inst].@"break";
+                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
+                    break always_noreturn;
                 if (inst == break_data.block_inst) {
                     break :blk sema.resolveInst(break_data.operand);
                 } else {
-                    break break_inst;
+                    break break_data.inst;
                 }
             },
             .condbr_inline => blk: {
@@ -1124,12 +1150,12 @@ fn analyzeBodyInner(
                 const else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
                 const cond = try sema.resolveInstConst(block, cond_src, extra.data.condition);
                 const inline_body = if (cond.val.toBool()) then_body else else_body;
-                const break_inst = try sema.analyzeBody(block, inline_body);
-                const break_data = datas[break_inst].@"break";
+                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
+                    break always_noreturn;
                 if (inst == break_data.block_inst) {
                     break :blk sema.resolveInst(break_data.operand);
                 } else {
-                    break break_inst;
+                    break break_data.inst;
                 }
             },
         };
@@ -1915,7 +1941,7 @@ fn zirEnumDecl(
         defer assert(enum_block.instructions.items.len == 0); // should all be comptime instructions
 
         if (body.len != 0) {
-            _ = try sema.analyzeBody(&enum_block, body);
+            try sema.analyzeBody(&enum_block, body);
         }
 
         try wip_captures.finalize();
@@ -3639,7 +3665,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     var loop_block = child_block.makeSubBlock();
     defer loop_block.instructions.deinit(gpa);
 
-    _ = try sema.analyzeBody(&loop_block, body);
+    try sema.analyzeBody(&loop_block, body);
 
     try child_block.instructions.append(gpa, loop_inst);
 
@@ -3681,7 +3707,8 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     };
     defer child_block.instructions.deinit(sema.gpa);
 
-    _ = try sema.analyzeBody(&child_block, body);
+    // Ignore the result, all the relevant operations have written to c_import_buf already.
+    _ = try sema.analyzeBodyBreak(&child_block, body);
 
     const c_import_res = sema.mod.comp.cImport(c_import_buf.items) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
@@ -4658,9 +4685,8 @@ fn analyzeCall(
             }
 
             const result = result: {
-                _ = sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
+                sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
                     error.ComptimeReturn => break :result inlining.comptime_result,
-                    error.ComptimeBreak => unreachable, // Can't break through a fn call.
                     error.AnalysisFail => {
                         const err_msg = inlining.err orelse return err;
                         try sema.errNote(block, call_src, err_msg, "called from here", .{});
@@ -7313,7 +7339,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         const item = sema.resolveInst(item_ref);
         // `item` is already guaranteed to be constant known.
 
-        _ = try sema.analyzeBody(&case_block, body);
+        try sema.analyzeBody(&case_block, body);
 
         try wip_captures.finalize();
 
@@ -7356,7 +7382,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
             const body = sema.code.extra[extra_index..][0..body_len];
             extra_index += body_len;
-            _ = try sema.analyzeBody(&case_block, body);
+            try sema.analyzeBody(&case_block, body);
 
             try cases_extra.ensureUnusedCapacity(gpa, 2 + items.len +
                 case_block.instructions.items.len);
@@ -7431,7 +7457,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
             const body = sema.code.extra[extra_index..][0..body_len];
             extra_index += body_len;
-            _ = try sema.analyzeBody(&case_block, body);
+            try sema.analyzeBody(&case_block, body);
 
             try wip_captures.finalize();
 
@@ -7468,7 +7494,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         case_block.wip_capture_scope = wip_captures.scope;
 
         if (special.body.len != 0) {
-            _ = try sema.analyzeBody(&case_block, special.body);
+            try sema.analyzeBody(&case_block, special.body);
         } else {
             // We still need a terminator in this block, but we have proven
             // that it is unreachable.
@@ -10990,7 +11016,8 @@ fn zirTypeofPeer(
         .is_typeof = true,
     };
     defer child_block.instructions.deinit(sema.gpa);
-    _ = try sema.analyzeBody(&child_block, body);
+    // Ignore the result, we only care about the instructions in `args`.
+    _ = try sema.analyzeBodyBreak(&child_block, body);
 
     const args = sema.code.refSlice(extra.end, extended.small);
 
@@ -11186,6 +11213,8 @@ fn zirCondbr(
 
     if (try sema.resolveDefinedValue(parent_block, src, cond)) |cond_val| {
         const body = if (cond_val.toBool()) then_body else else_body;
+        // We use `analyzeBodyInner` since we want to propagate any possible
+        // `error.ComptimeBreak` to the caller.
         return sema.analyzeBodyInner(parent_block, body);
     }
 
@@ -11199,11 +11228,11 @@ fn zirCondbr(
     sub_block.runtime_index += 1;
     defer sub_block.instructions.deinit(gpa);
 
-    _ = try sema.analyzeBody(&sub_block, then_body);
+    try sema.analyzeBody(&sub_block, then_body);
     const true_instructions = sub_block.instructions.toOwnedSlice(gpa);
     defer gpa.free(true_instructions);
 
-    _ = try sema.analyzeBody(&sub_block, else_body);
+    try sema.analyzeBody(&sub_block, else_body);
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
         true_instructions.len + sub_block.instructions.items.len);
     _ = try parent_block.addInst(.{
@@ -19186,7 +19215,7 @@ fn semaStructFields(
     }
 
     if (body.len != 0) {
-        _ = try sema.analyzeBody(&block_scope, body);
+        try sema.analyzeBody(&block_scope, body);
     }
 
     try wip_captures.finalize();
@@ -19360,7 +19389,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     }
 
     if (body.len != 0) {
-        _ = try sema.analyzeBody(&block_scope, body);
+        try sema.analyzeBody(&block_scope, body);
     }
 
     try wip_captures.finalize();
