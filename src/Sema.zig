@@ -2623,10 +2623,9 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 // block so that codegen does not see it.
                 block.instructions.shrinkRetainingCapacity(block.instructions.items.len - 3);
                 sema.air_values.items[value_index] = try Value.Tag.decl_ref.create(sema.arena, new_decl);
-                // Would be nice if we could just assign `bitcast_ty_ref` to
-                // `air_datas[ptr_inst].ty_pl.ty`, wouldn't it? Alas, that is almost correct,
-                // except that the pointer is mutable and we need to make it constant here.
-                air_datas[ptr_inst].ty_pl.ty = try sema.addType(final_ptr_ty);
+                // if bitcast ty ref needs to be made const, make_ptr_const
+                // ZIR handles it later, so we can just use the ty ref here.
+                air_datas[ptr_inst].ty_pl.ty = air_datas[bitcast_inst].ty_op.ty;
 
                 return;
             }
@@ -11828,21 +11827,16 @@ fn zirArrayInit(
         });
     };
 
-    const elems = if (!is_sent)
-        resolved_args
-    else
-        resolved_args[0 .. resolved_args.len - 1];
-
-    const opt_runtime_src: ?LazySrcLoc = for (elems) |arg| {
+    const opt_runtime_src: ?LazySrcLoc = for (resolved_args) |arg| {
         const arg_src = src; // TODO better source location
         const comptime_known = try sema.isComptimeKnown(block, arg_src, arg);
         if (!comptime_known) break arg_src;
     } else null;
 
     const runtime_src = opt_runtime_src orelse {
-        const elem_vals = try sema.arena.alloc(Value, elems.len);
+        const elem_vals = try sema.arena.alloc(Value, resolved_args.len);
 
-        for (elems) |arg, i| {
+        for (resolved_args) |arg, i| {
             // We checked that all args are comptime above.
             elem_vals[i] = (sema.resolveMaybeUndefVal(block, src, arg) catch unreachable).?;
         }
@@ -11869,7 +11863,7 @@ fn zirArrayInit(
         });
         const elem_ptr_ty_ref = try sema.addType(elem_ptr_ty);
 
-        for (elems) |arg, i| {
+        for (resolved_args) |arg, i| {
             const index = try sema.addIntUnsigned(Type.usize, i);
             const elem_ptr = try block.addPtrElemPtrTypeRef(alloc, index, elem_ptr_ty_ref);
             _ = try block.addBinOp(.store, elem_ptr, arg);
@@ -11877,7 +11871,7 @@ fn zirArrayInit(
         return alloc;
     }
 
-    return block.addAggregateInit(array_ty, elems);
+    return block.addAggregateInit(array_ty, resolved_args);
 }
 
 fn zirArrayInitAnon(
