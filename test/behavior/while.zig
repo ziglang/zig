@@ -289,9 +289,8 @@ test "while bool 2 break statements and an else" {
 }
 
 test "while optional 2 break statements and an else" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn entry(opt_t: ?bool, f: bool) !void {
@@ -308,7 +307,8 @@ test "while optional 2 break statements and an else" {
 }
 
 test "while error 2 break statements and an else" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn entry(opt_t: anyerror!bool, f: bool) !void {

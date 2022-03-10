@@ -426,7 +426,7 @@ test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and builtin.stage2_arch == .wasm32) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .wasm32) return error.SkipZigTest; // TODO
 
     comptime {
         try expect(@sizeOf(Foo24Bits) == 4);

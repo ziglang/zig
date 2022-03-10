@@ -5838,8 +5838,15 @@ pub const FuncGen = struct {
                         const llvm_i = llvmFieldIndex(result_ty, i, target, &ptr_ty_buf).?;
                         indices[1] = llvm_u32.constInt(llvm_i, .False);
                         const field_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
-                        const store_inst = self.builder.buildStore(llvm_elem, field_ptr);
-                        store_inst.setAlignment(result_ty.structFieldAlign(i, target));
+                        var field_ptr_payload: Type.Payload.Pointer = .{
+                            .data = .{
+                                .pointee_type = self.air.typeOf(elem),
+                                .@"align" = result_ty.structFieldAlign(i, target),
+                                .@"addrspace" = .generic,
+                            },
+                        };
+                        const field_ptr_ty = Type.initPayload(&field_ptr_payload.base);
+                        self.store(field_ptr, field_ptr_ty, llvm_elem, .NotAtomic);
                     }
 
                     return alloca_inst;
@@ -5871,8 +5878,14 @@ pub const FuncGen = struct {
                     };
                     const elem_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
                     const llvm_elem = try self.resolveInst(elem);
-                    const store_inst = self.builder.buildStore(llvm_elem, elem_ptr);
-                    store_inst.setAlignment(elem_ty.abiAlignment(target));
+                    var elem_ptr_payload: Type.Payload.Pointer = .{
+                        .data = .{
+                            .pointee_type = elem_ty,
+                            .@"addrspace" = .generic,
+                        },
+                    };
+                    const elem_ptr_ty = Type.initPayload(&elem_ptr_payload.base);
+                    self.store(elem_ptr, elem_ptr_ty, llvm_elem, .NotAtomic);
                 }
 
                 return alloca_inst;

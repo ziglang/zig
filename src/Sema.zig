@@ -16005,9 +16005,17 @@ fn coerce(
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
-            // coercion to C pointer
-            if (dest_info.size == .C) {
-                switch (inst_ty.zigTypeTag()) {
+            // cast from *T and [*]T to *anyopaque
+            // but don't do it if the source type is a double pointer
+            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer and
+                inst_ty.childType().zigTypeTag() != .Pointer)
+            {
+                return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
+            }
+
+            switch (dest_info.size) {
+                // coercion to C pointer
+                .C => switch (inst_ty.zigTypeTag()) {
                     .Null => {
                         return sema.addConstant(dest_ty, Value.@"null");
                     },
@@ -16041,22 +16049,10 @@ fn coerce(
                         return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                     },
                     else => {},
-                }
-            }
-
-            // cast from *T and [*]T to *anyopaque
-            // but don't do it if the source type is a double pointer
-            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer and
-                inst_ty.childType().zigTypeTag() != .Pointer)
-            {
-                return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
-            }
-
-            switch (dest_info.size) {
-                .C, .Many => {},
+                },
                 .One => switch (dest_info.pointee_type.zigTypeTag()) {
                     .Union => {
-                        // cast from pointer to anonymous struct to pointer to union
+                        // pointer to anonymous struct to pointer to union
                         if (inst_ty.isSinglePointer() and
                             inst_ty.childType().isAnonStruct() and
                             !dest_info.mutable)
@@ -16065,12 +16061,21 @@ fn coerce(
                         }
                     },
                     .Struct => {
-                        // cast from pointer to anonymous struct to pointer to struct
+                        // pointer to anonymous struct to pointer to struct
                         if (inst_ty.isSinglePointer() and
                             inst_ty.childType().isAnonStruct() and
                             !dest_info.mutable)
                         {
                             return sema.coerceAnonStructToStructPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
+                        }
+                    },
+                    .Array => {
+                        // pointer to tuple to pointer to array
+                        if (inst_ty.isSinglePointer() and
+                            inst_ty.childType().isTuple() and
+                            !dest_info.mutable)
+                        {
+                            return sema.coerceTupleToArrayPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                         }
                     },
                     else => {},
@@ -16084,6 +16089,7 @@ fn coerce(
                         return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                     }
                 },
+                .Many => {},
             }
 
             // This will give an extra hint on top of what the bottom of this func would provide.
@@ -17552,6 +17558,26 @@ fn coerceTupleToSlicePtrs(
     }
     const ptr_array = try sema.analyzeRef(block, slice_ty_src, array_inst);
     return sema.coerceArrayPtrToSlice(block, slice_ty, ptr_array, slice_ty_src);
+}
+
+/// If the lengths match, coerces element-wise.
+fn coerceTupleToArrayPtrs(
+    sema: *Sema,
+    block: *Block,
+    ptr_array_ty: Type,
+    array_ty_src: LazySrcLoc,
+    ptr_tuple: Air.Inst.Ref,
+    tuple_src: LazySrcLoc,
+) !Air.Inst.Ref {
+    const tuple = try sema.analyzeLoad(block, tuple_src, ptr_tuple, tuple_src);
+    const ptr_info = ptr_array_ty.ptrInfo().data;
+    const array_ty = ptr_info.pointee_type;
+    const array_inst = try sema.coerceTupleToArray(block, array_ty, array_ty_src, tuple, tuple_src);
+    if (ptr_info.@"align" != 0) {
+        return sema.fail(block, array_ty_src, "TODO: override the alignment of the array decl we create here", .{});
+    }
+    const ptr_array = try sema.analyzeRef(block, array_ty_src, array_inst);
+    return ptr_array;
 }
 
 /// Handles both tuples and anon struct literals. Coerces field-wise. Reports

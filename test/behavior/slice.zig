@@ -518,7 +518,11 @@ test "slice syntax resulting in pointer-to-array" {
 }
 
 test "type coercion of pointer to anon struct literal to pointer to slice" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         const U = union {
@@ -546,7 +550,7 @@ test "type coercion of pointer to anon struct literal to pointer to slice" {
             try expect(mem.eql(u8, slice2[2], "world!"));
         }
     };
-    // try S.doTheTest();
+    try S.doTheTest();
     comptime try S.doTheTest();
 }
 
@@ -578,8 +582,6 @@ test "slice bounds in comptime concatenation" {
 }
 
 test "slice sentinel access at comptime" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     {
         const str0 = &[_:0]u8{ '1', '2', '3' };
         const slice0: [:0]const u8 = str0;
