@@ -556,37 +556,36 @@ pub const Type = extern union {
                 return info_a.signedness == info_b.signedness and info_a.bits == info_b.bits;
             },
 
+            .error_set_inferred => {
+                // Inferred error sets are only equal if both are inferred
+                // and they originate from the exact same function.
+                const a_set = a.castTag(.error_set_inferred).?.data;
+                const b_set = (b.castTag(.error_set_inferred) orelse return false).data;
+                return a_set.func == b_set.func;
+            },
+
+            .anyerror => {
+                return b.tag() == .anyerror;
+            },
+
             .error_set,
             .error_set_single,
-            .anyerror,
-            .error_set_inferred,
             .error_set_merged,
             => {
-                if (b.zigTypeTag() != .ErrorSet) return false;
-
-                // inferred error sets are only equal if both are inferred
-                // and they originate from the exact same function.
-                if (a.castTag(.error_set_inferred)) |a_pl| {
-                    if (b.castTag(.error_set_inferred)) |b_pl| {
-                        return a_pl.data.func == b_pl.data.func;
-                    }
-                    return false;
+                switch (b.tag()) {
+                    .error_set, .error_set_single, .error_set_merged => {},
+                    else => return false,
                 }
-                if (b.tag() == .error_set_inferred) return false;
 
-                // anyerror matches exactly.
-                const a_is_any = a.isAnyError();
-                const b_is_any = b.isAnyError();
-                if (a_is_any or b_is_any) return a_is_any and b_is_any;
-
-                // two resolved sets match if their error set names match.
+                // Two resolved sets match if their error set names match.
+                // Since they are pre-sorted we compare them element-wise.
                 const a_set = a.errorSetNames();
                 const b_set = b.errorSetNames();
                 if (a_set.len != b_set.len) return false;
-                for (b_set) |b_val| {
-                    if (!a.errorSetHasField(b_val)) return false;
+                for (a_set) |a_item, i| {
+                    const b_item = b_set[i];
+                    if (!std.mem.eql(u8, a_item, b_item)) return false;
                 }
-
                 return true;
             },
 
@@ -984,10 +983,10 @@ pub const Type = extern union {
 
             .error_set_inferred => {
                 // inferred error sets are compared using their data pointer
-                const data = ty.castTag(.error_set_inferred).?.data.func;
+                const set = ty.castTag(.error_set_inferred).?.data;
                 std.hash.autoHash(hasher, std.builtin.TypeId.ErrorSet);
                 std.hash.autoHash(hasher, Tag.error_set_inferred);
-                std.hash.autoHash(hasher, data);
+                std.hash.autoHash(hasher, set.func);
             },
 
             .@"opaque" => {
