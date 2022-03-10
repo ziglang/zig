@@ -1358,7 +1358,7 @@ pub const Mutable = struct {
         var tmp_x = try Managed.init(limbs_buffer.allocator);
         defer tmp_x.deinit();
 
-        while (y.len() > 1) {
+        while (y.len() > 1 and !y.eqZero()) {
             assert(x.isPositive() and y.isPositive());
             assert(x.len() >= y.len());
 
@@ -1576,6 +1576,10 @@ pub const Mutable = struct {
         // for i from n down to t + 1, do
         var i = n;
         while (i >= t + 1) : (i -= 1) {
+            if (x.eqZero()) {
+                break;
+            }
+
             const k = i - t - 1;
             // 3.1.
             // if x_i == y_t:
@@ -3676,8 +3680,8 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
 fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
-    assert(r.len >= a.len);
     assert(a.len >= b.len);
+    assert(r.len >= if (!a_positive and !b_positive) a.len + 1 else b.len);
 
     if (a_positive and b_positive) {
         // Trivial case, result is positive.
