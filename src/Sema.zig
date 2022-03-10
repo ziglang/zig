@@ -16033,7 +16033,6 @@ fn coerce(
                     },
                     .Pointer => p: {
                         const inst_info = inst_ty.ptrInfo().data;
-                        if (inst_info.size == .Slice) break :p;
                         switch (try sema.coerceInMemoryAllowed(
                             block,
                             dest_info.pointee_type,
@@ -16045,6 +16044,14 @@ fn coerce(
                         )) {
                             .ok => {},
                             .no_match => break :p,
+                        }
+                        if (inst_info.size == .Slice) {
+                            if (dest_info.sentinel == null or inst_info.sentinel == null or
+                                !dest_info.sentinel.?.eql(inst_info.sentinel.?, dest_info.pointee_type))
+                                break :p;
+
+                            const slice_ptr = try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty);
+                            return sema.coerceCompatiblePtrs(block, dest_ty, slice_ptr, inst_src);
                         }
                         return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                     },
@@ -16089,7 +16096,30 @@ fn coerce(
                         return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                     }
                 },
-                .Many => {},
+                .Many => p: {
+                    const inst_info = inst_ty.ptrInfo().data;
+                    if (inst_info.size != .Slice) break :p;
+
+                    switch (try sema.coerceInMemoryAllowed(
+                        block,
+                        dest_info.pointee_type,
+                        inst_info.pointee_type,
+                        dest_info.mutable,
+                        target,
+                        dest_ty_src,
+                        inst_src,
+                    )) {
+                        .ok => {},
+                        .no_match => break :p,
+                    }
+
+                    if (dest_info.sentinel == null or inst_info.sentinel == null or
+                        !dest_info.sentinel.?.eql(inst_info.sentinel.?, dest_info.pointee_type))
+                        break :p;
+
+                    const slice_ptr = try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty);
+                    return sema.coerceCompatiblePtrs(block, dest_ty, slice_ptr, inst_src);
+                },
             }
 
             // This will give an extra hint on top of what the bottom of this func would provide.
