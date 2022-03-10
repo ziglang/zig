@@ -70,6 +70,22 @@ pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) kern_retu
 pub extern "c" fn malloc_size(?*const anyopaque) usize;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
+pub const posix_spawnattr_t = *opaque {};
+pub const posix_spawn_file_actions_t = *opaque {};
+pub extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int;
+pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) void;
+pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
+pub extern "c" fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) void;
+pub extern "c" fn posix_spawnp(
+    pid: *pid_t,
+    path: [*:0]const u8,
+    actions: ?*const posix_spawn_file_actions_t,
+    attr: *const posix_spawnattr_t,
+    argv: [*][*:0]const u8,
+    env: [*][*:0]const u8,
+) c_int;
+
 pub extern "c" fn kevent64(
     kq: c_int,
     changelist: [*]const kevent64_s,
@@ -106,6 +122,24 @@ pub const _errno = __error;
 pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn mach_host_self() mach_port_t;
 pub extern "c" fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_timespec_t) kern_return_t;
+
+pub const vm_map_t = mach_port_t;
+pub const mach_vm_address_t = usize;
+pub const vm_offset_t = usize;
+pub const mach_msg_type_number_t = natural_t;
+
+extern "c" var mach_task_self_: mach_port_t;
+pub fn mach_task_self() callconv(.C) mach_port_t {
+    return mach_task_self_;
+}
+
+pub extern "c" fn task_for_pid(target_tport: mach_port_name_t, pid: pid_t, t: *mach_port_name_t) kern_return_t;
+pub extern "c" fn mach_vm_write(
+    target_task: vm_map_t,
+    address: mach_vm_address_t,
+    data: vm_offset_t,
+    data_cnt: mach_msg_type_number_t,
+) kern_return_t;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
@@ -2006,3 +2040,14 @@ pub const CPUFAMILY = enum(u32) {
     ARM_FIRESTORM_ICESTORM = 0x1b588bb3,
     _,
 };
+
+pub const POSIX_SPAWN_RESETIDS: c_int = 0x0001;
+pub const POSIX_SPAWN_SETPGROUP: c_int = 0x0002;
+pub const POSIX_SPAWN_SETSIGDEF: c_int = 0x0004;
+pub const POSIX_SPAWN_SETSIGMASK: c_int = 0x0008;
+pub const POSIX_SPAWN_SETEXEC: c_int = 0x0040;
+pub const POSIX_SPAWN_START_SUSPENDED: c_int = 0x0080;
+pub const _POSIX_SPAWN_DISABLE_ASLR: c_int = 0x0100;
+pub const POSIX_SPAWN_SETSID: c_int = 0x0400;
+pub const _POSIX_SPAWN_RESLIDE: c_int = 0x0800;
+pub const POSIX_SPAWN_CLOEXEC_DEFAULT: c_int = 0x4000;
