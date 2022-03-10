@@ -1352,6 +1352,7 @@ fn arrayInitExpr(
             if (types.array == .none) {
                 // We treat this case differently so that we don't get a crash when
                 // analyzing array_base_ptr against an alloc_inferred_mut.
+                // See corresponding logic in structInitExpr.
                 const result = try arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
                 return rvalue(gz, rl, result, node);
             } else {
@@ -1591,7 +1592,18 @@ fn structInitExpr(
             const result = try structInitExprRlTy(gz, scope, node, struct_init, inner_ty_inst, .struct_init);
             return rvalue(gz, rl, result, node);
         },
-        .ptr, .inferred_ptr => |ptr_inst| return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst),
+        .ptr => |ptr_inst| return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst),
+        .inferred_ptr => |ptr_inst| {
+            if (struct_init.ast.type_expr == 0) {
+                // We treat this case differently so that we don't get a crash when
+                // analyzing field_base_ptr against an alloc_inferred_mut.
+                // See corresponding logic in arrayInitExpr.
+                const result = try structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon);
+                return rvalue(gz, rl, result, node);
+            } else {
+                return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst);
+            }
+        },
         .block_ptr => |block_gz| return structInitExprRlPtr(gz, scope, rl, node, struct_init, block_gz.rl_ptr),
     }
 }

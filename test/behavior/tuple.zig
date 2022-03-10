@@ -110,8 +110,6 @@ test "pass tuple to comptime var parameter" {
 }
 
 test "tuple initializer for var" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() void {
             const Bytes = struct {
