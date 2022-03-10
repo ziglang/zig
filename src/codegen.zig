@@ -303,6 +303,20 @@ pub fn generateSymbol(
             },
         },
         .Pointer => switch (typed_value.val.tag()) {
+            .zero, .one, .int_u64, .int_big_positive => {
+                switch (target.cpu.arch.ptrBitWidth()) {
+                    32 => {
+                        const x = typed_value.val.toUnsignedInt();
+                        mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, x), endian);
+                    },
+                    64 => {
+                        const x = typed_value.val.toUnsignedInt();
+                        mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
+                    },
+                    else => unreachable,
+                }
+                return Result{ .appended = {} };
+            },
             .variable => {
                 const decl = typed_value.val.castTag(.variable).?.data.owner_decl;
                 return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output, reloc_info);
