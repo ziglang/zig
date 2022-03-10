@@ -3502,6 +3502,7 @@ pub const Type = extern union {
             .tuple => ty.castTag(.tuple).?.data.types.len,
             .anon_struct => ty.castTag(.anon_struct).?.data.types.len,
             .@"struct" => ty.castTag(.@"struct").?.data.fields.count(),
+            .empty_struct, .empty_struct_literal => 0,
 
             else => unreachable,
         };
@@ -5070,7 +5071,7 @@ pub const Type = extern union {
 
     pub fn isAnonStruct(ty: Type) bool {
         return switch (ty.tag()) {
-            .anon_struct => true,
+            .anon_struct, .empty_struct_literal => true,
             else => false,
         };
     }

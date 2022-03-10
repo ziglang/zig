@@ -159,8 +159,8 @@ test "array-like initializer for tuple types" {
     const S = struct {
         fn doTheTest() !void {
             var obj: T = .{ -1234, 128 };
-            try testing.expectEqual(@as(i32, -1234), obj[0]);
-            try testing.expectEqual(@as(u8, 128), obj[1]);
+            try expect(@as(i32, -1234) == obj[0]);
+            try expect(@as(u8, 128) == obj[1]);
         }
     };
 

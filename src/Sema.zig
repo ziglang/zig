@@ -16052,13 +16052,38 @@ fn coerce(
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
-            // cast from pointer to anonymous struct to pointer to union
-            if (dest_info.pointee_type.zigTypeTag() == .Union and
-                inst_ty.zigTypeTag() == .Pointer and
-                inst_ty.childType().tag() == .anon_struct and
-                !dest_info.mutable)
-            {
-                return sema.coerceAnonStructToUnionPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
+            switch (dest_info.size) {
+                .C, .Many => {},
+                .One => switch (dest_info.pointee_type.zigTypeTag()) {
+                    .Union => {
+                        // cast from pointer to anonymous struct to pointer to union
+                        if (inst_ty.isSinglePointer() and
+                            inst_ty.childType().isAnonStruct() and
+                            !dest_info.mutable)
+                        {
+                            return sema.coerceAnonStructToUnionPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
+                        }
+                    },
+                    .Struct => {
+                        // cast from pointer to anonymous struct to pointer to struct
+                        if (inst_ty.isSinglePointer() and
+                            inst_ty.childType().isAnonStruct() and
+                            !dest_info.mutable)
+                        {
+                            return sema.coerceAnonStructToStructPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
+                        }
+                    },
+                    else => {},
+                },
+                .Slice => {
+                    // pointer to tuple to slice
+                    if (inst_ty.isSinglePointer() and
+                        inst_ty.childType().isTuple() and
+                        !dest_info.mutable and dest_info.size == .Slice)
+                    {
+                        return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
+                    }
+                },
             }
 
             // This will give an extra hint on top of what the bottom of this func would provide.
@@ -17365,6 +17390,20 @@ fn coerceAnonStructToUnionPtrs(
     return sema.analyzeRef(block, union_ty_src, union_inst);
 }
 
+fn coerceAnonStructToStructPtrs(
+    sema: *Sema,
+    block: *Block,
+    ptr_struct_ty: Type,
+    struct_ty_src: LazySrcLoc,
+    ptr_anon_struct: Air.Inst.Ref,
+    anon_struct_src: LazySrcLoc,
+) !Air.Inst.Ref {
+    const struct_ty = ptr_struct_ty.childType();
+    const anon_struct = try sema.analyzeLoad(block, anon_struct_src, ptr_anon_struct, anon_struct_src);
+    const struct_inst = try sema.coerceTupleToStruct(block, struct_ty, struct_ty_src, anon_struct, anon_struct_src);
+    return sema.analyzeRef(block, struct_ty_src, struct_inst);
+}
+
 /// If the lengths match, coerces element-wise.
 fn coerceArrayLike(
     sema: *Sema,
@@ -17494,6 +17533,27 @@ fn coerceTupleToArray(
     );
 }
 
+/// If the lengths match, coerces element-wise.
+fn coerceTupleToSlicePtrs(
+    sema: *Sema,
+    block: *Block,
+    slice_ty: Type,
+    slice_ty_src: LazySrcLoc,
+    ptr_tuple: Air.Inst.Ref,
+    tuple_src: LazySrcLoc,
+) !Air.Inst.Ref {
+    const tuple_ty = sema.typeOf(ptr_tuple).childType();
+    const tuple = try sema.analyzeLoad(block, tuple_src, ptr_tuple, tuple_src);
+    const slice_info = slice_ty.ptrInfo().data;
+    const array_ty = try Type.array(sema.arena, tuple_ty.structFieldCount(), slice_info.sentinel, slice_info.pointee_type);
+    const array_inst = try sema.coerceTupleToArray(block, array_ty, slice_ty_src, tuple, tuple_src);
+    if (slice_info.@"align" != 0) {
+        return sema.fail(block, slice_ty_src, "TODO: override the alignment of the array decl we create here", .{});
+    }
+    const ptr_array = try sema.analyzeRef(block, slice_ty_src, array_inst);
+    return sema.coerceArrayPtrToSlice(block, slice_ty, ptr_array, slice_ty_src);
+}
+
 /// Handles both tuples and anon struct literals. Coerces field-wise. Reports
 /// errors for both extra fields and missing fields.
 fn coerceTupleToStruct(
@@ -17504,11 +17564,13 @@ fn coerceTupleToStruct(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
-    if (dest_ty.isTupleOrAnonStruct()) {
+    const struct_ty = try sema.resolveTypeFields(block, dest_ty_src, dest_ty);
+
+    if (struct_ty.isTupleOrAnonStruct()) {
         return sema.fail(block, dest_ty_src, "TODO: implement coercion from tuples to tuples", .{});
     }
 
-    const fields = dest_ty.structFields();
+    const fields = struct_ty.structFields();
     const field_vals = try sema.arena.alloc(Value, fields.count());
     const field_refs = try sema.arena.alloc(Air.Inst.Ref, field_vals.len);
     mem.set(Air.Inst.Ref, field_refs, .none);
@@ -17523,7 +17585,7 @@ fn coerceTupleToStruct(
             payload.data.names[i]
         else
             try std.fmt.allocPrint(sema.arena, "{d}", .{i});
-        const field_index = try sema.structFieldIndex(block, dest_ty, field_name, field_src);
+        const field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
         const field = fields.values()[field_index];
         if (field.is_comptime) {
             return sema.fail(block, dest_ty_src, "TODO: implement coercion from tuples to structs when one of the destination struct fields is comptime", .{});
@@ -17567,17 +17629,17 @@ fn coerceTupleToStruct(
     }
 
     if (root_msg) |msg| {
-        try sema.addDeclaredHereNote(msg, dest_ty);
+        try sema.addDeclaredHereNote(msg, struct_ty);
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
     if (runtime_src) |rs| {
         try sema.requireRuntimeBlock(block, rs);
-        return block.addAggregateInit(dest_ty, field_refs);
+        return block.addAggregateInit(struct_ty, field_refs);
     }
 
     return sema.addConstant(
-        dest_ty,
+        struct_ty,
         try Value.Tag.@"struct".create(sema.arena, field_vals),
     );
 }

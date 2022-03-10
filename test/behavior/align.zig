@@ -6,17 +6,15 @@ const native_arch = builtin.target.cpu.arch;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime try expect(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
     comptime try expect(@TypeOf(&foo) == *align(4) u8);
     {
-        const slice = @as(*[1]u8, &foo)[0..];
+        const slice = @as(*align(4) [1]u8, &foo)[0..];
         comptime try expect(@TypeOf(slice) == *align(4) [1]u8);
     }
     {
         var runtime_zero: usize = 0;
-        const slice = @as(*[1]u8, &foo)[runtime_zero..];
+        const slice = @as(*align(4) [1]u8, &foo)[runtime_zero..];
         comptime try expect(@TypeOf(slice) == []align(4) u8);
     }
 }
@@ -86,8 +84,6 @@ test "size of extern struct with 128-bit field" {
 }
 
 test "@ptrCast preserves alignment of bigger source" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var x: u32 align(16) = 1234;
     const ptr = @ptrCast(*u8, &x);
     try expect(@TypeOf(ptr) == *align(16) u8);
