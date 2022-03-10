@@ -1481,6 +1481,36 @@ pub const EM = enum(u16) {
     _BPF = 247,
 
     _,
+
+    pub fn toTargetCpuArch(em: EM) ?std.Target.Cpu.Arch {
+        return switch (em) {
+            ._AVR => .avr,
+            ._MSP430 => .msp430,
+            ._ARC => .arc,
+            ._ARM => .arm,
+            ._HEXAGON => .hexagon,
+            ._68K => .m68k,
+            ._MIPS => .mips,
+            ._MIPS_RS3_LE => .mipsel,
+            ._PPC => .powerpc,
+            ._SPARC => .sparc,
+            ._386 => .i386,
+            ._XCORE => .xcore,
+            ._CSR_KALIMBA => .kalimba,
+            ._LANAI => .lanai,
+            ._AARCH64 => .aarch64,
+            ._PPC64 => .powerpc64,
+            ._RISCV => .riscv64,
+            ._X86_64 => .x86_64,
+            ._BPF => .bpfel,
+            ._SPARCV9 => .sparcv9,
+            ._S390 => .s390x,
+            ._SPU_2 => .spu_2,
+            // there's many cases we don't (yet) handle, or will never have a
+            // zig target cpu arch equivalent (such as null).
+            else => null,
+        };
+    }
 };
 
 /// Section data should be writable during execution.
@@ -1681,7 +1711,7 @@ pub const R_X86_64_TLSDESC = 36;
 pub const R_X86_64_IRELATIVE = 37;
 /// 64-bit adjust by program base
 pub const R_X86_64_RELATIVE64 = 38;
-/// 39 Reserved was R_X86_64_PC32_BND 
+/// 39 Reserved was R_X86_64_PC32_BND
 /// 40 Reserved was R_X86_64_PLT32_BND
 /// Load from 32 bit signed pc relative offset to GOT entry without REX prefix, relaxable
 pub const R_X86_64_GOTPCRELX = 41;
