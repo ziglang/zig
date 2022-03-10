@@ -57,6 +57,7 @@ test {
     _ = @import("behavior/bugs/5487.zig");
     _ = @import("behavior/bugs/6850.zig");
     _ = @import("behavior/bugs/7003.zig");
+    _ = @import("behavior/bugs/7047.zig");
     _ = @import("behavior/bugs/7250.zig");
     _ = @import("behavior/bugs/11100.zig");
     _ = @import("behavior/bugs/10970.zig");
@@ -142,11 +143,14 @@ test {
         if (builtin.zig_backend != .stage2_c) {
             // Tests that pass for stage1 and the llvm backend.
             _ = @import("behavior/atomics.zig");
+            _ = @import("behavior/export.zig");
             _ = @import("behavior/maximum_minimum.zig");
             _ = @import("behavior/popcount.zig");
             _ = @import("behavior/saturating_arithmetic.zig");
             _ = @import("behavior/widening.zig");
             _ = @import("behavior/bugs/2114.zig");
+            _ = @import("behavior/bugs/3779.zig");
+            _ = @import("behavior/bugs/10147.zig");
             _ = @import("behavior/union_with_members.zig");
 
             if (builtin.zig_backend == .stage1) {
@@ -160,14 +164,10 @@ test {
                 _ = @import("behavior/bugs/920.zig");
                 _ = @import("behavior/bugs/1120.zig");
                 _ = @import("behavior/bugs/1851.zig");
-                _ = @import("behavior/bugs/3779.zig");
                 _ = @import("behavior/bugs/6456.zig");
                 _ = @import("behavior/bugs/6781.zig");
                 _ = @import("behavior/bugs/7027.zig");
-                _ = @import("behavior/bugs/7047.zig");
-                _ = @import("behavior/bugs/10147.zig");
                 _ = @import("behavior/const_slice_child.zig");
-                _ = @import("behavior/export.zig");
                 _ = @import("behavior/select.zig");
                 _ = @import("behavior/shuffle.zig");
                 _ = @import("behavior/struct_contains_slice_of_itself.zig");
