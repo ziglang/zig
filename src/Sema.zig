@@ -2212,6 +2212,10 @@ fn zirErrorSetDecl(
             return sema.fail(block, src, "duplicate error set field {s}", .{name});
         }
     }
+
+    // names must be sorted.
+    Module.ErrorSet.sortNames(&names);
+
     error_set.* = .{
         .owner_decl = new_decl,
         .node_offset = inst_data.src_node,

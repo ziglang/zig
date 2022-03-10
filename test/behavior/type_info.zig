@@ -205,11 +205,12 @@ test "type info: error set single value" {
 }
 
 test "type info: error set merged" {
+    // #11022 forces ordering of error sets in stage2
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const TestSet = error{ One, Two } || error{Three};
 
@@ -217,8 +218,8 @@ test "type info: error set merged" {
     try expect(error_set_info == .ErrorSet);
     try expect(error_set_info.ErrorSet.?.len == 3);
     try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
-    try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
-    try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
+    try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Three"));
+    try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
 }
 
 test "type info: enum info" {
