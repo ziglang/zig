@@ -1472,12 +1472,12 @@ pub const DeclGen = struct {
                     return llvm_int.constIntToPtr(try dg.llvmType(tv.ty));
                 },
                 .field_ptr, .opt_payload_ptr, .eu_payload_ptr => {
-                    const parent = try dg.lowerParentPtr(tv.val);
+                    const parent = try dg.lowerParentPtr(tv.val, tv.ty);
                     return parent.llvm_ptr.constBitCast(try dg.llvmType(tv.ty));
                 },
                 .elem_ptr => {
                     const elem_ptr = tv.val.castTag(.elem_ptr).?.data;
-                    const parent = try dg.lowerParentPtr(elem_ptr.array_ptr);
+                    const parent = try dg.lowerParentPtr(elem_ptr.array_ptr, tv.ty);
                     const llvm_usize = try dg.llvmType(Type.usize);
                     if (parent.llvm_ptr.typeOf().getElementType().getTypeKind() == .Array) {
                         const indices: [2]*const llvm.Value = .{
@@ -2683,7 +2683,7 @@ pub const DeclGen = struct {
         };
     }
 
-    fn lowerParentPtr(dg: *DeclGen, ptr_val: Value) Error!ParentPtr {
+    fn lowerParentPtr(dg: *DeclGen, ptr_val: Value, base_ty: Type) Error!ParentPtr {
         switch (ptr_val.tag()) {
             .decl_ref_mut => {
                 const decl = ptr_val.castTag(.decl_ref_mut).?.data.decl;
@@ -2697,9 +2697,27 @@ pub const DeclGen = struct {
                 const decl = ptr_val.castTag(.variable).?.data.owner_decl;
                 return dg.lowerParentPtrDecl(ptr_val, decl);
             },
+            .int_i64 => {
+                const int = ptr_val.castTag(.int_i64).?.data;
+                const llvm_usize = try dg.llvmType(Type.usize);
+                const llvm_int = llvm_usize.constInt(@bitCast(u64, int), .False);
+                return ParentPtr{
+                    .llvm_ptr = llvm_int.constIntToPtr(try dg.llvmType(base_ty)),
+                    .ty = base_ty,
+                };
+            },
+            .int_u64 => {
+                const int = ptr_val.castTag(.int_u64).?.data;
+                const llvm_usize = try dg.llvmType(Type.usize);
+                const llvm_int = llvm_usize.constInt(int, .False);
+                return ParentPtr{
+                    .llvm_ptr = llvm_int.constIntToPtr(try dg.llvmType(base_ty)),
+                    .ty = base_ty,
+                };
+            },
             .field_ptr => {
                 const field_ptr = ptr_val.castTag(.field_ptr).?.data;
-                const parent = try dg.lowerParentPtr(field_ptr.container_ptr);
+                const parent = try dg.lowerParentPtr(field_ptr.container_ptr, base_ty);
                 const field_index = @intCast(u32, field_ptr.field_index);
                 const llvm_u32 = dg.context.intType(32);
                 const target = dg.module.getTarget();
@@ -2753,7 +2771,7 @@ pub const DeclGen = struct {
             },
             .elem_ptr => {
                 const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-                const parent = try dg.lowerParentPtr(elem_ptr.array_ptr);
+                const parent = try dg.lowerParentPtr(elem_ptr.array_ptr, base_ty);
                 const llvm_usize = try dg.llvmType(Type.usize);
                 const indices: [2]*const llvm.Value = .{
                     llvm_usize.constInt(0, .False),
@@ -2766,7 +2784,7 @@ pub const DeclGen = struct {
             },
             .opt_payload_ptr => {
                 const opt_payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
-                const parent = try dg.lowerParentPtr(opt_payload_ptr);
+                const parent = try dg.lowerParentPtr(opt_payload_ptr, base_ty);
                 var buf: Type.Payload.ElemType = undefined;
                 const payload_ty = parent.ty.optionalChild(&buf);
                 if (!payload_ty.hasRuntimeBits() or parent.ty.isPtrLikeOptional()) {
@@ -2790,7 +2808,7 @@ pub const DeclGen = struct {
             },
             .eu_payload_ptr => {
                 const eu_payload_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
-                const parent = try dg.lowerParentPtr(eu_payload_ptr);
+                const parent = try dg.lowerParentPtr(eu_payload_ptr, base_ty);
                 const payload_ty = parent.ty.errorUnionPayload();
                 if (!payload_ty.hasRuntimeBits()) {
                     // In this case, we represent pointer to error union the same as pointer
