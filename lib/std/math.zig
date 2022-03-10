@@ -1190,18 +1190,18 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
         .Int => {
             switch (@typeInfo(@TypeOf(value))) {
                 .Int, .ComptimeInt => {
-                    if (value > maxInt(T)) {
+                    if (value >= maxInt(T)) {
                         return @as(T, maxInt(T));
-                    } else if (value < minInt(T)) {
+                    } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
                     } else {
                         return @intCast(T, value);
                     }
                 },
                 .Float, .ComptimeFloat => {
-                    if (value > maxInt(T)) {
+                    if (value >= maxInt(T)) {
                         return @as(T, maxInt(T));
-                    } else if (value < minInt(T)) {
+                    } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
                     } else {
                         return @floatToInt(T, value);
@@ -1218,6 +1218,7 @@ test "math.lossyCast" {
     try testing.expect(lossyCast(i16, 70000.0) == @as(i16, 32767));
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
+    try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
 }
 
 test "math.f64_min" {
