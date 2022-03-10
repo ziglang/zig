@@ -61,7 +61,7 @@ pub fn RegisterManager(
         }
 
         fn getRegisterMask(reg: Register) ?FreeRegInt {
-            const index = reg.allocIndex() orelse return null;
+            const index = indexOfRegIntoTracked(reg) orelse return null;
             const shift = @intCast(ShiftInt, index);
             const mask = @as(FreeRegInt, 1) << shift;
             return mask;
@@ -80,6 +80,17 @@ pub fn RegisterManager(
         fn markRegFree(self: *Self, reg: Register) void {
             const mask = getRegisterMask(reg) orelse return;
             self.free_registers |= mask;
+        }
+
+        pub fn indexOfReg(comptime registers: []const Register, reg: Register) ?std.math.IntFittingRange(0, registers.len - 1) {
+            inline for (callee_preserved_regs) |cpreg, i| {
+                if (reg.id() == cpreg.id()) return i;
+            }
+            return null;
+        }
+
+        pub fn indexOfRegIntoTracked(reg: Register) ?ShiftInt {
+            return indexOfReg(callee_preserved_regs, reg);
         }
 
         /// Returns true when this register is not tracked
@@ -157,7 +168,7 @@ pub fn RegisterManager(
 
                 if (insts[j]) |inst| {
                     // Track the register
-                    const index = reg.allocIndex().?; // allocIndex() on a callee-preserved reg should never return null
+                    const index = indexOfRegIntoTracked(reg).?; // indexOfReg() on a callee-preserved reg should never return null
                     self.registers[index] = inst;
                     self.markRegUsed(reg);
                 }
@@ -196,7 +207,7 @@ pub fn RegisterManager(
 
                     regs[i] = reg;
                     self.markRegAllocated(reg);
-                    const index = reg.allocIndex().?; // allocIndex() on a callee-preserved reg should never return null
+                    const index = indexOfRegIntoTracked(reg).?; // indexOfReg() on a callee-preserved reg should never return null
                     if (insts[i]) |inst| {
                         // Track the register
                         if (self.isRegFree(reg)) {
@@ -235,7 +246,7 @@ pub fn RegisterManager(
         /// corresponding instruction is passed, will also track this
         /// register.
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
-            const index = reg.allocIndex() orelse return;
+            const index = indexOfRegIntoTracked(reg) orelse return;
             self.markRegAllocated(reg);
 
             if (inst) |tracked_inst|
@@ -263,7 +274,7 @@ pub fn RegisterManager(
         /// instruction. Asserts that the register is free and no
         /// spilling is necessary.
         pub fn getRegAssumeFree(self: *Self, reg: Register, inst: Air.Inst.Index) void {
-            const index = reg.allocIndex() orelse return;
+            const index = indexOfRegIntoTracked(reg) orelse return;
             self.markRegAllocated(reg);
 
             assert(self.isRegFree(reg));
@@ -273,7 +284,7 @@ pub fn RegisterManager(
 
         /// Marks the specified register as free
         pub fn freeReg(self: *Self, reg: Register) void {
-            const index = reg.allocIndex() orelse return;
+            const index = indexOfRegIntoTracked(reg) orelse return;
             log.debug("freeing register {}", .{reg});
 
             self.registers[index] = undefined;
@@ -288,11 +299,8 @@ const MockRegister1 = enum(u2) {
     r2,
     r3,
 
-    pub fn allocIndex(self: MockRegister1) ?u2 {
-        inline for (callee_preserved_regs) |cpreg, i| {
-            if (self == cpreg) return i;
-        }
-        return null;
+    pub fn id(reg: MockRegister1) u2 {
+        return @enumToInt(reg);
     }
 
     const callee_preserved_regs = [_]MockRegister1{ .r2, .r3 };
@@ -304,11 +312,8 @@ const MockRegister2 = enum(u2) {
     r2,
     r3,
 
-    pub fn allocIndex(self: MockRegister2) ?u2 {
-        inline for (callee_preserved_regs) |cpreg, i| {
-            if (self == cpreg) return i;
-        }
-        return null;
+    pub fn id(reg: MockRegister2) u2 {
+        return @enumToInt(reg);
     }
 
     const callee_preserved_regs = [_]MockRegister2{ .r0, .r1, .r2, .r3 };
