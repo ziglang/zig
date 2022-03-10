@@ -408,6 +408,13 @@ pub fn ArrayHashMap(
             return self.unmanaged.reIndexContext(self.allocator, self.ctx);
         }
 
+        /// Sorts the entries and then rebuilds the index.
+        /// `sort_ctx` must have this method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sort(self: *Self, sort_ctx: anytype) void {
+            return self.unmanaged.sortContext(sort_ctx, self.ctx);
+        }
+
         /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
         /// index entries. Keeps capacity the same.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
@@ -1169,6 +1176,22 @@ pub fn ArrayHashMapUnmanaged(
             self.index_header = new_header;
         }
 
+        /// Sorts the entries and then rebuilds the index.
+        /// `sort_ctx` must have this method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub inline fn sort(self: *Self, sort_ctx: anytype) void {
+            if (@sizeOf(ByIndexContext) != 0)
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call sortContext instead.");
+            return self.sortContext(sort_ctx, undefined);
+        }
+
+        pub fn sortContext(self: *Self, sort_ctx: anytype, ctx: Context) void {
+            self.entries.sort(sort_ctx);
+            const header = self.index_header orelse return;
+            header.reset();
+            self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, header);
+        }
+
         /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
         /// index entries. Keeps capacity the same.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
@@ -1868,6 +1891,14 @@ const IndexHeader = struct {
         allocator.free(slice);
     }
 
+    /// Puts an IndexHeader into the state that it would be in after being freshly allocated.
+    fn reset(header: *IndexHeader) void {
+        const index_size = hash_map.capacityIndexSize(header.bit_index);
+        const ptr = @ptrCast([*]align(@alignOf(IndexHeader)) u8, header);
+        const nbytes = @sizeOf(IndexHeader) + header.length() * index_size;
+        @memset(ptr + @sizeOf(IndexHeader), 0xff, nbytes - @sizeOf(IndexHeader));
+    }
+
     // Verify that the header has sufficient alignment to produce aligned arrays.
     comptime {
         if (@alignOf(u32) > @alignOf(IndexHeader))
@@ -2216,6 +2247,32 @@ test "auto store_hash" {
     const HasExpensiveEqlUn = AutoArrayHashMapUnmanaged([32]i32, i32);
     try testing.expect(meta.fieldInfo(HasCheapEqlUn.Data, .hash).field_type == void);
     try testing.expect(meta.fieldInfo(HasExpensiveEqlUn.Data, .hash).field_type != void);
+}
+
+test "sort" {
+    var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    for ([_]i32{ 8, 3, 12, 10, 2, 4, 9, 5, 6, 13, 14, 15, 16, 1, 11, 17, 7 }) |x| {
+        try map.put(x, x * 3);
+    }
+
+    const C = struct {
+        keys: []i32,
+
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.keys[a_index] < ctx.keys[b_index];
+        }
+    };
+
+    map.sort(C{ .keys = map.keys() });
+
+    var x: i32 = 1;
+    for (map.keys()) |key, i| {
+        try testing.expect(key == x);
+        try testing.expect(map.values()[i] == x * 3);
+        x += 1;
+    }
 }
 
 pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, K) u32) {
