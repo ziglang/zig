@@ -147,6 +147,7 @@ test {
             _ = @import("behavior/saturating_arithmetic.zig");
             _ = @import("behavior/widening.zig");
             _ = @import("behavior/bugs/2114.zig");
+            _ = @import("behavior/bugs/3779.zig");
             _ = @import("behavior/union_with_members.zig");
 
             if (builtin.zig_backend == .stage1) {
@@ -160,7 +161,6 @@ test {
                 _ = @import("behavior/bugs/920.zig");
                 _ = @import("behavior/bugs/1120.zig");
                 _ = @import("behavior/bugs/1851.zig");
-                _ = @import("behavior/bugs/3779.zig");
                 _ = @import("behavior/bugs/6456.zig");
                 _ = @import("behavior/bugs/6781.zig");
                 _ = @import("behavior/bugs/7027.zig");
