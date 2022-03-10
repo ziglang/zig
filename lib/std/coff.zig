@@ -62,6 +62,21 @@ pub const MachineType = enum(u16) {
     Thumb = 0x1c2,
     /// MIPS little-endian WCE v2
     WCEMIPSV2 = 0x169,
+
+    pub fn toTargetCpuArch(machine_type: MachineType) ?std.Target.Cpu.Arch {
+        return switch (machine_type) {
+            .ARM => .arm,
+            .POWERPC => .powerpc,
+            .RISCV32 => .riscv32,
+            .Thumb => .thumb,
+            .I386 => .i386,
+            .ARM64 => .aarch64,
+            .RISCV64 => .riscv64,
+            .X64 => .x86_64,
+            // there's cases we don't (yet) handle
+            else => null,
+        };
+    }
 };
 
 // OptionalHeader.magic values
