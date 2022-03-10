@@ -3995,7 +3995,7 @@ pub fn analyzeExport(
     try mod.ensureDeclAnalyzed(exported_decl);
     // TODO run the same checks as we do for C ABI struct fields
     switch (exported_decl.ty.zigTypeTag()) {
-        .Fn, .Int, .Struct, .Array, .Float => {},
+        .Fn, .Int, .Enum, .Struct, .Union, .Array, .Float => {},
         else => return sema.fail(block, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
@@ -11674,18 +11674,25 @@ fn zirStructInit(
         const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
         const field_index = try sema.unionFieldIndex(block, resolved_ty, field_name, field_src);
 
-        if (is_ref) {
-            return sema.fail(block, src, "TODO: Sema.zirStructInit is_ref=true union", .{});
-        }
-
         const init_inst = sema.resolveInst(item.data.init);
         if (try sema.resolveMaybeUndefVal(block, field_src, init_inst)) |val| {
             const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
-            return sema.addConstant(
+            return sema.addConstantMaybeRef(
+                block,
+                src,
                 resolved_ty,
                 try Value.Tag.@"union".create(sema.arena, .{ .tag = tag_val, .val = val }),
+                is_ref,
             );
         }
+
+        if (is_ref) {
+            const alloc = try block.addTy(.alloc, resolved_ty);
+            const field_ptr = try sema.unionFieldPtr(block, field_src, alloc, field_name, field_src, resolved_ty);
+            try sema.storePtr(block, src, field_ptr, init_inst);
+            return alloc;
+        }
+
         return sema.fail(block, src, "TODO: Sema.zirStructInit for runtime-known union values", .{});
     }
     unreachable;
