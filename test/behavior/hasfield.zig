@@ -34,4 +34,8 @@ test "@hasField" {
     try expect(@hasField(enm, "b") == true);
     try expect(@hasField(enm, "non-existant") == false);
     try expect(@hasField(enm, "nope") == false);
+
+    const anon = @TypeOf(.{ .a = 1 });
+    try expect(@hasField(anon, "a") == true);
+    try expect(@hasField(anon, "b") == false);
 }
