@@ -227,12 +227,17 @@ const Writer = struct {
             .ptr_elem_ptr,
             => try w.writeTyPlBin(s, inst),
 
+            .call,
+            .call_always_tail,
+            .call_never_tail,
+            .call_never_inline,
+            => try w.writeCall(s, inst),
+
             .struct_field_ptr => try w.writeStructField(s, inst),
             .struct_field_val => try w.writeStructField(s, inst),
             .constant => try w.writeConstant(s, inst),
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
-            .call => try w.writeCall(s, inst),
             .aggregate_init => try w.writeAggregateInit(s, inst),
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),

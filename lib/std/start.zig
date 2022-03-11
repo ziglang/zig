@@ -22,7 +22,16 @@ comptime {
     // The self-hosted compiler is not fully capable of handling all of this start.zig file.
     // Until then, we have simplified logic here for self-hosted. TODO remove this once
     // self-hosted is capable enough to handle all of the real start.zig logic.
-    if (builtin.zig_backend != .stage1) {
+    if (builtin.zig_backend == .stage2_wasm or
+        builtin.zig_backend == .stage2_c or
+        builtin.zig_backend == .stage2_x86_64 or
+        builtin.zig_backend == .stage2_x86 or
+        builtin.zig_backend == .stage2_aarch64 or
+        builtin.zig_backend == .stage2_arm or
+        builtin.zig_backend == .stage2_riscv64 or
+        (builtin.zig_backend == .stage2_llvm and native_os != .linux) or
+        (builtin.zig_backend == .stage2_llvm and native_arch != .x86_64))
+    {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
@@ -398,6 +407,11 @@ fn posixCallMainAndExit() noreturn {
 
         // Initialize the TLS area.
         std.os.linux.tls.initStaticTLS(phdrs);
+
+        if (builtin.zig_backend == .stage2_llvm) {
+            root.main();
+            exit2(0);
+        }
 
         // The way Linux executables represent stack size is via the PT_GNU_STACK
         // program header. However the kernel does not recognize it; it always gives 8 MiB.

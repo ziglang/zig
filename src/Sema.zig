@@ -4458,21 +4458,19 @@ fn analyzeCall(
         );
     }
 
-    switch (modifier) {
+    const call_tag: Air.Inst.Tag = switch (modifier) {
         .auto,
         .always_inline,
         .compile_time,
         .no_async,
-        => {},
+        => Air.Inst.Tag.call,
 
-        .async_kw,
-        .never_tail,
-        .never_inline,
-        .always_tail,
-        => return sema.fail(block, call_src, "TODO implement call with modifier {}", .{
-            modifier,
-        }),
-    }
+        .never_tail => Air.Inst.Tag.call_never_tail,
+        .never_inline => Air.Inst.Tag.call_never_inline,
+        .always_tail => Air.Inst.Tag.call_always_tail,
+
+        .async_kw => return sema.fail(block, call_src, "TODO implement async call", .{}),
+    };
 
     const gpa = sema.gpa;
 
@@ -4490,6 +4488,7 @@ fn analyzeCall(
             func_ty_info,
             ensure_result_used,
             uncasted_args,
+            call_tag,
         )) |some| {
             return some;
         } else |err| switch (err) {
@@ -4771,7 +4770,7 @@ fn analyzeCall(
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
             args.len);
         const func_inst = try block.addInst(.{
-            .tag = .call,
+            .tag = call_tag,
             .data = .{ .pl_op = .{
                 .operand = func,
                 .payload = sema.addExtraAssumeCapacity(Air.Call{
@@ -4798,6 +4797,7 @@ fn instantiateGenericCall(
     func_ty_info: Type.Payload.Function.Data,
     ensure_result_used: bool,
     uncasted_args: []const Air.Inst.Ref,
+    call_tag: Air.Inst.Tag,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -5107,7 +5107,7 @@ fn instantiateGenericCall(
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
         runtime_args_len);
     const func_inst = try block.addInst(.{
-        .tag = .call,
+        .tag = call_tag,
         .data = .{ .pl_op = .{
             .operand = callee_inst,
             .payload = sema.addExtraAssumeCapacity(Air.Call{

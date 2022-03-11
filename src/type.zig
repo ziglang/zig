@@ -2187,7 +2187,8 @@ pub const Type = extern union {
                 if (fn_info.is_generic) return false;
                 if (fn_info.is_var_args) return true;
                 switch (fn_info.cc) {
-                    // If there was a comptime calling convention, it should also return false here.
+                    // If there was a comptime calling convention,
+                    // it should also return false here.
                     .Inline => return false,
                     else => {},
                 }
@@ -2196,6 +2197,14 @@ pub const Type = extern union {
             },
             else => return ty.hasRuntimeBits(),
         }
+    }
+
+    /// Same as `isFnOrHasRuntimeBits` but comptime-only types may return a false positive.
+    pub fn isFnOrHasRuntimeBitsIgnoreComptime(ty: Type) bool {
+        return switch (ty.zigTypeTag()) {
+            .Fn => true,
+            else => return ty.hasRuntimeBitsIgnoreComptime(),
+        };
     }
 
     pub fn isNoReturn(self: Type) bool {

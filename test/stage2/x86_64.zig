@@ -1925,7 +1925,7 @@ fn addLinuxTestCases(ctx: *TestContext) !void {
         var case = ctx.exe("hello world with updates", linux_x64);
 
         case.addError("", &[_][]const u8{
-            ":99:9: error: struct 'tmp.tmp' has no member named 'main'",
+            ":108:9: error: struct 'tmp.tmp' has no member named 'main'",
         });
 
         // Incorrect return type
@@ -2176,7 +2176,7 @@ fn addMacOsTestCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("darwin hello world with updates", macos_x64);
         case.addError("", &[_][]const u8{
-            ":99:9: error: struct 'tmp.tmp' has no member named 'main'",
+            ":108:9: error: struct 'tmp.tmp' has no member named 'main'",
         });
 
         // Incorrect return type

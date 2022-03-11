@@ -720,6 +720,11 @@ test "string concatenation" {
 
 test "thread local variable" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch != .x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         threadlocal var t: i32 = 1234;
@@ -746,11 +751,12 @@ fn maybe(x: bool) anyerror!?u32 {
 }
 
 test "pointer to thread local array" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch != .x86_64) return error.SkipZigTest; // TODO
 
     const s = "Hello world";
     std.mem.copy(u8, buffer[0..], s);

@@ -159,7 +159,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("hello world with updates", macos_aarch64);
         case.addError("", &[_][]const u8{
-            ":99:9: error: struct 'tmp.tmp' has no member named 'main'",
+            ":108:9: error: struct 'tmp.tmp' has no member named 'main'",
         });
 
         // Incorrect return type

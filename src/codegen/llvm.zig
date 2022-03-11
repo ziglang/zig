@@ -661,14 +661,19 @@ pub const Object = struct {
         // If the module does not already have the function, we ignore this function call
         // because we call `updateDeclExports` at the end of `updateFunc` and `updateDecl`.
         const llvm_global = self.decl_map.get(decl) orelse return;
-        const is_extern = decl.isExtern();
-        if (is_extern) {
+        if (decl.isExtern()) {
             llvm_global.setValueName(decl.name);
             llvm_global.setUnnamedAddr(.False);
             llvm_global.setLinkage(.External);
             if (decl.val.castTag(.variable)) |variable| {
-                if (variable.data.is_threadlocal) llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
-                if (variable.data.is_weak_linkage) llvm_global.setLinkage(.ExternalWeak);
+                if (variable.data.is_threadlocal) {
+                    llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
+                } else {
+                    llvm_global.setThreadLocalMode(.NotThreadLocal);
+                }
+                if (variable.data.is_weak_linkage) {
+                    llvm_global.setLinkage(.ExternalWeak);
+                }
             }
         } else if (exports.len != 0) {
             const exp_name = exports[0].options.name;
@@ -681,7 +686,9 @@ pub const Object = struct {
                 .LinkOnce => llvm_global.setLinkage(.LinkOnceODR),
             }
             if (decl.val.castTag(.variable)) |variable| {
-                if (variable.data.is_threadlocal) llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
+                if (variable.data.is_threadlocal) {
+                    llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
+                }
             }
             // If a Decl is exported more than one time (which is rare),
             // we add aliases for all but the first export.
@@ -709,6 +716,14 @@ pub const Object = struct {
             llvm_global.setValueName2(fqn.ptr, fqn.len);
             llvm_global.setLinkage(.Internal);
             llvm_global.setUnnamedAddr(.True);
+            if (decl.val.castTag(.variable)) |variable| {
+                const single_threaded = module.comp.bin_file.options.single_threaded;
+                if (variable.data.is_threadlocal and !single_threaded) {
+                    llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
+                } else {
+                    llvm_global.setThreadLocalMode(.NotThreadLocal);
+                }
+            }
         }
     }
 
@@ -937,19 +952,6 @@ pub const DeclGen = struct {
         const llvm_global = dg.object.llvm_module.addGlobalInAddressSpace(llvm_type, fqn, llvm_addrspace);
         gop.value_ptr.* = llvm_global;
 
-        if (decl.isExtern()) {
-            llvm_global.setValueName(decl.name);
-            llvm_global.setUnnamedAddr(.False);
-            llvm_global.setLinkage(.External);
-            if (decl.val.castTag(.variable)) |variable| {
-                if (variable.data.is_threadlocal) llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
-                if (variable.data.is_weak_linkage) llvm_global.setLinkage(.ExternalWeak);
-            }
-        } else {
-            llvm_global.setLinkage(.Internal);
-            llvm_global.setUnnamedAddr(.True);
-        }
-
         return llvm_global;
     }
 
@@ -1033,8 +1035,8 @@ pub const DeclGen = struct {
                 const elem_ty = ptr_info.pointee_type;
                 const lower_elem_ty = switch (elem_ty.zigTypeTag()) {
                     .Opaque, .Fn => true,
-                    .Array => elem_ty.childType().hasRuntimeBits(),
-                    else => elem_ty.hasRuntimeBits(),
+                    .Array => elem_ty.childType().hasRuntimeBitsIgnoreComptime(),
+                    else => elem_ty.hasRuntimeBitsIgnoreComptime(),
                 };
                 const llvm_elem_ty = if (lower_elem_ty)
                     try dg.llvmType(elem_ty)
@@ -3158,7 +3160,6 @@ pub const FuncGen = struct {
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
-                .call           => try self.airCall(inst),
                 .cond_br        => try self.airCondBr(inst),
                 .intcast        => try self.airIntCast(inst),
                 .trunc          => try self.airTrunc(inst),
@@ -3174,6 +3175,11 @@ pub const FuncGen = struct {
                 .assembly       => try self.airAssembly(inst),
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
+
+                .call              => try self.airCall(inst, .Auto),
+                .call_always_tail  => try self.airCall(inst, .AlwaysTail),
+                .call_never_tail   => try self.airCall(inst, .NeverTail),
+                .call_never_inline => try self.airCall(inst, .NeverInline),
 
                 .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
                 .ptr_slice_len_ptr => try self.airPtrSliceFieldPtr(inst, 1),
@@ -3253,7 +3259,7 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airCall(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airCall(self: *FuncGen, inst: Air.Inst.Index, attr: llvm.CallAttr) !?*const llvm.Value {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
         const args = @bitCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
@@ -3298,7 +3304,7 @@ pub const FuncGen = struct {
             llvm_args.items.ptr,
             @intCast(c_uint, llvm_args.items.len),
             toLlvmCallConv(zig_fn_ty.fnCallingConvention(), target),
-            .Auto,
+            attr,
             "",
         );
 
@@ -4063,6 +4069,34 @@ pub const FuncGen = struct {
         }
         const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
 
+        // hackety hacks until stage2 has proper inline asm in the frontend.
+        var rendered_template = std.ArrayList(u8).init(self.gpa);
+        defer rendered_template.deinit();
+
+        const State = enum { start, percent };
+
+        var state: State = .start;
+
+        for (asm_source) |byte| {
+            switch (state) {
+                .start => switch (byte) {
+                    '%' => state = .percent,
+                    else => try rendered_template.append(byte),
+                },
+                .percent => switch (byte) {
+                    '%' => {
+                        try rendered_template.append('%');
+                        state = .start;
+                    },
+                    else => {
+                        try rendered_template.append('%');
+                        try rendered_template.append(byte);
+                        state = .start;
+                    },
+                },
+            }
+        }
+
         const ret_ty = self.air.typeOfIndex(inst);
         const ret_llvm_ty = try self.dg.llvmType(ret_ty);
         const llvm_fn_ty = llvm.functionType(
@@ -4073,8 +4107,8 @@ pub const FuncGen = struct {
         );
         const asm_fn = llvm.getInlineAsm(
             llvm_fn_ty,
-            asm_source.ptr,
-            asm_source.len,
+            rendered_template.items.ptr,
+            rendered_template.items.len,
             llvm_constraints.items.ptr,
             llvm_constraints.items.len,
             llvm.Bool.fromBool(is_volatile),
@@ -5206,7 +5240,7 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
         const ptr_ty = self.air.typeOfIndex(inst);
         const pointee_type = ptr_ty.childType();
-        if (!pointee_type.isFnOrHasRuntimeBits()) return self.dg.lowerPtrToVoid(ptr_ty);
+        if (!pointee_type.isFnOrHasRuntimeBitsIgnoreComptime()) return self.dg.lowerPtrToVoid(ptr_ty);
 
         const pointee_llvm_ty = try self.dg.llvmType(pointee_type);
         const alloca_inst = self.buildAlloca(pointee_llvm_ty);
@@ -5220,7 +5254,7 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
         const ptr_ty = self.air.typeOfIndex(inst);
         const ret_ty = ptr_ty.childType();
-        if (!ret_ty.isFnOrHasRuntimeBits()) return self.dg.lowerPtrToVoid(ptr_ty);
+        if (!ret_ty.isFnOrHasRuntimeBitsIgnoreComptime()) return self.dg.lowerPtrToVoid(ptr_ty);
         if (self.ret_ptr) |ret_ptr| return ret_ptr;
         const ret_llvm_ty = try self.dg.llvmType(ret_ty);
         const target = self.dg.module.getTarget();
@@ -5457,7 +5491,7 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType();
-        if (!operand_ty.isFnOrHasRuntimeBits()) return null;
+        if (!operand_ty.isFnOrHasRuntimeBitsIgnoreComptime()) return null;
         var ptr = try self.resolveInst(bin_op.lhs);
         var element = try self.resolveInst(bin_op.rhs);
         const opt_abi_ty = self.dg.getAtomicAbiType(operand_ty, false);
@@ -6329,7 +6363,7 @@ pub const FuncGen = struct {
 
     fn load(self: *FuncGen, ptr: *const llvm.Value, ptr_ty: Type) !?*const llvm.Value {
         const info = ptr_ty.ptrInfo().data;
-        if (!info.pointee_type.hasRuntimeBits()) return null;
+        if (!info.pointee_type.hasRuntimeBitsIgnoreComptime()) return null;
 
         const target = self.dg.module.getTarget();
         const ptr_alignment = ptr_ty.ptrAlignment(target);
@@ -6384,7 +6418,7 @@ pub const FuncGen = struct {
     ) void {
         const info = ptr_ty.ptrInfo().data;
         const elem_ty = info.pointee_type;
-        if (!elem_ty.isFnOrHasRuntimeBits()) {
+        if (!elem_ty.isFnOrHasRuntimeBitsIgnoreComptime()) {
             return;
         }
         const target = self.dg.module.getTarget();

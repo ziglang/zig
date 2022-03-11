@@ -399,7 +399,7 @@ fn analyzeInst(
             return trackOperands(a, new_set, inst, main_tomb, .{ prefetch.ptr, .none, .none });
         },
 
-        .call => {
+        .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const inst_data = inst_datas[inst].pl_op;
             const callee = inst_data.operand;
             const extra = a.air.extraData(Air.Call, inst_data.payload);

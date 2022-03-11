@@ -226,6 +226,12 @@ pub const Inst = struct {
         /// Uses the `pl_op` field with the `Call` payload. operand is the callee.
         /// Triggers `resolveTypeLayout` on the return type of the callee.
         call,
+        /// Same as `call` except with the `always_tail` attribute.
+        call_always_tail,
+        /// Same as `call` except with the `never_tail` attribute.
+        call_never_tail,
+        /// Same as `call` except with the `never_inline` attribute.
+        call_never_inline,
         /// Count leading zeroes of an integer according to its representation in twos complement.
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
@@ -969,7 +975,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .tag_name, .error_name => return Type.initTag(.const_slice_u8_sentinel_0),
 
-        .call => {
+        .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand);
             switch (callee_ty.zigTypeTag()) {
                 .Fn => return callee_ty.fnReturnType(),

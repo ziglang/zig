@@ -1218,7 +1218,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .breakpoint => self.airBreakpoint(inst),
         .br => self.airBr(inst),
         .bool_to_int => self.airBoolToInt(inst),
-        .call => self.airCall(inst),
         .cond_br => self.airCondBr(inst),
         .dbg_stmt => WValue.none,
         .intcast => self.airIntcast(inst),
@@ -1226,6 +1225,11 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .fpext => self.airFpext(inst),
         .float_to_int => self.airFloatToInt(inst),
         .get_union_tag => self.airGetUnionTag(inst),
+
+        .call => self.airCall(inst, .auto),
+        .call_always_tail => self.airCall(inst, .always_tail),
+        .call_never_tail => self.airCall(inst, .never_tail),
+        .call_never_inline => self.airCall(inst, .never_inline),
 
         .is_err => self.airIsErr(inst, .i32_ne),
         .is_non_err => self.airIsErr(inst, .i32_eq),
@@ -1375,7 +1379,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const child_type = self.air.typeOfIndex(inst).childType();
 
-    if (!child_type.isFnOrHasRuntimeBits()) {
+    if (!child_type.isFnOrHasRuntimeBitsIgnoreComptime()) {
         return self.allocStack(Type.usize); // create pointer to void
     }
 
@@ -1401,7 +1405,8 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     return .none;
 }
 
-fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.Modifier) InnerError!WValue {
+    if (modifier == .always_tail) return self.fail("TODO implement tail calls for wasm", .{});
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
     const args = self.air.extra[extra.end..][0..extra.data.args_len];

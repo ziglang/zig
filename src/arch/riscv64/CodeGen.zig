@@ -553,7 +553,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ret_addr        => try self.airRetAddr(inst),
             .frame_addr      => try self.airFrameAddress(inst),
             .fence           => try self.airFence(),
-            .call            => try self.airCall(inst),
             .cond_br         => try self.airCondBr(inst),
             .dbg_stmt        => try self.airDbgStmt(inst),
             .fptrunc         => try self.airFptrunc(inst),
@@ -601,6 +600,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .union_init      => try self.airUnionInit(inst),
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => try self.airMulAdd(inst),
+
+            .call              => try self.airCall(inst, .auto),
+            .call_always_tail  => try self.airCall(inst, .always_tail),
+            .call_never_tail   => try self.airCall(inst, .never_tail),
+            .call_never_inline => try self.airCall(inst, .never_inline),
 
             .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
             .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -1458,7 +1462,8 @@ fn airFence(self: *Self) !void {
     //return self.finishAirBookkeeping();
 }
 
-fn airCall(self: *Self, inst: Air.Inst.Index) !void {
+fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.Modifier) !void {
+    if (modifier == .always_tail) return self.fail("TODO implement tail calls for riscv64", .{});
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const fn_ty = self.air.typeOf(pl_op.operand);
     const callee = pl_op.operand;
@@ -2496,7 +2501,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             result.stack_byte_count = next_stack_offset;
             result.stack_align = 16;
         },
-        else => return self.fail("TODO implement function parameters for {} on aarch64", .{cc}),
+        else => return self.fail("TODO implement function parameters for {} on riscv64", .{cc}),
     }
 
     if (ret_ty.zigTypeTag() == .NoReturn) {

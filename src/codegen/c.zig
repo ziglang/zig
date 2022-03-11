@@ -1685,7 +1685,6 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .assembly         => try airAsm(f, inst),
             .block            => try airBlock(f, inst),
             .bitcast          => try airBitcast(f, inst),
-            .call             => try airCall(f, inst),
             .dbg_stmt         => try airDbgStmt(f, inst),
             .intcast          => try airIntCast(f, inst),
             .trunc            => try airTrunc(f, inst),
@@ -1720,6 +1719,11 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .aggregate_init   => try airAggregateInit(f, inst),
             .union_init       => try airUnionInit(f, inst),
             .prefetch         => try airPrefetch(f, inst),
+
+            .call              => try airCall(f, inst, .auto),
+            .call_always_tail  => try airCall(f, inst, .always_tail),
+            .call_never_tail   => try airCall(f, inst, .never_tail),
+            .call_never_inline => try airCall(f, inst, .never_inline),
 
             .int_to_float,
             .float_to_int,
@@ -1904,7 +1908,7 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const elem_type = inst_ty.elemType();
     const mutability: Mutability = if (inst_ty.isConstPtr()) .Const else .Mut;
-    if (!elem_type.isFnOrHasRuntimeBits()) {
+    if (!elem_type.isFnOrHasRuntimeBitsIgnoreComptime()) {
         return CValue.undefined_ptr;
     }
 
@@ -1979,7 +1983,7 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airRet(f: *Function, inst: Air.Inst.Index) !CValue {
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const writer = f.object.writer();
-    if (f.air.typeOf(un_op).isFnOrHasRuntimeBits()) {
+    if (f.air.typeOf(un_op).isFnOrHasRuntimeBitsIgnoreComptime()) {
         const operand = try f.resolveInst(un_op);
         try writer.writeAll("return ");
         try f.writeCValue(writer, operand);
@@ -1995,7 +1999,7 @@ fn airRetLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const ptr_ty = f.air.typeOf(un_op);
     const ret_ty = ptr_ty.childType();
-    if (!ret_ty.isFnOrHasRuntimeBits()) {
+    if (!ret_ty.isFnOrHasRuntimeBitsIgnoreComptime()) {
         try writer.writeAll("return;\n");
     }
     const ptr = try f.resolveInst(un_op);
@@ -2561,7 +2565,18 @@ fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airCall(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airCall(
+    f: *Function,
+    inst: Air.Inst.Index,
+    modifier: std.builtin.CallOptions.Modifier,
+) !CValue {
+    switch (modifier) {
+        .auto => {},
+        .always_tail => return f.fail("TODO: C backend: call with always_tail attribute", .{}),
+        .never_tail => return f.fail("TODO: C backend: call with never_tail attribute", .{}),
+        .never_inline => return f.fail("TODO: C backend: call with never_inline attribute", .{}),
+        else => unreachable,
+    }
     const pl_op = f.air.instructions.items(.data)[inst].pl_op;
     const extra = f.air.extraData(Air.Call, pl_op.payload);
     const args = @bitCast([]const Air.Inst.Ref, f.air.extra[extra.end..][0..extra.data.args_len]);

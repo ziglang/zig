@@ -1942,6 +1942,7 @@ const Writer = struct {
             break :blk init_inst;
         };
         try self.writeFlag(stream, ", is_extern", small.is_extern);
+        try self.writeFlag(stream, ", is_threadlocal", small.is_threadlocal);
         try self.writeOptionalInstRef(stream, ", align=", align_inst);
         try self.writeOptionalInstRef(stream, ", init=", init_inst);
         try stream.writeAll("))");
