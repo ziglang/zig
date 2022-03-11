@@ -268,11 +268,13 @@ pub const Value = extern union {
 
                 .repeated,
                 .eu_payload,
-                .eu_payload_ptr,
                 .opt_payload,
-                .opt_payload_ptr,
                 .empty_array_sentinel,
                 => Payload.SubValue,
+
+                .eu_payload_ptr,
+                .opt_payload_ptr,
+                => Payload.PayloadPtr,
 
                 .bytes,
                 .enum_literal,
@@ -479,6 +481,20 @@ pub const Value = extern union {
             .variable => return self.copyPayloadShallow(arena, Payload.Variable),
             .decl_ref => return self.copyPayloadShallow(arena, Payload.Decl),
             .decl_ref_mut => return self.copyPayloadShallow(arena, Payload.DeclRefMut),
+            .eu_payload_ptr,
+            .opt_payload_ptr,
+            => {
+                const payload = self.cast(Payload.PayloadPtr).?;
+                const new_payload = try arena.create(Payload.PayloadPtr);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = .{
+                        .container_ptr = try payload.data.container_ptr.copy(arena),
+                        .container_ty = try payload.data.container_ty.copy(arena),
+                    },
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
             .elem_ptr => {
                 const payload = self.castTag(.elem_ptr).?;
                 const new_payload = try arena.create(Payload.ElemPtr);
@@ -486,6 +502,7 @@ pub const Value = extern union {
                     .base = payload.base,
                     .data = .{
                         .array_ptr = try payload.data.array_ptr.copy(arena),
+                        .elem_ty = try payload.data.elem_ty.copy(arena),
                         .index = payload.data.index,
                     },
                 };
@@ -498,6 +515,7 @@ pub const Value = extern union {
                     .base = payload.base,
                     .data = .{
                         .container_ptr = try payload.data.container_ptr.copy(arena),
+                        .container_ty = try payload.data.container_ty.copy(arena),
                         .field_index = payload.data.field_index,
                     },
                 };
@@ -506,9 +524,7 @@ pub const Value = extern union {
             .bytes => return self.copyPayloadShallow(arena, Payload.Bytes),
             .repeated,
             .eu_payload,
-            .eu_payload_ptr,
             .opt_payload,
-            .opt_payload_ptr,
             .empty_array_sentinel,
             => {
                 const payload = self.cast(Payload.SubValue).?;
@@ -740,11 +756,11 @@ pub const Value = extern union {
             .inferred_alloc_comptime => return out_stream.writeAll("(inferred comptime allocation value)"),
             .eu_payload_ptr => {
                 try out_stream.writeAll("(eu_payload_ptr)");
-                val = val.castTag(.eu_payload_ptr).?.data;
+                val = val.castTag(.eu_payload_ptr).?.data.container_ptr;
             },
             .opt_payload_ptr => {
                 try out_stream.writeAll("(opt_payload_ptr)");
-                val = val.castTag(.opt_payload_ptr).?.data;
+                val = val.castTag(.opt_payload_ptr).?.data.container_ptr;
             },
             .bound_fn => {
                 const bound_func = val.castTag(.bound_fn).?.data;
@@ -2162,8 +2178,8 @@ pub const Value = extern union {
             .decl_ref_mut => true,
             .elem_ptr => isComptimeMutablePtr(val.castTag(.elem_ptr).?.data.array_ptr),
             .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
-            .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data),
-            .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data),
+            .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
+            .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data.container_ptr),
 
             else => false,
         };
@@ -2174,9 +2190,9 @@ pub const Value = extern union {
         switch (val.tag()) {
             .repeated => return val.castTag(.repeated).?.data.canMutateComptimeVarState(),
             .eu_payload => return val.castTag(.eu_payload).?.data.canMutateComptimeVarState(),
-            .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.canMutateComptimeVarState(),
+            .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.container_ptr.canMutateComptimeVarState(),
             .opt_payload => return val.castTag(.opt_payload).?.data.canMutateComptimeVarState(),
-            .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.canMutateComptimeVarState(),
+            .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.container_ptr.canMutateComptimeVarState(),
             .aggregate => {
                 const fields = val.castTag(.aggregate).?.data;
                 for (fields) |field| {
@@ -2239,12 +2255,12 @@ pub const Value = extern union {
             .eu_payload_ptr => {
                 const err_union_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
                 std.hash.autoHash(hasher, Value.Tag.eu_payload_ptr);
-                hashPtr(err_union_ptr, hasher);
+                hashPtr(err_union_ptr.container_ptr, hasher);
             },
             .opt_payload_ptr => {
                 const opt_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
                 std.hash.autoHash(hasher, Value.Tag.opt_payload_ptr);
-                hashPtr(opt_ptr, hasher);
+                hashPtr(opt_ptr.container_ptr, hasher);
             },
 
             .zero,
@@ -2272,11 +2288,13 @@ pub const Value = extern union {
 
             .repeated,
             .eu_payload,
-            .eu_payload_ptr,
             .opt_payload,
-            .opt_payload_ptr,
             .empty_array_sentinel,
             => return markReferencedDeclsAlive(val.cast(Payload.SubValue).?.data),
+
+            .eu_payload_ptr,
+            .opt_payload_ptr,
+            => return markReferencedDeclsAlive(val.cast(Payload.PayloadPtr).?.data.container_ptr),
 
             .slice => {
                 const slice = val.cast(Payload.Slice).?.data;
@@ -2422,36 +2440,28 @@ pub const Value = extern union {
     }
 
     /// Returns a pointer to the element value at the index.
-    pub fn elemPtr(val: Value, arena: Allocator, index: usize) Allocator.Error!Value {
-        switch (val.tag()) {
-            .elem_ptr => {
-                const elem_ptr = val.castTag(.elem_ptr).?.data;
+    pub fn elemPtr(val: Value, ty: Type, arena: Allocator, index: usize) Allocator.Error!Value {
+        const elem_ty = ty.elemType2();
+        const ptr_val = switch (val.tag()) {
+            .slice => val.slicePtr(),
+            else => val,
+        };
+
+        if (ptr_val.tag() == .elem_ptr) {
+            const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
+            if (elem_ptr.elem_ty.eql(elem_ty)) {
                 return Tag.elem_ptr.create(arena, .{
                     .array_ptr = elem_ptr.array_ptr,
+                    .elem_ty = elem_ptr.elem_ty,
                     .index = elem_ptr.index + index,
                 });
-            },
-            .slice => {
-                const ptr_val = val.castTag(.slice).?.data.ptr;
-                switch (ptr_val.tag()) {
-                    .elem_ptr => {
-                        const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-                        return Tag.elem_ptr.create(arena, .{
-                            .array_ptr = elem_ptr.array_ptr,
-                            .index = elem_ptr.index + index,
-                        });
-                    },
-                    else => return Tag.elem_ptr.create(arena, .{
-                        .array_ptr = ptr_val,
-                        .index = index,
-                    }),
-                }
-            },
-            else => return Tag.elem_ptr.create(arena, .{
-                .array_ptr = val,
-                .index = index,
-            }),
+            }
         }
+        return Tag.elem_ptr.create(arena, .{
+            .array_ptr = ptr_val,
+            .elem_ty = elem_ty,
+            .index = index,
+        });
     }
 
     pub fn isUndef(self: Value) bool {
@@ -4144,12 +4154,21 @@ pub const Value = extern union {
             };
         };
 
+        pub const PayloadPtr = struct {
+            base: Payload,
+            data: struct {
+                container_ptr: Value,
+                container_ty: Type,
+            },
+        };
+
         pub const ElemPtr = struct {
             pub const base_tag = Tag.elem_ptr;
 
             base: Payload = Payload{ .tag = base_tag },
             data: struct {
                 array_ptr: Value,
+                elem_ty: Type,
                 index: usize,
             },
         };
@@ -4160,6 +4179,7 @@ pub const Value = extern union {
             base: Payload = Payload{ .tag = base_tag },
             data: struct {
                 container_ptr: Value,
+                container_ty: Type,
                 field_index: usize,
             },
         };

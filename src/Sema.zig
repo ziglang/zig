@@ -5568,7 +5568,10 @@ fn analyzeOptionalPayloadPtr(
             }
             return sema.addConstant(
                 child_pointer,
-                try Value.Tag.opt_payload_ptr.create(sema.arena, ptr_val),
+                try Value.Tag.opt_payload_ptr.create(sema.arena, .{
+                    .container_ptr = ptr_val,
+                    .container_ty = optional_ptr_ty.childType(),
+                }),
             );
         }
         if (try sema.pointerDeref(block, src, ptr_val, optional_ptr_ty)) |val| {
@@ -5578,7 +5581,10 @@ fn analyzeOptionalPayloadPtr(
             // The same Value represents the pointer to the optional and the payload.
             return sema.addConstant(
                 child_pointer,
-                try Value.Tag.opt_payload_ptr.create(sema.arena, ptr_val),
+                try Value.Tag.opt_payload_ptr.create(sema.arena, .{
+                    .container_ptr = ptr_val,
+                    .container_ty = optional_ptr_ty.childType(),
+                }),
             );
         }
     }
@@ -5733,7 +5739,10 @@ fn analyzeErrUnionPayloadPtr(
             }
             return sema.addConstant(
                 operand_pointer_ty,
-                try Value.Tag.eu_payload_ptr.create(sema.arena, ptr_val),
+                try Value.Tag.eu_payload_ptr.create(sema.arena, .{
+                    .container_ptr = ptr_val,
+                    .container_ty = operand_ty.elemType(),
+                }),
             );
         }
         if (try sema.pointerDeref(block, src, ptr_val, operand_ty)) |val| {
@@ -5743,7 +5752,10 @@ fn analyzeErrUnionPayloadPtr(
 
             return sema.addConstant(
                 operand_pointer_ty,
-                try Value.Tag.eu_payload_ptr.create(sema.arena, ptr_val),
+                try Value.Tag.eu_payload_ptr.create(sema.arena, .{
+                    .container_ptr = ptr_val,
+                    .container_ty = operand_ty.elemType(),
+                }),
             );
         }
     }
@@ -6652,6 +6664,7 @@ fn zirSwitchCapture(
                         field_ty_ptr,
                         try Value.Tag.field_ptr.create(sema.arena, .{
                             .container_ptr = op_ptr_val,
+                            .container_ty = operand_ty,
                             .field_index = field_index,
                         }),
                     );
@@ -9638,7 +9651,7 @@ fn analyzePtrArithmetic(
                 if (air_tag == .ptr_sub) {
                     return sema.fail(block, op_src, "TODO implement Sema comptime pointer subtraction", .{});
                 }
-                const new_ptr_val = try ptr_val.elemPtr(sema.arena, offset_int);
+                const new_ptr_val = try ptr_val.elemPtr(ptr_ty, sema.arena, offset_int);
                 return sema.addConstant(new_ptr_ty, new_ptr_val);
             } else break :rs offset_src;
         } else break :rs ptr_src;
@@ -15903,6 +15916,7 @@ fn finishFieldCallBind(
             ptr_field_ty,
             try Value.Tag.field_ptr.create(arena, .{
                 .container_ptr = struct_ptr_val,
+                .container_ty = ptr_ty.childType(),
                 .field_index = field_index,
             }),
         );
@@ -16065,6 +16079,7 @@ fn structFieldPtrByIndex(
             ptr_field_ty,
             try Value.Tag.field_ptr.create(sema.arena, .{
                 .container_ptr = struct_ptr_val,
+                .container_ty = struct_ptr_ty.childType(),
                 .field_index = field_index,
             }),
         );
@@ -16241,6 +16256,7 @@ fn unionFieldPtr(
             ptr_field_ty,
             try Value.Tag.field_ptr.create(arena, .{
                 .container_ptr = union_ptr_val,
+                .container_ty = union_ty,
                 .field_index = field_index,
             }),
         );
@@ -16333,7 +16349,7 @@ fn elemPtr(
                     const runtime_src = if (maybe_slice_val) |slice_val| rs: {
                         const index_val = maybe_index_val orelse break :rs elem_index_src;
                         const index = @intCast(usize, index_val.toUnsignedInt());
-                        const elem_ptr = try slice_val.elemPtr(sema.arena, index);
+                        const elem_ptr = try slice_val.elemPtr(array_ty, sema.arena, index);
                         return sema.addConstant(result_ty, elem_ptr);
                     } else array_ptr_src;
 
@@ -16348,7 +16364,7 @@ fn elemPtr(
                         const ptr_val = maybe_ptr_val orelse break :rs array_ptr_src;
                         const index_val = maybe_index_val orelse break :rs elem_index_src;
                         const index = @intCast(usize, index_val.toUnsignedInt());
-                        const elem_ptr = try ptr_val.elemPtr(sema.arena, index);
+                        const elem_ptr = try ptr_val.elemPtr(array_ty, sema.arena, index);
                         return sema.addConstant(result_ty, elem_ptr);
                     };
 
@@ -16473,6 +16489,7 @@ fn tupleFieldPtr(
             ptr_field_ty,
             try Value.Tag.field_ptr.create(sema.arena, .{
                 .container_ptr = tuple_ptr_val,
+                .container_ty = tuple_ty,
                 .field_index = field_index,
             }),
         );
@@ -16563,7 +16580,7 @@ fn elemPtrArray(
             const index_u64 = index_val.toUnsignedInt();
             // @intCast here because it would have been impossible to construct a value that
             // required a larger index.
-            const elem_ptr = try array_ptr_val.elemPtr(sema.arena, @intCast(usize, index_u64));
+            const elem_ptr = try array_ptr_val.elemPtr(array_ptr_ty, sema.arena, @intCast(usize, index_u64));
             return sema.addConstant(result_ty, elem_ptr);
         }
     }
@@ -17757,8 +17774,8 @@ fn beginComptimePtrMutation(
             }
         },
         .eu_payload_ptr => {
-            const eu_ptr_val = ptr_val.castTag(.eu_payload_ptr).?.data;
-            var parent = try beginComptimePtrMutation(sema, block, src, eu_ptr_val);
+            const eu_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
+            var parent = try beginComptimePtrMutation(sema, block, src, eu_ptr.container_ptr);
             const payload_ty = parent.ty.errorUnionPayload();
             switch (parent.val.tag()) {
                 else => {
@@ -17790,8 +17807,8 @@ fn beginComptimePtrMutation(
             }
         },
         .opt_payload_ptr => {
-            const opt_ptr_val = ptr_val.castTag(.opt_payload_ptr).?.data;
-            var parent = try beginComptimePtrMutation(sema, block, src, opt_ptr_val);
+            const opt_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
+            var parent = try beginComptimePtrMutation(sema, block, src, opt_ptr.container_ptr);
             const payload_ty = try parent.ty.optionalChildAlloc(sema.arena);
             switch (parent.val.tag()) {
                 .undef, .null_value => {
@@ -17965,7 +17982,7 @@ fn beginComptimePtrLoad(
         },
         .eu_payload_ptr => {
             const err_union_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
-            const parent = try beginComptimePtrLoad(sema, block, src, err_union_ptr);
+            const parent = try beginComptimePtrLoad(sema, block, src, err_union_ptr.container_ptr);
             return ComptimePtrLoadKit{
                 .root_val = parent.root_val,
                 .root_ty = parent.root_ty,
@@ -17977,7 +17994,7 @@ fn beginComptimePtrLoad(
         },
         .opt_payload_ptr => {
             const opt_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
-            const parent = try beginComptimePtrLoad(sema, block, src, opt_ptr);
+            const parent = try beginComptimePtrLoad(sema, block, src, opt_ptr.container_ptr);
             return ComptimePtrLoadKit{
                 .root_val = parent.root_val,
                 .root_ty = parent.root_ty,

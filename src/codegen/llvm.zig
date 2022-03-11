@@ -2901,7 +2901,7 @@ pub const DeclGen = struct {
             },
             .opt_payload_ptr => {
                 const opt_payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
-                const parent = try dg.lowerParentPtr(opt_payload_ptr, base_ty);
+                const parent = try dg.lowerParentPtr(opt_payload_ptr.container_ptr, base_ty);
                 var buf: Type.Payload.ElemType = undefined;
                 const payload_ty = parent.ty.optionalChild(&buf);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime() or parent.ty.isPtrLikeOptional()) {
@@ -2925,7 +2925,7 @@ pub const DeclGen = struct {
             },
             .eu_payload_ptr => {
                 const eu_payload_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
-                const parent = try dg.lowerParentPtr(eu_payload_ptr, base_ty);
+                const parent = try dg.lowerParentPtr(eu_payload_ptr.container_ptr, base_ty);
                 const payload_ty = parent.ty.errorUnionPayload();
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     // In this case, we represent pointer to error union the same as pointer
