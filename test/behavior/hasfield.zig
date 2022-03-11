@@ -38,4 +38,12 @@ test "@hasField" {
     const anon = @TypeOf(.{ .a = 1 });
     try expect(@hasField(anon, "a") == true);
     try expect(@hasField(anon, "b") == false);
+
+    const tuple = @TypeOf(.{ 1, 2 });
+    try expect(@hasField(tuple, "a") == false);
+    try expect(@hasField(tuple, "b") == false);
+    try expect(@hasField(tuple, "0") == true);
+    try expect(@hasField(tuple, "1") == true);
+    try expect(@hasField(tuple, "2") == false);
+    try expect(@hasField(tuple, "9999999999999999999999999") == false);
 }
