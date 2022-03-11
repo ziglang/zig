@@ -852,7 +852,7 @@ pub const ErrorSet = struct {
     }
 };
 
-pub const RequiresComptime = enum { no, yes, unknown, wip };
+pub const PropertyBoolean = enum { no, yes, unknown, wip };
 
 /// Represents the data that a struct declaration provides.
 pub const Struct = struct {
@@ -884,7 +884,8 @@ pub const Struct = struct {
     /// If false, resolving the fields is necessary to determine whether the type has only
     /// one possible value.
     known_non_opv: bool,
-    requires_comptime: RequiresComptime = .unknown,
+    requires_comptime: PropertyBoolean = .unknown,
+    has_well_defined_layout: PropertyBoolean = .unknown,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
@@ -1079,6 +1080,8 @@ pub const EnumFull = struct {
     /// An integer type which is used for the numerical value of the enum.
     /// Whether zig chooses this type or the user specifies it, it is stored here.
     tag_ty: Type,
+    /// true if zig inferred this tag type, false if user specified it
+    tag_ty_inferred: bool,
     /// Set of field names in declaration order.
     fields: NameMap,
     /// Maps integer tag value to field index.
@@ -1132,7 +1135,8 @@ pub const Union = struct {
         // which `have_layout` does not ensure.
         fully_resolved,
     },
-    requires_comptime: RequiresComptime = .unknown,
+    requires_comptime: PropertyBoolean = .unknown,
+    has_well_defined_layout: PropertyBoolean = .unknown,
 
     pub const Field = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.

@@ -1579,6 +1579,8 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const target = sema.mod.getTarget();
     const addr_space = target_util.defaultAddressSpace(target, .local);
 
+    try sema.resolveTypeLayout(block, src, pointee_ty);
+
     if (Air.refToIndex(ptr)) |ptr_inst| {
         if (sema.air_instructions.items(.tag)[ptr_inst] == .constant) {
             const air_datas = sema.air_instructions.items(.data);
@@ -1885,6 +1887,7 @@ fn zirEnumDecl(
     enum_obj.* = .{
         .owner_decl = new_decl,
         .tag_ty = Type.initTag(.@"null"),
+        .tag_ty_inferred = true,
         .fields = .{},
         .values = .{},
         .node_offset = src.node_offset,
@@ -1907,6 +1910,7 @@ fn zirEnumDecl(
             // TODO better source location
             const ty = try sema.resolveType(block, src, tag_type_ref);
             enum_obj.tag_ty = try ty.copy(new_decl_arena_allocator);
+            enum_obj.tag_ty_inferred = false;
         }
         try new_decl.finalizeNewArena(&new_decl_arena);
         return sema.analyzeDeclVal(block, src, new_decl);
@@ -1956,16 +1960,16 @@ fn zirEnumDecl(
 
         try wip_captures.finalize();
 
-        const tag_ty = blk: {
-            if (tag_type_ref != .none) {
-                // TODO better source location
-                const ty = try sema.resolveType(block, src, tag_type_ref);
-                break :blk try ty.copy(new_decl_arena_allocator);
-            }
+        if (tag_type_ref != .none) {
+            // TODO better source location
+            const ty = try sema.resolveType(block, src, tag_type_ref);
+            enum_obj.tag_ty = try ty.copy(new_decl_arena_allocator);
+            enum_obj.tag_ty_inferred = false;
+        } else {
             const bits = std.math.log2_int_ceil(usize, fields_len);
-            break :blk try Type.Tag.int_unsigned.create(new_decl_arena_allocator, bits);
-        };
-        enum_obj.tag_ty = tag_ty;
+            enum_obj.tag_ty = try Type.Tag.int_unsigned.create(new_decl_arena_allocator, bits);
+            enum_obj.tag_ty_inferred = true;
+        }
     }
 
     try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
@@ -2417,13 +2421,13 @@ fn zirAllocExtended(
             try sema.validateVarType(block, ty_src, var_ty, false);
         }
         const target = sema.mod.getTarget();
+        try sema.requireRuntimeBlock(block, src);
+        try sema.resolveTypeLayout(block, src, var_ty);
         const ptr_type = try Type.ptr(sema.arena, target, .{
             .pointee_type = var_ty,
             .@"align" = alignment,
             .@"addrspace" = target_util.defaultAddressSpace(target, .local),
         });
-        try sema.requireRuntimeBlock(block, src);
-        try sema.resolveTypeLayout(block, src, var_ty);
         return block.addTy(.alloc, ptr_type);
     }
 
@@ -21209,6 +21213,182 @@ fn typePtrOrOptionalPtrTy(
     }
 }
 
+fn typeHasWellDefinedLayout(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
+    return switch (ty.tag()) {
+        .u1,
+        .u8,
+        .i8,
+        .u16,
+        .i16,
+        .u32,
+        .i32,
+        .u64,
+        .i64,
+        .u128,
+        .i128,
+        .usize,
+        .isize,
+        .c_short,
+        .c_ushort,
+        .c_int,
+        .c_uint,
+        .c_long,
+        .c_ulong,
+        .c_longlong,
+        .c_ulonglong,
+        .c_longdouble,
+        .f16,
+        .f32,
+        .f64,
+        .f80,
+        .f128,
+        .bool,
+        .void,
+        .manyptr_u8,
+        .manyptr_const_u8,
+        .manyptr_const_u8_sentinel_0,
+        .anyerror_void_error_union,
+        .empty_struct_literal,
+        .empty_struct,
+        .array_u8,
+        .array_u8_sentinel_0,
+        .int_signed,
+        .int_unsigned,
+        .pointer,
+        .single_const_pointer,
+        .single_mut_pointer,
+        .many_const_pointer,
+        .many_mut_pointer,
+        .c_const_pointer,
+        .c_mut_pointer,
+        .single_const_pointer_to_comptime_int,
+        .enum_numbered,
+        => true,
+
+        .anyopaque,
+        .anyerror,
+        .noreturn,
+        .@"null",
+        .@"anyframe",
+        .@"undefined",
+        .atomic_order,
+        .atomic_rmw_op,
+        .calling_convention,
+        .address_space,
+        .float_mode,
+        .reduce_op,
+        .call_options,
+        .prefetch_options,
+        .export_options,
+        .extern_options,
+        .error_set,
+        .error_set_single,
+        .error_set_inferred,
+        .error_set_merged,
+        .@"opaque",
+        .generic_poison,
+        .type,
+        .comptime_int,
+        .comptime_float,
+        .enum_literal,
+        .type_info,
+        // These are function bodies, not function pointers.
+        .fn_noreturn_no_args,
+        .fn_void_no_args,
+        .fn_naked_noreturn_no_args,
+        .fn_ccc_void_no_args,
+        .function,
+        .const_slice_u8,
+        .const_slice_u8_sentinel_0,
+        .const_slice,
+        .mut_slice,
+        .enum_simple,
+        .error_union,
+        .anyframe_T,
+        .tuple,
+        .anon_struct,
+        => false,
+
+        .enum_full,
+        .enum_nonexhaustive,
+        => !ty.cast(Type.Payload.EnumFull).?.data.tag_ty_inferred,
+
+        .var_args_param => unreachable,
+        .inferred_alloc_mut => unreachable,
+        .inferred_alloc_const => unreachable,
+        .bound_fn => unreachable,
+
+        .array,
+        .array_sentinel,
+        .vector,
+        => sema.typeHasWellDefinedLayout(block, src, ty.childType()),
+
+        .optional,
+        .optional_single_mut_pointer,
+        .optional_single_const_pointer,
+        => blk: {
+            var buf: Type.Payload.ElemType = undefined;
+            break :blk sema.typeHasWellDefinedLayout(block, src, ty.optionalChild(&buf));
+        },
+
+        .@"struct" => {
+            const struct_obj = ty.castTag(.@"struct").?.data;
+            if (struct_obj.layout == .Auto) {
+                struct_obj.has_well_defined_layout = .no;
+                return false;
+            }
+            switch (struct_obj.has_well_defined_layout) {
+                .no => return false,
+                .yes, .wip => return true,
+                .unknown => {
+                    if (struct_obj.status == .field_types_wip)
+                        return true;
+
+                    try sema.resolveTypeFieldsStruct(block, src, ty, struct_obj);
+
+                    struct_obj.has_well_defined_layout = .wip;
+                    for (struct_obj.fields.values()) |field| {
+                        if (!(try sema.typeHasWellDefinedLayout(block, src, field.ty))) {
+                            struct_obj.has_well_defined_layout = .no;
+                            return false;
+                        }
+                    }
+                    struct_obj.has_well_defined_layout = .yes;
+                    return true;
+                },
+            }
+        },
+
+        .@"union", .union_tagged => {
+            const union_obj = ty.cast(Type.Payload.Union).?.data;
+            if (union_obj.layout == .Auto) {
+                union_obj.has_well_defined_layout = .no;
+                return false;
+            }
+            switch (union_obj.has_well_defined_layout) {
+                .no => return false,
+                .yes, .wip => return true,
+                .unknown => {
+                    if (union_obj.status == .field_types_wip)
+                        return true;
+
+                    try sema.resolveTypeFieldsUnion(block, src, ty, union_obj);
+
+                    union_obj.has_well_defined_layout = .wip;
+                    for (union_obj.fields.values()) |field| {
+                        if (!(try sema.typeHasWellDefinedLayout(block, src, field.ty))) {
+                            union_obj.has_well_defined_layout = .no;
+                            return false;
+                        }
+                    }
+                    union_obj.has_well_defined_layout = .yes;
+                    return true;
+                },
+            }
+        },
+    };
+}
+
 /// `generic_poison` will return false.
 /// This function returns false negatives when structs and unions are having their
 /// field types resolved.
@@ -21410,6 +21590,12 @@ pub fn typeHasRuntimeBits(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type)
     if ((try sema.typeHasOnePossibleValue(block, src, ty)) != null) return false;
     if (try sema.typeRequiresComptime(block, src, ty)) return false;
     return true;
+}
+
+fn typeAbiSize(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u64 {
+    try sema.resolveTypeLayout(block, src, ty);
+    const target = sema.mod.getTarget();
+    return ty.abiSize(target);
 }
 
 fn typeAbiAlignment(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u32 {

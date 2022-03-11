@@ -2173,6 +2173,149 @@ pub const Type = extern union {
         };
     }
 
+    /// true if and only if the type has a well-defined memory layout
+    /// readFrom/writeToMemory are supported only for types with a well-
+    /// defined memory layout
+    pub fn hasWellDefinedLayout(ty: Type) bool {
+        return switch (ty.tag()) {
+            .u1,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f80,
+            .f128,
+            .bool,
+            .void,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
+            .anyerror_void_error_union,
+            .empty_struct_literal,
+            .empty_struct,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .int_signed,
+            .int_unsigned,
+            .pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .single_const_pointer_to_comptime_int,
+            .enum_numbered,
+            => true,
+
+            .anyopaque,
+            .anyerror,
+            .noreturn,
+            .@"null",
+            .@"anyframe",
+            .@"undefined",
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .prefetch_options,
+            .export_options,
+            .extern_options,
+            .error_set,
+            .error_set_single,
+            .error_set_inferred,
+            .error_set_merged,
+            .@"opaque",
+            .generic_poison,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .enum_literal,
+            .type_info,
+            // These are function bodies, not function pointers.
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .const_slice_u8,
+            .const_slice_u8_sentinel_0,
+            .const_slice,
+            .mut_slice,
+            .enum_simple,
+            .error_union,
+            .anyframe_T,
+            .tuple,
+            .anon_struct,
+            => false,
+
+            .enum_full,
+            .enum_nonexhaustive,
+            => !ty.cast(Payload.EnumFull).?.data.tag_ty_inferred,
+
+            .var_args_param => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .inferred_alloc_const => unreachable,
+            .bound_fn => unreachable,
+
+            .array,
+            .array_sentinel,
+            .vector,
+            => ty.childType().hasWellDefinedLayout(),
+
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            => {
+                var buf: Type.Payload.ElemType = undefined;
+                return ty.optionalChild(&buf).hasWellDefinedLayout();
+            },
+
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                if (struct_obj.layout == .Auto) return false;
+                switch (struct_obj.has_well_defined_layout) {
+                    .wip, .unknown => unreachable, // This function asserts types already resolved.
+                    .no => return false,
+                    .yes => return true,
+                }
+            },
+
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                if (union_obj.layout == .Auto) return false;
+                switch (union_obj.has_well_defined_layout) {
+                    .wip, .unknown => unreachable, // This function asserts types already resolved.
+                    .no => return false,
+                    .yes => return true,
+                }
+            },
+        };
+    }
+
     pub fn hasRuntimeBits(ty: Type) bool {
         return hasRuntimeBitsAdvanced(ty, false);
     }
@@ -3263,6 +3406,7 @@ pub const Type = extern union {
     /// For ?[*]T,  returns T.
     /// For *T,     returns T.
     /// For [*]T,   returns T.
+    /// For [N]T,   returns T.
     /// For []T,    returns T.
     pub fn elemType2(ty: Type) Type {
         return switch (ty.tag()) {
