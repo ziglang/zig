@@ -5923,6 +5923,10 @@ fn funcCommon(
                     break :ret_ty ret_ty;
                 } else |err| break :err err;
             } else |err| break :err err;
+            // Check for generic params.
+            for (block.params.items) |param| {
+                if (param.ty.tag() == .generic_poison) is_generic = true;
+            }
         };
         switch (err) {
             error.GenericPoison => {
@@ -6111,6 +6115,13 @@ fn zirParam(
 
             if (sema.resolveBody(block, body, inst)) |param_ty_inst| {
                 if (sema.analyzeAsType(block, src, param_ty_inst)) |param_ty| {
+                    if (param_ty.zigTypeTag() == .Fn and param_ty.fnInfo().is_generic) {
+                        // zirFunc will not emit error.GenericPoison to build a
+                        // partial type for generic functions but we still need to
+                        // detect if a function parameter is a generic function
+                        // to force the parent function to also be generic.
+                        break :err error.GenericPoison;
+                    }
                     break :param_ty param_ty;
                 } else |err| break :err err;
             } else |err| break :err err;
@@ -10965,6 +10976,7 @@ fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 
     const operand = try sema.resolveBody(&child_block, body, inst);
     const operand_ty = sema.typeOf(operand);
+    if (operand_ty.tag() == .generic_poison) return error.GenericPoison;
     return sema.addType(operand_ty);
 }
 
@@ -11044,6 +11056,7 @@ fn zirTypeofPeer(
 
     for (args) |arg_ref, i| {
         inst_list[i] = sema.resolveInst(arg_ref);
+        if (sema.typeOf(inst_list[i]).tag() == .generic_poison) return error.GenericPoison;
     }
 
     const result_type = try sema.resolvePeerTypes(block, src, inst_list, .{ .typeof_builtin_call_node_offset = extra.data.src_node });
