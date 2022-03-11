@@ -21,11 +21,18 @@ const DW = std.dwarf;
 const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
-const RegisterManager = @import("../../register_manager.zig").RegisterManager;
+const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
+const RegisterManager = RegisterManagerFn(Self, Register, &callee_preserved_regs);
 
 const FnResult = @import("../../codegen.zig").FnResult;
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+
+const bits = @import("bits.zig");
+const abi = @import("abi.zig");
+const Register = bits.Register;
+const Instruction = abi.Instruction;
+const callee_preserved_regs = abi.callee_preserved_regs;
 
 const InnerError = error{
     OutOfMemory,
@@ -75,7 +82,7 @@ branch_stack: *std.ArrayList(Branch),
 // Key is the block instruction
 blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
 
-register_manager: RegisterManager(Self, Register, &callee_preserved_regs) = .{},
+register_manager: RegisterManager = .{},
 /// Maps offset to what is stored there.
 stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
 
@@ -1230,7 +1237,7 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
         .register => |reg| {
             // If it's in the registers table, need to associate the register with the
             // new instruction.
-            if (reg.allocIndex()) |index| {
+            if (RegisterManager.indexOfRegIntoTracked(reg)) |index| {
                 if (!self.register_manager.isRegFree(reg)) {
                     self.register_manager.registers[index] = inst;
                 }
@@ -1545,7 +1552,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     const result: MCValue = result: {
         switch (info.return_value) {
             .register => |reg| {
-                if (Register.allocIndex(reg) == null) {
+                if (RegisterManager.indexOfReg(&callee_preserved_regs, reg) == null) {
                     // Save function return value in a callee saved register
                     break :result try self.copyToNewRegister(inst, info.return_value);
                 }
@@ -2548,10 +2555,6 @@ fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerErro
     self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
     return error.CodegenFail;
 }
-
-const Register = @import("bits.zig").Register;
-const Instruction = @import("bits.zig").Instruction;
-const callee_preserved_regs = @import("bits.zig").callee_preserved_regs;
 
 fn parseRegName(name: []const u8) ?Register {
     if (@hasDecl(Register, "parseRegName")) {

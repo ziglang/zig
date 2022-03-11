@@ -6,6 +6,7 @@ const Emit = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const bits = @import("bits.zig");
+const abi = @import("abi.zig");
 const leb128 = std.leb;
 const link = @import("../../link.zig");
 const log = std.log.scoped(.codegen);
@@ -265,7 +266,7 @@ fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.I
     const data = emit.mir.extraData(Mir.RegsToPushOrPop, payload).data;
     const regs = data.regs;
     var disp: u32 = data.disp + 8;
-    for (bits.callee_preserved_regs) |reg, i| {
+    for (abi.callee_preserved_regs) |reg, i| {
         if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
         if (tag == .push) {
             try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{

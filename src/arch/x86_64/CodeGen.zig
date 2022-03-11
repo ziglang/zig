@@ -27,6 +27,13 @@ const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
 const Value = @import("../../value.zig").Value;
 
+const bits = @import("bits.zig");
+const abi = @import("abi.zig");
+const Register = bits.Register;
+const callee_preserved_regs = abi.callee_preserved_regs;
+const c_abi_int_param_regs = abi.c_abi_int_param_regs;
+const c_abi_int_return_regs = abi.c_abi_int_return_regs;
+
 const InnerError = error{
     OutOfMemory,
     CodegenFail,
@@ -2336,7 +2343,7 @@ fn reuseOperand(
         .register => |reg| {
             // If it's in the registers table, need to associate the register with the
             // new instruction.
-            if (reg.allocIndex()) |index| {
+            if (RegisterManager.indexOfRegIntoTracked(reg)) |index| {
                 if (!self.register_manager.isRegFree(reg)) {
                     self.register_manager.registers[index] = inst;
                 }
@@ -3483,7 +3490,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     const result: MCValue = result: {
         switch (info.return_value) {
             .register => |reg| {
-                if (Register.allocIndex(reg) == null) {
+                if (RegisterManager.indexOfReg(&callee_preserved_regs, reg) == null) {
                     // Save function return value in a callee saved register
                     break :result try self.copyToRegisterWithInstTracking(
                         inst,
@@ -5965,18 +5972,6 @@ fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerErro
     self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
     return error.CodegenFail;
 }
-
-const Register = @import("bits.zig").Register;
-
-const Instruction = void;
-
-const Condition = void;
-
-const callee_preserved_regs = @import("bits.zig").callee_preserved_regs;
-
-const c_abi_int_param_regs = @import("bits.zig").c_abi_int_param_regs;
-
-const c_abi_int_return_regs = @import("bits.zig").c_abi_int_return_regs;
 
 fn parseRegName(name: []const u8) ?Register {
     if (@hasDecl(Register, "parseRegName")) {
