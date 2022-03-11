@@ -22,7 +22,7 @@ const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
-const RegisterManager = RegisterManagerFn(Self, Register, &callee_preserved_regs);
+const RegisterManager = RegisterManagerFn(Self, Register, &allocatable_registers);
 
 const FnResult = @import("../../codegen.zig").FnResult;
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
@@ -34,6 +34,8 @@ const Register = bits.Register;
 const Instruction = bits.Instruction;
 const Condition = bits.Condition;
 const callee_preserved_regs = abi.callee_preserved_regs;
+const caller_preserved_regs = abi.caller_preserved_regs;
+const allocatable_registers = abi.allocatable_registers;
 const c_abi_int_param_regs = abi.c_abi_int_param_regs;
 const c_abi_int_return_regs = abi.c_abi_int_return_regs;
 
@@ -788,10 +790,6 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     if (!elem_ty.hasRuntimeBits()) {
         // As this stack item will never be dereferenced at runtime,
         // return the current stack offset
-        try self.stack.putNoClobber(self.gpa, self.next_stack_offset, .{
-            .inst = inst,
-            .size = 0,
-        });
         return self.next_stack_offset;
     }
 
@@ -1569,13 +1567,13 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
 
     switch (mcv) {
         .register => |reg| {
-            // If it's in the registers table, need to associate the register with the
-            // new instruction.
-            if (RegisterManager.indexOfRegIntoTracked(reg)) |index| {
-                if (!self.register_manager.isRegFree(reg)) {
-                    self.register_manager.registers[index] = inst;
-                }
+            // We assert that this register is allocatable by asking
+            // for its index
+            const index = RegisterManager.indexOfRegIntoTracked(reg).?; // see note above
+            if (!self.register_manager.isRegFree(reg)) {
+                self.register_manager.registers[index] = inst;
             }
+
             log.debug("%{d} => {} (reused)", .{ inst, reg });
         },
         .stack_offset => |off| {
@@ -2545,13 +2543,17 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     // Architecture, compare flags are not preserved across
     // calls. Therefore, if some value is currently stored there, we
     // need to save it.
-    //
-    // TODO once caller-saved registers are implemented, save them
-    // here too, but crucially *after* we save the compare flags as
-    // saving compare flags may require a new caller-saved register
     try self.spillCompareFlagsIfOccupied();
 
+    // Save caller-saved registers, but crucially *after* we save the
+    // compare flags as saving compare flags may require a new
+    // caller-saved register
+    for (caller_preserved_regs) |reg| {
+        try self.register_manager.getReg(reg, null);
+    }
+
     if (info.return_value == .stack_offset) {
+        log.debug("airCall: return by reference", .{});
         const ret_ty = fn_ty.fnReturnType();
         const ret_abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
         const ret_abi_align = @intCast(u32, ret_ty.abiAlignment(self.target.*));
@@ -2562,7 +2564,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             .data = ret_ty,
         };
         const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-        try self.register_manager.getReg(.r0, inst);
+        try self.register_manager.getReg(.r0, null);
         try self.genSetReg(ptr_ty, .r0, .{ .ptr_stack_offset = stack_offset });
 
         info.return_value = .{ .stack_offset = stack_offset };
@@ -2662,8 +2664,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     const result: MCValue = result: {
         switch (info.return_value) {
             .register => |reg| {
-                if (RegisterManager.indexOfReg(&callee_preserved_regs, reg) == null) {
-                    // Save function return value in a callee saved register
+                if (RegisterManager.indexOfRegIntoTracked(reg) == null) {
+                    // Save function return value into a tracked register
+                    log.debug("airCall: copying {} as it is not tracked", .{reg});
                     break :result try self.copyToNewRegister(inst, info.return_value);
                 }
             },

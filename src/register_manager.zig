@@ -26,11 +26,11 @@ pub const AllocateRegistersError = error{
 pub fn RegisterManager(
     comptime Function: type,
     comptime Register: type,
-    comptime callee_preserved_regs: []const Register,
+    comptime tracked_registers: []const Register,
 ) type {
     // architectures which do not have a concept of registers should
     // refrain from using RegisterManager
-    assert(callee_preserved_regs.len > 0); // see note above
+    assert(tracked_registers.len > 0); // see note above
 
     return struct {
         /// Tracks the AIR instruction allocated to every register. If
@@ -38,7 +38,7 @@ pub fn RegisterManager(
         /// register is free), the value in that slot is undefined.
         ///
         /// The key must be canonical register.
-        registers: [callee_preserved_regs.len]Air.Inst.Index = undefined,
+        registers: [tracked_registers.len]Air.Inst.Index = undefined,
         /// Tracks which registers are free (in which case the
         /// corresponding bit is set to 1)
         free_registers: FreeRegInt = math.maxInt(FreeRegInt),
@@ -53,7 +53,7 @@ pub fn RegisterManager(
 
         /// An integer whose bits represent all the registers and
         /// whether they are free.
-        const FreeRegInt = std.meta.Int(.unsigned, callee_preserved_regs.len);
+        const FreeRegInt = std.meta.Int(.unsigned, tracked_registers.len);
         const ShiftInt = math.Log2Int(FreeRegInt);
 
         fn getFunction(self: *Self) *Function {
@@ -83,14 +83,14 @@ pub fn RegisterManager(
         }
 
         pub fn indexOfReg(comptime registers: []const Register, reg: Register) ?std.math.IntFittingRange(0, registers.len - 1) {
-            inline for (callee_preserved_regs) |cpreg, i| {
+            inline for (tracked_registers) |cpreg, i| {
                 if (reg.id() == cpreg.id()) return i;
             }
             return null;
         }
 
         pub fn indexOfRegIntoTracked(reg: Register) ?ShiftInt {
-            return indexOfReg(callee_preserved_regs, reg);
+            return indexOfReg(tracked_registers, reg);
         }
 
         /// Returns true when this register is not tracked
@@ -146,14 +146,14 @@ pub fn RegisterManager(
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
         ) ?[count]Register {
-            comptime assert(count > 0 and count <= callee_preserved_regs.len);
+            comptime assert(count > 0 and count <= tracked_registers.len);
 
             const free_registers = @popCount(FreeRegInt, self.free_registers);
             if (free_registers < count) return null;
 
             var regs: [count]Register = undefined;
             var i: usize = 0;
-            for (callee_preserved_regs) |reg| {
+            for (tracked_registers) |reg| {
                 if (i >= count) break;
                 if (self.isRegFrozen(reg)) continue;
                 if (self.isRegFree(reg)) {
@@ -192,8 +192,8 @@ pub fn RegisterManager(
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
         ) AllocateRegistersError![count]Register {
-            comptime assert(count > 0 and count <= callee_preserved_regs.len);
-            if (count > callee_preserved_regs.len - @popCount(FreeRegInt, self.frozen_registers)) return error.OutOfRegisters;
+            comptime assert(count > 0 and count <= tracked_registers.len);
+            if (count > tracked_registers.len - @popCount(FreeRegInt, self.frozen_registers)) return error.OutOfRegisters;
 
             const result = self.tryAllocRegs(count, insts) orelse blk: {
                 // We'll take over the first count registers. Spill
@@ -201,7 +201,7 @@ pub fn RegisterManager(
                 // stack allocations.
                 var regs: [count]Register = undefined;
                 var i: usize = 0;
-                for (callee_preserved_regs) |reg| {
+                for (tracked_registers) |reg| {
                     if (i >= count) break;
                     if (self.isRegFrozen(reg)) continue;
 
@@ -247,6 +247,7 @@ pub fn RegisterManager(
         /// register.
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
             const index = indexOfRegIntoTracked(reg) orelse return;
+            log.debug("getReg {} for inst {}", .{ reg, inst });
             self.markRegAllocated(reg);
 
             if (inst) |tracked_inst|
@@ -275,6 +276,7 @@ pub fn RegisterManager(
         /// spilling is necessary.
         pub fn getRegAssumeFree(self: *Self, reg: Register, inst: Air.Inst.Index) void {
             const index = indexOfRegIntoTracked(reg) orelse return;
+            log.debug("getRegAssumeFree {} for inst {}", .{ reg, inst });
             self.markRegAllocated(reg);
 
             assert(self.isRegFree(reg));
@@ -303,7 +305,7 @@ const MockRegister1 = enum(u2) {
         return @enumToInt(reg);
     }
 
-    const callee_preserved_regs = [_]MockRegister1{ .r2, .r3 };
+    const allocatable_registers = [_]MockRegister1{ .r2, .r3 };
 };
 
 const MockRegister2 = enum(u2) {
@@ -316,13 +318,13 @@ const MockRegister2 = enum(u2) {
         return @enumToInt(reg);
     }
 
-    const callee_preserved_regs = [_]MockRegister2{ .r0, .r1, .r2, .r3 };
+    const allocatable_registers = [_]MockRegister2{ .r0, .r1, .r2, .r3 };
 };
 
 fn MockFunction(comptime Register: type) type {
     return struct {
         allocator: Allocator,
-        register_manager: RegisterManager(Self, Register, &Register.callee_preserved_regs) = .{},
+        register_manager: RegisterManager(Self, Register, &Register.allocatable_registers) = .{},
         spilled: std.ArrayListUnmanaged(Register) = .{},
 
         const Self = @This();
