@@ -1819,7 +1819,22 @@ pub const Value = extern union {
     }
 
     /// Asserts the value is comparable.
+    /// For vectors this is only valid with op == .eq.
     pub fn compareWithZero(lhs: Value, op: std.math.CompareOperator) bool {
+        switch (lhs.tag()) {
+            .repeated => {
+                assert(op == .eq);
+                return lhs.castTag(.repeated).?.data.compareWithZero(.eq);
+            },
+            .array => {
+                assert(op == .eq);
+                for (lhs.cast(Payload.Array).?.data) |elem_val| {
+                    if (!elem_val.compareWithZero(.eq)) return false;
+                }
+                return true;
+            },
+            else => {},
+        }
         return orderAgainstZero(lhs).compare(op);
     }
 

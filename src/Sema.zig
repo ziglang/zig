@@ -8059,7 +8059,6 @@ fn zirBitwise(
                 rhs_ty.arrayLen(),
             });
         }
-        return sema.fail(block, src, "TODO implement support for vectors in zirBitwise", .{});
     } else if (lhs_ty.zigTypeTag() == .Vector or rhs_ty.zigTypeTag() == .Vector) {
         return sema.fail(block, src, "mixed scalar and vector operands to binary expression: '{}' and '{}'", .{
             lhs_ty,
@@ -8075,6 +8074,9 @@ fn zirBitwise(
 
     if (try sema.resolveMaybeUndefVal(block, lhs_src, casted_lhs)) |lhs_val| {
         if (try sema.resolveMaybeUndefVal(block, rhs_src, casted_rhs)) |rhs_val| {
+            if (resolved_type.zigTypeTag() == .Vector) {
+                return sema.fail(block, src, "TODO implement zirBitwise for vectors at comptime", .{});
+            }
             const result_val = switch (air_tag) {
                 .bit_and => try lhs_val.bitwiseAnd(rhs_val, sema.arena),
                 .bit_or => try lhs_val.bitwiseOr(rhs_val, sema.arena),
@@ -10985,19 +10987,21 @@ fn zirTypeofLog2IntType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
     const src = inst_data.src();
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    return sema.log2IntType(block, operand_ty, src);
+    const res_ty = try sema.log2IntType(block, operand_ty, src);
+    return sema.addType(res_ty);
 }
 
 fn zirLog2IntType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveType(block, src, inst_data.operand);
-    return sema.log2IntType(block, operand, src);
+    const res_ty = try sema.log2IntType(block, operand, src);
+    return sema.addType(res_ty);
 }
 
-fn log2IntType(sema: *Sema, block: *Block, operand: Type, src: LazySrcLoc) CompileError!Air.Inst.Ref {
+fn log2IntType(sema: *Sema, block: *Block, operand: Type, src: LazySrcLoc) CompileError!Type {
     switch (operand.zigTypeTag()) {
-        .ComptimeInt => return Air.Inst.Ref.comptime_int_type,
+        .ComptimeInt => return Type.@"comptime_int",
         .Int => {
             const bits = operand.bitSize(sema.mod.getTarget());
             const count = if (bits == 0)
@@ -11010,16 +11014,24 @@ fn log2IntType(sema: *Sema, block: *Block, operand: Type, src: LazySrcLoc) Compi
                 }
                 break :blk count;
             };
-            const res = try Module.makeIntType(sema.arena, .unsigned, count);
-            return sema.addType(res);
+            return Module.makeIntType(sema.arena, .unsigned, count);
         },
-        else => return sema.fail(
-            block,
-            src,
-            "bit shifting operation expected integer type, found '{}'",
-            .{operand},
-        ),
+        .Vector => {
+            const elem_ty = operand.elemType2();
+            const log2_elem_ty = try sema.log2IntType(block, elem_ty, src);
+            return Type.Tag.vector.create(sema.arena, .{
+                .len = operand.arrayLen(),
+                .elem_type = log2_elem_ty,
+            });
+        },
+        else => {},
     }
+    return sema.fail(
+        block,
+        src,
+        "bit shifting operation expected integer type, found '{}'",
+        .{operand},
+    );
 }
 
 fn zirTypeofPeer(
@@ -15676,8 +15688,7 @@ fn elemPtr(
                 },
             }
         },
-        .Array => return sema.elemPtrArray(block, array_ptr_src, array_ptr, elem_index, elem_index_src),
-        .Vector => return sema.fail(block, src, "TODO implement Sema for elemPtr for vector", .{}),
+        .Array, .Vector => return sema.elemPtrArray(block, array_ptr_src, array_ptr, elem_index, elem_index_src),
         .Struct => {
             // Tuple field access.
             const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index);
