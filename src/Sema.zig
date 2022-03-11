@@ -7790,6 +7790,15 @@ fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             if (mem.eql(u8, field_name, "len")) break :hf true;
             break :hf false;
         }
+        if (ty.castTag(.anon_struct)) |pl| {
+            break :hf for (pl.data.names) |name| {
+                if (mem.eql(u8, name, field_name)) break true;
+            } else false;
+        }
+        if (ty.isTuple()) {
+            const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch break :hf false;
+            break :hf field_index < ty.structFieldCount();
+        }
         break :hf switch (ty.zigTypeTag()) {
             .Struct => ty.structFields().contains(field_name),
             .Union => ty.unionFields().contains(field_name),
