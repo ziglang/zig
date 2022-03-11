@@ -2336,6 +2336,8 @@ pub const Value = extern union {
         buffer: *ElemValueBuffer,
     ) error{OutOfMemory}!Value {
         switch (val.tag()) {
+            // This is the case of accessing an element of an undef array.
+            .undef => return Value.undef,
             .empty_array => unreachable, // out of bounds array index
             .empty_struct_value => unreachable, // out of bounds array index
 
