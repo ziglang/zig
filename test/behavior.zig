@@ -151,6 +151,7 @@ test {
             _ = @import("behavior/bugs/2114.zig");
             _ = @import("behavior/bugs/3779.zig");
             _ = @import("behavior/bugs/10147.zig");
+            _ = @import("behavior/shuffle.zig");
             _ = @import("behavior/union_with_members.zig");
 
             if (builtin.zig_backend == .stage1) {
@@ -169,7 +170,6 @@ test {
                 _ = @import("behavior/bugs/7027.zig");
                 _ = @import("behavior/const_slice_child.zig");
                 _ = @import("behavior/select.zig");
-                _ = @import("behavior/shuffle.zig");
                 _ = @import("behavior/struct_contains_slice_of_itself.zig");
                 _ = @import("behavior/typename.zig");
                 _ = @import("behavior/vector.zig");
