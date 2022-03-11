@@ -92,7 +92,15 @@ pub fn generateZirData(self: *Autodoc) !void {
                         //       instead of just assinging "array" to them.
                         break :blk .{
                             .Array = .{
-                                .len = 1,
+                                .len = .{
+                                    .int = .{
+                                        .typeRef = .{
+                                            .type = @enumToInt(Ref.usize_type),
+                                        },
+                                        .value = 1,
+                                        .negated = false,
+                                    },
+                                },
                                 .child = .{ .type = 0 },
                             },
                         };
@@ -374,7 +382,7 @@ const DocData = struct {
             child: TypeRef,
         },
         Array: struct {
-            len: usize,
+            len: WalkResult,
             child: TypeRef,
         },
         Struct: struct {
@@ -516,6 +524,7 @@ const DocData = struct {
     /// An example of indidirectness is `const bar = foo;`.
     const TypeRef = union(enum) {
         unspecified,
+        @"anytype",
         declPath: DeclPath,
         type: usize, // index in `types`
         comptimeExpr: usize, // index in `comptimeExprs`
@@ -530,10 +539,10 @@ const DocData = struct {
             w: anytype,
         ) !void {
             switch (self) {
-                .unspecified => {
+                .unspecified, .@"anytype" => {
                     try w.print(
-                        \\{{ "unspecified":{{}} }}
-                    , .{});
+                        \\{{ "{s}":{{}} }}
+                    , .{@tagName(self)});
                 },
 
                 .type, .comptimeExpr, .call => |v| {
@@ -566,6 +575,7 @@ const DocData = struct {
         @"undefined": TypeRef,
         @"struct": Struct,
         bool: bool,
+        @"anytype",
         type: usize, // index in `types`
         declPath: DeclPath,
         int: struct {
@@ -600,7 +610,7 @@ const DocData = struct {
             w: anytype,
         ) !void {
             switch (self) {
-                .void, .@"unreachable" => {
+                .void, .@"unreachable", .@"anytype" => {
                     try w.print(
                         \\{{ "{s}":{{}} }}
                     , .{@tagName(self)});
@@ -755,6 +765,13 @@ fn walkInstruction(
                 },
             };
         },
+        .error_union_type => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
+
+            // TODO: return the actual error union instread of cheating
+            return self.walkRef(file, parent_scope, extra.data.rhs);
+        },
         .ptr_type_simple => {
             const ptr = data[inst_index].ptr_type_simple;
             const type_slot_index = self.types.items.len;
@@ -766,6 +783,20 @@ fn walkInstruction(
                 },
             });
 
+            return DocData.WalkResult{ .type = type_slot_index };
+        },
+        .array_type => {
+            const bin = data[inst_index].bin;
+            const len = try self.walkRef(file, parent_scope, bin.lhs);
+            const child = walkResultToTypeRef(try self.walkRef(file, parent_scope, bin.rhs));
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .Array = .{
+                    .len = len,
+                    .child = child,
+                },
+            });
             return DocData.WalkResult{ .type = type_slot_index };
         },
         .array_init => {
@@ -780,7 +811,13 @@ fn walkInstruction(
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
                 .Array = .{
-                    .len = operands.len,
+                    .len = .{
+                        .int = .{
+                            .typeRef = .{ .type = @enumToInt(Ref.usize_type) },
+                            .value = operands.len,
+                            .negated = false,
+                        },
+                    },
                     .child = typeOfWalkResult(array_data[0]),
                 },
             });
@@ -1017,6 +1054,23 @@ fn walkInstruction(
                             .{@tagName(tags[param_index])},
                         );
                     },
+                    .param_anytype => {
+                        // TODO: where are the doc comments?
+                        const str_tok = data[param_index].str_tok;
+
+                        const name = str_tok.get(file.zir);
+
+                        param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
+                        self.ast_nodes.appendAssumeCapacity(.{
+                            .name = name,
+                            .docs = "",
+                            .@"comptime" = true,
+                        });
+
+                        param_type_refs.appendAssumeCapacity(
+                            DocData.TypeRef{ .@"anytype" = {} },
+                        );
+                    },
                     .param, .param_comptime => {
                         const pl_tok = data[param_index].pl_tok;
                         const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
@@ -1024,10 +1078,11 @@ fn walkInstruction(
                             file.zir.nullTerminatedString(extra.data.doc_comment)
                         else
                             "";
+                        const name = file.zir.nullTerminatedString(extra.data.name);
 
                         param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
                         self.ast_nodes.appendAssumeCapacity(.{
-                            .name = file.zir.nullTerminatedString(extra.data.name),
+                            .name = name,
                             .docs = doc_comment,
                             .@"comptime" = tags[param_index] == .param_comptime,
                         });
@@ -1093,6 +1148,18 @@ fn walkInstruction(
                         "TODO: implement `walkinstruction.extended` for {s}\n\n",
                         .{@tagName(extended.opcode)},
                     );
+                },
+                .variable => {
+                    const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
+                    var extra_index: usize = extended.operand;
+                    if (small.has_lib_name) extra_index += 1;
+                    if (small.has_align) extra_index += 1;
+
+                    const value: DocData.WalkResult =
+                        if (small.has_init)
+                    .{ .void = {} } else .{ .void = {} };
+
+                    return value;
                 },
                 .union_decl => {
                     var scope: Scope = .{
@@ -1887,7 +1954,7 @@ fn collectUnionFieldInfo(
             @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index])
         else
             .void_type;
-        extra_index += 1;
+        if (has_type) extra_index += 1;
 
         if (has_align) extra_index += 1;
         if (has_tag) extra_index += 1;
