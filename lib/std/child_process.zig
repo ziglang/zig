@@ -1232,7 +1232,6 @@ test "build and call child_process" {
     defer testing.allocator.free(cwd_str);
     var tmp = testing.tmpDir(.{ .no_follow = true }); // ie zig-cache/tmp/8DLgoSEqz593PAEE
     defer tmp.cleanup();
-    const exited: []const u8 = "Exited";
     const cache = "zig-cache";
     const tmpdir = "tmp";
     const child_name = "child"; // no need for suffixes (.exe, .wasm) due to '-femit-bin'
@@ -1242,7 +1241,6 @@ test "build and call child_process" {
 
     const child_zig = try mem.concat(testing.allocator, u8, &[_][]const u8{ child_path, suffix_zig });
     defer testing.allocator.free(child_zig);
-    //std.debug.print("child_zig: {s}\n", .{child_zig});
     const emit_flag = "-femit-bin=";
     const emit_bin = try mem.concat(testing.allocator, u8, &[_][]const u8{ emit_flag, child_path });
     defer testing.allocator.free(emit_bin);
@@ -1254,8 +1252,7 @@ test "build and call child_process" {
         defer procCompileChild.deinit();
         try procCompileChild.spawn();
         const ret_val = try procCompileChild.wait();
-        try testing.expectEqualSlices(u8, exited, std.meta.tagName(ret_val));
-        try testing.expectEqual(@as(u8, 0), ret_val.Exited);
+        try testing.expectEqual(ret_val, .{ .Exited = 0 });
     }
     {
         // spawn compiled file as child_process with argument 'hello world' + expect success
@@ -1264,7 +1261,6 @@ test "build and call child_process" {
         defer child_proc.deinit();
         try child_proc.spawn();
         const ret_val = try child_proc.wait();
-        try testing.expectEqualSlices(u8, exited, std.meta.tagName(ret_val));
-        try testing.expectEqual(@as(u8, 0), ret_val.Exited);
+        try testing.expectEqual(ret_val, .{ .Exited = 0 });
     }
 }
