@@ -18144,6 +18144,15 @@ fn analyzeIsNonErr(
     if (ot != .ErrorSet and ot != .ErrorUnion) return Air.Inst.Ref.bool_true;
     if (ot == .ErrorSet) return Air.Inst.Ref.bool_false;
     assert(ot == .ErrorUnion);
+
+    // exception if the error union error set is known to be empty,
+    // we allow the comparison but always make it comptime known.
+    const set_ty = operand_ty.errorUnionSet();
+    switch (set_ty.tag()) {
+        .anyerror, .error_set_inferred => {},
+        else => if (set_ty.errorSetNames().len == 0) return Air.Inst.Ref.bool_true,
+    }
+
     const result_ty = Type.bool;
     if (try sema.resolveMaybeUndefVal(block, src, operand)) |err_union| {
         if (err_union.isUndef()) {
