@@ -4400,6 +4400,13 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isArrayLike(ty: Type) bool {
+        return switch (ty.zigTypeTag()) {
+            .Array, .Vector => true,
+            else => false,
+        };
+    }
+
     pub fn isIndexable(ty: Type) bool {
         return switch (ty.zigTypeTag()) {
             .Array, .Vector => true,

@@ -2412,6 +2412,29 @@ pub const Value = extern union {
         }
     }
 
+    // Asserts that the provided start/end are in-bounds.
+    pub fn sliceArray(val: Value, arena: Allocator, start: usize, end: usize) error{OutOfMemory}!Value {
+        return switch (val.tag()) {
+            .empty_array_sentinel => if (start == 0 and end == 1) val else Value.initTag(.empty_array),
+            .bytes => Tag.bytes.create(arena, val.castTag(.bytes).?.data[start..end]),
+            .array => Tag.array.create(arena, val.castTag(.array).?.data[start..end]),
+            .slice => sliceArray(val.castTag(.slice).?.data.ptr, arena, start, end),
+
+            .decl_ref => sliceArray(val.castTag(.decl_ref).?.data.val, arena, start, end),
+            .decl_ref_mut => sliceArray(val.castTag(.decl_ref_mut).?.data.decl.val, arena, start, end),
+            .elem_ptr => blk: {
+                const elem_ptr = val.castTag(.elem_ptr).?.data;
+                break :blk sliceArray(elem_ptr.array_ptr, arena, start + elem_ptr.index, end + elem_ptr.index);
+            },
+
+            .repeated,
+            .the_only_possible_value,
+            => val,
+
+            else => unreachable,
+        };
+    }
+
     pub fn fieldValue(val: Value, allocator: Allocator, index: usize) error{OutOfMemory}!Value {
         _ = allocator;
         switch (val.tag()) {

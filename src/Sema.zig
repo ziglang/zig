@@ -12609,6 +12609,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             enum_obj.* = .{
                 .owner_decl = new_decl,
                 .tag_ty = Type.initTag(.@"null"),
+                .tag_ty_inferred = true,
                 .fields = .{},
                 .values = .{},
                 .node_offset = src.node_offset,
@@ -17590,6 +17591,14 @@ fn beginComptimePtrMutation(
     src: LazySrcLoc,
     ptr_val: Value,
 ) CompileError!ComptimePtrMutationKit {
+
+    // TODO: Update this to behave like `beginComptimePtrLoad` and properly check/use
+    // `container_ty` and `array_ty`, instead of trusting that the parent decl type
+    // matches the type used to derive the elem_ptr/field_ptr/etc.
+    //
+    // This is needed because the types will not match if the pointer we're mutating
+    // through is reinterpreting comptime memory.
+
     switch (ptr_val.tag()) {
         .decl_ref_mut => {
             const decl_ref_mut = ptr_val.castTag(.decl_ref_mut).?.data;
@@ -17850,163 +17859,191 @@ fn beginComptimePtrMutation(
     }
 }
 
-const ComptimePtrLoadKit = struct {
-    /// The Value of the Decl that owns this memory.
-    root_val: Value,
-    /// The Type of the Decl that owns this memory.
-    root_ty: Type,
-    /// Parent Value.
-    val: Value,
-    /// The Type of the parent Value.
-    ty: Type,
+const TypedValueAndOffset = struct {
+    tv: TypedValue,
     /// The starting byte offset of `val` from `root_val`.
     /// If the type does not have a well-defined memory layout, this is null.
-    byte_offset: ?usize,
-    /// Whether the `root_val` could be mutated by further
+    byte_offset: usize,
+};
+
+const ComptimePtrLoadKit = struct {
+    /// The Value and Type corresponding to the target of the provided pointer.
+    /// If a direct dereference is not possible, this is null.
+    target: ?TypedValue,
+    /// The largest parent Value containing `target` and having a well-defined memory layout.
+    /// This is used for bitcasting, if direct dereferencing failed (i.e. `target` is null).
+    parent: ?TypedValueAndOffset,
+    /// Whether the `target` could be mutated by further
     /// semantic analysis and a copy must be performed.
     is_mutable: bool,
+    /// If the root decl could not be used as `parent`, this is the type that
+    /// caused that by not having a well-defined layout
+    ty_without_well_defined_layout: ?Type,
 };
 
 const ComptimePtrLoadError = CompileError || error{
     RuntimeLoad,
 };
 
+/// If `maybe_array_ty` is provided, it will be used to directly dereference an 
+/// .elem_ptr of type T to a value of [N]T, if necessary.
 fn beginComptimePtrLoad(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
     ptr_val: Value,
+    maybe_array_ty: ?Type,
 ) ComptimePtrLoadError!ComptimePtrLoadKit {
     const target = sema.mod.getTarget();
-    switch (ptr_val.tag()) {
-        .decl_ref => {
-            const decl = ptr_val.castTag(.decl_ref).?.data;
-            const decl_val = try decl.value();
-            if (decl_val.tag() == .variable) return error.RuntimeLoad;
-            return ComptimePtrLoadKit{
-                .root_val = decl_val,
-                .root_ty = decl.ty,
-                .val = decl_val,
-                .ty = decl.ty,
-                .byte_offset = 0,
-                .is_mutable = false,
+    var deref: ComptimePtrLoadKit = switch (ptr_val.tag()) {
+        .decl_ref,
+        .decl_ref_mut,
+        => blk: {
+            const decl = switch (ptr_val.tag()) {
+                .decl_ref => ptr_val.castTag(.decl_ref).?.data,
+                .decl_ref_mut => ptr_val.castTag(.decl_ref_mut).?.data.decl,
+                else => unreachable,
+            };
+            const is_mutable = ptr_val.tag() == .decl_ref_mut;
+            const decl_tv = try decl.typedValue();
+            if (decl_tv.val.tag() == .variable) return error.RuntimeLoad;
+
+            const layout_defined = try sema.typeHasWellDefinedLayout(block, src, decl.ty);
+            break :blk ComptimePtrLoadKit{
+                .parent = if (layout_defined) .{ .tv = decl_tv, .byte_offset = 0 } else null,
+                .target = decl_tv,
+                .is_mutable = is_mutable,
+                .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
             };
         },
-        .decl_ref_mut => {
-            const decl = ptr_val.castTag(.decl_ref_mut).?.data.decl;
-            const decl_val = try decl.value();
-            if (decl_val.tag() == .variable) return error.RuntimeLoad;
-            return ComptimePtrLoadKit{
-                .root_val = decl_val,
-                .root_ty = decl.ty,
-                .val = decl_val,
-                .ty = decl.ty,
-                .byte_offset = 0,
-                .is_mutable = true,
-            };
-        },
-        .elem_ptr => {
+
+        .elem_ptr => blk: {
             const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-            const parent = try beginComptimePtrLoad(sema, block, src, elem_ptr.array_ptr);
-            switch (parent.ty.zigTypeTag()) {
-                .Array, .Vector => {
-                    const check_len = parent.ty.arrayLenIncludingSentinel();
-                    if (elem_ptr.index >= check_len) {
-                        // TODO have the parent include the decl so we can say "declared here"
-                        return sema.fail(block, src, "comptime load of index {d} out of bounds of array length {d}", .{
-                            elem_ptr.index, check_len,
-                        });
+            const elem_ty = elem_ptr.elem_ty;
+            var deref = try beginComptimePtrLoad(sema, block, src, elem_ptr.array_ptr, null);
+
+            if (elem_ptr.index != 0) {
+                if (try sema.typeHasWellDefinedLayout(block, src, elem_ty)) {
+                    if (deref.parent) |*parent| {
+                        // Update the byte offset (in-place)
+                        const elem_size = try sema.typeAbiSize(block, src, elem_ty);
+                        const offset = parent.byte_offset + elem_size * elem_ptr.index;
+                        parent.byte_offset = try sema.usizeCast(block, src, offset);
                     }
-                    const elem_ty = parent.ty.childType();
-                    const byte_offset: ?usize = bo: {
-                        if (try sema.typeRequiresComptime(block, src, elem_ty)) {
-                            break :bo null;
-                        } else {
-                            if (parent.byte_offset) |off| {
-                                try sema.resolveTypeLayout(block, src, elem_ty);
-                                const elem_size = elem_ty.abiSize(target);
-                                break :bo try sema.usizeCast(block, src, off + elem_size * elem_ptr.index);
-                            } else {
-                                break :bo null;
-                            }
-                        }
-                    };
-                    return ComptimePtrLoadKit{
-                        .root_val = parent.root_val,
-                        .root_ty = parent.root_ty,
-                        .val = try parent.val.elemValue(sema.arena, elem_ptr.index),
-                        .ty = elem_ty,
-                        .byte_offset = byte_offset,
-                        .is_mutable = parent.is_mutable,
-                    };
-                },
-                else => {
-                    if (elem_ptr.index != 0) {
-                        // TODO have the parent include the decl so we can say "declared here"
-                        return sema.fail(block, src, "out of bounds comptime load of index {d}", .{
-                            elem_ptr.index,
-                        });
-                    }
-                    return ComptimePtrLoadKit{
-                        .root_val = parent.root_val,
-                        .root_ty = parent.root_ty,
-                        .val = parent.val,
-                        .ty = parent.ty,
-                        .byte_offset = parent.byte_offset,
-                        .is_mutable = parent.is_mutable,
-                    };
-                },
-            }
-        },
-        .field_ptr => {
-            const field_ptr = ptr_val.castTag(.field_ptr).?.data;
-            const parent = try beginComptimePtrLoad(sema, block, src, field_ptr.container_ptr);
-            const field_index = @intCast(u32, field_ptr.field_index);
-            const byte_offset: ?usize = bo: {
-                if (try sema.typeRequiresComptime(block, src, parent.ty)) {
-                    break :bo null;
                 } else {
-                    if (parent.byte_offset) |off| {
-                        try sema.resolveTypeLayout(block, src, parent.ty);
-                        const field_offset = parent.ty.structFieldOffset(field_index, target);
-                        break :bo try sema.usizeCast(block, src, off + field_offset);
-                    } else {
-                        break :bo null;
-                    }
+                    deref.parent = null;
+                    deref.ty_without_well_defined_layout = elem_ty;
                 }
+            }
+
+            // If we're loading an elem_ptr that was derived from a different type
+            // than the true type of the underlying decl, we cannot deref directly
+            const ty_matches = if (deref.target != null and deref.target.?.ty.isArrayLike()) x: {
+                const deref_elem_ty = deref.target.?.ty.childType();
+                break :x (try sema.coerceInMemoryAllowed(block, deref_elem_ty, elem_ty, false, target, src, src)) == .ok or
+                    (try sema.coerceInMemoryAllowed(block, elem_ty, deref_elem_ty, false, target, src, src)) == .ok;
+            } else false;
+            if (!ty_matches) {
+                deref.target = null;
+                break :blk deref;
+            }
+
+            var array_tv = deref.target.?;
+            const check_len = array_tv.ty.arrayLenIncludingSentinel();
+            if (elem_ptr.index >= check_len) {
+                // TODO have the deref include the decl so we can say "declared here"
+                return sema.fail(block, src, "comptime load of index {d} out of bounds of array length {d}", .{
+                    elem_ptr.index, check_len,
+                });
+            }
+
+            if (maybe_array_ty) |load_ty| {
+                // It's possible that we're loading a [N]T, in which case we'd like to slice
+                // the target array directly from our parent array.
+                if (load_ty.isArrayLike() and load_ty.childType().eql(elem_ty)) {
+                    const N = try sema.usizeCast(block, src, load_ty.arrayLenIncludingSentinel());
+                    deref.target = if (elem_ptr.index + N <= check_len) TypedValue{
+                        .ty = try Type.array(sema.arena, N, null, elem_ty),
+                        .val = try array_tv.val.sliceArray(sema.arena, elem_ptr.index, elem_ptr.index + N),
+                    } else null;
+                    break :blk deref;
+                }
+            }
+
+            deref.target = .{
+                .ty = elem_ty,
+                .val = try array_tv.val.elemValue(sema.arena, elem_ptr.index),
             };
-            return ComptimePtrLoadKit{
-                .root_val = parent.root_val,
-                .root_ty = parent.root_ty,
-                .val = try parent.val.fieldValue(sema.arena, field_index),
-                .ty = parent.ty.structFieldType(field_index),
-                .byte_offset = byte_offset,
-                .is_mutable = parent.is_mutable,
-            };
+            break :blk deref;
         },
-        .eu_payload_ptr => {
-            const err_union_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
-            const parent = try beginComptimePtrLoad(sema, block, src, err_union_ptr.container_ptr);
-            return ComptimePtrLoadKit{
-                .root_val = parent.root_val,
-                .root_ty = parent.root_ty,
-                .val = parent.val.castTag(.eu_payload).?.data,
-                .ty = parent.ty.errorUnionPayload(),
-                .byte_offset = null,
-                .is_mutable = parent.is_mutable,
-            };
+
+        .field_ptr => blk: {
+            const field_ptr = ptr_val.castTag(.field_ptr).?.data;
+            const field_index = @intCast(u32, field_ptr.field_index);
+            const field_ty = field_ptr.container_ty.structFieldType(field_index);
+            var deref = try beginComptimePtrLoad(sema, block, src, field_ptr.container_ptr, field_ptr.container_ty);
+
+            if (try sema.typeHasWellDefinedLayout(block, src, field_ptr.container_ty)) {
+                if (deref.parent) |*parent| {
+                    // Update the byte offset (in-place)
+                    try sema.resolveTypeLayout(block, src, field_ptr.container_ty);
+                    const field_offset = field_ptr.container_ty.structFieldOffset(field_index, target);
+                    parent.byte_offset = try sema.usizeCast(block, src, parent.byte_offset + field_offset);
+                }
+            } else {
+                deref.parent = null;
+                deref.ty_without_well_defined_layout = field_ptr.container_ty;
+            }
+
+            if (deref.target) |*tv| {
+                const coerce_in_mem_ok =
+                    (try sema.coerceInMemoryAllowed(block, field_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
+                    (try sema.coerceInMemoryAllowed(block, tv.ty, field_ptr.container_ty, false, target, src, src)) == .ok;
+                if (coerce_in_mem_ok) {
+                    deref.target = TypedValue{
+                        .ty = field_ty,
+                        .val = try tv.val.fieldValue(sema.arena, field_index),
+                    };
+                    break :blk deref;
+                }
+            }
+            deref.target = null;
+            break :blk deref;
         },
-        .opt_payload_ptr => {
-            const opt_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
-            const parent = try beginComptimePtrLoad(sema, block, src, opt_ptr.container_ptr);
-            return ComptimePtrLoadKit{
-                .root_val = parent.root_val,
-                .root_ty = parent.root_ty,
-                .val = parent.val.castTag(.opt_payload).?.data,
-                .ty = try parent.ty.optionalChildAlloc(sema.arena),
-                .byte_offset = null,
-                .is_mutable = parent.is_mutable,
+
+        .opt_payload_ptr,
+        .eu_payload_ptr,
+        => blk: {
+            const payload_ptr = ptr_val.cast(Value.Payload.PayloadPtr).?.data;
+            const payload_ty = switch (ptr_val.tag()) {
+                .eu_payload_ptr => payload_ptr.container_ty.errorUnionPayload(),
+                .opt_payload_ptr => try payload_ptr.container_ty.optionalChildAlloc(sema.arena),
+                else => unreachable,
             };
+            var deref = try beginComptimePtrLoad(sema, block, src, payload_ptr.container_ptr, payload_ptr.container_ty);
+
+            // eu_payload_ptr and opt_payload_ptr never have a well-defined layout
+            if (deref.parent != null) {
+                deref.parent = null;
+                deref.ty_without_well_defined_layout = payload_ptr.container_ty;
+            }
+
+            if (deref.target) |*tv| {
+                const coerce_in_mem_ok =
+                    (try sema.coerceInMemoryAllowed(block, payload_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
+                    (try sema.coerceInMemoryAllowed(block, tv.ty, payload_ptr.container_ty, false, target, src, src)) == .ok;
+                if (coerce_in_mem_ok) {
+                    const payload_val = switch (ptr_val.tag()) {
+                        .eu_payload_ptr => tv.val.castTag(.eu_payload).?.data,
+                        .opt_payload_ptr => tv.val.castTag(.opt_payload).?.data,
+                        else => unreachable,
+                    };
+                    tv.* = TypedValue{ .ty = payload_ty, .val = payload_val };
+                    break :blk deref;
+                }
+            }
+            deref.target = null;
+            break :blk deref;
         },
 
         .zero,
@@ -18021,7 +18058,14 @@ fn beginComptimePtrLoad(
         => return error.RuntimeLoad,
 
         else => unreachable,
+    };
+
+    if (deref.target) |tv| {
+        if (deref.parent == null and tv.ty.hasWellDefinedLayout()) {
+            deref.parent = .{ .tv = tv, .byte_offset = 0 };
+        }
     }
+    return deref;
 }
 
 fn bitCast(
@@ -21106,39 +21150,53 @@ pub fn analyzeAddrspace(
 /// Asserts the value is a pointer and dereferences it.
 /// Returns `null` if the pointer contents cannot be loaded at comptime.
 fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr_ty: Type) CompileError!?Value {
-    const target = sema.mod.getTarget();
     const load_ty = ptr_ty.childType();
-    const parent = sema.beginComptimePtrLoad(block, src, ptr_val) catch |err| switch (err) {
+    const target = sema.mod.getTarget();
+    const deref = sema.beginComptimePtrLoad(block, src, ptr_val, load_ty) catch |err| switch (err) {
         error.RuntimeLoad => return null,
         else => |e| return e,
     };
-    // We have a Value that lines up in virtual memory exactly with what we want to load.
-    // If the Type is in-memory coercable to `load_ty`, it may be returned without modifications.
-    const coerce_in_mem_ok =
-        (try sema.coerceInMemoryAllowed(block, load_ty, parent.ty, false, target, src, src)) == .ok or
-        (try sema.coerceInMemoryAllowed(block, parent.ty, load_ty, false, target, src, src)) == .ok;
-    if (coerce_in_mem_ok) {
-        if (parent.is_mutable) {
-            // The decl whose value we are obtaining here may be overwritten with
-            // a different value upon further semantic analysis, which would
-            // invalidate this memory. So we must copy here.
-            return try parent.val.copy(sema.arena);
+
+    if (deref.target) |tv| {
+        const coerce_in_mem_ok =
+            (try sema.coerceInMemoryAllowed(block, load_ty, tv.ty, false, target, src, src)) == .ok or
+            (try sema.coerceInMemoryAllowed(block, tv.ty, load_ty, false, target, src, src)) == .ok;
+        if (coerce_in_mem_ok) {
+            // We have a Value that lines up in virtual memory exactly with what we want to load,
+            // and it is in-memory coercible to load_ty. It may be returned without modifications.
+            if (deref.is_mutable) {
+                // The decl whose value we are obtaining here may be overwritten with
+                // a different value upon further semantic analysis, which would
+                // invalidate this memory. So we must copy here.
+                return try tv.val.copy(sema.arena);
+            }
+            return tv.val;
         }
-        return parent.val;
     }
 
-    // The type is not in-memory coercable, so it must be bitcasted according
-    // to the pointer type we are performing the load through.
+    // The type is not in-memory coercible or the direct dereference failed, so it must
+    // be bitcast according to the pointer type we are performing the load through.
+    if (!(try sema.typeHasWellDefinedLayout(block, src, load_ty)))
+        return sema.fail(block, src, "comptime dereference requires {} to have a well-defined layout, but it does not.", .{load_ty});
 
-    // TODO emit a compile error if the types are not allowed to be bitcasted
+    const load_sz = try sema.typeAbiSize(block, src, load_ty);
 
-    if (parent.ty.abiSize(target) >= load_ty.abiSize(target)) {
-        // The Type it is stored as in the compiler has an ABI size greater or equal to
-        // the ABI size of `load_ty`. We may perform the bitcast based on
-        // `parent.val` alone (more efficient).
-        return try sema.bitCastVal(block, src, parent.val, parent.ty, load_ty, 0);
+    // Try the smaller bit-cast first, since that's more efficient than using the larger `parent`
+    if (deref.target) |tv| if (load_sz <= try sema.typeAbiSize(block, src, tv.ty))
+        return try sema.bitCastVal(block, src, tv.val, tv.ty, load_ty, 0);
+
+    // If that fails, try to bit-cast from the largest parent value with a well-defined layout
+    if (deref.parent) |parent| if (load_sz + parent.byte_offset <= try sema.typeAbiSize(block, src, parent.tv.ty))
+        return try sema.bitCastVal(block, src, parent.tv.val, parent.tv.ty, load_ty, parent.byte_offset);
+
+    if (deref.ty_without_well_defined_layout) |bad_ty| {
+        // We got no parent for bit-casting, or the parent we got was too small. Either way, the problem
+        // is that some type we encountered when de-referencing does not have a well-defined layout.
+        return sema.fail(block, src, "comptime dereference requires {} to have a well-defined layout, but it does not.", .{bad_ty});
     } else {
-        return try sema.bitCastVal(block, src, parent.root_val, parent.root_ty, load_ty, parent.byte_offset.?);
+        // If all encountered types had well-defined layouts, the parent is the root decl and it just
+        // wasn't big enough for the load.
+        return sema.fail(block, src, "dereference of {} exceeds bounds of containing decl of type {}", .{ ptr_ty, deref.parent.?.tv.ty });
     }
 }
 
