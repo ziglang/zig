@@ -1360,6 +1360,12 @@ fn arrayInitExpr(
             }
         },
         .block_ptr => |block_gz| {
+            // This condition is here for the same reason as the above condition in `inferred_ptr`.
+            // See corresponding logic in structInitExpr.
+            if (types.array == .none and astgen.isInferred(block_gz.rl_ptr)) {
+                const result = try arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
+                return rvalue(gz, rl, result, node);
+            }
             return arrayInitExprRlPtr(gz, scope, rl, node, block_gz.rl_ptr, array_init.ast.elements, types.array);
         },
     }
@@ -1604,7 +1610,16 @@ fn structInitExpr(
                 return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst);
             }
         },
-        .block_ptr => |block_gz| return structInitExprRlPtr(gz, scope, rl, node, struct_init, block_gz.rl_ptr),
+        .block_ptr => |block_gz| {
+            // This condition is here for the same reason as the above condition in `inferred_ptr`.
+            // See corresponding logic in arrayInitExpr.
+            if (struct_init.ast.type_expr == 0 and astgen.isInferred(block_gz.rl_ptr)) {
+                const result = try structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon);
+                return rvalue(gz, rl, result, node);
+            }
+
+            return structInitExprRlPtr(gz, scope, rl, node, struct_init, block_gz.rl_ptr);
+        },
     }
 }
 
@@ -10937,4 +10952,18 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
         gop.value_ptr.* = member_node;
     }
     return decl_count;
+}
+
+fn isInferred(astgen: *AstGen, ref: Zir.Inst.Ref) bool {
+    const inst = refToIndex(ref) orelse return false;
+    const zir_tags = astgen.instructions.items(.tag);
+    return switch (zir_tags[inst]) {
+        .alloc_inferred,
+        .alloc_inferred_mut,
+        .alloc_inferred_comptime,
+        .alloc_inferred_comptime_mut,
+        => true,
+
+        else => false,
+    };
 }

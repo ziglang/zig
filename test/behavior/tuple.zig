@@ -165,3 +165,35 @@ test "array-like initializer for tuple types" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "anon struct as the result from a labeled block" {
+    const S = struct {
+        fn doTheTest() !void {
+            const precomputed = comptime blk: {
+                var x: i32 = 1234;
+                break :blk .{
+                    .x = x,
+                };
+            };
+            try expect(precomputed.x == 1234);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "tuple as the result from a labeled block" {
+    const S = struct {
+        fn doTheTest() !void {
+            const precomputed = comptime blk: {
+                var x: i32 = 1234;
+                break :blk .{x};
+            };
+            try expect(precomputed[0] == 1234);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}

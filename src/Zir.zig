@@ -516,7 +516,7 @@ pub const Inst = struct {
         /// Same as `store` except provides a source location.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         store_node,
-        /// This instruction is not really supposed to be emitted from AstGen; nevetheless it
+        /// This instruction is not really supposed to be emitted from AstGen; nevertheless it
         /// is sometimes emitted due to deficiencies in AstGen. When Sema sees this instruction,
         /// it must clean up after AstGen's mess by looking at various context clues and
         /// then treating it as one of the following:
