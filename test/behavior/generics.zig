@@ -230,3 +230,16 @@ fn GenNode(comptime T: type) type {
         }
     };
 }
+
+test "function parameter is generic" {
+    const S = struct {
+        pub fn init(pointer: anytype, comptime fillFn: fn (ptr: *@TypeOf(pointer)) void) void {
+            _ = fillFn;
+        }
+        pub fn fill(self: *u32) void {
+            _ = self;
+        }
+    };
+    var rng: u32 = 2;
+    S.init(rng, S.fill);
+}

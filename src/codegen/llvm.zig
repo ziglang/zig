@@ -3204,6 +3204,7 @@ pub const FuncGen = struct {
                 .tag_name       => try self.airTagName(inst),
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
+                .shuffle        => try self.airShuffle(inst),
                 .aggregate_init => try self.airAggregateInit(inst),
                 .union_init     => try self.airUnionInit(inst),
                 .prefetch       => try self.airPrefetch(inst),
@@ -5848,6 +5849,43 @@ pub const FuncGen = struct {
         const u32_zero = u32_llvm_ty.constNull();
         const op_vector = self.builder.buildInsertElement(undef_vector, scalar, u32_zero, "");
         return self.builder.buildShuffleVector(op_vector, undef_vector, mask_llvm_ty.constNull(), "");
+    }
+
+    fn airShuffle(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
+        const a = try self.resolveInst(extra.a);
+        const b = try self.resolveInst(extra.b);
+        const mask = self.air.values[extra.mask];
+        const mask_len = extra.mask_len;
+        const a_len = self.air.typeOf(extra.a).vectorLen();
+
+        // LLVM uses integers larger than the length of the first array to
+        // index into the second array. This was deemed unnecessarily fragile
+        // when changing code, so Zig uses negative numbers to index the
+        // second vector. These start at -1 and go down, and are easiest to use
+        // with the ~ operator. Here we convert between the two formats.
+        const values = try self.gpa.alloc(*const llvm.Value, mask_len);
+        defer self.gpa.free(values);
+
+        const llvm_i32 = self.context.intType(32);
+
+        for (values) |*val, i| {
+            var buf: Value.ElemValueBuffer = undefined;
+            const elem = mask.elemValueBuffer(i, &buf);
+            if (elem.isUndef()) {
+                val.* = llvm_i32.getUndef();
+            } else {
+                const int = elem.toSignedInt();
+                const unsigned = if (int >= 0) @intCast(u32, int) else @intCast(u32, ~int + a_len);
+                val.* = llvm_i32.constInt(unsigned, .False);
+            }
+        }
+
+        const llvm_mask_value = llvm.constVector(values.ptr, mask_len);
+        return self.builder.buildShuffleVector(a, b, llvm_mask_value, "");
     }
 
     fn airAggregateInit(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

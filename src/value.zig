@@ -1157,6 +1157,7 @@ pub const Value = extern union {
     ) Allocator.Error!Value {
         switch (ty.zigTypeTag()) {
             .Int => {
+                if (buffer.len == 0) return Value.zero;
                 const int_info = ty.intInfo(target);
                 const endian = target.cpu.arch.endian();
                 const Limb = std.math.big.Limb;
@@ -1819,7 +1820,22 @@ pub const Value = extern union {
     }
 
     /// Asserts the value is comparable.
+    /// For vectors this is only valid with op == .eq.
     pub fn compareWithZero(lhs: Value, op: std.math.CompareOperator) bool {
+        switch (lhs.tag()) {
+            .repeated => {
+                assert(op == .eq);
+                return lhs.castTag(.repeated).?.data.compareWithZero(.eq);
+            },
+            .array => {
+                assert(op == .eq);
+                for (lhs.cast(Payload.Array).?.data) |elem_val| {
+                    if (!elem_val.compareWithZero(.eq)) return false;
+                }
+                return true;
+            },
+            else => {},
+        }
         return orderAgainstZero(lhs).compare(op);
     }
 
@@ -2168,6 +2184,33 @@ pub const Value = extern union {
 
             else => false,
         };
+    }
+
+    pub fn canMutateComptimeVarState(val: Value) bool {
+        if (val.isComptimeMutablePtr()) return true;
+        switch (val.tag()) {
+            .repeated => return val.castTag(.repeated).?.data.canMutateComptimeVarState(),
+            .array => {
+                const elems = val.cast(Payload.Array).?.data;
+                for (elems) |elem| {
+                    if (elem.canMutateComptimeVarState()) return true;
+                }
+                return false;
+            },
+            .eu_payload => return val.castTag(.eu_payload).?.data.canMutateComptimeVarState(),
+            .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.canMutateComptimeVarState(),
+            .opt_payload => return val.castTag(.opt_payload).?.data.canMutateComptimeVarState(),
+            .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.canMutateComptimeVarState(),
+            .@"struct" => {
+                const fields = val.cast(Payload.Struct).?.data;
+                for (fields) |field| {
+                    if (field.canMutateComptimeVarState()) return true;
+                }
+                return false;
+            },
+            .@"union" => return val.cast(Payload.Union).?.data.val.canMutateComptimeVarState(),
+            else => return false,
+        }
     }
 
     /// Gets the decl referenced by this pointer.  If the pointer does not point

@@ -258,6 +258,7 @@ const Writer = struct {
             .wasm_memory_size => try w.writeWasmMemorySize(s, inst),
             .wasm_memory_grow => try w.writeWasmMemoryGrow(s, inst),
             .mul_add => try w.writeMulAdd(s, inst),
+            .shuffle => try w.writeShuffle(s, inst),
 
             .add_with_overflow,
             .sub_with_overflow,
@@ -373,6 +374,16 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, extra.rhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, pl_op.operand);
+    }
+
+    fn writeShuffle(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.Shuffle, pl_op.payload).data;
+
+        try w.writeOperand(s, inst, 0, extra.a);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.b);
+        try s.print(", mask {d}, len {d}", .{ extra.mask, extra.mask_len });
     }
 
     fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

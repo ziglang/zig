@@ -7,6 +7,7 @@
 //! TODO(tiehuis): Benchmark these against other reference implementations.
 
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -30,7 +31,10 @@ pub const Sfc64 = @import("rand/Sfc64.zig");
 
 pub const Random = struct {
     ptr: *anyopaque,
-    fillFn: fn (ptr: *anyopaque, buf: []u8) void,
+    fillFn: if (builtin.zig_backend == .stage1)
+        fn (ptr: *anyopaque, buf: []u8) void
+    else
+        *const fn (ptr: *anyopaque, buf: []u8) void,
 
     pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
         const Ptr = @TypeOf(pointer);
