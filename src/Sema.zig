@@ -4618,7 +4618,7 @@ fn analyzeCall(
                         },
                         else => {},
                     }
-                    should_memoize = should_memoize and !arg_val.isComptimeMutablePtr();
+                    should_memoize = should_memoize and !arg_val.canMutateComptimeVarState();
                     memoized_call_key.args[arg_i] = .{
                         .ty = param_ty,
                         .val = arg_val,
@@ -4644,7 +4644,7 @@ fn analyzeCall(
                         },
                         else => {},
                     }
-                    should_memoize = should_memoize and !arg_val.isComptimeMutablePtr();
+                    should_memoize = should_memoize and !arg_val.canMutateComptimeVarState();
                     memoized_call_key.args[arg_i] = .{
                         .ty = sema.typeOf(uncasted_arg),
                         .val = arg_val,
@@ -13603,7 +13603,8 @@ fn analyzeShuffle(
     // in 1 call because these calls to analyzeShuffle guarantee a_len == b_len.
     if (a_len != b_len) {
         const min_len = std.math.min(a_len, b_len);
-        const max_len = std.math.max(a_len, b_len);
+        const max_src = if (a_len > b_len) a_src else b_src;
+        const max_len = try sema.usizeCast(block, max_src, std.math.max(a_len, b_len));
 
         const expand_mask_values = try sema.arena.alloc(Value, max_len);
         i = 0;
