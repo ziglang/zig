@@ -4786,7 +4786,7 @@ pub const Type = extern union {
                         return field_offset.offset;
                 }
 
-                return std.mem.alignForwardGeneric(u64, it.offset, it.big_align);
+                return std.mem.alignForwardGeneric(u64, it.offset, @maximum(it.big_align, 1));
             },
 
             .tuple, .anon_struct => {
@@ -4809,7 +4809,7 @@ pub const Type = extern union {
                     if (i == index) return offset;
                     offset += field_ty.abiSize(target);
                 }
-                offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                offset = std.mem.alignForwardGeneric(u64, offset, @maximum(big_align, 1));
                 return offset;
             },
 
