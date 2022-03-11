@@ -104,6 +104,7 @@ test "array len field" {
     comptime try expect(arr.len == 4);
     try expect(ptr.len == 4);
     comptime try expect(ptr.len == 4);
+    try expect(@TypeOf(arr.len) == usize);
 }
 
 test "array with sentinels" {
