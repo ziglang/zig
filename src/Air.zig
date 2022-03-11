@@ -520,6 +520,9 @@ pub const Inst = struct {
         /// equal to the scalar value.
         /// Uses the `ty_op` field.
         splat,
+        /// Constructs a vector by selecting elements from `a` and `b` based on `mask`.
+        /// Uses the `ty_pl` field with payload `Shuffle`.
+        shuffle,
 
         /// Given dest ptr, value, and len, set all elements at dest to value.
         /// Result type is always void.
@@ -740,6 +743,14 @@ pub const FieldParentPtr = struct {
     field_index: u32,
 };
 
+pub const Shuffle = struct {
+    a: Inst.Ref,
+    b: Inst.Ref,
+    // index to air_values
+    mask: u32,
+    mask_len: u32,
+};
+
 /// Trailing:
 /// 0. `Inst.Ref` for every outputs_len
 /// 1. `Inst.Ref` for every inputs_len
@@ -897,6 +908,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .cmpxchg_weak,
         .cmpxchg_strong,
         .slice,
+        .shuffle,
         .aggregate_init,
         .union_init,
         .field_parent_ptr,

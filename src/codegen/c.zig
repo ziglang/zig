@@ -1716,6 +1716,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .tag_name         => try airTagName(f, inst),
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
+            .shuffle          => try airShuffle(f, inst),
             .aggregate_init   => try airAggregateInit(f, inst),
             .union_init       => try airUnionInit(f, inst),
             .prefetch         => try airPrefetch(f, inst),
@@ -3555,6 +3556,21 @@ fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = operand;
     _ = local;
     return f.fail("TODO: C backend: implement airSplat", .{});
+}
+
+fn airShuffle(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const operand = try f.resolveInst(ty_op.operand);
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+
+    _ = operand;
+    _ = local;
+    return f.fail("TODO: C backend: implement airShuffle", .{});
 }
 
 fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {

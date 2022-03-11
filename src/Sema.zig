@@ -13452,8 +13452,129 @@ fn zirReduce(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
 fn zirShuffle(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirShuffle", .{});
+    const extra = sema.code.extraData(Zir.Inst.Shuffle, inst_data.payload_index).data;
+    const elem_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const a_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const b_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+    const mask_src: LazySrcLoc = .{ .node_offset_builtin_call_arg3 = inst_data.src_node };
+
+    const elem_ty = try sema.resolveType(block, elem_ty_src, extra.elem_type);
+    try sema.checkVectorElemType(block, elem_ty_src, elem_ty);
+    var a = sema.resolveInst(extra.a);
+    var b = sema.resolveInst(extra.b);
+    var mask = sema.resolveInst(extra.mask);
+    var mask_ty = sema.typeOf(mask);
+
+    const mask_len = switch (sema.typeOf(mask).zigTypeTag()) {
+        .Array, .Vector => sema.typeOf(mask).arrayLen(),
+        else => return sema.fail(block, mask_src, "expected vector or array, found {}", .{sema.typeOf(mask)}),
+    };
+    mask_ty = try Type.Tag.vector.create(sema.arena, .{
+        .len = mask_len,
+        .elem_type = Type.@"i32",
+    });
+    mask = try sema.coerce(block, mask_ty, mask, mask_src);
+
+    const res_ty = try Type.Tag.vector.create(sema.arena, .{
+        .len = mask_len,
+        .elem_type = elem_ty,
+    });
+
+    var maybe_a_len = switch (sema.typeOf(a).zigTypeTag()) {
+        .Array, .Vector => sema.typeOf(a).arrayLen(),
+        .Undefined => null,
+        else => return sema.fail(block, a_src, "expected vector or array with element type {}, found {}", .{
+            elem_ty,
+            sema.typeOf(mask),
+        }),
+    };
+    var maybe_b_len = switch (sema.typeOf(b).zigTypeTag()) {
+        .Array, .Vector => sema.typeOf(b).arrayLen(),
+        .Undefined => null,
+        else => return sema.fail(block, b_src, "expected vector or array with element type {}, found {}", .{
+            elem_ty,
+            sema.typeOf(mask),
+        }),
+    };
+    if (maybe_a_len == null and maybe_b_len == null) {
+        return sema.addConstUndef(res_ty);
+    }
+    const a_len = maybe_a_len orelse maybe_b_len.?;
+    const b_len = maybe_b_len orelse a_len;
+
+    const a_ty = try Type.Tag.vector.create(sema.arena, .{
+        .len = a_len,
+        .elem_type = elem_ty,
+    });
+    const b_ty = try Type.Tag.vector.create(sema.arena, .{
+        .len = b_len,
+        .elem_type = elem_ty,
+    });
+
+    if (maybe_a_len == null) a = try sema.addConstUndef(a_ty);
+    if (maybe_b_len == null) b = try sema.addConstUndef(b_ty);
+
+    const operand_info = [2]std.meta.Tuple(&.{ u64, LazySrcLoc, Type }){
+        .{ a_len, a_src, a_ty },
+        .{ b_len, b_src, b_ty },
+    };
+
+    const mask_val = try sema.resolveConstMaybeUndefVal(block, mask_src, mask);
+    var i: usize = 0;
+    while (i < mask_len) : (i += 1) {
+        var buf: Value.ElemValueBuffer = undefined;
+        const elem = mask_val.elemValueBuffer(i, &buf);
+        if (elem.isUndef()) continue;
+        const int = elem.toSignedInt();
+        var unsigned: u32 = undefined;
+        var chosen: u32 = undefined;
+        if (int >= 0) {
+            unsigned = @intCast(u32, int);
+            chosen = 0;
+        } else {
+            unsigned = @intCast(u32, ~int);
+            chosen = 1;
+        }
+        if (unsigned >= operand_info[chosen][0]) {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, mask_src, "mask index {d} has out-of-bounds selection", .{i});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.errNote(block, operand_info[chosen][1], msg, "selected index {d} out of bounds of {}", .{
+                    unsigned,
+                    operand_info[chosen][2],
+                });
+
+                if (chosen == 1) {
+                    try sema.errNote(block, b_src, msg, "selections from the second vector are specified with negative numbers", .{});
+                }
+
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        }
+    }
+
+    // TODO at comptime
+
+    if (a_len != b_len) {
+        return sema.fail(block, mask_src, "TODO handle shuffle a_len != b_len", .{});
+    }
+
+    const mask_index = @intCast(u32, sema.air_values.items.len);
+    try sema.air_values.append(sema.gpa, mask_val);
+    return block.addInst(.{
+        .tag = .shuffle,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(res_ty),
+            .payload = try block.sema.addExtra(Air.Shuffle{
+                .a = a,
+                .b = b,
+                .mask = mask_index,
+                .mask_len = @intCast(u32, mask_len),
+            }),
+        } },
+    });
 }
 
 fn zirSelect(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
