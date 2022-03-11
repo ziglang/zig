@@ -1,3 +1,34 @@
+//! This module provides functions for encoding binary data to
+//! printable ASCII characters and decoding such encodings back to
+//! binary data.
+//!
+//! The encodings are described in RFC 4648.
+//!
+//! There are four variants defined here:
+//!
+//! standard:
+//!   Standard Base64 codecs, with padding
+//!
+//! standard_no_pad:
+//!   Standard Base64 codecs, without padding
+//!
+//! url_safe:
+//!   URL-safe Base64 codecs, with padding
+//!
+//! url_safe_no_pad:
+//!   URL-safe Base64 codecs, without padding
+//!
+//! Example:
+//!    const base64 = std.base64.standard;
+//!    var buffer: [0x100]u8 = undefined;
+//!    var source = "all your base are belong to us";
+//!    const encoded = base64.Encoder.encode(&buffer, source);
+//!    std.debug.print("{s}\n", .{encoded});
+//!
+//!    var decoded = buffer[0..try base64.Decoder.calcSizeForSlice(encoded)];
+//!    try base64.Decoder.decode(decoded, encoded);
+//!    std.debug.print("{s}\n", .{decoded});
+
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
