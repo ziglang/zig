@@ -14948,7 +14948,7 @@ fn fieldVal(
         .Array => {
             if (mem.eql(u8, field_name, "len")) {
                 return sema.addConstant(
-                    Type.comptime_int,
+                    Type.usize,
                     try Value.Tag.int_u64.create(arena, inner_ty.arrayLen()),
                 );
             } else {
@@ -14986,7 +14986,7 @@ fn fieldVal(
             } else if (ptr_info.pointee_type.zigTypeTag() == .Array) {
                 if (mem.eql(u8, field_name, "len")) {
                     return sema.addConstant(
-                        Type.comptime_int,
+                        Type.usize,
                         try Value.Tag.int_u64.create(arena, ptr_info.pointee_type.arrayLen()),
                     );
                 } else {
@@ -15131,7 +15131,7 @@ fn fieldPtr(
                 var anon_decl = try block.startAnonDecl(src);
                 defer anon_decl.deinit();
                 return sema.analyzeDeclRef(try anon_decl.finish(
-                    Type.initTag(.comptime_int),
+                    Type.usize,
                     try Value.Tag.int_u64.create(anon_decl.arena(), inner_ty.arrayLen()),
                 ));
             } else {
