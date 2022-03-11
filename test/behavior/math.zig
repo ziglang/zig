@@ -65,7 +65,6 @@ test "@clz" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try testClz();
     comptime try testClz();
@@ -76,6 +75,20 @@ fn testClz() !void {
     try expect(testOneClz(u8, 0b00001010) == 4);
     try expect(testOneClz(u8, 0b00011010) == 3);
     try expect(testOneClz(u8, 0b00000000) == 8);
+}
+
+test "@clz big ints" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    try testClzBigInts();
+    comptime try testClzBigInts();
+}
+
+fn testClzBigInts() !void {
     try expect(testOneClz(u128, 0xffffffffffffffff) == 64);
     try expect(testOneClz(u128, 0x10000000000000000) == 63);
 }
@@ -130,7 +143,6 @@ test "@ctz" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try testCtz();
     comptime try testCtz();
