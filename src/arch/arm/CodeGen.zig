@@ -2876,7 +2876,12 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
                 const condition = Condition.fromCompareOperatorUnsigned(cmp_op);
                 break :blk condition.negate();
             },
-            .register => |reg| blk: {
+            else => blk: {
+                const reg = switch (cond) {
+                    .register => |r| r,
+                    else => try self.copyToTmpRegister(Type.bool, cond),
+                };
+
                 try self.spillCompareFlagsIfOccupied();
 
                 // cmp reg, 1
@@ -2893,28 +2898,6 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
                 break :blk .ne;
             },
-            .stack_offset,
-            .memory,
-            .stack_argument_offset,
-            => blk: {
-                try self.spillCompareFlagsIfOccupied();
-
-                const reg = try self.copyToTmpRegister(Type.initTag(.bool), cond);
-
-                // cmp reg, 1
-                // bne ...
-                _ = try self.addInst(.{
-                    .tag = .cmp,
-                    .data = .{ .rr_op = .{
-                        .rd = .r0,
-                        .rn = reg,
-                        .op = Instruction.Operand.imm(1, 0),
-                    } },
-                });
-
-                break :blk .ne;
-            },
-            else => return self.fail("TODO implement condbr {} when condition is {s}", .{ self.target.cpu.arch, @tagName(cond) }),
         };
 
         break :reloc try self.addInst(.{
@@ -3603,9 +3586,18 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                     },
                     .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
-                    .embedded_in_code,
-                    .stack_argument_offset,
-                    => return self.fail("TODO genSetStack with src={}", .{mcv}),
+                    .stack_argument_offset => |unadjusted_off| {
+                        const adj_off = unadjusted_off + abi_size;
+
+                        _ = try self.addInst(.{
+                            .tag = .ldr_ptr_stack_argument,
+                            .data = .{ .r_stack_offset = .{
+                                .rt = src_reg,
+                                .stack_offset = adj_off,
+                            } },
+                        });
+                    },
+                    .embedded_in_code => return self.fail("TODO genSetStack with src={}", .{mcv}),
                     else => unreachable,
                 }
 

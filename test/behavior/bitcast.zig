@@ -269,7 +269,6 @@ test "bitcast passed as tuple element" {
 
 test "triple level result location with bitcast sandwich passed as tuple element" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn foo(args: anytype) !void {

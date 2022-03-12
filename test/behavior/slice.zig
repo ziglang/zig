@@ -70,7 +70,6 @@ test "comptime slice of undefined pointer of length 0" {
 test "implicitly cast array of size 0 to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var msg = [_]u8{};
     try assertLenIsZero(&msg);
@@ -206,7 +205,6 @@ const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
