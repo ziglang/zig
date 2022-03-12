@@ -1359,7 +1359,7 @@ fn binOp(
     rhs: MCValue,
     lhs_ty: Type,
     rhs_ty: Type,
-) !MCValue {
+) InnerError!MCValue {
     switch (tag) {
         // Arithmetic operations on integers and floats
         .add,
@@ -1481,16 +1481,21 @@ fn binOp(
             switch (lhs_ty.zigTypeTag()) {
                 .Pointer => {
                     const ptr_ty = lhs_ty;
-                    const pointee_ty = switch (ptr_ty.ptrSize()) {
+                    const elem_ty = switch (ptr_ty.ptrSize()) {
                         .One => ptr_ty.childType().childType(), // ptr to array, so get array element type
                         else => ptr_ty.childType(),
                     };
+                    const elem_size = elem_ty.abiSize(self.target.*);
 
-                    if (pointee_ty.abiSize(self.target.*) > 1) {
-                        return self.fail("TODO ptr_add, ptr_sub with more element sizes", .{});
+                    if (elem_size == 1) {
+                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                    } else {
+                        // convert the offset into a byte offset by
+                        // multiplying it with elem_size
+                        const offset = try self.binOp(.mul, null, rhs, .{ .immediate = elem_size }, Type.usize, Type.usize);
+                        const addr = try self.binOp(tag, null, lhs, offset, Type.initTag(.manyptr_u8), Type.usize);
+                        return addr;
                     }
-
-                    return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                 },
                 else => unreachable,
             }
@@ -1800,29 +1805,11 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
         switch (elem_size) {
             else => {
-                const dst_mcv = try self.allocRegOrMem(inst, true);
+                const dest = try self.allocRegOrMem(inst, true);
+                const addr = try self.binOp(.ptr_add, null, base_mcv, index_mcv, slice_ty, Type.usize);
+                try self.load(dest, addr, slice_ptr_field_type);
 
-                const offset_mcv = try self.binOp(
-                    .mul,
-                    null,
-                    index_mcv,
-                    .{ .immediate = elem_size },
-                    Type.usize,
-                    Type.usize,
-                );
-                assert(offset_mcv == .register); // result of multiplication should always be register
-                self.register_manager.freezeRegs(&.{offset_mcv.register});
-
-                const addr_mcv = try self.binOp(.add, null, base_mcv, offset_mcv, Type.usize, Type.usize);
-
-                // At this point in time, neither the base register
-                // nor the offset register contains any valuable data
-                // anymore.
-                self.register_manager.unfreezeRegs(&.{ base_mcv.register, offset_mcv.register });
-
-                try self.load(dst_mcv, addr_mcv, slice_ptr_field_type);
-
-                break :result dst_mcv;
+                break :result dest;
             },
         }
     };
@@ -3414,7 +3401,13 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             } else {
-                // TODO optimize the register allocation
+                var ptr_ty_payload: Type.Payload.ElemType = .{
+                    .base = .{ .tag = .single_mut_pointer },
+                    .data = ty,
+                };
+                const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+
+                // TODO call extern memcpy
                 const regs = try self.register_manager.allocRegs(5, .{ null, null, null, null, null });
                 self.register_manager.freezeRegs(&regs);
                 defer self.register_manager.unfreezeRegs(&regs);
@@ -3428,16 +3421,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 switch (mcv) {
                     .stack_offset => |off| {
                         // sub src_reg, fp, #off
-                        const adj_src_offset = off + abi_size;
-                        const src_offset = math.cast(u12, adj_src_offset) catch return self.fail("TODO load: larger stack offsets", .{});
-                        _ = try self.addInst(.{
-                            .tag = .sub_immediate,
-                            .data = .{ .rr_imm12_sh = .{
-                                .rd = src_reg,
-                                .rn = .x29,
-                                .imm12 = src_offset,
-                            } },
-                        });
+                        try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                     },
                     .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = addr }),
                     .got_load,
@@ -3463,16 +3447,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 }
 
                 // sub dst_reg, fp, #stack_offset
-                const adj_dst_off = stack_offset + abi_size;
-                const dst_offset = math.cast(u12, adj_dst_off) catch return self.fail("TODO load: larger stack offsets", .{});
-                _ = try self.addInst(.{
-                    .tag = .sub_immediate,
-                    .data = .{ .rr_imm12_sh = .{
-                        .rd = dst_reg,
-                        .rn = .x29,
-                        .imm12 = dst_offset,
-                    } },
-                });
+                try self.genSetReg(ptr_ty, dst_reg, .{ .ptr_stack_offset = stack_offset });
 
                 // mov len, #abi_size
                 try self.genSetReg(Type.usize, len_reg, .{ .immediate = abi_size });
