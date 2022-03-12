@@ -422,4 +422,17 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        // This worked in stage1 and we expressly do not want this to work in stage2
+        var case = ctx.exeUsingLlvmBackend("any typed null to any typed optional", linux_x64);
+        case.addError(
+            \\pub export fn main() void {
+            \\    var a: ?*anyopaque = undefined;
+            \\    a = @as(?usize, null);
+            \\}
+        , &[_][]const u8{
+            ":3:21: error: expected pointer type, found '?usize'",
+        });
+    }
 }

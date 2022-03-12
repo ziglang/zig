@@ -19,7 +19,7 @@ test "issue 6456" {
                 .alignment = 0,
                 .name = name,
                 .field_type = usize,
-                .default_value = @as(?usize, null),
+                .default_value = &@as(?usize, null),
                 .is_comptime = false,
             }};
         }
