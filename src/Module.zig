@@ -1542,6 +1542,21 @@ pub const Fn = struct {
         // const zir = func.owner_decl.getFileScope().zir;
         return func.param_names[index];
     }
+
+    pub fn hasInferredErrorSet(func: Fn) bool {
+        const zir = func.owner_decl.getFileScope().zir;
+        const zir_tags = zir.instructions.items(.tag);
+        switch (zir_tags[func.zir_body_inst]) {
+            .func => return false,
+            .func_inferred => return true,
+            .extended => {
+                const extended = zir.instructions.items(.data)[func.zir_body_inst].extended;
+                const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
+                return small.is_inferred_error;
+            },
+            else => unreachable,
+        }
+    }
 };
 
 pub const Var = struct {

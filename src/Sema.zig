@@ -4666,20 +4666,18 @@ fn analyzeCall(
         const bare_return_type = try sema.analyzeAsType(&child_block, ret_ty_src, ret_ty_inst);
         // Create a fresh inferred error set type for inline/comptime calls.
         const fn_ret_ty = blk: {
-            if (func_ty_info.return_type.castTag(.error_union)) |payload| {
-                if (payload.data.error_set.tag() == .error_set_inferred) {
-                    const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
-                    node.data = .{ .func = module_fn };
-                    if (parent_func) |some| {
-                        some.inferred_error_sets.prepend(node);
-                    }
-
-                    const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, &node.data);
-                    break :blk try Type.Tag.error_union.create(sema.arena, .{
-                        .error_set = error_set_ty,
-                        .payload = bare_return_type,
-                    });
+            if (module_fn.hasInferredErrorSet()) {
+                const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
+                node.data = .{ .func = module_fn };
+                if (parent_func) |some| {
+                    some.inferred_error_sets.prepend(node);
                 }
+
+                const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, &node.data);
+                break :blk try Type.Tag.error_union.create(sema.arena, .{
+                    .error_set = error_set_ty,
+                    .payload = bare_return_type,
+                });
             }
             break :blk bare_return_type;
         };
