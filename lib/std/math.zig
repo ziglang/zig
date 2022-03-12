@@ -366,7 +366,7 @@ pub fn min(x: anytype, y: anytype) Min(@TypeOf(x), @TypeOf(y)) {
     }
 }
 
-test "math.min" {
+test "min" {
     try testing.expect(min(@as(i32, -1), @as(i32, 2)) == -1);
     {
         var a: u16 = 999;
@@ -403,7 +403,7 @@ pub fn min3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
     return min(x, min(y, z));
 }
 
-test "math.min3" {
+test "min3" {
     try testing.expect(min3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 0);
     try testing.expect(min3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 0);
     try testing.expect(min3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 0);
@@ -418,7 +418,7 @@ pub fn max(x: anytype, y: anytype) @TypeOf(x, y) {
     return if (x > y) x else y;
 }
 
-test "math.max" {
+test "max" {
     try testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
     try testing.expect(max(@as(i32, 2), @as(i32, -1)) == 2);
 }
@@ -428,7 +428,7 @@ pub fn max3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
     return max(x, max(y, z));
 }
 
-test "math.max3" {
+test "max3" {
     try testing.expect(max3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 2);
     try testing.expect(max3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 2);
     try testing.expect(max3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 2);
@@ -442,7 +442,7 @@ pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, u
     assert(lower <= upper);
     return max(lower, min(val, upper));
 }
-test "math.clamp" {
+test "clamp" {
     // Within range
     try testing.expect(std.math.clamp(@as(i32, -1), @as(i32, -4), @as(i32, 7)) == -1);
     // Below
@@ -515,7 +515,7 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
     return a << casted_shift_amt;
 }
 
-test "math.shl" {
+test "shl" {
     try testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -555,7 +555,7 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
     return a >> casted_shift_amt;
 }
 
-test "math.shr" {
+test "shr" {
     try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -587,7 +587,7 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
     }
 }
 
-test "math.rotr" {
+test "rotr" {
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 9)) == 0b10000000);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
@@ -615,7 +615,7 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
     }
 }
 
-test "math.rotl" {
+test "rotl" {
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 9)) == 0b00000010);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
@@ -667,7 +667,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
     return std.meta.Int(sign, magnitude_bits);
 }
 
-test "math.IntFittingRange" {
+test "IntFittingRange" {
     try testing.expect(IntFittingRange(0, 0) == u0);
     try testing.expect(IntFittingRange(0, 1) == u1);
     try testing.expect(IntFittingRange(0, 2) == u2);
@@ -714,7 +714,7 @@ test "math.IntFittingRange" {
     try testing.expect(IntFittingRange(-1, 123456789123456798123456789123456789123456798123456789) == i178);
 }
 
-test "math overflow functions" {
+test "overflow functions" {
     try testOverflow();
     comptime try testOverflow();
 }
@@ -741,7 +741,7 @@ pub fn absInt(x: anytype) !@TypeOf(x) {
     }
 }
 
-test "math.absInt" {
+test "absInt" {
     try testAbsInt();
     comptime try testAbsInt();
 }
@@ -752,7 +752,7 @@ fn testAbsInt() !void {
 
 pub const absFloat = fabs;
 
-test "math.absFloat" {
+test "absFloat" {
     try testAbsFloat();
     comptime try testAbsFloat();
 }
@@ -770,7 +770,7 @@ pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     return @divTrunc(numerator, denominator);
 }
 
-test "math.divTrunc" {
+test "divTrunc" {
     try testDivTrunc();
     comptime try testDivTrunc();
 }
@@ -794,7 +794,7 @@ pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     return @divFloor(numerator, denominator);
 }
 
-test "math.divFloor" {
+test "divFloor" {
     try testDivFloor();
     comptime try testDivFloor();
 }
@@ -831,7 +831,7 @@ pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     }
 }
 
-test "math.divCeil" {
+test "divCeil" {
     try testDivCeil();
     comptime try testDivCeil();
 }
@@ -875,7 +875,7 @@ pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     return result;
 }
 
-test "math.divExact" {
+test "divExact" {
     try testDivExact();
     comptime try testDivExact();
 }
@@ -901,7 +901,7 @@ pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
     return @mod(numerator, denominator);
 }
 
-test "math.mod" {
+test "mod" {
     try testMod();
     comptime try testMod();
 }
@@ -927,7 +927,7 @@ pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
     return @rem(numerator, denominator);
 }
 
-test "math.rem" {
+test "rem" {
     try testRem();
     comptime try testRem();
 }
@@ -971,7 +971,7 @@ pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
     }
 }
 
-test "math.absCast" {
+test "absCast" {
     try testing.expectEqual(@as(u1, 1), absCast(@as(i1, -1)));
     try testing.expectEqual(@as(u32, 999), absCast(@as(i32, -999)));
     try testing.expectEqual(@as(u32, 999), absCast(@as(i32, 999)));
@@ -992,7 +992,7 @@ pub fn negateCast(x: anytype) !std.meta.Int(.signed, std.meta.bitCount(@TypeOf(x
     return -@intCast(int, x);
 }
 
-test "math.negateCast" {
+test "negateCast" {
     try testing.expect((negateCast(@as(u32, 999)) catch unreachable) == -999);
     try testing.expect(@TypeOf(negateCast(@as(u32, 999)) catch unreachable) == i32);
 
@@ -1017,7 +1017,7 @@ pub fn cast(comptime T: type, x: anytype) (error{Overflow}!T) {
     }
 }
 
-test "math.cast" {
+test "cast" {
     try testing.expectError(error.Overflow, cast(u8, @as(u32, 300)));
     try testing.expectError(error.Overflow, cast(i8, @as(i32, -200)));
     try testing.expectError(error.Overflow, cast(u8, @as(i8, -1)));
@@ -1051,7 +1051,7 @@ pub fn floorPowerOfTwo(comptime T: type, value: T) T {
     return @as(T, 1) << log2_int(uT, @intCast(uT, value));
 }
 
-test "math.floorPowerOfTwo" {
+test "floorPowerOfTwo" {
     try testFloorPowerOfTwo();
     comptime try testFloorPowerOfTwo();
 }
@@ -1106,7 +1106,7 @@ pub fn ceilPowerOfTwoAssert(comptime T: type, value: T) T {
     return ceilPowerOfTwo(T, value) catch unreachable;
 }
 
-test "math.ceilPowerOfTwoPromote" {
+test "ceilPowerOfTwoPromote" {
     try testCeilPowerOfTwoPromote();
     comptime try testCeilPowerOfTwoPromote();
 }
@@ -1123,7 +1123,7 @@ fn testCeilPowerOfTwoPromote() !void {
     try testing.expectEqual(@as(u5, 16), ceilPowerOfTwoPromote(u4, 9));
 }
 
-test "math.ceilPowerOfTwo" {
+test "ceilPowerOfTwo" {
     try testCeilPowerOfTwo();
     comptime try testCeilPowerOfTwo();
 }
@@ -1214,13 +1214,13 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
     }
 }
 
-test "math.lossyCast" {
+test "lossyCast" {
     try testing.expect(lossyCast(i16, 70000.0) == @as(i16, 32767));
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
 }
 
-test "math.f64_min" {
+test "f64_min" {
     const f64_min_u64 = 0x0010000000000000;
     const fmin: f64 = f64_min;
     try testing.expect(@bitCast(u64, fmin) == f64_min_u64);
@@ -1298,7 +1298,7 @@ pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(
     return @as(ResultInt, a) * @as(ResultInt, b);
 }
 
-test "math.mulWide" {
+test "mulWide" {
     try testing.expect(mulWide(u8, 5, 5) == 25);
     try testing.expect(mulWide(i8, 5, -5) == -25);
     try testing.expect(mulWide(u8, 100, 100) == 10000);
@@ -1439,7 +1439,7 @@ test "order.compare" {
     try testing.expect(order(1, 0).compare(.neq));
 }
 
-test "math.comptime" {
+test "comptime sin and ln" {
     const v = comptime (sin(@as(f32, 1)) + ln(@as(f32, 5)));
     try testing.expect(v == sin(@as(f32, 1)) + ln(@as(f32, 5)));
 }
