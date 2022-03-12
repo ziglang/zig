@@ -5346,14 +5346,14 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     }
 
     if (lhs_ty.castTag(.error_set_inferred)) |payload| {
-        try sema.resolveInferredErrorSet(payload.data);
+        try sema.resolveInferredErrorSet(block, src, payload.data);
         // isAnyError might have changed from a false negative to a true positive after resolution.
         if (lhs_ty.isAnyError()) {
             return Air.Inst.Ref.anyerror_type;
         }
     }
     if (rhs_ty.castTag(.error_set_inferred)) |payload| {
-        try sema.resolveInferredErrorSet(payload.data);
+        try sema.resolveInferredErrorSet(block, src, payload.data);
         // isAnyError might have changed from a false negative to a true positive after resolution.
         if (rhs_ty.isAnyError()) {
             return Air.Inst.Ref.anyerror_type;
@@ -6927,7 +6927,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 }
             }
 
-            try sema.resolveInferredErrorSetTy(operand_ty);
+            try sema.resolveInferredErrorSetTy(block, src, operand_ty);
 
             if (operand_ty.isAnyError()) {
                 if (special_prong != .@"else") {
@@ -10437,7 +10437,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
 
             // If the error set is inferred it has to be resolved at this point
-            try sema.resolveInferredErrorSetTy(ty);
+            try sema.resolveInferredErrorSetTy(block, src, ty);
 
             // Build our list of Error values
             // Optional value is only null if anyerror
@@ -12627,7 +12627,7 @@ fn zirErrSetCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     try sema.checkErrorSetType(block, operand_src, operand_ty);
 
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |val| {
-        try sema.resolveInferredErrorSetTy(dest_ty);
+        try sema.resolveInferredErrorSetTy(block, src, dest_ty);
 
         if (!dest_ty.isAnyError()) {
             const error_name = val.castTag(.@"error").?.data.name;
@@ -16616,7 +16616,7 @@ fn coerceInMemoryAllowed(
 
     // Error Sets
     if (dest_tag == .ErrorSet and src_tag == .ErrorSet) {
-        return try sema.coerceInMemoryAllowedErrorSets(dest_ty, src_ty);
+        return try sema.coerceInMemoryAllowedErrorSets(block, dest_ty, src_ty, dest_src, src_src);
     }
 
     // Arrays
@@ -16646,8 +16646,11 @@ fn coerceInMemoryAllowed(
 
 fn coerceInMemoryAllowedErrorSets(
     sema: *Sema,
+    block: *Block,
     dest_ty: Type,
     src_ty: Type,
+    dest_src: LazySrcLoc,
+    src_src: LazySrcLoc,
 ) !InMemoryCoercionResult {
     // Coercion to `anyerror`. Note that this check can return false negatives
     // in case the error sets did not get resolved.
@@ -16655,24 +16658,43 @@ fn coerceInMemoryAllowedErrorSets(
         return .ok;
     }
 
-    // If both are inferred error sets of functions, and
-    // the dest includes the source function, the coercion is OK.
-    // This check is important because it works without forcing a full resolution
-    // of inferred error sets.
-    if (src_ty.castTag(.error_set_inferred)) |src_payload| {
-        if (dest_ty.castTag(.error_set_inferred)) |dst_payload| {
-            const src_func = src_payload.data.func;
-            const dst_func = dst_payload.data.func;
+    if (dest_ty.castTag(.error_set_inferred)) |dst_payload| {
+        const dst_ies = dst_payload.data;
+        // We will make an effort to return `ok` without resolving either error set, to
+        // avoid unnecessary "unable to resolve error set" dependency loop errors.
+        switch (src_ty.tag()) {
+            .error_set_inferred => {
+                // If both are inferred error sets of functions, and
+                // the dest includes the source function, the coercion is OK.
+                // This check is important because it works without forcing a full resolution
+                // of inferred error sets.
+                const src_ies = src_ty.castTag(.error_set_inferred).?.data;
 
-            if (src_func == dst_func or dst_payload.data.inferred_error_sets.contains(src_payload.data)) {
-                return .ok;
-            }
-            return .no_match;
+                if (dst_ies.inferred_error_sets.contains(src_ies)) {
+                    return .ok;
+                }
+            },
+            .error_set_single => {
+                const name = src_ty.castTag(.error_set_single).?.data;
+                if (dst_ies.errors.contains(name)) return .ok;
+            },
+            .error_set_merged => {
+                const names = src_ty.castTag(.error_set_merged).?.data.keys();
+                for (names) |name| {
+                    if (!dst_ies.errors.contains(name)) break;
+                } else return .ok;
+            },
+            .error_set => {
+                const names = src_ty.castTag(.error_set).?.data.names.keys();
+                for (names) |name| {
+                    if (!dst_ies.errors.contains(name)) break;
+                } else return .ok;
+            },
+            .anyerror => {},
+            else => unreachable,
         }
-    }
 
-    if (dest_ty.castTag(.error_set_inferred)) |payload| {
-        try sema.resolveInferredErrorSet(payload.data);
+        try sema.resolveInferredErrorSet(block, dest_src, dst_payload.data);
         // isAnyError might have changed from a false negative to a true positive after resolution.
         if (dest_ty.isAnyError()) {
             return .ok;
@@ -16683,7 +16705,7 @@ fn coerceInMemoryAllowedErrorSets(
         .error_set_inferred => {
             const src_data = src_ty.castTag(.error_set_inferred).?.data;
 
-            try sema.resolveInferredErrorSet(src_data);
+            try sema.resolveInferredErrorSet(block, src_src, src_data);
             // src anyerror status might have changed after the resolution.
             if (src_ty.isAnyError()) {
                 // dest_ty.isAnyError() == true is already checked for at this point.
@@ -17969,6 +17991,17 @@ fn ensureDeclAnalyzed(sema: *Sema, decl: *Decl) CompileError!void {
     };
 }
 
+fn ensureFuncBodyAnalyzed(sema: *Sema, func: *Module.Fn) CompileError!void {
+    sema.mod.ensureFuncBodyAnalyzed(func) catch |err| {
+        if (sema.owner_func) |owner_func| {
+            owner_func.state = .dependency_failure;
+        } else {
+            sema.owner_decl.analysis = .dependency_failure;
+        }
+        return err;
+    };
+}
+
 fn refValue(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type, val: Value) !Value {
     var anon_decl = try block.startAnonDecl(src);
     defer anon_decl.deinit();
@@ -18635,10 +18668,16 @@ fn wrapErrorUnionSet(
             },
             .error_set_inferred => ok: {
                 const expected_name = val.castTag(.@"error").?.data.name;
-                const data = dest_err_set_ty.castTag(.error_set_inferred).?.data;
-                try sema.resolveInferredErrorSet(data);
-                if (data.is_anyerror) break :ok;
-                if (data.errors.contains(expected_name)) break :ok;
+                const ies = dest_err_set_ty.castTag(.error_set_inferred).?.data;
+
+                // We carefully do this in an order that avoids unnecessarily
+                // resolving the destination error set type.
+                if (ies.is_anyerror) break :ok;
+                if (ies.errors.contains(expected_name)) break :ok;
+                if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, dest_err_set_ty, inst_ty, inst_src, inst_src)) {
+                    break :ok;
+                }
+
                 return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },
             .error_set_merged => {
@@ -18794,10 +18833,10 @@ fn resolvePeerTypes(
                     // If neither is a superset, merge errors.
                     const chosen_set_ty = err_set_ty orelse chosen_ty;
 
-                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(chosen_set_ty, candidate_ty)) {
+                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_set_ty, candidate_ty, src, src)) {
                         continue;
                     }
-                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(candidate_ty, chosen_set_ty)) {
+                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, candidate_ty, chosen_set_ty, src, src)) {
                         err_set_ty = null;
                         chosen = candidate;
                         chosen_i = candidate_i + 1;
@@ -18810,10 +18849,10 @@ fn resolvePeerTypes(
                 .ErrorUnion => {
                     const chosen_set_ty = err_set_ty orelse chosen_ty.errorUnionSet();
 
-                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(chosen_set_ty, candidate_ty)) {
+                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_set_ty, candidate_ty, src, src)) {
                         continue;
                     }
-                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(candidate_ty, chosen_set_ty)) {
+                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, candidate_ty, chosen_set_ty, src, src)) {
                         err_set_ty = candidate_ty;
                         continue;
                     }
@@ -18823,10 +18862,10 @@ fn resolvePeerTypes(
                 },
                 else => {
                     if (err_set_ty) |chosen_set_ty| {
-                        if (.ok == try sema.coerceInMemoryAllowedErrorSets(chosen_set_ty, candidate_ty)) {
+                        if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_set_ty, candidate_ty, src, src)) {
                             continue;
                         }
-                        if (.ok == try sema.coerceInMemoryAllowedErrorSets(candidate_ty, chosen_set_ty)) {
+                        if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, candidate_ty, chosen_set_ty, src, src)) {
                             err_set_ty = candidate_ty;
                             continue;
                         }
@@ -18844,9 +18883,9 @@ fn resolvePeerTypes(
                     const chosen_set_ty = err_set_ty orelse chosen_ty;
                     const candidate_set_ty = candidate_ty.errorUnionSet();
 
-                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(chosen_set_ty, candidate_set_ty)) {
+                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_set_ty, candidate_set_ty, src, src)) {
                         err_set_ty = chosen_set_ty;
-                    } else if (.ok == try sema.coerceInMemoryAllowedErrorSets(candidate_set_ty, chosen_set_ty)) {
+                    } else if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, candidate_set_ty, chosen_set_ty, src, src)) {
                         err_set_ty = null;
                     } else {
                         err_set_ty = try chosen_set_ty.errorSetMerge(sema.arena, candidate_set_ty);
@@ -18875,9 +18914,9 @@ fn resolvePeerTypes(
                         const chosen_set_ty = err_set_ty orelse chosen_ty.errorUnionSet();
                         const candidate_set_ty = chosen_ty.errorUnionSet();
 
-                        if (.ok == try sema.coerceInMemoryAllowedErrorSets(chosen_set_ty, candidate_set_ty)) {
+                        if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_set_ty, candidate_set_ty, src, src)) {
                             err_set_ty = chosen_set_ty;
-                        } else if (.ok == try sema.coerceInMemoryAllowedErrorSets(candidate_set_ty, chosen_set_ty)) {
+                        } else if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, candidate_set_ty, chosen_set_ty, src, src)) {
                             err_set_ty = candidate_set_ty;
                         } else {
                             err_set_ty = try chosen_set_ty.errorSetMerge(sema.arena, candidate_set_ty);
@@ -18889,9 +18928,9 @@ fn resolvePeerTypes(
                 else => {
                     if (err_set_ty) |chosen_set_ty| {
                         const candidate_set_ty = candidate_ty.errorUnionSet();
-                        if (.ok == try sema.coerceInMemoryAllowedErrorSets(chosen_set_ty, candidate_set_ty)) {
+                        if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_set_ty, candidate_set_ty, src, src)) {
                             err_set_ty = chosen_set_ty;
-                        } else if (.ok == try sema.coerceInMemoryAllowedErrorSets(candidate_set_ty, chosen_set_ty)) {
+                        } else if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, candidate_set_ty, chosen_set_ty, src, src)) {
                             err_set_ty = null;
                         } else {
                             err_set_ty = try chosen_set_ty.errorSetMerge(sema.arena, candidate_set_ty);
@@ -19458,43 +19497,44 @@ fn resolveBuiltinTypeFields(
     return sema.resolveTypeFields(block, src, resolved_ty);
 }
 
-fn resolveInferredErrorSet(sema: *Sema, inferred_error_set: *Module.Fn.InferredErrorSet) CompileError!void {
-    // Ensuring that a particular decl is analyzed does not neccesarily mean that
-    // it's error set is inferred, so traverse all of them to get the complete
-    // picture.
-    // Note: We want to skip re-resolving the current function, as recursion
-    // doesn't change the error set. We can just check for state == .in_progress for this.
-    // TODO: Is that correct?
+fn resolveInferredErrorSet(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ies: *Module.Fn.InferredErrorSet,
+) CompileError!void {
+    if (ies.is_resolved) return;
 
-    if (inferred_error_set.is_resolved) {
-        return;
+    if (ies.func.state == .in_progress) {
+        return sema.fail(block, src, "unable to resolve inferred error set", .{});
     }
-    inferred_error_set.is_resolved = true;
 
-    var it = inferred_error_set.inferred_error_sets.keyIterator();
+    // To ensure that all dependencies are properly added to the set.
+    try sema.ensureFuncBodyAnalyzed(ies.func);
+
+    ies.is_resolved = true;
+
+    var it = ies.inferred_error_sets.keyIterator();
     while (it.next()) |other_error_set_ptr| {
-        const func = other_error_set_ptr.*.func;
-        const decl = func.*.owner_decl;
+        const other_ies: *Module.Fn.InferredErrorSet = other_error_set_ptr.*;
+        try sema.resolveInferredErrorSet(block, src, other_ies);
 
-        if (func.*.state == .in_progress) {
-            // Recursion, doesn't alter current error set, keep going.
-            continue;
+        for (other_ies.errors.keys()) |key| {
+            try ies.errors.put(sema.gpa, key, {});
         }
-
-        try sema.ensureDeclAnalyzed(decl); // To ensure that all dependencies are properly added to the set.
-        try sema.resolveInferredErrorSet(other_error_set_ptr.*);
-
-        for (other_error_set_ptr.*.errors.keys()) |key| {
-            try inferred_error_set.errors.put(sema.gpa, key, {});
-        }
-        if (other_error_set_ptr.*.is_anyerror)
-            inferred_error_set.is_anyerror = true;
+        if (other_ies.is_anyerror)
+            ies.is_anyerror = true;
     }
 }
 
-fn resolveInferredErrorSetTy(sema: *Sema, ty: Type) CompileError!void {
+fn resolveInferredErrorSetTy(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
     if (ty.castTag(.error_set_inferred)) |inferred| {
-        try sema.resolveInferredErrorSet(inferred.data);
+        try sema.resolveInferredErrorSet(block, src, inferred.data);
     }
 }
 

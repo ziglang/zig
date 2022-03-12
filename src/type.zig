@@ -559,9 +559,9 @@ pub const Type = extern union {
             .error_set_inferred => {
                 // Inferred error sets are only equal if both are inferred
                 // and they originate from the exact same function.
-                const a_set = a.castTag(.error_set_inferred).?.data;
-                const b_set = (b.castTag(.error_set_inferred) orelse return false).data;
-                return a_set.func == b_set.func;
+                const a_ies = a.castTag(.error_set_inferred).?.data;
+                const b_ies = (b.castTag(.error_set_inferred) orelse return false).data;
+                return a_ies == b_ies;
             },
 
             .anyerror => {
@@ -983,10 +983,10 @@ pub const Type = extern union {
 
             .error_set_inferred => {
                 // inferred error sets are compared using their data pointer
-                const set = ty.castTag(.error_set_inferred).?.data;
+                const ies: *Module.Fn.InferredErrorSet = ty.castTag(.error_set_inferred).?.data;
                 std.hash.autoHash(hasher, std.builtin.TypeId.ErrorSet);
                 std.hash.autoHash(hasher, Tag.error_set_inferred);
-                std.hash.autoHash(hasher, set.func);
+                std.hash.autoHash(hasher, ies);
             },
 
             .@"opaque" => {

@@ -538,9 +538,6 @@ test "type coercion of anon struct literal to array" {
             try expect(arr1[1] == 56);
             try expect(arr1[2] == 54);
 
-            if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
-            if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-
             var x2: U = .{ .a = 42 };
             const t2 = .{ x2, .{ .b = true }, .{ .c = "hello" } };
             var arr2: [3]U = t2;

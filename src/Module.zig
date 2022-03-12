@@ -3,6 +3,7 @@
 //! there is or is not any zig source code, respectively.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -28,6 +29,7 @@ const AstGen = @import("AstGen.zig");
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 const build_options = @import("build_options");
+const Liveness = @import("Liveness.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -1438,8 +1440,11 @@ pub const Fn = struct {
     is_cold: bool = false,
     is_noinline: bool = false,
 
-    /// Any inferred error sets that this function owns, both it's own inferred error set and
-    /// inferred error sets of any inline/comptime functions called.
+    /// Any inferred error sets that this function owns, both its own inferred error set and
+    /// inferred error sets of any inline/comptime functions called. Not to be confused
+    /// with inferred error sets of generic instantiations of this function, which are
+    /// *not* tracked here - they are tracked in the new `Fn` object created for the
+    /// instantiations.
     inferred_error_sets: InferredErrorSetList = .{},
 
     pub const Analysis = enum {
@@ -1457,28 +1462,29 @@ pub const Fn = struct {
     };
 
     /// This struct is used to keep track of any dependencies related to functions instances
-    /// that return inferred error sets. Note that a function may be associated to multiple different error sets,
-    /// for example an inferred error set which this function returns, but also any inferred error sets
-    /// of called inline or comptime functions.
+    /// that return inferred error sets. Note that a function may be associated to
+    /// multiple different error sets, for example an inferred error set which
+    /// this function returns, but also any inferred error sets of called inline
+    /// or comptime functions.
     pub const InferredErrorSet = struct {
         /// The function from which this error set originates.
-        /// Note: may be the function itself.
         func: *Fn,
 
-        /// All currently known errors that this error set contains. This includes direct additions
-        /// via `return error.Foo;`, and possibly also errors that are returned from any dependent functions.
-        /// When the inferred error set is fully resolved, this map contains all the errors that the function might return.
+        /// All currently known errors that this error set contains. This includes
+        /// direct additions via `return error.Foo;`, and possibly also errors that
+        /// are returned from any dependent functions. When the inferred error set is
+        /// fully resolved, this map contains all the errors that the function might return.
         errors: ErrorSet.NameMap = .{},
 
         /// Other inferred error sets which this inferred error set should include.
         inferred_error_sets: std.AutoHashMapUnmanaged(*InferredErrorSet, void) = .{},
 
-        /// Whether the function returned anyerror. This is true if either of the dependent functions
-        /// returns anyerror.
+        /// Whether the function returned anyerror. This is true if either of
+        /// the dependent functions returns anyerror.
         is_anyerror: bool = false,
 
-        /// Whether this error set is already fully resolved. If true, resolving can skip resolving any dependents
-        /// of this inferred error set.
+        /// Whether this error set is already fully resolved. If true, resolving
+        /// can skip resolving any dependents of this inferred error set.
         is_resolved: bool = false,
 
         pub fn addErrorSet(self: *InferredErrorSet, gpa: Allocator, err_set_ty: Type) !void {
@@ -1494,8 +1500,8 @@ pub const Fn = struct {
                     try self.errors.put(gpa, name, {});
                 },
                 .error_set_inferred => {
-                    const set = err_set_ty.castTag(.error_set_inferred).?.data;
-                    try self.inferred_error_sets.put(gpa, set, {});
+                    const ies = err_set_ty.castTag(.error_set_inferred).?.data;
+                    try self.inferred_error_sets.put(gpa, ies, {});
                 },
                 .error_set_merged => {
                     const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
@@ -3441,6 +3447,10 @@ pub fn mapOldZirToNew(
     }
 }
 
+/// This ensures that the Decl will have a Type and Value populated.
+/// However the resolution status of the Type may not be fully resolved.
+/// For example an inferred error set is not resolved until after `analyzeFnBody`.
+/// is called.
 pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -3530,6 +3540,87 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
                 }
             }
         }
+    }
+}
+
+pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    switch (func.owner_decl.analysis) {
+        .unreferenced => unreachable,
+        .in_progress => unreachable,
+        .outdated => unreachable,
+
+        .file_failure,
+        .sema_failure,
+        .codegen_failure,
+        .dependency_failure,
+        .sema_failure_retryable,
+        => return error.AnalysisFail,
+
+        .complete, .codegen_failure_retryable => {
+            switch (func.state) {
+                .sema_failure, .dependency_failure => return error.AnalysisFail,
+                .queued => {},
+                .in_progress => unreachable,
+                .inline_only => unreachable, // don't queue work for this
+                .success => return,
+            }
+
+            const gpa = mod.gpa;
+            const decl = func.owner_decl;
+
+            var tmp_arena = std.heap.ArenaAllocator.init(gpa);
+            defer tmp_arena.deinit();
+            const sema_arena = tmp_arena.allocator();
+
+            var air = mod.analyzeFnBody(decl, func, sema_arena) catch |err| switch (err) {
+                error.AnalysisFail => {
+                    if (func.state == .in_progress) {
+                        // If this decl caused the compile error, the analysis field would
+                        // be changed to indicate it was this Decl's fault. Because this
+                        // did not happen, we infer here that it was a dependency failure.
+                        func.state = .dependency_failure;
+                    }
+                    return error.AnalysisFail;
+                },
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+            defer air.deinit(gpa);
+
+            if (mod.comp.bin_file.options.emit == null) return;
+
+            log.debug("analyze liveness of {s}", .{decl.name});
+            var liveness = try Liveness.analyze(gpa, air);
+            defer liveness.deinit(gpa);
+
+            if (builtin.mode == .Debug and mod.comp.verbose_air) {
+                std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
+                @import("print_air.zig").dump(gpa, air, liveness);
+                std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
+            }
+
+            mod.comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {
+                    decl.analysis = .codegen_failure;
+                    return;
+                },
+                else => {
+                    try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+                    mod.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
+                        gpa,
+                        decl.srcLoc(),
+                        "unable to codegen: {s}",
+                        .{@errorName(err)},
+                    ));
+                    decl.analysis = .codegen_failure_retryable;
+                    return;
+                },
+            };
+            return;
+        },
     }
 }
 
