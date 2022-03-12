@@ -12548,7 +12548,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const slice_val = fields_val.castTag(.slice).?.data;
             const decl = slice_val.ptr.castTag(.decl_ref).?.data;
             try sema.ensureDeclAnalyzed(decl);
-            const fields_len = decl.ty.arrayLen();
+            const fields_len = @intCast(usize, decl.ty.arrayLen());
             if (fields_len > 0) {
                 try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
                 try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
