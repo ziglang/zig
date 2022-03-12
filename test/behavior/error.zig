@@ -626,3 +626,11 @@ test "inferred error set equality" {
     try expect(BarError == BarError);
     try expect(BazError == BazError);
 }
+
+test "peer type resolution of two different error unions" {
+    const a: error{B}!void = {};
+    const b: error{A}!void = {};
+    var cond = true;
+    const err = if (cond) a else b;
+    try err;
+}

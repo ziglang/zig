@@ -18910,7 +18910,7 @@ fn resolvePeerTypes(
                         }
 
                         const chosen_set_ty = err_set_ty orelse chosen_ty.errorUnionSet();
-                        const candidate_set_ty = chosen_ty.errorUnionSet();
+                        const candidate_set_ty = candidate_ty.errorUnionSet();
 
                         if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_set_ty, candidate_set_ty, src, src)) {
                             err_set_ty = chosen_set_ty;
