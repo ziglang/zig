@@ -3741,8 +3741,6 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // If the condition dies here in this condbr instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
-    // TODO I need investigate how to make this work without removing
-    // an assertion from getResolvedInstValue()
     if (self.liveness.operandDies(inst, 0)) {
         const op_int = @enumToInt(pl_op.operand);
         if (op_int >= Air.Inst.Ref.typed_value_map.len) {
@@ -3869,7 +3867,9 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     self.branch_stack.pop().deinit(self.gpa);
 
-    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
+    // We already took care of pl_op.operand earlier, so we're going
+    // to pass .none here
+    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
 fn isNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
@@ -4194,6 +4194,17 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     );
     defer self.gpa.free(liveness.deaths);
 
+    // If the condition dies here in this switch instruction, process
+    // that death now instead of later as this has an effect on
+    // whether it needs to be spilled in the branches
+    if (self.liveness.operandDies(inst, 0)) {
+        const op_int = @enumToInt(pl_op.operand);
+        if (op_int >= Air.Inst.Ref.typed_value_map.len) {
+            const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
+            self.processDeath(op_index);
+        }
+    }
+
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
         const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
@@ -4206,19 +4217,6 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         for (items) |item, item_i| {
             const item_mcv = try self.resolveInst(item);
             relocs[item_i] = try self.genCondSwitchMir(condition_ty, condition, item_mcv);
-        }
-
-        // If the condition dies here in this condbr instruction, process
-        // that death now instead of later as this has an effect on
-        // whether it needs to be spilled in the branches
-        // TODO I need investigate how to make this work without removing
-        // an assertion from getResolvedInstValue()
-        if (self.liveness.operandDies(inst, 0)) {
-            const op_int = @enumToInt(pl_op.operand);
-            if (op_int >= Air.Inst.Ref.typed_value_map.len) {
-                const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
-                self.processDeath(op_index);
-            }
         }
 
         // Capture the state of register and stack allocation state so that we can revert to it.
@@ -4276,7 +4274,9 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         // in airCondBr.
     }
 
-    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
+    // We already took care of pl_op.operand earlier, so we're going
+    // to pass .none here
+    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
 fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
@@ -5630,8 +5630,7 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     while (true) {
         i -= 1;
         if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
-            // TODO see comment in `airCondBr` and `airSwitch`
-            // assert(mcv != .dead);
+            assert(mcv != .dead);
             return mcv;
         }
     }
