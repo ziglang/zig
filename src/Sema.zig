@@ -12470,7 +12470,121 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const ty = try Type.Tag.error_set_merged.create(sema.arena, names);
             return sema.addType(ty);
         },
-        .Enum => return sema.fail(block, src, "TODO: Sema.zirReify for Enum", .{}),
+        .Enum => {
+            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            // TODO use reflection instead of magic numbers here
+            // error_set: type,
+            // layout: ContainerLayout,
+            const layout_val = struct_val[0];
+            // tag_type: type,
+            const tag_type_val = struct_val[1];
+            // fields: []const EnumField,
+            const fields_val = struct_val[2];
+            // decls: []const Declaration,
+            const decls_val = struct_val[3];
+            // is_exhaustive: bool,
+            const is_exhaustive_val = struct_val[4];
+
+            // enum layout is always auto
+            const layout = layout_val.toEnum(std.builtin.Type.ContainerLayout);
+            if (layout != .Auto) {
+                return sema.fail(block, src, "reified enums must have a layout .Auto", .{});
+            }
+
+            // Decls
+            const decls_slice_val = decls_val.castTag(.slice).?.data;
+            const decls_decl = decls_slice_val.ptr.castTag(.decl_ref).?.data;
+            try sema.ensureDeclAnalyzed(decls_decl);
+            if (decls_decl.ty.arrayLen() > 0) {
+                return sema.fail(block, src, "reified enums must have no decls", .{});
+            }
+
+            const mod = sema.mod;
+            const gpa = sema.gpa;
+            var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+            errdefer new_decl_arena.deinit();
+            const new_decl_arena_allocator = new_decl_arena.allocator();
+
+            // Define our empty enum decl
+            const enum_obj = try new_decl_arena_allocator.create(Module.EnumFull);
+            const enum_ty_payload = try new_decl_arena_allocator.create(Type.Payload.EnumFull);
+            enum_ty_payload.* = .{
+                .base = .{
+                    .tag = if (!is_exhaustive_val.toBool())
+                        .enum_nonexhaustive
+                    else
+                        .enum_full,
+                },
+                .data = enum_obj,
+            };
+            const enum_ty = Type.initPayload(&enum_ty_payload.base);
+            const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
+            const type_name = try sema.createTypeName(block, .anon);
+            const new_decl = try mod.createAnonymousDeclNamed(block, .{
+                .ty = Type.type,
+                .val = enum_val,
+            }, type_name);
+            new_decl.owns_tv = true;
+            errdefer mod.abortAnonDecl(new_decl);
+
+            enum_obj.* = .{
+                .owner_decl = new_decl,
+                .tag_ty = Type.initTag(.@"null"),
+                .fields = .{},
+                .values = .{},
+                .node_offset = src.node_offset,
+                .namespace = .{
+                    .parent = block.namespace,
+                    .ty = enum_ty,
+                    .file_scope = block.getFileScope(),
+                },
+            };
+
+            // Enum tag type
+            var buffer: Value.ToTypeBuffer = undefined;
+            enum_obj.tag_ty = try tag_type_val.toType(&buffer).copy(new_decl_arena_allocator);
+
+            // Fields
+            const slice_val = fields_val.castTag(.slice).?.data;
+            const decl = slice_val.ptr.castTag(.decl_ref).?.data;
+            try sema.ensureDeclAnalyzed(decl);
+            const fields_len = decl.ty.arrayLen();
+            if (fields_len > 0) {
+                try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+                try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
+                    .ty = enum_obj.tag_ty,
+                });
+
+                const array_vals = decl.val.castTag(.array).?.data;
+                for (array_vals) |elem_val| {
+                    const field_struct_val = elem_val.castTag(.@"struct").?.data;
+                    // TODO use reflection instead of magic numbers here
+                    // name: []const u8
+                    const name_val = field_struct_val[0];
+                    // value: comptime_int
+                    const value_val = field_struct_val[1];
+
+                    const field_name = try name_val.toAllocatedBytes(
+                        Type.initTag(.const_slice_u8),
+                        new_decl_arena_allocator,
+                    );
+
+                    const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
+                    if (gop.found_existing) {
+                        // TODO: better source location
+                        return sema.fail(block, src, "duplicate enum tag {s}", .{field_name});
+                    }
+
+                    const copied_tag_val = try value_val.copy(new_decl_arena_allocator);
+                    enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
+                        .ty = enum_obj.tag_ty,
+                    });
+                }
+            }
+
+            try new_decl.finalizeNewArena(&new_decl_arena);
+            return sema.analyzeDeclVal(block, src, new_decl);
+        },
         .Union => return sema.fail(block, src, "TODO: Sema.zirReify for Union", .{}),
         .Fn => return sema.fail(block, src, "TODO: Sema.zirReify for Fn", .{}),
         .BoundFn => @panic("TODO delete BoundFn from the language"),
