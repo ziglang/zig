@@ -5347,7 +5347,14 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const llvm_i32 = self.context.intType(32);
-        const llvm_fn = self.getIntrinsic("llvm.frameaddress", &.{llvm_i32});
+        const llvm_fn_name = "llvm.frameaddress.p0i8";
+        const llvm_fn = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
+            const llvm_p0i8 = self.context.intType(8).pointerType(0);
+            const param_types = [_]*const llvm.Type{llvm_i32};
+            const fn_type = llvm.functionType(llvm_p0i8, &param_types, param_types.len, .False);
+            break :blk self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
+        };
+
         const params = [_]*const llvm.Value{llvm_i32.constNull()};
         const ptr_val = self.builder.buildCall(llvm_fn, &params, params.len, .Fast, .Auto, "");
         const llvm_usize = try self.dg.llvmType(Type.usize);
