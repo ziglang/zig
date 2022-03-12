@@ -558,7 +558,7 @@ pub const Object = struct {
 
         const param_offset: c_uint = @boolToInt(ret_ptr != null);
         for (fn_info.param_types) |param_ty| {
-            if (!param_ty.hasRuntimeBits()) continue;
+            if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             const llvm_arg_i = @intCast(c_uint, args.items.len) + param_offset;
             try args.append(llvm_func.getParam(llvm_arg_i));
@@ -878,7 +878,7 @@ pub const DeclGen = struct {
         // Set parameter attributes.
         var llvm_param_i: c_uint = @boolToInt(sret);
         for (fn_info.param_types) |param_ty| {
-            if (!param_ty.hasRuntimeBits()) continue;
+            if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             if (isByRef(param_ty)) {
                 dg.addArgAttr(llvm_fn, llvm_param_i, "nonnull");
@@ -1078,7 +1078,7 @@ pub const DeclGen = struct {
             .Optional => {
                 var buf: Type.Payload.ElemType = undefined;
                 const child_ty = t.optionalChild(&buf);
-                if (!child_ty.hasRuntimeBits()) {
+                if (!child_ty.hasRuntimeBitsIgnoreComptime()) {
                     return dg.context.intType(1);
                 }
                 const payload_llvm_ty = try dg.llvmType(child_ty);
@@ -1095,7 +1095,7 @@ pub const DeclGen = struct {
                 const error_type = t.errorUnionSet();
                 const payload_type = t.errorUnionPayload();
                 const llvm_error_type = try dg.llvmType(error_type);
-                if (!payload_type.hasRuntimeBits()) {
+                if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
                     return llvm_error_type;
                 }
                 const llvm_payload_type = try dg.llvmType(payload_type);
@@ -1194,7 +1194,7 @@ pub const DeclGen = struct {
                 var big_align: u32 = 0;
 
                 for (struct_obj.fields.values()) |field| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
+                    if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                     const field_align = field.normalAlignment(target);
                     big_align = @maximum(big_align, field_align);
@@ -1298,7 +1298,7 @@ pub const DeclGen = struct {
                 const fn_info = t.fnInfo();
                 const sret = firstParamSRet(fn_info, target);
                 const return_type = fn_info.return_type;
-                const llvm_sret_ty = if (return_type.hasRuntimeBits())
+                const llvm_sret_ty = if (return_type.hasRuntimeBitsIgnoreComptime())
                     try dg.llvmType(return_type)
                 else
                     dg.context.voidType();
@@ -1312,7 +1312,7 @@ pub const DeclGen = struct {
                 }
 
                 for (fn_info.param_types) |param_ty| {
-                    if (!param_ty.hasRuntimeBits()) continue;
+                    if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                     const raw_llvm_ty = try dg.llvmType(param_ty);
                     const actual_llvm_ty = if (!isByRef(param_ty)) raw_llvm_ty else raw_llvm_ty.pointerType(0);
@@ -1592,7 +1592,7 @@ pub const DeclGen = struct {
                 const llvm_i1 = dg.context.intType(1);
                 const is_pl = !tv.val.isNull();
                 const non_null_bit = if (is_pl) llvm_i1.constAllOnes() else llvm_i1.constNull();
-                if (!payload_ty.hasRuntimeBits()) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     return non_null_bit;
                 }
                 if (tv.ty.isPtrLikeOptional()) {
@@ -1643,7 +1643,7 @@ pub const DeclGen = struct {
                 const payload_type = tv.ty.errorUnionPayload();
                 const is_pl = tv.val.errorUnionIsPayload();
 
-                if (!payload_type.hasRuntimeBits()) {
+                if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
                     // We use the error type directly as the type.
                     const err_val = if (!is_pl) tv.val else Value.initTag(.zero);
                     return dg.genTypedValue(.{ .ty = error_type, .val = err_val });
@@ -1677,7 +1677,7 @@ pub const DeclGen = struct {
                     var running_bits: u16 = 0;
                     for (field_vals) |field_val, i| {
                         const field = fields[i];
-                        if (!field.ty.hasRuntimeBits()) continue;
+                        if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                         const non_int_val = try dg.genTypedValue(.{
                             .ty = field.ty,
@@ -1708,7 +1708,7 @@ pub const DeclGen = struct {
 
                 var need_unnamed = false;
                 for (struct_obj.fields.values()) |field, i| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
+                    if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                     const field_align = field.normalAlignment(target);
                     big_align = @maximum(big_align, field_align);
@@ -1775,7 +1775,7 @@ pub const DeclGen = struct {
                 assert(union_obj.haveFieldTypes());
                 const field_ty = union_obj.fields.values()[field_index].ty;
                 const payload = p: {
-                    if (!field_ty.hasRuntimeBits()) {
+                    if (!field_ty.hasRuntimeBitsIgnoreComptime()) {
                         const padding_len = @intCast(c_uint, layout.payload_size);
                         break :p dg.context.intType(8).arrayType(padding_len).getUndef();
                     }
@@ -1936,7 +1936,7 @@ pub const DeclGen = struct {
             .Enum => {
                 const owner_decl = ty.getOwnerDecl();
 
-                if (!ty.hasRuntimeBits()) {
+                if (!ty.hasRuntimeBitsIgnoreComptime()) {
                     const enum_di_ty = try dg.makeEmptyNamespaceDIType(owner_decl);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
                     // means we can't use `gop` anymore.
@@ -2178,7 +2178,7 @@ pub const DeclGen = struct {
                 defer gpa.free(name);
                 var buf: Type.Payload.ElemType = undefined;
                 const child_ty = ty.optionalChild(&buf);
-                if (!child_ty.hasRuntimeBits()) {
+                if (!child_ty.hasRuntimeBitsIgnoreComptime()) {
                     gop.value_ptr.* = dib.createBasicType(name, 1, DW.ATE.boolean);
                     return gop.value_ptr.*;
                 }
@@ -2260,7 +2260,7 @@ pub const DeclGen = struct {
             .ErrorUnion => {
                 const err_set_ty = ty.errorUnionSet();
                 const payload_ty = ty.errorUnionPayload();
-                if (!payload_ty.hasRuntimeBits()) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     const err_set_di_ty = try dg.lowerDebugType(err_set_ty);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
                     try dg.object.di_type_map.put(gpa, ty, err_set_di_ty);
@@ -2415,7 +2415,7 @@ pub const DeclGen = struct {
                 }
 
                 const TODO_implement_this = true; // TODO
-                if (TODO_implement_this or !ty.hasRuntimeBits()) {
+                if (TODO_implement_this or !ty.hasRuntimeBitsIgnoreComptime()) {
                     const owner_decl = ty.getOwnerDecl();
                     const struct_di_ty = try dg.makeEmptyNamespaceDIType(owner_decl);
                     dib.replaceTemporary(fwd_decl, struct_di_ty);
@@ -2454,7 +2454,7 @@ pub const DeclGen = struct {
                 //var big_align: u32 = 0;
 
                 //for (struct_obj.fields.values()) |field| {
-                //    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
+                //    if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                 //    const field_align = field.normalAlignment(target);
                 //    big_align = @maximum(big_align, field_align);
@@ -2504,7 +2504,7 @@ pub const DeclGen = struct {
                 gop.value_ptr.* = fwd_decl;
 
                 const TODO_implement_this = true; // TODO
-                if (TODO_implement_this or !ty.hasRuntimeBits()) {
+                if (TODO_implement_this or !ty.hasRuntimeBitsIgnoreComptime()) {
                     const union_di_ty = try dg.makeEmptyNamespaceDIType(owner_decl);
                     dib.replaceTemporary(fwd_decl, union_di_ty);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
@@ -2586,7 +2586,7 @@ pub const DeclGen = struct {
                 defer param_di_types.deinit();
 
                 // Return type goes first.
-                const di_ret_ty = if (sret or !fn_info.return_type.hasRuntimeBits())
+                const di_ret_ty = if (sret or !fn_info.return_type.hasRuntimeBitsIgnoreComptime())
                     Type.void
                 else
                     fn_info.return_type;
@@ -2602,7 +2602,7 @@ pub const DeclGen = struct {
                 }
 
                 for (fn_info.param_types) |param_ty| {
-                    if (!param_ty.hasRuntimeBits()) continue;
+                    if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                     if (isByRef(param_ty)) {
                         var ptr_ty_payload: Type.Payload.ElemType = .{
@@ -2793,7 +2793,7 @@ pub const DeclGen = struct {
                 const parent = try dg.lowerParentPtr(opt_payload_ptr, base_ty);
                 var buf: Type.Payload.ElemType = undefined;
                 const payload_ty = parent.ty.optionalChild(&buf);
-                if (!payload_ty.hasRuntimeBits() or parent.ty.isPtrLikeOptional()) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime() or parent.ty.isPtrLikeOptional()) {
                     // In this case, we represent pointer to optional the same as pointer
                     // to the payload.
                     return ParentPtr{
@@ -2816,7 +2816,7 @@ pub const DeclGen = struct {
                 const eu_payload_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
                 const parent = try dg.lowerParentPtr(eu_payload_ptr, base_ty);
                 const payload_ty = parent.ty.errorUnionPayload();
-                if (!payload_ty.hasRuntimeBits()) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     // In this case, we represent pointer to error union the same as pointer
                     // to the payload.
                     return ParentPtr{
@@ -2865,7 +2865,7 @@ pub const DeclGen = struct {
         }
 
         const is_fn_body = decl.ty.zigTypeTag() == .Fn;
-        if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
+        if (!is_fn_body and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
             return self.lowerPtrToVoid(tv.ty);
         }
 
@@ -3298,7 +3298,7 @@ pub const FuncGen = struct {
         } else {
             for (args) |arg, i| {
                 const param_ty = fn_info.param_types[i];
-                if (!param_ty.hasRuntimeBits()) continue;
+                if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                 try llvm_args.append(try self.resolveInst(arg));
             }
@@ -3318,7 +3318,7 @@ pub const FuncGen = struct {
             return null;
         }
 
-        if (self.liveness.isUnused(inst) or !return_type.hasRuntimeBits()) {
+        if (self.liveness.isUnused(inst) or !return_type.hasRuntimeBitsIgnoreComptime()) {
             return null;
         }
 
@@ -3364,7 +3364,7 @@ pub const FuncGen = struct {
             _ = self.builder.buildRetVoid();
             return null;
         }
-        if (!ret_ty.hasRuntimeBits()) {
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime()) {
             _ = self.builder.buildRetVoid();
             return null;
         }
@@ -3377,7 +3377,7 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const ptr_ty = self.air.typeOf(un_op);
         const ret_ty = ptr_ty.childType();
-        if (!ret_ty.hasRuntimeBits() or self.ret_ptr != null) {
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime() or self.ret_ptr != null) {
             _ = self.builder.buildRetVoid();
             return null;
         }
@@ -3415,7 +3415,7 @@ pub const FuncGen = struct {
             .Int, .Bool, .Pointer, .ErrorSet => operand_ty,
             .Optional => blk: {
                 const payload_ty = operand_ty.optionalChild(&opt_buffer);
-                if (!payload_ty.hasRuntimeBits() or operand_ty.isPtrLikeOptional()) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime() or operand_ty.isPtrLikeOptional()) {
                     break :blk operand_ty;
                 }
                 // We need to emit instructions to check for equality/inequality
@@ -3540,7 +3540,7 @@ pub const FuncGen = struct {
 
         // If the block does not return a value, we dont have to create a phi node.
         const is_body = inst_ty.zigTypeTag() == .Fn;
-        if (!is_body and !inst_ty.hasRuntimeBits()) return null;
+        if (!is_body and !inst_ty.hasRuntimeBitsIgnoreComptime()) return null;
 
         const raw_llvm_ty = try self.dg.llvmType(inst_ty);
 
@@ -3571,7 +3571,7 @@ pub const FuncGen = struct {
         // If the break doesn't break a value, then we don't have to add
         // the values to the lists.
         const operand_ty = self.air.typeOf(branch.operand);
-        if (operand_ty.hasRuntimeBits() or operand_ty.zigTypeTag() == .Fn) {
+        if (operand_ty.hasRuntimeBitsIgnoreComptime() or operand_ty.zigTypeTag() == .Fn) {
             const val = try self.resolveInst(branch.operand);
 
             // For the phi node, we need the basic blocks and the values of the
@@ -3685,7 +3685,7 @@ pub const FuncGen = struct {
         const llvm_usize = try self.dg.llvmType(Type.usize);
         const len = llvm_usize.constInt(array_ty.arrayLen(), .False);
         const slice_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
-        if (!array_ty.hasRuntimeBits()) {
+        if (!array_ty.hasRuntimeBitsIgnoreComptime()) {
             return self.builder.buildInsertValue(slice_llvm_ty.getUndef(), len, 1, "");
         }
         const operand = try self.resolveInst(ty_op.operand);
@@ -3816,7 +3816,7 @@ pub const FuncGen = struct {
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const elem_ty = ptr_ty.childType();
-        if (!elem_ty.hasRuntimeBits()) return self.dg.lowerPtrToVoid(ptr_ty);
+        if (!elem_ty.hasRuntimeBitsIgnoreComptime()) return self.dg.lowerPtrToVoid(ptr_ty);
 
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
@@ -3863,7 +3863,7 @@ pub const FuncGen = struct {
         const struct_llvm_val = try self.resolveInst(struct_field.struct_operand);
         const field_index = struct_field.field_index;
         const field_ty = struct_ty.structFieldType(field_index);
-        if (!field_ty.hasRuntimeBits()) {
+        if (!field_ty.hasRuntimeBitsIgnoreComptime()) {
             return null;
         }
         const target = self.dg.module.getTarget();
@@ -4152,7 +4152,7 @@ pub const FuncGen = struct {
 
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
-        if (!payload_ty.hasRuntimeBits()) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             if (invert) {
                 return self.builder.buildNot(operand, "");
             } else {
@@ -4184,7 +4184,7 @@ pub const FuncGen = struct {
         const err_set_ty = try self.dg.llvmType(Type.initTag(.anyerror));
         const zero = err_set_ty.constNull();
 
-        if (!payload_ty.hasRuntimeBits()) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             const loaded = if (operand_is_ptr) self.builder.buildLoad(operand, "") else operand;
             return self.builder.buildICmp(op, loaded, zero, "");
         }
@@ -4207,7 +4207,7 @@ pub const FuncGen = struct {
         const optional_ty = self.air.typeOf(ty_op.operand).childType();
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
-        if (!payload_ty.hasRuntimeBits()) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             // We have a pointer to a zero-bit value and we need to return
             // a pointer to a zero-bit value.
             return operand;
@@ -4231,7 +4231,7 @@ pub const FuncGen = struct {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
         const non_null_bit = self.context.intType(1).constAllOnes();
-        if (!payload_ty.hasRuntimeBits()) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             // We have a pointer to a i1. We need to set it to 1 and then return the same pointer.
             _ = self.builder.buildStore(non_null_bit, operand);
             return operand;
@@ -4268,7 +4268,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOf(ty_op.operand);
         const payload_ty = self.air.typeOfIndex(inst);
-        if (!payload_ty.hasRuntimeBits()) return null;
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return null;
 
         if (optional_ty.isPtrLikeOptional()) {
             // Payload value is the same as the optional value.
@@ -4290,7 +4290,7 @@ pub const FuncGen = struct {
         const result_ty = self.air.getRefType(ty_op.ty);
         const payload_ty = if (operand_is_ptr) result_ty.childType() else result_ty;
 
-        if (!payload_ty.hasRuntimeBits()) return null;
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return null;
         if (operand_is_ptr or isByRef(payload_ty)) {
             return self.builder.buildStructGEP(operand, 1, "");
         }
@@ -4311,7 +4311,7 @@ pub const FuncGen = struct {
         const err_set_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
 
         const payload_ty = err_set_ty.errorUnionPayload();
-        if (!payload_ty.hasRuntimeBits()) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             if (!operand_is_ptr) return operand;
             return self.builder.buildLoad(operand, "");
         }
@@ -4332,7 +4332,7 @@ pub const FuncGen = struct {
         const error_ty = error_set_ty.errorUnionSet();
         const payload_ty = error_set_ty.errorUnionPayload();
         const non_error_val = try self.dg.genTypedValue(.{ .ty = error_ty, .val = Value.zero });
-        if (!payload_ty.hasRuntimeBits()) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             // We have a pointer to a i1. We need to set it to 1 and then return the same pointer.
             _ = self.builder.buildStore(non_error_val, operand);
             return operand;
@@ -4363,7 +4363,7 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const payload_ty = self.air.typeOf(ty_op.operand);
         const non_null_bit = self.context.intType(1).constAllOnes();
-        if (!payload_ty.hasRuntimeBits()) return non_null_bit;
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return non_null_bit;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOfIndex(inst);
         if (optional_ty.isPtrLikeOptional()) return operand;
@@ -4391,7 +4391,7 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const payload_ty = self.air.typeOf(ty_op.operand);
         const operand = try self.resolveInst(ty_op.operand);
-        if (!payload_ty.hasRuntimeBits()) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             return operand;
         }
         const inst_ty = self.air.typeOfIndex(inst);
@@ -4422,7 +4422,7 @@ pub const FuncGen = struct {
         const err_un_ty = self.air.typeOfIndex(inst);
         const payload_ty = err_un_ty.errorUnionPayload();
         const operand = try self.resolveInst(ty_op.operand);
-        if (!payload_ty.hasRuntimeBits()) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             return operand;
         }
         const err_un_llvm_ty = try self.dg.llvmType(err_un_ty);
@@ -5235,7 +5235,7 @@ pub const FuncGen = struct {
         const fn_info = self.dg.decl.ty.fnInfo();
         var i: u32 = 0;
         for (fn_info.param_types) |param_ty, src_index| {
-            if (!param_ty.hasRuntimeBits()) continue;
+            if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
             if (i == runtime_index) return @intCast(u32, src_index);
             i += 1;
         } else unreachable;
@@ -6021,7 +6021,7 @@ pub const FuncGen = struct {
 
         const llvm_union_ty = t: {
             const payload = p: {
-                if (!field.ty.hasRuntimeBits()) {
+                if (!field.ty.hasRuntimeBitsIgnoreComptime()) {
                     const padding_len = @intCast(c_uint, layout.payload_size);
                     break :p self.context.intType(8).arrayType(padding_len);
                 }
@@ -6377,7 +6377,7 @@ pub const FuncGen = struct {
         const union_obj = union_ty.cast(Type.Payload.Union).?.data;
         const field = &union_obj.fields.values()[field_index];
         const result_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
-        if (!field.ty.hasRuntimeBits()) {
+        if (!field.ty.hasRuntimeBitsIgnoreComptime()) {
             return null;
         }
         const target = self.dg.module.getTarget();
@@ -6811,7 +6811,7 @@ fn llvmFieldIndex(
 
     var llvm_field_index: c_uint = 0;
     for (ty.structFields().values()) |field, i| {
-        if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
+        if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
         const field_align = field.normalAlignment(target);
         big_align = @maximum(big_align, field_align);
@@ -6887,7 +6887,7 @@ fn isByRef(ty: Type) bool {
         .AnyFrame,
         => return false,
 
-        .Array, .Frame => return ty.hasRuntimeBits(),
+        .Array, .Frame => return ty.hasRuntimeBitsIgnoreComptime(),
         .Struct => {
             // Packed structs are represented to LLVM as integers.
             if (ty.containerLayout() == .Packed) return false;
@@ -6906,7 +6906,7 @@ fn isByRef(ty: Type) bool {
             var count: usize = 0;
             const fields = ty.structFields();
             for (fields.values()) |field| {
-                if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
+                if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                 count += 1;
                 if (count > max_fields_byval) return true;
@@ -6914,7 +6914,7 @@ fn isByRef(ty: Type) bool {
             }
             return false;
         },
-        .Union => return ty.hasRuntimeBits(),
+        .Union => return ty.hasRuntimeBitsIgnoreComptime(),
         .ErrorUnion => return isByRef(ty.errorUnionPayload()),
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
