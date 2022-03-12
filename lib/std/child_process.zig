@@ -383,8 +383,6 @@ pub const ChildProcess = struct {
 
         try child.spawn();
 
-        // TODO collect output in a deadlock-avoiding way on Windows.
-        // https://github.com/ziglang/zig/issues/6343
         if (builtin.os.tag == .haiku) {
             const stdout_in = child.stdout.?.reader();
             const stderr_in = child.stderr.?.reader();
@@ -1019,7 +1017,10 @@ var pipe_name_counter = std.atomic.Atomic(u32).init(1);
 fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
     var tmp_bufw: [128]u16 = undefined;
 
-    // We must make a named pipe on windows because anonymous pipes do not support async IO
+    // Anonymous pipes are built upon Named pipes.
+    // https://docs.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createpipe
+    // Asynchronous (overlapped) read and write operations are not supported by anonymous pipes.
+    // https://docs.microsoft.com/en-us/windows/win32/ipc/anonymous-pipe-operations
     const pipe_path = blk: {
         var tmp_buf: [128]u8 = undefined;
         // Forge a random path for the pipe.
@@ -1199,5 +1200,67 @@ test "createNullDelimitedEnvMap" {
         } else {
             try testing.expect(false); // Environment variable not found
         }
+    }
+}
+
+const childstr =
+    \\ const std = @import("std");
+    \\ const builtin = @import("builtin");
+    \\ pub fn main() !void {
+    \\     var it = try std.process.argsWithAllocator(std.testing.allocator);
+    \\     defer it.deinit(); // no-op unless WASI or Windows
+    \\     _ = it.next() orelse unreachable; // skip binary name
+    \\     const input = it.next() orelse unreachable;
+    \\     var expect_helloworld = "hello world".*;
+    \\     try std.testing.expect(std.mem.eql(u8, &expect_helloworld, input));
+    \\     try std.testing.expect(it.next() == null);
+    \\     try std.testing.expect(!it.skip());
+    \\ }
+;
+
+test "build and call child_process" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    const testing = std.testing;
+    var it = try std.process.argsWithAllocator(std.testing.allocator);
+    defer it.deinit(); // no-op unless WASI or Windows
+
+    _ = it.next() orelse unreachable;
+    const zigexec = it.next() orelse unreachable;
+    try testing.expect(it.next() == null);
+    try testing.expect(!it.skip());
+    const cwd_str = try process.getCwdAlloc(testing.allocator);
+    defer testing.allocator.free(cwd_str);
+    var tmp = testing.tmpDir(.{ .no_follow = true }); // ie zig-cache/tmp/8DLgoSEqz593PAEE
+    defer tmp.cleanup();
+    const cache = "zig-cache";
+    const tmpdir = "tmp";
+    const child_name = "child"; // no need for suffixes (.exe, .wasm) due to '-femit-bin'
+    const suffix_zig = ".zig";
+    const child_path = try fs.path.join(testing.allocator, &[_][]const u8{ cwd_str, std.fs.path.sep_str, cache, tmpdir, &tmp.sub_path, child_name });
+    defer testing.allocator.free(child_path);
+
+    const child_zig = try mem.concat(testing.allocator, u8, &[_][]const u8{ child_path, suffix_zig });
+    defer testing.allocator.free(child_zig);
+    const emit_flag = "-femit-bin=";
+    const emit_bin = try mem.concat(testing.allocator, u8, &[_][]const u8{ emit_flag, child_path });
+    defer testing.allocator.free(emit_bin);
+    {
+        // 'zigexec build-exe path/to/child.zig -femit-bin=path/to/child' expect success
+        try tmp.dir.writeFile("child.zig", childstr);
+        const args = [_][]const u8{ zigexec, "build-exe", child_zig, emit_bin };
+        var procCompileChild = try ChildProcess.init(&args, testing.allocator);
+        defer procCompileChild.deinit();
+        try procCompileChild.spawn();
+        const ret_val = try procCompileChild.wait();
+        try testing.expectEqual(ret_val, .{ .Exited = 0 });
+    }
+    {
+        // spawn compiled file as child_process with argument 'hello world' + expect success
+        const args = [_][]const u8{ child_path, "hello world" };
+        var child_proc = try ChildProcess.init(&args, testing.allocator);
+        defer child_proc.deinit();
+        try child_proc.spawn();
+        const ret_val = try child_proc.wait();
+        try testing.expectEqual(ret_val, .{ .Exited = 0 });
     }
 }
