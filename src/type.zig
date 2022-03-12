@@ -558,7 +558,7 @@ pub const Type = extern union {
 
             .error_set_inferred => {
                 // Inferred error sets are only equal if both are inferred
-                // and they originate from the exact same function.
+                // and they share the same pointer.
                 const a_ies = a.castTag(.error_set_inferred).?.data;
                 const b_ies = (b.castTag(.error_set_inferred) orelse return false).data;
                 return a_ies == b_ies;
@@ -612,6 +612,15 @@ pub const Type = extern union {
                 if (a_info.cc != b_info.cc)
                     return false;
 
+                if (a_info.alignment != b_info.alignment)
+                    return false;
+
+                if (a_info.is_var_args != b_info.is_var_args)
+                    return false;
+
+                if (a_info.is_generic != b_info.is_generic)
+                    return false;
+
                 if (a_info.param_types.len != b_info.param_types.len)
                     return false;
 
@@ -622,18 +631,10 @@ pub const Type = extern union {
 
                     if (a_param_ty.tag() == .generic_poison) continue;
                     if (b_param_ty.tag() == .generic_poison) continue;
+
                     if (!eql(a_param_ty, b_param_ty))
                         return false;
                 }
-
-                if (a_info.alignment != b_info.alignment)
-                    return false;
-
-                if (a_info.is_var_args != b_info.is_var_args)
-                    return false;
-
-                if (a_info.is_generic != b_info.is_generic)
-                    return false;
 
                 return true;
             },
