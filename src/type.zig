@@ -5342,6 +5342,7 @@ pub const Type = extern union {
     pub const @"void" = initTag(.void);
     pub const @"type" = initTag(.type);
     pub const @"anyerror" = initTag(.anyerror);
+    pub const @"anyopaque" = initTag(.anyopaque);
 
     pub fn ptr(arena: Allocator, target: Target, data: Payload.Pointer.Data) !Type {
         var d = data;

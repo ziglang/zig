@@ -2013,7 +2013,8 @@ pub const DeclGen = struct {
                     ptr_info.@"allowzero" or
                     !ptr_info.mutable or
                     ptr_info.@"volatile" or
-                    ptr_info.size == .Many or ptr_info.size == .C)
+                    ptr_info.size == .Many or ptr_info.size == .C or
+                    !ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime())
                 {
                     var payload: Type.Payload.Pointer = .{
                         .data = .{
@@ -2032,6 +2033,9 @@ pub const DeclGen = struct {
                             },
                         },
                     };
+                    if (!ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime()) {
+                        payload.data.pointee_type = Type.anyopaque;
+                    }
                     const bland_ptr_ty = Type.initPayload(&payload.base);
                     const ptr_di_ty = try dg.lowerDebugType(bland_ptr_ty);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
