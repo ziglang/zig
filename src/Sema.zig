@@ -12449,7 +12449,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const payload_val = union_val.val.optionalValue() orelse
                 return sema.addType(Type.initTag(.anyerror));
             const slice_val = payload_val.castTag(.slice).?.data;
-            const decl = slice_val.ptr.castTag(.decl_ref).?.data;
+            const decl = slice_val.ptr.pointerDecl().?;
             try sema.ensureDeclAnalyzed(decl);
             const array_val = decl.val.castTag(.array).?.data;
 
@@ -12493,7 +12493,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
             // Decls
             const decls_slice_val = decls_val.castTag(.slice).?.data;
-            const decls_decl = decls_slice_val.ptr.castTag(.decl_ref).?.data;
+            const decls_decl = decls_slice_val.ptr.pointerDecl().?;
             try sema.ensureDeclAnalyzed(decls_decl);
             if (decls_decl.ty.arrayLen() > 0) {
                 return sema.fail(block, src, "reified enums must have no decls", .{});
@@ -12546,7 +12546,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
             // Fields
             const slice_val = fields_val.castTag(.slice).?.data;
-            const decl = slice_val.ptr.castTag(.decl_ref).?.data;
+            const decl = slice_val.ptr.pointerDecl().?;
             try sema.ensureDeclAnalyzed(decl);
             const fields_len = @intCast(usize, decl.ty.arrayLen());
             if (fields_len > 0) {
