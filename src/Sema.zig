@@ -12585,10 +12585,56 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             try new_decl.finalizeNewArena(&new_decl_arena);
             return sema.analyzeDeclVal(block, src, new_decl);
         },
+        .Opaque => {
+            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            // decls: []const Declaration,
+            const decls_val = struct_val[0];
+
+            // Decls
+            const decls_slice_val = decls_val.castTag(.slice).?.data;
+            const decls_decl = decls_slice_val.ptr.pointerDecl().?;
+            try sema.ensureDeclAnalyzed(decls_decl);
+            if (decls_decl.ty.arrayLen() > 0) {
+                return sema.fail(block, src, "reified opaque must have no decls", .{});
+            }
+
+            const mod = sema.mod;
+            var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+            errdefer new_decl_arena.deinit();
+            const new_decl_arena_allocator = new_decl_arena.allocator();
+
+            const opaque_obj = try new_decl_arena_allocator.create(Module.Opaque);
+            const opaque_ty_payload = try new_decl_arena_allocator.create(Type.Payload.Opaque);
+            opaque_ty_payload.* = .{
+                .base = .{ .tag = .@"opaque" },
+                .data = opaque_obj,
+            };
+            const opaque_ty = Type.initPayload(&opaque_ty_payload.base);
+            const opaque_val = try Value.Tag.ty.create(new_decl_arena_allocator, opaque_ty);
+            const type_name = try sema.createTypeName(block, .anon);
+            const new_decl = try mod.createAnonymousDeclNamed(block, .{
+                .ty = Type.type,
+                .val = opaque_val,
+            }, type_name);
+            new_decl.owns_tv = true;
+            errdefer mod.abortAnonDecl(new_decl);
+
+            opaque_obj.* = .{
+                .owner_decl = new_decl,
+                .node_offset = src.node_offset,
+                .namespace = .{
+                    .parent = block.namespace,
+                    .ty = opaque_ty,
+                    .file_scope = block.getFileScope(),
+                },
+            };
+
+            try new_decl.finalizeNewArena(&new_decl_arena);
+            return sema.analyzeDeclVal(block, src, new_decl);
+        },
         .Union => return sema.fail(block, src, "TODO: Sema.zirReify for Union", .{}),
         .Fn => return sema.fail(block, src, "TODO: Sema.zirReify for Fn", .{}),
         .BoundFn => @panic("TODO delete BoundFn from the language"),
-        .Opaque => return sema.fail(block, src, "TODO: Sema.zirReify for Opaque", .{}),
         .Frame => return sema.fail(block, src, "TODO: Sema.zirReify for Frame", .{}),
     }
 }
