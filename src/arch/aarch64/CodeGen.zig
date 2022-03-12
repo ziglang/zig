@@ -85,6 +85,8 @@ blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
 register_manager: RegisterManager = .{},
 /// Maps offset to what is stored there.
 stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
+/// Tracks the current instruction allocated to the compare flags
+compare_flags_inst: ?Air.Inst.Index = null,
 
 /// Offset from the stack base, representing the end of the stack frame.
 max_end_stack: u32 = 0,
@@ -722,6 +724,9 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
             const canon_reg = toCanonicalReg(reg);
             self.register_manager.freeReg(canon_reg);
         },
+        .compare_flags_signed, .compare_flags_unsigned => {
+            self.compare_flags_inst = null;
+        },
         else => {}, // TODO process stack allocation death
     }
 }
@@ -855,6 +860,24 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     try branch.inst_table.put(self.gpa, inst, stack_mcv);
     try self.genSetStack(self.air.typeOfIndex(inst), stack_mcv.stack_offset, reg_mcv);
+}
+
+/// Save the current instruction stored in the compare flags if
+/// occupied
+fn spillCompareFlagsIfOccupied(self: *Self) !void {
+    if (self.compare_flags_inst) |inst_to_save| {
+        const mcv = self.getResolvedInstValue(inst_to_save);
+        assert(mcv == .compare_flags_signed or mcv == .compare_flags_unsigned);
+
+        const new_mcv = try self.allocRegOrMem(inst_to_save, true);
+        try self.setRegOrMem(self.air.typeOfIndex(inst_to_save), new_mcv, mcv);
+        log.debug("spilling {d} to mcv {any}", .{ inst_to_save, new_mcv });
+
+        const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+        try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
+
+        self.compare_flags_inst = null;
+    }
 }
 
 /// Copies a value to a register without tracking the register. The register is not considered
@@ -2402,6 +2425,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     var info = try self.resolveCallingConventionValues(fn_ty);
     defer info.deinit(self);
 
+    // According to the Procedure Call Standard for the ARM
+    // Architecture, compare flags are not preserved across
+    // calls. Therefore, if some value is currently stored there, we
+    // need to save it.
+    //
+    // TODO once caller-saved registers are implemented, save them
+    // here too, but crucially *after* we save the compare flags as
+    // saving compare flags may require a new caller-saved register
+    try self.spillCompareFlagsIfOccupied();
+
     for (info.args) |mc_arg, arg_i| {
         const arg = args[arg_i];
         const arg_ty = self.air.typeOf(arg);
@@ -2593,6 +2626,9 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         return self.fail("TODO cmp for types with size > 8", .{});
     }
 
+    try self.spillCompareFlagsIfOccupied();
+    self.compare_flags_inst = inst;
+
     const signedness: std.builtin.Signedness = blk: {
         // by default we tell the operand type is unsigned (i.e. bools and enum values)
         if (ty.zigTypeTag() != .Int) break :blk .unsigned;
@@ -2755,12 +2791,24 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         },
     };
 
+    // If the condition dies here in this condbr instruction, process
+    // that death now instead of later as this has an effect on
+    // whether it needs to be spilled in the branches
+    if (self.liveness.operandDies(inst, 0)) {
+        const op_int = @enumToInt(pl_op.operand);
+        if (op_int >= Air.Inst.Ref.typed_value_map.len) {
+            const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
+            self.processDeath(op_index);
+        }
+    }
+
     // Capture the state of register and stack allocation state so that we can revert to it.
     const parent_next_stack_offset = self.next_stack_offset;
     const parent_free_registers = self.register_manager.free_registers;
     var parent_stack = try self.stack.clone(self.gpa);
     defer parent_stack.deinit(self.gpa);
     const parent_registers = self.register_manager.registers;
+    const parent_compare_flags_inst = self.compare_flags_inst;
 
     try self.branch_stack.append(.{});
 
@@ -2776,6 +2824,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     defer saved_then_branch.deinit(self.gpa);
 
     self.register_manager.registers = parent_registers;
+    self.compare_flags_inst = parent_compare_flags_inst;
 
     self.stack.deinit(self.gpa);
     self.stack = parent_stack;
@@ -2867,7 +2916,9 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     self.branch_stack.pop().deinit(self.gpa);
 
-    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
+    // We already took care of pl_op.operand earlier, so we're going
+    // to pass .none here
+    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
 fn isNull(self: *Self, operand: MCValue) !MCValue {
@@ -2885,8 +2936,6 @@ fn isNonNull(self: *Self, operand: MCValue) !MCValue {
 }
 
 fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
-    _ = operand;
-
     const error_type = ty.errorUnionSet();
     const payload_type = ty.errorUnionPayload();
 
