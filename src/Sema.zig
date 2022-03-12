@@ -6972,7 +6972,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     return sema.failWithOwnedErrorMsg(block, msg);
                 }
 
-                if (special_prong == .@"else") {
+                if (special_prong == .@"else" and seen_errors.count() == operand_ty.errorSetNames().len) {
                     return sema.fail(
                         block,
                         special_prong_src,
