@@ -199,7 +199,11 @@ test "Type.ErrorUnion" {
 }
 
 test "Type.Opaque" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const Opaque = @Type(.{
         .Opaque = .{
@@ -302,7 +306,11 @@ test "Type.Struct" {
 }
 
 test "Type.Enum" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const Foo = @Type(.{
         .Enum = .{
@@ -321,7 +329,12 @@ test "Type.Enum" {
     try testing.expectEqual(@as(u8, 5), @enumToInt(Foo.b));
     const Bar = @Type(.{
         .Enum = .{
-            .layout = .Extern,
+            // stage2 only has auto layouts
+            .layout = if (builtin.zig_backend == .stage1)
+                .Extern
+            else
+                .Auto,
+
             .tag_type = u32,
             .fields = &.{
                 .{ .name = "a", .value = 1 },
