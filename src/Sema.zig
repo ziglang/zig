@@ -16692,6 +16692,13 @@ fn coerceInMemoryAllowedErrorSets(
             else => unreachable,
         }
 
+        if (dst_ies.func == sema.owner_func) {
+            // We are trying to coerce an error set to the current function's
+            // inferred error set.
+            try dst_ies.addErrorSet(sema.gpa, src_ty);
+            return .ok;
+        }
+
         try sema.resolveInferredErrorSet(block, dest_src, dst_payload.data);
         // isAnyError might have changed from a false negative to a true positive after resolution.
         if (dest_ty.isAnyError()) {
