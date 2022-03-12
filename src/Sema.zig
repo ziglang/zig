@@ -6972,7 +6972,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     return sema.failWithOwnedErrorMsg(block, msg);
                 }
 
-                if (special_prong == .@"else") {
+                if (special_prong == .@"else" and seen_errors.count() == operand_ty.errorSetNames().len) {
                     return sema.fail(
                         block,
                         special_prong_src,
@@ -16692,6 +16692,13 @@ fn coerceInMemoryAllowedErrorSets(
             else => unreachable,
         }
 
+        if (dst_ies.func == sema.owner_func) {
+            // We are trying to coerce an error set to the current function's
+            // inferred error set.
+            try dst_ies.addErrorSet(sema.gpa, src_ty);
+            return .ok;
+        }
+
         try sema.resolveInferredErrorSet(block, dest_src, dst_payload.data);
         // isAnyError might have changed from a false negative to a true positive after resolution.
         if (dest_ty.isAnyError()) {
@@ -18910,7 +18917,7 @@ fn resolvePeerTypes(
                         }
 
                         const chosen_set_ty = err_set_ty orelse chosen_ty.errorUnionSet();
-                        const candidate_set_ty = chosen_ty.errorUnionSet();
+                        const candidate_set_ty = candidate_ty.errorUnionSet();
 
                         if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_set_ty, candidate_set_ty, src, src)) {
                             err_set_ty = chosen_set_ty;

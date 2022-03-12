@@ -1630,7 +1630,6 @@ fn getSymbolFromDwarf(address: u64, di: *DW.DwarfInfo) !SymbolInfo {
             .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
             .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                else => return err,
             },
             .line_info = nosuspend di.getLineNumberInfo(compile_unit.*, address) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => null,

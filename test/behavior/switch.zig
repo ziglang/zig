@@ -610,14 +610,11 @@ test "switch on pointer type" {
 }
 
 test "switch on error set with single else" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             var some: error{Foo} = error.Foo;
             try expect(switch (some) {
-                else => |a| blk: {
-                    a catch {};
+                else => blk: {
                     break :blk true;
                 },
             });

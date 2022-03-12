@@ -626,3 +626,26 @@ test "inferred error set equality" {
     try expect(BarError == BarError);
     try expect(BazError == BazError);
 }
+
+test "peer type resolution of two different error unions" {
+    const a: error{B}!void = {};
+    const b: error{A}!void = {};
+    var cond = true;
+    const err = if (cond) a else b;
+    try err;
+}
+
+test "coerce error set to the current inferred error set" {
+    const S = struct {
+        fn foo() !void {
+            var a = false;
+            if (a) {
+                const b: error{A}!void = error.A;
+                return b;
+            }
+            const b = error.A;
+            return b;
+        }
+    };
+    S.foo() catch {};
+}
