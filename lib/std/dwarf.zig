@@ -822,7 +822,7 @@ pub const DwarfInfo = struct {
                     // in the list itself.
                     // If no starting value is specified use zero.
                     var base_address = compile_unit.die.getAttrAddr(AT.low_pc) catch |err| switch (err) {
-                        error.MissingDebugInfo => 0,
+                        error.MissingDebugInfo => @as(u64, 0), // TODO https://github.com/ziglang/zig/issues/11135
                         else => return err,
                     };
 

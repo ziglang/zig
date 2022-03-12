@@ -1035,9 +1035,8 @@ fn nosuspendExpr(
         });
     }
     gz.nosuspend_node = node;
-    const result = try expr(gz, scope, rl, body_node);
-    gz.nosuspend_node = 0;
-    return rvalue(gz, rl, result, node);
+    defer gz.nosuspend_node = 0;
+    return expr(gz, scope, rl, body_node);
 }
 
 fn suspendExpr(
