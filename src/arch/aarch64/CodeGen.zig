@@ -538,7 +538,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub, .ptr_sub   => try self.airBinOp(inst),
             .subwrap         => try self.airSubWrap(inst),
             .sub_sat         => try self.airSubSat(inst),
-            .mul             => try self.airMul(inst),
+            .mul             => try self.airBinOp(inst),
             .mulwrap         => try self.airMulWrap(inst),
             .mul_sat         => try self.airMulSat(inst),
             .rem             => try self.airRem(inst),
@@ -820,7 +820,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const elem_ty = self.air.typeOfIndex(inst).elemType();
 
     if (!elem_ty.hasRuntimeBits()) {
-        return self.allocMem(inst, @sizeOf(usize), @alignOf(usize));
+        // As this stack item will never be dereferenced at runtime,
+        // return the current stack offset
+        return self.next_stack_offset;
     }
 
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
@@ -1537,12 +1539,6 @@ fn airSubWrap(self: *Self, inst: Air.Inst.Index) !void {
 fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement sub_sat for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airMul(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement mul for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
