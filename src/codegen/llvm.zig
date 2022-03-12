@@ -855,7 +855,7 @@ pub const DeclGen = struct {
         const llvm_fn = dg.llvmModule().addFunctionInAddressSpace(fqn, fn_type, llvm_addrspace);
         gop.value_ptr.* = llvm_fn;
 
-        const is_extern = decl.val.tag() == .extern_fn;
+        const is_extern = decl.isExtern();
         if (!is_extern) {
             llvm_fn.setLinkage(.Internal);
             llvm_fn.setUnnamedAddr(.True);
@@ -953,6 +953,25 @@ pub const DeclGen = struct {
         const llvm_addrspace = dg.llvmAddressSpace(decl.@"addrspace");
         const llvm_global = dg.object.llvm_module.addGlobalInAddressSpace(llvm_type, fqn, llvm_addrspace);
         gop.value_ptr.* = llvm_global;
+
+        // This is needed for declarations created by `@extern`.
+        if (decl.isExtern()) {
+            llvm_global.setValueName(decl.name);
+            llvm_global.setUnnamedAddr(.False);
+            llvm_global.setLinkage(.External);
+            if (decl.val.castTag(.variable)) |variable| {
+                const single_threaded = dg.module.comp.bin_file.options.single_threaded;
+                if (variable.data.is_threadlocal and !single_threaded) {
+                    llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
+                } else {
+                    llvm_global.setThreadLocalMode(.NotThreadLocal);
+                }
+                if (variable.data.is_weak_linkage) llvm_global.setLinkage(.ExternalWeak);
+            }
+        } else {
+            llvm_global.setLinkage(.Internal);
+            llvm_global.setUnnamedAddr(.True);
+        }
 
         return llvm_global;
     }
