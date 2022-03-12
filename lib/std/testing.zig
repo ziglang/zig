@@ -400,6 +400,56 @@ pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     };
 }
 
+/// caller owns memory
+pub fn tmpDirPath(alloc: std.mem.Allocator, tmpdir: *TmpDir) ![]u8 {
+    const cwd_str = try std.process.getCwdAlloc(alloc);
+    defer alloc.free(cwd_str);
+    const path = try std.fs.path.join(alloc, &[_][]const u8{
+        cwd_str,
+        "zig-cache",
+        "tmp",
+        &tmpdir.sub_path,
+    });
+    return path;
+}
+
+const TestArgs = struct {
+    testexec: [:0]const u8 = undefined,
+    zigexec: [:0]const u8 = undefined,
+};
+
+/// Get test arguments inside test block by regular test runner ('zig test file.zig')
+/// Caller must provide backing ArgIterator
+pub fn getTestArgs(it: *std.process.ArgIterator) !TestArgs {
+    var testargs = TestArgs{};
+    testargs.testexec = it.next() orelse unreachable;
+    testargs.zigexec = it.next() orelse unreachable;
+    try expect(!it.skip());
+    return testargs;
+}
+
+test "getTestArgs" {
+    var it = try std.process.argsWithAllocator(allocator);
+    const testargs = try getTestArgs(&it);
+    defer it.deinit(); // no-op unless WASI or Windows
+    try expect(testargs.testexec.len > 0); // zig compiler executable path
+    try expect(testargs.zigexec.len > 0); // test runner executable path
+}
+
+/// Spawns child process with 'zigexec build-exe zigfile -femit-bin=binfile'
+/// and expects success
+pub fn buildExe(zigexec: []const u8, zigfile: []const u8, binfile: []const u8) !void {
+    const flag_emit = "-femit-bin=";
+    const cmd_emit = try std.mem.concat(allocator, u8, &[_][]const u8{ flag_emit, binfile });
+    defer allocator.free(cmd_emit);
+    const args = [_][]const u8{ zigexec, "build-exe", zigfile, cmd_emit };
+    var procCompileChild = try std.ChildProcess.init(&args, allocator);
+    defer procCompileChild.deinit();
+    try procCompileChild.spawn();
+    const ret_val = try procCompileChild.wait();
+    try expectEqual(ret_val, .{ .Exited = 0 });
+}
+
 test "expectEqual nested array" {
     const a = [2][2]f32{
         [_]f32{ 1.0, 0.0 },
