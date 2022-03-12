@@ -500,3 +500,21 @@ zig_shl_sat_s(isize, intptr_t, ((sizeof(intptr_t)) * CHAR_BIT - 1))
 zig_shl_sat_s(short,    short, ((sizeof(short   )) * CHAR_BIT - 1))
 zig_shl_sat_s(int,        int, ((sizeof(int     )) * CHAR_BIT - 1))
 zig_shl_sat_s(long,      long, ((sizeof(long    )) * CHAR_BIT - 1))
+
+#define zig_bitsizeof(T) (CHAR_BIT * sizeof(T))
+
+static inline int zig_clz(uint64_t value, uint8_t zig_type_bit_width) {
+    if (value == 0) return zig_type_bit_width;
+    if (zig_type_bit_width <= zig_bitsizeof(unsigned int))
+        return (__builtin_clz(value) - zig_bitsizeof(unsigned int) + zig_type_bit_width);
+    if (zig_type_bit_width <= zig_bitsizeof(unsigned long))
+        return (__builtin_clzl(value) - zig_bitsizeof(unsigned long) + zig_type_bit_width);
+    return (__builtin_clzll(value) - zig_bitsizeof(unsigned long long) + zig_type_bit_width);
+}
+
+static inline int zig_ctz(uint64_t value, uint8_t zig_type_bit_width) {
+    if (value == 0) return zig_type_bit_width;
+    if (zig_type_bit_width <= zig_bitsizeof(unsigned int)) return __builtin_ctz(value);
+    if (zig_type_bit_width <= zig_bitsizeof(unsigned long)) return __builtin_ctzl(value);
+    return __builtin_ctzll(value);
+}

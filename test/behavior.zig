@@ -139,6 +139,7 @@ test {
         _ = @import("behavior/export_self_referential_type_info.zig");
         _ = @import("behavior/int128.zig");
         _ = @import("behavior/translate_c_macros.zig");
+        _ = @import("behavior/union_with_members.zig");
 
         if (builtin.zig_backend != .stage2_c) {
             // Tests that pass for stage1 and the llvm backend.
@@ -152,7 +153,6 @@ test {
             _ = @import("behavior/bugs/3779.zig");
             _ = @import("behavior/bugs/10147.zig");
             _ = @import("behavior/shuffle.zig");
-            _ = @import("behavior/union_with_members.zig");
 
             if (builtin.zig_backend == .stage1) {
                 // Tests that only pass for the stage1 backend.
