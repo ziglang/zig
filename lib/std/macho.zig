@@ -2,11 +2,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const io = std.io;
+const os = std.os.darwin;
 const mem = std.mem;
 const meta = std.meta;
 const testing = std.testing;
 
 const Allocator = mem.Allocator;
+
+pub const cpu_type_t = os.integer_t;
+pub const cpu_subtype_t = os.integer_t;
 
 pub const mach_header = extern struct {
     magic: u32,
@@ -601,10 +605,10 @@ pub const segment_command = extern struct {
     filesize: u32,
 
     /// maximum VM protection
-    maxprot: vm_prot_t,
+    maxprot: os.vm_prot_t,
 
     /// initial VM protection
-    initprot: vm_prot_t,
+    initprot: os.vm_prot_t,
 
     /// number of sections in segment
     nsects: u32,
@@ -638,10 +642,10 @@ pub const segment_command_64 = extern struct {
     filesize: u64 = 0,
 
     /// maximum VM protection
-    maxprot: vm_prot_t = VM_PROT_NONE,
+    maxprot: os.vm_prot_t = os.PROT.NONE,
 
     /// initial VM protection
-    initprot: vm_prot_t = VM_PROT_NONE,
+    initprot: os.vm_prot_t = os.PROT.NONE,
 
     /// number of sections in segment
     nsects: u32 = 0,
@@ -1438,11 +1442,6 @@ pub const S_THREAD_LOCAL_INIT_FUNCTION_POINTERS = 0x15;
 /// 32-bit offsets to initializers
 pub const S_INIT_FUNC_OFFSETS = 0x16;
 
-pub const cpu_type_t = integer_t;
-pub const cpu_subtype_t = integer_t;
-pub const integer_t = c_int;
-pub const vm_prot_t = c_int;
-
 /// CPU type targeting 64-bit Intel-based Macs
 pub const CPU_TYPE_X86_64: cpu_type_t = 0x01000007;
 
@@ -1454,26 +1453,6 @@ pub const CPU_SUBTYPE_X86_64_ALL: cpu_subtype_t = 0x3;
 
 /// All ARM-based Macs
 pub const CPU_SUBTYPE_ARM_ALL: cpu_subtype_t = 0x0;
-
-// Protection values defined as bits within the vm_prot_t type
-/// No VM protection
-pub const VM_PROT_NONE: vm_prot_t = 0x0;
-
-/// VM read permission
-pub const VM_PROT_READ: vm_prot_t = 0x1;
-
-/// VM write permission
-pub const VM_PROT_WRITE: vm_prot_t = 0x2;
-
-/// VM execute permission
-pub const VM_PROT_EXECUTE: vm_prot_t = 0x4;
-
-/// When a caller finds that they cannot obtain write permission on a
-/// mapped entry, the following flag can be used. The entry will be
-/// made "needs copy" effectively copying the object (using COW),
-/// and write permission will be added to the maximum protections for
-/// the associated entry.
-pub const VM_PROT_COPY: vm_prot_t = 0x10;
 
 // The following are used to encode rebasing information
 pub const REBASE_TYPE_POINTER: u8 = 1;
@@ -2169,8 +2148,8 @@ test "read-write segment command" {
             .vmaddr = 4294967296,
             .vmsize = 294912,
             .filesize = 294912,
-            .maxprot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE,
-            .initprot = VM_PROT_EXECUTE | VM_PROT_READ,
+            .maxprot = os.PROT.READ | os.PROT.WRITE | os.PROT.EXEC,
+            .initprot = os.PROT.EXEC | os.PROT.READ,
             .nsects = 1,
         },
     };

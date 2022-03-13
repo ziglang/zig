@@ -201,9 +201,9 @@ pub const vm_object_id_t = u64;
 
 pub const vm_region_submap_info_64 = extern struct {
     // present across protection
-    protection: std.macho.vm_prot_t,
+    protection: vm_prot_t,
     // max avail through vm_prot
-    max_protection: std.macho.vm_prot_t,
+    max_protection: vm_prot_t,
     // behavior of map/obj on fork
     inheritance: vm_inherit_t,
     // offset into object/map
@@ -391,6 +391,7 @@ pub const task_vm_info = extern struct {
 };
 pub const task_vm_info_data_t = task_vm_info;
 
+pub const vm_prot_t = c_int;
 pub const boolean_t = c_int;
 
 pub extern "c" fn mach_vm_protect(
@@ -398,7 +399,7 @@ pub extern "c" fn mach_vm_protect(
     address: mach_vm_address_t,
     size: mach_vm_size_t,
     set_maximum: boolean_t,
-    new_protection: std.macho.vm_prot_t,
+    new_protection: vm_prot_t,
 ) kern_return_t;
 
 pub extern "c" fn mach_port_deallocate(target_tport: mach_port_name_t, task: mach_port_name_t) kern_return_t;
@@ -920,13 +921,19 @@ pub const STDERR_FILENO = 2;
 
 pub const PROT = struct {
     /// [MC2] no permissions
-    pub const NONE = 0x00;
+    pub const NONE: vm_prot_t = 0x00;
     /// [MC2] pages can be read
-    pub const READ = 0x01;
+    pub const READ: vm_prot_t = 0x01;
     /// [MC2] pages can be written
-    pub const WRITE = 0x02;
+    pub const WRITE: vm_prot_t = 0x02;
     /// [MC2] pages can be executed
-    pub const EXEC = 0x04;
+    pub const EXEC: vm_prot_t = 0x04;
+    /// When a caller finds that they cannot obtain write permission on a
+    /// mapped entry, the following flag can be used. The entry will be
+    /// made "needs copy" effectively copying the object (using COW),
+    /// and write permission will be added to the maximum protections for
+    /// the associated entry.
+    pub const COPY: vm_prot_t = 0x10;
 };
 
 pub const MAP = struct {
@@ -1770,6 +1777,10 @@ pub const E = enum(u16) {
 
     _,
 };
+
+pub fn getKernError(err: kern_return_t) KernE {
+    return @intToEnum(KernE, err);
+}
 
 /// Kernel return values
 pub const KernE = enum(u8) {

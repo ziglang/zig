@@ -29,7 +29,7 @@ const Allocator = std.mem.Allocator;
 const Preopen = std.fs.wasi.Preopen;
 const PreopenList = std.fs.wasi.PreopenList;
 
-pub const darwin = std.c;
+pub const darwin = @import("os/darwin.zig");
 pub const dragonfly = std.c;
 pub const freebsd = std.c;
 pub const haiku = std.c;
