@@ -1983,8 +1983,8 @@ fn binOpRegister(
     if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
 
     const mir_tag: Mir.Inst.Tag = switch (tag) {
-        .add, .ptr_add => .add,
-        .sub, .ptr_sub => .sub,
+        .add => .add,
+        .sub => .sub,
         .cmp_eq => .cmp,
         .mul => .mul,
         .bit_and,
@@ -1993,12 +1993,8 @@ fn binOpRegister(
         .bit_or,
         .bool_or,
         => .orr,
-        .shl,
-        .shl_exact,
-        => .lsl,
-        .shr,
-        .shr_exact,
-        => switch (lhs_ty.intInfo(self.target.*).signedness) {
+        .shl_exact => .lsl,
+        .shr_exact => switch (lhs_ty.intInfo(self.target.*).signedness) {
             .signed => Mir.Inst.Tag.asr,
             .unsigned => Mir.Inst.Tag.lsr,
         },
@@ -2014,16 +2010,12 @@ fn binOpRegister(
         .bit_or,
         .bool_or,
         .xor,
-        .ptr_add,
-        .ptr_sub,
         => .{ .rr_op = .{
             .rd = dest_reg,
             .rn = lhs_reg,
             .op = Instruction.Operand.reg(rhs_reg, Instruction.Operand.Shift.none),
         } },
-        .shl,
         .shl_exact,
-        .shr,
         .shr_exact,
         => .{ .rr_shift = .{
             .rd = dest_reg,
@@ -2120,12 +2112,8 @@ fn binOpImmediate(
         .bit_or,
         .bool_or,
         => .orr,
-        .shl,
-        .shl_exact,
-        => .lsl,
-        .shr,
-        .shr_exact,
-        => switch (lhs_ty.intInfo(self.target.*).signedness) {
+        .shl_exact => .lsl,
+        .shr_exact => switch (lhs_ty.intInfo(self.target.*).signedness) {
             .signed => Mir.Inst.Tag.asr,
             .unsigned => Mir.Inst.Tag.lsr,
         },
@@ -2146,9 +2134,7 @@ fn binOpImmediate(
             .rn = lhs_reg,
             .op = Instruction.Operand.fromU32(rhs.immediate).?,
         } },
-        .shl,
         .shl_exact,
-        .shr,
         .shr_exact,
         => .{ .rr_shift = .{
             .rd = dest_reg,
@@ -2279,8 +2265,8 @@ fn binOp(
                 else => unreachable,
             }
         },
-        .shl,
-        .shr,
+        .shl_exact,
+        .shr_exact,
         => {
             switch (lhs_ty.zigTypeTag()) {
                 .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
@@ -2297,6 +2283,41 @@ fn binOp(
                     } else {
                         return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
                     }
+                },
+                else => unreachable,
+            }
+        },
+        .shl,
+        .shr,
+        => {
+            const base_tag: Air.Inst.Tag = switch (tag) {
+                .shl => .shl_exact,
+                .shr => .shr_exact,
+                else => unreachable,
+            };
+
+            // Generate a shl_exact/shr_exact
+            const result = try self.binOp(base_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+
+            // Truncate if necessary
+            switch (tag) {
+                .shr => return result,
+                .shl => switch (lhs_ty.zigTypeTag()) {
+                    .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                    .Int => {
+                        const int_info = lhs_ty.intInfo(self.target.*);
+                        if (int_info.bits <= 32) {
+                            const result_reg = result.register;
+
+                            if (int_info.bits < 32) {
+                                try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
+                                return result;
+                            } else return result;
+                        } else {
+                            return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
+                        }
+                    },
+                    else => unreachable,
                 },
                 else => unreachable,
             }
@@ -2334,7 +2355,13 @@ fn binOp(
                     const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
 
                     if (elem_size == 1) {
-                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        const base_tag: Air.Inst.Tag = switch (tag) {
+                            .ptr_add => .add,
+                            .ptr_sub => .sub,
+                            else => unreachable,
+                        };
+
+                        return try self.binOpRegister(base_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         // convert the offset into a byte offset by
                         // multiplying it with elem_size

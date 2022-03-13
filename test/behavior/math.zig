@@ -864,7 +864,6 @@ test "quad hex float literal parsing accurate" {
 
 test "truncating shift left" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testShlTrunc(maxInt(u16));
@@ -877,7 +876,6 @@ fn testShlTrunc(x: u16) !void {
 
 test "exact shift left" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testShlExact(0b00110101);
@@ -890,7 +888,6 @@ fn testShlExact(x: u8) !void {
 
 test "exact shift right" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testShrExact(0b10110100);
