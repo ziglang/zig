@@ -6,6 +6,9 @@ const native_arch = builtin.target.cpu.arch;
 const maxInt = std.math.maxInt;
 const iovec_const = std.os.iovec_const;
 
+pub const aarch64 = @import("darwin/aarch64.zig");
+pub const x86_64 = @import("darwin/x86_64.zig");
+
 const arch_bits = switch (native_arch) {
     .aarch64 => @import("darwin/aarch64.zig"),
     .x86_64 => @import("darwin/x86_64.zig"),
@@ -124,8 +127,12 @@ pub extern "c" fn mach_host_self() mach_port_t;
 pub extern "c" fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_timespec_t) kern_return_t;
 
 pub const vm_map_t = mach_port_t;
+pub const vm_map_read_t = mach_port_t;
+pub const vm_region_flavor_t = c_int;
+pub const vm_region_info_t = *c_int;
 pub const mach_vm_address_t = usize;
 pub const vm_offset_t = usize;
+pub const mach_vm_size_t = u64;
 pub const mach_msg_type_number_t = natural_t;
 
 extern "c" var mach_task_self_: mach_port_t;
@@ -133,12 +140,283 @@ pub fn mach_task_self() callconv(.C) mach_port_t {
     return mach_task_self_;
 }
 
+pub const task_read_t = mach_port_t;
+
+pub extern "c" fn task_resume(target_task: task_read_t) kern_return_t;
+pub extern "c" fn task_suspend(target_task: task_read_t) kern_return_t;
+
 pub extern "c" fn task_for_pid(target_tport: mach_port_name_t, pid: pid_t, t: *mach_port_name_t) kern_return_t;
+pub extern "c" fn mach_vm_read(
+    target_task: vm_map_read_t,
+    address: mach_vm_address_t,
+    size: mach_vm_size_t,
+    data: *vm_offset_t,
+    data_cnt: *mach_msg_type_number_t,
+) kern_return_t;
 pub extern "c" fn mach_vm_write(
     target_task: vm_map_t,
     address: mach_vm_address_t,
     data: vm_offset_t,
     data_cnt: mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn mach_vm_region(
+    target_task: vm_map_t,
+    address: *mach_vm_address_t,
+    size: *mach_vm_size_t,
+    flavor: vm_region_flavor_t,
+    info: vm_region_info_t,
+    info_cnt: *mach_msg_type_number_t,
+    object_name: *mach_port_t,
+) kern_return_t;
+
+pub const VM_REGION_BASIC_INFO_64 = 9;
+pub const VM_REGION_SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
+
+pub const vm_inherit_t = u32;
+pub const memory_object_offset_t = u64;
+pub const vm_behavior_t = i32;
+
+pub const VM_INHERIT_SHARE: vm_inherit_t = 0;
+pub const VM_INHERIT_COPY: vm_inherit_t = 1;
+pub const VM_INHERIT_NONE: vm_inherit_t = 2;
+pub const VM_INHERIT_DONATE_COPY: vm_inherit_t = 3;
+pub const VM_INHERIT_DEFAULT = VM_INHERIT_COPY;
+
+pub const VM_BEHAVIOR_DEFAULT: vm_behavior_t = 0;
+pub const VM_BEHAVIOR_RANDOM: vm_behavior_t = 1;
+pub const VM_BEHAVIOR_SEQUENTIAL: vm_behavior_t = 2;
+pub const VM_BEHAVIOR_RSEQNTL: vm_behavior_t = 3;
+
+pub const VM_BEHAVIOR_WILLNEED: vm_behavior_t = 4;
+pub const VM_BEHAVIOR_DONTNEED: vm_behavior_t = 5;
+pub const VM_BEHAVIOR_FREE: vm_behavior_t = 6;
+pub const VM_BEHAVIOR_ZERO_WIRED_PAGES: vm_behavior_t = 7;
+pub const VM_BEHAVIOR_REUSABLE: vm_behavior_t = 8;
+pub const VM_BEHAVIOR_REUSE: vm_behavior_t = 9;
+pub const VM_BEHAVIOR_CAN_REUSE: vm_behavior_t = 10;
+pub const VM_BEHAVIOR_PAGEOUT: vm_behavior_t = 11;
+
+pub const vm32_object_id_t = u32;
+pub const vm_object_id_t = u64;
+
+pub const vm_region_submap_info_64 = extern struct {
+    // present across protection
+    protection: std.macho.vm_prot_t,
+    // max avail through vm_prot
+    max_protection: std.macho.vm_prot_t,
+    // behavior of map/obj on fork
+    inheritance: vm_inherit_t,
+    // offset into object/map
+    offset: memory_object_offset_t,
+    // user tag on map entry
+    user_tag: u32,
+    // only valid for objects
+    pages_resident: u32,
+    // only for objects
+    pages_shared_now_private: u32,
+    // only for objects
+    pages_swapped_out: u32,
+    // only for objects
+    pages_dirtied: u32,
+    // obj/map mappers, etc.
+    ref_count: u32,
+    // only for obj
+    shadow_depth: u16,
+    // only for obj
+    external_pager: u8,
+    // see enumeration
+    share_mode: u8,
+    // submap vs obj
+    is_submap: boolean_t,
+    // access behavior hint
+    behavior: vm_behavior_t,
+    // obj/map name, not a handle
+    object_id: vm32_object_id_t,
+    user_wired_count: u16,
+    pages_reusable: u32,
+    object_id_full: vm_object_id_t,
+};
+
+pub const thread_act_t = mach_port_t;
+pub const thread_state_t = *natural_t;
+pub const mach_port_array_t = *mach_port_t;
+
+pub extern "c" fn task_threads(
+    target_task: mach_port_t,
+    init_port_set: *mach_port_array_t,
+    init_port_count: *mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn thread_get_state(
+    thread: thread_act_t,
+    flavor: thread_flavor_t,
+    state: thread_state_t,
+    count: *mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn thread_set_state(
+    thread: thread_act_t,
+    flavor: thread_flavor_t,
+    new_state: thread_state_t,
+    count: mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn thread_info(
+    thread: thread_act_t,
+    flavor: thread_flavor_t,
+    info: thread_info_t,
+    count: *mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn thread_resume(thread: thread_act_t) kern_return_t;
+
+pub const THREAD_BASIC_INFO = 3;
+pub const THREAD_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_basic_info) / @sizeOf(natural_t);
+
+pub const thread_flavor_t = natural_t;
+pub const thread_info_t = *integer_t;
+pub const time_value_t = time_value;
+pub const task_policy_flavor_t = natural_t;
+pub const task_policy_t = *integer_t;
+pub const policy_t = c_int;
+
+pub const time_value = extern struct {
+    seconds: integer_t,
+    microseconds: integer_t,
+};
+
+pub const thread_basic_info = extern struct {
+    // user run time
+    user_time: time_value_t,
+    // system run time
+    system_time: time_value_t,
+    // scaled cpu usage percentage
+    cpu_usage: integer_t,
+    // scheduling policy in effect
+    policy: policy_t,
+    // run state
+    run_state: integer_t,
+    // various flags
+    flags: integer_t,
+    // suspend count for thread
+    suspend_count: integer_t,
+    // number of seconds that thread has been sleeping
+    sleep_time: integer_t,
+};
+
+/// Cachability
+pub const MATTR_CACHE = 1;
+/// Migrability
+pub const MATTR_MIGRATE = 2;
+/// Replicability
+pub const MATTR_REPLICATE = 4;
+
+/// (Generic) turn attribute off
+pub const MATTR_VAL_OFF = 0;
+/// (Generic) turn attribute on
+pub const MATTR_VAL_ON = 1;
+/// (Generic) return current value
+pub const MATTR_VAL_GET = 2;
+/// Flush from all caches
+pub const MATTR_VAL_CACHE_FLUSH = 6;
+/// Flush from data caches
+pub const MATTR_VAL_DCACHE_FLUSH = 7;
+/// Flush from instruction caches
+pub const MATTR_VAL_ICACHE_FLUSH = 8;
+/// Sync I+D caches
+pub const MATTR_VAL_CACHE_SYNC = 9;
+/// Get page info (stats)
+pub const MATTR_VAL_GET_INFO = 10;
+
+pub const TASK_VM_INFO = 22;
+pub const TASK_VM_INFO_COUNT: mach_msg_type_number_t = @sizeOf(task_vm_info_data_t) / @sizeOf(natural_t);
+
+pub const task_vm_info = extern struct {
+    // virtual memory size (bytes)
+    virtual_size: mach_vm_size_t,
+    // number of memory regions
+    region_count: integer_t,
+    page_size: integer_t,
+    // resident memory size (bytes)
+    resident_size: mach_vm_size_t,
+    // peak resident size (bytes)
+    resident_size_peak: mach_vm_size_t,
+
+    device: mach_vm_size_t,
+    device_peak: mach_vm_size_t,
+    internal: mach_vm_size_t,
+    internal_peak: mach_vm_size_t,
+    external: mach_vm_size_t,
+    external_peak: mach_vm_size_t,
+    reusable: mach_vm_size_t,
+    reusable_peak: mach_vm_size_t,
+    purgeable_volatile_pmap: mach_vm_size_t,
+    purgeable_volatile_resident: mach_vm_size_t,
+    purgeable_volatile_virtual: mach_vm_size_t,
+    compressed: mach_vm_size_t,
+    compressed_peak: mach_vm_size_t,
+    compressed_lifetime: mach_vm_size_t,
+
+    // added for rev1
+    phys_footprint: mach_vm_size_t,
+
+    // added for rev2
+    min_address: mach_vm_address_t,
+    max_address: mach_vm_address_t,
+
+    // added for rev3
+    ledger_phys_footprint_peak: i64,
+    ledger_purgeable_nonvolatile: i64,
+    ledger_purgeable_novolatile_compressed: i64,
+    ledger_purgeable_volatile: i64,
+    ledger_purgeable_volatile_compressed: i64,
+    ledger_tag_network_nonvolatile: i64,
+    ledger_tag_network_nonvolatile_compressed: i64,
+    ledger_tag_network_volatile: i64,
+    ledger_tag_network_volatile_compressed: i64,
+    ledger_tag_media_footprint: i64,
+    ledger_tag_media_footprint_compressed: i64,
+    ledger_tag_media_nofootprint: i64,
+    ledger_tag_media_nofootprint_compressed: i64,
+    ledger_tag_graphics_footprint: i64,
+    ledger_tag_graphics_footprint_compressed: i64,
+    ledger_tag_graphics_nofootprint: i64,
+    ledger_tag_graphics_nofootprint_compressed: i64,
+    ledger_tag_neural_footprint: i64,
+    ledger_tag_neural_footprint_compressed: i64,
+    ledger_tag_neural_nofootprint: i64,
+    ledger_tag_neural_nofootprint_compressed: i64,
+
+    // added for rev4
+    limit_bytes_remaining: u64,
+
+    // added for rev5
+    decompressions: integer_t,
+};
+pub const task_vm_info_data_t = task_vm_info;
+
+pub const boolean_t = c_int;
+
+pub extern "c" fn mach_vm_protect(
+    target_task: vm_map_t,
+    address: mach_vm_address_t,
+    size: mach_vm_size_t,
+    set_maximum: boolean_t,
+    new_protection: std.macho.vm_prot_t,
+) kern_return_t;
+
+pub extern "c" fn mach_port_deallocate(target_tport: mach_port_name_t, task: mach_port_name_t) kern_return_t;
+
+pub extern "c" fn task_info(
+    target_task: task_name_t,
+    flavor: task_flavor_t,
+    task_info_out: task_info_t,
+    task_info_outCnt: *mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn _host_page_size(task: mach_port_t, size: *vm_size_t) kern_return_t;
+pub extern "c" fn vm_deallocate(target_task: vm_map_t, address: vm_address_t, size: vm_size_t) kern_return_t;
+pub extern "c" fn vm_machine_attribute(
+    target_task: vm_map_t,
+    address: vm_address_t,
+    size: vm_size_t,
+    attribute: vm_machine_attribute_t,
+    value: *vm_machine_attribute_val_t,
 ) kern_return_t;
 
 pub const sf_hdtr = extern struct {
@@ -622,6 +900,15 @@ pub const mach_timespec_t = extern struct {
 };
 pub const kern_return_t = c_int;
 pub const host_t = mach_port_t;
+pub const integer_t = c_int;
+pub const task_flavor_t = natural_t;
+pub const task_info_t = *integer_t;
+pub const task_name_t = mach_port_name_t;
+pub const vm_address_t = vm_offset_t;
+pub const vm_size_t = mach_vm_size_t;
+pub const vm_machine_attribute_t = usize;
+pub const vm_machine_attribute_val_t = isize;
+
 pub const CALENDAR_CLOCK = 1;
 
 pub const PATH_MAX = 1024;
@@ -2051,3 +2338,15 @@ pub const _POSIX_SPAWN_DISABLE_ASLR: c_int = 0x0100;
 pub const POSIX_SPAWN_SETSID: c_int = 0x0400;
 pub const _POSIX_SPAWN_RESLIDE: c_int = 0x0800;
 pub const POSIX_SPAWN_CLOEXEC_DEFAULT: c_int = 0x4000;
+
+pub const PT_TRACE_ME = 0;
+pub const PT_CONTINUE = 7;
+pub const PT_KILL = 8;
+pub const PT_STEP = 9;
+pub const PT_DETACH = 11;
+pub const PT_ATTACHEXC = 14;
+pub const PT_DENY_ATTACH = 31;
+
+pub const caddr_t = ?[*]u8;
+
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int) c_int;

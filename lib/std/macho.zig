@@ -1468,6 +1468,13 @@ pub const VM_PROT_WRITE: vm_prot_t = 0x2;
 /// VM execute permission
 pub const VM_PROT_EXECUTE: vm_prot_t = 0x4;
 
+/// When a caller finds that they cannot obtain write permission on a
+/// mapped entry, the following flag can be used. The entry will be
+/// made "needs copy" effectively copying the object (using COW),
+/// and write permission will be added to the maximum protections for
+/// the associated entry.
+pub const VM_PROT_COPY: vm_prot_t = 0x10;
+
 // The following are used to encode rebasing information
 pub const REBASE_TYPE_POINTER: u8 = 1;
 pub const REBASE_TYPE_TEXT_ABSOLUTE32: u8 = 2;
