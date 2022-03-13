@@ -444,4 +444,8 @@ pub const Instruction = union(enum) {
         opf_low: u6,
         rs2: u5,
     },
+
+    pub fn toU32(self: Instruction) u32 {
+        return @bitCast(u32, self);
+    }
 };
