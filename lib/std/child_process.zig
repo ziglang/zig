@@ -1229,7 +1229,7 @@ test "build and call child_process" {
 
     var tmp = testing.tmpDir(.{ .no_follow = true }); // ie zig-cache/tmp/8DLgoSEqz593PAEE
     defer tmp.cleanup();
-    const tmpdirpath = try testing.tmpDirPath(allocator, &tmp);
+    const tmpdirpath = try tmp.getFullPath(allocator);
     defer allocator.free(tmpdirpath);
     const child_name = "child"; // no need for suffixes (.exe, .wasm) due to '-femit-bin'
     const suffix_zig = ".zig";

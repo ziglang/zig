@@ -355,6 +355,19 @@ pub const TmpDir = struct {
     const random_bytes_count = 12;
     const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
 
+    /// caller owns memory
+    pub fn getFullPath(self: *TmpDir, alloc: std.mem.Allocator) ![]u8 {
+        const cwd_str = try std.process.getCwdAlloc(alloc);
+        defer alloc.free(cwd_str);
+        const path = try std.fs.path.join(alloc, &[_][]const u8{
+            cwd_str,
+            "zig-cache",
+            "tmp",
+            &self.sub_path,
+        });
+        return path;
+    }
+
     pub fn cleanup(self: *TmpDir) void {
         self.dir.close();
         self.parent_dir.deleteTree(&self.sub_path) catch {};
@@ -398,19 +411,6 @@ pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
         .parent_dir = parent_dir,
         .sub_path = sub_path,
     };
-}
-
-/// caller owns memory
-pub fn tmpDirPath(alloc: std.mem.Allocator, tmpdir: *TmpDir) ![]u8 {
-    const cwd_str = try std.process.getCwdAlloc(alloc);
-    defer alloc.free(cwd_str);
-    const path = try std.fs.path.join(alloc, &[_][]const u8{
-        cwd_str,
-        "zig-cache",
-        "tmp",
-        &tmpdir.sub_path,
-    });
-    return path;
 }
 
 const TestArgs = struct {
