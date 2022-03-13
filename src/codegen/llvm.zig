@@ -164,8 +164,9 @@ pub const Object = struct {
     di_builder: ?*llvm.DIBuilder,
     /// One of these mappings:
     /// - *Module.File => *DIFile
-    /// - *Module.Decl => *DISubprogram
-    di_map: std.AutoHashMapUnmanaged(*const anyopaque, *llvm.DIScope),
+    /// - *Module.Decl (Fn) => *DISubprogram
+    /// - *Module.Decl (Non-Fn) => *DIGlobalVariable
+    di_map: std.AutoHashMapUnmanaged(*const anyopaque, *llvm.DINode),
     di_compile_unit: ?*llvm.DICompileUnit,
     context: *const llvm.Context,
     target_machine: *const llvm.TargetMachine,
@@ -591,6 +592,7 @@ pub const Object = struct {
                 dg.module.comp.bin_file.options.optimize_mode != .Debug,
                 null, // decl_subprogram
             );
+            try dg.object.di_map.put(gpa, decl, subprogram.toNode());
 
             llvm_func.fnSetSubprogram(subprogram);
 
@@ -665,6 +667,17 @@ pub const Object = struct {
             llvm_global.setValueName(decl.name);
             llvm_global.setUnnamedAddr(.False);
             llvm_global.setLinkage(.External);
+            if (self.di_map.get(decl)) |di_node| {
+                if (try decl.isFunction()) {
+                    const di_func = @ptrCast(*llvm.DISubprogram, di_node);
+                    const linkage_name = llvm.MDString.get(self.context, decl.name, std.mem.len(decl.name));
+                    di_func.replaceLinkageName(linkage_name);
+                } else {
+                    const di_global = @ptrCast(*llvm.DIGlobalVariable, di_node);
+                    const linkage_name = llvm.MDString.get(self.context, decl.name, std.mem.len(decl.name));
+                    di_global.replaceLinkageName(linkage_name);
+                }
+            }
             if (decl.val.castTag(.variable)) |variable| {
                 if (variable.data.is_threadlocal) {
                     llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
@@ -679,6 +692,17 @@ pub const Object = struct {
             const exp_name = exports[0].options.name;
             llvm_global.setValueName2(exp_name.ptr, exp_name.len);
             llvm_global.setUnnamedAddr(.False);
+            if (self.di_map.get(decl)) |di_node| {
+                if (try decl.isFunction()) {
+                    const di_func = @ptrCast(*llvm.DISubprogram, di_node);
+                    const linkage_name = llvm.MDString.get(self.context, exp_name.ptr, exp_name.len);
+                    di_func.replaceLinkageName(linkage_name);
+                } else {
+                    const di_global = @ptrCast(*llvm.DIGlobalVariable, di_node);
+                    const linkage_name = llvm.MDString.get(self.context, exp_name.ptr, exp_name.len);
+                    di_global.replaceLinkageName(linkage_name);
+                }
+            }
             switch (exports[0].options.linkage) {
                 .Internal => unreachable,
                 .Strong => llvm_global.setLinkage(.External),
@@ -744,7 +768,7 @@ pub const Object = struct {
         const dir_path_z = try gpa.dupeZ(u8, dir_path);
         defer gpa.free(dir_path_z);
         const di_file = o.di_builder.?.createFile(sub_file_path_z, dir_path_z);
-        gop.value_ptr.* = di_file.toScope();
+        gop.value_ptr.* = di_file.toNode();
         return di_file;
     }
 };
@@ -782,7 +806,7 @@ pub const DeclGen = struct {
             _ = try dg.resolveLlvmFunction(extern_fn.data.owner_decl);
         } else {
             const target = dg.module.getTarget();
-            const global = try dg.resolveGlobalDecl(decl);
+            var global = try dg.resolveGlobalDecl(decl);
             global.setAlignment(decl.getAlignment(target));
             assert(decl.has_tv);
             const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
@@ -826,7 +850,26 @@ pub const DeclGen = struct {
                     dg.object.decl_map.putAssumeCapacity(decl, new_global);
                     new_global.takeName(global);
                     global.deleteGlobal();
+                    global = new_global;
                 }
+            }
+
+            if (dg.object.di_builder) |dib| {
+                const di_file = try dg.object.getDIFile(dg.gpa, decl.src_namespace.file_scope);
+
+                const line_number = decl.src_line + 1;
+                const is_internal_linkage = !dg.module.decl_exports.contains(decl);
+                const di_global = dib.createGlobalVariable(
+                    di_file.toScope(),
+                    decl.name,
+                    global.getValueName(),
+                    di_file,
+                    line_number,
+                    try dg.lowerDebugType(decl.ty),
+                    is_internal_linkage,
+                );
+
+                try dg.object.di_map.put(dg.gpa, dg.decl, di_global.toNode());
             }
         }
     }
