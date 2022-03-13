@@ -12679,7 +12679,7 @@ fn reifyTuple(
     const slice_val = fields_val.castTag(.slice).?.data;
     const decl = slice_val.ptr.pointerDecl().?;
     try sema.ensureDeclAnalyzed(decl);
-    const fields_len = decl.ty.arrayLen();
+    const fields_len = try sema.usizeCast(block, src, decl.ty.arrayLen());
     const types = try sema.arena.alloc(Type, fields_len);
     const values = try sema.arena.alloc(Value, fields_len);
 
