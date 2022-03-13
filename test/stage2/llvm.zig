@@ -435,4 +435,124 @@ pub fn addCases(ctx: *TestContext) !void {
             ":3:21: error: expected pointer type, found '?usize'",
         });
     }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("returning pointer to local variable", linux_x64);
+        case.addError(
+            \\fn arrPtr() []u8 {
+            \\    var arr = [_]u8{ 1, 2, 3 };
+            \\    return &arr;
+            \\}
+            \\fn cast() *u64 {
+            \\    var arr = [_]u8{ 1, 2, 3 };
+            \\    return @ptrCast(*u64, @alignCast(8, @as(?*anyopaque, &arr)));
+            \\}
+            \\fn assign() []u8 {
+            \\    var arr = [_]u8{ 1, 2, 3 };
+            \\    const arr_ptr: []u8 = &arr;
+            \\    return arr_ptr;
+            \\}
+            \\fn intConversion() *u64 {
+            \\    var a: u64 = 0;
+            \\    return @intToPtr(*u64, @ptrToInt(&a));
+            \\}
+            \\fn intConversionArithmetic() *u64 {
+            \\    var a: u64 = 0;
+            \\    return @intToPtr(*u64, @ptrToInt(&a) + 8);
+            \\}
+            \\fn sliceToArr() []u8 {
+            \\    var arr = [_]u8{ 1, 2, 3 };
+            \\    return arr[0..];
+            \\}
+            \\fn sliceRt() []u8 {
+            \\    var arr = [_]u8{ 1, 2, 3 };
+            \\    var start: usize = 0;
+            \\    return arr[start..];
+            \\}
+            \\fn ref() *const u64 {
+            \\    var a: u64 = 0;
+            \\    return &(a + 1);
+            \\}
+            \\fn bitCast() *u64 {
+            \\    var a: u64 = 0;
+            \\    return @intToPtr(*u64, @bitCast(usize, @bitCast(isize, @ptrToInt(&a))));
+            \\}
+            \\const S = struct { a: u64 };
+            \\fn fieldPtr() *u64 {
+            \\    var a: S = undefined;
+            \\    return &a.a;
+            \\}
+            \\const S2 = struct { s: S };
+            \\fn fieldParentPtr() *S2 {
+            \\    var a: S2 = undefined;
+            \\    return @fieldParentPtr(S2, "s", &a.s);
+            \\}
+            \\fn ptrToInt() u64 {
+            \\    var a: u64 = 0;
+            \\    return @ptrToInt(&a);
+            \\}
+            \\inline fn iKnowWhatImDoing(ptr: anytype) @TypeOf(ptr) {
+            \\    return ptr;
+            \\}
+            \\fn ignoreErr() *u64 {
+            \\    var a: u64 = 0;
+            \\    return iKnowWhatImDoing(&a);
+            \\}
+            \\fn assignToMutable() *u64 {
+            \\    var a: u64 = 0;
+            \\    var ptr = &a;
+            \\    return ptr;
+            \\}
+            \\comptime {
+            \\    // error
+            \\    _ = arrPtr; _ = cast; _ = assign; _ = intConversion; _ = intConversionArithmetic;
+            \\    _ = sliceToArr; _ = sliceRt; _ = ref; _ = bitCast; _ = fieldPtr; _ = fieldParentPtr;
+            \\    // no error
+            \\    _ = ptrToInt; _ = ignoreErr; _ = assignToMutable;
+            \\}
+        , &[_][]const u8{
+            "tmp.zig:3:5: error: function returns pointer to local variable",
+            "tmp.zig:2:5: note: local variable declared here",
+            "tmp.zig:7:5: error: function returns pointer to local variable",
+            "tmp.zig:6:5: note: local variable declared here",
+            "tmp.zig:12:5: error: function returns pointer to local variable",
+            "tmp.zig:10:5: note: local variable declared here",
+            "tmp.zig:16:5: error: function returns pointer to local variable",
+            "tmp.zig:15:5: note: local variable declared here",
+            "tmp.zig:20:5: error: function returns pointer to local variable",
+            "tmp.zig:19:5: note: local variable declared here",
+            "tmp.zig:24:5: error: function returns pointer to local variable",
+            "tmp.zig:23:5: note: local variable declared here",
+            "tmp.zig:29:5: error: function returns pointer to local variable",
+            "tmp.zig:27:5: note: local variable declared here",
+            "tmp.zig:33:5: error: function returns pointer to local variable",
+            "tmp.zig:33:14: note: local variable declared here",
+            "tmp.zig:37:5: error: function returns pointer to local variable",
+            "tmp.zig:36:5: note: local variable declared here",
+            "tmp.zig:42:5: error: function returns pointer to local variable",
+            "tmp.zig:41:5: note: local variable declared here",
+            "tmp.zig:47:5: error: function returns pointer to local variable",
+            "tmp.zig:46:5: note: local variable declared here",
+        });
+        case.addError(
+            \\const S = struct { a: *u64 };
+            \\fn structInit() S {
+            \\    var a: u64 = 0;
+            \\    return .{ .a = &a };
+            \\}
+            \\fn arrayInit() [1]*u64 {
+            \\    var a: u64 = 0;
+            \\    return [1]*u64{&a};
+            \\}
+            \\comptime {
+            \\    _ = structInit;
+            \\    _ = arrayInit;
+            \\}
+        , &[_][]const u8{
+            "tmp.zig:4:20: error: function returns pointer to local variable",
+            "tmp.zig:3:5: note: local variable declared here",
+            "tmp.zig:8:20: error: function returns pointer to local variable",
+            "tmp.zig:7:5: note: local variable declared here",
+        });
+    }
 }

@@ -64,6 +64,8 @@ comptime_args_fn_inst: Zir.Inst.Index = 0,
 /// Sema will set this to null when it takes ownership.
 preallocated_new_func: ?*Module.Fn = null,
 
+stack_pointers: std.AutoHashMapUnmanaged(Air.Inst.Ref, LazySrcLoc) = .{},
+
 const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
@@ -506,6 +508,7 @@ pub fn deinit(sema: *Sema) void {
     sema.air_values.deinit(gpa);
     sema.inst_map.deinit(gpa);
     sema.decl_val_table.deinit(gpa);
+    sema.stack_pointers.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -2424,7 +2427,9 @@ fn zirAllocExtended(
         });
         try sema.requireRuntimeBlock(block, src);
         try sema.resolveTypeLayout(block, src, var_ty);
-        return block.addTy(.alloc, ptr_type);
+        const alloc = try block.addTy(.alloc, ptr_type);
+        try sema.stack_pointers.putNoClobber(sema.gpa, alloc, src);
+        return alloc;
     }
 
     // `Sema.addConstant` does not add the instruction to the block because it is
@@ -2437,6 +2442,7 @@ fn zirAllocExtended(
     );
     try sema.requireFunctionBlock(block, src);
     try block.instructions.append(sema.gpa, Air.refToIndex(result).?);
+    try sema.stack_pointers.putNoClobber(sema.gpa, result, src);
     return result;
 }
 
@@ -2500,7 +2506,9 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     });
     try sema.requireRuntimeBlock(block, var_decl_src);
     try sema.resolveTypeFully(block, ty_src, var_ty);
-    return block.addTy(.alloc, ptr_type);
+    const alloc = try block.addTy(.alloc, ptr_type);
+    try sema.stack_pointers.putNoClobber(sema.gpa, alloc, var_decl_src);
+    return alloc;
 }
 
 fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -2522,7 +2530,9 @@ fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     });
     try sema.requireRuntimeBlock(block, var_decl_src);
     try sema.resolveTypeFully(block, ty_src, var_ty);
-    return block.addTy(.alloc, ptr_type);
+    const alloc = try block.addTy(.alloc, ptr_type);
+    try sema.stack_pointers.putNoClobber(sema.gpa, alloc, var_decl_src);
+    return alloc;
 }
 
 fn zirAllocInferred(
@@ -2558,6 +2568,7 @@ fn zirAllocInferred(
     );
     try sema.requireFunctionBlock(block, src);
     try block.instructions.append(sema.gpa, Air.refToIndex(result).?);
+    try sema.stack_pointers.putNoClobber(sema.gpa, result, src);
     return result;
 }
 
@@ -3496,6 +3507,26 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
                 try sema.addToInferredErrorSet(operand);
             }
         }
+    }
+    // Check for array/struct init returning pointer to local
+    if (Zir.refToIndex(extra.lhs)) |ptr_index| blk: {
+        const base_index = Zir.refToIndex(switch (zir_tags[ptr_index]) {
+            .field_ptr => sema.code.extraData(Zir.Inst.Field, zir_datas[ptr_index].pl_node.payload_index).data.lhs,
+            .elem_ptr_imm => sema.code.extraData(Zir.Inst.ElemPtrImm, zir_datas[ptr_index].pl_node.payload_index).data.ptr,
+            else => break :blk,
+        }) orelse break :blk;
+
+        const container_ptr_index = switch (zir_tags[base_index]) {
+            .array_base_ptr,
+            .field_base_ptr,
+            => Zir.refToIndex(zir_datas[base_index].un_node.operand) orelse break :blk,
+            .coerce_result_ptr => Zir.refToIndex(zir_datas[base_index].bin.rhs) orelse break :blk,
+            else => break :blk,
+        };
+        if (zir_tags[container_ptr_index] != .extended) break :blk;
+        if (zir_datas[container_ptr_index].extended.opcode != .ret_ptr) break :blk;
+
+        try sema.checkReturnPtrToLocal(block, src, operand);
     }
 
     return sema.storePtr(block, src, ptr, operand);
@@ -6287,7 +6318,11 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         return sema.addConstant(Type.usize, ptr_val);
     }
     try sema.requireRuntimeBlock(block, ptr_src);
-    return block.addUnOp(.ptrtoint, ptr);
+    const res = try block.addUnOp(.ptrtoint, ptr);
+    if (sema.stack_pointers.get(ptr)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
 }
 
 fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -6313,7 +6348,11 @@ fn zirFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const extra = sema.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
     const field_name = sema.code.nullTerminatedString(extra.field_name_start);
     const object_ptr = sema.resolveInst(extra.lhs);
-    return sema.fieldPtr(block, src, object_ptr, field_name, field_name_src);
+    const res = try sema.fieldPtr(block, src, object_ptr, field_name, field_name_src);
+    if (sema.stack_pointers.get(object_ptr)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
 }
 
 fn zirFieldCallBind(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -6411,7 +6450,11 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = sema.resolveInst(extra.rhs);
-    return sema.bitCast(block, dest_ty, operand, operand_src);
+    const res = try sema.bitCast(block, dest_ty, operand, operand_src);
+    if (sema.stack_pointers.get(operand)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
 }
 
 fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8546,7 +8589,13 @@ fn zirArithmetic(
     const lhs = sema.resolveInst(extra.lhs);
     const rhs = sema.resolveInst(extra.rhs);
 
-    return sema.analyzeArithmetic(block, zir_tag, lhs, rhs, sema.src, lhs_src, rhs_src);
+    const res = try sema.analyzeArithmetic(block, zir_tag, lhs, rhs, sema.src, lhs_src, rhs_src);
+    if (sema.stack_pointers.get(lhs)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    } else if (sema.stack_pointers.get(rhs)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
 }
 
 fn zirOverflowArithmetic(
@@ -11454,9 +11503,25 @@ fn analyzeRet(
         return always_noreturn;
     }
 
+    try sema.checkReturnPtrToLocal(block, src, operand);
+
     try sema.resolveTypeLayout(block, src, sema.fn_ret_ty);
     _ = try block.addUnOp(.ret, operand);
     return always_noreturn;
+}
+
+fn checkReturnPtrToLocal(sema: *Sema, block: *Block, src: LazySrcLoc, maybe_ptr: Air.Inst.Ref) !void {
+    if (block.inlining != null) return;
+    if (sema.typeOf(maybe_ptr).zigTypeTag() != .Pointer) return;
+    if (sema.stack_pointers.get(maybe_ptr)) |some| {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "function returns pointer to local variable", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, some, msg, "local variable declared here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
 }
 
 fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
@@ -11763,6 +11828,7 @@ fn zirStructInit(
 
         if (is_ref) {
             const alloc = try block.addTy(.alloc, resolved_ty);
+            try sema.stack_pointers.putNoClobber(sema.gpa, alloc, src);
             const field_ptr = try sema.unionFieldPtr(block, field_src, alloc, field_name, field_src, resolved_ty);
             try sema.storePtr(block, src, field_ptr, init_inst);
             return alloc;
@@ -11814,6 +11880,7 @@ fn finishStructInit(
 
     if (is_ref) {
         const alloc = try block.addTy(.alloc, struct_ty);
+        try sema.stack_pointers.putNoClobber(sema.gpa, alloc, src);
         for (field_inits) |field_init, i_usize| {
             const i = @intCast(u32, i_usize);
             const field_src = src;
@@ -11882,6 +11949,7 @@ fn zirStructInitAnon(
             .@"addrspace" = target_util.defaultAddressSpace(target, .local),
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
+        try sema.stack_pointers.putNoClobber(sema.gpa, alloc, src);
         var extra_index = extra.end;
         for (types) |field_ty, i_usize| {
             const i = @intCast(u32, i_usize);
@@ -11980,6 +12048,7 @@ fn zirArrayInit(
             .@"addrspace" = target_util.defaultAddressSpace(target, .local),
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
+        try sema.stack_pointers.putNoClobber(sema.gpa, alloc, src);
 
         const elem_ptr_ty = try Type.ptr(sema.arena, target, .{
             .mutable = true,
@@ -12048,6 +12117,7 @@ fn zirArrayInitAnon(
             .@"addrspace" = target_util.defaultAddressSpace(target, .local),
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
+        try sema.stack_pointers.putNoClobber(sema.gpa, alloc, src);
         for (operands) |operand, i_usize| {
             const i = @intCast(u32, i_usize);
             const field_ptr_ty = try Type.ptr(sema.arena, target, .{
@@ -12808,7 +12878,11 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             try sema.addSafetyCheck(block, is_aligned, .incorrect_alignment);
         }
     }
-    return block.addBitCast(type_res, operand_coerced);
+    const res = try block.addBitCast(type_res, operand_coerced);
+    if (sema.stack_pointers.get(operand_res)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
 }
 
 fn zirErrSetCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12889,7 +12963,11 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         }
     };
 
-    return sema.coerceCompatiblePtrs(block, aligned_dest_ty, ptr, operand_src);
+    const res = try sema.coerceCompatiblePtrs(block, aligned_dest_ty, ptr, operand_src);
+    if (sema.stack_pointers.get(operand)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
 }
 
 fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12985,7 +13063,11 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         .@"volatile" = ptr_info.@"volatile",
         .size = ptr_info.size,
     });
-    return sema.coerceCompatiblePtrs(block, dest_ty, ptr, ptr_src);
+    const res = try sema.coerceCompatiblePtrs(block, dest_ty, ptr, ptr_src);
+    if (sema.stack_pointers.get(ptr)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
 }
 
 fn zirBitCount(
@@ -14209,7 +14291,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addInst(.{
+    const res = try block.addInst(.{
         .tag = .field_parent_ptr,
         .data = .{ .ty_pl = .{
             .ty = try sema.addType(result_ptr),
@@ -14219,6 +14301,10 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
             }),
         } },
     });
+    if (sema.stack_pointers.get(field_ptr)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
 }
 
 fn zirMinMax(
@@ -16297,6 +16383,20 @@ fn coerce(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
+    const res = try sema.coerceNoPtrCheck(block, dest_ty_unresolved, inst, inst_src);
+    if (sema.stack_pointers.get(inst)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
+}
+
+fn coerceNoPtrCheck(
+    sema: *Sema,
+    block: *Block,
+    dest_ty_unresolved: Type,
+    inst: Air.Inst.Ref,
+    inst_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
     switch (dest_ty_unresolved.tag()) {
         .var_args_param => return sema.coerceVarArgParam(block, inst, inst_src),
         .generic_poison => return inst,
@@ -18287,7 +18387,13 @@ fn analyzeRef(
     try sema.storePtr(block, src, alloc, operand);
 
     // TODO: Replace with sema.coerce when that supports adding pointer constness.
-    return sema.bitCast(block, ptr_type, alloc, src);
+    const res = try sema.bitCast(block, ptr_type, alloc, src);
+    if (operand_ty.zigTypeTag() != .Pointer) {
+        try sema.stack_pointers.putNoClobber(sema.gpa, res, src);
+    } else if (sema.stack_pointers.get(operand)) |some| {
+        try sema.stack_pointers.putNoClobber(sema.gpa, res, some);
+    }
+    return res;
 }
 
 fn analyzeLoad(
@@ -18557,7 +18663,11 @@ fn analyzeSlice(
 
         const opt_new_ptr_val = try sema.resolveMaybeUndefVal(block, ptr_src, new_ptr);
         const new_ptr_val = opt_new_ptr_val orelse {
-            return block.addBitCast(return_ty, new_ptr);
+            const res = try block.addBitCast(return_ty, new_ptr);
+            if (sema.stack_pointers.get(ptr_or_slice)) |some| {
+                try sema.stack_pointers.put(sema.gpa, res, some);
+            }
+            return res;
         };
 
         if (!new_ptr_val.isUndef()) {
@@ -18584,7 +18694,7 @@ fn analyzeSlice(
     });
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addInst(.{
+    const res = try block.addInst(.{
         .tag = .slice,
         .data = .{ .ty_pl = .{
             .ty = try sema.addType(return_ty),
@@ -18594,6 +18704,10 @@ fn analyzeSlice(
             }),
         } },
     });
+    if (sema.stack_pointers.get(ptr_or_slice)) |some| {
+        try sema.stack_pointers.put(sema.gpa, res, some);
+    }
+    return res;
 }
 
 /// Asserts that lhs and rhs types are both numeric.
