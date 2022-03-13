@@ -424,6 +424,10 @@ const Writer = struct {
             .param_anytype_comptime,
             => try self.writeStrTok(stream, inst),
 
+            .dbg_var_ptr,
+            .dbg_var_val,
+            => try self.writeStrOp(stream, inst),
+
             .param, .param_comptime => try self.writeParam(stream, inst),
 
             .func => try self.writeFunc(stream, inst, false),
@@ -1835,6 +1839,13 @@ const Writer = struct {
         const str = inst_data.get(self.code);
         try stream.print("\"{}\") ", .{std.zig.fmtEscapes(str)});
         try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeStrOp(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].str_op;
+        const str = inst_data.getStr(self.code);
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.print(", \"{}\")", .{std.zig.fmtEscapes(str)});
     }
 
     fn writeFunc(

@@ -228,8 +228,8 @@ ZIG_EXTERN_C void ZigLLVMSetModulePICLevel(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMSetModulePIELevel(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model);
 
-ZIG_EXTERN_C void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column,
-        struct ZigLLVMDIScope *scope);
+ZIG_EXTERN_C void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder,
+        unsigned int line, unsigned int column, struct ZigLLVMDIScope *scope);
 ZIG_EXTERN_C void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder);
 
 ZIG_EXTERN_C struct ZigLLVMDIScope *ZigLLVMLexicalBlockToScope(struct ZigLLVMDILexicalBlock *lexical_block);

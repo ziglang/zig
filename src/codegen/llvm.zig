@@ -613,6 +613,8 @@ pub const Object = struct {
             .single_threaded = module.comp.bin_file.options.single_threaded,
             .di_scope = di_scope,
             .di_file = di_file,
+            .prev_dbg_line = 0,
+            .prev_dbg_column = 0,
         };
         defer fg.deinit();
 
@@ -2885,8 +2887,7 @@ pub const DeclGen = struct {
     }
 
     fn lowerPtrToVoid(dg: *DeclGen, ptr_ty: Type) !*const llvm.Value {
-        const target = dg.module.getTarget();
-        const alignment = ptr_ty.ptrAlignment(target);
+        const alignment = ptr_ty.ptrInfo().data.@"align";
         // Even though we are pointing at something which has zero bits (e.g. `void`),
         // Pointers are defined to have bits. So we must return something here.
         // The value cannot be undefined, because we use the `nonnull` annotation
@@ -2902,6 +2903,7 @@ pub const DeclGen = struct {
         // have an "undef_but_not_null" attribute. As an example, if this `alloc` AIR
         // instruction is followed by a `wrap_optional`, it will return this value
         // verbatim, and the result should test as non-null.
+        const target = dg.module.getTarget();
         const int = switch (target.cpu.arch.ptrBitWidth()) {
             32 => llvm_usize.constInt(0xaaaaaaaa, .False),
             64 => llvm_usize.constInt(0xaaaaaaaa_aaaaaaaa, .False),
@@ -3004,6 +3006,8 @@ pub const FuncGen = struct {
     builder: *const llvm.Builder,
     di_scope: ?*llvm.DIScope,
     di_file: ?*llvm.DIFile,
+    prev_dbg_line: c_uint,
+    prev_dbg_column: c_uint,
 
     /// This stores the LLVM values used in a function, such that they can be referred to
     /// in other instructions. This table is cleared before every function is generated.
@@ -3255,6 +3259,8 @@ pub const FuncGen = struct {
                 .const_ty => unreachable,
                 .unreach  => self.airUnreach(inst),
                 .dbg_stmt => self.airDbgStmt(inst),
+                .dbg_var_ptr => try self.airDbgVarPtr(inst),
+                .dbg_var_val => try self.airDbgVarVal(inst),
                 // zig fmt: on
             };
             if (opt_value) |val| {
@@ -3967,11 +3973,56 @@ pub const FuncGen = struct {
     fn airDbgStmt(self: *FuncGen, inst: Air.Inst.Index) ?*const llvm.Value {
         const di_scope = self.di_scope orelse return null;
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-        self.builder.setCurrentDebugLocation(
-            @intCast(c_int, self.dg.decl.src_line + dbg_stmt.line + 1),
-            @intCast(c_int, dbg_stmt.column + 1),
-            di_scope,
+        self.prev_dbg_line = @intCast(c_uint, self.dg.decl.src_line + dbg_stmt.line + 1);
+        self.prev_dbg_column = @intCast(c_uint, dbg_stmt.column + 1);
+        self.builder.setCurrentDebugLocation(self.prev_dbg_line, self.prev_dbg_column, di_scope);
+        return null;
+    }
+
+    fn airDbgVarPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const dib = self.dg.object.di_builder orelse return null;
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const operand = try self.resolveInst(pl_op.operand);
+        const name = self.air.nullTerminatedString(pl_op.payload);
+
+        const di_local_var = dib.createAutoVariable(
+            self.di_scope.?,
+            name.ptr,
+            self.di_file.?,
+            self.prev_dbg_line,
+            try self.dg.lowerDebugType(self.air.typeOf(pl_op.operand)),
+            true, // always preserve
+            0, // flags
         );
+        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?);
+        const insert_block = self.builder.getInsertBlock();
+        _ = dib.insertDeclareAtEnd(operand, di_local_var, debug_loc, insert_block);
+        return null;
+    }
+
+    fn airDbgVarVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const dib = self.dg.object.di_builder orelse return null;
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const operand = try self.resolveInst(pl_op.operand);
+        const operand_ty = self.air.typeOf(pl_op.operand);
+        const name = self.air.nullTerminatedString(pl_op.payload);
+
+        const di_local_var = dib.createAutoVariable(
+            self.di_scope.?,
+            name.ptr,
+            self.di_file.?,
+            self.prev_dbg_line,
+            try self.dg.lowerDebugType(operand_ty),
+            true, // always preserve
+            0, // flags
+        );
+        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?);
+        const insert_block = self.builder.getInsertBlock();
+        if (isByRef(operand_ty)) {
+            _ = dib.insertDeclareAtEnd(operand, di_local_var, debug_loc, insert_block);
+        } else {
+            _ = dib.insertDbgValueIntrinsicAtEnd(operand, di_local_var, debug_loc, insert_block);
+        }
         return null;
     }
 
@@ -5272,6 +5323,13 @@ pub const FuncGen = struct {
     /// put the alloca instruction at the top of the function!
     fn buildAlloca(self: *FuncGen, llvm_ty: *const llvm.Type) *const llvm.Value {
         const prev_block = self.builder.getInsertBlock();
+        const prev_debug_location = self.builder.getCurrentDebugLocation2();
+        defer {
+            self.builder.positionBuilderAtEnd(prev_block);
+            if (self.di_scope != null) {
+                self.builder.setCurrentDebugLocation2(prev_debug_location);
+            }
+        }
 
         const entry_block = self.llvm_func.getFirstBasicBlock().?;
         if (entry_block.getFirstInstruction()) |first_inst| {
@@ -5279,10 +5337,9 @@ pub const FuncGen = struct {
         } else {
             self.builder.positionBuilderAtEnd(entry_block);
         }
+        self.builder.clearCurrentDebugLocation();
 
-        const alloca = self.builder.buildAlloca(llvm_ty, "");
-        self.builder.positionBuilderAtEnd(prev_block);
-        return alloca;
+        return self.builder.buildAlloca(llvm_ty, "");
     }
 
     fn airStore(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

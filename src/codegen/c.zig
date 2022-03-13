@@ -1721,6 +1721,10 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .union_init       => try airUnionInit(f, inst),
             .prefetch         => try airPrefetch(f, inst),
 
+            .dbg_var_ptr,
+            .dbg_var_val,
+            => try airDbgVar(f, inst),
+
             .call              => try airCall(f, inst, .auto),
             .call_always_tail  => try airCall(f, inst, .always_tail),
             .call_never_tail   => try airCall(f, inst, .never_tail),
@@ -2648,6 +2652,16 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     // Perhaps an additional compilation option is in order?
     //try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
     try writer.print("/* file:{d}:{d} */\n", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
+    return CValue.none;
+}
+
+fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
+    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const name = f.air.nullTerminatedString(pl_op.payload);
+    const operand = try f.resolveInst(pl_op.operand);
+    _ = operand;
+    const writer = f.object.writer();
+    try writer.print("/* var:{s} */\n", .{name});
     return CValue.none;
 }
 

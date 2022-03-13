@@ -322,6 +322,14 @@ pub const Inst = struct {
         /// Uses the `dbg_stmt` union field. The line and column are offset
         /// from the parent declaration.
         dbg_stmt,
+        /// Marks a variable declaration. Used for debug info.
+        /// Uses the `str_op` union field. The string is the local variable name,
+        /// and the operand is the pointer to the variable's location. The local
+        /// may be a const or a var.
+        dbg_var_ptr,
+        /// Same as `dbg_var_ptr` but the local is always a const and the operand
+        /// is the local's value.
+        dbg_var_val,
         /// Uses a name to identify a Decl and takes a pointer to it.
         /// Uses the `str_tok` union field.
         decl_ref,
@@ -1032,6 +1040,8 @@ pub const Inst = struct {
                 .error_set_decl_anon,
                 .error_set_decl_func,
                 .dbg_stmt,
+                .dbg_var_ptr,
+                .dbg_var_val,
                 .decl_ref,
                 .decl_val,
                 .load,
@@ -1297,6 +1307,8 @@ pub const Inst = struct {
                 .error_set_decl_anon = .pl_node,
                 .error_set_decl_func = .pl_node,
                 .dbg_stmt = .dbg_stmt,
+                .dbg_var_ptr = .str_op,
+                .dbg_var_val = .str_op,
                 .decl_ref = .str_tok,
                 .decl_val = .str_tok,
                 .load = .un_node,
@@ -2232,6 +2244,15 @@ pub const Inst = struct {
                 return .{ .node_offset = self.src_node };
             }
         },
+        str_op: struct {
+            /// Offset into `string_bytes`. Null-terminated.
+            str: u32,
+            operand: Ref,
+
+            pub fn getStr(self: @This(), zir: Zir) [:0]const u8 {
+                return zir.nullTerminatedString(self.str);
+            }
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -2268,6 +2289,7 @@ pub const Inst = struct {
             switch_capture,
             dbg_stmt,
             inst_node,
+            str_op,
         };
     };
 

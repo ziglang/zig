@@ -872,6 +872,16 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
+            .dbg_var_ptr => {
+                try sema.zirDbgVar(block, inst, .dbg_var_ptr);
+                i += 1;
+                continue;
+            },
+            .dbg_var_val => {
+                try sema.zirDbgVar(block, inst, .dbg_var_val);
+                i += 1;
+                continue;
+            },
             .ensure_err_payload_void => {
                 try sema.zirEnsureErrPayloadVoid(block, inst);
                 i += 1;
@@ -4158,14 +4168,11 @@ fn zirBreak(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError
 }
 
 fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     // We do not set sema.src here because dbg_stmt instructions are only emitted for
     // ZIR code that possibly will need to generate runtime code. So error messages
     // and other source locations must not rely on sema.src being set from dbg_stmt
     // instructions.
-    if (block.is_comptime) return;
+    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return;
 
     const inst_data = sema.code.instructions.items(.data)[inst].dbg_stmt;
     _ = try block.addInst(.{
@@ -4173,6 +4180,38 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
         .data = .{ .dbg_stmt = .{
             .line = inst_data.line,
             .column = inst_data.column,
+        } },
+    });
+}
+
+fn zirDbgVar(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    air_tag: Air.Inst.Tag,
+) CompileError!void {
+    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return;
+
+    const str_op = sema.code.instructions.items(.data)[inst].str_op;
+    const operand = sema.resolveInst(str_op.operand);
+    const operand_ty = sema.typeOf(operand);
+    if (!(try sema.typeHasRuntimeBits(block, sema.src, operand_ty))) return;
+    const name = str_op.getStr(sema.code);
+
+    // Add the name to the AIR.
+    const name_extra_index = @intCast(u32, sema.air_extra.items.len);
+    const elements_used = name.len / 4 + 1;
+    try sema.air_extra.ensureUnusedCapacity(sema.gpa, elements_used);
+    const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
+    mem.copy(u8, buffer, name);
+    buffer[name.len] = 0;
+    sema.air_extra.items.len += elements_used;
+
+    _ = try block.addInst(.{
+        .tag = air_tag,
+        .data = .{ .pl_op = .{
+            .payload = name_extra_index,
+            .operand = operand,
         } },
     });
 }
