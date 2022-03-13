@@ -486,6 +486,36 @@ pub const Type = extern union {
 
             .pointer => return self.castTag(.pointer).?.*,
 
+            .optional_single_mut_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .@"addrspace" = .generic,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .One,
+            } },
+            .optional_single_const_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .@"addrspace" = .generic,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .One,
+            } },
+            .optional => {
+                var buf: Payload.ElemType = undefined;
+                const child_type = self.optionalChild(&buf);
+                return child_type.ptrInfo();
+            },
+
             else => unreachable,
         }
     }
