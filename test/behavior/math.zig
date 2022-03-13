@@ -573,7 +573,6 @@ test "bit shift a u1" {
 
 test "truncating shift right" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testShrTrunc(maxInt(u16));
     comptime try testShrTrunc(maxInt(u16));

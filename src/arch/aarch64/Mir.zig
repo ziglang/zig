@@ -30,6 +30,10 @@ pub const Inst = struct {
         add_shifted_register,
         /// Bitwise AND (shifted register)
         and_shifted_register,
+        /// Arithmetic Shift Right (immediate)
+        asr_immediate,
+        /// Arithmetic Shift Right (register)
+        asr_register,
         /// Branch conditionally
         b_cond,
         /// Branch
@@ -96,6 +100,14 @@ pub const Inst = struct {
         ldrh_immediate,
         /// Load Register Halfword (register)
         ldrh_register,
+        /// Logical Shift Left (immediate)
+        lsl_immediate,
+        /// Logical Shift Left (register)
+        lsl_register,
+        /// Logical Shift Right (immediate)
+        lsr_immediate,
+        /// Logical Shift Right (register)
+        lsr_register,
         /// Move (to/from SP)
         mov_to_from_sp,
         /// Move (register)
@@ -257,7 +269,15 @@ pub const Inst = struct {
             immr: u6,
             n: u1,
         },
-        /// Two registers
+        /// Two registers and a 6-bit unsigned shift
+        ///
+        /// Used by e.g. lsl_immediate
+        rr_shift: struct {
+            rd: Register,
+            rn: Register,
+            shift: u6,
+        },
+        /// Three registers
         ///
         /// Used by e.g. mul
         rrr: struct {
