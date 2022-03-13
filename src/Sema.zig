@@ -12478,17 +12478,16 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.addType(ty);
         },
         .Struct => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
             // TODO use reflection instead of magic numbers here
-            // error_set: type,
-            // layout: ContainerLayout,
+            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            // layout: containerlayout,
             const layout_val = struct_val[0];
-            // fields: []const EnumField,
+            // fields: []const enumfield,
             const fields_val = struct_val[1];
-            // decls: []const Declaration,
+            // decls: []const declaration,
             const decls_val = struct_val[2];
             // is_tuple: bool,
-            // TODO const is_tuple_val = struct_val[4];
+            const is_tuple_val = struct_val[3];
 
             // Decls
             const decls_slice_val = decls_val.castTag(.slice).?.data;
@@ -12498,96 +12497,14 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 return sema.fail(block, src, "reified structs must have no decls", .{});
             }
 
-            var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-            errdefer new_decl_arena.deinit();
-            const new_decl_arena_allocator = new_decl_arena.allocator();
-
-            const struct_obj = try new_decl_arena_allocator.create(Module.Struct);
-            const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
-            const new_struct_val = try Value.Tag.ty.create(new_decl_arena_allocator, struct_ty);
-            const type_name = try sema.createTypeName(block, .anon);
-            const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
-                .ty = Type.type,
-                .val = new_struct_val,
-            }, type_name);
-            new_decl.owns_tv = true;
-            errdefer sema.mod.abortAnonDecl(new_decl);
-            struct_obj.* = .{
-                .owner_decl = new_decl,
-                .fields = .{},
-                .node_offset = src.node_offset,
-                .zir_index = inst,
-                .layout = layout_val.toEnum(std.builtin.Type.ContainerLayout),
-                .status = .have_layout,
-                .known_non_opv = undefined,
-                .namespace = .{
-                    .parent = block.namespace,
-                    .ty = struct_ty,
-                    .file_scope = block.getFileScope(),
-                },
-            };
-
-            // Fields
-            const slice_val = fields_val.castTag(.slice).?.data;
-            const decl = slice_val.ptr.pointerDecl().?;
-            try sema.ensureDeclAnalyzed(decl);
-            const fields_len = try sema.usizeCast(block, src, decl.ty.arrayLen());
-            if (fields_len > 0) {
-                struct_obj.status = .have_field_types;
-                try struct_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
-
-                const array_vals = decl.val.castTag(.array).?.data;
-                for (array_vals) |elem_val| {
-                    const field_struct_val = elem_val.castTag(.@"struct").?.data;
-                    // TODO use reflection instead of magic numbers here
-                    // name: []const u8
-                    const name_val = field_struct_val[0];
-                    // field_type: type,
-                    const field_type_val = field_struct_val[1];
-                    //default_value: ?*const anyopaque,
-                    const default_value_val = field_struct_val[2];
-                    // is_comptime: bool,
-                    const is_comptime_val = field_struct_val[3];
-                    // alignment: comptime_int,
-                    const alignment_val = field_struct_val[4];
-
-                    const field_name = try name_val.toAllocatedBytes(
-                        Type.initTag(.const_slice_u8),
-                        new_decl_arena_allocator,
-                    );
-
-                    const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
-                    if (gop.found_existing) {
-                        // TODO: better source location
-                        return sema.fail(block, src, "duplicate struct field {s}", .{field_name});
-                    }
-
-                    const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
-                        const payload_val = if (opt_val.pointerDecl()) |opt_decl|
-                            opt_decl.val
-                        else
-                            opt_val;
-                        break :blk try payload_val.copy(new_decl_arena_allocator);
-                    } else Value.initTag(.unreachable_value);
-
-                    var buffer: Value.ToTypeBuffer = undefined;
-                    gop.value_ptr.* = .{
-                        .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
-                        .abi_align = try alignment_val.copy(new_decl_arena_allocator),
-                        .default_val = default_val,
-                        .is_comptime = is_comptime_val.toBool(),
-                        .offset = undefined,
-                    };
-                }
-            }
-
-            try new_decl.finalizeNewArena(&new_decl_arena);
-            return sema.analyzeDeclVal(block, src, new_decl);
+            return if (is_tuple_val.toBool())
+                sema.reifyTuple(block, src, fields_val)
+            else
+                sema.reifyStruct(block, inst, src, layout_val, fields_val);
         },
         .Enum => {
             const struct_val = union_val.val.castTag(.@"struct").?.data;
             // TODO use reflection instead of magic numbers here
-            // error_set: type,
             // layout: ContainerLayout,
             const layout_val = struct_val[0];
             // tag_type: type,
@@ -12751,6 +12668,173 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
         .BoundFn => @panic("TODO delete BoundFn from the language"),
         .Frame => return sema.fail(block, src, "TODO: Sema.zirReify for Frame", .{}),
     }
+}
+
+fn reifyTuple(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    fields_val: Value,
+) CompileError!Air.Inst.Ref {
+    const slice_val = fields_val.castTag(.slice).?.data;
+    const decl = slice_val.ptr.pointerDecl().?;
+    try sema.ensureDeclAnalyzed(decl);
+    const fields_len = decl.ty.arrayLen();
+    const types = try sema.arena.alloc(Type, fields_len);
+    const values = try sema.arena.alloc(Value, fields_len);
+
+    if (fields_len > 0) {
+        const array_vals = decl.val.castTag(.array).?.data;
+        for (array_vals) |elem_val| {
+            const field_struct_val = elem_val.castTag(.@"struct").?.data;
+            // TODO use reflection instead of magic numbers here
+            // name: []const u8
+            const name_val = field_struct_val[0];
+            // field_type: type,
+            const field_type_val = field_struct_val[1];
+            //default_value: ?*const anyopaque,
+            const default_value_val = field_struct_val[2];
+
+            const field_name = try name_val.toAllocatedBytes(
+                Type.initTag(.const_slice_u8),
+                sema.arena,
+            );
+
+            const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch |err| {
+                return sema.fail(
+                    block,
+                    src,
+                    "tuple cannot have non-numeric field '{s}': {}",
+                    .{ field_name, err },
+                );
+            };
+
+            // TODO: more validation can happen here to ensure that each
+            // field of the tuple is populated
+
+            if (field_index >= fields_len) {
+                return sema.fail(
+                    block,
+                    src,
+                    "tuple field {} exceeds tuple field count",
+                    .{field_index},
+                );
+            }
+
+            const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
+                const payload_val = if (opt_val.pointerDecl()) |opt_decl|
+                    opt_decl.val
+                else
+                    opt_val;
+                break :blk try payload_val.copy(sema.arena);
+            } else Value.initTag(.unreachable_value);
+
+            var buffer: Value.ToTypeBuffer = undefined;
+            types[field_index] = try field_type_val.toType(&buffer).copy(sema.arena);
+            values[field_index] = default_val;
+        }
+    }
+
+    const ty = try Type.Tag.tuple.create(sema.arena, .{
+        .types = types,
+        .values = values,
+    });
+    return sema.addType(ty);
+}
+
+fn reifyStruct(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    src: LazySrcLoc,
+    layout_val: Value,
+    fields_val: Value,
+) CompileError!Air.Inst.Ref {
+    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+    errdefer new_decl_arena.deinit();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
+
+    const struct_obj = try new_decl_arena_allocator.create(Module.Struct);
+    const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
+    const new_struct_val = try Value.Tag.ty.create(new_decl_arena_allocator, struct_ty);
+    const type_name = try sema.createTypeName(block, .anon);
+    const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
+        .ty = Type.type,
+        .val = new_struct_val,
+    }, type_name);
+    new_decl.owns_tv = true;
+    errdefer sema.mod.abortAnonDecl(new_decl);
+    struct_obj.* = .{
+        .owner_decl = new_decl,
+        .fields = .{},
+        .node_offset = src.node_offset,
+        .zir_index = inst,
+        .layout = layout_val.toEnum(std.builtin.Type.ContainerLayout),
+        .status = .have_layout,
+        .known_non_opv = undefined,
+        .namespace = .{
+            .parent = block.namespace,
+            .ty = struct_ty,
+            .file_scope = block.getFileScope(),
+        },
+    };
+
+    // Fields
+    const slice_val = fields_val.castTag(.slice).?.data;
+    const decl = slice_val.ptr.pointerDecl().?;
+    try sema.ensureDeclAnalyzed(decl);
+    const fields_len = try sema.usizeCast(block, src, decl.ty.arrayLen());
+    if (fields_len > 0) {
+        struct_obj.status = .have_field_types;
+        try struct_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+
+        const array_vals = decl.val.castTag(.array).?.data;
+        for (array_vals) |elem_val| {
+            const field_struct_val = elem_val.castTag(.@"struct").?.data;
+            // TODO use reflection instead of magic numbers here
+            // name: []const u8
+            const name_val = field_struct_val[0];
+            // field_type: type,
+            const field_type_val = field_struct_val[1];
+            //default_value: ?*const anyopaque,
+            const default_value_val = field_struct_val[2];
+            // is_comptime: bool,
+            const is_comptime_val = field_struct_val[3];
+            // alignment: comptime_int,
+            const alignment_val = field_struct_val[4];
+
+            const field_name = try name_val.toAllocatedBytes(
+                Type.initTag(.const_slice_u8),
+                new_decl_arena_allocator,
+            );
+
+            const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
+            if (gop.found_existing) {
+                // TODO: better source location
+                return sema.fail(block, src, "duplicate struct field {s}", .{field_name});
+            }
+
+            const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
+                const payload_val = if (opt_val.pointerDecl()) |opt_decl|
+                    opt_decl.val
+                else
+                    opt_val;
+                break :blk try payload_val.copy(new_decl_arena_allocator);
+            } else Value.initTag(.unreachable_value);
+
+            var buffer: Value.ToTypeBuffer = undefined;
+            gop.value_ptr.* = .{
+                .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
+                .abi_align = try alignment_val.copy(new_decl_arena_allocator),
+                .default_val = default_val,
+                .is_comptime = is_comptime_val.toBool(),
+                .offset = undefined,
+            };
+        }
+    }
+
+    try new_decl.finalizeNewArena(&new_decl_arena);
+    return sema.analyzeDeclVal(block, src, new_decl);
 }
 
 fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
