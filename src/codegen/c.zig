@@ -839,10 +839,13 @@ pub const DeclGen = struct {
         try w.writeAll("(");
         const param_len = dg.decl.ty.fnParamLen();
 
+        const target = dg.module.getTarget();
         var index: usize = 0;
         var params_written: usize = 0;
         while (index < param_len) : (index += 1) {
-            if (dg.decl.ty.fnParamType(index).zigTypeTag() == .Void) continue;
+            const param_type = dg.decl.ty.fnParamType(index);
+            if (param_type.zigTypeTag() == .Void) continue;
+            if (param_type.isInt() and param_type.intInfo(target).bits == 0) continue;
             if (params_written > 0) {
                 try w.writeAll(", ");
             }
