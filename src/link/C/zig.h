@@ -750,3 +750,81 @@ static inline uint128_t zig_bit_reverse_u128(uint128_t value, uint8_t zig_type_b
 }
 
 #define zig_bit_reverse_i128 zig_bit_reverse_u128
+
+static inline float zig_div_truncf(float numerator, float denominator) {
+    return __builtin_truncf(numerator / denominator);
+}
+
+static inline double zig_div_trunc(double numerator, double denominator) {
+    return __builtin_trunc(numerator / denominator);
+}
+
+static inline long double zig_div_truncl(long double numerator, long double denominator) {
+    return __builtin_truncf(numerator / denominator);
+}
+
+#define zig_div_trunc_f16  zig_div_truncf
+#define zig_div_trunc_f32  zig_div_truncf
+#define zig_div_trunc_f64  zig_div_trunc
+#define zig_div_trunc_f80  zig_div_truncl
+#define zig_div_trunc_f128 zig_div_truncl
+
+#define zig_div_floorf(numerator, denominator) \
+    __builtin_floorf((float)(numerator) / (float)(denominator))
+
+#define zig_div_floor(numerator, denominator) \
+    __builtin_floor((double)(numerator) / (double)(denominator))
+
+#define zig_div_floorl(numerator, denominator) \
+    __builtin_floorl((long double)(numerator) / (long double)(denominator))
+
+#define zig_div_floor_f16  zig_div_floorf
+#define zig_div_floor_f32  zig_div_floorf
+#define zig_div_floor_f64  zig_div_floor
+#define zig_div_floor_f80  zig_div_floorl
+#define zig_div_floor_f128 zig_div_floorl
+
+#define zig_div_floor_u8   zig_div_floorf
+#define zig_div_floor_i8   zig_div_floorf
+#define zig_div_floor_u16  zig_div_floorf
+#define zig_div_floor_i16  zig_div_floorf
+#define zig_div_floor_u32  zig_div_floor
+#define zig_div_floor_i32  zig_div_floor
+#define zig_div_floor_u64  zig_div_floor
+#define zig_div_floor_i64  zig_div_floor
+#define zig_div_floor_u128 zig_div_floorl
+#define zig_div_floor_i128 zig_div_floorl
+
+static inline float zig_modf(float numerator, float denominator) {
+    return (numerator - (zig_div_floorf(numerator, denominator) * denominator));
+}
+
+static inline double zig_mod(double numerator, double denominator) {
+    return (numerator - (zig_div_floor(numerator, denominator) * denominator));
+}
+
+static inline long double zig_modl(long double numerator, long double denominator) {
+    return (numerator - (zig_div_floorl(numerator, denominator) * denominator));
+}
+
+#define zig_mod_f16  zig_modf
+#define zig_mod_f32  zig_modf
+#define zig_mod_f64  zig_mod
+#define zig_mod_f80  zig_modl
+#define zig_mod_f128 zig_modl
+
+#define zig_mod_int(ZigType, CType) \
+    static inline CType zig_mod_##ZigType(CType numerator, CType denominator) { \
+        return (numerator - (zig_div_floor_##ZigType(numerator, denominator) * denominator)); \
+    }
+
+zig_mod_int(  u8,   uint8_t)
+zig_mod_int(  i8,    int8_t)
+zig_mod_int( u16,  uint16_t)
+zig_mod_int( i16,   int16_t)
+zig_mod_int( u32,  uint32_t)
+zig_mod_int( i32,   int32_t)
+zig_mod_int( u64,  uint64_t)
+zig_mod_int( i64,   int64_t)
+zig_mod_int(u128, uint128_t)
+zig_mod_int(i128,  int128_t)

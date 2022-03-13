@@ -385,7 +385,6 @@ fn testBinaryNot(x: u16) !void {
 }
 
 test "division" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -394,22 +393,18 @@ test "division" {
     try testDivision();
     comptime try testDivision();
 }
+
 fn testDivision() !void {
     try expect(div(u32, 13, 3) == 4);
-    try expect(div(f16, 1.0, 2.0) == 0.5);
     try expect(div(f32, 1.0, 2.0) == 0.5);
 
     try expect(divExact(u32, 55, 11) == 5);
     try expect(divExact(i32, -55, 11) == -5);
-    try expect(divExact(f16, 55.0, 11.0) == 5.0);
-    try expect(divExact(f16, -55.0, 11.0) == -5.0);
     try expect(divExact(f32, 55.0, 11.0) == 5.0);
     try expect(divExact(f32, -55.0, 11.0) == -5.0);
 
     try expect(divFloor(i32, 5, 3) == 1);
     try expect(divFloor(i32, -5, 3) == -2);
-    try expect(divFloor(f16, 5.0, 3.0) == 1.0);
-    try expect(divFloor(f16, -5.0, 3.0) == -2.0);
     try expect(divFloor(f32, 5.0, 3.0) == 1.0);
     try expect(divFloor(f32, -5.0, 3.0) == -2.0);
     try expect(divFloor(i32, -0x80000000, -2) == 0x40000000);
@@ -424,10 +419,6 @@ fn testDivision() !void {
     try expect(divTrunc(i32, -5, 3) == -1);
     try expect(divTrunc(i32, 9, -10) == 0);
     try expect(divTrunc(i32, -9, 10) == 0);
-    try expect(divTrunc(f16, 5.0, 3.0) == 1.0);
-    try expect(divTrunc(f16, -5.0, 3.0) == -1.0);
-    try expect(divTrunc(f16, 9.0, -10.0) == 0.0);
-    try expect(divTrunc(f16, -9.0, 10.0) == 0.0);
     try expect(divTrunc(f32, 5.0, 3.0) == 1.0);
     try expect(divTrunc(f32, -5.0, 3.0) == -1.0);
     try expect(divTrunc(f32, 9.0, -10.0) == 0.0);
@@ -468,6 +459,32 @@ fn testDivision() !void {
         );
     }
 }
+
+test "division half-precision floats" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    try testDivisionFP16();
+    comptime try testDivisionFP16();
+}
+
+fn testDivisionFP16() !void {
+    try expect(div(f16, 1.0, 2.0) == 0.5);
+
+    try expect(divExact(f16, 55.0, 11.0) == 5.0);
+    try expect(divExact(f16, -55.0, 11.0) == -5.0);
+
+    try expect(divFloor(f16, 5.0, 3.0) == 1.0);
+    try expect(divFloor(f16, -5.0, 3.0) == -2.0);
+    try expect(divTrunc(f16, 5.0, 3.0) == 1.0);
+    try expect(divTrunc(f16, -5.0, 3.0) == -1.0);
+    try expect(divTrunc(f16, 9.0, -10.0) == 0.0);
+    try expect(divTrunc(f16, -9.0, 10.0) == 0.0);
+}
+
 fn div(comptime T: type, a: T, b: T) T {
     return a / b;
 }

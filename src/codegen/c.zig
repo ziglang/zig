@@ -1663,10 +1663,20 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul           => try airBinOp (f, inst, " * "),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
-            .div_float, .div_exact, .div_trunc => try airBinOp( f, inst, " / "),
-            .div_floor                         => try airBinOp( f, inst, " divfloor "),
+            .div_float, .div_exact => try airBinOp( f, inst, " / "),
+            .div_trunc     => blk: {
+                const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+                const lhs_ty = f.air.typeOf(bin_op.lhs);
+                // For binary operations @TypeOf(lhs)==@TypeOf(rhs),
+                // so we only check one.
+                break :blk if (lhs_ty.isInt())
+                    try airBinOp(f, inst, " / ")
+                else
+                    try airBinOpBuiltinCall(f, inst, "div_trunc");
+            },
+            .div_floor     => try airBinOpBuiltinCall(f, inst, "div_floor"),
             .rem           => try airBinOp( f, inst, " % "),
-            .mod           => try airBinOp( f, inst, " mod "), // TODO implement modulus division
+            .mod           => try airBinOpBuiltinCall(f, inst, "mod"),
 
             .addwrap => try airWrapOp(f, inst, " + ", "addw_"),
             .subwrap => try airWrapOp(f, inst, " - ", "subw_"),
@@ -3460,6 +3470,41 @@ fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !C
     try writer.print("{c}{d}(", .{ prefix_byte, c_bits });
     try f.writeCValue(writer, try f.resolveInst(operand));
     try writer.print(", {d});\n", .{int_info.bits});
+    return local;
+}
+
+fn airBinOpBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const lhs_ty = f.air.typeOf(bin_op.lhs);
+    const target = f.object.dg.module.getTarget();
+    const writer = f.object.writer();
+
+    // For binary operations @TypeOf(lhs)==@TypeOf(rhs), so we only check one.
+    if (lhs_ty.isInt()) {
+        const int_info = lhs_ty.intInfo(target);
+        const c_bits = toCIntBits(int_info.bits) orelse
+            return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+        const prefix_byte: u8 = switch (int_info.signedness) {
+            .signed => 'i',
+            .unsigned => 'u',
+        };
+        try writer.print(" = zig_{s}_{c}{d}", .{ fn_name, prefix_byte, c_bits });
+    } else if (lhs_ty.isRuntimeFloat()) {
+        const c_bits = lhs_ty.floatBits(target);
+        try writer.print(" = zig_{s}_f{d}", .{ fn_name, c_bits });
+    } else {
+        return f.fail("TODO: C backend: implement airBinOpBuiltinCall for type {s}", .{@tagName(lhs_ty.tag())});
+    }
+
+    try writer.writeByte('(');
+    try f.writeCValue(writer, try f.resolveInst(bin_op.lhs));
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, try f.resolveInst(bin_op.rhs));
+    try writer.writeAll(");\n");
     return local;
 }
 
