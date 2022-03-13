@@ -471,6 +471,7 @@ pub const Instruction = union(enum) {
     // TODO: Need to define an enum for `cond` values
     // This is kinda challenging since the cond values have different meanings
     // depending on whether it's operating on integer or FP CCR.
+    pub const Condition = u4;
 
     pub fn toU32(self: Instruction) u32 {
         return @bitCast(u32, self);
@@ -553,6 +554,111 @@ pub const Instruction = union(enum) {
                 .rs1 = rs1.enc(),
                 .d16hi = udisp_hi,
                 .d16lo = udisp_lo,
+            },
+        };
+    }
+
+    fn format4a(rd: Register, op3: u6, rs1: Register, cc: CCR, rs2: Register) Instruction {
+        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+        return Instruction{
+            .format4a = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .cc1 = ccr_cc1,
+                .cc0 = ccr_cc0,
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+
+    fn format4b(rd: Register, op3: u6, rs1: Register, cc: CCR, simm11: u11) Instruction {
+        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+        return Instruction{
+            .format4b = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .cc1 = ccr_cc1,
+                .cc0 = ccr_cc0,
+                .simm11 = simm11,
+            },
+        };
+    }
+
+    fn format4c(rd: Register, op3: u6, cc: CCR, cond: Condition, rs2: Register) Instruction {
+        const ccr_cc2 = @truncate(u1, @enumToInt(cc) >> 2);
+        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+        return Instruction{
+            .format4c = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .cc2 = ccr_cc2,
+                .cond = cond,
+                .cc1 = ccr_cc1,
+                .cc0 = ccr_cc0,
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+
+    fn format4d(rd: Register, op3: u6, cc: CCR, cond: Condition, simm11: u11) Instruction {
+        const ccr_cc2 = @truncate(u1, @enumToInt(cc) >> 2);
+        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+        return Instruction{
+            .format4d = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .cc2 = ccr_cc2,
+                .cond = cond,
+                .cc1 = ccr_cc1,
+                .cc0 = ccr_cc0,
+                .simm11 = simm11,
+            },
+        };
+    }
+
+    fn format4e(rd: Register, op3: u6, rs1: Register, cc: CCR, sw_trap: u7) Instruction {
+        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+        return Instruction{
+            .format4e = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .cc1 = ccr_cc1,
+                .cc0 = ccr_cc0,
+                .sw_trap = sw_trap,
+            },
+        };
+    }
+
+    fn format4f(rd: Register, op3: u6, rs1: Register, rcond: RCondition, opf_low: u5, rs2: Register) Instruction {
+        return Instruction{
+            .format4f = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .rcond = @enumToInt(rcond),
+                .opf_low = opf_low,
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+
+    fn format4g(rd: Register, op3: u6, cond: Condition, opf_cc: u3, opf_low: u6, rs2: Register) Instruction {
+        return Instruction{
+            .format4g = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .cond = cond,
+                .opf_cc = opf_cc,
+                .opf_low = opf_low,
+                .rs2 = rs2.enc(),
             },
         };
     }
