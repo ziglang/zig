@@ -12562,10 +12562,13 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                         return sema.fail(block, src, "duplicate struct field {s}", .{field_name});
                     }
 
-                    const default_val = if (default_value_val.optionalValue()) |opt_val|
-                        try opt_val.copy(new_decl_arena_allocator)
-                    else
-                        Value.initTag(.unreachable_value);
+                    const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
+                        const payload_val = if (opt_val.pointerDecl()) |opt_decl|
+                            opt_decl.val
+                        else
+                            opt_val;
+                        break :blk try payload_val.copy(new_decl_arena_allocator);
+                    } else Value.initTag(.unreachable_value);
 
                     var buffer: Value.ToTypeBuffer = undefined;
                     gop.value_ptr.* = .{
