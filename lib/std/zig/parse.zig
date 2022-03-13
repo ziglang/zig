@@ -1451,8 +1451,9 @@ const Parser = struct {
             if (info.prec == banned_prec) {
                 return p.fail(.chained_comparison_operators);
             }
+
             const oper_token = p.nextToken();
-            // Special-case handling for "catch" and "&&".
+            // Special-case handling for "catch"
             switch (tok_tag) {
                 .keyword_catch => {
                     _ = try p.parsePayload();
@@ -1463,6 +1464,18 @@ const Parser = struct {
             if (rhs == 0) {
                 try p.warn(.expected_expr);
                 return node;
+            }
+
+            {
+                const tok_len = (tok_tag.lexeme() orelse unreachable).len;
+                const char_before = p.source[p.token_starts[oper_token] - 1];
+                const char_after = p.source[p.token_starts[oper_token] + tok_len];
+
+                if (tok_tag == .ampersand and char_after == '&') {
+                    try p.warnMsg(.{ .tag = .invalid_ampersand_ampersand, .token = oper_token });
+                } else if (std.ascii.isSpace(char_before) != std.ascii.isSpace(char_after)) {
+                    try p.warnMsg(.{ .tag = .mismatched_binary_op_whitespace, .token = oper_token });
+                }
             }
 
             node = try p.addNode(.{

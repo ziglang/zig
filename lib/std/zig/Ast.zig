@@ -328,6 +328,12 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .expected_initializer => {
             return stream.writeAll("expected field initializer");
         },
+        .mismatched_binary_op_whitespace => {
+            return stream.writeAll("binary operators must have matching whitespace on both sides");
+        },
+        .invalid_ampersand_ampersand => {
+            return stream.writeAll("`&&` is invalid; note that `and` is boolean AND");
+        },
 
         .previous_field => {
             return stream.writeAll("field before declarations here");
@@ -2534,6 +2540,8 @@ pub const Error = struct {
         expected_comma_after_initializer,
         expected_comma_after_switch_prong,
         expected_initializer,
+        mismatched_binary_op_whitespace,
+        invalid_ampersand_ampersand,
 
         previous_field,
         next_field,
