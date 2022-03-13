@@ -1711,8 +1711,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
-            .clz              => try airCountZeroes(f, inst, "clz"),
-            .ctz              => try airCountZeroes(f, inst, "ctz"),
+            .clz              => try airBuiltinCall(f, inst, "clz"),
+            .ctz              => try airBuiltinCall(f, inst, "ctz"),
             .popcount         => try airBuiltinCall(f, inst, "popcount"),
             .byte_swap        => try airBuiltinCall(f, inst, "byte_swap"),
             .bit_reverse      => try airBuiltinCall(f, inst, "bit_reverse"),
@@ -3354,35 +3354,22 @@ fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !C
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
-    const writer = f.object.writer();
-    const operand = try f.resolveInst(ty_op.operand);
-
-    // TODO implement the function in zig.h and call it here
-
-    try writer.print(" = {s}(", .{fn_name});
-    try f.writeCValue(writer, operand);
-    try writer.writeAll(");\n");
-    return local;
-}
-
-fn airCountZeroes(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !CValue {
-    if (f.liveness.isUnused(inst)) return CValue.none;
-
-    const inst_ty = f.air.typeOfIndex(inst);
-    const local = try f.allocLocal(inst_ty, .Const);
     const operand = f.air.instructions.items(.data)[inst].ty_op.operand;
     const operand_ty = f.air.typeOf(operand);
     const target = f.object.dg.module.getTarget();
     const writer = f.object.writer();
 
-    const zig_bits = operand_ty.intInfo(target).bits;
-    _ = toCIntBits(zig_bits) orelse
+    const int_info = operand_ty.intInfo(target);
+    _ = toCIntBits(int_info.bits) orelse
         return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+    const signed_type = switch (int_info.signedness) {
+        .signed => "true",
+        .unsigned => "false",
+    };
 
     try writer.print(" = zig_{s}(", .{fn_name});
     try f.writeCValue(writer, try f.resolveInst(operand));
-    try writer.print(", {d});\n", .{zig_bits});
+    try writer.print(", {d}, {s});\n", .{ int_info.bits, signed_type });
     return local;
 }
 

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -45,6 +46,8 @@ fn testPopCountIntegers() !void {
 }
 
 test "@popCount vectors" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     comptime try testPopCountVectors();
     try testPopCountVectors();
 }
