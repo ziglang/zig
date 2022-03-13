@@ -532,13 +532,15 @@ const DocData = struct {
         // directly refer to their return value. The problem at the moment
         // is that we can't analyze function calls at all.
         call: usize, // index in `calls`
+        typeOf: *WalkResult,
 
         pub fn jsonStringify(
             self: TypeRef,
-            _: std.json.StringifyOptions,
+            options: std.json.StringifyOptions,
             w: anytype,
         ) !void {
             switch (self) {
+                .typeOf => |v| try std.json.stringify(v, options, w),
                 .unspecified, .@"anytype" => {
                     try w.print(
                         \\{{ "{s}":{{}} }}
@@ -591,13 +593,19 @@ const DocData = struct {
         array: Array,
         call: usize, // index in `calls`
         enumLiteral: []const u8,
+        typeOf: *WalkResult,
+        sizeOf: *WalkResult,
+        compileError: []const u8,
+        string: []const u8,
 
         const Struct = struct {
             typeRef: TypeRef,
-            fieldVals: []struct {
+            fieldVals: []FieldVal,
+
+            const FieldVal = struct {
                 name: []const u8,
                 val: WalkResult,
-            },
+            };
         };
         const Array = struct {
             typeRef: TypeRef,
@@ -647,6 +655,9 @@ const DocData = struct {
                 },
                 .@"undefined" => |v| try std.json.stringify(v, options, w),
                 .@"null" => |v| try std.json.stringify(v, options, w),
+                .typeOf, .sizeOf => |v| try std.json.stringify(v, options, w),
+                .compileError => |v| try std.json.stringify(v, options, w),
+                .string => |v| try std.json.stringify(v, options, w),
                 .@"struct" => |v| try std.json.stringify(
                     struct { @"struct": Struct }{ .@"struct" = v },
                     options,
@@ -709,10 +720,20 @@ fn walkInstruction(
 
     switch (tags[inst_index]) {
         else => {
-            std.debug.panic(
+            panicWithContext(
+                file,
+                inst_index,
                 "TODO: implement `{s}` for walkInstruction\n\n",
                 .{@tagName(tags[inst_index])},
             );
+        },
+        .closure_get => {
+            const inst_node = data[inst_index].inst_node;
+            return try self.walkInstruction(file, parent_scope, inst_node.inst);
+        },
+        .closure_capture => {
+            const un_tok = data[inst_index].un_tok;
+            return try self.walkRef(file, parent_scope, un_tok.operand);
         },
         .import => {
             const str_tok = data[inst_index].str_tok;
@@ -749,10 +770,45 @@ fn walkInstruction(
 
             return new_file_walk_result;
         },
+        .str => {
+            const str = data[inst_index].str;
+            return DocData.WalkResult{
+                .string = str.get(file.zir),
+            };
+        },
+        .compile_error => {
+            const un_node = data[inst_index].un_node;
+            var operand: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+            );
+
+            return DocData.WalkResult{ .compileError = operand.string };
+        },
+        .switch_block => {
+            const cte_slot_index = self.comptime_exprs.items.len;
+            try self.comptime_exprs.append(self.arena, .{
+                .code = "switch",
+                .typeRef = .{
+                    .type = @enumToInt(DocData.DocTypeKinds.ComptimeExpr),
+                },
+            });
+
+            return DocData.WalkResult{ .comptimeExpr = cte_slot_index };
+        },
         .enum_literal => {
             const str_tok = data[inst_index].str_tok;
             const literal = file.zir.nullTerminatedString(str_tok.start);
             return DocData.WalkResult{ .enumLiteral = literal };
+        },
+        .div_exact, .div => {
+            const cte_slot_index = self.comptime_exprs.items.len;
+            try self.comptime_exprs.append(self.arena, .{
+                .code = "@div*(...)",
+                .typeRef = .{ .type = @enumToInt(DocData.DocTypeKinds.ComptimeExpr) },
+            });
+            return DocData.WalkResult{ .comptimeExpr = cte_slot_index };
         },
         .int => {
             const int = data[inst_index].int;
@@ -776,6 +832,25 @@ fn walkInstruction(
             const ptr = data[inst_index].ptr_type_simple;
             const type_slot_index = self.types.items.len;
             const elem_type_ref = try self.walkRef(file, parent_scope, ptr.elem_type);
+            try self.types.append(self.arena, .{
+                .Pointer = .{
+                    .size = ptr.size,
+                    .child = walkResultToTypeRef(elem_type_ref),
+                },
+            });
+
+            return DocData.WalkResult{ .type = type_slot_index };
+        },
+        .ptr_type => {
+            const ptr = data[inst_index].ptr_type;
+            const extra = file.zir.extraData(Zir.Inst.PtrType, ptr.payload_index);
+
+            const type_slot_index = self.types.items.len;
+            const elem_type_ref = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.elem_type,
+            );
             try self.types.append(self.arena, .{
                 .Pointer = .{
                     .size = ptr.size,
@@ -848,6 +923,27 @@ fn walkInstruction(
             operand.int.negated = true; // only support ints for now
             return operand;
         },
+        .size_of => {
+            const un_node = data[inst_index].un_node;
+            var operand = try self.arena.create(DocData.WalkResult);
+            operand.* = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+            );
+            return DocData.WalkResult{ .sizeOf = operand };
+        },
+
+        .typeof => {
+            const un_node = data[inst_index].un_node;
+            var operand = try self.arena.create(DocData.WalkResult);
+            operand.* = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+            );
+            return DocData.WalkResult{ .typeOf = operand };
+        },
         .as_node => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.As, pl_node.payload_index);
@@ -857,11 +953,13 @@ fn walkInstruction(
             var operand = try self.walkRef(file, parent_scope, extra.data.operand);
 
             switch (operand) {
-                else => std.debug.panic(
+                else => panicWithContext(
+                    file,
+                    inst_index,
                     "TODO: handle {s} in `walkInstruction.as_node`\n",
                     .{@tagName(operand)},
                 ),
-                .declPath, .type => {},
+                .declPath, .type, .string => {},
                 // we don't do anything because up until now,
                 // I've only seen this used as such:
                 //       @as(@as(type, Baz), .{})
@@ -894,14 +992,16 @@ fn walkInstruction(
             });
             return res;
         },
-        .decl_val => {
+        .decl_val, .decl_ref => {
             const str_tok = data[inst_index].str_tok;
             const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
             var path = try self.arena.alloc(usize, 1);
             path[0] = decls_slot_index;
             return DocData.WalkResult{ .declPath = .{ .path = path } };
         },
-        .field_val, .field_call_bind, .field_ptr => {
+        .field_val, .field_call_bind, .field_ptr, .field_type => {
+            // TODO: field type uses Zir.Inst.FieldType, it just happens to have the
+            // same layout as Zir.Inst.Field :^)
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
 
@@ -909,8 +1009,8 @@ fn walkInstruction(
             var lhs = @enumToInt(extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
 
             try path.append(self.arena, extra.data.field_name_start);
-            // Put inside path the starting index of each decl name
-            // that we encounter as we navigate through all the field_vals
+            // Put inside path the starting index of each decl name that
+            // we encounter as we navigate through all the field_vals
             while (tags[lhs] == .field_val or
                 tags[lhs] == .field_call_bind or
                 tags[lhs] == .field_ptr)
@@ -925,11 +1025,35 @@ fn walkInstruction(
             }
 
             switch (tags[lhs]) {
-                else => {
-                    std.debug.panic(
-                        "TODO: handle `{s}` endings in walkInstruction.field_val",
-                        .{@tagName(tags[lhs])},
-                    );
+                else => panicWithContext(
+                    file,
+                    inst_index,
+                    "TODO: handle `{s}` in walkInstruction.field_val",
+                    .{@tagName(tags[lhs])},
+                ),
+                .call => {
+                    const walk_result = try self.walkInstruction(file, parent_scope, lhs);
+                    const ast_node_index = idx: {
+                        const idx = self.ast_nodes.items.len;
+                        try self.ast_nodes.append(self.arena, .{
+                            .file = 0,
+                            .line = 0,
+                            .col = 0,
+                            .docs = "",
+                            .fields = null,
+                        });
+                        break :idx idx;
+                    };
+
+                    const decls_slot_index = self.decls.items.len;
+                    try self.decls.append(self.arena, .{
+                        ._analyzed = true,
+                        .name = "call()",
+                        .src = ast_node_index,
+                        .value = walk_result,
+                        .kind = "const",
+                    });
+                    try path.append(self.arena, decls_slot_index);
                 },
                 .import => {
                     const walk_result = try self.walkInstruction(file, parent_scope, lhs);
@@ -942,7 +1066,7 @@ fn walkInstruction(
                             .line = 0,
                             .col = 0,
                             .docs = "",
-                            .fields = null, // walkInstruction will fill `fields` if necessary
+                            .fields = null,
                         });
                         break :idx idx;
                     };
@@ -999,6 +1123,76 @@ fn walkInstruction(
         .block_inline => {
             return self.walkRef(file, parent_scope, getBlockInlineBreak(file.zir, inst_index));
         },
+        .struct_init => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.StructInit, pl_node.payload_index);
+            const field_vals = try self.arena.alloc(
+                DocData.WalkResult.Struct.FieldVal,
+                extra.data.fields_len,
+            );
+
+            var type_ref: DocData.TypeRef = undefined;
+            var idx = extra.end;
+            for (field_vals) |*fv| {
+                const init_extra = file.zir.extraData(Zir.Inst.StructInit.Item, idx);
+                idx = init_extra.end;
+
+                const field_name = blk: {
+                    const field_inst_index = init_extra.data.field_type;
+                    if (tags[field_inst_index] != .field_type) unreachable;
+                    const field_pl_node = data[field_inst_index].pl_node;
+                    const field_extra = file.zir.extraData(
+                        Zir.Inst.FieldType,
+                        field_pl_node.payload_index,
+                    );
+
+                    // On first iteration use field info to find out the struct type
+                    if (idx == extra.end) {
+                        const wr = try self.walkRef(
+                            file,
+                            parent_scope,
+                            field_extra.data.container_type,
+                        );
+                        type_ref = walkResultToTypeRef(wr);
+                    }
+                    break :blk file.zir.nullTerminatedString(field_extra.data.name_start);
+                };
+
+                const value = try self.walkRef(file, parent_scope, init_extra.data.init);
+                fv.* = .{ .name = field_name, .val = value };
+            }
+
+            return DocData.WalkResult{ .@"struct" = .{
+                .typeRef = type_ref,
+                .fieldVals = field_vals,
+            } };
+        },
+        .param_anytype => {
+            // Analysis of anytype function params happens in `.func`.
+            // This switch case handles the case where an expression depends
+            // on an anytype field. E.g.: `fn foo(bar: anytype) @TypeOf(bar)`.
+            // This means that we're looking at a generic expression.
+            const str_tok = data[inst_index].str_tok;
+            const name = str_tok.get(file.zir);
+            const cte_slot_index = self.comptime_exprs.items.len;
+            try self.comptime_exprs.append(self.arena, .{
+                .code = name,
+                .typeRef = .{ .type = @enumToInt(DocData.DocTypeKinds.ComptimeExpr) },
+            });
+            return DocData.WalkResult{ .comptimeExpr = cte_slot_index };
+        },
+        .param, .param_comptime => {
+            // See .param_anytype for more information.
+            const pl_tok = data[inst_index].pl_tok;
+            const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
+            const name = file.zir.nullTerminatedString(extra.data.name);
+            const cte_slot_index = self.comptime_exprs.items.len;
+            try self.comptime_exprs.append(self.arena, .{
+                .code = name,
+                .typeRef = .{ .type = @enumToInt(DocData.DocTypeKinds.ComptimeExpr) },
+            });
+            return DocData.WalkResult{ .comptimeExpr = cte_slot_index };
+        },
         .call => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Call, pl_node.payload_index);
@@ -1048,12 +1242,12 @@ fn walkInstruction(
             // TODO: handle scope rules for fn parameters
             for (fn_info.param_body[0..fn_info.total_params_len]) |param_index| {
                 switch (tags[param_index]) {
-                    else => {
-                        std.debug.panic(
-                            "TODO: handle `{s}` in walkInstruction.func\n",
-                            .{@tagName(tags[param_index])},
-                        );
-                    },
+                    else => panicWithContext(
+                        file,
+                        param_index,
+                        "TODO: handle `{s}` in walkInstruction.func\n",
+                        .{@tagName(tags[param_index])},
+                    ),
                     .param_anytype => {
                         // TODO: where are the doc comments?
                         const str_tok = data[param_index].str_tok;
@@ -2158,6 +2352,8 @@ fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
             .{@tagName(wr)},
         ),
 
+        .typeOf => |v| .{ .typeOf = v },
+        .comptimeExpr => |v| .{ .comptimeExpr = v },
         .declPath => |v| .{ .declPath = v },
         .type => |v| .{ .type = v },
         .call => |v| .{ .call = v },
@@ -2186,4 +2382,9 @@ fn getBlockInlineBreak(zir: Zir, inst_index: usize) Zir.Inst.Ref {
     const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
     const break_index = zir.extra[extra.end..][extra.data.body_len - 1];
     return data[break_index].@"break".operand;
+}
+
+fn panicWithContext(file: *File, inst: usize, comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print("Context [{s}] % {}\n", .{ file.sub_file_path, inst });
+    std.debug.panic(fmt, args);
 }
