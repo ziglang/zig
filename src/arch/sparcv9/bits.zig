@@ -1,5 +1,6 @@
 const std = @import("std");
 const DW = std.dwarf;
+const assert = std.debug.assert;
 const testing = std.testing;
 
 /// General purpose registers in the SPARCv9 instruction set
@@ -447,5 +448,16 @@ pub const Instruction = union(enum) {
 
     pub fn toU32(self: Instruction) u32 {
         return @bitCast(u32, self);
+    }
+
+    fn format1(disp: i32) Instruction {
+        // In SPARC, branch target needs to be aligned to 4 bytes.
+        assert(disp % 4 == 0);
+
+        // Discard the last two bits since those are implicitly zero.
+        const udisp = @truncate(u30, @bitCast(u32, disp) >> 2);
+        return Instruction{ .format_1 = .{
+            .disp30 = udisp,
+        } };
     }
 };
