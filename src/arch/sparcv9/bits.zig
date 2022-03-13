@@ -460,4 +460,72 @@ pub const Instruction = union(enum) {
             .disp30 = udisp,
         } };
     }
+
+    fn format2a(rd: Register, op2: u3, imm: i22) Instruction {
+        const umm = @bitCast(u22, imm);
+        return Instruction{
+            .format_2a = .{
+                .rd = rd.enc(),
+                .op2 = op2,
+                .imm22 = umm,
+            },
+        };
+    }
+
+    fn format2b(a: u1, cond: u4, op2: u3, disp: i24) Instruction {
+        // In SPARC, branch target needs to be aligned to 4 bytes.
+        assert(disp % 4 == 0);
+
+        // Discard the last two bits since those are implicitly zero.
+        const udisp = @truncate(u22, @bitCast(u24, disp) >> 2);
+        return Instruction{
+            .format_2b = .{
+                .a = a,
+                .cond = cond,
+                .op2 = op2,
+                .disp22 = udisp,
+            },
+        };
+    }
+
+    fn format2c(a: u1, cond: u4, op2: u3, cc1: u1, cc0: u1, p: u1, disp: i21) Instruction {
+        // In SPARC, branch target needs to be aligned to 4 bytes.
+        assert(disp % 4 == 0);
+
+        // Discard the last two bits since those are implicitly zero.
+        const udisp = @truncate(u19, @bitCast(u21, disp) >> 2);
+        return Instruction{
+            .format_2c = .{
+                .a = a,
+                .cond = cond,
+                .op2 = op2,
+                .cc1 = cc1,
+                .cc0 = cc0,
+                .p = p,
+                .disp19 = udisp,
+            },
+        };
+    }
+
+    fn format2d(a: u1, rcond: u3, op2: u3, p: u1, rs1: Register, disp: i18) Instruction {
+        // In SPARC, branch target needs to be aligned to 4 bytes.
+        assert(disp % 4 == 0);
+
+        // Discard the last two bits since those are implicitly zero,
+        // and split it into low and high parts.
+        const udisp = @truncate(u16, @bitCast(u18, disp) >> 2);
+        const udisp_hi = @truncate(u2, (udisp & 0b1100_0000_0000_0000) >> 14);
+        const udisp_lo = @truncate(u14, udisp & 0b0011_1111_1111_1111);
+        return Instruction{
+            .format_2a = .{
+                .a = a,
+                .rcond = rcond,
+                .op2 = op2,
+                .p = p,
+                .rs1 = rs1.enc(),
+                .d16hi = udisp_hi,
+                .d16lo = udisp_lo,
+            },
+        };
+    }
 };
