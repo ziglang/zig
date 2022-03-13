@@ -29,11 +29,7 @@ const Allocator = std.mem.Allocator;
 const Preopen = std.fs.wasi.Preopen;
 const PreopenList = std.fs.wasi.PreopenList;
 
-pub const darwin = struct {
-    pub usingnamespace std.c;
-    pub usingnamespace @import("os/darwin.zig");
-};
-
+pub const darwin = @import("os/darwin.zig");
 pub const dragonfly = std.c;
 pub const freebsd = std.c;
 pub const haiku = std.c;
@@ -51,6 +47,7 @@ comptime {
 }
 
 test {
+    _ = darwin;
     _ = linux;
     _ = uefi;
     _ = wasi;

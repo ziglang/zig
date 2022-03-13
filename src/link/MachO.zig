@@ -4,7 +4,6 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const darwin = std.os.darwin;
 const fmt = std.fmt;
 const fs = std.fs;
 const log = std.log.scoped(.link);
@@ -4344,8 +4343,8 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .vmaddr = pagezero_vmsize,
                     .vmsize = needed_size,
                     .filesize = needed_size,
-                    .maxprot = darwin.PROT.READ | darwin.PROT.EXEC,
-                    .initprot = darwin.PROT.READ | darwin.PROT.EXEC,
+                    .maxprot = macho.PROT.READ | macho.PROT.EXEC,
+                    .initprot = macho.PROT.READ | macho.PROT.EXEC,
                 },
             },
         });
@@ -4449,8 +4448,8 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .vmsize = needed_size,
                     .fileoff = fileoff,
                     .filesize = needed_size,
-                    .maxprot = darwin.PROT.READ | darwin.PROT.WRITE,
-                    .initprot = darwin.PROT.READ | darwin.PROT.WRITE,
+                    .maxprot = macho.PROT.READ | macho.PROT.WRITE,
+                    .initprot = macho.PROT.READ | macho.PROT.WRITE,
                 },
             },
         });
@@ -4498,8 +4497,8 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .vmsize = needed_size,
                     .fileoff = fileoff,
                     .filesize = needed_size,
-                    .maxprot = darwin.PROT.READ | darwin.PROT.WRITE,
-                    .initprot = darwin.PROT.READ | darwin.PROT.WRITE,
+                    .maxprot = macho.PROT.READ | macho.PROT.WRITE,
+                    .initprot = macho.PROT.READ | macho.PROT.WRITE,
                 },
             },
         });
@@ -4607,8 +4606,8 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .segname = makeStaticString("__LINKEDIT"),
                     .vmaddr = vmaddr,
                     .fileoff = fileoff,
-                    .maxprot = darwin.PROT.READ,
-                    .initprot = darwin.PROT.READ,
+                    .maxprot = macho.PROT.READ,
+                    .initprot = macho.PROT.READ,
                 },
             },
         });

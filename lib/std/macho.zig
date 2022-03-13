@@ -2,15 +2,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const io = std.io;
-const c = std.c.darwin;
 const mem = std.mem;
 const meta = std.meta;
 const testing = std.testing;
 
 const Allocator = mem.Allocator;
 
-pub const cpu_type_t = c.integer_t;
-pub const cpu_subtype_t = c.integer_t;
+pub const cpu_type_t = c_int;
+pub const cpu_subtype_t = c_int;
+pub const vm_prot_t = c_int;
 
 pub const mach_header = extern struct {
     magic: u32,
@@ -605,10 +605,10 @@ pub const segment_command = extern struct {
     filesize: u32,
 
     /// maximum VM protection
-    maxprot: c.vm_prot_t,
+    maxprot: vm_prot_t,
 
     /// initial VM protection
-    initprot: c.vm_prot_t,
+    initprot: vm_prot_t,
 
     /// number of sections in segment
     nsects: u32,
@@ -642,10 +642,10 @@ pub const segment_command_64 = extern struct {
     filesize: u64 = 0,
 
     /// maximum VM protection
-    maxprot: c.vm_prot_t = c.PROT.NONE,
+    maxprot: vm_prot_t = PROT.NONE,
 
     /// initial VM protection
-    initprot: c.vm_prot_t = c.PROT.NONE,
+    initprot: vm_prot_t = PROT.NONE,
 
     /// number of sections in segment
     nsects: u32 = 0,
@@ -654,6 +654,23 @@ pub const segment_command_64 = extern struct {
     pub fn segName(seg: segment_command_64) []const u8 {
         return parseName(&seg.segname);
     }
+};
+
+pub const PROT = struct {
+    /// [MC2] no permissions
+    pub const NONE: vm_prot_t = 0x00;
+    /// [MC2] pages can be read
+    pub const READ: vm_prot_t = 0x01;
+    /// [MC2] pages can be written
+    pub const WRITE: vm_prot_t = 0x02;
+    /// [MC2] pages can be executed
+    pub const EXEC: vm_prot_t = 0x04;
+    /// When a caller finds that they cannot obtain write permission on a
+    /// mapped entry, the following flag can be used. The entry will be
+    /// made "needs copy" effectively copying the object (using COW),
+    /// and write permission will be added to the maximum protections for
+    /// the associated entry.
+    pub const COPY: vm_prot_t = 0x10;
 };
 
 /// A segment is made up of zero or more sections.  Non-MH_OBJECT files have
@@ -2148,8 +2165,8 @@ test "read-write segment command" {
             .vmaddr = 4294967296,
             .vmsize = 294912,
             .filesize = 294912,
-            .maxprot = c.PROT.READ | c.PROT.WRITE | c.PROT.EXEC,
-            .initprot = c.PROT.EXEC | c.PROT.READ,
+            .maxprot = PROT.READ | PROT.WRITE | PROT.EXEC,
+            .initprot = PROT.EXEC | PROT.READ,
             .nsects = 1,
         },
     };
