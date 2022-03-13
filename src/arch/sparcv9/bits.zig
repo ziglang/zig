@@ -520,7 +520,7 @@ pub const Instruction = union(enum) {
         // Discard the last two bits since those are implicitly zero.
         const udisp = @truncate(u19, @bitCast(u21, disp) >> 2);
 
-        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) > 1);
+        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
             .format_2c = .{
