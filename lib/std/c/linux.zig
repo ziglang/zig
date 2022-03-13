@@ -117,14 +117,15 @@ pub const _errno = switch (native_abi) {
 pub const Stat = switch (native_arch) {
     .sparcv9 => extern struct {
         dev: u64,
+        __pad1: u16,
         ino: ino_t,
         mode: u32,
-        nlink: usize,
+        nlink: u32,
 
         uid: u32,
         gid: u32,
         rdev: u64,
-        __pad0: u32,
+        __pad2: u16,
 
         size: off_t,
         blksize: isize,
@@ -133,7 +134,7 @@ pub const Stat = switch (native_arch) {
         atim: timespec,
         mtim: timespec,
         ctim: timespec,
-        __unused: [2]isize,
+        __reserved: [2]usize,
 
         pub fn atime(self: @This()) timespec {
             return self.atim;
