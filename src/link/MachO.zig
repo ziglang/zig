@@ -2189,10 +2189,6 @@ fn writePadding(self: *MachO, match: MatchingSection, size: usize, writer: anyty
 }
 
 fn writeAtoms(self: *MachO) !void {
-    var buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer buffer.deinit();
-    var file_offset: ?u64 = null;
-
     var it = self.atoms.iterator();
     while (it.next()) |entry| {
         const match = entry.key_ptr.*;
@@ -2205,50 +2201,15 @@ fn writeAtoms(self: *MachO) !void {
 
         log.debug("writing atoms in {s},{s}", .{ sect.segName(), sect.sectName() });
 
-        while (atom.prev) |prev| {
-            atom = prev;
-        }
-
         while (true) {
             if (atom.dirty or self.invalidate_relocs) {
-                const atom_sym = self.locals.items[atom.local_sym_index];
-                const padding_size: usize = if (atom.next) |next| blk: {
-                    const next_sym = self.locals.items[next.local_sym_index];
-                    const size = next_sym.n_value - (atom_sym.n_value + atom.size);
-                    break :blk try math.cast(usize, size);
-                } else 0;
-
-                log.debug("  (adding atom {s} to buffer: {})", .{ self.getString(atom_sym.n_strx), atom_sym });
-
-                try atom.resolveRelocs(self);
-                try buffer.appendSlice(atom.code.items);
-                try buffer.ensureUnusedCapacity(padding_size);
-                try self.writePadding(match, padding_size, buffer.writer());
-
-                if (file_offset == null) {
-                    file_offset = sect.offset + atom_sym.n_value - sect.addr;
-                }
+                try self.writeAtom(atom, match);
                 atom.dirty = false;
-            } else {
-                if (file_offset) |off| {
-                    log.debug("  (writing at file offset 0x{x})", .{off});
-                    try self.base.file.?.pwriteAll(buffer.items, off);
-                }
-                file_offset = null;
-                buffer.clearRetainingCapacity();
             }
 
-            if (atom.next) |next| {
-                atom = next;
-            } else {
-                if (file_offset) |off| {
-                    log.debug("  (writing at file offset 0x{x})", .{off});
-                    try self.base.file.?.pwriteAll(buffer.items, off);
-                }
-                file_offset = null;
-                buffer.clearRetainingCapacity();
-                break;
-            }
+            if (atom.prev) |prev| {
+                atom = prev;
+            } else break;
         }
     }
 }

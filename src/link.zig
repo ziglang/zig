@@ -373,17 +373,18 @@ pub const File = struct {
                     return;
                 }
                 if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
-                    if (base.options.target.cpu.arch != .aarch64) return; // If we're not targeting aarch64, nothing to do.
-                    // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
-                    // Any change to the binary will effectively invalidate the kernel's cache
-                    // resulting in a SIGKILL on each subsequent run. Since when doing incremental
-                    // linking we're modifying a binary in-place, this will end up with the kernel
-                    // killing it on every subsequent run. To circumvent it, we will copy the file
-                    // into a new inode, remove the original file, and rename the copy to match
-                    // the original file. This is super messy, but there doesn't seem any other
-                    // way to please the XNU.
-                    const emit = base.options.emit orelse return;
-                    try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
+                    if (base.options.target.cpu.arch == .aarch64) {
+                        // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
+                        // Any change to the binary will effectively invalidate the kernel's cache
+                        // resulting in a SIGKILL on each subsequent run. Since when doing incremental
+                        // linking we're modifying a binary in-place, this will end up with the kernel
+                        // killing it on every subsequent run. To circumvent it, we will copy the file
+                        // into a new inode, remove the original file, and rename the copy to match
+                        // the original file. This is super messy, but there doesn't seem any other
+                        // way to please the XNU.
+                        const emit = base.options.emit orelse return;
+                        try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
+                    }
                 }
                 f.close();
                 base.file = null;
