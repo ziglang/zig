@@ -402,7 +402,10 @@ const DocData = struct {
             child: TypeRef,
         },
         ErrorUnion: struct { name: []const u8 },
-        ErrorSet: struct { name: []const u8 },
+        ErrorSet: struct {
+            name: []const u8,
+            fields: []const Field,
+        },
         Enum: struct {
             name: []const u8,
             src: ?usize = null, // index into astNodes
@@ -429,6 +432,11 @@ const DocData = struct {
         AnyFrame: struct { name: []const u8 },
         Vector: struct { name: []const u8 },
         EnumLiteral: struct { name: []const u8 },
+
+        const Field = struct {
+            name: []const u8,
+            docs: []const u8,
+        };
 
         pub fn jsonStringify(
             self: Type,
@@ -1167,6 +1175,37 @@ fn walkInstruction(
                 .fieldVals = field_vals,
             } };
         },
+        .error_set_decl => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.ErrorSetDecl, pl_node.payload_index);
+            const fields = try self.arena.alloc(
+                DocData.Type.Field,
+                extra.data.fields_len,
+            );
+            var idx = extra.end;
+            for (fields) |*f| {
+                const name = file.zir.nullTerminatedString(file.zir.extra[idx]);
+                idx += 1;
+
+                const docs = file.zir.nullTerminatedString(file.zir.extra[idx]);
+                idx += 1;
+
+                f.* = .{
+                    .name = name,
+                    .docs = docs,
+                };
+            }
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .ErrorSet = .{
+                    .name = "todo errset",
+                    .fields = fields,
+                },
+            });
+
+            return DocData.WalkResult{ .type = type_slot_index };
+        },
         .param_anytype => {
             // Analysis of anytype function params happens in `.func`.
             // This switch case handles the case where an expression depends
@@ -1228,88 +1267,12 @@ fn walkInstruction(
             return DocData.WalkResult{ .call = call_slot_index };
         },
         .func, .func_inferred => {
-            const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
-
-            try self.ast_nodes.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
-            var param_type_refs = try std.ArrayListUnmanaged(DocData.TypeRef).initCapacity(
-                self.arena,
-                fn_info.total_params_len,
+            return self.analyzeFunction(
+                file,
+                parent_scope,
+                inst_index,
+                self_ast_node_index,
             );
-            var param_ast_indexes = try std.ArrayListUnmanaged(usize).initCapacity(
-                self.arena,
-                fn_info.total_params_len,
-            );
-            // TODO: handle scope rules for fn parameters
-            for (fn_info.param_body[0..fn_info.total_params_len]) |param_index| {
-                switch (tags[param_index]) {
-                    else => panicWithContext(
-                        file,
-                        param_index,
-                        "TODO: handle `{s}` in walkInstruction.func\n",
-                        .{@tagName(tags[param_index])},
-                    ),
-                    .param_anytype => {
-                        // TODO: where are the doc comments?
-                        const str_tok = data[param_index].str_tok;
-
-                        const name = str_tok.get(file.zir);
-
-                        param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
-                        self.ast_nodes.appendAssumeCapacity(.{
-                            .name = name,
-                            .docs = "",
-                            .@"comptime" = true,
-                        });
-
-                        param_type_refs.appendAssumeCapacity(
-                            DocData.TypeRef{ .@"anytype" = {} },
-                        );
-                    },
-                    .param, .param_comptime => {
-                        const pl_tok = data[param_index].pl_tok;
-                        const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
-                        const doc_comment = if (extra.data.doc_comment != 0)
-                            file.zir.nullTerminatedString(extra.data.doc_comment)
-                        else
-                            "";
-                        const name = file.zir.nullTerminatedString(extra.data.name);
-
-                        param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
-                        self.ast_nodes.appendAssumeCapacity(.{
-                            .name = name,
-                            .docs = doc_comment,
-                            .@"comptime" = tags[param_index] == .param_comptime,
-                        });
-
-                        const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
-                        const break_operand = data[break_index].@"break".operand;
-                        const param_type_ref = try self.walkRef(file, parent_scope, break_operand);
-
-                        param_type_refs.appendAssumeCapacity(
-                            walkResultToTypeRef(param_type_ref),
-                        );
-                    },
-                }
-            }
-
-            // ret
-            const ret_type_ref = blk: {
-                const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
-                const break_operand = data[last_instr_index].@"break".operand;
-                const wr = try self.walkRef(file, parent_scope, break_operand);
-                break :blk walkResultToTypeRef(wr);
-            };
-
-            self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
-            try self.types.append(self.arena, .{
-                .Fn = .{
-                    .name = "todo_name func",
-                    .src = self_ast_node_index,
-                    .params = param_type_refs.items,
-                    .ret = ret_type_ref,
-                },
-            });
-            return DocData.WalkResult{ .type = self.types.items.len - 1 };
         },
         .extended => {
             // NOTE: this code + the subsequent defer block are working towards
@@ -1338,9 +1301,19 @@ fn walkInstruction(
             const extended = data[inst_index].extended;
             switch (extended.opcode) {
                 else => {
-                    std.debug.panic(
-                        "TODO: implement `walkinstruction.extended` for {s}\n\n",
+                    panicWithContext(
+                        file,
+                        inst_index,
+                        "TODO: implement `walkInstruction.extended` for {s}\n\n",
                         .{@tagName(extended.opcode)},
+                    );
+                },
+                .func => {
+                    return try self.analyzeFunction(
+                        file,
+                        parent_scope,
+                        inst_index,
+                        self_ast_node_index,
                     );
                 },
                 .variable => {
@@ -2103,6 +2076,99 @@ fn tryResolveDeclPath(
         // TODO: this is where we should free waiter_list, but its in the arena
         //       that said, we might want to store it elsewhere and reclaim memory asap
     }
+}
+
+fn analyzeFunction(
+    self: *Autodoc,
+    file: *File,
+    scope: *Scope,
+    inst_index: usize,
+    self_ast_node_index: usize,
+) error{OutOfMemory}!DocData.WalkResult {
+    const tags = file.zir.instructions.items(.tag);
+    const data = file.zir.instructions.items(.data);
+
+    const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
+    try self.ast_nodes.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
+    var param_type_refs = try std.ArrayListUnmanaged(DocData.TypeRef).initCapacity(
+        self.arena,
+        fn_info.total_params_len,
+    );
+    var param_ast_indexes = try std.ArrayListUnmanaged(usize).initCapacity(
+        self.arena,
+        fn_info.total_params_len,
+    );
+    // TODO: handle scope rules for fn parameters
+    for (fn_info.param_body[0..fn_info.total_params_len]) |param_index| {
+        switch (tags[param_index]) {
+            else => panicWithContext(
+                file,
+                param_index,
+                "TODO: handle `{s}` in walkInstruction.func\n",
+                .{@tagName(tags[param_index])},
+            ),
+            .param_anytype => {
+                // TODO: where are the doc comments?
+                const str_tok = data[param_index].str_tok;
+
+                const name = str_tok.get(file.zir);
+
+                param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
+                self.ast_nodes.appendAssumeCapacity(.{
+                    .name = name,
+                    .docs = "",
+                    .@"comptime" = true,
+                });
+
+                param_type_refs.appendAssumeCapacity(
+                    DocData.TypeRef{ .@"anytype" = {} },
+                );
+            },
+            .param, .param_comptime => {
+                const pl_tok = data[param_index].pl_tok;
+                const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
+                const doc_comment = if (extra.data.doc_comment != 0)
+                    file.zir.nullTerminatedString(extra.data.doc_comment)
+                else
+                    "";
+                const name = file.zir.nullTerminatedString(extra.data.name);
+
+                param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
+                self.ast_nodes.appendAssumeCapacity(.{
+                    .name = name,
+                    .docs = doc_comment,
+                    .@"comptime" = tags[param_index] == .param_comptime,
+                });
+
+                const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
+                const break_operand = data[break_index].@"break".operand;
+                const param_type_ref = try self.walkRef(file, scope, break_operand);
+
+                param_type_refs.appendAssumeCapacity(
+                    walkResultToTypeRef(param_type_ref),
+                );
+            },
+        }
+    }
+
+    // ret
+    const ret_type_ref = blk: {
+        const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
+        const break_operand = data[last_instr_index].@"break".operand;
+        const wr = try self.walkRef(file, scope, break_operand);
+        break :blk walkResultToTypeRef(wr);
+    };
+
+    self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
+    try self.types.append(self.arena, .{
+        .Fn = .{
+            .name = "todo_name func",
+            .src = self_ast_node_index,
+            .params = param_type_refs.items,
+            .ret = ret_type_ref,
+        },
+    });
+    return DocData.WalkResult{ .type = self.types.items.len - 1 };
 }
 
 fn collectUnionFieldInfo(
