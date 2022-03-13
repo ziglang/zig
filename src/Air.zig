@@ -327,6 +327,15 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
+        /// Marks the beginning of a local variable. The operand is a pointer pointing
+        /// to the storage for the variable. The local may be a const or a var.
+        /// Result type is always void.
+        /// Uses `pl_op`. The payload index is the variable name. It points to the extra
+        /// array, reinterpreting the bytes there as a null-terminated string. 
+        dbg_var_ptr,
+        /// Same as `dbg_var_ptr` except the local is a const, not a var, and the
+        /// operand is the local's value.
+        dbg_var_val,
         /// ?T => bool
         /// Result type is always bool.
         /// Uses the `un_op` field.
@@ -962,6 +971,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .breakpoint,
         .dbg_stmt,
+        .dbg_var_ptr,
+        .dbg_var_val,
         .store,
         .fence,
         .atomic_store_unordered,
@@ -972,13 +983,13 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .memcpy,
         .set_union_tag,
         .prefetch,
-        => return Type.initTag(.void),
+        => return Type.void,
 
         .ptrtoint,
         .slice_len,
         .ret_addr,
         .frame_addr,
-        => return Type.initTag(.usize),
+        => return Type.usize,
 
         .wasm_memory_grow => return Type.i32,
         .wasm_memory_size => return Type.u32,
@@ -1088,4 +1099,13 @@ pub fn value(air: Air, inst: Air.Inst.Ref) ?Value {
         .const_ty => unreachable,
         else => return air.typeOfIndex(inst_index).onePossibleValue(),
     }
+}
+
+pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
+    const bytes = std.mem.sliceAsBytes(air.extra[index..]);
+    var end: usize = 0;
+    while (bytes[end] != 0) {
+        end += 1;
+    }
+    return bytes[0..end :0];
 }

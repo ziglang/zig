@@ -394,6 +394,13 @@ fn analyzeInst(
             return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });
         },
 
+        .dbg_var_ptr,
+        .dbg_var_val,
+        => {
+            const operand = inst_datas[inst].pl_op.operand;
+            return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });
+        },
+
         .prefetch => {
             const prefetch = inst_datas[inst].prefetch;
             return trackOperands(a, new_set, inst, main_tomb, .{ prefetch.ptr, .none, .none });

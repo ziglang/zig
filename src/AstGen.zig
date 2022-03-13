@@ -2389,6 +2389,8 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .breakpoint,
             .fence,
             .dbg_stmt,
+            .dbg_var_ptr,
+            .dbg_var_val,
             .ensure_result_used,
             .ensure_result_non_error,
             .@"export",
@@ -2666,6 +2668,15 @@ fn varDecl(
                 } else .none;
                 const init_inst = try reachableExpr(gz, scope, result_loc, var_decl.ast.init_node, node);
 
+                if (!gz.force_comptime) {
+                    _ = try gz.add(.{ .tag = .dbg_var_val, .data = .{
+                        .str_op = .{
+                            .str = ident_name,
+                            .operand = init_inst,
+                        },
+                    } });
+                }
+
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = scope,
@@ -2751,6 +2762,15 @@ fn varDecl(
                 }
                 gz.instructions.items.len = dst;
 
+                if (!gz.force_comptime) {
+                    _ = try gz.add(.{ .tag = .dbg_var_val, .data = .{
+                        .str_op = .{
+                            .str = ident_name,
+                            .operand = init_inst,
+                        },
+                    } });
+                }
+
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = scope,
@@ -2785,6 +2805,16 @@ fn varDecl(
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
             const const_ptr = try gz.addUnNode(.make_ptr_const, init_scope.rl_ptr, node);
+
+            if (!gz.force_comptime) {
+                _ = try gz.add(.{ .tag = .dbg_var_ptr, .data = .{
+                    .str_op = .{
+                        .str = ident_name,
+                        .operand = const_ptr,
+                    },
+                } });
+            }
+
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
@@ -2848,6 +2878,16 @@ fn varDecl(
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
+
+            if (!gz.force_comptime) {
+                _ = try gz.add(.{ .tag = .dbg_var_ptr, .data = .{
+                    .str_op = .{
+                        .str = ident_name,
+                        .operand = var_data.alloc,
+                    },
+                } });
+            }
+
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,

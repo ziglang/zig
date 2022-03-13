@@ -416,6 +416,8 @@ fn copyWithPartialInline(s: []u32, b: []u8) void {
 }
 
 test "binary math operator in partially inlined function" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     var s: [4]u32 = undefined;
     var b: [16]u8 = undefined;
 
@@ -545,6 +547,8 @@ var simple_struct = SimpleStruct{ .field = 1234 };
 const bound_fn = simple_struct.method;
 
 test "ptr to local array argument at comptime" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     comptime {
         var bytes: [10]u8 = undefined;
         modifySomeBytes(bytes[0..]);

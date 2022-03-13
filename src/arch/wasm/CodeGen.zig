@@ -1219,12 +1219,17 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .br => self.airBr(inst),
         .bool_to_int => self.airBoolToInt(inst),
         .cond_br => self.airCondBr(inst),
-        .dbg_stmt => WValue.none,
         .intcast => self.airIntcast(inst),
         .fptrunc => self.airFptrunc(inst),
         .fpext => self.airFpext(inst),
         .float_to_int => self.airFloatToInt(inst),
         .get_union_tag => self.airGetUnionTag(inst),
+
+        // TODO
+        .dbg_stmt,
+        .dbg_var_ptr,
+        .dbg_var_val,
+        => WValue.none,
 
         .call => self.airCall(inst, .auto),
         .call_always_tail => self.airCall(inst, .always_tail),

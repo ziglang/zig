@@ -170,6 +170,7 @@ fn getFirstByte(comptime T: type, mem: []const T) u8 {
 }
 
 test "generic fn keeps non-generic parameter types" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 

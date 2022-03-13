@@ -643,6 +643,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => try self.airMulAdd(inst),
 
+            .dbg_var_ptr,
+            .dbg_var_val,
+            => try self.airDbgVar(inst),
+
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
             .call_never_tail   => try self.airCall(inst, .never_tail),
@@ -2648,6 +2652,15 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     });
 
     return self.finishAirBookkeeping();
+}
+
+fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const name = self.air.nullTerminatedString(pl_op.payload);
+    const operand = pl_op.operand;
+    // TODO emit debug info for this variable
+    _ = name;
+    return self.finishAir(inst, .dead, .{ operand, .none, .none });
 }
 
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {

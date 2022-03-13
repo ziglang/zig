@@ -302,7 +302,11 @@ fn testExp2() !void {
 }
 
 test "@log" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     comptime try testLog();
     try testLog();
@@ -326,13 +330,22 @@ fn testLog() !void {
         try expect(math.approxEqAbs(ty, @log(@as(ty, 2)), 0.6931471805599, eps));
         try expect(math.approxEqAbs(ty, @log(@as(ty, 5)), 1.6094379124341, eps));
     }
+}
+
+test "@log with vectors" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log(v);
         try expect(math.approxEqAbs(f32, @log(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @log(@as(f32, 2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @log(@as(f32, 0.3)), result[2], epsilon));
+        try expect(@log(@as(f32, 0.3)) == result[2]);
         try expect(math.approxEqAbs(f32, @log(@as(f32, 0.4)), result[3], epsilon));
     }
 }

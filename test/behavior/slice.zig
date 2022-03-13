@@ -242,6 +242,7 @@ test "result location zero sized array inside struct field implicit cast to slic
 }
 
 test "runtime safety lets us slice from len..len" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
@@ -350,6 +351,7 @@ test "empty array to slice" {
 }
 
 test "@ptrCast slice to pointer" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {

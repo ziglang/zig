@@ -840,7 +840,7 @@ pub const Builder = opaque {
     extern fn LLVMBuildExactSDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const setCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation;
-    extern fn ZigLLVMSetCurrentDebugLocation(builder: *const Builder, line: c_int, column: c_int, scope: *DIScope) void;
+    extern fn ZigLLVMSetCurrentDebugLocation(builder: *const Builder, line: c_uint, column: c_uint, scope: *DIScope) void;
 
     pub const clearCurrentDebugLocation = ZigLLVMClearCurrentDebugLocation;
     extern fn ZigLLVMClearCurrentDebugLocation(builder: *const Builder) void;

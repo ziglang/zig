@@ -791,7 +791,9 @@ void ZigLLVMDisposeDIBuilder(ZigLLVMDIBuilder *dbuilder) {
     delete di_builder;
 }
 
-void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope) {
+void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder,
+        unsigned int line, unsigned int column, ZigLLVMDIScope *scope)
+{
     DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
     DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, column, di_scope, nullptr, false);
     unwrap(builder)->SetCurrentDebugLocation(debug_loc);

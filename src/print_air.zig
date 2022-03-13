@@ -233,6 +233,10 @@ const Writer = struct {
             .call_never_inline,
             => try w.writeCall(s, inst),
 
+            .dbg_var_ptr,
+            .dbg_var_val,
+            => try w.writeDbgVar(s, inst),
+
             .struct_field_ptr => try w.writeStructField(s, inst),
             .struct_field_val => try w.writeStructField(s, inst),
             .constant => try w.writeConstant(s, inst),
@@ -499,7 +503,7 @@ const Writer = struct {
         extra_i += inputs.len;
 
         for (outputs) |output| {
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(w.air.extra[extra_i..]), 0);
+            const constraint = w.air.nullTerminatedString(extra_i);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += constraint.len / 4 + 1;
@@ -515,7 +519,7 @@ const Writer = struct {
         }
 
         for (inputs) |input| {
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(w.air.extra[extra_i..]), 0);
+            const constraint = w.air.nullTerminatedString(extra_i);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += constraint.len / 4 + 1;
@@ -529,7 +533,7 @@ const Writer = struct {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(w.air.extra[extra_i..]), 0);
+                const clobber = w.air.nullTerminatedString(extra_i);
                 // This equation accounts for the fact that even if we have exactly 4 bytes
                 // for the string, we still use the next u32 for the null terminator.
                 extra_i += clobber.len / 4 + 1;
@@ -546,6 +550,13 @@ const Writer = struct {
     fn writeDbgStmt(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const dbg_stmt = w.air.instructions.items(.data)[inst].dbg_stmt;
         try s.print("{d}:{d}", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
+    }
+
+    fn writeDbgVar(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        try w.writeOperand(s, inst, 0, pl_op.operand);
+        const name = w.air.nullTerminatedString(pl_op.payload);
+        try s.print(", {s}", .{name});
     }
 
     fn writeCall(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
