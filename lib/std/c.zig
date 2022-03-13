@@ -39,10 +39,12 @@ pub fn versionCheck(glibc_version: std.builtin.Version) type {
     };
 }
 
+pub const darwin = @import("c/darwin.zig");
+
 pub usingnamespace switch (builtin.os.tag) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
-    .macos, .ios, .tvos, .watchos => @import("c/darwin.zig"),
+    .macos, .ios, .tvos, .watchos => darwin,
     .freebsd, .kfreebsd => @import("c/freebsd.zig"),
     .netbsd => @import("c/netbsd.zig"),
     .dragonfly => @import("c/dragonfly.zig"),

@@ -1,9 +1,7 @@
 const std = @import("std");
+const c = std.c.darwin;
 const log = std.log;
 const mem = std.mem;
-const os = @This();
-
-pub usingnamespace @import("../c.zig");
 
 pub const MachError = error{
     /// Not enough permissions held to perform the requested kernel
@@ -16,24 +14,24 @@ pub const MachError = error{
 };
 
 pub const MachTask = struct {
-    port: os.mach_port_name_t,
+    port: c.mach_port_name_t,
 
     pub fn isValid(self: MachTask) bool {
         return self.port != 0;
     }
 
-    pub fn getCurrProtection(task: MachTask, address: u64, len: usize) MachError!os.vm_prot_t {
+    pub fn getCurrProtection(task: MachTask, address: u64, len: usize) MachError!c.vm_prot_t {
         var base_addr = address;
-        var base_len: os.mach_vm_size_t = if (len == 1) 2 else len;
-        var objname: os.mach_port_t = undefined;
-        var info: os.vm_region_submap_info_64 = undefined;
-        var count: os.mach_msg_type_number_t = os.VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
-        switch (os.getKernError(os.mach_vm_region(
+        var base_len: c.mach_vm_size_t = if (len == 1) 2 else len;
+        var objname: c.mach_port_t = undefined;
+        var info: c.vm_region_submap_info_64 = undefined;
+        var count: c.mach_msg_type_number_t = c.VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+        switch (c.getKernError(c.mach_vm_region(
             task.port,
             &base_addr,
             &base_len,
-            os.VM_REGION_BASIC_INFO_64,
-            @ptrCast(os.vm_region_info_t, &info),
+            c.VM_REGION_BASIC_INFO_64,
+            @ptrCast(c.vm_region_info_t, &info),
             &count,
             &objname,
         ))) {
@@ -46,16 +44,16 @@ pub const MachTask = struct {
         }
     }
 
-    pub fn setMaxProtection(task: MachTask, address: u64, len: usize, prot: os.vm_prot_t) MachError!void {
+    pub fn setMaxProtection(task: MachTask, address: u64, len: usize, prot: c.vm_prot_t) MachError!void {
         return task.setProtectionImpl(address, len, true, prot);
     }
 
-    pub fn setCurrProtection(task: MachTask, address: u64, len: usize, prot: os.vm_prot_t) MachError!void {
+    pub fn setCurrProtection(task: MachTask, address: u64, len: usize, prot: c.vm_prot_t) MachError!void {
         return task.setProtectionImpl(address, len, false, prot);
     }
 
-    fn setProtectionImpl(task: MachTask, address: u64, len: usize, set_max: bool, prot: os.vm_prot_t) MachError!void {
-        switch (os.getKernError(os.mach_vm_protect(task.port, address, len, @boolToInt(set_max), prot))) {
+    fn setProtectionImpl(task: MachTask, address: u64, len: usize, set_max: bool, prot: c.vm_prot_t) MachError!void {
+        switch (c.getKernError(c.mach_vm_protect(task.port, address, len, @boolToInt(set_max), prot))) {
             .SUCCESS => return,
             .FAILURE => return error.PermissionDenied,
             else => |err| {
@@ -73,7 +71,7 @@ pub const MachTask = struct {
         try task.setCurrProtection(
             address,
             buf.len,
-            os.PROT.READ | os.PROT.WRITE | os.PROT.COPY,
+            c.PROT.READ | c.PROT.WRITE | c.PROT.COPY,
         );
         defer {
             task.setCurrProtection(address, buf.len, curr_prot) catch {};
@@ -90,11 +88,11 @@ pub const MachTask = struct {
 
         while (total_written < count) {
             const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_written);
-            switch (os.getKernError(os.mach_vm_write(
+            switch (c.getKernError(c.mach_vm_write(
                 task.port,
                 curr_addr,
                 @ptrToInt(out_buf.ptr),
-                @intCast(os.mach_msg_type_number_t, curr_size),
+                @intCast(c.mach_msg_type_number_t, curr_size),
             ))) {
                 .SUCCESS => {},
                 .FAILURE => return error.PermissionDenied,
@@ -106,12 +104,12 @@ pub const MachTask = struct {
 
             switch (arch) {
                 .aarch64 => {
-                    var mattr_value: os.vm_machine_attribute_val_t = os.MATTR_VAL_CACHE_FLUSH;
-                    switch (os.getKernError(os.vm_machine_attribute(
+                    var mattr_value: c.vm_machine_attribute_val_t = c.MATTR_VAL_CACHE_FLUSH;
+                    switch (c.getKernError(c.vm_machine_attribute(
                         task.port,
                         curr_addr,
                         curr_size,
-                        os.MATTR_CACHE,
+                        c.MATTR_CACHE,
                         &mattr_value,
                     ))) {
                         .SUCCESS => {},
@@ -143,9 +141,9 @@ pub const MachTask = struct {
 
         while (total_read < count) {
             const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_read);
-            var curr_bytes_read: os.mach_msg_type_number_t = 0;
-            var vm_memory: os.vm_offset_t = undefined;
-            switch (os.getKernError(os.mach_vm_read(task.port, curr_addr, curr_size, &vm_memory, &curr_bytes_read))) {
+            var curr_bytes_read: c.mach_msg_type_number_t = 0;
+            var vm_memory: c.vm_offset_t = undefined;
+            switch (c.getKernError(c.mach_vm_read(task.port, curr_addr, curr_size, &vm_memory, &curr_bytes_read))) {
                 .SUCCESS => {},
                 .FAILURE => return error.PermissionDenied,
                 else => |err| {
@@ -155,7 +153,7 @@ pub const MachTask = struct {
             }
 
             @memcpy(out_buf[0..].ptr, @intToPtr([*]const u8, vm_memory), curr_bytes_read);
-            _ = os.vm_deallocate(os.mach_task_self(), vm_memory, curr_bytes_read);
+            _ = c.vm_deallocate(c.mach_task_self(), vm_memory, curr_bytes_read);
 
             out_buf = out_buf[curr_bytes_read..];
             curr_addr += curr_bytes_read;
@@ -179,20 +177,20 @@ pub const MachTask = struct {
 
     fn getPageSize(task: MachTask) MachError!usize {
         if (task.isValid()) {
-            var info_count = os.TASK_VM_INFO_COUNT;
-            var vm_info: os.task_vm_info_data_t = undefined;
-            switch (os.getKernError(os.task_info(
+            var info_count = c.TASK_VM_INFO_COUNT;
+            var vm_info: c.task_vm_info_data_t = undefined;
+            switch (c.getKernError(c.task_info(
                 task.port,
-                os.TASK_VM_INFO,
-                @ptrCast(os.task_info_t, &vm_info),
+                c.TASK_VM_INFO,
+                @ptrCast(c.task_info_t, &vm_info),
                 &info_count,
             ))) {
                 .SUCCESS => return @intCast(usize, vm_info.page_size),
                 else => {},
             }
         }
-        var page_size: os.vm_size_t = undefined;
-        switch (os.getKernError(os._host_page_size(os.mach_host_self(), &page_size))) {
+        var page_size: c.vm_size_t = undefined;
+        switch (c.getKernError(c._host_page_size(c.mach_host_self(), &page_size))) {
             .SUCCESS => return page_size,
             else => |err| {
                 log.err("_host_page_size kernel call failed with error code: {s}", .{@tagName(err)});
@@ -202,9 +200,9 @@ pub const MachTask = struct {
     }
 };
 
-pub fn machTaskForPid(pid: os.pid_t) MachError!MachTask {
-    var port: os.mach_port_name_t = undefined;
-    switch (os.getKernError(os.task_for_pid(os.mach_task_self(), pid, &port))) {
+pub fn machTaskForPid(pid: c.pid_t) MachError!MachTask {
+    var port: c.mach_port_name_t = undefined;
+    switch (c.getKernError(c.task_for_pid(c.mach_task_self(), pid, &port))) {
         .SUCCESS => {},
         .FAILURE => return error.PermissionDenied,
         else => |err| {

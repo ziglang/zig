@@ -2,15 +2,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const io = std.io;
-const os = std.os.darwin;
+const c = std.c.darwin;
 const mem = std.mem;
 const meta = std.meta;
 const testing = std.testing;
 
 const Allocator = mem.Allocator;
 
-pub const cpu_type_t = os.integer_t;
-pub const cpu_subtype_t = os.integer_t;
+pub const cpu_type_t = c.integer_t;
+pub const cpu_subtype_t = c.integer_t;
 
 pub const mach_header = extern struct {
     magic: u32,
@@ -605,10 +605,10 @@ pub const segment_command = extern struct {
     filesize: u32,
 
     /// maximum VM protection
-    maxprot: os.vm_prot_t,
+    maxprot: c.vm_prot_t,
 
     /// initial VM protection
-    initprot: os.vm_prot_t,
+    initprot: c.vm_prot_t,
 
     /// number of sections in segment
     nsects: u32,
@@ -642,10 +642,10 @@ pub const segment_command_64 = extern struct {
     filesize: u64 = 0,
 
     /// maximum VM protection
-    maxprot: os.vm_prot_t = os.PROT.NONE,
+    maxprot: c.vm_prot_t = c.PROT.NONE,
 
     /// initial VM protection
-    initprot: os.vm_prot_t = os.PROT.NONE,
+    initprot: c.vm_prot_t = c.PROT.NONE,
 
     /// number of sections in segment
     nsects: u32 = 0,
@@ -2148,8 +2148,8 @@ test "read-write segment command" {
             .vmaddr = 4294967296,
             .vmsize = 294912,
             .filesize = 294912,
-            .maxprot = os.PROT.READ | os.PROT.WRITE | os.PROT.EXEC,
-            .initprot = os.PROT.EXEC | os.PROT.READ,
+            .maxprot = c.PROT.READ | c.PROT.WRITE | c.PROT.EXEC,
+            .initprot = c.PROT.EXEC | c.PROT.READ,
             .nsects = 1,
         },
     };
