@@ -839,13 +839,11 @@ pub const DeclGen = struct {
         try w.writeAll("(");
         const param_len = dg.decl.ty.fnParamLen();
 
-        const target = dg.module.getTarget();
         var index: usize = 0;
         var params_written: usize = 0;
         while (index < param_len) : (index += 1) {
             const param_type = dg.decl.ty.fnParamType(index);
-            if (param_type.zigTypeTag() == .Void) continue;
-            if (param_type.isInt() and param_type.intInfo(target).bits == 0) continue;
+            if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
             if (params_written > 0) {
                 try w.writeAll(", ");
             }
@@ -885,7 +883,7 @@ pub const DeclGen = struct {
         var params_written: usize = 0;
         var index: usize = 0;
         while (index < param_len) : (index += 1) {
-            if (fn_info.param_types[index].zigTypeTag() == .Void) continue;
+            if (!fn_info.param_types[index].hasRuntimeBitsIgnoreComptime()) continue;
             if (params_written > 0) {
                 try bw.writeAll(", ");
             }
@@ -2628,8 +2626,11 @@ fn airCall(
     }
 
     try writer.writeAll("(");
-    for (args) |arg, i| {
-        if (i != 0) {
+    var args_written: usize = 0;
+    for (args) |arg| {
+        const ty = f.air.typeOf(arg);
+        if (!ty.hasRuntimeBitsIgnoreComptime()) continue;
+        if (args_written != 0) {
             try writer.writeAll(", ");
         }
         if (f.air.value(arg)) |val| {
@@ -2638,6 +2639,7 @@ fn airCall(
             const val = try f.resolveInst(arg);
             try f.writeCValue(writer, val);
         }
+        args_written += 1;
     }
     try writer.writeAll(");\n");
     return result_local;
