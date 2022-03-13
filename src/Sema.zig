@@ -12684,6 +12684,10 @@ fn reifyTuple(
     const values = try sema.arena.alloc(Value, fields_len);
 
     if (fields_len > 0) {
+        var used_fields: std.AutoArrayHashMapUnmanaged(u32, void) = .{};
+        defer used_fields.deinit(sema.gpa);
+        try used_fields.ensureTotalCapacity(sema.gpa, fields_len);
+
         const array_vals = decl.val.castTag(.array).?.data;
         for (array_vals) |elem_val| {
             const field_struct_val = elem_val.castTag(.@"struct").?.data;
@@ -12709,9 +12713,6 @@ fn reifyTuple(
                 );
             };
 
-            // TODO: more validation can happen here to ensure that each
-            // field of the tuple is populated
-
             if (field_index >= fields_len) {
                 return sema.fail(
                     block,
@@ -12719,6 +12720,12 @@ fn reifyTuple(
                     "tuple field {} exceeds tuple field count",
                     .{field_index},
                 );
+            }
+
+            const gop = used_fields.getOrPutAssumeCapacity(field_index);
+            if (gop.found_existing) {
+                // TODO: better source location
+                return sema.fail(block, src, "duplicate tuple field {}", .{field_index});
             }
 
             const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
