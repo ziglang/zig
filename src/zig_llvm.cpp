@@ -842,7 +842,7 @@ ZigLLVMDIGlobalVariable *ZigLLVMCreateGlobalVariable(ZigLLVMDIBuilder *dbuilder,
         line_no,
         reinterpret_cast<DIType*>(di_type),
         is_local_to_unit);
-    return reinterpret_cast<ZigLLVMDIGlobalVariable*>(result);
+    return reinterpret_cast<ZigLLVMDIGlobalVariable*>(result->getVariable());
 }
 
 ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(ZigLLVMDIBuilder *dbuilder,
@@ -885,6 +885,56 @@ ZigLLVMDIScope *ZigLLVMSubprogramToScope(ZigLLVMDISubprogram *subprogram) {
 ZigLLVMDIScope *ZigLLVMTypeToScope(ZigLLVMDIType *type) {
     DIScope *scope = reinterpret_cast<DIType*>(type);
     return reinterpret_cast<ZigLLVMDIScope*>(scope);
+}
+
+ZigLLVMDINode *ZigLLVMLexicalBlockToNode(ZigLLVMDILexicalBlock *lexical_block) {
+    DINode *node = reinterpret_cast<DILexicalBlock*>(lexical_block);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMCompileUnitToNode(ZigLLVMDICompileUnit *compile_unit) {
+    DINode *node = reinterpret_cast<DICompileUnit*>(compile_unit);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMFileToNode(ZigLLVMDIFile *difile) {
+    DINode *node = reinterpret_cast<DIFile*>(difile);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMSubprogramToNode(ZigLLVMDISubprogram *subprogram) {
+    DINode *node = reinterpret_cast<DISubprogram*>(subprogram);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMTypeToNode(ZigLLVMDIType *type) {
+    DINode *node = reinterpret_cast<DIType*>(type);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMScopeToNode(ZigLLVMDIScope *scope) {
+    DINode *node = reinterpret_cast<DIScope*>(scope);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMGlobalVariableToNode(ZigLLVMDIGlobalVariable *global_variable) {
+    DINode *node = reinterpret_cast<DIGlobalVariable*>(global_variable);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+void ZigLLVMSubprogramReplaceLinkageName(ZigLLVMDISubprogram *subprogram,
+        ZigLLVMMDString *linkage_name)
+{
+    MDString *linkage_name_md = reinterpret_cast<MDString*>(linkage_name);
+    reinterpret_cast<DISubprogram*>(subprogram)->replaceLinkageName(linkage_name_md);
+}
+
+void ZigLLVMGlobalVariableReplaceLinkageName(ZigLLVMDIGlobalVariable *global_variable,
+        ZigLLVMMDString *linkage_name)
+{
+    Metadata *linkage_name_md = reinterpret_cast<MDString*>(linkage_name);
+    // NOTE: Operand index must match llvm::DIGlobalVariable
+    reinterpret_cast<DIGlobalVariable*>(global_variable)->replaceOperandWith(5, linkage_name_md);
 }
 
 ZigLLVMDICompileUnit *ZigLLVMCreateCompileUnit(ZigLLVMDIBuilder *dibuilder,

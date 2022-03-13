@@ -663,7 +663,7 @@ pub const Decl = struct {
         return (try decl.typedValue()).val;
     }
 
-    pub fn isFunction(decl: *Decl) !bool {
+    pub fn isFunction(decl: Decl) !bool {
         const tv = try decl.typedValue();
         return tv.ty.zigTypeTag() == .Fn;
     }
