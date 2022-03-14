@@ -785,7 +785,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4a(rd: Register, op3: u6, rs1: Register, ccr: CCR, rs2: Register) Instruction {
+    fn format4a(op3: u6, ccr: CCR, rs1: Register, rs2: Register, rd: Register) Instruction {
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
@@ -800,7 +800,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4b(rd: Register, op3: u6, rs1: Register, ccr: CCR, imm: i11) Instruction {
+    fn format4b(op3: u6, ccr: CCR, rs1: Register, imm: i11, rd: Register) Instruction {
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
@@ -815,7 +815,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4c(rd: Register, op3: u6, ccr: CCR, cond: Condition, rs2: Register) Instruction {
+    fn format4c(op3: u6, cond: Condition, ccr: CCR, rs2: Register, rd: Register) Instruction {
         const ccr_cc2 = @truncate(u1, @enumToInt(ccr) >> 2);
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
@@ -832,7 +832,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4d(rd: Register, op3: u6, ccr: CCR, cond: Condition, imm: i11) Instruction {
+    fn format4d(op3: u6, cond: Condition, ccr: CCR, imm: i11, rd: Register) Instruction {
         const ccr_cc2 = @truncate(u1, @enumToInt(ccr) >> 2);
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
@@ -849,7 +849,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4e(rd: Register, op3: u6, rs1: Register, ccr: CCR, sw_trap: u7) Instruction {
+    fn format4e(op3: u6, ccr: CCR, rs1: Register, rd: Register, sw_trap: u7) Instruction {
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
@@ -864,7 +864,14 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4f(rd: Register, op3: u6, rs1: Register, rcond: RCondition, opf_low: u5, rs2: Register) Instruction {
+    fn format4f(
+        op3: u6,
+        opf_low: u5,
+        rcond: RCondition,
+        rs1: Register,
+        rs2: Register,
+        rd: Register,
+    ) Instruction {
         return Instruction{
             .format4f = .{
                 .rd = rd.enc(),
@@ -877,7 +884,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4g(rd: Register, op3: u6, cond: Condition, opf_cc: u3, opf_low: u6, rs2: Register) Instruction {
+    fn format4g(op3: u6, opf_low: u6, opf_cc: u3, cond: Condition, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format4g = .{
                 .rd = rd.enc(),
