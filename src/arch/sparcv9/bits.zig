@@ -583,7 +583,7 @@ pub const Instruction = union(enum) {
                 .rs1 = rs1.enc(),
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
-                .simm11 = @bitCast(i11, imm),
+                .simm11 = @bitCast(u11, imm),
             },
         };
     }
@@ -617,7 +617,7 @@ pub const Instruction = union(enum) {
                 .cond = cond,
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
-                .simm11 = @bitCast(i11, imm),
+                .simm11 = @bitCast(u11, imm),
             },
         };
     }
