@@ -5,7 +5,6 @@ const minInt = std.math.minInt;
 
 test "@bitReverse large exotic integer" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     // Currently failing on stage1 for big-endian targets
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
@@ -14,7 +13,6 @@ test "@bitReverse large exotic integer" {
 
 test "@bitReverse" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;

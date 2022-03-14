@@ -139,6 +139,7 @@ test {
         _ = @import("behavior/eval.zig");
         _ = @import("behavior/export_self_referential_type_info.zig");
         _ = @import("behavior/int128.zig");
+        _ = @import("behavior/popcount.zig");
         _ = @import("behavior/translate_c_macros.zig");
         _ = @import("behavior/union_with_members.zig");
 
@@ -147,7 +148,6 @@ test {
             _ = @import("behavior/atomics.zig");
             _ = @import("behavior/export.zig");
             _ = @import("behavior/maximum_minimum.zig");
-            _ = @import("behavior/popcount.zig");
             _ = @import("behavior/saturating_arithmetic.zig");
             _ = @import("behavior/widening.zig");
             _ = @import("behavior/bugs/2114.zig");
