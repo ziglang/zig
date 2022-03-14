@@ -37,6 +37,10 @@ fn testPopCountIntegers() !void {
         var x: i8 = -120;
         try expect(@popCount(i8, x) == 2);
     }
+    {
+        var x: u128 = 0b11111111000110001100010000100001000011000011100101010001;
+        try expect(@popCount(u128, x) == 24);
+    }
     comptime {
         try expect(@popCount(u8, @bitCast(u8, @as(i8, -120))) == 2);
     }

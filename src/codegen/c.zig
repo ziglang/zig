@@ -1709,11 +1709,11 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
-            .clz              => try airBuiltinCall(f, inst, "clz", .{}),
-            .ctz              => try airBuiltinCall(f, inst, "ctz", .{}),
-            .popcount         => try airBuiltinCall(f, inst, "popcount", .{}),
-            .byte_swap        => try airBuiltinCall(f, inst, "byte_swap", .{ .needs_signedness_info = true }),
-            .bit_reverse      => try airBuiltinCall(f, inst, "bit_reverse", .{ .needs_signedness_info = true }),
+            .clz              => try airBuiltinCall(f, inst, "clz"),
+            .ctz              => try airBuiltinCall(f, inst, "ctz"),
+            .popcount         => try airBuiltinCall(f, inst, "popcount"),
+            .byte_swap        => try airBuiltinCall(f, inst, "byte_swap"),
+            .bit_reverse      => try airBuiltinCall(f, inst, "bit_reverse"),
             .tag_name         => try airTagName(f, inst),
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
@@ -3351,7 +3351,7 @@ fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8, options: struct { needs_signedness_info: bool = false }) !CValue {
+fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
 
     const inst_ty = f.air.typeOfIndex(inst);
@@ -3362,20 +3362,17 @@ fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8, op
     const writer = f.object.writer();
 
     const int_info = operand_ty.intInfo(target);
-    _ = toCIntBits(int_info.bits) orelse
+    const c_bits = toCIntBits(int_info.bits) orelse
         return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
 
-    try writer.print(" = zig_{s}(", .{fn_name});
+    try writer.print(" = zig_{s}_", .{fn_name});
+    const prefix_byte: u8 = switch (int_info.signedness) {
+        .signed => 'i',
+        .unsigned => 'u',
+    };
+    try writer.print("{c}{d}(", .{ prefix_byte, c_bits });
     try f.writeCValue(writer, try f.resolveInst(operand));
-    try writer.print(", {d}", .{int_info.bits});
-    if (options.needs_signedness_info) {
-        const signed_type = switch (int_info.signedness) {
-            .signed => "true",
-            .unsigned => "false",
-        };
-        try writer.print(", {s}", .{signed_type});
-    }
-    try writer.writeAll(");\n");
+    try writer.print(", {d});\n", .{int_info.bits});
     return local;
 }
 
