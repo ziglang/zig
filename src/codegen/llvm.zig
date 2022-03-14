@@ -3200,19 +3200,19 @@ pub const FuncGen = struct {
                 .shr                => try self.airShr(inst, false),
                 .shr_exact          => try self.airShr(inst, true),
 
-                .sqrt         => try self.airUnaryOp(inst, "llvm.sqrt"),
-                .sin          => try self.airUnaryOp(inst, "llvm.sin"),
-                .cos          => try self.airUnaryOp(inst, "llvm.cos"),
-                .exp          => try self.airUnaryOp(inst, "llvm.exp"),
-                .exp2         => try self.airUnaryOp(inst, "llvm.exp2"),
-                .log          => try self.airUnaryOp(inst, "llvm.log"),
-                .log2         => try self.airUnaryOp(inst, "llvm.log2"),
-                .log10        => try self.airUnaryOp(inst, "llvm.log10"),
-                .fabs         => try self.airUnaryOp(inst, "llvm.fabs"),
-                .floor        => try self.airUnaryOp(inst, "llvm.floor"),
-                .ceil         => try self.airUnaryOp(inst, "llvm.ceil"),
-                .round        => try self.airUnaryOp(inst, "llvm.round"),
-                .trunc_float  => try self.airUnaryOp(inst, "llvm.trunc"),
+                .sqrt         => try self.airUnaryOp(inst, "sqrt"),
+                .sin          => try self.airUnaryOp(inst, "sin"),
+                .cos          => try self.airUnaryOp(inst, "cos"),
+                .exp          => try self.airUnaryOp(inst, "exp"),
+                .exp2         => try self.airUnaryOp(inst, "exp2"),
+                .log          => try self.airUnaryOp(inst, "log"),
+                .log2         => try self.airUnaryOp(inst, "log2"),
+                .log10        => try self.airUnaryOp(inst, "log10"),
+                .fabs         => try self.airUnaryOp(inst, "fabs"),
+                .floor        => try self.airUnaryOp(inst, "floor"),
+                .ceil         => try self.airUnaryOp(inst, "ceil"),
+                .round        => try self.airUnaryOp(inst, "round"),
+                .trunc_float  => try self.airUnaryOp(inst, "trunc"),
 
                 .cmp_eq  => try self.airCmp(inst, .eq),
                 .cmp_gt  => try self.airCmp(inst, .gt),
@@ -5751,11 +5751,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
         const operand_ty = self.air.typeOf(un_op);
 
-        const operand_llvm_ty = try self.dg.llvmType(operand_ty);
-        const fn_val = self.getIntrinsic(llvm_fn_name, &.{operand_llvm_ty});
-        const params = [_]*const llvm.Value{operand};
-
-        return self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
+        return self.callFloatUnary(operand, operand_ty, llvm_fn_name);
     }
 
     fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !?*const llvm.Value {
@@ -6443,13 +6439,24 @@ pub const FuncGen = struct {
         return self.callFloatUnary(arg, ty, "trunc");
     }
 
-    fn callFloatUnary(self: *FuncGen, arg: *const llvm.Value, ty: Type, name: []const u8) !*const llvm.Value {
+    fn callFloatUnary(
+        self: *FuncGen,
+        arg: *const llvm.Value,
+        ty: Type,
+        name: []const u8,
+    ) !*const llvm.Value {
         const target = self.dg.module.getTarget();
 
         var fn_name_buf: [100]u8 = undefined;
-        const llvm_fn_name = std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.f{d}", .{
-            name, ty.floatBits(target),
-        }) catch unreachable;
+        const llvm_fn_name = switch (ty.zigTypeTag()) {
+            .Vector => std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.v{d}f{d}", .{
+                name, ty.vectorLen(), ty.childType().floatBits(target),
+            }) catch unreachable,
+            .Float => std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.f{d}", .{
+                name, ty.floatBits(target),
+            }) catch unreachable,
+            else => unreachable,
+        };
 
         const llvm_fn = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
             const operand_llvm_ty = try self.dg.llvmType(ty);
