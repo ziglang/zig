@@ -127,10 +127,6 @@ pub const Value = extern union {
         /// This value is repeated some number of times. The amount of times to repeat
         /// is stored externally.
         repeated,
-        /// Each element stored as a `Value`.
-        /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
-        /// so the slice length will be one more than the type's array length.
-        array,
         /// An array with length 0 but it has a sentinel.
         empty_array_sentinel,
         /// Pointer and length as sub `Value` objects.
@@ -162,8 +158,11 @@ pub const Value = extern union {
         opt_payload,
         /// A pointer to the payload of an optional, based on a pointer to an optional.
         opt_payload_ptr,
-        /// An instance of a struct.
-        @"struct",
+        /// An instance of a struct, array, or vector.
+        /// Each element/field stored as a `Value`.
+        /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
+        /// so the slice length will be one more than the type's array length.
+        aggregate,
         /// An instance of a union.
         @"union",
         /// This is a special value that tracks a set of types that have been stored
@@ -279,7 +278,6 @@ pub const Value = extern union {
                 .enum_literal,
                 => Payload.Bytes,
 
-                .array => Payload.Array,
                 .slice => Payload.Slice,
 
                 .enum_field_index => Payload.U32,
@@ -301,7 +299,7 @@ pub const Value = extern union {
                 .@"error" => Payload.Error,
                 .inferred_alloc => Payload.InferredAlloc,
                 .inferred_alloc_comptime => Payload.InferredAllocComptime,
-                .@"struct" => Payload.Struct,
+                .aggregate => Payload.Aggregate,
                 .@"union" => Payload.Union,
                 .bound_fn => Payload.BoundFn,
             };
@@ -521,18 +519,6 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
-            .array => {
-                const payload = self.castTag(.array).?;
-                const new_payload = try arena.create(Payload.Array);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .data = try arena.alloc(Value, payload.data.len),
-                };
-                for (new_payload.data) |*elem, i| {
-                    elem.* = try payload.data[i].copy(arena);
-                }
-                return Value{ .ptr_otherwise = &new_payload.base };
-            },
             .slice => {
                 const payload = self.castTag(.slice).?;
                 const new_payload = try arena.create(Payload.Slice);
@@ -562,15 +548,15 @@ pub const Value = extern union {
             .enum_field_index => return self.copyPayloadShallow(arena, Payload.U32),
             .@"error" => return self.copyPayloadShallow(arena, Payload.Error),
 
-            .@"struct" => {
-                const old_field_values = self.castTag(.@"struct").?.data;
-                const new_payload = try arena.create(Payload.Struct);
+            .aggregate => {
+                const payload = self.castTag(.aggregate).?;
+                const new_payload = try arena.create(Payload.Aggregate);
                 new_payload.* = .{
-                    .base = .{ .tag = .@"struct" },
-                    .data = try arena.alloc(Value, old_field_values.len),
+                    .base = payload.base,
+                    .data = try arena.alloc(Value, payload.data.len),
                 };
-                for (old_field_values) |old_field_val, i| {
-                    new_payload.data[i] = try old_field_val.copy(arena);
+                for (new_payload.data) |*elem, i| {
+                    elem.* = try payload.data[i].copy(arena);
                 }
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
@@ -677,8 +663,8 @@ pub const Value = extern union {
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
-            .@"struct" => {
-                return out_stream.writeAll("(struct value)");
+            .aggregate => {
+                return out_stream.writeAll("(aggregate)");
             },
             .@"union" => {
                 return out_stream.writeAll("(union value)");
@@ -733,7 +719,6 @@ pub const Value = extern union {
                 try out_stream.writeAll("(repeated) ");
                 val = val.castTag(.repeated).?.data;
             },
-            .array => return out_stream.writeAll("(array)"),
             .empty_array_sentinel => return out_stream.writeAll("(empty array with sentinel)"),
             .slice => return out_stream.writeAll("(slice)"),
             .float_16 => return out_stream.print("{}", .{val.castTag(.float_16).?.data}),
@@ -1087,7 +1072,7 @@ pub const Value = extern union {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => {
                     const fields = ty.structFields().values();
-                    const field_vals = val.castTag(.@"struct").?.data;
+                    const field_vals = val.castTag(.aggregate).?.data;
                     for (fields) |field, i| {
                         const off = @intCast(usize, ty.structFieldOffset(i, target));
                         writeToMemory(field_vals[i], field.ty, target, buffer[off..]);
@@ -1110,7 +1095,7 @@ pub const Value = extern union {
     fn packedStructToInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb) BigIntConst {
         var bigint = BigIntMutable.init(buf, 0);
         const fields = ty.structFields().values();
-        const field_vals = val.castTag(.@"struct").?.data;
+        const field_vals = val.castTag(.aggregate).?.data;
         var bits: u16 = 0;
         // TODO allocate enough heap space instead of using this buffer
         // on the stack.
@@ -1185,7 +1170,7 @@ pub const Value = extern union {
                     elem.* = try readFromMemory(elem_ty, target, buffer[offset..], arena);
                     offset += @intCast(usize, elem_size);
                 }
-                return Tag.array.create(arena, elems);
+                return Tag.aggregate.create(arena, elems);
             },
             .Struct => switch (ty.containerLayout()) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
@@ -1196,7 +1181,7 @@ pub const Value = extern union {
                         const off = @intCast(usize, ty.structFieldOffset(i, target));
                         field_vals[i] = try readFromMemory(field.ty, target, buffer[off..], arena);
                     }
-                    return Tag.@"struct".create(arena, field_vals);
+                    return Tag.aggregate.create(arena, field_vals);
                 },
                 .Packed => {
                     const endian = target.cpu.arch.endian();
@@ -1250,7 +1235,7 @@ pub const Value = extern union {
                 else => unreachable,
             };
         }
-        return Tag.@"struct".create(arena, field_vals);
+        return Tag.aggregate.create(arena, field_vals);
     }
 
     fn bitCastBigIntToFloat(
@@ -1827,9 +1812,9 @@ pub const Value = extern union {
                 assert(op == .eq);
                 return lhs.castTag(.repeated).?.data.compareWithZero(.eq);
             },
-            .array => {
+            .aggregate => {
                 assert(op == .eq);
-                for (lhs.cast(Payload.Array).?.data) |elem_val| {
+                for (lhs.castTag(.aggregate).?.data) |elem_val| {
                     if (!elem_val.compareWithZero(.eq)) return false;
                 }
                 return true;
@@ -1898,29 +1883,16 @@ pub const Value = extern union {
             },
             .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
             .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
-            .array => {
-                const a_array = a.castTag(.array).?.data;
-                const b_array = b.castTag(.array).?.data;
-
-                if (a_array.len != b_array.len) return false;
-
-                const elem_ty = ty.childType();
-                for (a_array) |a_elem, i| {
-                    const b_elem = b_array[i];
-
-                    if (!eql(a_elem, b_elem, elem_ty)) return false;
-                }
-                return true;
-            },
             .function => {
                 const a_payload = a.castTag(.function).?.data;
                 const b_payload = b.castTag(.function).?.data;
                 return a_payload == b_payload;
             },
-            .@"struct" => {
-                const a_field_vals = a.castTag(.@"struct").?.data;
-                const b_field_vals = b.castTag(.@"struct").?.data;
+            .aggregate => {
+                const a_field_vals = a.castTag(.aggregate).?.data;
+                const b_field_vals = b.castTag(.aggregate).?.data;
                 assert(a_field_vals.len == b_field_vals.len);
+
                 if (ty.isTupleOrAnonStruct()) {
                     const types = ty.tupleFields().types;
                     assert(types.len == a_field_vals.len);
@@ -1929,10 +1901,21 @@ pub const Value = extern union {
                     }
                     return true;
                 }
-                const fields = ty.structFields().values();
-                assert(fields.len == a_field_vals.len);
-                for (fields) |field, i| {
-                    if (!eql(a_field_vals[i], b_field_vals[i], field.ty)) return false;
+
+                if (ty.zigTypeTag() == .Struct) {
+                    const fields = ty.structFields().values();
+                    assert(fields.len == a_field_vals.len);
+                    for (fields) |field, i| {
+                        if (!eql(a_field_vals[i], b_field_vals[i], field.ty)) return false;
+                    }
+                    return true;
+                }
+
+                const elem_ty = ty.childType();
+                for (a_field_vals) |a_elem, i| {
+                    const b_elem = b_field_vals[i];
+
+                    if (!eql(a_elem, b_elem, elem_ty)) return false;
                 }
                 return true;
             },
@@ -2002,7 +1985,7 @@ pub const Value = extern union {
             },
             .Struct => {
                 // A tuple can be represented with .empty_struct_value,
-                // the_one_possible_value, .@"struct" in which case we could
+                // the_one_possible_value, .aggregate in which case we could
                 // end up here and the values are equal if the type has zero fields.
                 return ty.structFieldCount() != 0;
             },
@@ -2072,8 +2055,8 @@ pub const Value = extern union {
                             field.default_val.hash(field.ty, hasher);
                         }
                     },
-                    .@"struct" => {
-                        const field_values = val.castTag(.@"struct").?.data;
+                    .aggregate => {
+                        const field_values = val.castTag(.aggregate).?.data;
                         for (field_values) |field_val, i| {
                             field_val.hash(fields[i].ty, hasher);
                         }
@@ -2190,19 +2173,12 @@ pub const Value = extern union {
         if (val.isComptimeMutablePtr()) return true;
         switch (val.tag()) {
             .repeated => return val.castTag(.repeated).?.data.canMutateComptimeVarState(),
-            .array => {
-                const elems = val.cast(Payload.Array).?.data;
-                for (elems) |elem| {
-                    if (elem.canMutateComptimeVarState()) return true;
-                }
-                return false;
-            },
             .eu_payload => return val.castTag(.eu_payload).?.data.canMutateComptimeVarState(),
             .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.canMutateComptimeVarState(),
             .opt_payload => return val.castTag(.opt_payload).?.data.canMutateComptimeVarState(),
             .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.canMutateComptimeVarState(),
-            .@"struct" => {
-                const fields = val.cast(Payload.Struct).?.data;
+            .aggregate => {
+                const fields = val.castTag(.aggregate).?.data;
                 for (fields) |field| {
                     if (field.canMutateComptimeVarState()) return true;
                 }
@@ -2302,11 +2278,6 @@ pub const Value = extern union {
             .empty_array_sentinel,
             => return markReferencedDeclsAlive(val.cast(Payload.SubValue).?.data),
 
-            .array => {
-                for (val.cast(Payload.Array).?.data) |elem_val| {
-                    markReferencedDeclsAlive(elem_val);
-                }
-            },
             .slice => {
                 const slice = val.cast(Payload.Slice).?.data;
                 markReferencedDeclsAlive(slice.ptr);
@@ -2321,8 +2292,8 @@ pub const Value = extern union {
                 const field_ptr = val.cast(Payload.FieldPtr).?.data;
                 return markReferencedDeclsAlive(field_ptr.container_ptr);
             },
-            .@"struct" => {
-                for (val.cast(Payload.Struct).?.data) |field_val| {
+            .aggregate => {
+                for (val.castTag(.aggregate).?.data) |field_val| {
                     markReferencedDeclsAlive(field_val);
                 }
             },
@@ -2405,7 +2376,7 @@ pub const Value = extern union {
             // No matter the index; all the elements are the same!
             .repeated => return val.castTag(.repeated).?.data,
 
-            .array => return val.castTag(.array).?.data[index],
+            .aggregate => return val.castTag(.aggregate).?.data[index],
             .slice => return val.castTag(.slice).?.data.ptr.elemValueAdvanced(index, arena, buffer),
 
             .decl_ref => return val.castTag(.decl_ref).?.data.val.elemValueAdvanced(index, arena, buffer),
@@ -2426,8 +2397,8 @@ pub const Value = extern union {
     pub fn fieldValue(val: Value, allocator: Allocator, index: usize) error{OutOfMemory}!Value {
         _ = allocator;
         switch (val.tag()) {
-            .@"struct" => {
-                const field_values = val.castTag(.@"struct").?.data;
+            .aggregate => {
+                const field_values = val.castTag(.aggregate).?.data;
                 return field_values[index];
             },
             .@"union" => {
@@ -4199,8 +4170,10 @@ pub const Value = extern union {
             data: []const u8,
         };
 
-        pub const Array = struct {
+        pub const Aggregate = struct {
             base: Payload,
+            /// Field values. The types are according to the struct or array type.
+            /// The length is provided here so that copying a Value does not depend on the Type.
             data: []Value,
         };
 
@@ -4296,15 +4269,6 @@ pub const Value = extern union {
                 /// 0 means ABI-aligned.
                 alignment: u16,
             },
-        };
-
-        pub const Struct = struct {
-            pub const base_tag = Tag.@"struct";
-
-            base: Payload = .{ .tag = base_tag },
-            /// Field values. The types are according to the struct type.
-            /// The length is provided here so that copying a Value does not depend on the Type.
-            data: []Value,
         };
 
         pub const Union = struct {

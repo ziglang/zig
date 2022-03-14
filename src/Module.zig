@@ -5385,7 +5385,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 .len = test_fn_vals.len,
                 .elem_type = try tmp_test_fn_ty.copy(arena),
             }),
-            .val = try Value.Tag.array.create(arena, test_fn_vals),
+            .val = try Value.Tag.aggregate.create(arena, test_fn_vals),
         });
 
         // Add a dependency on each test name and function pointer.
@@ -5417,7 +5417,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 try Value.Tag.decl_ref.create(arena, test_decl), // func
                 Value.initTag(.null_value), // async_frame_size
             };
-            test_fn_vals[i] = try Value.Tag.@"struct".create(arena, field_vals);
+            test_fn_vals[i] = try Value.Tag.aggregate.create(arena, field_vals);
         }
 
         try array_decl.finalizeNewArena(&new_decl_arena);

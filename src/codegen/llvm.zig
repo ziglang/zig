@@ -1511,8 +1511,8 @@ pub const DeclGen = struct {
                         .True, // don't null terminate. bytes has the sentinel, if any.
                     );
                 },
-                .array => {
-                    const elem_vals = tv.val.castTag(.array).?.data;
+                .aggregate => {
+                    const elem_vals = tv.val.castTag(.aggregate).?.data;
                     const elem_ty = tv.ty.elemType();
                     const gpa = dg.gpa;
                     const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len);
@@ -1665,10 +1665,75 @@ pub const DeclGen = struct {
             },
             .Struct => {
                 const llvm_struct_ty = try dg.llvmType(tv.ty);
-                const field_vals = tv.val.castTag(.@"struct").?.data;
+                const field_vals = tv.val.castTag(.aggregate).?.data;
                 const gpa = dg.gpa;
-                const struct_obj = tv.ty.castTag(.@"struct").?.data;
                 const target = dg.module.getTarget();
+
+                if (tv.ty.isTupleOrAnonStruct()) {
+                    const tuple = tv.ty.tupleFields();
+                    var llvm_fields: std.ArrayListUnmanaged(*const llvm.Value) = .{};
+                    defer llvm_fields.deinit(gpa);
+
+                    try llvm_fields.ensureUnusedCapacity(gpa, tuple.types.len);
+
+                    comptime assert(struct_layout_version == 2);
+                    var offset: u64 = 0;
+                    var big_align: u32 = 0;
+                    var need_unnamed = false;
+
+                    for (tuple.types) |field_ty, i| {
+                        if (tuple.values[i].tag() != .unreachable_value) continue;
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+
+                        const field_align = field_ty.abiAlignment(target);
+                        big_align = @maximum(big_align, field_align);
+                        const prev_offset = offset;
+                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+
+                        const padding_len = offset - prev_offset;
+                        if (padding_len > 0) {
+                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
+                            // TODO make this and all other padding elsewhere in debug
+                            // builds be 0xaa not undef.
+                            llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
+                        }
+
+                        const field_llvm_val = try dg.genTypedValue(.{
+                            .ty = field_ty,
+                            .val = field_vals[i],
+                        });
+
+                        need_unnamed = need_unnamed or dg.isUnnamedType(field_ty, field_llvm_val);
+
+                        llvm_fields.appendAssumeCapacity(field_llvm_val);
+
+                        offset += field_ty.abiSize(target);
+                    }
+                    {
+                        const prev_offset = offset;
+                        offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                        const padding_len = offset - prev_offset;
+                        if (padding_len > 0) {
+                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
+                            llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
+                        }
+                    }
+
+                    if (need_unnamed) {
+                        return dg.context.constStruct(
+                            llvm_fields.items.ptr,
+                            @intCast(c_uint, llvm_fields.items.len),
+                            .False,
+                        );
+                    } else {
+                        return llvm_struct_ty.constNamedStruct(
+                            llvm_fields.items.ptr,
+                            @intCast(c_uint, llvm_fields.items.len),
+                        );
+                    }
+                }
+
+                const struct_obj = tv.ty.castTag(.@"struct").?.data;
 
                 if (struct_obj.layout == .Packed) {
                     const big_bits = struct_obj.packedIntegerBits(target);
@@ -1707,8 +1772,8 @@ pub const DeclGen = struct {
                 comptime assert(struct_layout_version == 2);
                 var offset: u64 = 0;
                 var big_align: u32 = 0;
-
                 var need_unnamed = false;
+
                 for (struct_obj.fields.values()) |field, i| {
                     if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -1854,10 +1919,10 @@ pub const DeclGen = struct {
                         @intCast(c_uint, llvm_elems.len),
                     );
                 },
-                .array => {
+                .aggregate => {
                     // Note, sentinel is not stored even if the type has a sentinel.
                     // The value includes the sentinel in those cases.
-                    const elem_vals = tv.val.castTag(.array).?.data;
+                    const elem_vals = tv.val.castTag(.aggregate).?.data;
                     const vector_len = @intCast(usize, tv.ty.arrayLen());
                     assert(vector_len == elem_vals.len or vector_len + 1 == elem_vals.len);
                     const elem_ty = tv.ty.elemType();

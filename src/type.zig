@@ -3568,6 +3568,8 @@ pub const Type = extern union {
             .const_slice_u8,
             .const_slice,
             .mut_slice,
+            .tuple,
+            .empty_struct_literal,
             => return null,
 
             .pointer => return self.castTag(.pointer).?.data.sentinel,

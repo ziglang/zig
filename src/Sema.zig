@@ -3119,7 +3119,7 @@ fn validateStructInit(
             field_values[i] = fields[i].default_val;
         }
 
-        const struct_val = try Value.Tag.@"struct".create(sema.arena, field_values);
+        const struct_val = try Value.Tag.aggregate.create(sema.arena, field_values);
         const struct_init = try sema.addConstant(struct_ty, struct_val);
         try sema.storePtr2(block, init_src, struct_ptr, init_src, struct_init, init_src, .store);
         return;
@@ -3246,7 +3246,7 @@ fn zirValidateArrayInit(
 
         block.instructions.shrinkRetainingCapacity(first_block_index);
 
-        const array_val = try Value.Tag.array.create(sema.arena, element_vals);
+        const array_val = try Value.Tag.aggregate.create(sema.arena, element_vals);
         const array_init = try sema.addConstant(array_ty, array_val);
         try sema.storePtr2(block, init_src, array_ptr, init_src, array_init, init_src, .store);
     }
@@ -8175,7 +8175,7 @@ fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             }
             return sema.addConstant(
                 operand_type,
-                try Value.Tag.array.create(sema.arena, elems),
+                try Value.Tag.aggregate.create(sema.arena, elems),
             );
         } else {
             const result_val = try val.bitwiseNot(scalar_type, sema.arena, target);
@@ -8239,7 +8239,7 @@ fn analyzeTupleCat(
     });
 
     const runtime_src = opt_runtime_src orelse {
-        const tuple_val = try Value.Tag.@"struct".create(sema.arena, values);
+        const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
         return sema.addConstant(tuple_ty, tuple_val);
     };
 
@@ -8334,7 +8334,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 .len = final_len,
                 .elem_type = try lhs_info.elem_type.copy(anon_decl.arena()),
             });
-            const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+            const val = try Value.Tag.aggregate.create(anon_decl.arena(), buf);
             const decl = try anon_decl.finish(ty, val);
             if (lhs_single_ptr or rhs_single_ptr) {
                 return sema.analyzeDeclRef(decl);
@@ -8419,7 +8419,7 @@ fn analyzeTupleMul(
     });
 
     const runtime_src = opt_runtime_src orelse {
-        const tuple_val = try Value.Tag.@"struct".create(sema.arena, values);
+        const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
         return sema.addConstant(tuple_ty, tuple_val);
     };
 
@@ -8506,7 +8506,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             if (mulinfo.sentinel) |sent| {
                 buf[final_len] = try sent.copy(anon_decl.arena());
             }
-            break :blk try Value.Tag.array.create(anon_decl.arena(), buf);
+            break :blk try Value.Tag.aggregate.create(anon_decl.arena(), buf);
         };
         const decl = try anon_decl.finish(final_ty, val);
         if (is_single_ptr) {
@@ -10186,7 +10186,7 @@ fn zirBuiltinSrc(
 
     return sema.addConstant(
         try sema.getBuiltinType(block, src, "SourceLocation"),
-        try Value.Tag.@"struct".create(sema.arena, field_values),
+        try Value.Tag.aggregate.create(sema.arena, field_values),
     );
 }
 
@@ -10289,7 +10289,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // arg_type: ?type,
                     param_ty_val,
                 };
-                param_val.* = try Value.Tag.@"struct".create(params_anon_decl.arena(), param_fields);
+                param_val.* = try Value.Tag.aggregate.create(params_anon_decl.arena(), param_fields);
             }
 
             const args_val = v: {
@@ -10314,7 +10314,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .len = param_vals.len,
                         .elem_type = param_info_decl.ty,
                     }),
-                    try Value.Tag.array.create(
+                    try Value.Tag.aggregate.create(
                         params_anon_decl.arena(),
                         param_vals,
                     ),
@@ -10345,7 +10345,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Fn)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10364,7 +10364,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Int)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10377,7 +10377,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Float)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10412,7 +10412,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Pointer)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10430,7 +10430,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Array)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10446,7 +10446,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Vector)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10459,7 +10459,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Optional)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10509,7 +10509,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         name_val,
                     };
 
-                    field_val.* = try Value.Tag.@"struct".create(
+                    field_val.* = try Value.Tag.aggregate.create(
                         fields_anon_decl.arena(),
                         error_field_fields,
                     );
@@ -10525,7 +10525,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .len = vals.len,
                         .elem_type = error_field_ty,
                     }),
-                    try Value.Tag.array.create(
+                    try Value.Tag.aggregate.create(
                         fields_anon_decl.arena(),
                         vals,
                     ),
@@ -10559,7 +10559,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.ErrorUnion)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10618,7 +10618,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // value: comptime_int,
                     int_val,
                 };
-                field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), enum_field_fields);
+                field_val.* = try Value.Tag.aggregate.create(fields_anon_decl.arena(), enum_field_fields);
             }
 
             const fields_val = v: {
@@ -10627,7 +10627,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .len = enum_field_vals.len,
                         .elem_type = enum_field_ty,
                     }),
-                    try Value.Tag.array.create(
+                    try Value.Tag.aggregate.create(
                         fields_anon_decl.arena(),
                         enum_field_vals,
                     ),
@@ -10659,7 +10659,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Enum)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10717,7 +10717,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // alignment: comptime_int,
                     try Value.Tag.int_u64.create(fields_anon_decl.arena(), alignment),
                 };
-                field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), union_field_fields);
+                field_val.* = try Value.Tag.aggregate.create(fields_anon_decl.arena(), union_field_fields);
             }
 
             const fields_val = v: {
@@ -10726,7 +10726,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .len = union_field_vals.len,
                         .elem_type = union_field_ty,
                     }),
-                    try Value.Tag.array.create(
+                    try Value.Tag.aggregate.create(
                         fields_anon_decl.arena(),
                         try fields_anon_decl.arena().dupe(Value, union_field_vals),
                     ),
@@ -10761,7 +10761,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Union)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10827,7 +10827,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             // alignment: comptime_int,
                             try Value.Tag.int_u64.create(fields_anon_decl.arena(), alignment),
                         };
-                        struct_field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), struct_field_fields);
+                        struct_field_val.* = try Value.Tag.aggregate.create(fields_anon_decl.arena(), struct_field_fields);
                     }
                     break :fv struct_field_vals;
                 }
@@ -10871,7 +10871,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         // alignment: comptime_int,
                         try Value.Tag.int_u64.create(fields_anon_decl.arena(), alignment),
                     };
-                    field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), struct_field_fields);
+                    field_val.* = try Value.Tag.aggregate.create(fields_anon_decl.arena(), struct_field_fields);
                 }
                 break :fv struct_field_vals;
             };
@@ -10882,7 +10882,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .len = struct_field_vals.len,
                         .elem_type = struct_field_ty,
                     }),
-                    try Value.Tag.array.create(
+                    try Value.Tag.aggregate.create(
                         fields_anon_decl.arena(),
                         try fields_anon_decl.arena().dupe(Value, struct_field_vals),
                     ),
@@ -10911,7 +10911,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Struct)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10931,7 +10931,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
                     .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Opaque)),
-                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                    .val = try Value.Tag.aggregate.create(sema.arena, field_values),
                 }),
             );
         },
@@ -10987,7 +10987,7 @@ fn typeInfoDecls(
             //is_pub: bool,
             Value.makeBool(decl.is_pub),
         };
-        decls_val.* = try Value.Tag.@"struct".create(decls_anon_decl.arena(), fields);
+        decls_val.* = try Value.Tag.aggregate.create(decls_anon_decl.arena(), fields);
     }
 
     const new_decl = try decls_anon_decl.finish(
@@ -10995,7 +10995,7 @@ fn typeInfoDecls(
             .len = decls_vals.len,
             .elem_type = declaration_ty,
         }),
-        try Value.Tag.array.create(
+        try Value.Tag.aggregate.create(
             decls_anon_decl.arena(),
             try decls_anon_decl.arena().dupe(Value, decls_vals),
         ),
@@ -11816,7 +11816,7 @@ fn finishStructInit(
         for (field_inits) |field_init, i| {
             values[i] = (sema.resolveMaybeUndefVal(block, src, field_init) catch unreachable).?;
         }
-        const struct_val = try Value.Tag.@"struct".create(sema.arena, values);
+        const struct_val = try Value.Tag.aggregate.create(sema.arena, values);
         return sema.addConstantMaybeRef(block, src, struct_ty, struct_val, is_ref);
     }
 
@@ -11877,7 +11877,7 @@ fn zirStructInitAnon(
     });
 
     const runtime_src = opt_runtime_src orelse {
-        const tuple_val = try Value.Tag.@"struct".create(sema.arena, values);
+        const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
         return sema.addConstantMaybeRef(block, src, tuple_ty, tuple_val, is_ref);
     };
 
@@ -11974,7 +11974,7 @@ fn zirArrayInit(
             elem_vals[i] = (sema.resolveMaybeUndefVal(block, src, arg) catch unreachable).?;
         }
 
-        const array_val = try Value.Tag.array.create(sema.arena, elem_vals);
+        const array_val = try Value.Tag.aggregate.create(sema.arena, elem_vals);
         return sema.addConstantMaybeRef(block, src, array_ty, array_val, is_ref);
     };
 
@@ -12043,7 +12043,7 @@ fn zirArrayInitAnon(
     });
 
     const runtime_src = opt_runtime_src orelse {
-        const tuple_val = try Value.Tag.@"struct".create(sema.arena, values);
+        const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
         return sema.addConstantMaybeRef(block, src, tuple_ty, tuple_val, is_ref);
     };
 
@@ -12250,7 +12250,7 @@ fn zirUnaryMath(
                 }
                 return sema.addConstant(
                     result_ty,
-                    try Value.Tag.array.create(sema.arena, elems),
+                    try Value.Tag.aggregate.create(sema.arena, elems),
                 );
             }
 
@@ -12350,7 +12350,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
         .AnyFrame => return Air.Inst.Ref.anyframe_type,
         .EnumLiteral => return Air.Inst.Ref.enum_literal_type,
         .Int => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             const signedness_val = struct_val[0];
             const bits_val = struct_val[1];
@@ -12364,7 +12364,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.addType(ty);
         },
         .Vector => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             const len_val = struct_val[0];
             const child_val = struct_val[1];
@@ -12377,7 +12377,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.addType(ty);
         },
         .Float => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             // bits: comptime_int,
             const bits_val = struct_val[0];
@@ -12394,7 +12394,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.addType(ty);
         },
         .Pointer => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             const size_val = struct_val[0];
             const is_const_val = struct_val[1];
@@ -12436,7 +12436,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.addType(ty);
         },
         .Array => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             // len: comptime_int,
             const len_val = struct_val[0];
@@ -12460,7 +12460,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.addType(ty);
         },
         .Optional => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             // child: type,
             const child_val = struct_val[0];
@@ -12472,7 +12472,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.addType(ty);
         },
         .ErrorUnion => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             // error_set: type,
             const error_set_val = struct_val[0];
@@ -12495,12 +12495,12 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const slice_val = payload_val.castTag(.slice).?.data;
             const decl = slice_val.ptr.pointerDecl().?;
             try sema.ensureDeclAnalyzed(decl);
-            const array_val = decl.val.castTag(.array).?.data;
+            const array_val = decl.val.castTag(.aggregate).?.data;
 
             var names: Module.ErrorSet.NameMap = .{};
             try names.ensureUnusedCapacity(sema.arena, array_val.len);
             for (array_val) |elem_val| {
-                const struct_val = elem_val.castTag(.@"struct").?.data;
+                const struct_val = elem_val.castTag(.aggregate).?.data;
                 // TODO use reflection instead of magic numbers here
                 // error_set: type,
                 const name_val = struct_val[0];
@@ -12516,7 +12516,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
         },
         .Struct => {
             // TODO use reflection instead of magic numbers here
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // layout: containerlayout,
             const layout_val = struct_val[0];
             // fields: []const enumfield,
@@ -12537,7 +12537,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 try sema.reifyStruct(block, inst, src, layout_val, fields_val);
         },
         .Enum => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // TODO use reflection instead of magic numbers here
             // layout: ContainerLayout,
             const layout_val = struct_val[0];
@@ -12617,9 +12617,9 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                     .ty = enum_obj.tag_ty,
                 });
 
-                const array_vals = decl.val.castTag(.array).?.data;
+                const array_vals = decl.val.castTag(.aggregate).?.data;
                 for (array_vals) |elem_val| {
-                    const field_struct_val = elem_val.castTag(.@"struct").?.data;
+                    const field_struct_val = elem_val.castTag(.aggregate).?.data;
                     // TODO use reflection instead of magic numbers here
                     // name: []const u8
                     const name_val = field_struct_val[0];
@@ -12648,7 +12648,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.analyzeDeclVal(block, src, new_decl);
         },
         .Opaque => {
-            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
             // decls: []const Declaration,
             const decls_val = struct_val[0];
 
@@ -12694,7 +12694,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
         .Union => return sema.fail(block, src, "TODO: Sema.zirReify for Union", .{}),
         .Fn => return sema.fail(block, src, "TODO: Sema.zirReify for Fn", .{}),
         .BoundFn => @panic("TODO delete BoundFn from the language"),
-        .Frame => return sema.fail(block, src, "TODO: Sema.zirReify for Frame", .{}),
+        .Frame => @panic("TODO implement https://github.com/ziglang/zig/issues/10710"),
     }
 }
 
@@ -12717,7 +12717,7 @@ fn reifyTuple(
     var i: usize = 0;
     while (i < fields_len) : (i += 1) {
         const elem_val = try fields_val.elemValue(sema.arena, i);
-        const field_struct_val = elem_val.castTag(.@"struct").?.data;
+        const field_struct_val = elem_val.castTag(.aggregate).?.data;
         // TODO use reflection instead of magic numbers here
         // name: []const u8
         const name_val = field_struct_val[0];
@@ -12818,7 +12818,7 @@ fn reifyStruct(
     var i: usize = 0;
     while (i < fields_len) : (i += 1) {
         const elem_val = try fields_val.elemValue(sema.arena, i);
-        const field_struct_val = elem_val.castTag(.@"struct").?.data;
+        const field_struct_val = elem_val.castTag(.aggregate).?.data;
         // TODO use reflection instead of magic numbers here
         // name: []const u8
         const name_val = field_struct_val[0];
@@ -13219,7 +13219,7 @@ fn zirBitCount(
                 }
                 return sema.addConstant(
                     result_ty,
-                    try Value.Tag.array.create(sema.arena, elems),
+                    try Value.Tag.aggregate.create(sema.arena, elems),
                 );
             } else {
                 try sema.requireRuntimeBlock(block, operand_src);
@@ -13985,7 +13985,7 @@ fn analyzeShuffle(
                     values[i] = try b_val.elemValue(sema.arena, unsigned);
                 }
             }
-            const res_val = try Value.Tag.array.create(sema.arena, values);
+            const res_val = try Value.Tag.aggregate.create(sema.arena, values);
             return sema.addConstant(res_ty, res_val);
         }
     }
@@ -14008,7 +14008,7 @@ fn analyzeShuffle(
         while (i < max_len) : (i += 1) {
             expand_mask_values[i] = Value.negative_one;
         }
-        const expand_mask = try Value.Tag.array.create(sema.arena, expand_mask_values);
+        const expand_mask = try Value.Tag.aggregate.create(sema.arena, expand_mask_values);
 
         if (a_len < b_len) {
             const undef = try sema.addConstUndef(a_ty);
@@ -14454,7 +14454,7 @@ fn zirMinMax(
         }
         return sema.addConstant(
             simd_op.result_ty,
-            try Value.Tag.array.create(sema.arena, elems),
+            try Value.Tag.aggregate.create(sema.arena, elems),
         );
     } else rs: {
         if (simd_op.rhs_val) |rhs_val| {
@@ -16016,7 +16016,7 @@ fn structFieldVal(
                     return sema.addConstant(field.ty, opv);
                 }
 
-                const field_values = struct_val.castTag(.@"struct").?.data;
+                const field_values = struct_val.castTag(.aggregate).?.data;
                 return sema.addConstant(field.ty, field_values[field_index]);
             }
 
@@ -16084,7 +16084,7 @@ fn tupleFieldValByIndex(
         if ((try sema.typeHasOnePossibleValue(block, src, field_ty))) |opv| {
             return sema.addConstant(field_ty, opv);
         }
-        const field_values = tuple_val.castTag(.@"struct").?.data;
+        const field_values = tuple_val.castTag(.aggregate).?.data;
         return sema.addConstant(field_ty, field_values[field_index]);
     }
 
@@ -16414,7 +16414,7 @@ fn tupleField(
 
     if (try sema.resolveMaybeUndefVal(block, tuple_src, tuple)) |tuple_val| {
         if (tuple_val.isUndef()) return sema.addConstUndef(field_ty);
-        const field_values = tuple_val.castTag(.@"struct").?.data;
+        const field_values = tuple_val.castTag(.aggregate).?.data;
         return sema.addConstant(field_ty, field_values[field_index]);
     }
 
@@ -17510,7 +17510,7 @@ fn beginComptimePtrMutation(
                             const elems = try arena.alloc(Value, array_len_including_sentinel);
                             mem.set(Value, elems, Value.undef);
 
-                            parent.val.* = try Value.Tag.array.create(arena, elems);
+                            parent.val.* = try Value.Tag.aggregate.create(arena, elems);
 
                             return ComptimePtrMutationKit{
                                 .decl_ref_mut = parent.decl_ref_mut,
@@ -17537,7 +17537,7 @@ fn beginComptimePtrMutation(
                                 elem.* = try Value.Tag.int_u64.create(arena, bytes[i]);
                             }
 
-                            parent.val.* = try Value.Tag.array.create(arena, elems);
+                            parent.val.* = try Value.Tag.aggregate.create(arena, elems);
 
                             return ComptimePtrMutationKit{
                                 .decl_ref_mut = parent.decl_ref_mut,
@@ -17562,7 +17562,7 @@ fn beginComptimePtrMutation(
                             const elems = try arena.alloc(Value, array_len_including_sentinel);
                             mem.set(Value, elems, repeated_val);
 
-                            parent.val.* = try Value.Tag.array.create(arena, elems);
+                            parent.val.* = try Value.Tag.aggregate.create(arena, elems);
 
                             return ComptimePtrMutationKit{
                                 .decl_ref_mut = parent.decl_ref_mut,
@@ -17571,9 +17571,9 @@ fn beginComptimePtrMutation(
                             };
                         },
 
-                        .array => return ComptimePtrMutationKit{
+                        .aggregate => return ComptimePtrMutationKit{
                             .decl_ref_mut = parent.decl_ref_mut,
-                            .val = &parent.val.castTag(.array).?.data[elem_ptr.index],
+                            .val = &parent.val.castTag(.aggregate).?.data[elem_ptr.index],
                             .ty = elem_ty,
                         },
 
@@ -17613,7 +17613,7 @@ fn beginComptimePtrMutation(
                             const fields = try arena.alloc(Value, parent.ty.structFieldCount());
                             mem.set(Value, fields, Value.undef);
 
-                            parent.val.* = try Value.Tag.@"struct".create(arena, fields);
+                            parent.val.* = try Value.Tag.aggregate.create(arena, fields);
 
                             return ComptimePtrMutationKit{
                                 .decl_ref_mut = parent.decl_ref_mut,
@@ -17639,9 +17639,9 @@ fn beginComptimePtrMutation(
                         else => unreachable,
                     }
                 },
-                .@"struct" => return ComptimePtrMutationKit{
+                .aggregate => return ComptimePtrMutationKit{
                     .decl_ref_mut = parent.decl_ref_mut,
-                    .val = &parent.val.castTag(.@"struct").?.data[field_index],
+                    .val = &parent.val.castTag(.aggregate).?.data[field_index],
                     .ty = field_ty,
                 },
                 .@"union" => {
@@ -18209,7 +18209,7 @@ fn coerceArrayLike(
 
     return sema.addConstant(
         dest_ty,
-        try Value.Tag.array.create(sema.arena, element_vals),
+        try Value.Tag.aggregate.create(sema.arena, element_vals),
     );
 }
 
@@ -18266,7 +18266,7 @@ fn coerceTupleToArray(
 
     return sema.addConstant(
         dest_ty,
-        try Value.Tag.array.create(sema.arena, element_vals),
+        try Value.Tag.aggregate.create(sema.arena, element_vals),
     );
 }
 
@@ -18397,7 +18397,7 @@ fn coerceTupleToStruct(
 
     return sema.addConstant(
         struct_ty,
-        try Value.Tag.@"struct".create(sema.arena, field_vals),
+        try Value.Tag.aggregate.create(sema.arena, field_vals),
     );
 }
 

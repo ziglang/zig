@@ -225,9 +225,9 @@ pub fn generateSymbol(
                     return Result{ .externally_managed = payload.data };
                 }
             },
-            .array => {
+            .aggregate => {
                 // TODO populate .debug_info for the array
-                const elem_vals = typed_value.val.castTag(.array).?.data;
+                const elem_vals = typed_value.val.castTag(.aggregate).?.data;
                 const elem_ty = typed_value.ty.elemType();
                 for (elem_vals) |elem_val| {
                     switch (try generateSymbol(bin_file, src_loc, .{
@@ -554,7 +554,7 @@ pub fn generateSymbol(
             }
 
             const struct_begin = code.items.len;
-            const field_vals = typed_value.val.castTag(.@"struct").?.data;
+            const field_vals = typed_value.val.castTag(.aggregate).?.data;
             for (field_vals) |field_val, index| {
                 const field_ty = typed_value.ty.structFieldType(index);
                 if (!field_ty.hasRuntimeBits()) continue;

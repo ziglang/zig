@@ -748,7 +748,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             },
             .Struct => {
-                const field_vals = val.castTag(.@"struct").?.data;
+                const field_vals = val.castTag(.aggregate).?.data;
 
                 try writer.writeAll("(");
                 try dg.renderTypecast(writer, ty);
