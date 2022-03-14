@@ -2573,15 +2573,14 @@ pub const Type = extern union {
             .array_u8_sentinel_0 => self.castTag(.array_u8_sentinel_0).?.data + 1,
             .array, .vector => {
                 const payload = self.cast(Payload.Array).?.data;
-                const elem_size = @maximum(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
+                const elem_size = payload.elem_type.abiSize(target);
+                assert(elem_size >= payload.elem_type.abiAlignment(target));
                 return payload.len * elem_size;
             },
             .array_sentinel => {
                 const payload = self.castTag(.array_sentinel).?.data;
-                const elem_size = std.math.max(
-                    payload.elem_type.abiAlignment(target),
-                    payload.elem_type.abiSize(target),
-                );
+                const elem_size = payload.elem_type.abiSize(target);
+                assert(elem_size >= payload.elem_type.abiAlignment(target));
                 return (payload.len + 1) * elem_size;
             },
             .i16, .u16 => return 2,
