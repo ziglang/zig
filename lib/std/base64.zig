@@ -6,28 +6,10 @@
 //!
 //! There are four variants defined here:
 //!
-//! standard:
-//!   Standard Base64 codecs, with padding
-//!
-//! standard_no_pad:
-//!   Standard Base64 codecs, without padding
-//!
-//! url_safe:
-//!   URL-safe Base64 codecs, with padding
-//!
-//! url_safe_no_pad:
-//!   URL-safe Base64 codecs, without padding
-//!
-//! Example:
-//!    const base64 = std.base64.standard;
-//!    var buffer: [0x100]u8 = undefined;
-//!    var source = "all your base are belong to us";
-//!    const encoded = base64.Encoder.encode(&buffer, source);
-//!    std.debug.print("{s}\n", .{encoded});
-//!
-//!    var decoded = buffer[0..try base64.Decoder.calcSizeForSlice(encoded)];
-//!    try base64.Decoder.decode(decoded, encoded);
-//!    std.debug.print("{s}\n", .{decoded});
+//!   1. standard:         Standard Base64 codecs + padding
+//!   2. standard_no_pad:  Standard Base64 codecs - padding
+//!   3. url_safe:         URL-safe Base64 codecs + padding
+//!   4. url_safe_no_pad:  URL-safe Base64 codecs - padding
 
 const std = @import("std.zig");
 const assert = std.debug.assert;
@@ -344,6 +326,8 @@ test "base64 url_safe_no_pad" {
     comptime try testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
 }
 
+test ""
+
 fn testBase64() !void {
     const codecs = standard;
 
@@ -473,3 +457,4 @@ fn testNoSpaceLeftError(codecs: Codecs, encoded: []const u8) !void {
         return error.ExpectedError;
     } else |err| if (err != error.NoSpaceLeft) return err;
 }
+
