@@ -12490,17 +12490,14 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const is_tuple_val = struct_val[3];
 
             // Decls
-            const decls_slice_val = decls_val.castTag(.slice).?.data;
-            const decls_decl = decls_slice_val.ptr.pointerDecl().?;
-            try sema.ensureDeclAnalyzed(decls_decl);
-            if (decls_decl.ty.arrayLen() > 0) {
+            if (decls_val.sliceLen() > 0) {
                 return sema.fail(block, src, "reified structs must have no decls", .{});
             }
 
             return if (is_tuple_val.toBool())
-                sema.reifyTuple(block, src, fields_val)
+                try sema.reifyTuple(block, src, fields_val)
             else
-                sema.reifyStruct(block, inst, src, layout_val, fields_val);
+                try sema.reifyStruct(block, inst, src, layout_val, fields_val);
         },
         .Enum => {
             const struct_val = union_val.val.castTag(.@"struct").?.data;
@@ -12523,10 +12520,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             }
 
             // Decls
-            const decls_slice_val = decls_val.castTag(.slice).?.data;
-            const decls_decl = decls_slice_val.ptr.pointerDecl().?;
-            try sema.ensureDeclAnalyzed(decls_decl);
-            if (decls_decl.ty.arrayLen() > 0) {
+            if (decls_val.sliceLen() > 0) {
                 return sema.fail(block, src, "reified enums must have no decls", .{});
             }
 
@@ -12622,10 +12616,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const decls_val = struct_val[0];
 
             // Decls
-            const decls_slice_val = decls_val.castTag(.slice).?.data;
-            const decls_decl = decls_slice_val.ptr.pointerDecl().?;
-            try sema.ensureDeclAnalyzed(decls_decl);
-            if (decls_decl.ty.arrayLen() > 0) {
+            if (decls_val.sliceLen() > 0) {
                 return sema.fail(block, src, "reified opaque must have no decls", .{});
             }
 
@@ -12676,70 +12667,68 @@ fn reifyTuple(
     src: LazySrcLoc,
     fields_val: Value,
 ) CompileError!Air.Inst.Ref {
-    const slice_val = fields_val.castTag(.slice).?.data;
-    const decl = slice_val.ptr.pointerDecl().?;
-    try sema.ensureDeclAnalyzed(decl);
-    const fields_len = try sema.usizeCast(block, src, decl.ty.arrayLen());
+    const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen());
+    if (fields_len == 0) return Air.Inst.Ref.empty_struct;
+
     const types = try sema.arena.alloc(Type, fields_len);
     const values = try sema.arena.alloc(Value, fields_len);
 
-    if (fields_len > 0) {
-        var used_fields: std.AutoArrayHashMapUnmanaged(u32, void) = .{};
-        defer used_fields.deinit(sema.gpa);
-        try used_fields.ensureTotalCapacity(sema.gpa, fields_len);
+    var used_fields: std.AutoArrayHashMapUnmanaged(u32, void) = .{};
+    defer used_fields.deinit(sema.gpa);
+    try used_fields.ensureTotalCapacity(sema.gpa, fields_len);
 
-        const array_vals = decl.val.castTag(.array).?.data;
-        for (array_vals) |elem_val| {
-            const field_struct_val = elem_val.castTag(.@"struct").?.data;
-            // TODO use reflection instead of magic numbers here
-            // name: []const u8
-            const name_val = field_struct_val[0];
-            // field_type: type,
-            const field_type_val = field_struct_val[1];
-            //default_value: ?*const anyopaque,
-            const default_value_val = field_struct_val[2];
+    var i: usize = 0;
+    while (i < fields_len) : (i += 1) {
+        const elem_val = try fields_val.elemValue(sema.arena, i);
+        const field_struct_val = elem_val.castTag(.@"struct").?.data;
+        // TODO use reflection instead of magic numbers here
+        // name: []const u8
+        const name_val = field_struct_val[0];
+        // field_type: type,
+        const field_type_val = field_struct_val[1];
+        //default_value: ?*const anyopaque,
+        const default_value_val = field_struct_val[2];
 
-            const field_name = try name_val.toAllocatedBytes(
-                Type.initTag(.const_slice_u8),
-                sema.arena,
+        const field_name = try name_val.toAllocatedBytes(
+            Type.initTag(.const_slice_u8),
+            sema.arena,
+        );
+
+        const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch |err| {
+            return sema.fail(
+                block,
+                src,
+                "tuple cannot have non-numeric field '{s}': {}",
+                .{ field_name, err },
             );
+        };
 
-            const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch |err| {
-                return sema.fail(
-                    block,
-                    src,
-                    "tuple cannot have non-numeric field '{s}': {}",
-                    .{ field_name, err },
-                );
-            };
-
-            if (field_index >= fields_len) {
-                return sema.fail(
-                    block,
-                    src,
-                    "tuple field {} exceeds tuple field count",
-                    .{field_index},
-                );
-            }
-
-            const gop = used_fields.getOrPutAssumeCapacity(field_index);
-            if (gop.found_existing) {
-                // TODO: better source location
-                return sema.fail(block, src, "duplicate tuple field {}", .{field_index});
-            }
-
-            const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
-                const payload_val = if (opt_val.pointerDecl()) |opt_decl|
-                    opt_decl.val
-                else
-                    opt_val;
-                break :blk try payload_val.copy(sema.arena);
-            } else Value.initTag(.unreachable_value);
-
-            var buffer: Value.ToTypeBuffer = undefined;
-            types[field_index] = try field_type_val.toType(&buffer).copy(sema.arena);
-            values[field_index] = default_val;
+        if (field_index >= fields_len) {
+            return sema.fail(
+                block,
+                src,
+                "tuple field {} exceeds tuple field count",
+                .{field_index},
+            );
         }
+
+        const gop = used_fields.getOrPutAssumeCapacity(field_index);
+        if (gop.found_existing) {
+            // TODO: better source location
+            return sema.fail(block, src, "duplicate tuple field {}", .{field_index});
+        }
+
+        const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
+            const payload_val = if (opt_val.pointerDecl()) |opt_decl|
+                opt_decl.val
+            else
+                opt_val;
+            break :blk try payload_val.copy(sema.arena);
+        } else Value.initTag(.unreachable_value);
+
+        var buffer: Value.ToTypeBuffer = undefined;
+        types[field_index] = try field_type_val.toType(&buffer).copy(sema.arena);
+        values[field_index] = default_val;
     }
 
     const ty = try Type.Tag.tuple.create(sema.arena, .{
@@ -12757,6 +12746,9 @@ fn reifyStruct(
     layout_val: Value,
     fields_val: Value,
 ) CompileError!Air.Inst.Ref {
+    const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen());
+    if (fields_len == 0) return Air.Inst.Ref.empty_struct;
+
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
     const new_decl_arena_allocator = new_decl_arena.allocator();
@@ -12777,7 +12769,7 @@ fn reifyStruct(
         .node_offset = src.node_offset,
         .zir_index = inst,
         .layout = layout_val.toEnum(std.builtin.Type.ContainerLayout),
-        .status = .have_layout,
+        .status = .have_field_types,
         .known_non_opv = undefined,
         .namespace = .{
             .parent = block.namespace,
@@ -12787,57 +12779,50 @@ fn reifyStruct(
     };
 
     // Fields
-    const slice_val = fields_val.castTag(.slice).?.data;
-    const decl = slice_val.ptr.pointerDecl().?;
-    try sema.ensureDeclAnalyzed(decl);
-    const fields_len = try sema.usizeCast(block, src, decl.ty.arrayLen());
-    if (fields_len > 0) {
-        struct_obj.status = .have_field_types;
-        try struct_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+    try struct_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+    var i: usize = 0;
+    while (i < fields_len) : (i += 1) {
+        const elem_val = try fields_val.elemValue(sema.arena, i);
+        const field_struct_val = elem_val.castTag(.@"struct").?.data;
+        // TODO use reflection instead of magic numbers here
+        // name: []const u8
+        const name_val = field_struct_val[0];
+        // field_type: type,
+        const field_type_val = field_struct_val[1];
+        //default_value: ?*const anyopaque,
+        const default_value_val = field_struct_val[2];
+        // is_comptime: bool,
+        const is_comptime_val = field_struct_val[3];
+        // alignment: comptime_int,
+        const alignment_val = field_struct_val[4];
 
-        const array_vals = decl.val.castTag(.array).?.data;
-        for (array_vals) |elem_val| {
-            const field_struct_val = elem_val.castTag(.@"struct").?.data;
-            // TODO use reflection instead of magic numbers here
-            // name: []const u8
-            const name_val = field_struct_val[0];
-            // field_type: type,
-            const field_type_val = field_struct_val[1];
-            //default_value: ?*const anyopaque,
-            const default_value_val = field_struct_val[2];
-            // is_comptime: bool,
-            const is_comptime_val = field_struct_val[3];
-            // alignment: comptime_int,
-            const alignment_val = field_struct_val[4];
+        const field_name = try name_val.toAllocatedBytes(
+            Type.initTag(.const_slice_u8),
+            new_decl_arena_allocator,
+        );
 
-            const field_name = try name_val.toAllocatedBytes(
-                Type.initTag(.const_slice_u8),
-                new_decl_arena_allocator,
-            );
-
-            const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
-            if (gop.found_existing) {
-                // TODO: better source location
-                return sema.fail(block, src, "duplicate struct field {s}", .{field_name});
-            }
-
-            const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
-                const payload_val = if (opt_val.pointerDecl()) |opt_decl|
-                    opt_decl.val
-                else
-                    opt_val;
-                break :blk try payload_val.copy(new_decl_arena_allocator);
-            } else Value.initTag(.unreachable_value);
-
-            var buffer: Value.ToTypeBuffer = undefined;
-            gop.value_ptr.* = .{
-                .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
-                .abi_align = try alignment_val.copy(new_decl_arena_allocator),
-                .default_val = default_val,
-                .is_comptime = is_comptime_val.toBool(),
-                .offset = undefined,
-            };
+        const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
+        if (gop.found_existing) {
+            // TODO: better source location
+            return sema.fail(block, src, "duplicate struct field {s}", .{field_name});
         }
+
+        const default_val = if (default_value_val.optionalValue()) |opt_val| blk: {
+            const payload_val = if (opt_val.pointerDecl()) |opt_decl|
+                opt_decl.val
+            else
+                opt_val;
+            break :blk try payload_val.copy(new_decl_arena_allocator);
+        } else Value.initTag(.unreachable_value);
+
+        var buffer: Value.ToTypeBuffer = undefined;
+        gop.value_ptr.* = .{
+            .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
+            .abi_align = try alignment_val.copy(new_decl_arena_allocator),
+            .default_val = default_val,
+            .is_comptime = is_comptime_val.toBool(),
+            .offset = undefined,
+        };
     }
 
     try new_decl.finalizeNewArena(&new_decl_arena);
