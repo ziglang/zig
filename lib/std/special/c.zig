@@ -98,6 +98,7 @@ comptime {
 
     @export(round, .{ .name = "round", .linkage = .Strong });
     @export(roundf, .{ .name = "roundf", .linkage = .Strong });
+    @export(roundl, .{ .name = "roundl", .linkage = .Strong });
 
     @export(fmin, .{ .name = "fmin", .linkage = .Strong });
     @export(fminf, .{ .name = "fminf", .linkage = .Strong });
@@ -575,11 +576,18 @@ fn fabsf(a: f32) callconv(.C) f32 {
     return math.fabs(a);
 }
 
+fn roundf(a: f32) callconv(.C) f32 {
+    return math.round(a);
+}
+
 fn round(a: f64) callconv(.C) f64 {
     return math.round(a);
 }
 
-fn roundf(a: f32) callconv(.C) f32 {
+fn roundl(a: c_longdouble) callconv(.C) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
     return math.round(a);
 }
 

@@ -3709,10 +3709,11 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
         const dest_ty = self.air.typeOfIndex(inst);
         const dest_llvm_ty = try self.dg.llvmType(dest_ty);
 
-        if (dest_ty.isSignedInt()) {
+        if (operand_ty.isSignedInt()) {
             return self.builder.buildSIToFP(operand, dest_llvm_ty, "");
         } else {
             return self.builder.buildUIToFP(operand, dest_llvm_ty, "");
@@ -3984,13 +3985,14 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const operand = try self.resolveInst(pl_op.operand);
         const name = self.air.nullTerminatedString(pl_op.payload);
+        const ptr_ty = self.air.typeOf(pl_op.operand);
 
         const di_local_var = dib.createAutoVariable(
             self.di_scope.?,
             name.ptr,
             self.di_file.?,
             self.prev_dbg_line,
-            try self.dg.lowerDebugType(self.air.typeOf(pl_op.operand)),
+            try self.dg.lowerDebugType(ptr_ty.childType()),
             true, // always preserve
             0, // flags
         );

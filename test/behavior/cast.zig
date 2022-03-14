@@ -95,8 +95,29 @@ test "comptime_int @intToFloat" {
     }
 }
 
+test "@intToFloat" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            try testIntToFloat(-2);
+        }
+
+        fn testIntToFloat(k: i32) !void {
+            const f = @intToFloat(f32, k);
+            const i = @floatToInt(i32, f);
+            try expect(i == k);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
 test "@floatToInt" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
@@ -1007,8 +1028,6 @@ test "peer type resolve array pointer and unknown pointer" {
 }
 
 test "comptime float casts" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const a = @intToFloat(comptime_float, 1);
     try expect(a == 1);
     try expect(@TypeOf(a) == comptime_float);

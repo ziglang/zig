@@ -3931,15 +3931,12 @@ pub const Value = extern union {
             },
             80 => {
                 if (true) {
-                    @panic("TODO implement compiler_rt fabs for f80");
+                    @panic("TODO implement compiler_rt fabs for f80 (__fabsx)");
                 }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @fabs(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt fabs for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @fabs(f));
             },
@@ -3963,15 +3960,12 @@ pub const Value = extern union {
             },
             80 => {
                 if (true) {
-                    @panic("TODO implement compiler_rt floor for f80");
+                    @panic("TODO implement compiler_rt floor for f80 (__floorx)");
                 }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @floor(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt floor for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @floor(f));
             },
@@ -4001,9 +3995,6 @@ pub const Value = extern union {
                 return Value.Tag.float_80.create(arena, @ceil(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt ceil for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @ceil(f));
             },
@@ -4033,9 +4024,6 @@ pub const Value = extern union {
                 return Value.Tag.float_80.create(arena, @round(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt round for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @round(f));
             },
@@ -4065,9 +4053,6 @@ pub const Value = extern union {
                 return Value.Tag.float_80.create(arena, @trunc(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt trunc for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @trunc(f));
             },
