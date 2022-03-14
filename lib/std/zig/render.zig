@@ -1505,7 +1505,7 @@ fn renderSwitchCase(
     const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
     const trailing_comma = token_tags[switch_case.ast.arrow_token - 1] == .comma;
-    const has_comment = blk: {
+    const has_comment_before_arrow = blk: {
         if (switch_case.ast.values.len == 0) break :blk false;
         break :blk hasComment(tree, tree.firstToken(switch_case.ast.values[0]), switch_case.ast.arrow_token);
     };
@@ -1513,10 +1513,10 @@ fn renderSwitchCase(
     // Render everything before the arrow
     if (switch_case.ast.values.len == 0) {
         try renderToken(ais, tree, switch_case.ast.arrow_token - 1, .space); // else keyword
-    } else if (switch_case.ast.values.len == 1 and !has_comment) {
+    } else if (switch_case.ast.values.len == 1 and !has_comment_before_arrow) {
         // render on one line and drop the trailing comma if any
         try renderExpression(gpa, ais, tree, switch_case.ast.values[0], .space);
-    } else if (trailing_comma or has_comment) {
+    } else if (trailing_comma or has_comment_before_arrow) {
         // Render each value on a new line
         try renderExpressions(gpa, ais, tree, switch_case.ast.values, .comma);
     } else {
