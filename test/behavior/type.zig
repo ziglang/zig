@@ -333,6 +333,19 @@ test "Type.Struct" {
     try testing.expectEqual(@as(comptime_int, 2), @ptrCast(*const comptime_int, infoE.fields[1].default_value.?).*);
     try testing.expectEqual(@as(usize, 0), infoE.decls.len);
     try testing.expectEqual(@as(bool, true), infoE.is_tuple);
+
+    // empty struct
+    const F = @Type(@typeInfo(struct {}));
+    const infoF = @typeInfo(F).Struct;
+    try testing.expectEqual(Type.ContainerLayout.Auto, infoF.layout);
+    try testing.expect(infoF.fields.len == 0);
+
+    // empty tuple
+    const G = @Type(@typeInfo(@TypeOf(.{})));
+    const infoG = @typeInfo(G).Struct;
+    try testing.expectEqual(Type.ContainerLayout.Auto, infoG.layout);
+    try testing.expect(infoG.fields.len == 0);
+    try testing.expectEqual(@as(bool, true), infoG.is_tuple);
 }
 
 test "Type.Enum" {

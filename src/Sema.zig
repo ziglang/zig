@@ -12658,7 +12658,6 @@ fn reifyTuple(
     fields_val: Value,
 ) CompileError!Air.Inst.Ref {
     const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen());
-    if (fields_len == 0) return Air.Inst.Ref.empty_struct;
 
     const types = try sema.arena.alloc(Type, fields_len);
     const values = try sema.arena.alloc(Value, fields_len);
@@ -12737,7 +12736,7 @@ fn reifyStruct(
     fields_val: Value,
 ) CompileError!Air.Inst.Ref {
     const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen());
-    if (fields_len == 0) return Air.Inst.Ref.empty_struct;
+    if (fields_len == 0) return sema.addType(Type.initTag(.empty_struct_literal));
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
