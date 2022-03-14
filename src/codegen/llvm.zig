@@ -3709,10 +3709,11 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
         const dest_ty = self.air.typeOfIndex(inst);
         const dest_llvm_ty = try self.dg.llvmType(dest_ty);
 
-        if (dest_ty.isSignedInt()) {
+        if (operand_ty.isSignedInt()) {
             return self.builder.buildSIToFP(operand, dest_llvm_ty, "");
         } else {
             return self.builder.buildUIToFP(operand, dest_llvm_ty, "");
