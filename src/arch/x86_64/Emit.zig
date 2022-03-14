@@ -131,6 +131,8 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
 
             .movabs => try emit.mirMovabs(inst),
 
+            .fisttp => try emit.mirFisttp(inst),
+
             .lea => try emit.mirLea(inst),
             .lea_pie => try emit.mirLeaPie(inst),
 
@@ -686,6 +688,28 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     return lowerToFdEnc(.mov, ops.reg1, imm, emit.code);
 }
 
+fn mirFisttp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    assert(tag == .fisttp);
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+
+    // the selecting between operand sizes for this particular `fisttp` instruction
+    // is done via opcode instead of the usual prefixes.
+
+    const opcode: Tag = switch (ops.flags) {
+        0b00 => .fisttp16,
+        0b01 => .fisttp32,
+        0b10 => .fisttp64,
+        else => unreachable,
+    };
+    const mem_or_reg = Memory{
+        .base = ops.reg1,
+        .disp = emit.mir.instructions.items(.data)[inst].imm,
+        .ptr_size = Memory.PtrSize.dword_ptr, // to prevent any prefix from being used
+    };
+    return lowerToMEnc(opcode, .{ .memory = mem_or_reg }, emit.code);
+}
+
 fn mirShift(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
@@ -1114,6 +1138,9 @@ const Tag = enum {
     syscall,
     ret_near,
     ret_far,
+    fisttp16,
+    fisttp32,
+    fisttp64,
     jo,
     jno,
     jb,
@@ -1352,6 +1379,9 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .setle, .setng => OpCode.twoByte(0x0f, 0x9e),
             .setnle, .setg => OpCode.twoByte(0x0f, 0x9f),
             .idiv, .div, .imul => OpCode.oneByte(if (is_one_byte) 0xf6 else 0xf7),
+            .fisttp16 => OpCode.oneByte(0xdf),
+            .fisttp32 => OpCode.oneByte(0xdb),
+            .fisttp64 => OpCode.oneByte(0xdd),
             else => null,
         },
         .o => return switch (tag) {
@@ -1492,6 +1522,9 @@ inline fn getModRmExt(tag: Tag) ?u3 {
         .imul => 0x5,
         .idiv => 0x7,
         .div => 0x6,
+        .fisttp16 => 0x1,
+        .fisttp32 => 0x1,
+        .fisttp64 => 0x1,
         else => null,
     };
 }
