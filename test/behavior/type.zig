@@ -339,6 +339,7 @@ test "Type.Struct" {
     const infoF = @typeInfo(F).Struct;
     try testing.expectEqual(Type.ContainerLayout.Auto, infoF.layout);
     try testing.expect(infoF.fields.len == 0);
+    try testing.expectEqual(@as(bool, false), infoF.is_tuple);
 
     // empty tuple
     const G = @Type(@typeInfo(@TypeOf(.{})));
