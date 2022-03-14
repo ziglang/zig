@@ -41,6 +41,7 @@ pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");
+pub const posix_spawn = @import("os/posix_spawn.zig");
 
 comptime {
     assert(@import("std") == std); // std lib tests require --zig-lib-dir
@@ -52,6 +53,7 @@ test {
     _ = uefi;
     _ = wasi;
     _ = windows;
+    _ = posix_spawn;
 
     _ = @import("os/test.zig");
 }
@@ -4037,6 +4039,9 @@ pub const WaitPidResult = struct {
     status: u32,
 };
 
+/// Use this version of the `waitpid` wrapper if you spawned your child process using explicit
+/// `fork` and `execve` method. If you spawned your child process using `posix_spawn` method,
+/// use `std.os.posix_spawn.waitpid` instead.
 pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
