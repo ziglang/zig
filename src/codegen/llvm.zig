@@ -1507,7 +1507,7 @@ pub const DeclGen = struct {
                     const bytes = tv.val.castTag(.bytes).?.data;
                     return dg.context.constString(
                         bytes.ptr,
-                        @intCast(c_uint, bytes.len),
+                        @intCast(c_uint, tv.ty.arrayLenIncludingSentinel()),
                         .True, // don't null terminate. bytes has the sentinel, if any.
                     );
                 },
@@ -1515,10 +1515,11 @@ pub const DeclGen = struct {
                     const elem_vals = tv.val.castTag(.aggregate).?.data;
                     const elem_ty = tv.ty.elemType();
                     const gpa = dg.gpa;
-                    const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len);
+                    const len = @intCast(usize, tv.ty.arrayLenIncludingSentinel());
+                    const llvm_elems = try gpa.alloc(*const llvm.Value, len);
                     defer gpa.free(llvm_elems);
                     var need_unnamed = false;
-                    for (elem_vals) |elem_val, i| {
+                    for (elem_vals[0..len]) |elem_val, i| {
                         llvm_elems[i] = try dg.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
                         need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[i]);
                     }
