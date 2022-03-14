@@ -498,7 +498,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format2b(annul: bool, cond: u4, op2: u3, disp: i24) Instruction {
+    fn format2b(annul: bool, cond: Condition, op2: u3, disp: i24) Instruction {
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(disp % 4 == 0);
 
@@ -514,7 +514,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format2c(annul: bool, cond: u4, op2: u3, ccr: CCR, pt: bool, disp: i21) Instruction {
+    fn format2c(annul: bool, cond: Condition, op2: u3, ccr: CCR, pt: bool, disp: i21) Instruction {
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(disp % 4 == 0);
 
@@ -573,7 +573,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4b(rd: Register, op3: u6, rs1: Register, cc: CCR, simm11: u11) Instruction {
+    fn format4b(rd: Register, op3: u6, rs1: Register, cc: CCR, imm: i11) Instruction {
         const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(cc));
         return Instruction{
@@ -583,7 +583,7 @@ pub const Instruction = union(enum) {
                 .rs1 = rs1.enc(),
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
-                .simm11 = simm11,
+                .simm11 = @bitCast(i11, imm),
             },
         };
     }
@@ -605,7 +605,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4d(rd: Register, op3: u6, cc: CCR, cond: Condition, simm11: u11) Instruction {
+    fn format4d(rd: Register, op3: u6, cc: CCR, cond: Condition, imm: i11) Instruction {
         const ccr_cc2 = @truncate(u1, @enumToInt(cc) >> 2);
         const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(cc));
@@ -617,7 +617,7 @@ pub const Instruction = union(enum) {
                 .cond = cond,
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
-                .simm11 = simm11,
+                .simm11 = @bitCast(i11, imm),
             },
         };
     }
