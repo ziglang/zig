@@ -329,12 +329,11 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("expected field initializer");
         },
         .mismatched_binary_op_whitespace => {
-            return stream.writeAll("binary operators must have matching whitespace on both sides");
+            return stream.print("binary operator `{s}` has whitespace on one side, but not the other.", .{token_tags[parse_error.token].lexeme().?});
         },
         .invalid_ampersand_ampersand => {
-            return stream.writeAll("`&&` is invalid; note that `and` is boolean AND");
+            return stream.writeAll("Ambiguous use of '&&'. Instead, use 'and' for logical and, or change whitespace to ' & &' for bitwise and");
         },
-
         .previous_field => {
             return stream.writeAll("field before declarations here");
         },

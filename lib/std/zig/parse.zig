@@ -1454,11 +1454,8 @@ const Parser = struct {
 
             const oper_token = p.nextToken();
             // Special-case handling for "catch"
-            switch (tok_tag) {
-                .keyword_catch => {
-                    _ = try p.parsePayload();
-                },
-                else => {},
+            if (tok_tag == .keyword_catch) {
+                _ = try p.parsePayload();
             }
             const rhs = try p.parseExprPrecedence(info.prec + 1);
             if (rhs == 0) {
@@ -1470,8 +1467,9 @@ const Parser = struct {
                 const tok_len = tok_tag.lexeme().?.len;
                 const char_before = p.source[p.token_starts[oper_token] - 1];
                 const char_after = p.source[p.token_starts[oper_token] + tok_len];
-
                 if (tok_tag == .ampersand and char_after == '&') {
+                    // without types we don't know if '&&' was intended as 'bitwise_and address_of', or a c-style logical_and
+                    // The best the parser can do is recommend changing it to 'and' or ' & &'
                     try p.warnMsg(.{ .tag = .invalid_ampersand_ampersand, .token = oper_token });
                 } else if (std.ascii.isSpace(char_before) != std.ascii.isSpace(char_after)) {
                     try p.warnMsg(.{ .tag = .mismatched_binary_op_whitespace, .token = oper_token });

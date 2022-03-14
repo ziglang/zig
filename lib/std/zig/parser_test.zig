@@ -5384,17 +5384,30 @@ test "matching whitespace on minus op" {
         \\ _ = 2 - 1,
         \\ _ = 2-1, 
         \\ _ = 2 -
-        \\     1,
+        \\1,
         \\ _ = 2
         \\     - 1,
     , &[_]Error{});
 }
 
-test "invalid ampersand ampersand" {
+test "ampersand" {
     try testError(
-        \\ _ = 2 && 1, 
-    , &[_]Error{
+        \\ _ = bar && foo,
+        \\ _ = bar&&foo, 
+        \\ _ = bar& & foo, 
+        \\ _ = bar& &foo,
+    , &.{
         .invalid_ampersand_ampersand,
+        .invalid_ampersand_ampersand,
+        .mismatched_binary_op_whitespace,
+        .mismatched_binary_op_whitespace,
+    });
+
+    try testError(
+        \\ _ = bar & &foo, 
+        \\ _ = bar & &&foo, 
+        \\ _ = &&foo, 
+    , &.{
     });
 }
 
