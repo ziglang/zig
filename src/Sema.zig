@@ -12691,7 +12691,103 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             try new_decl.finalizeNewArena(&new_decl_arena);
             return sema.analyzeDeclVal(block, src, new_decl);
         },
-        .Union => return sema.fail(block, src, "TODO: Sema.zirReify for Union", .{}),
+        .Union => {
+            // TODO use reflection instead of magic numbers here
+            const struct_val = union_val.val.castTag(.aggregate).?.data;
+            // layout: containerlayout,
+            const layout_val = struct_val[0];
+            // tag_type: ?type,
+            const tag_type_val = struct_val[1];
+            // fields: []const enumfield,
+            const fields_val = struct_val[2];
+            // decls: []const declaration,
+            const decls_val = struct_val[3];
+
+            // Decls
+            if (decls_val.sliceLen() > 0) {
+                return sema.fail(block, src, "reified unions must have no decls", .{});
+            }
+
+            var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+            errdefer new_decl_arena.deinit();
+            const new_decl_arena_allocator = new_decl_arena.allocator();
+
+            const union_obj = try new_decl_arena_allocator.create(Module.Union);
+            const type_tag: Type.Tag = if (!tag_type_val.isNull()) .union_tagged else .@"union";
+            const union_payload = try new_decl_arena_allocator.create(Type.Payload.Union);
+            union_payload.* = .{
+                .base = .{ .tag = type_tag },
+                .data = union_obj,
+            };
+            const union_ty = Type.initPayload(&union_payload.base);
+            const new_union_val = try Value.Tag.ty.create(new_decl_arena_allocator, union_ty);
+            const type_name = try sema.createTypeName(block, .anon);
+            const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
+                .ty = Type.type,
+                .val = new_union_val,
+            }, type_name);
+            new_decl.owns_tv = true;
+            errdefer sema.mod.abortAnonDecl(new_decl);
+            union_obj.* = .{
+                .owner_decl = new_decl,
+                .tag_ty = Type.initTag(.@"null"),
+                .fields = .{},
+                .node_offset = src.node_offset,
+                .zir_index = inst,
+                .layout = layout_val.toEnum(std.builtin.Type.ContainerLayout),
+                .status = .have_field_types,
+                .namespace = .{
+                    .parent = block.namespace,
+                    .ty = union_ty,
+                    .file_scope = block.getFileScope(),
+                },
+            };
+
+            // Tag type
+            const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen());
+            union_obj.tag_ty = if (tag_type_val.optionalValue()) |payload_val| blk: {
+                var buffer: Value.ToTypeBuffer = undefined;
+                break :blk try payload_val.toType(&buffer).copy(new_decl_arena_allocator);
+            } else try sema.generateUnionTagTypeSimple(block, fields_len);
+
+            // Fields
+            if (fields_len > 0) {
+                try union_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+
+                var i: usize = 0;
+                while (i < fields_len) : (i += 1) {
+                    const elem_val = try fields_val.elemValue(sema.arena, i);
+                    const field_struct_val = elem_val.castTag(.aggregate).?.data;
+                    // TODO use reflection instead of magic numbers here
+                    // name: []const u8
+                    const name_val = field_struct_val[0];
+                    // field_type: type,
+                    const field_type_val = field_struct_val[1];
+                    // alignment: comptime_int,
+                    const alignment_val = field_struct_val[2];
+
+                    const field_name = try name_val.toAllocatedBytes(
+                        Type.initTag(.const_slice_u8),
+                        new_decl_arena_allocator,
+                    );
+
+                    const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
+                    if (gop.found_existing) {
+                        // TODO: better source location
+                        return sema.fail(block, src, "duplicate union field {s}", .{field_name});
+                    }
+
+                    var buffer: Value.ToTypeBuffer = undefined;
+                    gop.value_ptr.* = .{
+                        .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
+                        .abi_align = try alignment_val.copy(new_decl_arena_allocator),
+                    };
+                }
+            }
+
+            try new_decl.finalizeNewArena(&new_decl_arena);
+            return sema.analyzeDeclVal(block, src, new_decl);
+        },
         .Fn => return sema.fail(block, src, "TODO: Sema.zirReify for Fn", .{}),
         .BoundFn => @panic("TODO delete BoundFn from the language"),
         .Frame => @panic("TODO implement https://github.com/ziglang/zig/issues/10710"),
@@ -20417,7 +20513,7 @@ fn generateUnionTagTypeNumbered(
     return enum_ty;
 }
 
-fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: u32) !Type {
+fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: usize) !Type {
     const mod = sema.mod;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
