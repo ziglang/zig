@@ -4195,7 +4195,15 @@ fn zirDbgVar(
     const str_op = sema.code.instructions.items(.data)[inst].str_op;
     const operand = sema.resolveInst(str_op.operand);
     const operand_ty = sema.typeOf(operand);
-    if (!(try sema.typeHasRuntimeBits(block, sema.src, operand_ty))) return;
+    switch (air_tag) {
+        .dbg_var_ptr => {
+            if (!(try sema.typeHasRuntimeBits(block, sema.src, operand_ty.childType()))) return;
+        },
+        .dbg_var_val => {
+            if (!(try sema.typeHasRuntimeBits(block, sema.src, operand_ty))) return;
+        },
+        else => unreachable,
+    }
     const name = str_op.getStr(sema.code);
 
     // Add the name to the AIR.

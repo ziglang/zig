@@ -3984,13 +3984,14 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const operand = try self.resolveInst(pl_op.operand);
         const name = self.air.nullTerminatedString(pl_op.payload);
+        const ptr_ty = self.air.typeOf(pl_op.operand);
 
         const di_local_var = dib.createAutoVariable(
             self.di_scope.?,
             name.ptr,
             self.di_file.?,
             self.prev_dbg_line,
-            try self.dg.lowerDebugType(self.air.typeOf(pl_op.operand)),
+            try self.dg.lowerDebugType(ptr_ty.childType()),
             true, // always preserve
             0, // flags
         );
