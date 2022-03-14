@@ -525,7 +525,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format2a(rd: Register, op2: u3, imm: i22) Instruction {
+    fn format2a(op2: u3, rd: Register, imm: i22) Instruction {
         return Instruction{
             .format_2a = .{
                 .rd = rd.enc(),
@@ -535,7 +535,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format2b(annul: bool, cond: Condition, op2: u3, disp: i24) Instruction {
+    fn format2b(op2: u3, cond: Condition, annul: bool, disp: i24) Instruction {
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(disp % 4 == 0);
 
@@ -551,7 +551,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format2c(annul: bool, cond: Condition, op2: u3, ccr: CCR, pt: bool, disp: i21) Instruction {
+    fn format2c(op2: u3, cond: Condition, annul: bool, pt: bool, ccr: CCR, disp: i21) Instruction {
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(disp % 4 == 0);
 
@@ -573,7 +573,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format2d(annul: bool, rcond: RCondition, op2: u3, pt: bool, rs1: Register, disp: i18) Instruction {
+    fn format2d(op2: u3, rcond: RCondition, annul: bool, pt: bool, rs1: Register, disp: i18) Instruction {
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(disp % 4 == 0);
 
@@ -595,7 +595,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format3a(rd: Register, op3: u6, rs1: Register, rs2: Register) Instruction {
+    fn format3a(op3: u6, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3a = .{
                 .rd = rd.enc(),
@@ -605,7 +605,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3b(rd: Register, op3: u6, rs1: Register, imm: i13) Instruction {
+    fn format3b(op3: u6, rs1: Register, imm: i13, rd: Register) Instruction {
         return Instruction{
             .format_3b = .{
                 .rd = rd.enc(),
@@ -633,7 +633,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3e(rd: Register, op3: u6, rcond: RCondition, rs1: Register, rs2: Register) Instruction {
+    fn format3e(op3: u6, rcond: RCondition, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3e = .{
                 .rd = rd.enc(),
@@ -644,7 +644,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3f(rd: Register, op3: u6, rs1: Register, rcond: RCondition, imm: i10) Instruction {
+    fn format3f(op3: u6, rcond: RCondition, rs1: Register, imm: i10, rd: Register) Instruction {
         return Instruction{
             .format_3f = .{
                 .rd = rd.enc(),
@@ -655,7 +655,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3g(rd: Register, op3: u6, rs1: Register, rs2: Register) Instruction {
+    fn format3g(op3: u6, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3g = .{
                 .rd = rd.enc(),
@@ -673,7 +673,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3i(rd: Register, op3: u6, rs1: Register, rs2: Register, asi: ASI) Instruction {
+    fn format3i(op3: u6, rs1: Register, rs2: Register, rd: Register, asi: ASI) Instruction {
         return Instruction{
             .format_3i = .{
                 .rd = rd.enc(),
@@ -693,7 +693,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3k(rd: Register, op3: u6, rs1: Register, rs2: Register, sw: ShiftWidth) Instruction {
+    fn format3k(op3: u6, sw: ShiftWidth, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3k = .{
                 .rd = rd.enc(),
@@ -704,7 +704,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3l(rd: Register, op3: u6, rs1: Register, shift_count: u5) Instruction {
+    fn format3l(op3: u6, rs1: Register, shift_count: u5, rd: Register) Instruction {
         return Instruction{
             .format_3l = .{
                 .rd = rd.enc(),
@@ -714,7 +714,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3m(rd: Register, op3: u6, rs1: Register, shift_count: u6) Instruction {
+    fn format3m(op3: u6, rs1: Register, shift_count: u6, rd: Register) Instruction {
         return Instruction{
             .format_3m = .{
                 .rd = rd.enc(),
@@ -724,7 +724,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3n(rd: Register, op3: u6, opf: u9, rs2: Register) Instruction {
+    fn format3n(op3: u6, opf: u9, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3n = .{
                 .rd = rd.enc(),
@@ -734,7 +734,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3o(cc: CCR, op3: u6, rs1: Register, opf: u9, rs2: Register) Instruction {
+    fn format3o(op3: u6, opf: u9, cc: CCR, rs1: Register, rs2: Register) Instruction {
         const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(cc));
         return Instruction{
@@ -748,7 +748,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3p(rd: Register, op3: u6, rs1: Register, opf: u9, rs2: Register) Instruction {
+    fn format3p(op3: u6, opf: u9, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3p = .{
                 .rd = rd.enc(),
@@ -759,7 +759,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3q(rd: Register, op3: u6, rs1: Register) Instruction {
+    fn format3q(op3: u6, rs1: Register, rd: Register) Instruction {
         return Instruction{
             .format_3q = .{
                 .rd = rd.enc(),
@@ -768,7 +768,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3r(fcn: u5, op3: u6) Instruction {
+    fn format3r(op3: u6, fcn: u5) Instruction {
         return Instruction{
             .format_3r = .{
                 .fcn = fcn,
@@ -776,7 +776,7 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3s(rd: Register, op3: u6) Instruction {
+    fn format3s(op3: u6, rd: Register) Instruction {
         return Instruction{
             .format_3s = .{
                 .rd = rd.enc(),
