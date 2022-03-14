@@ -421,7 +421,7 @@ pub fn MultiArrayList(comptime S: type) type {
         }
 
         fn capacityInBytes(capacity: usize) usize {
-            const sizes_vector: std.meta.Vector(sizes.bytes.len, usize) = sizes.bytes;
+            const sizes_vector: @Vector(sizes.bytes.len, usize) = sizes.bytes;
             const capacity_vector = @splat(sizes.bytes.len, capacity);
             return @reduce(.Add, capacity_vector * sizes_vector);
         }
