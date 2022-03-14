@@ -260,7 +260,11 @@ test "Type.ErrorSet" {
 }
 
 test "Type.Struct" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).Struct;
@@ -303,6 +307,46 @@ test "Type.Struct" {
     try testing.expectEqual(@as(u32, 5), @ptrCast(*const u32, infoC.fields[1].default_value.?).*);
     try testing.expectEqual(@as(usize, 0), infoC.decls.len);
     try testing.expectEqual(@as(bool, false), infoC.is_tuple);
+
+    // anon structs
+    const D = @Type(@typeInfo(@TypeOf(.{ .x = 3, .y = 5 })));
+    const infoD = @typeInfo(D).Struct;
+    try testing.expectEqual(Type.ContainerLayout.Auto, infoD.layout);
+    try testing.expectEqualSlices(u8, "x", infoD.fields[0].name);
+    try testing.expectEqual(comptime_int, infoD.fields[0].field_type);
+    try testing.expectEqual(@as(comptime_int, 3), @ptrCast(*const comptime_int, infoD.fields[0].default_value.?).*);
+    try testing.expectEqualSlices(u8, "y", infoD.fields[1].name);
+    try testing.expectEqual(comptime_int, infoD.fields[1].field_type);
+    try testing.expectEqual(@as(comptime_int, 5), @ptrCast(*const comptime_int, infoD.fields[1].default_value.?).*);
+    try testing.expectEqual(@as(usize, 0), infoD.decls.len);
+    try testing.expectEqual(@as(bool, false), infoD.is_tuple);
+
+    // tuples
+    const E = @Type(@typeInfo(@TypeOf(.{ 1, 2 })));
+    const infoE = @typeInfo(E).Struct;
+    try testing.expectEqual(Type.ContainerLayout.Auto, infoE.layout);
+    try testing.expectEqualSlices(u8, "0", infoE.fields[0].name);
+    try testing.expectEqual(comptime_int, infoE.fields[0].field_type);
+    try testing.expectEqual(@as(comptime_int, 1), @ptrCast(*const comptime_int, infoE.fields[0].default_value.?).*);
+    try testing.expectEqualSlices(u8, "1", infoE.fields[1].name);
+    try testing.expectEqual(comptime_int, infoE.fields[1].field_type);
+    try testing.expectEqual(@as(comptime_int, 2), @ptrCast(*const comptime_int, infoE.fields[1].default_value.?).*);
+    try testing.expectEqual(@as(usize, 0), infoE.decls.len);
+    try testing.expectEqual(@as(bool, true), infoE.is_tuple);
+
+    // empty struct
+    const F = @Type(@typeInfo(struct {}));
+    const infoF = @typeInfo(F).Struct;
+    try testing.expectEqual(Type.ContainerLayout.Auto, infoF.layout);
+    try testing.expect(infoF.fields.len == 0);
+    try testing.expectEqual(@as(bool, false), infoF.is_tuple);
+
+    // empty tuple
+    const G = @Type(@typeInfo(@TypeOf(.{})));
+    const infoG = @typeInfo(G).Struct;
+    try testing.expectEqual(Type.ContainerLayout.Auto, infoG.layout);
+    try testing.expect(infoG.fields.len == 0);
+    try testing.expectEqual(@as(bool, true), infoG.is_tuple);
 }
 
 test "Type.Enum" {
