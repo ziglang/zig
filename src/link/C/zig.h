@@ -513,9 +513,7 @@ static inline uint128_t zig_sign_extend(uint128_t value, uint128_t zig_type_bit_
     return (value ^ m) - m;
 }
 
-static inline int zig_clz(unsigned long long value, uint8_t zig_type_bit_width, bool signed_type) {
-    (void)signed_type; // unused
-
+static inline int zig_clz(unsigned long long value, uint8_t zig_type_bit_width) {
     if (value == 0) return zig_type_bit_width;
     if (zig_type_bit_width <= zig_bitsizeof(unsigned int))
         return (__builtin_clz(value) - zig_bitsizeof(unsigned int) + zig_type_bit_width);
@@ -524,18 +522,14 @@ static inline int zig_clz(unsigned long long value, uint8_t zig_type_bit_width, 
     return (__builtin_clzll(value) - zig_bitsizeof(unsigned long long) + zig_type_bit_width);
 }
 
-static inline int zig_ctz(unsigned long long value, uint8_t zig_type_bit_width, bool signed_type) {
-    (void)signed_type; // unused
-
+static inline int zig_ctz(unsigned long long value, uint8_t zig_type_bit_width) {
     if (value == 0) return zig_type_bit_width;
     if (zig_type_bit_width <= zig_bitsizeof(unsigned int)) return __builtin_ctz(value);
     if (zig_type_bit_width <= zig_bitsizeof(unsigned long)) return __builtin_ctzl(value);
     return __builtin_ctzll(value);
 }
 
-static inline int zig_popcount(unsigned long long value, uint8_t zig_type_bit_width, bool signed_type) {
-    (void)signed_type; // unused
-
+static inline int zig_popcount(unsigned long long value, uint8_t zig_type_bit_width) {
     const unsigned long long mask = zig_bit_mask(unsigned long long, zig_type_bit_width);
     if (zig_type_bit_width <= zig_bitsizeof(unsigned int))
         return __builtin_popcount(value & mask);
