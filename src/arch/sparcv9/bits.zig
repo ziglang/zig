@@ -734,9 +734,9 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3o(op3: u6, opf: u9, cc: CCR, rs1: Register, rs2: Register) Instruction {
-        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+    fn format3o(op3: u6, opf: u9, ccr: CCR, rs1: Register, rs2: Register) Instruction {
+        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
             .format_3o = .{
                 .cc1 = ccr_cc1,
@@ -785,9 +785,9 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4a(rd: Register, op3: u6, rs1: Register, cc: CCR, rs2: Register) Instruction {
-        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+    fn format4a(rd: Register, op3: u6, rs1: Register, ccr: CCR, rs2: Register) Instruction {
+        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
             .format4a = .{
                 .rd = rd.enc(),
@@ -800,9 +800,9 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4b(rd: Register, op3: u6, rs1: Register, cc: CCR, imm: i11) Instruction {
-        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+    fn format4b(rd: Register, op3: u6, rs1: Register, ccr: CCR, imm: i11) Instruction {
+        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
             .format4b = .{
                 .rd = rd.enc(),
@@ -815,10 +815,10 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4c(rd: Register, op3: u6, cc: CCR, cond: Condition, rs2: Register) Instruction {
-        const ccr_cc2 = @truncate(u1, @enumToInt(cc) >> 2);
-        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+    fn format4c(rd: Register, op3: u6, ccr: CCR, cond: Condition, rs2: Register) Instruction {
+        const ccr_cc2 = @truncate(u1, @enumToInt(ccr) >> 2);
+        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
             .format4c = .{
                 .rd = rd.enc(),
@@ -832,10 +832,10 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4d(rd: Register, op3: u6, cc: CCR, cond: Condition, imm: i11) Instruction {
-        const ccr_cc2 = @truncate(u1, @enumToInt(cc) >> 2);
-        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+    fn format4d(rd: Register, op3: u6, ccr: CCR, cond: Condition, imm: i11) Instruction {
+        const ccr_cc2 = @truncate(u1, @enumToInt(ccr) >> 2);
+        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
             .format4d = .{
                 .rd = rd.enc(),
@@ -849,9 +849,9 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format4e(rd: Register, op3: u6, rs1: Register, cc: CCR, sw_trap: u7) Instruction {
-        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+    fn format4e(rd: Register, op3: u6, rs1: Register, ccr: CCR, sw_trap: u7) Instruction {
+        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
             .format4e = .{
                 .rd = rd.enc(),
