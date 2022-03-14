@@ -13276,7 +13276,7 @@ fn checkFloatType(
     ty: Type,
 ) CompileError!void {
     switch (ty.zigTypeTag()) {
-        .ComptimeFloat, .Float => {},
+        .ComptimeInt, .ComptimeFloat, .Float => {},
         else => return sema.fail(block, ty_src, "expected float type, found '{}'", .{ty}),
     }
 }
@@ -17177,10 +17177,25 @@ fn storePtr2(
         return;
     }
 
+    // TODO do the same thing for anon structs as for tuples above.
+
+    // Detect if we are storing an array operand to a bitcasted vector pointer.
+    // If so, we instead reach through the bitcasted pointer to the vector pointer,
+    // bitcast the array operand to a vector, and then lower this as a store of
+    // a vector value to a vector pointer. This generally results in better code,
+    // as well as working around an LLVM bug:
+    // https://github.com/ziglang/zig/issues/11154
+    if (sema.obtainBitCastedVectorPtr(ptr)) |vector_ptr| {
+        const vector_ty = sema.typeOf(vector_ptr).childType();
+        const vector = try sema.coerce(block, vector_ty, uncasted_operand, operand_src);
+        try sema.storePtr2(block, src, vector_ptr, ptr_src, vector, operand_src, .store);
+        return;
+    }
+
     const operand = try sema.coerce(block, elem_ty, uncasted_operand, operand_src);
+    const maybe_operand_val = try sema.resolveMaybeUndefVal(block, operand_src, operand);
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
-        const maybe_operand_val = try sema.resolveMaybeUndefVal(block, operand_src, operand);
         const operand_val = maybe_operand_val orelse {
             try sema.checkPtrIsNotComptimeMutable(block, ptr_val, ptr_src, operand_src);
             break :rs operand_src;
@@ -17201,6 +17216,39 @@ fn storePtr2(
     try sema.requireRuntimeBlock(block, runtime_src);
     try sema.resolveTypeLayout(block, src, elem_ty);
     _ = try block.addBinOp(air_tag, ptr, operand);
+}
+
+/// Traverse an arbitrary number of bitcasted pointers and return the underyling vector
+/// pointer. Only if the final element type matches the vector element type, and the
+/// lengths match.
+fn obtainBitCastedVectorPtr(sema: *Sema, ptr: Air.Inst.Ref) ?Air.Inst.Ref {
+    const array_ty = sema.typeOf(ptr).childType();
+    if (array_ty.zigTypeTag() != .Array) return null;
+    var ptr_inst = Air.refToIndex(ptr) orelse return null;
+    const air_datas = sema.air_instructions.items(.data);
+    const air_tags = sema.air_instructions.items(.tag);
+    const prev_ptr = while (air_tags[ptr_inst] == .bitcast) {
+        const prev_ptr = air_datas[ptr_inst].ty_op.operand;
+        const prev_ptr_ty = sema.typeOf(prev_ptr);
+        const prev_ptr_child_ty = switch (prev_ptr_ty.tag()) {
+            .single_mut_pointer => prev_ptr_ty.castTag(.single_mut_pointer).?.data,
+            .pointer => prev_ptr_ty.castTag(.pointer).?.data.pointee_type,
+            else => return null,
+        };
+        if (prev_ptr_child_ty.zigTypeTag() == .Vector) break prev_ptr;
+        ptr_inst = Air.refToIndex(prev_ptr) orelse return null;
+    } else return null;
+
+    // We have a pointer-to-array and a pointer-to-vector. If the elements and
+    // lengths match, return the result.
+    const vector_ty = sema.typeOf(prev_ptr).childType();
+    if (array_ty.childType().eql(vector_ty.childType()) and
+        array_ty.arrayLen() == vector_ty.vectorLen())
+    {
+        return prev_ptr;
+    } else {
+        return null;
+    }
 }
 
 /// Call when you have Value objects rather than Air instructions, and you want to

@@ -333,7 +333,6 @@ fn testLog() !void {
 }
 
 test "@log with vectors" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -343,15 +342,19 @@ test "@log with vectors" {
     {
         var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log(v);
-        try expect(math.approxEqAbs(f32, @log(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @log(@as(f32, 2.2)), result[1], epsilon));
+        try expect(@log(@as(f32, 1.1)) == result[0]);
+        try expect(@log(@as(f32, 2.2)) == result[1]);
         try expect(@log(@as(f32, 0.3)) == result[2]);
-        try expect(math.approxEqAbs(f32, @log(@as(f32, 0.4)), result[3], epsilon));
+        try expect(@log(@as(f32, 0.4)) == result[3]);
     }
 }
 
 test "@log2" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     comptime try testLog2();
     try testLog2();
@@ -368,15 +371,19 @@ fn testLog2() !void {
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log2(v);
-        try expect(math.approxEqAbs(f32, @log2(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @log2(@as(f32, 2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @log2(@as(f32, 0.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @log2(@as(f32, 0.4)), result[3], epsilon));
+        try expect(@log2(@as(f32, 1.1)) == result[0]);
+        try expect(@log2(@as(f32, 2.2)) == result[1]);
+        try expect(@log2(@as(f32, 0.3)) == result[2]);
+        try expect(@log2(@as(f32, 0.4)) == result[3]);
     }
 }
 
 test "@log10" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     comptime try testLog10();
     try testLog10();
@@ -393,10 +400,10 @@ fn testLog10() !void {
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log10(v);
-        try expect(math.approxEqAbs(f32, @log10(@as(f32, 1.1)), result[0], epsilon));
-        try expect(math.approxEqAbs(f32, @log10(@as(f32, 2.2)), result[1], epsilon));
-        try expect(math.approxEqAbs(f32, @log10(@as(f32, 0.3)), result[2], epsilon));
-        try expect(math.approxEqAbs(f32, @log10(@as(f32, 0.4)), result[3], epsilon));
+        try expect(@log10(@as(f32, 1.1)) == result[0]);
+        try expect(@log10(@as(f32, 2.2)) == result[1]);
+        try expect(@log10(@as(f32, 0.3)) == result[2]);
+        try expect(@log10(@as(f32, 0.4)) == result[3]);
     }
 }
 
@@ -537,7 +544,71 @@ fn testTrunc() !void {
     }
 }
 
-test "negation" {
+test "negation f16" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    if (builtin.os.tag == .freebsd) {
+        // TODO file issue to track this failure
+        return error.SkipZigTest;
+    }
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: f16 = 1;
+            a = -a;
+            try expect(a == -1);
+            a = -a;
+            try expect(a == 1);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "negation f32" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: f32 = 1;
+            a = -a;
+            try expect(a == -1);
+            a = -a;
+            try expect(a == 1);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "negation f64" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: f64 = 1;
+            a = -a;
+            try expect(a == -1);
+            a = -a;
+            try expect(a == 1);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "negation f80" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
     if (builtin.os.tag == .freebsd) {
@@ -547,11 +618,37 @@ test "negation" {
 
     const S = struct {
         fn doTheTest() !void {
-            inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
-                var a: T = 1;
-                a = -a;
-                try expect(a == -1);
-            }
+            var a: f80 = 1;
+            a = -a;
+            try expect(a == -1);
+            a = -a;
+            try expect(a == 1);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "negation f128" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    if (builtin.os.tag == .freebsd) {
+        // TODO file issue to track this failure
+        return error.SkipZigTest;
+    }
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: f128 = 1;
+            a = -a;
+            try expect(a == -1);
+            a = -a;
+            try expect(a == 1);
         }
     };
 
@@ -583,7 +680,13 @@ test "float literal at compile time not lossy" {
 }
 
 test "f128 at compile time is lossy" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) {
+        // this one is happening because we represent comptime-known f128 integers with
+        // Value.Tag.bigint and only convert to f128 representation if it stops being an
+        // integer. Is this something we want? need to have a lang spec discussion on this
+        // topic.
+        return error.SkipZigTest; // TODO
+    }
 
     try expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
 }
