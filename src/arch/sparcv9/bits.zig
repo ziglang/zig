@@ -271,11 +271,11 @@ pub const Instruction = union(enum) {
     },
     format_3h: packed struct {
         op: u2,
-        rd: u5,
-        op3: u6,
-        rs1: u5,
+        fixed1: u5 = 0b00000,
+        op3: u6 = 0b101000,
+        fixed2: u5 = 0b01111,
         i: u1 = 0b1,
-        reserved: u6,
+        reserved: u6 = 0b000000,
         cmask: u3,
         mmask: u4,
     },
@@ -462,10 +462,45 @@ pub const Instruction = union(enum) {
         eq_zero,
         le_zero,
         lt_zero,
-        reserved,
+        reserved2,
         ne_zero,
         gt_zero,
         ge_zero,
+    };
+
+    pub const ASI = enum(u8) {
+        asi_nucleus = 0x04,
+        asi_nucleus_little = 0x0c,
+        asi_as_if_user_primary = 0x10,
+        asi_as_if_user_secondary = 0x11,
+        asi_as_if_user_primary_little = 0x18,
+        asi_as_if_user_secondary_little = 0x19,
+        asi_primary = 0x80,
+        asi_secondary = 0x81,
+        asi_primary_nofault = 0x82,
+        asi_secondary_nofault = 0x83,
+        asi_primary_little = 0x88,
+        asi_secondary_little = 0x89,
+        asi_primary_nofault_little = 0x8a,
+        asi_secondary_nofault_little = 0x8b,
+    };
+
+    pub const ShiftWidth = enum(u1) {
+        Shift32,
+        Shift64,
+    };
+
+    pub const MemOrderingConstraint = packed struct {
+        store_store: bool = false,
+        load_store: bool = false,
+        store_load: bool = false,
+        load_load: bool = false,
+    };
+
+    pub const MemCompletionConstraint = packed struct {
+        sync: bool = false,
+        mem_issue: bool = false,
+        lookaside: bool = false,
     };
 
     // TODO: Need to define an enum for `cond` values
@@ -483,9 +518,11 @@ pub const Instruction = union(enum) {
 
         // Discard the last two bits since those are implicitly zero.
         const udisp = @truncate(u30, @bitCast(u32, disp) >> 2);
-        return Instruction{ .format_1 = .{
-            .disp30 = udisp,
-        } };
+        return Instruction{
+            .format_1 = .{
+                .disp30 = udisp,
+            },
+        };
     }
 
     fn format2a(rd: Register, op2: u3, imm: i22) Instruction {
@@ -554,6 +591,196 @@ pub const Instruction = union(enum) {
                 .rs1 = rs1.enc(),
                 .d16hi = udisp_hi,
                 .d16lo = udisp_lo,
+            },
+        };
+    }
+
+    fn format3a(rd: Register, op3: u6, rs1: Register, rs2: Register) Instruction {
+        return Instruction{
+            .format_3a = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+    fn format3b(rd: Register, op3: u6, rs1: Register, imm: i13) Instruction {
+        return Instruction{
+            .format_3b = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .simm13 = @bitCast(u13, imm),
+            },
+        };
+    }
+    fn format3c(op3: u6, rs1: Register, rs2: Register) Instruction {
+        return Instruction{
+            .format_3c = .{
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+    fn format3d(op3: u6, rs1: Register, imm: i13) Instruction {
+        return Instruction{
+            .format_3d = .{
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .simm13 = @bitCast(u13, imm),
+            },
+        };
+    }
+    fn format3e(rd: Register, op3: u6, rcond: RCondition, rs1: Register, rs2: Register) Instruction {
+        return Instruction{
+            .format_3e = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .rcond = @enumToInt(rcond),
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+    fn format3f(rd: Register, op3: u6, rs1: Register, rcond: RCondition, imm: i10) Instruction {
+        return Instruction{
+            .format_3f = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .rcond = @enumToInt(rcond),
+                .simm10 = @bitCast(u10, imm),
+            },
+        };
+    }
+    fn format3g(rd: Register, op3: u6, rs1: Register, rs2: Register) Instruction {
+        return Instruction{
+            .format_3g = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+    fn format3h(cmask: MemCompletionConstraint, mmask: MemOrderingConstraint) Instruction {
+        return Instruction{
+            .format_3h = .{
+                .cmask = @bitCast(u3, cmask),
+                .mmask = @bitCast(u4, mmask),
+            },
+        };
+    }
+    fn format3i(rd: Register, op3: u6, rs1: Register, rs2: Register, asi: ASI) Instruction {
+        return Instruction{
+            .format_3i = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .imm_asi = @enumToInt(asi),
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+    fn format3j(op3: u6, impl_dep1: u5, impl_dep2: u19) Instruction {
+        return Instruction{
+            .format_3j = .{
+                .impl_dep1 = impl_dep1,
+                .op3 = op3,
+                .impl_dep2 = impl_dep2,
+            },
+        };
+    }
+    fn format3k(rd: Register, op3: u6, rs1: Register, rs2: Register, sw: ShiftWidth) Instruction {
+        return Instruction{
+            .format_3k = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .x = @enumToInt(sw),
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+    fn format3l(rd: Register, op3: u6, rs1: Register, shift_count: u5) Instruction {
+        return Instruction{
+            .format_3l = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .shift_count = shift_count,
+            },
+        };
+    }
+    fn format3m(rd: Register, op3: u6, rs1: Register, shift_count: u6) Instruction {
+        return Instruction{
+            .format_3m = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .shift_count = shift_count,
+            },
+        };
+    }
+    fn format3n(rd: Register, op3: u6, opf: u9, rs2: Register) Instruction {
+        return Instruction{
+            .format_3n = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .opf = opf,
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+    fn format3o(cc: CCR, op3: u6, rs1: Register, opf: u9, rs2: Register) Instruction {
+        const ccr_cc1 = @truncate(u1, @enumToInt(cc) >> 1);
+        const ccr_cc0 = @truncate(u1, @enumToInt(cc));
+        return Instruction{
+            .format_3o = .{
+                .cc1 = ccr_cc1,
+                .cc0 = ccr_cc0,
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .opf = opf,
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+    fn format3p(rd: Register, op3: u6, rs1: Register, opf: u9, rs2: Register) Instruction {
+        return Instruction{
+            .format_3p = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+                .opf = opf,
+                .rs2 = rs2.enc(),
+            },
+        };
+    }
+    fn format3q(rd: Register, op3: u6, rs1: Register) Instruction {
+        return Instruction{
+            .format_3q = .{
+                .rd = rd.enc(),
+                .op3 = op3,
+                .rs1 = rs1.enc(),
+            },
+        };
+    }
+    fn format3r(fcn: u5, op3: u6) Instruction {
+        return Instruction{
+            .format_3r = .{
+                .fcn = fcn,
+                .op3 = op3,
+            },
+        };
+    }
+    fn format3s(rd: Register, op3: u6) Instruction {
+        return Instruction{
+            .format_3s = .{
+                .rd = rd.enc(),
+                .op3 = op3,
             },
         };
     }
