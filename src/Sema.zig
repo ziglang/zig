@@ -10840,12 +10840,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         try fields_anon_decl.arena().dupe(Value, struct_field_vals),
                     ),
                 );
-
-                const decl_ref_val = try Value.Tag.decl_ref.create(sema.arena, new_decl);
-                break :v try Value.Tag.slice.create(sema.arena, .{
-                    .ptr = decl_ref_val,
-                    .len = try Value.Tag.int_u64.create(sema.arena, struct_field_vals.len),
-                });
+                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
             };
 
             const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, struct_ty.getNamespace());
@@ -10958,12 +10953,7 @@ fn typeInfoDecls(
             try decls_anon_decl.arena().dupe(Value, decls_vals),
         ),
     );
-
-    const decl_ref_val = try Value.Tag.decl_ref.create(sema.arena, new_decl);
-    return try Value.Tag.slice.create(sema.arena, .{
-        .ptr = decl_ref_val,
-        .len = try Value.Tag.int_u64.create(sema.arena, decls_vals.len),
-    });
+    return try Value.Tag.decl_ref.create(sema.arena, new_decl);
 }
 
 fn zirTypeof(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
