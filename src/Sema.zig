@@ -12607,18 +12607,16 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             enum_obj.tag_ty = try tag_type_val.toType(&buffer).copy(new_decl_arena_allocator);
 
             // Fields
-            const slice_val = fields_val.castTag(.slice).?.data;
-            const decl = slice_val.ptr.pointerDecl().?;
-            try sema.ensureDeclAnalyzed(decl);
-            const fields_len = try sema.usizeCast(block, src, decl.ty.arrayLen());
+            const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen());
             if (fields_len > 0) {
                 try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
                 try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
                     .ty = enum_obj.tag_ty,
                 });
 
-                const array_vals = decl.val.castTag(.aggregate).?.data;
-                for (array_vals) |elem_val| {
+                var i: usize = 0;
+                while (i < fields_len) : (i += 1) {
+                    const elem_val = try fields_val.elemValue(sema.arena, i);
                     const field_struct_val = elem_val.castTag(.aggregate).?.data;
                     // TODO use reflection instead of magic numbers here
                     // name: []const u8
