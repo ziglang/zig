@@ -379,12 +379,6 @@ fn testFunction() !void {
     try expect(fn_info.Fn.return_type.? == usize);
     const fn_aligned_info = @typeInfo(@TypeOf(fooAligned));
     try expect(fn_aligned_info.Fn.alignment == 4);
-
-    if (builtin.zig_backend != .stage1) return; // no bound fn in stage2
-    const test_instance: TestPackedStruct = undefined;
-    const bound_fn_info = @typeInfo(@TypeOf(test_instance.foo));
-    try expect(bound_fn_info == .BoundFn);
-    try expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestPackedStruct);
 }
 
 extern fn foo(a: usize, b: bool, ...) callconv(.C) usize;
@@ -413,7 +407,10 @@ fn testVector() !void {
 }
 
 test "type info: anyframe and anyframe->T" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) {
+        // https://github.com/ziglang/zig/issues/6025
+        return error.SkipZigTest;
+    }
 
     try testAnyFrame();
     comptime try testAnyFrame();
@@ -469,7 +466,10 @@ fn add(a: i32, b: i32) i32 {
 }
 
 test "type info for async frames" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) {
+        // https://github.com/ziglang/zig/issues/6025
+        return error.SkipZigTest;
+    }
 
     switch (@typeInfo(@Frame(add))) {
         .Frame => |frame| {

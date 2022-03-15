@@ -609,7 +609,11 @@ test "negation f64" {
 }
 
 test "negation f80" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) {
+        // This test case exercises @intToFloat f80 in the compiler implementation.
+        // https://github.com/ziglang/zig/issues/11030
+        return error.SkipZigTest;
+    }
 
     if (builtin.os.tag == .freebsd) {
         // TODO file issue to track this failure
@@ -673,7 +677,10 @@ fn fnWithFloatMode() f32 {
 }
 
 test "float literal at compile time not lossy" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) {
+        // https://github.com/ziglang/zig/issues/11169
+        return error.SkipZigTest;
+    }
 
     try expect(16777216.0 + 1.0 == 16777217.0);
     try expect(9007199254740992.0 + 1.0 == 9007199254740993.0);

@@ -6398,7 +6398,6 @@ fn zirIntCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
     const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -6406,16 +6405,29 @@ fn zirIntCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = sema.resolveInst(extra.rhs);
 
+    return sema.intCast(block, dest_ty, dest_ty_src, operand, operand_src, true);
+}
+
+fn intCast(
+    sema: *Sema,
+    block: *Block,
+    dest_ty: Type,
+    dest_ty_src: LazySrcLoc,
+    operand: Air.Inst.Ref,
+    operand_src: LazySrcLoc,
+    runtime_safety: bool,
+) CompileError!Air.Inst.Ref {
     const dest_is_comptime_int = try sema.checkIntType(block, dest_ty_src, dest_ty);
     _ = try sema.checkIntType(block, operand_src, sema.typeOf(operand));
 
     if (try sema.isComptimeKnown(block, operand_src, operand)) {
         return sema.coerce(block, dest_ty, operand, operand_src);
     } else if (dest_is_comptime_int) {
-        return sema.fail(block, src, "unable to cast runtime value to 'comptime_int'", .{});
+        return sema.fail(block, operand_src, "unable to cast runtime value to 'comptime_int'", .{});
     }
 
     // TODO insert safety check to make sure the value fits in the dest type
+    _ = runtime_safety;
 
     if ((try sema.typeHasOnePossibleValue(block, dest_ty_src, dest_ty))) |opv| {
         return sema.addConstant(dest_ty, opv);
@@ -7986,6 +7998,7 @@ fn zirShl(
     const rhs = sema.resolveInst(extra.rhs);
 
     // TODO coerce rhs if air_tag is not shl_sat
+    const rhs_is_comptime_int = try sema.checkIntType(block, rhs_src, sema.typeOf(rhs));
 
     const maybe_lhs_val = try sema.resolveMaybeUndefVal(block, lhs_src, lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefVal(block, rhs_src, rhs);
@@ -7999,13 +8012,14 @@ fn zirShl(
         }
     }
 
-    const runtime_src = if (maybe_lhs_val) |lhs_val| rs: {
-        const lhs_ty = sema.typeOf(lhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const target = sema.mod.getTarget();
 
+    const runtime_src = if (maybe_lhs_val) |lhs_val| rs: {
         if (lhs_val.isUndef()) return sema.addConstUndef(lhs_ty);
         const rhs_val = maybe_rhs_val orelse break :rs rhs_src;
 
-        const target = sema.mod.getTarget();
         const val = switch (air_tag) {
             .shl_exact => val: {
                 const shifted = try lhs_val.shl(rhs_val, sema.arena);
@@ -8038,8 +8052,24 @@ fn zirShl(
 
     // TODO: insert runtime safety check for shl_exact
 
+    const new_rhs = if (air_tag == .shl_sat) rhs: {
+        // Limit the RHS type for saturating shl to be an integer as small as the LHS.
+        if (rhs_is_comptime_int or
+            rhs_ty.intInfo(target).bits > lhs_ty.intInfo(target).bits)
+        {
+            const max_int = try sema.addConstant(
+                lhs_ty,
+                try lhs_ty.maxInt(sema.arena, target),
+            );
+            const rhs_limited = try sema.analyzeMinMax(block, rhs_src, rhs, max_int, .min, rhs_src, rhs_src);
+            break :rhs try sema.intCast(block, lhs_ty, rhs_src, rhs_limited, rhs_src, false);
+        } else {
+            break :rhs rhs;
+        }
+    } else rhs;
+
     try sema.requireRuntimeBlock(block, runtime_src);
-    return block.addBinOp(air_tag, lhs, rhs);
+    return block.addBinOp(air_tag, lhs, new_rhs);
 }
 
 fn zirShr(
@@ -14537,6 +14567,19 @@ fn zirMinMax(
     const rhs = sema.resolveInst(extra.rhs);
     try sema.checkNumericType(block, lhs_src, sema.typeOf(lhs));
     try sema.checkNumericType(block, rhs_src, sema.typeOf(rhs));
+    return sema.analyzeMinMax(block, src, lhs, rhs, air_tag, lhs_src, rhs_src);
+}
+
+fn analyzeMinMax(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+    air_tag: Air.Inst.Tag,
+    lhs_src: LazySrcLoc,
+    rhs_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
     const simd_op = try sema.checkSimdBinOp(block, src, lhs, rhs, lhs_src, rhs_src);
 
     // TODO @maximum(max_int, undefined) should return max_int
