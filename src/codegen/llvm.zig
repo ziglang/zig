@@ -5166,7 +5166,13 @@ pub const FuncGen = struct {
             intrinsic,
             libc: [*:0]const u8,
         };
-        const strat: Strat = switch (ty.floatBits(target)) {
+
+        const scalar_ty = if (ty.zigTypeTag() == .Vector)
+            ty.elemType()
+        else
+            ty;
+
+        const strat: Strat = switch (scalar_ty.floatBits(target)) {
             16, 32, 64 => Strat.intrinsic,
             80 => if (CType.longdouble.sizeInBits(target) == 80) Strat{ .intrinsic = {} } else Strat{ .libc = "__fmax" },
             // LLVM always lowers the fma builtin for f128 to fmal, which is for `long double`.
@@ -5175,17 +5181,46 @@ pub const FuncGen = struct {
             else => unreachable,
         };
 
-        const llvm_fn = switch (strat) {
-            .intrinsic => self.getIntrinsic("llvm.fma", &.{llvm_ty}),
-            .libc => |fn_name| self.dg.object.llvm_module.getNamedFunction(fn_name) orelse b: {
-                const param_types = [_]*const llvm.Type{ llvm_ty, llvm_ty, llvm_ty };
-                const fn_type = llvm.functionType(llvm_ty, &param_types, param_types.len, .False);
-                break :b self.dg.object.llvm_module.addFunction(fn_name, fn_type);
+        switch (strat) {
+            .intrinsic => {
+                const llvm_fn = self.getIntrinsic("llvm.fma", &.{llvm_ty});
+                const params = [_]*const llvm.Value{ mulend1, mulend2, addend };
+                return self.builder.buildCall(llvm_fn, &params, params.len, .C, .Auto, "");
             },
-        };
+            .libc => |fn_name| {
+                const scalar_llvm_ty = try self.dg.llvmType(scalar_ty);
+                const llvm_fn = self.dg.object.llvm_module.getNamedFunction(fn_name) orelse b: {
+                    const param_types = [_]*const llvm.Type{ scalar_llvm_ty, scalar_llvm_ty, scalar_llvm_ty };
+                    const fn_type = llvm.functionType(scalar_llvm_ty, &param_types, param_types.len, .False);
+                    break :b self.dg.object.llvm_module.addFunction(fn_name, fn_type);
+                };
 
-        const params = [_]*const llvm.Value{ mulend1, mulend2, addend };
-        return self.builder.buildCall(llvm_fn, &params, params.len, .C, .Auto, "");
+                if (ty.zigTypeTag() == .Vector) {
+                    const llvm_i32 = self.context.intType(32);
+                    const vector_llvm_ty = try self.dg.llvmType(ty);
+
+                    var i: usize = 0;
+                    var vector = vector_llvm_ty.getUndef();
+                    while (i < ty.vectorLen()) : (i += 1) {
+                        const index_i32 = llvm_i32.constInt(i, .False);
+
+                        const mulend1_elem = self.builder.buildExtractElement(mulend1, index_i32, "");
+                        const mulend2_elem = self.builder.buildExtractElement(mulend2, index_i32, "");
+                        const addend_elem = self.builder.buildExtractElement(addend, index_i32, "");
+
+                        const params = [_]*const llvm.Value{ mulend1_elem, mulend2_elem, addend_elem };
+                        const mul_add = self.builder.buildCall(llvm_fn, &params, params.len, .C, .Auto, "");
+
+                        vector = self.builder.buildInsertElement(vector, mul_add, index_i32, "");
+                    }
+
+                    return vector;
+                } else {
+                    const params = [_]*const llvm.Value{ mulend1, mulend2, addend };
+                    return self.builder.buildCall(llvm_fn, &params, params.len, .C, .Auto, "");
+                }
+            },
+        }
     }
 
     fn airShlWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

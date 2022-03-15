@@ -78,3 +78,136 @@ fn testMulAdd128() !void {
     var c: f128 = 6.25;
     try expect(@mulAdd(f128, a, b, c) == 20);
 }
+
+fn vector16() !void {
+    var a = @Vector(4, f16){ 5.5, 5.5, 5.5, 5.5 };
+    var b = @Vector(4, f16){ 2.5, 2.5, 2.5, 2.5 };
+    var c = @Vector(4, f16){ 6.25, 6.25, 6.25, 6.25 };
+    var x = @mulAdd(@Vector(4, f16), a, b, c);
+
+    // TODO use `expectEqual` instead once stage2 supports it
+    // var expected = @Vector(4, f16){ 20, 20, 20, 20 };
+    // try expectEqual(expected, x);
+
+    try expect(x[0] == 20);
+    try expect(x[1] == 20);
+    try expect(x[2] == 20);
+    try expect(x[3] == 20);
+}
+
+test "vector f16" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try vector16();
+    try vector16();
+}
+
+fn vector32() !void {
+    var a = @Vector(4, f32){ 5.5, 5.5, 5.5, 5.5 };
+    var b = @Vector(4, f32){ 2.5, 2.5, 2.5, 2.5 };
+    var c = @Vector(4, f32){ 6.25, 6.25, 6.25, 6.25 };
+    var x = @mulAdd(@Vector(4, f32), a, b, c);
+
+    // TODO use `expectEqual` instead once stage2 supports it
+    // var expected = @Vector(4, f32){ 20, 20, 20, 20 };
+    // try expectEqual(expected, x);
+
+    try expect(x[0] == 20);
+    try expect(x[1] == 20);
+    try expect(x[2] == 20);
+    try expect(x[3] == 20);
+}
+
+test "vector f32" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try vector32();
+    try vector32();
+}
+
+fn vector64() !void {
+    var a = @Vector(4, f64){ 5.5, 5.5, 5.5, 5.5 };
+    var b = @Vector(4, f64){ 2.5, 2.5, 2.5, 2.5 };
+    var c = @Vector(4, f64){ 6.25, 6.25, 6.25, 6.25 };
+    var x = @mulAdd(@Vector(4, f64), a, b, c);
+
+    // TODO use `expectEqual` instead once stage2 supports it
+    // var expected = @Vector(4, f64){ 20, 20, 20, 20 };
+    // try expectEqual(expected, x);
+
+    try expect(x[0] == 20);
+    try expect(x[1] == 20);
+    try expect(x[2] == 20);
+    try expect(x[3] == 20);
+}
+
+test "vector f64" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try vector64();
+    try vector64();
+}
+
+fn vector80() !void {
+    var a = @Vector(4, f80){ 5.5, 5.5, 5.5, 5.5 };
+    var b = @Vector(4, f80){ 2.5, 2.5, 2.5, 2.5 };
+    var c = @Vector(4, f80){ 6.25, 6.25, 6.25, 6.25 };
+    var x = @mulAdd(@Vector(4, f80), a, b, c);
+    try expect(x[0] == 20);
+    try expect(x[1] == 20);
+    try expect(x[2] == 20);
+    try expect(x[3] == 20);
+}
+
+test "vector f80" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/11030
+        return error.SkipZigTest;
+    }
+
+    comptime try vector80();
+    try vector80();
+}
+
+fn vector128() !void {
+    var a = @Vector(4, f128){ 5.5, 5.5, 5.5, 5.5 };
+    var b = @Vector(4, f128){ 2.5, 2.5, 2.5, 2.5 };
+    var c = @Vector(4, f128){ 6.25, 6.25, 6.25, 6.25 };
+    var x = @mulAdd(@Vector(4, f128), a, b, c);
+
+    // TODO use `expectEqual` instead once stage2 supports it
+    // var expected = @Vector(4, f128){ 20, 20, 20, 20 };
+    // try expectEqual(expected, x);
+
+    try expect(x[0] == 20);
+    try expect(x[1] == 20);
+    try expect(x[2] == 20);
+    try expect(x[3] == 20);
+}
+
+test "vector f128" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try vector128();
+    try vector128();
+}
