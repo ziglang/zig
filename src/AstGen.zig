@@ -4714,14 +4714,36 @@ fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir
     const payload_index = try reserveExtra(astgen, @typeInfo(Zir.Inst.ErrorSetDecl).Struct.fields.len);
     var fields_len: usize = 0;
     {
+        var idents: std.AutoHashMapUnmanaged(u32, Ast.TokenIndex) = .{};
+        defer idents.deinit(gpa);
+
         const error_token = main_tokens[node];
         var tok_i = error_token + 2;
         while (true) : (tok_i += 1) {
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
                 .identifier => {
-                    try astgen.extra.ensureUnusedCapacity(gpa, 2);
                     const str_index = try astgen.identAsString(tok_i);
+                    const gop = try idents.getOrPut(gpa, str_index);
+                    if (gop.found_existing) {
+                        const name = try gpa.dupe(u8, mem.span(astgen.nullTerminatedString(str_index)));
+                        defer gpa.free(name);
+                        return astgen.failTokNotes(
+                            tok_i,
+                            "duplicate error set field '{s}'",
+                            .{name},
+                            &[_]u32{
+                                try astgen.errNoteTok(
+                                    gop.value_ptr.*,
+                                    "previous declaration here",
+                                    .{},
+                                ),
+                            },
+                        );
+                    }
+                    gop.value_ptr.* = tok_i;
+
+                    try astgen.extra.ensureUnusedCapacity(gpa, 2);
                     astgen.extra.appendAssumeCapacity(str_index);
                     const doc_comment_index = try astgen.docCommentAsString(tok_i);
                     astgen.extra.appendAssumeCapacity(doc_comment_index);
