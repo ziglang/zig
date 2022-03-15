@@ -9588,6 +9588,36 @@ fn analyzeArithmetic(
     };
 
     try sema.requireRuntimeBlock(block, rs.src);
+    if (block.wantSafety()) {
+        if (scalar_tag == .Int) {
+            const maybe_op_of: ?Air.Inst.Tag = switch (rs.air_tag) {
+                .add => .add_with_overflow,
+                .sub => .sub_with_overflow,
+                .mul => .mul_with_overflow,
+                else => null,
+            };
+            if (maybe_op_of) |op_of_tag| {
+                const mut_ptr_type = try Type.ptr(sema.arena, target, .{
+                    .pointee_type = resolved_type,
+                    .@"addrspace" = target_util.defaultAddressSpace(target, .local),
+                });
+                const ptr = try block.addTy(.alloc, mut_ptr_type);
+
+                const op_of = try block.addInst(.{
+                    .tag = op_of_tag,
+                    .data = .{ .pl_op = .{
+                        .operand = ptr,
+                        .payload = try sema.addExtra(Air.Bin{
+                            .lhs = casted_lhs,
+                            .rhs = casted_rhs,
+                        }),
+                    } },
+                });
+                const no_of = try block.addTyOp(.not, Type.bool, op_of);
+                try sema.addSafetyCheck(block, no_of, .arithmetic_overflow);
+            }
+        }
+    }
     return block.addBinOp(rs.air_tag, casted_lhs, casted_rhs);
 }
 
@@ -15158,6 +15188,7 @@ pub const PanicId = enum {
     cast_to_null,
     incorrect_alignment,
     invalid_error_code,
+    arithmetic_overflow,
 };
 
 fn addSafetyCheck(
@@ -15279,6 +15310,7 @@ fn safetyPanic(
         .cast_to_null => "cast causes pointer to be null",
         .incorrect_alignment => "incorrect alignment",
         .invalid_error_code => "invalid error code",
+        .arithmetic_overflow => "arithmetic overflow occurred",
     };
 
     const msg_inst = msg_inst: {
