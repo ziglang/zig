@@ -155,8 +155,6 @@ fn foo2(f: fn () anyerror!void) void {
 fn bar2() (error{}!void) {}
 
 test "error union type " {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     try testErrorUnionType();
     comptime try testErrorUnionType();
 }
