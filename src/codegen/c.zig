@@ -616,27 +616,33 @@ pub const DeclGen = struct {
             .Array => {
                 // First try specific tag representations for more efficiency.
                 switch (val.tag()) {
-                    .undef, .empty_struct_value, .empty_array => try writer.writeAll("{}"),
+                    .undef, .empty_struct_value, .empty_array => {
+                        try writer.writeByte('{');
+                        const ai = ty.arrayInfo();
+                        if (ai.sentinel) |s| {
+                            try dg.renderValue(writer, ai.elem_type, s);
+                        }
+                        try writer.writeByte('}');
+                    },
                     else => {
                         // Fall back to generic implementation.
                         var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
                         defer arena.deinit();
                         const arena_allocator = arena.allocator();
 
-                        try writer.writeAll("{");
+                        try writer.writeByte('{');
+                        const ai = ty.arrayInfo();
                         var index: usize = 0;
-                        const len = ty.arrayLen();
-                        const elem_ty = ty.elemType();
-                        while (index < len) : (index += 1) {
+                        while (index < ai.len) : (index += 1) {
                             if (index != 0) try writer.writeAll(",");
                             const elem_val = try val.elemValue(arena_allocator, index);
-                            try dg.renderValue(writer, elem_ty, elem_val);
+                            try dg.renderValue(writer, ai.elem_type, elem_val);
                         }
-                        if (ty.sentinel()) |sentinel_val| {
+                        if (ai.sentinel) |s| {
                             if (index != 0) try writer.writeAll(",");
-                            try dg.renderValue(writer, elem_ty, sentinel_val);
+                            try dg.renderValue(writer, ai.elem_type, s);
                         }
-                        try writer.writeAll("}");
+                        try writer.writeByte('}');
                     },
                 }
             },
@@ -925,14 +931,21 @@ pub const DeclGen = struct {
         const ptr_alignment = Value.initTag(.abi_align_default);
         try dg.renderTypeAndName(bw, ptr_type, ptr_name, .Mut, ptr_alignment);
 
+        const ptr_sentinel = ptr_type.ptrInfo().data.sentinel;
+        const child_type = t.childType();
+
         try bw.writeAll("; size_t len; } ");
         const name_index = buffer.items.len;
-        const elem_type = t.elemType();
         if (t.isConstPtr()) {
-            try bw.print("zig_L_{s};\n", .{typeToCIdentifier(elem_type)});
+            try bw.print("zig_L_{s}", .{typeToCIdentifier(child_type)});
         } else {
-            try bw.print("zig_M_{s};\n", .{typeToCIdentifier(elem_type)});
+            try bw.print("zig_M_{s}", .{typeToCIdentifier(child_type)});
         }
+        if (ptr_sentinel) |s| {
+            try bw.writeAll("_s_");
+            try dg.renderValue(bw, child_type, s);
+        }
+        try bw.writeAll(";\n");
 
         const rendered = buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
