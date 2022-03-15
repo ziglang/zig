@@ -2672,11 +2672,16 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 // ZIR handles it later, so we can just use the ty ref here.
                 air_datas[ptr_inst].ty_pl.ty = air_datas[bitcast_inst].ty_op.ty;
 
+                // Unless the block is comptime, `alloc_inferred` always produces
+                // a runtime constant. The final inferred type needs to be
+                // fully resolved so it can be lowered in codegen.
+                try sema.resolveTypeFully(block, ty_src, final_elem_ty);
+
                 return;
             }
 
             try sema.requireRuntimeBlock(block, src);
-            try sema.resolveTypeLayout(block, ty_src, final_elem_ty);
+            try sema.resolveTypeFully(block, ty_src, final_elem_ty);
 
             // Change it to a normal alloc.
             sema.air_instructions.set(ptr_inst, .{
