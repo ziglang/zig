@@ -1,3 +1,5 @@
+#undef linux
+
 #if __STDC_VERSION__ >= 201112L
 #define zig_noreturn _Noreturn
 #define zig_threadlocal thread_local
