@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "namespace depends on compile var" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (some_namespace.a_bool) {
         try expect(some_namespace.a_bool);
     } else {
