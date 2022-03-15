@@ -5148,6 +5148,7 @@ fn ifExpr(
     else
         false;
 
+    try emitDbgNode(parent_gz, if_full.ast.cond_expr);
     const cond: struct {
         inst: Zir.Inst.Ref,
         bool_bit: Zir.Inst.Ref,
@@ -5458,6 +5459,7 @@ fn whileExpr(
     else
         false;
 
+    try emitDbgNode(parent_gz, while_full.ast.cond_expr);
     const cond: struct {
         inst: Zir.Inst.Ref,
         bool_bit: Zir.Inst.Ref,
@@ -5677,6 +5679,8 @@ fn forExpr(
         token_tags[payload_token] == .asterisk
     else
         false;
+
+    try emitDbgNode(parent_gz, for_full.ast.cond_expr);
 
     const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
     const array_ptr = try expr(parent_gz, scope, cond_rl, for_full.ast.cond_expr);
@@ -7809,6 +7813,19 @@ fn callExpr(
         }
         break :blk .auto;
     };
+
+    {
+        astgen.advanceSourceCursor(astgen.tree.tokens.items(.start)[call.ast.lparen]);
+        const line = astgen.source_line - gz.decl_line;
+        const column = astgen.source_column;
+
+        _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
+            .dbg_stmt = .{
+                .line = line,
+                .column = column,
+            },
+        } });
+    }
 
     assert(callee != .none);
     assert(node != 0);
