@@ -7,7 +7,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
-const Module = @import("Module.zig");
 const assert = std.debug.assert;
 const Air = @This();
 
@@ -327,6 +326,9 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
+        /// Marks change of source function. Emitted around an inline call.
+        /// Uses `ty_pl` with the payload being the index of a Value.Function in air.values.
+        dbg_func,
         /// Marks the beginning of a local variable. The operand is a pointer pointing
         /// to the storage for the variable. The local may be a const or a var.
         /// Result type is always void.
@@ -971,6 +973,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .breakpoint,
         .dbg_stmt,
+        .dbg_func,
         .dbg_var_ptr,
         .dbg_var_val,
         .store,

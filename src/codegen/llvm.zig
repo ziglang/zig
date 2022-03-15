@@ -1754,11 +1754,14 @@ pub const DeclGen = struct {
     /// Note that this can be called before the function's semantic analysis has
     /// completed, so if any attributes rely on that, they must be done in updateFunc, not here.
     fn resolveLlvmFunction(dg: *DeclGen, decl: *Module.Decl) !*const llvm.Value {
+        return dg.resolveLlvmFunctionExtra(decl, decl.ty);
+    }
+
+    fn resolveLlvmFunctionExtra(dg: *DeclGen, decl: *Module.Decl, zig_fn_type: Type) !*const llvm.Value {
         const gop = try dg.object.decl_map.getOrPut(dg.gpa, decl);
         if (gop.found_existing) return gop.value_ptr.*;
 
         assert(decl.has_tv);
-        const zig_fn_type = decl.ty;
         const fn_info = zig_fn_type.fnInfo();
         const target = dg.module.getTarget();
         const sret = firstParamSRet(fn_info, target);
@@ -3460,6 +3463,7 @@ pub const FuncGen = struct {
                 .const_ty => unreachable,
                 .unreach  => self.airUnreach(inst),
                 .dbg_stmt => self.airDbgStmt(inst),
+                .dbg_func => try self.airDbgFunc(inst),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst),
                 // zig fmt: on
@@ -4178,6 +4182,45 @@ pub const FuncGen = struct {
         self.prev_dbg_line = @intCast(c_uint, self.dg.decl.src_line + dbg_stmt.line + 1);
         self.prev_dbg_column = @intCast(c_uint, dbg_stmt.column + 1);
         self.builder.setCurrentDebugLocation(self.prev_dbg_line, self.prev_dbg_column, di_scope);
+        return null;
+    }
+
+    fn airDbgFunc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const dib = self.dg.object.di_builder orelse return null;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    
+        const function = self.air.values[ty_pl.payload].castTag(.function).?.data;
+        const decl = function.owner_decl;
+        const fn_ty = try self.air.getRefType(ty_pl.ty).copy(self.dg.object.type_map_arena.allocator());
+        const llvm_func = try self.dg.resolveLlvmFunctionExtra(decl, fn_ty);
+        const fn_info = fn_ty.fnInfo();
+        const di_file = try self.dg.object.getDIFile(self.gpa, decl.src_namespace.file_scope);
+
+        const line_number = decl.src_line + 1;
+        const is_internal_linkage = !self.dg.module.decl_exports.contains(decl);
+        const noret_bit: c_uint = if (fn_info.return_type.isNoReturn())
+            llvm.DIFlags.NoReturn
+        else
+            0;
+        const subprogram = dib.createFunction(
+            di_file.toScope(),
+            decl.name,
+            llvm_func.getValueName(),
+            di_file,
+            line_number,
+            try self.dg.lowerDebugType(fn_ty),
+            is_internal_linkage,
+            true, // is definition
+            line_number + function.lbrace_line, // scope line
+            llvm.DIFlags.StaticMember | noret_bit,
+            self.dg.module.comp.bin_file.options.optimize_mode != .Debug,
+            null, // decl_subprogram
+        );
+        try self.dg.object.di_map.put(self.gpa, decl, subprogram.toNode());
+
+        llvm_func.fnSetSubprogram(subprogram);
+
+        self.di_scope = subprogram.toScope();
         return null;
     }
 

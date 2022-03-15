@@ -4639,6 +4639,10 @@ fn analyzeCall(
         // comptime state.
         var should_memoize = true;
 
+        var new_fn_info = module_fn.owner_decl.ty.fnInfo();
+        new_fn_info.param_types = try sema.arena.alloc(Type, new_fn_info.param_types.len);
+        new_fn_info.comptime_params = (try sema.arena.alloc(bool, new_fn_info.param_types.len)).ptr;
+
         // This will have return instructions analyzed as break instructions to
         // the block_inst above. Here we are performing "comptime/inline semantic analysis"
         // for a function body, which means we must map the parameter ZIR instructions to
@@ -4658,6 +4662,7 @@ fn analyzeCall(
                 const param_body = sema.code.extra[extra.end..][0..extra.data.body_len];
                 const param_ty_inst = try sema.resolveBody(&child_block, param_body, inst);
                 const param_ty = try sema.analyzeAsType(&child_block, param_src, param_ty_inst);
+                new_fn_info.param_types[arg_i] = param_ty;
                 const arg_src = call_src; // TODO: better source location
                 const casted_arg = try sema.coerce(&child_block, param_ty, uncasted_args[arg_i], arg_src);
                 try sema.inst_map.putNoClobber(gpa, inst, casted_arg);
@@ -4685,6 +4690,7 @@ fn analyzeCall(
             .param_anytype, .param_anytype_comptime => {
                 // No coercion needed.
                 const uncasted_arg = uncasted_args[arg_i];
+                new_fn_info.param_types[arg_i] = sema.typeOf(uncasted_arg);
                 try sema.inst_map.putNoClobber(gpa, inst, uncasted_arg);
 
                 if (is_comptime_call) {
@@ -4735,6 +4741,7 @@ fn analyzeCall(
             }
             break :blk bare_return_type;
         };
+        new_fn_info.return_type = fn_ret_ty;
         const parent_fn_ret_ty = sema.fn_ret_ty;
         sema.fn_ret_ty = fn_ret_ty;
         defer sema.fn_ret_ty = parent_fn_ret_ty;
@@ -4757,6 +4764,9 @@ fn analyzeCall(
                 }
             }
 
+            const new_func_resolved_ty = try Type.Tag.function.create(sema.arena, new_fn_info);
+            if (!is_comptime_call) try sema.emitDbgFunc(block, parent_func.?, module_fn, new_func_resolved_ty);
+
             const result = result: {
                 sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
                     error.ComptimeReturn => break :result inlining.comptime_result,
@@ -4770,6 +4780,8 @@ fn analyzeCall(
                 };
                 break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
             };
+
+            if (!is_comptime_call) try sema.emitDbgFunc(block, module_fn, parent_func.?, parent_func.?.owner_decl.ty);
 
             if (should_memoize and is_comptime_call) {
                 const result_val = try sema.resolveConstMaybeUndefVal(block, call_src, result);
@@ -5173,6 +5185,26 @@ fn instantiateGenericCall(
         try sema.ensureResultUsed(block, func_inst, call_src);
     }
     return func_inst;
+}
+
+fn emitDbgFunc(
+    sema: *Sema,
+    block: *Block,
+    old_func: *Module.Fn,
+    new_func: *Module.Fn,
+    new_func_ty: Type,
+) CompileError!void {
+    // No change of file; no dbg_func needed.
+    if (old_func == new_func) return;
+
+    try sema.air_values.append(sema.gpa, try Value.Tag.function.create(sema.arena, new_func));
+    _ = try block.addInst(.{
+        .tag = .dbg_func,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(new_func_ty),
+            .payload = @intCast(u32, sema.air_values.items.len - 1),
+        } },
+    });
 }
 
 fn zirIntType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

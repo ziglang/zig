@@ -1687,6 +1687,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .block            => try airBlock(f, inst),
             .bitcast          => try airBitcast(f, inst),
             .dbg_stmt         => try airDbgStmt(f, inst),
+            .dbg_func         => try airDbgFunc(f, inst),
             .intcast          => try airIntCast(f, inst),
             .trunc            => try airTrunc(f, inst),
             .bool_to_int      => try airBoolToInt(f, inst),
@@ -2657,6 +2658,14 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     // Perhaps an additional compilation option is in order?
     //try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
     try writer.print("/* file:{d}:{d} */\n", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
+    return CValue.none;
+}
+
+fn airDbgFunc(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const writer = f.object.writer();
+    const function = f.air.values[ty_pl.payload].castTag(.function).?.data;
+    try writer.print("/* dbg func:{s} */\n", .{function.owner_decl.name});
     return CValue.none;
 }
 
