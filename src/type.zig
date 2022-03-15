@@ -2098,6 +2098,7 @@ pub const Type = extern union {
                 }
                 assert(struct_obj.haveFieldTypes());
                 for (struct_obj.fields.values()) |value| {
+                    if (value.is_comptime) continue;
                     if (value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only))
                         return true;
                 } else {

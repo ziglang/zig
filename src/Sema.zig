@@ -20860,6 +20860,7 @@ pub fn typeHasOnePossibleValue(
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const s = resolved_ty.castTag(.@"struct").?.data;
             for (s.fields.values()) |value| {
+                if (value.is_comptime) continue;
                 if ((try sema.typeHasOnePossibleValue(block, src, value.ty)) == null) {
                     return null;
                 }
@@ -21532,6 +21533,7 @@ fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) C
 
                     struct_obj.requires_comptime = .wip;
                     for (struct_obj.fields.values()) |field| {
+                        if (field.is_comptime) continue;
                         if (try sema.typeRequiresComptime(block, src, field.ty)) {
                             struct_obj.requires_comptime = .yes;
                             return true;

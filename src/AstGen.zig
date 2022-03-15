@@ -4092,15 +4092,17 @@ fn structDeclInner(
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
         wip_members.appendToField(doc_comment_index);
 
-        known_non_opv = known_non_opv or
-            nodeImpliesMoreThanOnePossibleValue(tree, member.ast.type_expr);
-        known_comptime_only = known_comptime_only or
-            nodeImpliesComptimeOnly(tree, member.ast.type_expr);
-
         const have_align = member.ast.align_expr != 0;
         const have_value = member.ast.value_expr != 0;
         const is_comptime = member.comptime_token != null;
         const unused = false;
+
+        if (!is_comptime) {
+            known_non_opv = known_non_opv or
+                nodeImpliesMoreThanOnePossibleValue(tree, member.ast.type_expr);
+            known_comptime_only = known_comptime_only or
+                nodeImpliesComptimeOnly(tree, member.ast.type_expr);
+        }
         wip_members.nextField(bits_per_field, .{ have_align, have_value, is_comptime, unused });
 
         if (have_align) {
