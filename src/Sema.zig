@@ -1579,8 +1579,6 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const target = sema.mod.getTarget();
     const addr_space = target_util.defaultAddressSpace(target, .local);
 
-    try sema.resolveTypeLayout(block, src, pointee_ty);
-
     if (Air.refToIndex(ptr)) |ptr_inst| {
         if (sema.air_instructions.items(.tag)[ptr_inst] == .constant) {
             const air_datas = sema.air_instructions.items(.data);
@@ -1617,6 +1615,9 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                         try pointee_ty.copy(anon_decl.arena()),
                         Value.undef,
                     );
+                    if (iac.data.alignment != 0) {
+                        try sema.resolveTypeLayout(block, src, pointee_ty);
+                    }
                     const ptr_ty = try Type.ptr(sema.arena, target, .{
                         .pointee_type = pointee_ty,
                         .@"align" = iac.data.alignment,
@@ -1886,7 +1887,7 @@ fn zirEnumDecl(
 
     enum_obj.* = .{
         .owner_decl = new_decl,
-        .tag_ty = Type.initTag(.@"null"),
+        .tag_ty = Type.@"null",
         .tag_ty_inferred = true,
         .fields = .{},
         .values = .{},
@@ -17867,13 +17868,13 @@ const TypedValueAndOffset = struct {
 };
 
 const ComptimePtrLoadKit = struct {
-    /// The Value and Type corresponding to the target of the provided pointer.
+    /// The Value and Type corresponding to the pointee of the provided pointer.
     /// If a direct dereference is not possible, this is null.
-    target: ?TypedValue,
-    /// The largest parent Value containing `target` and having a well-defined memory layout.
-    /// This is used for bitcasting, if direct dereferencing failed (i.e. `target` is null).
+    pointee: ?TypedValue,
+    /// The largest parent Value containing `pointee` and having a well-defined memory layout.
+    /// This is used for bitcasting, if direct dereferencing failed (i.e. `pointee` is null).
     parent: ?TypedValueAndOffset,
-    /// Whether the `target` could be mutated by further
+    /// Whether the `pointee` could be mutated by further
     /// semantic analysis and a copy must be performed.
     is_mutable: bool,
     /// If the root decl could not be used as `parent`, this is the type that
@@ -17885,7 +17886,7 @@ const ComptimePtrLoadError = CompileError || error{
     RuntimeLoad,
 };
 
-/// If `maybe_array_ty` is provided, it will be used to directly dereference an 
+/// If `maybe_array_ty` is provided, it will be used to directly dereference an
 /// .elem_ptr of type T to a value of [N]T, if necessary.
 fn beginComptimePtrLoad(
     sema: *Sema,
@@ -17908,10 +17909,10 @@ fn beginComptimePtrLoad(
             const decl_tv = try decl.typedValue();
             if (decl_tv.val.tag() == .variable) return error.RuntimeLoad;
 
-            const layout_defined = try sema.typeHasWellDefinedLayout(block, src, decl.ty);
+            const layout_defined = decl.ty.hasWellDefinedLayout();
             break :blk ComptimePtrLoadKit{
                 .parent = if (layout_defined) .{ .tv = decl_tv, .byte_offset = 0 } else null,
-                .target = decl_tv,
+                .pointee = decl_tv,
                 .is_mutable = is_mutable,
                 .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
             };
@@ -17923,7 +17924,7 @@ fn beginComptimePtrLoad(
             var deref = try beginComptimePtrLoad(sema, block, src, elem_ptr.array_ptr, null);
 
             if (elem_ptr.index != 0) {
-                if (try sema.typeHasWellDefinedLayout(block, src, elem_ty)) {
+                if (elem_ty.hasWellDefinedLayout()) {
                     if (deref.parent) |*parent| {
                         // Update the byte offset (in-place)
                         const elem_size = try sema.typeAbiSize(block, src, elem_ty);
@@ -17938,17 +17939,17 @@ fn beginComptimePtrLoad(
 
             // If we're loading an elem_ptr that was derived from a different type
             // than the true type of the underlying decl, we cannot deref directly
-            const ty_matches = if (deref.target != null and deref.target.?.ty.isArrayLike()) x: {
-                const deref_elem_ty = deref.target.?.ty.childType();
+            const ty_matches = if (deref.pointee != null and deref.pointee.?.ty.isArrayLike()) x: {
+                const deref_elem_ty = deref.pointee.?.ty.childType();
                 break :x (try sema.coerceInMemoryAllowed(block, deref_elem_ty, elem_ty, false, target, src, src)) == .ok or
                     (try sema.coerceInMemoryAllowed(block, elem_ty, deref_elem_ty, false, target, src, src)) == .ok;
             } else false;
             if (!ty_matches) {
-                deref.target = null;
+                deref.pointee = null;
                 break :blk deref;
             }
 
-            var array_tv = deref.target.?;
+            var array_tv = deref.pointee.?;
             const check_len = array_tv.ty.arrayLenIncludingSentinel();
             if (elem_ptr.index >= check_len) {
                 // TODO have the deref include the decl so we can say "declared here"
@@ -17959,10 +17960,10 @@ fn beginComptimePtrLoad(
 
             if (maybe_array_ty) |load_ty| {
                 // It's possible that we're loading a [N]T, in which case we'd like to slice
-                // the target array directly from our parent array.
+                // the pointee array directly from our parent array.
                 if (load_ty.isArrayLike() and load_ty.childType().eql(elem_ty)) {
                     const N = try sema.usizeCast(block, src, load_ty.arrayLenIncludingSentinel());
-                    deref.target = if (elem_ptr.index + N <= check_len) TypedValue{
+                    deref.pointee = if (elem_ptr.index + N <= check_len) TypedValue{
                         .ty = try Type.array(sema.arena, N, null, elem_ty),
                         .val = try array_tv.val.sliceArray(sema.arena, elem_ptr.index, elem_ptr.index + N),
                     } else null;
@@ -17970,7 +17971,7 @@ fn beginComptimePtrLoad(
                 }
             }
 
-            deref.target = .{
+            deref.pointee = .{
                 .ty = elem_ty,
                 .val = try array_tv.val.elemValue(sema.arena, elem_ptr.index),
             };
@@ -17983,7 +17984,7 @@ fn beginComptimePtrLoad(
             const field_ty = field_ptr.container_ty.structFieldType(field_index);
             var deref = try beginComptimePtrLoad(sema, block, src, field_ptr.container_ptr, field_ptr.container_ty);
 
-            if (try sema.typeHasWellDefinedLayout(block, src, field_ptr.container_ty)) {
+            if (field_ptr.container_ty.hasWellDefinedLayout()) {
                 if (deref.parent) |*parent| {
                     // Update the byte offset (in-place)
                     try sema.resolveTypeLayout(block, src, field_ptr.container_ty);
@@ -17995,19 +17996,19 @@ fn beginComptimePtrLoad(
                 deref.ty_without_well_defined_layout = field_ptr.container_ty;
             }
 
-            if (deref.target) |*tv| {
+            if (deref.pointee) |*tv| {
                 const coerce_in_mem_ok =
                     (try sema.coerceInMemoryAllowed(block, field_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
                     (try sema.coerceInMemoryAllowed(block, tv.ty, field_ptr.container_ty, false, target, src, src)) == .ok;
                 if (coerce_in_mem_ok) {
-                    deref.target = TypedValue{
+                    deref.pointee = TypedValue{
                         .ty = field_ty,
                         .val = try tv.val.fieldValue(sema.arena, field_index),
                     };
                     break :blk deref;
                 }
             }
-            deref.target = null;
+            deref.pointee = null;
             break :blk deref;
         },
 
@@ -18028,7 +18029,7 @@ fn beginComptimePtrLoad(
                 deref.ty_without_well_defined_layout = payload_ptr.container_ty;
             }
 
-            if (deref.target) |*tv| {
+            if (deref.pointee) |*tv| {
                 const coerce_in_mem_ok =
                     (try sema.coerceInMemoryAllowed(block, payload_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
                     (try sema.coerceInMemoryAllowed(block, tv.ty, payload_ptr.container_ty, false, target, src, src)) == .ok;
@@ -18042,7 +18043,7 @@ fn beginComptimePtrLoad(
                     break :blk deref;
                 }
             }
-            deref.target = null;
+            deref.pointee = null;
             break :blk deref;
         },
 
@@ -18060,7 +18061,7 @@ fn beginComptimePtrLoad(
         else => unreachable,
     };
 
-    if (deref.target) |tv| {
+    if (deref.pointee) |tv| {
         if (deref.parent == null and tv.ty.hasWellDefinedLayout()) {
             deref.parent = .{ .tv = tv, .byte_offset = 0 };
         }
@@ -21157,7 +21158,7 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
         else => |e| return e,
     };
 
-    if (deref.target) |tv| {
+    if (deref.pointee) |tv| {
         const coerce_in_mem_ok =
             (try sema.coerceInMemoryAllowed(block, load_ty, tv.ty, false, target, src, src)) == .ok or
             (try sema.coerceInMemoryAllowed(block, tv.ty, load_ty, false, target, src, src)) == .ok;
@@ -21176,13 +21177,13 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
 
     // The type is not in-memory coercible or the direct dereference failed, so it must
     // be bitcast according to the pointer type we are performing the load through.
-    if (!(try sema.typeHasWellDefinedLayout(block, src, load_ty)))
+    if (!load_ty.hasWellDefinedLayout())
         return sema.fail(block, src, "comptime dereference requires {} to have a well-defined layout, but it does not.", .{load_ty});
 
     const load_sz = try sema.typeAbiSize(block, src, load_ty);
 
     // Try the smaller bit-cast first, since that's more efficient than using the larger `parent`
-    if (deref.target) |tv| if (load_sz <= try sema.typeAbiSize(block, src, tv.ty))
+    if (deref.pointee) |tv| if (load_sz <= try sema.typeAbiSize(block, src, tv.ty))
         return try sema.bitCastVal(block, src, tv.val, tv.ty, load_ty, 0);
 
     // If that fails, try to bit-cast from the largest parent value with a well-defined layout
@@ -21269,182 +21270,6 @@ fn typePtrOrOptionalPtrTy(
 
         else => return null,
     }
-}
-
-fn typeHasWellDefinedLayout(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
-    return switch (ty.tag()) {
-        .u1,
-        .u8,
-        .i8,
-        .u16,
-        .i16,
-        .u32,
-        .i32,
-        .u64,
-        .i64,
-        .u128,
-        .i128,
-        .usize,
-        .isize,
-        .c_short,
-        .c_ushort,
-        .c_int,
-        .c_uint,
-        .c_long,
-        .c_ulong,
-        .c_longlong,
-        .c_ulonglong,
-        .c_longdouble,
-        .f16,
-        .f32,
-        .f64,
-        .f80,
-        .f128,
-        .bool,
-        .void,
-        .manyptr_u8,
-        .manyptr_const_u8,
-        .manyptr_const_u8_sentinel_0,
-        .anyerror_void_error_union,
-        .empty_struct_literal,
-        .empty_struct,
-        .array_u8,
-        .array_u8_sentinel_0,
-        .int_signed,
-        .int_unsigned,
-        .pointer,
-        .single_const_pointer,
-        .single_mut_pointer,
-        .many_const_pointer,
-        .many_mut_pointer,
-        .c_const_pointer,
-        .c_mut_pointer,
-        .single_const_pointer_to_comptime_int,
-        .enum_numbered,
-        => true,
-
-        .anyopaque,
-        .anyerror,
-        .noreturn,
-        .@"null",
-        .@"anyframe",
-        .@"undefined",
-        .atomic_order,
-        .atomic_rmw_op,
-        .calling_convention,
-        .address_space,
-        .float_mode,
-        .reduce_op,
-        .call_options,
-        .prefetch_options,
-        .export_options,
-        .extern_options,
-        .error_set,
-        .error_set_single,
-        .error_set_inferred,
-        .error_set_merged,
-        .@"opaque",
-        .generic_poison,
-        .type,
-        .comptime_int,
-        .comptime_float,
-        .enum_literal,
-        .type_info,
-        // These are function bodies, not function pointers.
-        .fn_noreturn_no_args,
-        .fn_void_no_args,
-        .fn_naked_noreturn_no_args,
-        .fn_ccc_void_no_args,
-        .function,
-        .const_slice_u8,
-        .const_slice_u8_sentinel_0,
-        .const_slice,
-        .mut_slice,
-        .enum_simple,
-        .error_union,
-        .anyframe_T,
-        .tuple,
-        .anon_struct,
-        => false,
-
-        .enum_full,
-        .enum_nonexhaustive,
-        => !ty.cast(Type.Payload.EnumFull).?.data.tag_ty_inferred,
-
-        .var_args_param => unreachable,
-        .inferred_alloc_mut => unreachable,
-        .inferred_alloc_const => unreachable,
-        .bound_fn => unreachable,
-
-        .array,
-        .array_sentinel,
-        .vector,
-        => sema.typeHasWellDefinedLayout(block, src, ty.childType()),
-
-        .optional,
-        .optional_single_mut_pointer,
-        .optional_single_const_pointer,
-        => blk: {
-            var buf: Type.Payload.ElemType = undefined;
-            break :blk sema.typeHasWellDefinedLayout(block, src, ty.optionalChild(&buf));
-        },
-
-        .@"struct" => {
-            const struct_obj = ty.castTag(.@"struct").?.data;
-            if (struct_obj.layout == .Auto) {
-                struct_obj.has_well_defined_layout = .no;
-                return false;
-            }
-            switch (struct_obj.has_well_defined_layout) {
-                .no => return false,
-                .yes, .wip => return true,
-                .unknown => {
-                    if (struct_obj.status == .field_types_wip)
-                        return true;
-
-                    try sema.resolveTypeFieldsStruct(block, src, ty, struct_obj);
-
-                    struct_obj.has_well_defined_layout = .wip;
-                    for (struct_obj.fields.values()) |field| {
-                        if (!(try sema.typeHasWellDefinedLayout(block, src, field.ty))) {
-                            struct_obj.has_well_defined_layout = .no;
-                            return false;
-                        }
-                    }
-                    struct_obj.has_well_defined_layout = .yes;
-                    return true;
-                },
-            }
-        },
-
-        .@"union", .union_tagged => {
-            const union_obj = ty.cast(Type.Payload.Union).?.data;
-            if (union_obj.layout == .Auto) {
-                union_obj.has_well_defined_layout = .no;
-                return false;
-            }
-            switch (union_obj.has_well_defined_layout) {
-                .no => return false,
-                .yes, .wip => return true,
-                .unknown => {
-                    if (union_obj.status == .field_types_wip)
-                        return true;
-
-                    try sema.resolveTypeFieldsUnion(block, src, ty, union_obj);
-
-                    union_obj.has_well_defined_layout = .wip;
-                    for (union_obj.fields.values()) |field| {
-                        if (!(try sema.typeHasWellDefinedLayout(block, src, field.ty))) {
-                            union_obj.has_well_defined_layout = .no;
-                            return false;
-                        }
-                    }
-                    union_obj.has_well_defined_layout = .yes;
-                    return true;
-                },
-            }
-        },
-    };
 }
 
 /// `generic_poison` will return false.

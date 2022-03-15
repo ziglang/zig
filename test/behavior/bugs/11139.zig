@@ -3,9 +3,9 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "store array of array of structs at comptime" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try expect(storeArrayOfArrayOfStructs() == 15);
     comptime try expect(storeArrayOfArrayOfStructs() == 15);

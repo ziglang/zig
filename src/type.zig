@@ -2210,9 +2210,6 @@ pub const Type = extern union {
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
-            .anyerror_void_error_union,
-            .empty_struct_literal,
-            .empty_struct,
             .array_u8,
             .array_u8_sentinel_0,
             .int_signed,
@@ -2226,6 +2223,9 @@ pub const Type = extern union {
             .c_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .enum_numbered,
+            .vector,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
             => true,
 
             .anyopaque,
@@ -2267,9 +2267,12 @@ pub const Type = extern union {
             .mut_slice,
             .enum_simple,
             .error_union,
+            .anyerror_void_error_union,
             .anyframe_T,
             .tuple,
             .anon_struct,
+            .empty_struct_literal,
+            .empty_struct,
             => false,
 
             .enum_full,
@@ -2283,36 +2286,12 @@ pub const Type = extern union {
 
             .array,
             .array_sentinel,
-            .vector,
             => ty.childType().hasWellDefinedLayout(),
 
-            .optional,
-            .optional_single_mut_pointer,
-            .optional_single_const_pointer,
-            => {
-                var buf: Type.Payload.ElemType = undefined;
-                return ty.optionalChild(&buf).hasWellDefinedLayout();
-            },
-
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                if (struct_obj.layout == .Auto) return false;
-                switch (struct_obj.has_well_defined_layout) {
-                    .wip, .unknown => unreachable, // This function asserts types already resolved.
-                    .no => return false,
-                    .yes => return true,
-                }
-            },
-
-            .@"union", .union_tagged => {
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
-                if (union_obj.layout == .Auto) return false;
-                switch (union_obj.has_well_defined_layout) {
-                    .wip, .unknown => unreachable, // This function asserts types already resolved.
-                    .no => return false,
-                    .yes => return true,
-                }
-            },
+            .optional => ty.isPtrLikeOptional(),
+            .@"struct" => ty.castTag(.@"struct").?.data.layout != .Auto,
+            .@"union" => ty.castTag(.@"union").?.data.layout != .Auto,
+            .union_tagged => false,
         };
     }
 
@@ -3299,13 +3278,12 @@ pub const Type = extern union {
             => return true,
 
             .optional => {
-                var buf: Payload.ElemType = undefined;
-                const child_type = self.optionalChild(&buf);
+                const child_ty = self.castTag(.optional).?.data;
                 // optionals of zero sized types behave like bools, not pointers
-                if (!child_type.hasRuntimeBits()) return false;
-                if (child_type.zigTypeTag() != .Pointer) return false;
+                if (!child_ty.hasRuntimeBits()) return false;
+                if (child_ty.zigTypeTag() != .Pointer) return false;
 
-                const info = child_type.ptrInfo().data;
+                const info = child_ty.ptrInfo().data;
                 switch (info.size) {
                     .Slice, .C => return false,
                     .Many, .One => return !info.@"allowzero",
@@ -5496,6 +5474,7 @@ pub const Type = extern union {
     pub const @"type" = initTag(.type);
     pub const @"anyerror" = initTag(.anyerror);
     pub const @"anyopaque" = initTag(.anyopaque);
+    pub const @"null" = initTag(.@"null");
 
     pub fn ptr(arena: Allocator, target: Target, data: Payload.Pointer.Data) !Type {
         var d = data;

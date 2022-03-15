@@ -2829,7 +2829,10 @@ pub const DeclGen = struct {
                             // (void) payload is the same.
                             break :blk parent_llvm_ptr;
                         }
-                        const llvm_pl_index = if (layout.tag_size == 0) 0 else @boolToInt(layout.tag_align >= layout.payload_align);
+                        const llvm_pl_index = if (layout.tag_size == 0)
+                            0
+                        else
+                            @boolToInt(layout.tag_align >= layout.payload_align);
                         const indices: [2]*const llvm.Value = .{
                             llvm_u32.constInt(0, .False),
                             llvm_u32.constInt(llvm_pl_index, .False),

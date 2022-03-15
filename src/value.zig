@@ -2417,7 +2417,7 @@ pub const Value = extern union {
         return switch (val.tag()) {
             .empty_array_sentinel => if (start == 0 and end == 1) val else Value.initTag(.empty_array),
             .bytes => Tag.bytes.create(arena, val.castTag(.bytes).?.data[start..end]),
-            .array => Tag.array.create(arena, val.castTag(.array).?.data[start..end]),
+            .aggregate => Tag.aggregate.create(arena, val.castTag(.aggregate).?.data[start..end]),
             .slice => sliceArray(val.castTag(.slice).?.data.ptr, arena, start, end),
 
             .decl_ref => sliceArray(val.castTag(.decl_ref).?.data.val, arena, start, end),
@@ -2466,7 +2466,7 @@ pub const Value = extern union {
     pub fn elemPtr(val: Value, ty: Type, arena: Allocator, index: usize) Allocator.Error!Value {
         const elem_ty = ty.elemType2();
         const ptr_val = switch (val.tag()) {
-            .slice => val.slicePtr(),
+            .slice => val.castTag(.slice).?.data.ptr,
             else => val,
         };
 

@@ -23,9 +23,9 @@ fn testReinterpretBytesAsInteger() !void {
 
 test "reinterpret an array over multiple elements, with no well-defined layout" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testReinterpretWithOffsetAndNoWellDefinedLayout();
     comptime try testReinterpretWithOffsetAndNoWellDefinedLayout();
@@ -40,9 +40,9 @@ fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
 }
 
 test "reinterpret bytes inside auto-layout struct as integer with nonzero offset" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testReinterpretStructWrappedBytesAsInteger();
     comptime try testReinterpretStructWrappedBytesAsInteger();
@@ -59,9 +59,9 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
 }
 
 test "reinterpret bytes of an array into an extern struct" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     try testReinterpretBytesAsExternStruct();
     comptime try testReinterpretBytesAsExternStruct();
@@ -83,8 +83,8 @@ fn testReinterpretBytesAsExternStruct() !void {
 
 test "reinterpret bytes of an extern struct into another" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     try testReinterpretExternStructAsExternStruct();
     comptime try testReinterpretExternStructAsExternStruct();
@@ -109,11 +109,11 @@ fn testReinterpretExternStructAsExternStruct() !void {
 
 test "lower reinterpreted comptime field ptr" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     // Test lowering a field ptr
     comptime var bytes align(2) = [_]u8{ 1, 2, 3, 4, 5, 6 };
