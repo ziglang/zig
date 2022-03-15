@@ -238,7 +238,6 @@ const Sub = struct { b: u8 };
 const Str = struct { a: []Sub };
 test "set global var array via slice embedded in struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var s = Str{ .a = s_array[0..] };
@@ -254,7 +253,6 @@ test "set global var array via slice embedded in struct" {
 
 test "read/write through global variable array of struct fields initialized via array mult" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -275,7 +273,6 @@ test "read/write through global variable array of struct fields initialized via 
 
 test "implicit cast single-item pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try testImplicitCastSingleItemPtr();
@@ -295,7 +292,6 @@ fn testArrayByValAtComptime(b: [2]u8) u8 {
 
 test "comptime evaluating function that takes array by value" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const arr = [_]u8{ 1, 2 };
@@ -307,7 +303,6 @@ test "comptime evaluating function that takes array by value" {
 
 test "runtime initialize array elem and then implicit cast to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var two: i32 = 2;
@@ -317,7 +312,6 @@ test "runtime initialize array elem and then implicit cast to slice" {
 
 test "array literal as argument to function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -345,7 +339,6 @@ test "array literal as argument to function" {
 
 test "double nested array to const slice cast in array literal" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -406,7 +399,6 @@ test "double nested array to const slice cast in array literal" {
 
 test "anonymous literal in array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -431,7 +423,6 @@ test "anonymous literal in array" {
 
 test "access the null element of a null terminated array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -448,7 +439,6 @@ test "access the null element of a null terminated array" {
 
 test "type deduction for array subscript expression" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -468,7 +458,6 @@ test "sentinel element count towards the ABI size calculation" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
