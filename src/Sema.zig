@@ -2220,12 +2220,8 @@ fn zirErrorSetDecl(
     while (extra_index < extra_index_end) : (extra_index += 2) { // +2 to skip over doc_string
         const str_index = sema.code.extra[extra_index];
         const name = try new_decl_arena_allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
-
-        // TODO: This check should be performed in AstGen instead.
         const result = names.getOrPutAssumeCapacity(name);
-        if (result.found_existing) {
-            return sema.fail(block, src, "duplicate error set field {s}", .{name});
-        }
+        assert(!result.found_existing); // verified in AstGen
     }
 
     // names must be sorted.
