@@ -1687,7 +1687,6 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .block            => try airBlock(f, inst),
             .bitcast          => try airBitcast(f, inst),
             .dbg_stmt         => try airDbgStmt(f, inst),
-            .dbg_func         => try airDbgFunc(f, inst),
             .intcast          => try airIntCast(f, inst),
             .trunc            => try airTrunc(f, inst),
             .bool_to_int      => try airBoolToInt(f, inst),
@@ -1726,6 +1725,10 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .dbg_var_ptr,
             .dbg_var_val,
             => try airDbgVar(f, inst),
+
+            .dbg_inline_begin,
+            .dbg_inline_end,
+            => try airDbgInline(f, inst),
 
             .call              => try airCall(f, inst, .auto),
             .call_always_tail  => try airCall(f, inst, .always_tail),
@@ -2661,7 +2664,7 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     return CValue.none;
 }
 
-fn airDbgFunc(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const writer = f.object.writer();
     const function = f.air.values[ty_pl.payload].castTag(.function).?.data;

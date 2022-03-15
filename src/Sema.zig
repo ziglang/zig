@@ -4765,7 +4765,9 @@ fn analyzeCall(
             }
 
             const new_func_resolved_ty = try Type.Tag.function.create(sema.arena, new_fn_info);
-            if (!is_comptime_call) try sema.emitDbgFunc(block, parent_func.?, module_fn, new_func_resolved_ty);
+            if (!is_comptime_call) {
+                try sema.emitDbgInline(block, parent_func.?, module_fn, new_func_resolved_ty, .dbg_inline_begin);
+            }
 
             const result = result: {
                 sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
@@ -4781,7 +4783,9 @@ fn analyzeCall(
                 break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
             };
 
-            if (!is_comptime_call) try sema.emitDbgFunc(block, module_fn, parent_func.?, parent_func.?.owner_decl.ty);
+            if (!is_comptime_call) {
+                try sema.emitDbgInline(block, module_fn, parent_func.?, parent_func.?.owner_decl.ty, .dbg_inline_end);
+            }
 
             if (should_memoize and is_comptime_call) {
                 const result_val = try sema.resolveConstMaybeUndefVal(block, call_src, result);
@@ -5187,19 +5191,20 @@ fn instantiateGenericCall(
     return func_inst;
 }
 
-fn emitDbgFunc(
+fn emitDbgInline(
     sema: *Sema,
     block: *Block,
     old_func: *Module.Fn,
     new_func: *Module.Fn,
     new_func_ty: Type,
+    tag: Air.Inst.Tag,
 ) CompileError!void {
-    // No change of file; no dbg_func needed.
+    // No change of file; no dbg_inline needed.
     if (old_func == new_func) return;
 
     try sema.air_values.append(sema.gpa, try Value.Tag.function.create(sema.arena, new_func));
     _ = try block.addInst(.{
-        .tag = .dbg_func,
+        .tag = tag,
         .data = .{ .ty_pl = .{
             .ty = try sema.addType(new_func_ty),
             .payload = @intCast(u32, sema.air_values.items.len - 1),

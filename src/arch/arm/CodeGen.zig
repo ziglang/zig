@@ -595,7 +595,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .fence           => try self.airFence(),
             .cond_br         => try self.airCondBr(inst),
             .dbg_stmt        => try self.airDbgStmt(inst),
-            .dbg_func        => try self.airDbgFunc(inst),
             .fptrunc         => try self.airFptrunc(inst),
             .fpext           => try self.airFpext(inst),
             .intcast         => try self.airIntCast(inst),
@@ -646,6 +645,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_var_ptr,
             .dbg_var_val,
             => try self.airDbgVar(inst),
+
+            .dbg_inline_begin,
+            .dbg_inline_end,
+            => try self.airDbgInline(inst),
 
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
@@ -2836,7 +2839,7 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAirBookkeeping();
 }
 
-fn airDbgFunc(self: *Self, inst: Air.Inst.Index) !void {
+fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const function = self.air.values[ty_pl.payload].castTag(.function).?.data;
     // TODO emit debug info for function change

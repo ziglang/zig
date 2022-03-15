@@ -620,7 +620,8 @@ pub const Object = struct {
 
             llvm_func.fnSetSubprogram(subprogram);
 
-            di_scope = subprogram.toScope();
+            const lexical_block = dib.createLexicalBlock(subprogram.toScope(), di_file.?, line_number, 1);
+            di_scope = lexical_block.toScope();
         }
 
         var fg: FuncGen = .{
@@ -639,6 +640,7 @@ pub const Object = struct {
             .single_threaded = module.comp.bin_file.options.single_threaded,
             .di_scope = di_scope,
             .di_file = di_file,
+            .base_line = dg.decl.src_line,
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
         };
@@ -3210,8 +3212,12 @@ pub const FuncGen = struct {
     builder: *const llvm.Builder,
     di_scope: ?*llvm.DIScope,
     di_file: ?*llvm.DIFile,
+    base_line: u32,
     prev_dbg_line: c_uint,
     prev_dbg_column: c_uint,
+
+    /// Stack of locations where a call was inlined.
+    dbg_inlined: std.ArrayListUnmanaged(DbgState) = .{},
 
     /// This stores the LLVM values used in a function, such that they can be referred to
     /// in other instructions. This table is cleared before every function is generated.
@@ -3240,11 +3246,13 @@ pub const FuncGen = struct {
 
     single_threaded: bool,
 
+    const DbgState = struct { loc: *llvm.DILocation, scope: *llvm.DIScope, base_line: u32 };
     const BreakBasicBlocks = std.ArrayListUnmanaged(*const llvm.BasicBlock);
     const BreakValues = std.ArrayListUnmanaged(*const llvm.Value);
 
     fn deinit(self: *FuncGen) void {
         self.builder.dispose();
+        self.dbg_inlined.deinit(self.gpa);
         self.func_inst_table.deinit(self.gpa);
         self.blocks.deinit(self.gpa);
     }
@@ -3463,7 +3471,8 @@ pub const FuncGen = struct {
                 .const_ty => unreachable,
                 .unreach  => self.airUnreach(inst),
                 .dbg_stmt => self.airDbgStmt(inst),
-                .dbg_func => try self.airDbgFunc(inst),
+                .dbg_inline_begin => try self.airDbgInline(inst, true),
+                .dbg_inline_end => try self.airDbgInline(inst, false),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst),
                 // zig fmt: on
@@ -4179,24 +4188,44 @@ pub const FuncGen = struct {
     fn airDbgStmt(self: *FuncGen, inst: Air.Inst.Index) ?*const llvm.Value {
         const di_scope = self.di_scope orelse return null;
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-        self.prev_dbg_line = @intCast(c_uint, self.dg.decl.src_line + dbg_stmt.line + 1);
+        self.prev_dbg_line = @intCast(c_uint, self.base_line + dbg_stmt.line + 1);
         self.prev_dbg_column = @intCast(c_uint, dbg_stmt.column + 1);
-        self.builder.setCurrentDebugLocation(self.prev_dbg_line, self.prev_dbg_column, di_scope);
+        const inlined_at = if (self.dbg_inlined.items.len > 0)
+            self.dbg_inlined.items[self.dbg_inlined.items.len - 1].loc
+        else
+            null;
+        self.builder.setCurrentDebugLocation(self.prev_dbg_line, self.prev_dbg_column, di_scope, inlined_at);
         return null;
     }
 
-    fn airDbgFunc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airDbgInline(self: *FuncGen, inst: Air.Inst.Index, start: bool) !?*const llvm.Value {
         const dib = self.dg.object.di_builder orelse return null;
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    
-        const function = self.air.values[ty_pl.payload].castTag(.function).?.data;
-        const decl = function.owner_decl;
-        const fn_ty = try self.air.getRefType(ty_pl.ty).copy(self.dg.object.type_map_arena.allocator());
-        const llvm_func = try self.dg.resolveLlvmFunctionExtra(decl, fn_ty);
-        const fn_info = fn_ty.fnInfo();
-        const di_file = try self.dg.object.getDIFile(self.gpa, decl.src_namespace.file_scope);
 
+        const func = self.air.values[ty_pl.payload].castTag(.function).?.data;
+        const decl = func.owner_decl;
+        const di_file = try self.dg.object.getDIFile(self.gpa, decl.src_namespace.file_scope);
+        self.di_file = di_file;
         const line_number = decl.src_line + 1;
+        const cur_debug_location = self.builder.getCurrentDebugLocation2();
+        if (start) {
+            try self.dbg_inlined.append(self.gpa, .{
+                .loc = @ptrCast(*llvm.DILocation, cur_debug_location),
+                .scope = self.di_scope.?,
+                .base_line = self.base_line,
+            });
+        } else {
+            const old = self.dbg_inlined.pop();
+            self.di_scope = old.scope;
+            self.base_line = old.base_line;
+            return null;
+        }
+
+        const fn_ty = try self.air.getRefType(ty_pl.ty).copy(self.dg.object.type_map_arena.allocator());
+        const fqn = try decl.getFullyQualifiedName(self.gpa);
+        defer self.gpa.free(fqn);
+        const fn_info = fn_ty.fnInfo();
+
         const is_internal_linkage = !self.dg.module.decl_exports.contains(decl);
         const noret_bit: c_uint = if (fn_info.return_type.isNoReturn())
             llvm.DIFlags.NoReturn
@@ -4205,22 +4234,23 @@ pub const FuncGen = struct {
         const subprogram = dib.createFunction(
             di_file.toScope(),
             decl.name,
-            llvm_func.getValueName(),
+            fqn,
             di_file,
             line_number,
-            try self.dg.lowerDebugType(fn_ty),
+            try self.dg.object.lowerDebugType(fn_ty, .full),
             is_internal_linkage,
             true, // is definition
-            line_number + function.lbrace_line, // scope line
+            line_number + func.lbrace_line, // scope line
             llvm.DIFlags.StaticMember | noret_bit,
             self.dg.module.comp.bin_file.options.optimize_mode != .Debug,
             null, // decl_subprogram
         );
+
         try self.dg.object.di_map.put(self.gpa, decl, subprogram.toNode());
 
-        llvm_func.fnSetSubprogram(subprogram);
-
-        self.di_scope = subprogram.toScope();
+        const lexical_block = dib.createLexicalBlock(subprogram.toScope(), di_file, line_number, 1);
+        self.di_scope = lexical_block.toScope();
+        self.base_line = decl.src_line;
         return null;
     }
 
@@ -4240,7 +4270,11 @@ pub const FuncGen = struct {
             true, // always preserve
             0, // flags
         );
-        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?);
+        const inlined_at = if (self.dbg_inlined.items.len > 0)
+            self.dbg_inlined.items[self.dbg_inlined.items.len - 1].loc
+        else
+            null;
+        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?, inlined_at);
         const insert_block = self.builder.getInsertBlock();
         _ = dib.insertDeclareAtEnd(operand, di_local_var, debug_loc, insert_block);
         return null;
@@ -4262,7 +4296,11 @@ pub const FuncGen = struct {
             true, // always preserve
             0, // flags
         );
-        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?);
+        const inlined_at = if (self.dbg_inlined.items.len > 0)
+            self.dbg_inlined.items[self.dbg_inlined.items.len - 1].loc
+        else
+            null;
+        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?, inlined_at);
         const insert_block = self.builder.getInsertBlock();
         if (isByRef(operand_ty)) {
             _ = dib.insertDeclareAtEnd(operand, di_local_var, debug_loc, insert_block);
@@ -5524,7 +5562,7 @@ pub const FuncGen = struct {
                 self.arg_index, // includes +1 because 0 is return type
             );
 
-            const debug_loc = llvm.getDebugLoc(lbrace_line, lbrace_col, self.di_scope.?);
+            const debug_loc = llvm.getDebugLoc(lbrace_line, lbrace_col, self.di_scope.?, null);
             const insert_block = self.builder.getInsertBlock();
             if (isByRef(inst_ty)) {
                 _ = dib.insertDeclareAtEnd(arg_val, di_local_var, debug_loc, insert_block);

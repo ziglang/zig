@@ -839,8 +839,8 @@ pub const Builder = opaque {
     pub const buildExactSDiv = LLVMBuildExactSDiv;
     extern fn LLVMBuildExactSDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
-    pub const setCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation;
-    extern fn ZigLLVMSetCurrentDebugLocation(builder: *const Builder, line: c_uint, column: c_uint, scope: *DIScope) void;
+    pub const setCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation2;
+    extern fn ZigLLVMSetCurrentDebugLocation2(builder: *const Builder, line: c_uint, column: c_uint, scope: *DIScope, inlined_at: ?*DILocation) void;
 
     pub const clearCurrentDebugLocation = ZigLLVMClearCurrentDebugLocation;
     extern fn ZigLLVMClearCurrentDebugLocation(builder: *const Builder) void;
@@ -1479,8 +1479,8 @@ pub const DISubprogram = opaque {
     extern fn ZigLLVMSubprogramReplaceLinkageName(subprogram: *DISubprogram, linkage_name: *MDString) void;
 };
 
-pub const getDebugLoc = ZigLLVMGetDebugLoc;
-extern fn ZigLLVMGetDebugLoc(line: c_uint, col: c_uint, scope: *DIScope) *DILocation;
+pub const getDebugLoc = ZigLLVMGetDebugLoc2;
+extern fn ZigLLVMGetDebugLoc2(line: c_uint, col: c_uint, scope: *DIScope, inlined_at: ?*DILocation) *DILocation;
 
 pub const DIBuilder = opaque {
     pub const dispose = ZigLLVMDisposeDIBuilder;

@@ -242,7 +242,8 @@ const Writer = struct {
             .constant => try w.writeConstant(s, inst),
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
-            .dbg_func => try w.writeDbgFunc(s, inst),
+
+            .dbg_inline_begin, .dbg_inline_end => try w.writeDbgInline(s, inst),
             .aggregate_init => try w.writeAggregateInit(s, inst),
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
@@ -553,7 +554,7 @@ const Writer = struct {
         try s.print("{d}:{d}", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
     }
 
-    fn writeDbgFunc(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+    fn writeDbgInline(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const function = w.air.values[ty_pl.payload].castTag(.function).?.data;
         try s.print("{s}", .{function.owner_decl.name});

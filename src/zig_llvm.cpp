@@ -799,6 +799,15 @@ void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder,
     unwrap(builder)->SetCurrentDebugLocation(debug_loc);
 }
 
+void ZigLLVMSetCurrentDebugLocation2(LLVMBuilderRef builder, unsigned int line,
+        unsigned int column, ZigLLVMDIScope *scope, ZigLLVMDILocation *inlined_at)
+{
+    DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
+    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, column, di_scope, 
+        reinterpret_cast<DILocation *>(inlined_at), false);
+    unwrap(builder)->SetCurrentDebugLocation(debug_loc);
+}
+
 void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder) {
     unwrap(builder)->SetCurrentDebugLocation(DebugLoc());
 }
@@ -1022,6 +1031,14 @@ LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef stor
 ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col, ZigLLVMDIScope *scope) {
     DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
     DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, col, di_scope, nullptr, false);
+    return reinterpret_cast<ZigLLVMDILocation*>(debug_loc.get());
+}
+
+ZigLLVMDILocation *ZigLLVMGetDebugLoc2(unsigned line, unsigned col, ZigLLVMDIScope *scope,
+        ZigLLVMDILocation *inlined_at) {
+    DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
+    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, col, di_scope,
+        reinterpret_cast<DILocation *>(inlined_at), false);
     return reinterpret_cast<ZigLLVMDILocation*>(debug_loc.get());
 }
 
