@@ -65,6 +65,16 @@ pub const type_unit = 0x41;
 pub const rvalue_reference_type = 0x42;
 pub const template_alias = 0x43;
 
+// DWARF 5
+pub const coarray_type = 0x44;
+pub const generic_subrange = 0x45;
+pub const dynamic_type = 0x46;
+pub const atomic_type = 0x47;
+pub const call_site = 0x48;
+pub const call_site_parameter = 0x49;
+pub const skeleton_unit = 0x4a;
+pub const immutable_type = 0x4b;
+
 pub const lo_user = 0x4080;
 pub const hi_user = 0xffff;
 
