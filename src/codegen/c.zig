@@ -2541,7 +2541,7 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValu
     try f.writeCValue(writer, lhs);
     try writer.print("{s}", .{operator});
     try f.writeCValue(writer, rhs);
-    try writer.writeAll(") ");
+    try writer.writeAll(") ? ");
     try f.writeCValue(writer, lhs);
     try writer.writeAll(" : ");
     try f.writeCValue(writer, rhs);
