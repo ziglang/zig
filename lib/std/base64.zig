@@ -326,8 +326,6 @@ test "base64 url_safe_no_pad" {
     comptime try testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
 }
 
-test ""
-
 fn testBase64() !void {
     const codecs = standard;
 
