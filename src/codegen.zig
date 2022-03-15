@@ -207,29 +207,18 @@ pub fn generateSymbol(
             .bytes => {
                 // TODO populate .debug_info for the array
                 const payload = typed_value.val.castTag(.bytes).?;
-                if (typed_value.ty.sentinel()) |sentinel| {
-                    try code.ensureUnusedCapacity(payload.data.len + 1);
-                    code.appendSliceAssumeCapacity(payload.data);
-                    switch (try generateSymbol(bin_file, src_loc, .{
-                        .ty = typed_value.ty.elemType(),
-                        .val = sentinel,
-                    }, code, debug_output, reloc_info)) {
-                        .appended => return Result{ .appended = {} },
-                        .externally_managed => |slice| {
-                            code.appendSliceAssumeCapacity(slice);
-                            return Result{ .appended = {} };
-                        },
-                        .fail => |em| return Result{ .fail = em },
-                    }
-                } else {
-                    return Result{ .externally_managed = payload.data };
-                }
+                const len = @intCast(usize, typed_value.ty.arrayLenIncludingSentinel());
+                // The bytes payload already includes the sentinel, if any
+                try code.ensureUnusedCapacity(len);
+                code.appendSliceAssumeCapacity(payload.data[0..len]);
+                return Result{ .appended = {} };
             },
             .aggregate => {
                 // TODO populate .debug_info for the array
                 const elem_vals = typed_value.val.castTag(.aggregate).?.data;
                 const elem_ty = typed_value.ty.elemType();
-                for (elem_vals) |elem_val| {
+                const len = @intCast(usize, typed_value.ty.arrayLenIncludingSentinel());
+                for (elem_vals[0..len]) |elem_val| {
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = elem_ty,
                         .val = elem_val,

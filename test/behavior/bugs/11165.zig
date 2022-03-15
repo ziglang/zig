@@ -1,6 +1,9 @@
 const builtin = @import("builtin");
 
 test "bytes" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     const S = struct {
         a: u32,
         c: [5]u8,
@@ -16,11 +19,14 @@ test "bytes" {
     };
     _ = s_1;
 
-    const u_2 = U{ .s = s_1 };
+    var u_2 = U{ .s = s_1 };
     _ = u_2;
 }
 
 test "aggregate" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     const S = struct {
         a: u32,
         c: [5]u8,
@@ -37,6 +43,6 @@ test "aggregate" {
     };
     _ = s_1;
 
-    const u_2 = U{ .s = s_1 };
+    var u_2 = U{ .s = s_1 };
     _ = u_2;
 }
