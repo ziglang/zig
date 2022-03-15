@@ -13229,35 +13229,54 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const dest_scalar_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = sema.resolveInst(extra.rhs);
+    const dest_is_comptime_int = try sema.checkIntType(block, dest_ty_src, dest_scalar_ty);
+    const operand_scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand, operand_src);
     const operand_ty = sema.typeOf(operand);
-    const dest_is_comptime_int = try sema.checkIntType(block, dest_ty_src, dest_ty);
-    const src_is_comptime_int = try sema.checkIntType(block, operand_src, operand_ty);
+    const is_vector = operand_ty.zigTypeTag() == .Vector;
+    const dest_ty = if (is_vector)
+        try Type.vector(sema.arena, operand_ty.vectorLen(), dest_scalar_ty)
+    else
+        dest_scalar_ty;
 
     if (dest_is_comptime_int) {
         return sema.coerce(block, dest_ty, operand, operand_src);
     }
 
     const target = sema.mod.getTarget();
-    const dest_info = dest_ty.intInfo(target);
+    const dest_info = dest_scalar_ty.intInfo(target);
 
     if (dest_info.bits == 0) {
-        return sema.addConstant(dest_ty, Value.zero);
-    }
-
-    if (!src_is_comptime_int) {
-        const src_info = operand_ty.intInfo(target);
-        if (src_info.bits == 0) {
+        if (is_vector) {
+            return sema.addConstant(
+                dest_ty,
+                try Value.Tag.repeated.create(sema.arena, Value.zero),
+            );
+        } else {
             return sema.addConstant(dest_ty, Value.zero);
         }
+    }
 
-        if (src_info.signedness != dest_info.signedness) {
+    if (operand_scalar_ty.zigTypeTag() != .ComptimeInt) {
+        const operand_info = operand_ty.intInfo(target);
+        if (operand_info.bits == 0) {
+            if (is_vector) {
+                return sema.addConstant(
+                    dest_ty,
+                    try Value.Tag.repeated.create(sema.arena, Value.zero),
+                );
+            } else {
+                return sema.addConstant(dest_ty, Value.zero);
+            }
+        }
+
+        if (operand_info.signedness != dest_info.signedness) {
             return sema.fail(block, operand_src, "expected {s} integer type, found '{}'", .{
                 @tagName(dest_info.signedness), operand_ty,
             });
         }
-        if (src_info.bits > 0 and src_info.bits < dest_info.bits) {
+        if (operand_info.bits < dest_info.bits) {
             const msg = msg: {
                 const msg = try sema.errMsg(
                     block,
@@ -13269,8 +13288,8 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 try sema.errNote(block, dest_ty_src, msg, "destination type has {d} bits", .{
                     dest_info.bits,
                 });
-                try sema.errNote(block, operand_src, msg, "source type has {d} bits", .{
-                    src_info.bits,
+                try sema.errNote(block, operand_src, msg, "operand type has {d} bits", .{
+                    operand_info.bits,
                 });
                 break :msg msg;
             };
@@ -13280,7 +13299,22 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
         if (val.isUndef()) return sema.addConstUndef(dest_ty);
-        return sema.addConstant(dest_ty, try val.intTrunc(sema.arena, dest_info.signedness, dest_info.bits));
+        if (!is_vector) {
+            return sema.addConstant(
+                dest_ty,
+                try val.intTrunc(sema.arena, dest_info.signedness, dest_info.bits),
+            );
+        }
+        var elem_buf: Value.ElemValueBuffer = undefined;
+        const elems = try sema.arena.alloc(Value, operand_ty.vectorLen());
+        for (elems) |*elem, i| {
+            const elem_val = val.elemValueBuffer(i, &elem_buf);
+            elem.* = try elem_val.intTrunc(sema.arena, dest_info.signedness, dest_info.bits);
+        }
+        return sema.addConstant(
+            dest_ty,
+            try Value.Tag.aggregate.create(sema.arena, elems),
+        );
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -13330,13 +13364,13 @@ fn zirBitCount(
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    try checkIntOrVector(sema, block, operand, operand_src);
+    _ = try checkIntOrVector(sema, block, operand, operand_src);
     const target = sema.mod.getTarget();
     const bits = operand_ty.intInfo(target).bits;
     if (bits == 0) {
         switch (operand_ty.zigTypeTag()) {
             .Vector => return sema.addConstant(
-                try Type.vector(sema.arena, operand_ty.arrayLen(), Type.comptime_int),
+                try Type.vector(sema.arena, operand_ty.vectorLen(), Type.comptime_int),
                 try Value.Tag.repeated.create(sema.arena, Value.zero),
             ),
             .Int => return Air.Inst.Ref.zero,
@@ -13512,7 +13546,7 @@ fn checkNamespaceType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) Com
 
 /// Returns `true` if the type was a comptime_int.
 fn checkIntType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
-    switch (ty.zigTypeTag()) {
+    switch (try ty.zigTypeTagOrPoison()) {
         .ComptimeInt => return true,
         .Int => return false,
         else => return sema.fail(block, src, "expected integer type, found '{}'", .{ty}),
@@ -13714,11 +13748,43 @@ fn checkIntOrVector(
     block: *Block,
     operand: Air.Inst.Ref,
     operand_src: LazySrcLoc,
-) CompileError!void {
+) CompileError!Type {
     const operand_ty = sema.typeOf(operand);
-    const operand_zig_ty_tag = try operand_ty.zigTypeTagOrPoison();
-    switch (operand_zig_ty_tag) {
-        .Vector, .Int => return,
+    switch (try operand_ty.zigTypeTagOrPoison()) {
+        .Int => return operand_ty,
+        .Vector => {
+            const elem_ty = operand_ty.childType();
+            switch (try elem_ty.zigTypeTagOrPoison()) {
+                .Int => return elem_ty,
+                else => return sema.fail(block, operand_src, "expected vector of integers; found vector of '{}'", .{
+                    elem_ty,
+                }),
+            }
+        },
+        else => return sema.fail(block, operand_src, "expected integer or vector, found '{}'", .{
+            operand_ty,
+        }),
+    }
+}
+
+fn checkIntOrVectorAllowComptime(
+    sema: *Sema,
+    block: *Block,
+    operand: Air.Inst.Ref,
+    operand_src: LazySrcLoc,
+) CompileError!Type {
+    const operand_ty = sema.typeOf(operand);
+    switch (try operand_ty.zigTypeTagOrPoison()) {
+        .Int, .ComptimeInt => return operand_ty,
+        .Vector => {
+            const elem_ty = operand_ty.childType();
+            switch (try elem_ty.zigTypeTagOrPoison()) {
+                .Int, .ComptimeInt => return elem_ty,
+                else => return sema.fail(block, operand_src, "expected vector of integers; found vector of '{}'", .{
+                    elem_ty,
+                }),
+            }
+        },
         else => return sema.fail(block, operand_src, "expected integer or vector, found '{}'", .{
             operand_ty,
         }),
