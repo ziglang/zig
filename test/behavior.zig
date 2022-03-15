@@ -145,6 +145,7 @@ test {
     {
         // Tests that pass for stage1, llvm backend, C backend
         _ = @import("behavior/bugs/421.zig");
+        _ = @import("behavior/bugs/3779.zig");
         _ = @import("behavior/bugs/9584.zig");
         _ = @import("behavior/cast_int.zig");
         _ = @import("behavior/eval.zig");
@@ -161,7 +162,6 @@ test {
             _ = @import("behavior/saturating_arithmetic.zig");
             _ = @import("behavior/widening.zig");
             _ = @import("behavior/bugs/2114.zig");
-            _ = @import("behavior/bugs/3779.zig");
             _ = @import("behavior/bugs/10147.zig");
             _ = @import("behavior/shuffle.zig");
 
