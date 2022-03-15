@@ -2173,6 +2173,128 @@ pub const Type = extern union {
         };
     }
 
+    /// true if and only if the type has a well-defined memory layout
+    /// readFrom/writeToMemory are supported only for types with a well-
+    /// defined memory layout
+    pub fn hasWellDefinedLayout(ty: Type) bool {
+        return switch (ty.tag()) {
+            .u1,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f80,
+            .f128,
+            .bool,
+            .void,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .int_signed,
+            .int_unsigned,
+            .pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .single_const_pointer_to_comptime_int,
+            .enum_numbered,
+            .vector,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            => true,
+
+            .anyopaque,
+            .anyerror,
+            .noreturn,
+            .@"null",
+            .@"anyframe",
+            .@"undefined",
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .prefetch_options,
+            .export_options,
+            .extern_options,
+            .error_set,
+            .error_set_single,
+            .error_set_inferred,
+            .error_set_merged,
+            .@"opaque",
+            .generic_poison,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .enum_literal,
+            .type_info,
+            // These are function bodies, not function pointers.
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .const_slice_u8,
+            .const_slice_u8_sentinel_0,
+            .const_slice,
+            .mut_slice,
+            .enum_simple,
+            .error_union,
+            .anyerror_void_error_union,
+            .anyframe_T,
+            .tuple,
+            .anon_struct,
+            .empty_struct_literal,
+            .empty_struct,
+            => false,
+
+            .enum_full,
+            .enum_nonexhaustive,
+            => !ty.cast(Payload.EnumFull).?.data.tag_ty_inferred,
+
+            .var_args_param => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .inferred_alloc_const => unreachable,
+            .bound_fn => unreachable,
+
+            .array,
+            .array_sentinel,
+            => ty.childType().hasWellDefinedLayout(),
+
+            .optional => ty.isPtrLikeOptional(),
+            .@"struct" => ty.castTag(.@"struct").?.data.layout != .Auto,
+            .@"union" => ty.castTag(.@"union").?.data.layout != .Auto,
+            .union_tagged => false,
+        };
+    }
+
     pub fn hasRuntimeBits(ty: Type) bool {
         return hasRuntimeBitsAdvanced(ty, false);
     }
@@ -3156,13 +3278,12 @@ pub const Type = extern union {
             => return true,
 
             .optional => {
-                var buf: Payload.ElemType = undefined;
-                const child_type = self.optionalChild(&buf);
+                const child_ty = self.castTag(.optional).?.data;
                 // optionals of zero sized types behave like bools, not pointers
-                if (!child_type.hasRuntimeBits()) return false;
-                if (child_type.zigTypeTag() != .Pointer) return false;
+                if (!child_ty.hasRuntimeBits()) return false;
+                if (child_ty.zigTypeTag() != .Pointer) return false;
 
-                const info = child_type.ptrInfo().data;
+                const info = child_ty.ptrInfo().data;
                 switch (info.size) {
                     .Slice, .C => return false,
                     .Many, .One => return !info.@"allowzero",
@@ -3263,6 +3384,7 @@ pub const Type = extern union {
     /// For ?[*]T,  returns T.
     /// For *T,     returns T.
     /// For [*]T,   returns T.
+    /// For [N]T,   returns T.
     /// For []T,    returns T.
     pub fn elemType2(ty: Type) Type {
         return switch (ty.tag()) {
@@ -4256,6 +4378,13 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isArrayLike(ty: Type) bool {
+        return switch (ty.zigTypeTag()) {
+            .Array, .Vector => true,
+            else => false,
+        };
+    }
+
     pub fn isIndexable(ty: Type) bool {
         return switch (ty.zigTypeTag()) {
             .Array, .Vector => true,
@@ -4642,7 +4771,7 @@ pub const Type = extern union {
                         return field_offset.offset;
                 }
 
-                return std.mem.alignForwardGeneric(u64, it.offset, it.big_align);
+                return std.mem.alignForwardGeneric(u64, it.offset, @maximum(it.big_align, 1));
             },
 
             .tuple, .anon_struct => {
@@ -4665,7 +4794,7 @@ pub const Type = extern union {
                     if (i == index) return offset;
                     offset += field_ty.abiSize(target);
                 }
-                offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                offset = std.mem.alignForwardGeneric(u64, offset, @maximum(big_align, 1));
                 return offset;
             },
 
@@ -5345,6 +5474,7 @@ pub const Type = extern union {
     pub const @"type" = initTag(.type);
     pub const @"anyerror" = initTag(.anyerror);
     pub const @"anyopaque" = initTag(.anyopaque);
+    pub const @"null" = initTag(.@"null");
 
     pub fn ptr(arena: Allocator, target: Target, data: Payload.Pointer.Data) !Type {
         var d = data;
