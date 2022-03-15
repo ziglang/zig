@@ -303,10 +303,8 @@ comptime {
 
     const __floatunsisf = @import("compiler_rt/floatunsisf.zig").__floatunsisf;
     @export(__floatunsisf, .{ .name = "__floatunsisf", .linkage = linkage });
-    if (builtin.zig_backend == .stage1) { // TODO it's crashing on a switch expression
-        const __floatundisf = @import("compiler_rt/floatundisf.zig").__floatundisf;
-        @export(__floatundisf, .{ .name = "__floatundisf", .linkage = linkage });
-    }
+    const __floatundisf = @import("compiler_rt/floatundisf.zig").__floatundisf;
+    @export(__floatundisf, .{ .name = "__floatundisf", .linkage = linkage });
     const __floatunsidf = @import("compiler_rt/floatunsidf.zig").__floatunsidf;
     @export(__floatunsidf, .{ .name = "__floatunsidf", .linkage = linkage });
     const __floatundidf = @import("compiler_rt/floatundidf.zig").__floatundidf;

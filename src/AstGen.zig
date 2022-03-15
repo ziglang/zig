@@ -2762,11 +2762,18 @@ fn varDecl(
                 }
                 gz.instructions.items.len = dst;
 
+                // In case the result location did not do the coercion
+                // for us so we must do it here.
+                const coerced_init = if (opt_type_inst != .none)
+                    try gz.addBin(.as, opt_type_inst, init_inst)
+                else
+                    init_inst;
+
                 if (!gz.force_comptime) {
                     _ = try gz.add(.{ .tag = .dbg_var_val, .data = .{
                         .str_op = .{
                             .str = ident_name,
-                            .operand = init_inst,
+                            .operand = coerced_init,
                         },
                     } });
                 }
@@ -2776,7 +2783,7 @@ fn varDecl(
                     .parent = scope,
                     .gen_zir = gz,
                     .name = ident_name,
-                    .inst = init_inst,
+                    .inst = coerced_init,
                     .token_src = name_token,
                     .id_cat = .@"local constant",
                 };
