@@ -384,6 +384,58 @@ fn testFunction() !void {
 extern fn foo(a: usize, b: bool, ...) callconv(.C) usize;
 extern fn fooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
 
+test "type info: generic function types" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    if (builtin.zig_backend != .stage1) {
+        // stage1 marks all args/return types as null if the function
+        // is generic at all. stage2 is more specific.
+        const G1 = @typeInfo(@TypeOf(generic1));
+        try expect(G1.Fn.args.len == 1);
+        try expect(G1.Fn.args[0].is_generic == true);
+        try expect(G1.Fn.args[0].arg_type == null);
+        try expect(G1.Fn.return_type == void);
+
+        const G2 = @typeInfo(@TypeOf(generic2));
+        try expect(G2.Fn.args.len == 3);
+        try expect(G2.Fn.args[0].is_generic == false);
+        try expect(G2.Fn.args[0].arg_type == type);
+        try expect(G2.Fn.args[1].is_generic == true);
+        try expect(G2.Fn.args[1].arg_type == null);
+        try expect(G2.Fn.args[2].is_generic == false);
+        try expect(G2.Fn.args[2].arg_type == u8);
+        try expect(G2.Fn.return_type == void);
+    }
+
+    const G3 = @typeInfo(@TypeOf(generic3));
+    try expect(G3.Fn.args.len == 1);
+    try expect(G3.Fn.args[0].is_generic == true);
+    try expect(G3.Fn.args[0].arg_type == null);
+    try expect(G3.Fn.return_type == null);
+
+    const G4 = @typeInfo(@TypeOf(generic4));
+    try expect(G4.Fn.args.len == 1);
+    try expect(G4.Fn.args[0].is_generic == true);
+    try expect(G4.Fn.args[0].arg_type == null);
+    try expect(G4.Fn.return_type == null);
+}
+
+fn generic1(param: anytype) void {
+    _ = param;
+}
+fn generic2(comptime T: type, param: T, param2: u8) void {
+    _ = param;
+    _ = param2;
+}
+fn generic3(param: anytype) @TypeOf(param) {
+    _ = param;
+}
+fn generic4(comptime param: anytype) @TypeOf(param) {
+    _ = param;
+}
+
 test "typeInfo with comptime parameter in struct fn def" {
     const S = struct {
         pub fn func(comptime x: f32) void {

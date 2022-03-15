@@ -10376,6 +10376,14 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
             };
 
+            const ret_ty_opt = if (info.return_type.tag() != .generic_poison)
+                try Value.Tag.opt_payload.create(
+                    sema.arena,
+                    try Value.Tag.ty.create(sema.arena, info.return_type),
+                )
+            else
+                Value.@"null";
+
             const field_values = try sema.arena.create([6]Value);
             field_values.* = .{
                 // calling_convention: CallingConvention,
@@ -10387,10 +10395,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // is_var_args: bool,
                 Value.makeBool(info.is_var_args),
                 // return_type: ?type,
-                try Value.Tag.opt_payload.create(
-                    sema.arena,
-                    try Value.Tag.ty.create(sema.arena, info.return_type),
-                ),
+                ret_ty_opt,
                 // args: []const Fn.Param,
                 args_val,
             };
