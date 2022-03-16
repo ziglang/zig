@@ -4761,7 +4761,15 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         const llvm_slice_ty = try self.dg.llvmType(inst_ty);
 
-        const partial = self.builder.buildInsertValue(llvm_slice_ty.getUndef(), ptr, 0, "");
+        // In case of slicing a global, the result type looks something like `{ i8*, i64 }`
+        // but `ptr` is pointing to the global directly. If it's an array, we would want to
+        // do GEP(0,0), or we can just bitcast it to be correct, like we do here.
+        // This prevents an assertion failure.
+        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+        const ptr_ty = inst_ty.slicePtrFieldType(&buf);
+        const ptr_llvm_ty = try self.dg.llvmType(ptr_ty);
+        const casted_ptr = self.builder.buildBitCast(ptr, ptr_llvm_ty, "");
+        const partial = self.builder.buildInsertValue(llvm_slice_ty.getUndef(), casted_ptr, 0, "");
         return self.builder.buildInsertValue(partial, len, 1, "");
     }
 
