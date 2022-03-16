@@ -513,14 +513,16 @@ pub const Instruction = union(enum) {
     }
 
     fn format1(disp: i32) Instruction {
+        const udisp = @bitCast(u32, disp);
+
         // In SPARC, branch target needs to be aligned to 4 bytes.
-        assert(disp % 4 == 0);
+        assert(udisp % 4 == 0);
 
         // Discard the last two bits since those are implicitly zero.
-        const udisp = @truncate(u30, @bitCast(u32, disp) >> 2);
+        const udisp_truncated = @truncate(u30, udisp >> 2);
         return Instruction{
             .format_1 = .{
-                .disp30 = udisp,
+                .disp30 = udisp_truncated,
             },
         };
     }
@@ -536,27 +538,31 @@ pub const Instruction = union(enum) {
     }
 
     fn format2b(op2: u3, cond: Condition, annul: bool, disp: i24) Instruction {
+        const udisp = @bitCast(u24, disp);
+
         // In SPARC, branch target needs to be aligned to 4 bytes.
-        assert(disp % 4 == 0);
+        assert(udisp % 4 == 0);
 
         // Discard the last two bits since those are implicitly zero.
-        const udisp = @truncate(u22, @bitCast(u24, disp) >> 2);
+        const udisp_truncated = @truncate(u22, udisp >> 2);
         return Instruction{
             .format_2b = .{
                 .a = @boolToInt(annul),
                 .cond = cond,
                 .op2 = op2,
-                .disp22 = udisp,
+                .disp22 = udisp_truncated,
             },
         };
     }
 
     fn format2c(op2: u3, cond: Condition, annul: bool, pt: bool, ccr: CCR, disp: i21) Instruction {
+        const udisp = @bitCast(u21, disp);
+
         // In SPARC, branch target needs to be aligned to 4 bytes.
-        assert(disp % 4 == 0);
+        assert(udisp % 4 == 0);
 
         // Discard the last two bits since those are implicitly zero.
-        const udisp = @truncate(u19, @bitCast(u21, disp) >> 2);
+        const udisp_truncated = @truncate(u19, udisp >> 2);
 
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
@@ -568,18 +574,19 @@ pub const Instruction = union(enum) {
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
                 .p = @boolToInt(pt),
-                .disp19 = udisp,
+                .disp19 = udisp_truncated,
             },
         };
     }
 
     fn format2d(op2: u3, rcond: RCondition, annul: bool, pt: bool, rs1: Register, disp: i18) Instruction {
+        const udisp = @truncate(u16, @bitCast(u18, disp) >> 2);
+
         // In SPARC, branch target needs to be aligned to 4 bytes.
-        assert(disp % 4 == 0);
+        assert(udisp % 4 == 0);
 
         // Discard the last two bits since those are implicitly zero,
         // and split it into low and high parts.
-        const udisp = @truncate(u16, @bitCast(u18, disp) >> 2);
         const udisp_hi = @truncate(u2, (udisp & 0b1100_0000_0000_0000) >> 14);
         const udisp_lo = @truncate(u14, udisp & 0b0011_1111_1111_1111);
         return Instruction{
