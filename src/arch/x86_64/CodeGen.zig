@@ -5437,11 +5437,56 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airFloatToInt for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    if (self.liveness.isUnused(inst))
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+
+    const src_ty = self.air.typeOf(ty_op.operand);
+    const dst_ty = self.air.typeOfIndex(inst);
+    const operand = try self.resolveInst(ty_op.operand);
+
+    // move float src to ST(0)
+    const stack_offset = switch (operand) {
+        .stack_offset, .ptr_stack_offset => |offset| offset,
+        else => blk: {
+            const offset = @intCast(i32, try self.allocMem(
+                inst,
+                @intCast(u32, src_ty.abiSize(self.target.*)),
+                src_ty.abiAlignment(self.target.*),
+            ));
+            try self.genSetStack(src_ty, offset, operand, .{});
+            break :blk offset;
+        },
+    };
+    _ = try self.addInst(.{
+        .tag = .fld,
+        .ops = (Mir.Ops{
+            .flags = switch (src_ty.abiSize(self.target.*)) {
+                4 => 0b01,
+                8 => 0b10,
+                else => |size| return self.fail("TODO load ST(0) with abiSize={}", .{size}),
+            },
+            .reg1 = .rbp,
+        }).encode(),
+        .data = .{ .imm = @bitCast(u32, -stack_offset) },
+    });
+
+    // convert
+    const stack_dst = try self.allocRegOrMem(inst, false);
+    _ = try self.addInst(.{
+        .tag = .fisttp,
+        .ops = (Mir.Ops{
+            .flags = switch (dst_ty.abiSize(self.target.*)) {
+                1...2 => 0b00,
+                3...4 => 0b01,
+                5...8 => 0b10,
+                else => |size| return self.fail("TODO convert float with abiSize={}", .{size}),
+            },
+            .reg1 = .rbp,
+        }).encode(),
+        .data = .{ .imm = @bitCast(u32, -stack_dst.stack_offset) },
+    });
+
+    return self.finishAir(inst, stack_dst, .{ ty_op.operand, .none, .none });
 }
 
 fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
