@@ -216,7 +216,7 @@ pub const Instruction = union(enum) {
         reserved: u8 = 0b00000000,
         rs2: u5,
     },
-    format_3b: packed struct {
+    format_3b: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -233,7 +233,7 @@ pub const Instruction = union(enum) {
         reserved2: u8 = 0b00000000,
         rs2: u5,
     },
-    format_3d: packed struct {
+    format_3d: struct {
         op: u2,
         reserved: u5 = 0b00000,
         op3: u6,
@@ -251,7 +251,7 @@ pub const Instruction = union(enum) {
         reserved: u5 = 0b00000,
         rs2: u5,
     },
-    format_3f: packed struct {
+    format_3f: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -270,7 +270,7 @@ pub const Instruction = union(enum) {
         rs2: u5,
     },
     format_3h: packed struct {
-        op: u2,
+        op: u2 = 0b10,
         fixed1: u5 = 0b00000,
         op3: u6 = 0b101000,
         fixed2: u5 = 0b01111,
@@ -336,8 +336,9 @@ pub const Instruction = union(enum) {
         op: u2,
         fixed: u3 = 0b000,
         cc1: u1,
-        cc0: i1,
+        cc0: u1,
         op3: u6,
+        rs1: u5,
         opf: u9,
         rs2: u5,
     },
@@ -381,7 +382,7 @@ pub const Instruction = union(enum) {
         reserved: u6 = 0b000000,
         rs2: u5,
     },
-    format_4b: packed struct {
+    format_4b: struct {
         op: u2 = 0b10,
         rd: u5,
         op3: u6,
@@ -403,7 +404,7 @@ pub const Instruction = union(enum) {
         reserved: u6 = 0b000000,
         rs2: u5,
     },
-    format_4d: packed struct {
+    format_4d: struct {
         op: u2 = 0b10,
         rd: u5,
         op3: u6,
@@ -486,8 +487,8 @@ pub const Instruction = union(enum) {
     };
 
     pub const ShiftWidth = enum(u1) {
-        Shift32,
-        Shift64,
+        shift32,
+        shift64,
     };
 
     pub const MemOrderingConstraint = packed struct {
@@ -509,7 +510,40 @@ pub const Instruction = union(enum) {
     pub const Condition = u4;
 
     pub fn toU32(self: Instruction) u32 {
-        return @bitCast(u32, self);
+        // TODO: Remove this once packed structs work.
+        return switch (self) {
+            .format_1 => |v| @bitCast(u32, v),
+            .format_2a => |v| @bitCast(u32, v),
+            .format_2b => |v| @bitCast(u32, v),
+            .format_2c => |v| @bitCast(u32, v),
+            .format_2d => |v| @bitCast(u32, v),
+            .format_3a => |v| @bitCast(u32, v),
+            .format_3b => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | @as(u32, v.simm13),
+            .format_3c => |v| @bitCast(u32, v),
+            .format_3d => |v| (@as(u32, v.op) << 30) | (@as(u32, v.reserved) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | @as(u32, v.simm13),
+            .format_3e => |v| @bitCast(u32, v),
+            .format_3f => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.rcond) << 10) | @as(u32, v.simm10),
+            .format_3g => |v| @bitCast(u32, v),
+            .format_3h => |v| @bitCast(u32, v),
+            .format_3i => |v| @bitCast(u32, v),
+            .format_3j => |v| @bitCast(u32, v),
+            .format_3k => |v| @bitCast(u32, v),
+            .format_3l => |v| @bitCast(u32, v),
+            .format_3m => |v| @bitCast(u32, v),
+            .format_3n => |v| @bitCast(u32, v),
+            .format_3o => |v| @bitCast(u32, v),
+            .format_3p => |v| @bitCast(u32, v),
+            .format_3q => |v| @bitCast(u32, v),
+            .format_3r => |v| @bitCast(u32, v),
+            .format_3s => |v| @bitCast(u32, v),
+            .format_4a => |v| @bitCast(u32, v),
+            .format_4b => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.cc1) << 12) | (@as(u32, v.cc0) << 11) | @as(u32, v.simm11),
+            .format_4c => |v| @bitCast(u32, v),
+            .format_4d => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.cc2) << 18) | (@as(u32, v.cond) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.cc1) << 12) | (@as(u32, v.cc0) << 11) | @as(u32, v.simm11),
+            .format_4e => |v| @bitCast(u32, v),
+            .format_4f => |v| @bitCast(u32, v),
+            .format_4g => |v| @bitCast(u32, v),
+        };
     }
 
     fn format1(disp: i32) Instruction {
@@ -527,12 +561,12 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format2a(op2: u3, rd: Register, imm: i22) Instruction {
+    fn format2a(op2: u3, rd: Register, imm: u22) Instruction {
         return Instruction{
             .format_2a = .{
                 .rd = rd.enc(),
                 .op2 = op2,
-                .imm22 = @bitCast(u22, imm),
+                .imm22 = imm,
             },
         };
     }
@@ -580,17 +614,18 @@ pub const Instruction = union(enum) {
     }
 
     fn format2d(op2: u3, rcond: RCondition, annul: bool, pt: bool, rs1: Register, disp: i18) Instruction {
-        const udisp = @truncate(u16, @bitCast(u18, disp) >> 2);
+        const udisp = @bitCast(u18, disp);
 
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(udisp % 4 == 0);
 
         // Discard the last two bits since those are implicitly zero,
         // and split it into low and high parts.
-        const udisp_hi = @truncate(u2, (udisp & 0b1100_0000_0000_0000) >> 14);
-        const udisp_lo = @truncate(u14, udisp & 0b0011_1111_1111_1111);
+        const udisp_truncated = @truncate(u16, udisp >> 2);
+        const udisp_hi = @truncate(u2, (udisp_truncated & 0b1100_0000_0000_0000) >> 14);
+        const udisp_lo = @truncate(u14, udisp_truncated & 0b0011_1111_1111_1111);
         return Instruction{
-            .format_2a = .{
+            .format_2d = .{
                 .a = @boolToInt(annul),
                 .rcond = @enumToInt(rcond),
                 .op2 = op2,
@@ -602,9 +637,10 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format3a(op3: u6, rs1: Register, rs2: Register, rd: Register) Instruction {
+    fn format3a(op: u2, op3: u6, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3a = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -612,9 +648,10 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3b(op3: u6, rs1: Register, imm: i13, rd: Register) Instruction {
+    fn format3b(op: u2, op3: u6, rs1: Register, imm: i13, rd: Register) Instruction {
         return Instruction{
             .format_3b = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -622,27 +659,30 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3c(op3: u6, rs1: Register, rs2: Register) Instruction {
+    fn format3c(op: u2, op3: u6, rs1: Register, rs2: Register) Instruction {
         return Instruction{
             .format_3c = .{
+                .op = op,
                 .op3 = op3,
                 .rs1 = rs1.enc(),
                 .rs2 = rs2.enc(),
             },
         };
     }
-    fn format3d(op3: u6, rs1: Register, imm: i13) Instruction {
+    fn format3d(op: u2, op3: u6, rs1: Register, imm: i13) Instruction {
         return Instruction{
             .format_3d = .{
+                .op = op,
                 .op3 = op3,
                 .rs1 = rs1.enc(),
                 .simm13 = @bitCast(u13, imm),
             },
         };
     }
-    fn format3e(op3: u6, rcond: RCondition, rs1: Register, rs2: Register, rd: Register) Instruction {
+    fn format3e(op: u2, op3: u6, rcond: RCondition, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3e = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -651,9 +691,10 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3f(op3: u6, rcond: RCondition, rs1: Register, imm: i10, rd: Register) Instruction {
+    fn format3f(op: u2, op3: u6, rcond: RCondition, rs1: Register, imm: i10, rd: Register) Instruction {
         return Instruction{
             .format_3f = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -662,9 +703,10 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3g(op3: u6, rs1: Register, rs2: Register, rd: Register) Instruction {
+    fn format3g(op: u2, op3: u6, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3g = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -680,9 +722,10 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3i(op3: u6, rs1: Register, rs2: Register, rd: Register, asi: ASI) Instruction {
+    fn format3i(op: u2, op3: u6, rs1: Register, rs2: Register, rd: Register, asi: ASI) Instruction {
         return Instruction{
             .format_3i = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -691,18 +734,20 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3j(op3: u6, impl_dep1: u5, impl_dep2: u19) Instruction {
+    fn format3j(op: u2, op3: u6, impl_dep1: u5, impl_dep2: u19) Instruction {
         return Instruction{
             .format_3j = .{
+                .op = op,
                 .impl_dep1 = impl_dep1,
                 .op3 = op3,
                 .impl_dep2 = impl_dep2,
             },
         };
     }
-    fn format3k(op3: u6, sw: ShiftWidth, rs1: Register, rs2: Register, rd: Register) Instruction {
+    fn format3k(op: u2, op3: u6, sw: ShiftWidth, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3k = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -711,29 +756,32 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3l(op3: u6, rs1: Register, shift_count: u5, rd: Register) Instruction {
+    fn format3l(op: u2, op3: u6, rs1: Register, shift_count: u5, rd: Register) Instruction {
         return Instruction{
             .format_3l = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
-                .shift_count = shift_count,
+                .shcnt32 = shift_count,
             },
         };
     }
-    fn format3m(op3: u6, rs1: Register, shift_count: u6, rd: Register) Instruction {
+    fn format3m(op: u2, op3: u6, rs1: Register, shift_count: u6, rd: Register) Instruction {
         return Instruction{
             .format_3m = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
-                .shift_count = shift_count,
+                .shcnt64 = shift_count,
             },
         };
     }
-    fn format3n(op3: u6, opf: u9, rs2: Register, rd: Register) Instruction {
+    fn format3n(op: u2, op3: u6, opf: u9, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3n = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .opf = opf,
@@ -741,11 +789,12 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3o(op3: u6, opf: u9, ccr: CCR, rs1: Register, rs2: Register) Instruction {
+    fn format3o(op: u2, op3: u6, opf: u9, ccr: CCR, rs1: Register, rs2: Register) Instruction {
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
             .format_3o = .{
+                .op = op,
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
                 .op3 = op3,
@@ -755,9 +804,10 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3p(op3: u6, opf: u9, rs1: Register, rs2: Register, rd: Register) Instruction {
+    fn format3p(op: u2, op3: u6, opf: u9, rs1: Register, rs2: Register, rd: Register) Instruction {
         return Instruction{
             .format_3p = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -766,26 +816,29 @@ pub const Instruction = union(enum) {
             },
         };
     }
-    fn format3q(op3: u6, rs1: Register, rd: Register) Instruction {
+    fn format3q(op: u2, op3: u6, rs1: Register, rd: Register) Instruction {
         return Instruction{
             .format_3q = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
             },
         };
     }
-    fn format3r(op3: u6, fcn: u5) Instruction {
+    fn format3r(op: u2, op3: u6, fcn: u5) Instruction {
         return Instruction{
             .format_3r = .{
+                .op = op,
                 .fcn = fcn,
                 .op3 = op3,
             },
         };
     }
-    fn format3s(op3: u6, rd: Register) Instruction {
+    fn format3s(op: u2, op3: u6, rd: Register) Instruction {
         return Instruction{
             .format_3s = .{
+                .op = op,
                 .rd = rd.enc(),
                 .op3 = op3,
             },
@@ -796,7 +849,7 @@ pub const Instruction = union(enum) {
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
-            .format4a = .{
+            .format_4a = .{
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -811,7 +864,7 @@ pub const Instruction = union(enum) {
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
-            .format4b = .{
+            .format_4b = .{
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -827,7 +880,7 @@ pub const Instruction = union(enum) {
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
-            .format4c = .{
+            .format_4c = .{
                 .rd = rd.enc(),
                 .op3 = op3,
                 .cc2 = ccr_cc2,
@@ -844,7 +897,7 @@ pub const Instruction = union(enum) {
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
-            .format4d = .{
+            .format_4d = .{
                 .rd = rd.enc(),
                 .op3 = op3,
                 .cc2 = ccr_cc2,
@@ -860,7 +913,7 @@ pub const Instruction = union(enum) {
         const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
         const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
         return Instruction{
-            .format4e = .{
+            .format_4e = .{
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -880,7 +933,7 @@ pub const Instruction = union(enum) {
         rd: Register,
     ) Instruction {
         return Instruction{
-            .format4f = .{
+            .format_4f = .{
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
@@ -893,7 +946,7 @@ pub const Instruction = union(enum) {
 
     fn format4g(op3: u6, opf_low: u6, opf_cc: u3, cond: Condition, rs2: Register, rd: Register) Instruction {
         return Instruction{
-            .format4g = .{
+            .format_4g = .{
                 .rd = rd.enc(),
                 .op3 = op3,
                 .cond = cond,
@@ -904,3 +957,145 @@ pub const Instruction = union(enum) {
         };
     }
 };
+
+test "Serialize formats" {
+    const Testcase = struct {
+        inst: Instruction,
+        expected: u32,
+    };
+
+    // Note that the testcases might or might not be a valid instruction
+    // This is mostly just to check the behavior of the format packed structs
+    // since currently stage1 doesn't properly implement it in all cases
+    const testcases = [_]Testcase{
+        .{
+            .inst = Instruction.format1(4),
+            .expected = 0b01_000000000000000000000000000001,
+        },
+        .{
+            .inst = Instruction.format2a(4, .g0, 0),
+            .expected = 0b00_00000_100_0000000000000000000000,
+        },
+        .{
+            .inst = Instruction.format2b(6, 3, true, -4),
+            .expected = 0b00_1_0011_110_1111111111111111111111,
+        },
+        .{
+            .inst = Instruction.format2c(3, 0, false, true, .xcc, 8),
+            .expected = 0b00_0_0000_011_1_0_1_0000000000000000010,
+        },
+        .{
+            .inst = Instruction.format2d(7, .eq_zero, false, true, .o0, 20),
+            .expected = 0b00_0_0_001_111_00_1_01000_00000000000101,
+        },
+        .{
+            .inst = Instruction.format3a(3, 5, .g0, .o1, .l2),
+            .expected = 0b11_10010_000101_00000_0_00000000_01001,
+        },
+        .{
+            .inst = Instruction.format3b(3, 5, .g0, -1, .l2),
+            .expected = 0b11_10010_000101_00000_1_1111111111111,
+        },
+        .{
+            .inst = Instruction.format3c(3, 5, .g0, .o1),
+            .expected = 0b11_00000_000101_00000_0_00000000_01001,
+        },
+        .{
+            .inst = Instruction.format3d(3, 5, .g0, 0),
+            .expected = 0b11_00000_000101_00000_1_0000000000000,
+        },
+        .{
+            .inst = Instruction.format3e(3, 5, .ne_zero, .g0, .o1, .l2),
+            .expected = 0b11_10010_000101_00000_0_101_00000_01001,
+        },
+        .{
+            .inst = Instruction.format3f(3, 5, .ne_zero, .g0, -1, .l2),
+            .expected = 0b11_10010_000101_00000_1_101_1111111111,
+        },
+        .{
+            .inst = Instruction.format3g(3, 5, .g0, .o1, .l2),
+            .expected = 0b11_10010_000101_00000_1_00000000_01001,
+        },
+        .{
+            .inst = Instruction.format3h(.{}, .{}),
+            .expected = 0b10_00000_101000_01111_1_000000_000_0000,
+        },
+        .{
+            .inst = Instruction.format3i(3, 5, .g0, .o1, .l2, .asi_primary_little),
+            .expected = 0b11_10010_000101_00000_0_10001000_01001,
+        },
+        .{
+            .inst = Instruction.format3j(3, 5, 31, 0),
+            .expected = 0b11_11111_000101_0000000000000000000,
+        },
+        .{
+            .inst = Instruction.format3k(3, 5, .shift32, .g0, .o1, .l2),
+            .expected = 0b11_10010_000101_00000_0_0_0000000_01001,
+        },
+        .{
+            .inst = Instruction.format3l(3, 5, .g0, 31, .l2),
+            .expected = 0b11_10010_000101_00000_1_0_0000000_11111,
+        },
+        .{
+            .inst = Instruction.format3m(3, 5, .g0, 63, .l2),
+            .expected = 0b11_10010_000101_00000_1_1_000000_111111,
+        },
+        .{
+            .inst = Instruction.format3n(3, 5, 0, .o1, .l2),
+            .expected = 0b11_10010_000101_00000_000000000_01001,
+        },
+        .{
+            .inst = Instruction.format3o(3, 5, 0, .xcc, .o1, .l2),
+            .expected = 0b11_000_1_0_000101_01001_000000000_10010,
+        },
+        .{
+            .inst = Instruction.format3p(3, 5, 0, .g0, .o1, .l2),
+            .expected = 0b11_10010_000101_00000_000000000_01001,
+        },
+        .{
+            .inst = Instruction.format3q(3, 5, .g0, .o1),
+            .expected = 0b11_01001_000101_00000_00000000000000,
+        },
+        .{
+            .inst = Instruction.format3r(3, 5, 4),
+            .expected = 0b11_00100_000101_0000000000000000000,
+        },
+        .{
+            .inst = Instruction.format3s(3, 5, .g0),
+            .expected = 0b11_00000_000101_0000000000000000000,
+        },
+        .{
+            .inst = Instruction.format4a(8, .xcc, .g0, .o1, .l2),
+            .expected = 0b10_10010_001000_00000_0_1_0_000000_01001,
+        },
+        .{
+            .inst = Instruction.format4b(8, .xcc, .g0, -1, .l2),
+            .expected = 0b10_10010_001000_00000_1_1_0_11111111111,
+        },
+        .{
+            .inst = Instruction.format4c(8, 0, .xcc, .g0, .o1),
+            .expected = 0b10_01001_001000_1_0000_0_1_0_000000_00000,
+        },
+        .{
+            .inst = Instruction.format4d(8, 0, .xcc, 0, .l2),
+            .expected = 0b10_10010_001000_1_0000_1_1_0_00000000000
+        },
+        .{
+            .inst = Instruction.format4e(8, .xcc, .g0, .o1, 0),
+            .expected = 0b10_01001_001000_00000_1_1_0_0000_0000000,
+        },
+        .{
+            .inst = Instruction.format4f(8, 4, .eq_zero, .g0, .o1, .l2),
+            .expected = 0b10_10010_001000_00000_0_001_00100_01001,
+        },
+        .{
+            .inst = Instruction.format4g(8, 4, 2, 0, .o1, .l2),
+            .expected = 0b10_10010_001000_0_0000_010_000100_01001,
+        },
+    };
+
+    for (testcases) |case| {
+        const actual = case.inst.toU32();
+        try testing.expectEqual(case.expected, actual);
+    }
+}
