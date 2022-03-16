@@ -5420,8 +5420,7 @@ test "ampersand" {
         \\ _ = bar & &foo, 
         \\ _ = bar & &&foo, 
         \\ _ = &&foo, 
-    , &.{
-    });
+    , &.{});
 }
 
 const std = @import("std");
