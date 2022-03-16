@@ -17578,10 +17578,13 @@ fn storePtr2(
     // To generate better code for tuples, we detect a tuple operand here, and
     // analyze field loads and stores directly. This avoids an extra allocation + memcpy
     // which would occur if we used `coerce`.
-    // However, we avoid this mechanism if the destination element type is
-    // the same tuple as the source, because the regular store will be better for this case.
+    // However, we avoid this mechanism if the destination element type is a tuple,
+    // because the regular store will be better for this case.
+    // If the destination type is a struct we don't want this mechanism to trigger, because
+    // this code does not handle tuple-to-struct coercion which requires dealing with missing
+    // fields.
     const operand_ty = sema.typeOf(uncasted_operand);
-    if (operand_ty.isTuple() and !elem_ty.eql(operand_ty)) {
+    if (operand_ty.isTuple() and elem_ty.zigTypeTag() == .Array) {
         const tuple = operand_ty.tupleFields();
         for (tuple.types) |_, i_usize| {
             const i = @intCast(u32, i_usize);
@@ -17595,6 +17598,7 @@ fn storePtr2(
     }
 
     // TODO do the same thing for anon structs as for tuples above.
+    // However, beware of the need to handle missing/extra fields.
 
     // Detect if we are storing an array operand to a bitcasted vector pointer.
     // If so, we instead reach through the bitcasted pointer to the vector pointer,

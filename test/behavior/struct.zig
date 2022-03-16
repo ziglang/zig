@@ -1281,3 +1281,12 @@ test "typed init through error unions and optionals" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "initialize struct with empty literal" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct { x: i32 = 1234 };
+    var s: S = .{};
+    try expect(s.x == 1234);
+}

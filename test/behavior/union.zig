@@ -1092,7 +1092,7 @@ test "@unionInit on union with tag but no fields" {
         }
 
         fn doTheTest() !void {
-            var data: Data = .{ .no_op = .{} };
+            var data: Data = .{ .no_op = {} };
             _ = data;
             var o = Data.decode(&[_]u8{});
             try expectEqual(Type.no_op, o);
