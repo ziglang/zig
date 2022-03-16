@@ -1227,6 +1227,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
 
         // TODO
         .dbg_stmt,
+        .dbg_inline_begin,
+        .dbg_inline_end,
         .dbg_var_ptr,
         .dbg_var_val,
         => WValue.none,

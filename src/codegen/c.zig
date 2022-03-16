@@ -1726,6 +1726,10 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .dbg_var_val,
             => try airDbgVar(f, inst),
 
+            .dbg_inline_begin,
+            .dbg_inline_end,
+            => try airDbgInline(f, inst),
+
             .call              => try airCall(f, inst, .auto),
             .call_always_tail  => try airCall(f, inst, .always_tail),
             .call_never_tail   => try airCall(f, inst, .never_tail),
@@ -2657,6 +2661,14 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     // Perhaps an additional compilation option is in order?
     //try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
     try writer.print("/* file:{d}:{d} */\n", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
+    return CValue.none;
+}
+
+fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const writer = f.object.writer();
+    const function = f.air.values[ty_pl.payload].castTag(.function).?.data;
+    try writer.print("/* dbg func:{s} */\n", .{function.owner_decl.name});
     return CValue.none;
 }
 
