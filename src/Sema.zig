@@ -10388,25 +10388,32 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 )).?;
                 try sema.mod.declareDeclDependency(sema.owner_decl, fn_info_decl);
                 try sema.ensureDeclAnalyzed(fn_info_decl);
+                var fn_ty_buffer: Value.ToTypeBuffer = undefined;
+                const fn_ty = fn_info_decl.val.toType(&fn_ty_buffer);
                 const param_info_decl = (try sema.namespaceLookup(
                     block,
                     src,
-                    fn_info_decl.val.castTag(.ty).?.data.getNamespace().?,
+                    fn_ty.getNamespace().?,
                     "Param",
                 )).?;
                 try sema.mod.declareDeclDependency(sema.owner_decl, param_info_decl);
                 try sema.ensureDeclAnalyzed(param_info_decl);
+                var param_buffer: Value.ToTypeBuffer = undefined;
+                const param_ty = param_info_decl.val.toType(&param_buffer);
                 const new_decl = try params_anon_decl.finish(
                     try Type.Tag.array.create(params_anon_decl.arena(), .{
                         .len = param_vals.len,
-                        .elem_type = param_info_decl.ty,
+                        .elem_type = try param_ty.copy(params_anon_decl.arena()),
                     }),
                     try Value.Tag.aggregate.create(
                         params_anon_decl.arena(),
                         param_vals,
                     ),
                 );
-                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+                break :v try Value.Tag.slice.create(sema.arena, .{
+                    .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
+                    .len = try Value.Tag.int_u64.create(sema.arena, param_vals.len),
+                });
             };
 
             const ret_ty_opt = if (info.return_type.tag() != .generic_poison)
@@ -10823,7 +10830,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         try fields_anon_decl.arena().dupe(Value, union_field_vals),
                     ),
                 );
-                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+                break :v try Value.Tag.slice.create(sema.arena, .{
+                    .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
+                    .len = try Value.Tag.int_u64.create(sema.arena, union_field_vals.len),
+                });
             };
 
             const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, union_ty.getNamespace());
@@ -10897,7 +10907,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                             );
-                            break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                            break :v try Value.Tag.slice.create(sema.arena, .{
+                                .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
+                                .len = try Value.Tag.int_u64.create(sema.arena, bytes.len),
+                            });
                         };
 
                         const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
@@ -10937,7 +10950,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                             try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                         );
-                        break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                        break :v try Value.Tag.slice.create(sema.arena, .{
+                            .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
+                            .len = try Value.Tag.int_u64.create(sema.arena, bytes.len),
+                        });
                     };
 
                     const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
@@ -10979,7 +10995,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         try fields_anon_decl.arena().dupe(Value, struct_field_vals),
                     ),
                 );
-                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+                break :v try Value.Tag.slice.create(sema.arena, .{
+                    .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
+                    .len = try Value.Tag.int_u64.create(sema.arena, struct_field_vals.len),
+                });
             };
 
             const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, struct_ty.getNamespace());
@@ -11048,7 +11067,7 @@ fn typeInfoDecls(
             block,
             src,
             type_info_ty.getNamespace().?,
-            "EnumField",
+            "Declaration",
         )).?;
         try sema.mod.declareDeclDependency(sema.owner_decl, declaration_ty_decl);
         try sema.ensureDeclAnalyzed(declaration_ty_decl);
@@ -11069,7 +11088,10 @@ fn typeInfoDecls(
                 try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
             );
-            break :v try Value.Tag.decl_ref.create(decls_anon_decl.arena(), new_decl);
+            break :v try Value.Tag.slice.create(decls_anon_decl.arena(), .{
+                .ptr = try Value.Tag.decl_ref.create(decls_anon_decl.arena(), new_decl),
+                .len = try Value.Tag.int_u64.create(decls_anon_decl.arena(), bytes.len),
+            });
         };
 
         const fields = try decls_anon_decl.arena().create([2]Value);
@@ -11092,7 +11114,10 @@ fn typeInfoDecls(
             try decls_anon_decl.arena().dupe(Value, decls_vals),
         ),
     );
-    return try Value.Tag.decl_ref.create(sema.arena, new_decl);
+    return try Value.Tag.slice.create(sema.arena, .{
+        .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
+        .len = try Value.Tag.int_u64.create(sema.arena, decls_vals.len),
+    });
 }
 
 fn zirTypeof(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -16574,8 +16599,20 @@ fn elemVal(
                 const runtime_src = if (maybe_slice_val) |slice_val| rs: {
                     const index_val = maybe_index_val orelse break :rs elem_index_src;
                     const index = @intCast(usize, index_val.toUnsignedInt());
-                    const elem_val = try slice_val.elemValue(sema.arena, index);
-                    return sema.addConstant(array_ty.elemType2(), elem_val);
+
+                    const elem_ty = array_ty.elemType2();
+
+                    var payload: Value.Payload.ElemPtr = .{ .data = .{
+                        .array_ptr = slice_val.slicePtr(),
+                        .elem_ty = elem_ty,
+                        .index = index,
+                    } };
+                    const elem_ptr_val = Value.initPayload(&payload.base);
+
+                    if (try sema.pointerDeref(block, array_src, elem_ptr_val, array_ty)) |elem_val| {
+                        return sema.addConstant(elem_ty, elem_val);
+                    }
+                    break :rs array_src;
                 } else array_src;
 
                 try sema.requireRuntimeBlock(block, runtime_src);
@@ -16589,8 +16626,19 @@ fn elemVal(
                     const array_val = maybe_array_val orelse break :rs array_src;
                     const index_val = maybe_index_val orelse break :rs elem_index_src;
                     const index = @intCast(usize, index_val.toUnsignedInt());
-                    const elem_val = try array_val.elemValue(sema.arena, index);
-                    return sema.addConstant(array_ty.elemType2(), elem_val);
+                    const elem_ty = array_ty.elemType2();
+
+                    var payload: Value.Payload.ElemPtr = .{ .data = .{
+                        .array_ptr = array_val,
+                        .elem_ty = elem_ty,
+                        .index = index,
+                    } };
+                    const elem_ptr_val = Value.initPayload(&payload.base);
+
+                    if (try sema.pointerDeref(block, array_src, elem_ptr_val, array_ty)) |elem_val| {
+                        return sema.addConstant(elem_ty, elem_val);
+                    }
+                    break :rs array_src;
                 };
 
                 try sema.requireRuntimeBlock(block, runtime_src);

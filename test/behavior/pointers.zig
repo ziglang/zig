@@ -437,3 +437,71 @@ test "indexing array with sentinel returns correct type" {
     var s: [:0]const u8 = "abc";
     try testing.expectEqualSlices(u8, "*const u8", @typeName(@TypeOf(&s[0])));
 }
+
+test "element pointer to slice" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var cases: [2][2]i32 = [_][2]i32{
+                [_]i32{ 0, 1 },
+                [_]i32{ 2, 3 },
+            };
+
+            const items: []i32 = &cases[0]; // *[2]i32
+            try testing.expect(items.len == 2);
+            try testing.expect(items[1] == 1);
+            try testing.expect(items[0] == 0);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "element pointer arithmetic to slice" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var cases: [2][2]i32 = [_][2]i32{
+                [_]i32{ 0, 1 },
+                [_]i32{ 2, 3 },
+            };
+
+            const elem_ptr = &cases[0]; // *[2]i32
+            const many = @ptrCast([*][2]i32, elem_ptr);
+            const many_elem = @ptrCast(*[2]i32, &many[1]);
+            const items: []i32 = many_elem;
+            try testing.expect(items.len == 2);
+            try testing.expect(items[1] == 3);
+            try testing.expect(items[0] == 2);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "array slicing to slice" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var str: [5]i32 = [_]i32{ 1, 2, 3, 4, 5 };
+            var sub: *[2]i32 = str[1..3];
+            var slice: []i32 = sub; // used to cause failures
+            try testing.expect(slice.len == 2);
+            try testing.expect(slice[0] == 2);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
