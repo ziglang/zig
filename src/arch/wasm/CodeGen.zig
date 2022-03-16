@@ -2519,8 +2519,16 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (!err_ty.errorUnionPayload().hasRuntimeBits()) return operand;
 
     const err_union = try self.allocStack(err_ty);
-    // TODO: Also write 'undefined' to the payload
     try self.store(err_union, operand, err_ty.errorUnionSet(), 0);
+
+    // write 'undefined' to the payload
+    const err_align = err_ty.abiAlignment(self.target);
+    const set_size = err_ty.errorUnionSet().abiSize(self.target);
+    const offset = mem.alignForwardGeneric(u64, set_size, err_align);
+    const payload_ptr = try self.buildPointerOffset(err_union, offset, .new);
+    const len = @intCast(u32, err_ty.errorUnionPayload().abiSize(self.target));
+    try self.memset(payload_ptr, .{ .imm32 = len }, .{ .imm32 = 0xaaaaaaaa });
+
     return err_union;
 }
 
@@ -2972,7 +2980,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ptr = try self.resolveInst(pl_op.operand);
     const value = try self.resolveInst(bin_op.lhs);
     const len = try self.resolveInst(bin_op.rhs);
-    try self.memSet(ptr, len, value);
+    try self.memset(ptr, len, value);
 
     return WValue{ .none = {} };
 }
@@ -2981,7 +2989,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 /// When the user has enabled the bulk_memory feature, we lower
 /// this to wasm's memset instruction. When the feature is not present,
 /// we implement it manually.
-fn memSet(self: *Self, ptr: WValue, len: WValue, value: WValue) InnerError!void {
+fn memset(self: *Self, ptr: WValue, len: WValue, value: WValue) InnerError!void {
     // When bulk_memory is enabled, we lower it to wasm's memset instruction.
     // If not, we lower it ourselves
     if (std.Target.wasm.featureSetHas(self.target.cpu.features, .bulk_memory)) {
@@ -2995,45 +3003,74 @@ fn memSet(self: *Self, ptr: WValue, len: WValue, value: WValue) InnerError!void 
         return;
     }
 
-    // TODO: We should probably lower this to a call to compiler_rt
-    // But for now, we implement it manually
-    const offset = try self.allocLocal(Type.usize); // local for counter
-    // outer block to jump to when loop is done
-    try self.startBlock(.block, wasm.block_empty);
-    try self.startBlock(.loop, wasm.block_empty);
-    try self.emitWValue(offset);
-    try self.emitWValue(len);
-    switch (self.ptrSize()) {
-        4 => try self.addTag(.i32_eq),
-        8 => try self.addTag(.i64_eq),
-        else => unreachable,
+    // When the length is comptime-known we do the loop at codegen, rather
+    // than emitting a runtime loop into the binary
+    switch (len) {
+        .imm32, .imm64 => {
+            const length = switch (len) {
+                .imm32 => |val| val,
+                .imm64 => |val| val,
+                else => unreachable,
+            };
+
+            var offset: u32 = 0;
+            const base = ptr.offset();
+            while (offset < length) : (offset += 1) {
+                try self.emitWValue(ptr);
+                try self.emitWValue(value);
+                switch (self.arch()) {
+                    .wasm32 => {
+                        try self.addMemArg(.i32_store8, .{ .offset = base + offset, .alignment = 1 });
+                    },
+                    .wasm64 => {
+                        try self.addMemArg(.i64_store8, .{ .offset = base + offset, .alignment = 1 });
+                    },
+                    else => unreachable,
+                }
+            }
+        },
+        else => {
+            // TODO: We should probably lower this to a call to compiler_rt
+            // But for now, we implement it manually
+            const offset = try self.allocLocal(Type.usize); // local for counter
+            // outer block to jump to when loop is done
+            try self.startBlock(.block, wasm.block_empty);
+            try self.startBlock(.loop, wasm.block_empty);
+            try self.emitWValue(offset);
+            try self.emitWValue(len);
+            switch (self.arch()) {
+                .wasm32 => try self.addTag(.i32_eq),
+                .wasm64 => try self.addTag(.i64_eq),
+                else => unreachable,
+            }
+            try self.addLabel(.br_if, 1); // jump out of loop into outer block (finished)
+            try self.emitWValue(ptr);
+            try self.emitWValue(offset);
+            switch (self.arch()) {
+                .wasm32 => try self.addTag(.i32_add),
+                .wasm64 => try self.addTag(.i64_add),
+                else => unreachable,
+            }
+            try self.emitWValue(value);
+            const mem_store_op: Mir.Inst.Tag = switch (self.arch()) {
+                .wasm32 => .i32_store8,
+                .wasm64 => .i64_store8,
+                else => unreachable,
+            };
+            try self.addMemArg(mem_store_op, .{ .offset = ptr.offset(), .alignment = 1 });
+            try self.emitWValue(offset);
+            try self.addImm32(1);
+            switch (self.arch()) {
+                .wasm32 => try self.addTag(.i32_add),
+                .wasm64 => try self.addTag(.i64_add),
+                else => unreachable,
+            }
+            try self.addLabel(.local_set, offset.local);
+            try self.addLabel(.br, 0); // jump to start of loop
+            try self.endBlock();
+            try self.endBlock();
+        },
     }
-    try self.addLabel(.br_if, 1); // jump out of loop into outer block (finished)
-    try self.emitWValue(ptr);
-    try self.emitWValue(offset);
-    switch (self.arch()) {
-        .wasm32 => try self.addTag(.i32_add),
-        .wasm64 => try self.addTag(.i64_add),
-        else => unreachable,
-    }
-    try self.emitWValue(value);
-    const mem_store_op: Mir.Inst.Tag = switch (self.arch()) {
-        .wasm32 => .i32_store8,
-        .wasm64 => .i64_store8,
-        else => unreachable,
-    };
-    try self.addMemArg(mem_store_op, .{ .offset = ptr.offset(), .alignment = 1 });
-    try self.emitWValue(offset);
-    try self.addImm32(1);
-    switch (self.ptrSize()) {
-        4 => try self.addTag(.i32_add),
-        8 => try self.addTag(.i64_add),
-        else => unreachable,
-    }
-    try self.addLabel(.local_set, offset.local);
-    try self.addLabel(.br, 0); // jump to start of loop
-    try self.endBlock();
-    try self.endBlock();
 }
 
 fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
