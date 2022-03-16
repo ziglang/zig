@@ -20006,6 +20006,19 @@ fn resolvePeerTypes(
     return chosen_ty;
 }
 
+pub fn resolveFnTypes(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    fn_info: Type.Payload.Function.Data,
+) CompileError!void {
+    try sema.resolveTypeFully(block, src, fn_info.return_type);
+
+    for (fn_info.param_types) |param_ty| {
+        try sema.resolveTypeFully(block, src, param_ty);
+    }
+}
+
 fn resolveTypeLayout(
     sema: *Sema,
     block: *Block,

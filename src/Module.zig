@@ -4739,7 +4739,8 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
     // map the comptime parameters to constant values and only emit arg AIR instructions
     // for the runtime ones.
     const fn_ty = decl.ty;
-    const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
+    const fn_ty_info = fn_ty.fnInfo();
+    const runtime_params_len = @intCast(u32, fn_ty_info.param_types.len);
     try inner_block.instructions.ensureTotalCapacityPrecise(gpa, runtime_params_len);
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
     try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
@@ -4771,7 +4772,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
                 continue;
             }
         }
-        const param_type = fn_ty.fnParamType(runtime_param_index);
+        const param_type = fn_ty_info.param_types[runtime_param_index];
         const opt_opv = sema.typeHasOnePossibleValue(&inner_block, param.src, param_type) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
@@ -4821,6 +4822,18 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
 
     func.state = .success;
     log.debug("set {s} to success", .{decl.name});
+
+    // Finally we must resolve the return type and parameter types so that backends
+    // have full access to type information.
+    const src: LazySrcLoc = .{ .node_offset = 0 };
+    sema.resolveFnTypes(&inner_block, src, fn_ty_info) catch |err| switch (err) {
+        error.NeededSourceLocation => unreachable,
+        error.GenericPoison => unreachable,
+        error.ComptimeReturn => unreachable,
+        error.ComptimeBreak => unreachable,
+        error.AnalysisFail => {},
+        else => |e| return e,
+    };
 
     return Air{
         .instructions = sema.air_instructions.toOwnedSlice(),
