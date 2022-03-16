@@ -1,6 +1,5 @@
-# pretty printing for stage1
-# put "source /path/to/zig-gdb.py" in ~/.gdbinit to load it automatically
-
+# pretty printing for stage1.
+# put "source /path/to/stage1_gdb_pretty_printers.py" in ~/.gdbinit to load it automatically.
 import gdb.printing
 
 class ZigListPrinter:
@@ -35,5 +34,4 @@ pp = gdb.printing.RegexpCollectionPrettyPrinter('Zig stage1 compiler')
 pp.add_printer('Buf', '^Buf$', BufPrinter)
 pp.add_printer('ZigList<char>', '^ZigList<char>$', BufPrinter)
 pp.add_printer('ZigList', '^ZigList<.*>$', ZigListPrinter)
-
 gdb.printing.register_pretty_printer(gdb.current_objfile(), pp)

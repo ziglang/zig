@@ -5093,6 +5093,7 @@ pub const Type = extern union {
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
+            // Keep in sync with tools/zig-gdb.py
             return switch (t) {
                 .u1,
                 .u8,
