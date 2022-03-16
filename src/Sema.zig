@@ -3203,11 +3203,6 @@ fn zirValidateArrayInit(
 
         // Determine whether the value stored to this pointer is comptime-known.
 
-        if (opt_opv) |opv| {
-            element_vals[i] = opv;
-            continue;
-        }
-
         const elem_ptr_air_ref = sema.inst_map.get(elem_ptr).?;
         const elem_ptr_air_inst = Air.refToIndex(elem_ptr_air_ref).?;
         // Find the block index of the elem_ptr so that we can look at the next
@@ -3222,6 +3217,12 @@ fn zirValidateArrayInit(
             first_block_index = @minimum(first_block_index, block_index);
             break :inst block.instructions.items[block_index + 1];
         };
+
+        // Array has one possible value, so value is always comptime-known
+        if (opt_opv) |opv| {
+            element_vals[i] = opv;
+            continue;
+        }
 
         // If the next instructon is a store with a comptime operand, this element
         // is comptime.
@@ -20860,6 +20861,7 @@ pub fn typeHasOnePossibleValue(
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const s = resolved_ty.castTag(.@"struct").?.data;
             for (s.fields.values()) |value| {
+                if (value.is_comptime) continue;
                 if ((try sema.typeHasOnePossibleValue(block, src, value.ty)) == null) {
                     return null;
                 }
@@ -21532,6 +21534,7 @@ fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) C
 
                     struct_obj.requires_comptime = .wip;
                     for (struct_obj.fields.values()) |field| {
+                        if (field.is_comptime) continue;
                         if (try sema.typeRequiresComptime(block, src, field.ty)) {
                             struct_obj.requires_comptime = .yes;
                             return true;

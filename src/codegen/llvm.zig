@@ -5422,21 +5422,22 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const dest_ptr = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const operand_ty = ptr_ty.childType();
+        if (!operand_ty.isFnOrHasRuntimeBitsIgnoreComptime()) return null;
 
         // TODO Sema should emit a different instruction when the store should
         // possibly do the safety 0xaa bytes for undefined.
         const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
         if (val_is_undef) {
-            const elem_ty = ptr_ty.childType();
             const target = self.dg.module.getTarget();
-            const elem_size = elem_ty.abiSize(target);
+            const operand_size = operand_ty.abiSize(target);
             const u8_llvm_ty = self.context.intType(8);
             const ptr_u8_llvm_ty = u8_llvm_ty.pointerType(0);
             const dest_ptr_u8 = self.builder.buildBitCast(dest_ptr, ptr_u8_llvm_ty, "");
             const fill_char = u8_llvm_ty.constInt(0xaa, .False);
             const dest_ptr_align = ptr_ty.ptrAlignment(target);
             const usize_llvm_ty = try self.dg.llvmType(Type.usize);
-            const len = usize_llvm_ty.constInt(elem_size, .False);
+            const len = usize_llvm_ty.constInt(operand_size, .False);
             _ = self.builder.buildMemSet(dest_ptr_u8, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
             if (self.dg.module.comp.bin_file.options.valgrind) {
                 // TODO generate valgrind client request to mark byte range as undefined
