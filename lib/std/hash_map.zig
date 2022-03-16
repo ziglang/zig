@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const assert = debug.assert;
 const autoHash = std.hash.autoHash;
 const debug = std.debug;
@@ -1575,6 +1576,19 @@ pub fn HashMapUnmanaged(
 
             self.metadata = null;
             self.available = 0;
+        }
+
+        /// This function is used in tools/zig-gdb.py to fetch the header type to facilitate
+        /// fancy debug printing for this type.
+        fn gdbHelper(self: *Self, hdr: *Header) void {
+            _ = self;
+            _ = hdr;
+        }
+
+        comptime {
+            if (builtin.mode == .Debug) {
+                _ = gdbHelper;
+            }
         }
     };
 }
