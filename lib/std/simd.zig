@@ -11,6 +11,9 @@ pub const Vector = std.meta.Vector;
 pub fn suggestVectorSizeForCpu(comptime T: type, cpu: std.Target.Cpu) ?usize {
     switch (cpu.arch) {
         .x86_64 => {
+            // Note: This is mostly just guesswork. It'd be great if someone more qualified were to take a
+            // proper look at this.
+
             if (T == bool and std.Target.x86.featureSetHas(.prefer_mask_registers)) return 64;
 
             const vector_bit_size = blk: {
@@ -40,18 +43,18 @@ fn vectorLength(comptime VectorType: type) comptime_int {
     };
 }
 
-/// Returns the smallest type of an unsigned int capable of indexing any element within the given vector type.
+/// Returns the smallest type of unsigned ints capable of indexing any element within the given vector type.
 pub fn VectorIndex(comptime VectorType: type) type {
     return std.math.IntFittingRange(0, vectorLength(VectorType) - 1);
 }
 
-/// Returns the smallest type of an unsigned int capable of holding the length of the given vector type.
+/// Returns the smallest type of unsigned ints capable of holding the length of the given vector type.
 pub fn VectorCount(comptime VectorType: type) type {
     return std.math.IntFittingRange(0, vectorLength(VectorType));
 }
 
-/// Returns a vector containing the first 'len' integers in order from 0 to 'len'-1.
-/// For example, 'iota(i32, 8)' will return a vector containing '{0, 1, 2, 3, 4, 5, 6, 7}'.
+/// Returns a vector containing the first `len` integers in order from 0 to `len`-1.
+/// For example, `iota(i32, 8)` will return a vector containing `.{0, 1, 2, 3, 4, 5, 6, 7}`.
 pub fn iota(comptime T: type, comptime len: usize) Vector(len, T) {
     var out: [len]T = undefined;
     for (out) |*element, i| {
@@ -65,14 +68,15 @@ pub fn iota(comptime T: type, comptime len: usize) Vector(len, T) {
 }
 
 /// Returns a vector containing the same elements as the input, but repeated until the desired length is reached.
-/// For example, repeat(8, [_]u32{1, 2, 3}) will return a vector containing {1, 2, 3, 1, 2, 3, 1, 2}.
+/// For example, `repeat(8, [_]u32{1, 2, 3})` will return a vector containing `.{1, 2, 3, 1, 2, 3, 1, 2}`.
 pub fn repeat(comptime len: usize, vec: anytype) Vector(len, std.meta.Child(@TypeOf(vec))) {
     const Child = std.meta.Child(@TypeOf(vec));
 
     return @shuffle(Child, vec, undefined, iota(i32, len) % @splat(len, @intCast(i32, vectorLength(@TypeOf(vec)))));
 }
 
-/// Returns a vector containing all elements of the first vector followed by all elements of the second vector.
+/// Returns a vector containing all elements of the first vector at the lower indices followed by all elements of the second vector
+/// at the higher indices.
 pub fn join(a: anytype, b: anytype) Vector(vectorLength(@TypeOf(a)) + vectorLength(@TypeOf(b)), std.meta.Child(@TypeOf(a))) {
     const Child = std.meta.Child(@TypeOf(a));
     const a_len = vectorLength(@TypeOf(a));
@@ -82,7 +86,7 @@ pub fn join(a: anytype, b: anytype) Vector(vectorLength(@TypeOf(a)) + vectorLeng
 }
 
 /// Returns a vector whose elements alternates between those of each input vector.
-/// For example, interlace(.{[4]u32{11, 12, 13, 14}, [4]u32{21, 22, 23, 24}}) returns a vector containing {11, 21, 12, 22, 13, 23, 14, 24}.
+/// For example, `interlace(.{[4]u32{11, 12, 13, 14}, [4]u32{21, 22, 23, 24}})` returns a vector containing `.{11, 21, 12, 22, 13, 23, 14, 24}`.
 pub fn interlace(vecs: anytype) Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len, std.meta.Child(@TypeOf(vecs[0]))) {
     // interlace doesn't work on MIPS, for some reason.
     // Notes from earlier debug attempt:
@@ -119,8 +123,8 @@ pub fn interlace(vecs: anytype) Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len
     return @shuffle(Child, a, b, indices);
 }
 
-/// The contents of interlaced is evenly split between vec_count vectors that are returned as an array. They "take turns",
-/// recieving one element from interlaced at a time.
+/// The contents of `interlaced` is evenly split between vec_count vectors that are returned as an array. They "take turns",
+/// recieving one element from `interlaced` at a time.
 pub fn deinterlace(
     comptime vec_count: usize,
     interlaced: anytype,
@@ -133,7 +137,7 @@ pub fn deinterlace(
 
     var out: [vec_count]Vector(vec_len, Child) = undefined;
 
-    comptime var i: usize = 0; // for doesn't work, apparently.
+    comptime var i: usize = 0; // for-loops don't work for this, apparently.
     inline while (i < out.len) : (i += 1) {
         const indices = comptime iota(i32, vec_len) * @splat(vec_len, @intCast(i32, vec_count)) + @splat(vec_len, @intCast(i32, i));
         out[i] = @shuffle(Child, interlaced, undefined, indices);
@@ -180,19 +184,25 @@ test "vector patterns" {
     }
 }
 
-/// Elements are shifted to higher indices. Elements that pass the top are discarded.
+/// Elements are shifted rightwards (towards higher indices). New elements are added to the left, and the rightmost elements are cut off
+/// so that the size of the vector stays the same.
 pub fn shiftElementsRight(vec: anytype, comptime amount: VectorCount(@TypeOf(vec)), shift_in: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
+    // It may be possible to implement shifts and rotates with a runtime-friendly slice of two joined vectors, as the length of the
+    // slice would be comptime-known. This would permit vector shifts and rotates by a non-comptime-known amount.
+    // However, I am unsure whether compiler optimizations would handle that well enough on all platforms.
+
     return join(@splat(amount, shift_in), extract(vec, 0, vectorLength(@TypeOf(vec)) - amount));
 }
 
-/// Elements are shifted to lower indices. Elements that pass the bottom are discarded.
+/// Elements are shifted leftwards (towards lower indices). New elements are added to the right, and the leftmost elements are cut off
+/// so that no elements with indices below 0 remain.
 pub fn shiftElementsLeft(vec: anytype, comptime amount: VectorCount(@TypeOf(vec)), shift_in: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
     const len = vectorLength(@TypeOf(vec));
 
     return join(extract(vec, amount, len - amount), @splat(amount, shift_in));
 }
 
-/// Elements are shifted to lower indices. Elements that pass the bottom return to the top.
+/// Elements are shifted leftwards (towards lower indices). Elements that leave to the left will reappear to the right in the same order.
 pub fn rotateElementsLeft(vec: anytype, comptime amount: VectorCount(@TypeOf(vec))) @TypeOf(vec) {
     const Child = std.meta.Child(@TypeOf(vec));
     const len = vectorLength(@TypeOf(vec));
@@ -204,7 +214,7 @@ pub fn rotateElementsLeft(vec: anytype, comptime amount: VectorCount(@TypeOf(vec
     return @shuffle(Child, vec, undefined, indices);
 }
 
-/// Elements are shifted to higher indices. Elements that pass the top return to the bottom.
+/// Elements are shifted rightwards (towards higher indices). Elements that leave to the right will reappear to the left in the same order.
 pub fn rotateElementsRight(vec: anytype, comptime amount: VectorCount(@TypeOf(vec))) @TypeOf(vec) {
     return rotateElementsLeft(vec, vectorLength(@TypeOf(vec)) - amount);
 }
@@ -283,17 +293,18 @@ test "vector searching" {
     try std.testing.expectEqual(@as(u4, 3), countElementsWithValue(base, 4));
 }
 
-/// Same as prefixScan, but with a user-provided function that mathematically must be associative.
-/// The function must also do nothing when called with identity as either argument.
-/// Set ErrorType to void if func doesn't return an error union.
+/// Same as prefixScan, but with a user-provided, mathematically associative function.
 pub fn prefixScanWithFunc(
     comptime hop: isize,
     vec: anytype,
+    /// The error type that `func` might return. Set this to `void` if `func` doesn't return an error union. 
     comptime ErrorType: type,
     comptime func: fn (@TypeOf(vec), @TypeOf(vec)) if (ErrorType == void) @TypeOf(vec) else ErrorType!@TypeOf(vec),
+    /// When one operand of the operation performed by `func` is this value, the result must equal the other operand.
+    /// For example, this should be 0 for addition or 1 for multiplication.
     comptime identity: std.meta.Child(@TypeOf(vec)),
 ) if (ErrorType == void) @TypeOf(vec) else ErrorType!@TypeOf(vec) {
-    // I haven't debugged this, but it might be a cousin of sorts to what's going on with braid.
+    // I haven't debugged this, but it might be a cousin of sorts to what's going on with interlace.
     comptime if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why prefixScan doesn't work on MIPS");
 
     const len = vectorLength(@TypeOf(vec));
@@ -314,6 +325,7 @@ pub fn prefixScanWithFunc(
 /// Returns a vector whose elements are the result of performing the specified operation on the corresponding
 /// element of the input vector and every hop'th element that came before it (or after, if hop is negative).
 /// Supports the same operations as the @reduce() builtin. Takes O(logN) to compute.
+/// Note that the algorithm used by this function might affect floating point rounding errors.
 pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: anytype) @TypeOf(vec) {
     const VecType = @TypeOf(vec);
     const Child = std.meta.Child(VecType);
@@ -381,7 +393,7 @@ test "vector prefix scan" {
     try std.testing.expectEqual(Vector(4, i32){ 11, 11, 9, -21 }, prefixScan(.Min, 1, int_base));
     try std.testing.expectEqual(Vector(4, i32){ 11, 23, 23, 23 }, prefixScan(.Max, 1, int_base));
 
-    // Not testing add and mul because I'm not gonna try predicting those rounding errors.
+    // Trying to predict the rounding errors of addition and multiplication of floats would be a mess, so we don't test those.
     try std.testing.expectEqual(Vector(4, f32){ 2, 0.5, -10, -10 }, prefixScan(.Min, 1, float_base));
     try std.testing.expectEqual(Vector(4, f32){ 2, 2, 2, 6.54321 }, prefixScan(.Max, 1, float_base));
 
