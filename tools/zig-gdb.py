@@ -259,13 +259,103 @@ class TypePrinter:
     def to_string(self):
         tag = self.tag()
         if tag is None:
-            return 'Type.(invalid type)'
+            return '(invalid type)'
         if self.val['tag_if_small_enough'] < TypePrinter.no_payload_count:
             return '.%s' % str(tag)
         return None
 
     def children(self):
         if self.val['tag_if_small_enough'] < TypePrinter.no_payload_count:
+            return
+
+        yield ('tag', '.%s' % str(self.tag()))
+
+        payload_type = self.payload_type()
+        if payload_type is not None:
+            yield ('payload', self.val['ptr_otherwise'].cast(payload_type.pointer()).dereference()['data'])
+
+class ValuePrinter:
+    no_payload_count = 4096
+
+    # Keep in sync with src/value.zig
+    # Values which have no payload do not need to be entered here.
+    payload_type_names = {
+        'big_int_positive': 'BigInt',
+        'big_int_negative': 'BigInt',
+
+        'extern_fn': 'ExternFn',
+
+        'decl_ref': 'Decl',
+
+        'repeated': 'SubValue',
+        'eu_payload': 'SubValue',
+        'opt_payload': 'SubValue',
+        'empty_array_sentinel': 'SubValue',
+
+        'eu_payload_ptr': 'PayloadPtr',
+        'opt_payload_ptr': 'PayloadPtr',
+
+        'bytes': 'Bytes',
+        'enum_literal': 'Bytes',
+
+        'slice': 'Slice',
+
+        'enum_field_index': 'U32',
+
+        'ty': 'Ty',
+        'int_type': 'IntType',
+        'int_u64': 'U64',
+        'int_i64': 'I64',
+        'function': 'Function',
+        'variable': 'Variable',
+        'decl_ref_mut': 'DeclRefMut',
+        'elem_ptr': 'ElemPtr',
+        'field_ptr': 'FieldPtr',
+        'float_16': 'Float_16',
+        'float_32': 'Float_32',
+        'float_64': 'Float_64',
+        'float_80': 'Float_80',
+        'float_128': 'Float_128',
+        'error': 'Error',
+        'inferred_alloc': 'InferredAlloc',
+        'inferred_alloc_comptime': 'InferredAllocComptime',
+        'aggregate': 'Aggregate',
+        'union': 'Union',
+        'bound_fn': 'BoundFn',
+    }
+
+    def __init__(self, val):
+        self.val = val
+
+    def tag(self):
+        tag_if_small_enough = self.val['tag_if_small_enough']
+        tag_type = tag_if_small_enough.type
+
+        if tag_if_small_enough < ValuePrinter.no_payload_count:
+            return tag_if_small_enough
+        else:
+            return self.val['ptr_otherwise'].dereference()['tag']
+
+    def payload_type(self):
+        tag = self.tag()
+        if tag is None:
+            return None
+
+        type_name = ValuePrinter.payload_type_names.get(str(tag))
+        if type_name is None:
+            return None
+        return gdb.lookup_type('struct value.%s' % type_name)
+
+    def to_string(self):
+        tag = self.tag()
+        if tag is None:
+            return '(invalid value)'
+        if self.val['tag_if_small_enough'] < ValuePrinter.no_payload_count:
+            return '.%s' % str(tag)
+        return None
+
+    def children(self):
+        if self.val['tag_if_small_enough'] < ValuePrinter.no_payload_count:
             return
 
         yield ('tag', '.%s' % str(self.tag()))
@@ -293,6 +383,7 @@ ppstd.add_printer('ArrayHashMap', r'^std\.array_hash_map\.ArrayHashMap(Unmanaged
 gdb.printing.register_pretty_printer(gdb.current_objfile(), ppstd)
 
 pp2 = gdb.printing.RegexpCollectionPrettyPrinter('Zig stage2 compiler')
-ppstd.add_printer('Type', r'^type\.Type$', TypePrinter)
+pp2.add_printer('Type', r'^type\.Type$', TypePrinter)
+pp2.add_printer('Value', r'^value\.Value$', ValuePrinter)
 gdb.printing.register_pretty_printer(gdb.current_objfile(), pp2)
 
