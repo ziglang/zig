@@ -16739,7 +16739,7 @@ fn elemPtrArray(
             const index_u64 = index_val.toUnsignedInt();
             // @intCast here because it would have been impossible to construct a value that
             // required a larger index.
-            const elem_ptr = try array_ptr_val.elemPtr(array_ptr_ty, sema.arena, @intCast(usize, index_u64));
+            const elem_ptr = try array_ptr_val.elemPtrDirect(array_ptr_ty, sema.arena, @intCast(usize, index_u64));
             return sema.addConstant(result_ty, elem_ptr);
         }
     }
