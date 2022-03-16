@@ -895,7 +895,7 @@ fn genFunc(self: *Self) InnerError!void {
         try prologue.append(.{ .tag = .i32_sub, .data = .{ .tag = {} } });
         // Get negative stack aligment
         try prologue.append(.{ .tag = .i32_const, .data = .{ .imm32 = @intCast(i32, self.stack_alignment) * -1 } });
-        // Bit and the value to get the new stack pointer to ensure the pointers are aligned with the abi alignment
+        // Bitwise-and the value to get the new stack pointer to ensure the pointers are aligned with the abi alignment
         try prologue.append(.{ .tag = .i32_and, .data = .{ .tag = {} } });
         // store the current stack pointer as the bottom, which will be used to calculate all stack pointer offsets
         try prologue.append(.{ .tag = .local_tee, .data = .{ .label = self.bottom_stack_value.local } });
@@ -1074,22 +1074,123 @@ fn toWasmBits(bits: u16) ?u16 {
 
 /// Performs a copy of bytes for a given type. Copying all bytes
 /// from rhs to lhs.
-///
-/// TODO: Perform feature detection and when bulk_memory is available,
-/// use wasm's mem.copy instruction.
-fn memCopy(self: *Self, ty: Type, lhs: WValue, rhs: WValue) !void {
-    const abi_size = ty.abiSize(self.target);
-    var offset: u32 = 0;
-    const lhs_base = lhs.offset();
-    const rhs_base = rhs.offset();
-    while (offset < abi_size) : (offset += 1) {
-        // get lhs' address to store the result
-        try self.emitWValue(lhs);
-        // load byte from rhs' adress
-        try self.emitWValue(rhs);
-        try self.addMemArg(.i32_load8_u, .{ .offset = rhs_base + offset, .alignment = 1 });
-        // store the result in lhs (we already have its address on the stack)
-        try self.addMemArg(.i32_store8, .{ .offset = lhs_base + offset, .alignment = 1 });
+fn memcpy(self: *Self, dst: WValue, src: WValue, len: WValue) !void {
+    // When bulk_memory is enabled, we lower it to wasm's memcpy instruction.
+    // If not, we lower it ourselves manually
+    if (std.Target.wasm.featureSetHas(self.target.cpu.features, .bulk_memory)) {
+        switch (dst) {
+            .stack_offset => try self.emitWValue(try self.buildPointerOffset(dst, 0, .new)),
+            else => try self.emitWValue(dst),
+        }
+        switch (src) {
+            .stack_offset => try self.emitWValue(try self.buildPointerOffset(src, 0, .new)),
+            else => try self.emitWValue(src),
+        }
+        try self.emitWValue(len);
+        try self.addExtended(.memory_copy);
+        return;
+    }
+
+    // when the length is comptime-known, rather than a runtime value, we can optimize the generated code by having
+    // the loop during codegen, rather than inserting a runtime loop into the binary.
+    switch (len) {
+        .imm32, .imm64 => {
+            const length = switch (len) {
+                .imm32 => |val| val,
+                .imm64 => |val| val,
+                else => unreachable,
+            };
+            var offset: u32 = 0;
+            const lhs_base = dst.offset();
+            const rhs_base = src.offset();
+            while (offset < length) : (offset += 1) {
+                // get dst's address to store the result
+                try self.emitWValue(dst);
+                // load byte from src's address
+                try self.emitWValue(src);
+                switch (self.arch()) {
+                    .wasm32 => {
+                        try self.addMemArg(.i32_load8_u, .{ .offset = rhs_base + offset, .alignment = 1 });
+                        try self.addMemArg(.i32_store8, .{ .offset = lhs_base + offset, .alignment = 1 });
+                    },
+                    .wasm64 => {
+                        try self.addMemArg(.i64_load8_u, .{ .offset = rhs_base + offset, .alignment = 1 });
+                        try self.addMemArg(.i64_store8, .{ .offset = lhs_base + offset, .alignment = 1 });
+                    },
+                    else => unreachable,
+                }
+            }
+        },
+        else => {
+            // TODO: We should probably lower this to a call to compiler_rt
+            // But for now, we implement it manually
+            const offset = try self.allocLocal(Type.usize); // local for counter
+            // outer block to jump to when loop is done
+            try self.startBlock(.block, wasm.block_empty);
+            try self.startBlock(.loop, wasm.block_empty);
+
+            // loop condition (offset == length -> break)
+            {
+                try self.emitWValue(offset);
+                try self.emitWValue(len);
+                switch (self.arch()) {
+                    .wasm32 => try self.addTag(.i32_eq),
+                    .wasm64 => try self.addTag(.i64_eq),
+                    else => unreachable,
+                }
+                try self.addLabel(.br_if, 1); // jump out of loop into outer block (finished)
+            }
+
+            // get dst ptr
+            {
+                try self.emitWValue(dst);
+                try self.emitWValue(offset);
+                switch (self.arch()) {
+                    .wasm32 => try self.addTag(.i32_add),
+                    .wasm64 => try self.addTag(.i64_add),
+                    else => unreachable,
+                }
+            }
+
+            // get src value and also store in dst
+            {
+                try self.emitWValue(src);
+                try self.emitWValue(offset);
+                switch (self.arch()) {
+                    .wasm32 => {
+                        try self.addTag(.i32_add);
+                        try self.addMemArg(.i32_load8_u, .{ .offset = src.offset(), .alignment = 1 });
+                        try self.addMemArg(.i32_store8, .{ .offset = dst.offset(), .alignment = 1 });
+                    },
+                    .wasm64 => {
+                        try self.addTag(.i64_add);
+                        try self.addMemArg(.i64_load8_u, .{ .offset = src.offset(), .alignment = 1 });
+                        try self.addMemArg(.i64_store8, .{ .offset = dst.offset(), .alignment = 1 });
+                    },
+                    else => unreachable,
+                }
+            }
+
+            // increment loop counter
+            {
+                try self.emitWValue(offset);
+                switch (self.arch()) {
+                    .wasm32 => {
+                        try self.addImm32(1);
+                        try self.addTag(.i32_add);
+                    },
+                    .wasm64 => {
+                        try self.addImm64(1);
+                        try self.addTag(.i64_add);
+                    },
+                    else => unreachable,
+                }
+                try self.addLabel(.local_set, offset.local);
+                try self.addLabel(.br, 0); // jump to start of loop
+            }
+            try self.endBlock(); // close off loop block
+            try self.endBlock(); // close off outer block
+        },
     }
 }
 
@@ -1297,6 +1398,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .wasm_memory_size => self.airWasmMemorySize(inst),
         .wasm_memory_grow => self.airWasmMemoryGrow(inst),
 
+        .memcpy => self.airMemcpy(inst),
+
         .add_sat,
         .sub_sat,
         .mul_sat,
@@ -1337,7 +1440,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .ptr_slice_len_ptr,
         .ptr_slice_ptr_ptr,
         .int_to_float,
-        .memcpy,
         .cmpxchg_weak,
         .cmpxchg_strong,
         .fence,
@@ -1519,7 +1621,8 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                 return self.store(lhs, rhs, err_ty, 0);
             }
 
-            return self.memCopy(ty, lhs, rhs);
+            const len = @intCast(u32, ty.abiSize(self.target));
+            return self.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .Optional => {
             if (ty.isPtrLikeOptional()) {
@@ -1531,10 +1634,12 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                 return self.store(lhs, rhs, Type.u8, 0);
             }
 
-            return self.memCopy(ty, lhs, rhs);
+            const len = @intCast(u32, ty.abiSize(self.target));
+            return self.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .Struct, .Array, .Union, .Vector => {
-            return self.memCopy(ty, lhs, rhs);
+            const len = @intCast(u32, ty.abiSize(self.target));
+            return self.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .Pointer => {
             if (ty.isSlice()) {
@@ -1549,7 +1654,8 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
             }
         },
         .Int => if (ty.intInfo(self.target).bits > 64) {
-            return self.memCopy(ty, lhs, rhs);
+            const len = @intCast(u32, ty.abiSize(self.target));
+            return self.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         else => {},
     }
@@ -3299,4 +3405,14 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     try self.addTag(.i32_sub);
     try self.addLabel(.local_set, base.local);
     return base;
+}
+
+fn airMemcpy(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const bin_op = self.air.extraData(Air.Bin, pl_op.payload).data;
+    const dst = try self.resolveInst(pl_op.operand);
+    const src = try self.resolveInst(bin_op.lhs);
+    const len = try self.resolveInst(bin_op.rhs);
+    try self.memcpy(dst, src, len);
+    return WValue{ .none = {} };
 }
