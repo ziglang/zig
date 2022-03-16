@@ -505,7 +505,6 @@ pub const Value = extern union {
                         .array_ptr = try payload.data.array_ptr.copy(arena),
                         .elem_ty = try payload.data.elem_ty.copy(arena),
                         .index = payload.data.index,
-                        .direct = payload.data.direct,
                     },
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
@@ -2403,11 +2402,7 @@ pub const Value = extern union {
             .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.val.elemValueAdvanced(index, arena, buffer),
             .elem_ptr => {
                 const data = val.castTag(.elem_ptr).?.data;
-                if (!data.direct)
-                    return data.array_ptr.elemValueAdvanced(index + data.index, arena, buffer);
-
-                const underlying = try data.array_ptr.elemValueAdvanced(data.index, arena, buffer);
-                return underlying.elemValueAdvanced(index, arena, buffer);
+                return data.array_ptr.elemValueAdvanced(index + data.index, arena, buffer);
             },
 
             // The child type of arrays which have only one possible value need
@@ -2470,25 +2465,12 @@ pub const Value = extern union {
 
     /// Returns a pointer to the element value at the index.
     pub fn elemPtr(val: Value, ty: Type, arena: Allocator, index: usize) Allocator.Error!Value {
-        return val.elemPtrAdvanced(ty, arena, index, false);
-    }
-
-    /// Returns a pointer to the element value at the index. The behavior
-    /// of this is slightly different for comptime; the "direct" means that
-    /// indexing indexes the referenced child value, not the parent array.
-    pub fn elemPtrDirect(val: Value, ty: Type, arena: Allocator, index: usize) Allocator.Error!Value {
-        return val.elemPtrAdvanced(ty, arena, index, true);
-    }
-
-    pub fn elemPtrAdvanced(val: Value, ty: Type, arena: Allocator, index: usize, direct: bool) Allocator.Error!Value {
         const elem_ty = ty.elemType2();
         const ptr_val = switch (val.tag()) {
             .slice => val.castTag(.slice).?.data.ptr,
             else => val,
         };
 
-        // If the val is already an elem ptr, then we do ptr arithmetic logic
-        // and just move the index.
         if (ptr_val.tag() == .elem_ptr) {
             const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
             if (elem_ptr.elem_ty.eql(elem_ty)) {
@@ -2496,12 +2478,6 @@ pub const Value = extern union {
                     .array_ptr = elem_ptr.array_ptr,
                     .elem_ty = elem_ptr.elem_ty,
                     .index = elem_ptr.index + index,
-
-                    // Retain the direct preference. This enables a direct
-                    // elem ptr (i.e. &arr[0]) to be bitcasted to a many-pointer
-                    // with pointer arithmetic then casted back to a single
-                    // pointer.
-                    .direct = elem_ptr.direct,
                 });
             }
         }
@@ -2509,7 +2485,6 @@ pub const Value = extern union {
             .array_ptr = ptr_val,
             .elem_ty = elem_ty,
             .index = index,
-            .direct = direct,
         });
     }
 
@@ -4219,7 +4194,6 @@ pub const Value = extern union {
                 array_ptr: Value,
                 elem_ty: Type,
                 index: usize,
-                direct: bool,
             },
         };
 
