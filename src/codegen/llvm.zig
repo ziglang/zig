@@ -6767,6 +6767,9 @@ pub const FuncGen = struct {
         return self.llvmModule().getIntrinsicDeclaration(id, types.ptr, types.len);
     }
 
+    /// This function always performs a copy. For isByRef=true types, it creates a new
+    /// alloca and copies the value into it, then returns the alloca instruction.
+    /// For isByRef=false types, it creates a load instruction and returns it.
     fn load(self: *FuncGen, ptr: *const llvm.Value, ptr_ty: Type) !?*const llvm.Value {
         const info = ptr_ty.ptrInfo().data;
         if (!info.pointee_type.hasRuntimeBitsIgnoreComptime()) return null;
@@ -6775,7 +6778,25 @@ pub const FuncGen = struct {
         const ptr_alignment = ptr_ty.ptrAlignment(target);
         const ptr_volatile = llvm.Bool.fromBool(ptr_ty.isVolatilePtr());
         if (info.host_size == 0) {
-            if (isByRef(info.pointee_type)) return ptr;
+            if (isByRef(info.pointee_type)) {
+                const elem_llvm_ty = try self.dg.llvmType(info.pointee_type);
+                const result_align = info.pointee_type.abiAlignment(target);
+                const max_align = @maximum(result_align, ptr_alignment);
+                const result_ptr = self.buildAlloca(elem_llvm_ty);
+                result_ptr.setAlignment(max_align);
+                const llvm_ptr_u8 = self.context.intType(8).pointerType(0);
+                const llvm_usize = self.context.intType(Type.usize.intInfo(target).bits);
+                const size_bytes = info.pointee_type.abiSize(target);
+                _ = self.builder.buildMemCpy(
+                    self.builder.buildBitCast(result_ptr, llvm_ptr_u8, ""),
+                    max_align,
+                    self.builder.buildBitCast(ptr, llvm_ptr_u8, ""),
+                    max_align,
+                    llvm_usize.constInt(size_bytes, .False),
+                    info.@"volatile",
+                );
+                return result_ptr;
+            }
             const llvm_inst = self.builder.buildLoad(ptr, "");
             llvm_inst.setAlignment(ptr_alignment);
             llvm_inst.setVolatile(ptr_volatile);
