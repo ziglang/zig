@@ -1109,7 +1109,8 @@ test "shrink large object to large object with larger alignment" {
     const allocator = gpa.allocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = std.heap.FixedBufferAllocator.init(&debug_buffer).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
+    const debug_allocator = fba.allocator();
 
     const alloc_size = page_size * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
@@ -1180,7 +1181,8 @@ test "realloc large object to larger alignment" {
     const allocator = gpa.allocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = std.heap.FixedBufferAllocator.init(&debug_buffer).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
+    const debug_allocator = fba.allocator();
 
     var slice = try allocator.alignedAlloc(u8, 16, page_size * 2 + 50);
     defer allocator.free(slice);
