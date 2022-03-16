@@ -77,7 +77,6 @@ pub const File = struct {
 
     pub const Lock = enum { None, Shared, Exclusive };
 
-    /// TODO https://github.com/ziglang/zig/issues/3802
     pub const OpenFlags = struct {
         mode: OpenMode = .read_only,
 
@@ -133,7 +132,6 @@ pub const File = struct {
         }
     };
 
-    /// TODO https://github.com/ziglang/zig/issues/3802
     pub const CreateFlags = struct {
         /// Whether the file will be created with read access.
         read: bool = false,

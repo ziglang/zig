@@ -163,8 +163,6 @@ test "saturating shift-left" {
 }
 
 test "saturating shl uses the LHS type" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const lhs_const: u8 = 1;
     var lhs_var: u8 = 1;
 

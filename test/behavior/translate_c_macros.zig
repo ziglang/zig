@@ -45,16 +45,16 @@ test "cast negative integer to pointer" {
 }
 
 test "casting to union with a macro" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO Sema.zirUnionInitPtr
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const l: c_long = 42;
     const d: f64 = 2.0;
 
     var casted = h.UNION_CAST(l);
-    try expectEqual(l, casted.l);
+    try expect(l == casted.l);
 
     casted = h.UNION_CAST(d);
-    try expectEqual(d, casted.d);
+    try expect(d == casted.d);
 }
 
 test "nested comma operator" {

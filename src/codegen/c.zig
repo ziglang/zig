@@ -748,7 +748,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             },
             .Struct => {
-                const field_vals = val.castTag(.@"struct").?.data;
+                const field_vals = val.castTag(.aggregate).?.data;
 
                 try writer.writeAll("(");
                 try dg.renderTypecast(writer, ty);
@@ -842,7 +842,8 @@ pub const DeclGen = struct {
         var index: usize = 0;
         var params_written: usize = 0;
         while (index < param_len) : (index += 1) {
-            if (dg.decl.ty.fnParamType(index).zigTypeTag() == .Void) continue;
+            const param_type = dg.decl.ty.fnParamType(index);
+            if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
             if (params_written > 0) {
                 try w.writeAll(", ");
             }
@@ -882,7 +883,7 @@ pub const DeclGen = struct {
         var params_written: usize = 0;
         var index: usize = 0;
         while (index < param_len) : (index += 1) {
-            if (fn_info.param_types[index].zigTypeTag() == .Void) continue;
+            if (!fn_info.param_types[index].hasRuntimeBitsIgnoreComptime()) continue;
             if (params_written > 0) {
                 try bw.writeAll(", ");
             }
@@ -1708,8 +1709,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
-            .clz              => try airCountZeroes(f, inst, "clz"),
-            .ctz              => try airCountZeroes(f, inst, "ctz"),
+            .clz              => try airBuiltinCall(f, inst, "clz"),
+            .ctz              => try airBuiltinCall(f, inst, "ctz"),
             .popcount         => try airBuiltinCall(f, inst, "popcount"),
             .byte_swap        => try airBuiltinCall(f, inst, "byte_swap"),
             .bit_reverse      => try airBuiltinCall(f, inst, "bit_reverse"),
@@ -1724,6 +1725,10 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .dbg_var_ptr,
             .dbg_var_val,
             => try airDbgVar(f, inst),
+
+            .dbg_inline_begin,
+            .dbg_inline_end,
+            => try airDbgInline(f, inst),
 
             .call              => try airCall(f, inst, .auto),
             .call_always_tail  => try airCall(f, inst, .always_tail),
@@ -2540,7 +2545,7 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValu
     try f.writeCValue(writer, lhs);
     try writer.print("{s}", .{operator});
     try f.writeCValue(writer, rhs);
-    try writer.writeAll(") ");
+    try writer.writeAll(") ? ");
     try f.writeCValue(writer, lhs);
     try writer.writeAll(" : ");
     try f.writeCValue(writer, rhs);
@@ -2625,8 +2630,11 @@ fn airCall(
     }
 
     try writer.writeAll("(");
-    for (args) |arg, i| {
-        if (i != 0) {
+    var args_written: usize = 0;
+    for (args) |arg| {
+        const ty = f.air.typeOf(arg);
+        if (!ty.hasRuntimeBitsIgnoreComptime()) continue;
+        if (args_written != 0) {
             try writer.writeAll(", ");
         }
         if (f.air.value(arg)) |val| {
@@ -2635,6 +2643,7 @@ fn airCall(
             const val = try f.resolveInst(arg);
             try f.writeCValue(writer, val);
         }
+        args_written += 1;
     }
     try writer.writeAll(");\n");
     return result_local;
@@ -2652,6 +2661,14 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     // Perhaps an additional compilation option is in order?
     //try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
     try writer.print("/* file:{d}:{d} */\n", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
+    return CValue.none;
+}
+
+fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const writer = f.object.writer();
+    const function = f.air.values[ty_pl.payload].castTag(.function).?.data;
+    try writer.print("/* dbg func:{s} */\n", .{function.owner_decl.name});
     return CValue.none;
 }
 
@@ -3351,35 +3368,23 @@ fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !C
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
-    const writer = f.object.writer();
-    const operand = try f.resolveInst(ty_op.operand);
-
-    // TODO implement the function in zig.h and call it here
-
-    try writer.print(" = {s}(", .{fn_name});
-    try f.writeCValue(writer, operand);
-    try writer.writeAll(");\n");
-    return local;
-}
-
-fn airCountZeroes(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !CValue {
-    if (f.liveness.isUnused(inst)) return CValue.none;
-
-    const inst_ty = f.air.typeOfIndex(inst);
-    const local = try f.allocLocal(inst_ty, .Const);
     const operand = f.air.instructions.items(.data)[inst].ty_op.operand;
     const operand_ty = f.air.typeOf(operand);
     const target = f.object.dg.module.getTarget();
     const writer = f.object.writer();
 
-    const zig_bits = operand_ty.intInfo(target).bits;
-    _ = toCIntBits(zig_bits) orelse
+    const int_info = operand_ty.intInfo(target);
+    const c_bits = toCIntBits(int_info.bits) orelse
         return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
 
-    try writer.print(" = zig_{s}(", .{fn_name});
+    try writer.print(" = zig_{s}_", .{fn_name});
+    const prefix_byte: u8 = switch (int_info.signedness) {
+        .signed => 'i',
+        .unsigned => 'u',
+    };
+    try writer.print("{c}{d}(", .{ prefix_byte, c_bits });
     try f.writeCValue(writer, try f.resolveInst(operand));
-    try writer.print(", {d});\n", .{zig_bits});
+    try writer.print(", {d});\n", .{int_info.bits});
     return local;
 }
 

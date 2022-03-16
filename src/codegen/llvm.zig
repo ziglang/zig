@@ -160,16 +160,19 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
 }
 
 pub const Object = struct {
+    gpa: Allocator,
     llvm_module: *const llvm.Module,
     di_builder: ?*llvm.DIBuilder,
     /// One of these mappings:
     /// - *Module.File => *DIFile
-    /// - *Module.Decl => *DISubprogram
-    di_map: std.AutoHashMapUnmanaged(*const anyopaque, *llvm.DIScope),
+    /// - *Module.Decl (Fn) => *DISubprogram
+    /// - *Module.Decl (Non-Fn) => *DIGlobalVariable
+    di_map: std.AutoHashMapUnmanaged(*const anyopaque, *llvm.DINode),
     di_compile_unit: ?*llvm.DICompileUnit,
     context: *const llvm.Context,
     target_machine: *const llvm.TargetMachine,
     target_data: *const llvm.TargetData,
+    target: std.Target,
     /// Ideally we would use `llvm_module.getNamedFunction` to go from *Decl to LLVM function,
     /// but that has some downsides:
     /// * we have to compute the fully qualified name every time we want to do the lookup
@@ -201,11 +204,13 @@ pub const Object = struct {
         std.hash_map.default_max_load_percentage,
     );
 
-    pub const DITypeMap = std.HashMapUnmanaged(
+    /// This is an ArrayHashMap as opposed to a HashMap because in `flushModule` we
+    /// want to iterate over it while adding entries to it.
+    pub const DITypeMap = std.ArrayHashMapUnmanaged(
         Type,
-        *llvm.DIType,
-        Type.HashContext64,
-        std.hash_map.default_max_load_percentage,
+        AnnotatedDITypePtr,
+        Type.HashContext32,
+        true,
     );
 
     pub fn create(gpa: Allocator, options: link.Options) !*Object {
@@ -334,6 +339,7 @@ pub const Object = struct {
         llvm_module.setModuleDataLayout(target_data);
 
         return Object{
+            .gpa = gpa,
             .llvm_module = llvm_module,
             .di_map = .{},
             .di_builder = opt_di_builder,
@@ -341,6 +347,7 @@ pub const Object = struct {
             .context = context,
             .target_machine = target_machine,
             .target_data = target_data,
+            .target = options.target,
             .decl_map = .{},
             .type_map = .{},
             .type_map_arena = std.heap.ArenaAllocator.init(gpa),
@@ -436,7 +443,25 @@ pub const Object = struct {
     pub fn flushModule(self: *Object, comp: *Compilation) !void {
         try self.genErrorNameTable(comp);
 
-        if (self.di_builder) |dib| dib.finalize();
+        if (self.di_builder) |dib| {
+            // When lowering debug info for pointers, we emitted the element types as
+            // forward decls. Now we must go flesh those out.
+            // Here we iterate over a hash map while modifying it but it is OK because
+            // we never add or remove entries during this loop.
+            var i: usize = 0;
+            while (i < self.di_type_map.count()) : (i += 1) {
+                const value_ptr = &self.di_type_map.values()[i];
+                const annotated = value_ptr.*;
+                if (!annotated.isFwdOnly()) continue;
+                const entry: Object.DITypeMap.Entry = .{
+                    .key_ptr = &self.di_type_map.keys()[i],
+                    .value_ptr = value_ptr,
+                };
+                _ = try self.lowerDebugTypeImpl(entry, .full, annotated.toDIType());
+            }
+
+            dib.finalize();
+        }
 
         if (comp.verbose_llvm_ir) {
             self.llvm_module.dump();
@@ -502,7 +527,7 @@ pub const Object = struct {
     }
 
     pub fn updateFunc(
-        self: *Object,
+        o: *Object,
         module: *Module,
         func: *Module.Fn,
         air: Air,
@@ -511,8 +536,8 @@ pub const Object = struct {
         const decl = func.owner_decl;
 
         var dg: DeclGen = .{
-            .context = self.context,
-            .object = self,
+            .context = o.context,
+            .object = o,
             .module = module,
             .decl = decl,
             .err_msg = null,
@@ -583,7 +608,7 @@ pub const Object = struct {
                 llvm_func.getValueName(),
                 di_file.?,
                 line_number,
-                try dg.lowerDebugType(decl.ty),
+                try o.lowerDebugType(decl.ty, .full),
                 is_internal_linkage,
                 true, // is definition
                 line_number + func.lbrace_line, // scope line
@@ -591,10 +616,12 @@ pub const Object = struct {
                 dg.module.comp.bin_file.options.optimize_mode != .Debug,
                 null, // decl_subprogram
             );
+            try dg.object.di_map.put(gpa, decl, subprogram.toNode());
 
             llvm_func.fnSetSubprogram(subprogram);
 
-            di_scope = subprogram.toScope();
+            const lexical_block = dib.createLexicalBlock(subprogram.toScope(), di_file.?, line_number, 1);
+            di_scope = lexical_block.toScope();
         }
 
         var fg: FuncGen = .{
@@ -613,6 +640,7 @@ pub const Object = struct {
             .single_threaded = module.comp.bin_file.options.single_threaded,
             .di_scope = di_scope,
             .di_file = di_file,
+            .base_line = dg.decl.src_line,
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
         };
@@ -629,7 +657,7 @@ pub const Object = struct {
         };
 
         const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
-        try self.updateDeclExports(module, decl, decl_exports);
+        try o.updateDeclExports(module, decl, decl_exports);
     }
 
     pub fn updateDecl(self: *Object, module: *Module, decl: *Module.Decl) !void {
@@ -667,6 +695,17 @@ pub const Object = struct {
             llvm_global.setValueName(decl.name);
             llvm_global.setUnnamedAddr(.False);
             llvm_global.setLinkage(.External);
+            if (self.di_map.get(decl)) |di_node| {
+                if (try decl.isFunction()) {
+                    const di_func = @ptrCast(*llvm.DISubprogram, di_node);
+                    const linkage_name = llvm.MDString.get(self.context, decl.name, std.mem.len(decl.name));
+                    di_func.replaceLinkageName(linkage_name);
+                } else {
+                    const di_global = @ptrCast(*llvm.DIGlobalVariable, di_node);
+                    const linkage_name = llvm.MDString.get(self.context, decl.name, std.mem.len(decl.name));
+                    di_global.replaceLinkageName(linkage_name);
+                }
+            }
             if (decl.val.castTag(.variable)) |variable| {
                 if (variable.data.is_threadlocal) {
                     llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
@@ -681,6 +720,17 @@ pub const Object = struct {
             const exp_name = exports[0].options.name;
             llvm_global.setValueName2(exp_name.ptr, exp_name.len);
             llvm_global.setUnnamedAddr(.False);
+            if (self.di_map.get(decl)) |di_node| {
+                if (try decl.isFunction()) {
+                    const di_func = @ptrCast(*llvm.DISubprogram, di_node);
+                    const linkage_name = llvm.MDString.get(self.context, exp_name.ptr, exp_name.len);
+                    di_func.replaceLinkageName(linkage_name);
+                } else {
+                    const di_global = @ptrCast(*llvm.DIGlobalVariable, di_node);
+                    const linkage_name = llvm.MDString.get(self.context, exp_name.ptr, exp_name.len);
+                    di_global.replaceLinkageName(linkage_name);
+                }
+            }
             switch (exports[0].options.linkage) {
                 .Internal => unreachable,
                 .Strong => llvm_global.setLinkage(.External),
@@ -746,8 +796,858 @@ pub const Object = struct {
         const dir_path_z = try gpa.dupeZ(u8, dir_path);
         defer gpa.free(dir_path_z);
         const di_file = o.di_builder.?.createFile(sub_file_path_z, dir_path_z);
-        gop.value_ptr.* = di_file.toScope();
+        gop.value_ptr.* = di_file.toNode();
         return di_file;
+    }
+
+    const DebugResolveStatus = enum { fwd, full };
+
+    /// In the implementation of this function, it is required to store a forward decl
+    /// into `gop` before making any recursive calls (even directly).
+    fn lowerDebugType(
+        o: *Object,
+        ty: Type,
+        resolve: DebugResolveStatus,
+    ) Allocator.Error!*llvm.DIType {
+        const gpa = o.gpa;
+        // Be careful not to reference this `gop` variable after any recursive calls
+        // to `lowerDebugType`.
+        const gop = try o.di_type_map.getOrPut(gpa, ty);
+        if (gop.found_existing) {
+            const annotated = gop.value_ptr.*;
+            const di_type = annotated.toDIType();
+            if (!annotated.isFwdOnly() or resolve == .fwd) {
+                return di_type;
+            }
+            const entry: Object.DITypeMap.Entry = .{
+                .key_ptr = gop.key_ptr,
+                .value_ptr = gop.value_ptr,
+            };
+            return o.lowerDebugTypeImpl(entry, resolve, di_type);
+        }
+        errdefer assert(o.di_type_map.orderedRemove(ty));
+        // The Type memory is ephemeral; since we want to store a longer-lived
+        // reference, we need to copy it here.
+        gop.key_ptr.* = try ty.copy(o.type_map_arena.allocator());
+        const entry: Object.DITypeMap.Entry = .{
+            .key_ptr = gop.key_ptr,
+            .value_ptr = gop.value_ptr,
+        };
+        return o.lowerDebugTypeImpl(entry, resolve, null);
+    }
+
+    /// This is a helper function used by `lowerDebugType`.
+    fn lowerDebugTypeImpl(
+        o: *Object,
+        gop: Object.DITypeMap.Entry,
+        resolve: DebugResolveStatus,
+        opt_fwd_decl: ?*llvm.DIType,
+    ) Allocator.Error!*llvm.DIType {
+        const ty = gop.key_ptr.*;
+        const gpa = o.gpa;
+        const target = o.target;
+        const dib = o.di_builder.?;
+        switch (ty.zigTypeTag()) {
+            .Void, .NoReturn => {
+                const di_type = dib.createBasicType("void", 0, DW.ATE.signed);
+                gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
+                return di_type;
+            },
+            .Int => {
+                const info = ty.intInfo(target);
+                assert(info.bits != 0);
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
+                const dwarf_encoding: c_uint = switch (info.signedness) {
+                    .signed => DW.ATE.signed,
+                    .unsigned => DW.ATE.unsigned,
+                };
+                const di_type = dib.createBasicType(name, info.bits, dwarf_encoding);
+                gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
+                return di_type;
+            },
+            .Enum => {
+                const owner_decl = ty.getOwnerDecl();
+
+                if (!ty.hasRuntimeBitsIgnoreComptime()) {
+                    const enum_di_ty = try o.makeEmptyNamespaceDIType(owner_decl);
+                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
+                    // means we can't use `gop` anymore.
+                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(enum_di_ty));
+                    return enum_di_ty;
+                }
+
+                const field_names = ty.enumFields().keys();
+
+                const enumerators = try gpa.alloc(*llvm.DIEnumerator, field_names.len);
+                defer gpa.free(enumerators);
+
+                var buf_field_index: Value.Payload.U32 = .{
+                    .base = .{ .tag = .enum_field_index },
+                    .data = undefined,
+                };
+                const field_index_val = Value.initPayload(&buf_field_index.base);
+
+                for (field_names) |field_name, i| {
+                    const field_name_z = try gpa.dupeZ(u8, field_name);
+                    defer gpa.free(field_name_z);
+
+                    buf_field_index.data = @intCast(u32, i);
+                    var buf_u64: Value.Payload.U64 = undefined;
+                    const field_int_val = field_index_val.enumToInt(ty, &buf_u64);
+                    // See https://github.com/ziglang/zig/issues/645
+                    const field_int = field_int_val.toSignedInt();
+                    enumerators[i] = dib.createEnumerator(field_name_z, field_int);
+                }
+
+                const di_file = try o.getDIFile(gpa, owner_decl.src_namespace.file_scope);
+                const di_scope = try o.namespaceToDebugScope(owner_decl.src_namespace);
+
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
+                var buffer: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buffer);
+
+                const enum_di_ty = dib.createEnumerationType(
+                    di_scope,
+                    name,
+                    di_file,
+                    owner_decl.src_node + 1,
+                    ty.abiSize(target) * 8,
+                    ty.abiAlignment(target) * 8,
+                    enumerators.ptr,
+                    @intCast(c_int, enumerators.len),
+                    try o.lowerDebugType(int_ty, .full),
+                    "",
+                );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(enum_di_ty));
+                return enum_di_ty;
+            },
+            .Float => {
+                const bits = ty.floatBits(target);
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
+                const di_type = dib.createBasicType(name, bits, DW.ATE.float);
+                gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
+                return di_type;
+            },
+            .Bool => {
+                const di_type = dib.createBasicType("bool", 1, DW.ATE.boolean);
+                gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
+                return di_type;
+            },
+            .Pointer => {
+                // Normalize everything that the debug info does not represent.
+                const ptr_info = ty.ptrInfo().data;
+
+                if (ptr_info.sentinel != null or
+                    ptr_info.@"addrspace" != .generic or
+                    ptr_info.bit_offset != 0 or
+                    ptr_info.host_size != 0 or
+                    ptr_info.@"allowzero" or
+                    !ptr_info.mutable or
+                    ptr_info.@"volatile" or
+                    ptr_info.size == .Many or ptr_info.size == .C or
+                    !ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime())
+                {
+                    var payload: Type.Payload.Pointer = .{
+                        .data = .{
+                            .pointee_type = ptr_info.pointee_type,
+                            .sentinel = null,
+                            .@"align" = ptr_info.@"align",
+                            .@"addrspace" = .generic,
+                            .bit_offset = 0,
+                            .host_size = 0,
+                            .@"allowzero" = false,
+                            .mutable = true,
+                            .@"volatile" = false,
+                            .size = switch (ptr_info.size) {
+                                .Many, .C, .One => .One,
+                                .Slice => .Slice,
+                            },
+                        },
+                    };
+                    if (!ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime()) {
+                        payload.data.pointee_type = Type.anyopaque;
+                    }
+                    const bland_ptr_ty = Type.initPayload(&payload.base);
+                    const ptr_di_ty = try o.lowerDebugType(bland_ptr_ty, resolve);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(ptr_di_ty));
+                    return ptr_di_ty;
+                }
+
+                if (ty.isSlice()) {
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&buf);
+                    const len_ty = Type.usize;
+
+                    const name = try ty.nameAlloc(gpa);
+                    defer gpa.free(name);
+                    const di_file: ?*llvm.DIFile = null;
+                    const line = 0;
+                    const compile_unit_scope = o.di_compile_unit.?.toScope();
+
+                    const fwd_decl = opt_fwd_decl orelse blk: {
+                        const fwd_decl = dib.createReplaceableCompositeType(
+                            DW.TAG.structure_type,
+                            name.ptr,
+                            compile_unit_scope,
+                            di_file,
+                            line,
+                        );
+                        gop.value_ptr.* = AnnotatedDITypePtr.initFwd(fwd_decl);
+                        if (resolve == .fwd) return fwd_decl;
+                        break :blk fwd_decl;
+                    };
+
+                    const ptr_size = ptr_ty.abiSize(target);
+                    const ptr_align = ptr_ty.abiAlignment(target);
+                    const len_size = len_ty.abiSize(target);
+                    const len_align = len_ty.abiAlignment(target);
+
+                    var offset: u64 = 0;
+                    offset += ptr_size;
+                    offset = std.mem.alignForwardGeneric(u64, offset, len_align);
+                    const len_offset = offset;
+
+                    const fields: [2]*llvm.DIType = .{
+                        dib.createMemberType(
+                            fwd_decl.toScope(),
+                            "ptr",
+                            di_file,
+                            line,
+                            ptr_size * 8, // size in bits
+                            ptr_align * 8, // align in bits
+                            0, // offset in bits
+                            0, // flags
+                            try o.lowerDebugType(ptr_ty, .full),
+                        ),
+                        dib.createMemberType(
+                            fwd_decl.toScope(),
+                            "len",
+                            di_file,
+                            line,
+                            len_size * 8, // size in bits
+                            len_align * 8, // align in bits
+                            len_offset * 8, // offset in bits
+                            0, // flags
+                            try o.lowerDebugType(len_ty, .full),
+                        ),
+                    };
+
+                    const full_di_ty = dib.createStructType(
+                        compile_unit_scope,
+                        name.ptr,
+                        di_file,
+                        line,
+                        ty.abiSize(target) * 8, // size in bits
+                        ty.abiAlignment(target) * 8, // align in bits
+                        0, // flags
+                        null, // derived from
+                        &fields,
+                        fields.len,
+                        0, // run time lang
+                        null, // vtable holder
+                        "", // unique id
+                    );
+                    dib.replaceTemporary(fwd_decl, full_di_ty);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty));
+                    return full_di_ty;
+                }
+
+                const elem_di_ty = try o.lowerDebugType(ptr_info.pointee_type, .fwd);
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
+                const ptr_di_ty = dib.createPointerType(
+                    elem_di_ty,
+                    target.cpu.arch.ptrBitWidth(),
+                    ty.ptrAlignment(target) * 8,
+                    name,
+                );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(ptr_di_ty));
+                return ptr_di_ty;
+            },
+            .Opaque => {
+                if (ty.tag() == .anyopaque) {
+                    const di_ty = dib.createBasicType("anyopaque", 0, DW.ATE.signed);
+                    gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
+                    return di_ty;
+                }
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
+                const owner_decl = ty.getOwnerDecl();
+                const opaque_di_ty = dib.createForwardDeclType(
+                    DW.TAG.structure_type,
+                    name,
+                    try o.namespaceToDebugScope(owner_decl.src_namespace),
+                    try o.getDIFile(gpa, owner_decl.src_namespace.file_scope),
+                    owner_decl.src_node + 1,
+                );
+                // The recursive call to `lowerDebugType` va `namespaceToDebugScope`
+                // means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(opaque_di_ty));
+                return opaque_di_ty;
+            },
+            .Array => {
+                const array_di_ty = dib.createArrayType(
+                    ty.abiSize(target) * 8,
+                    ty.abiAlignment(target) * 8,
+                    try o.lowerDebugType(ty.childType(), .full),
+                    @intCast(c_int, ty.arrayLen()),
+                );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(array_di_ty));
+                return array_di_ty;
+            },
+            .Vector => {
+                const vector_di_ty = dib.createVectorType(
+                    ty.abiSize(target) * 8,
+                    ty.abiAlignment(target) * 8,
+                    try o.lowerDebugType(ty.childType(), .full),
+                    ty.vectorLen(),
+                );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(vector_di_ty));
+                return vector_di_ty;
+            },
+            .Optional => {
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
+                var buf: Type.Payload.ElemType = undefined;
+                const child_ty = ty.optionalChild(&buf);
+                if (!child_ty.hasRuntimeBitsIgnoreComptime()) {
+                    const di_ty = dib.createBasicType(name, 1, DW.ATE.boolean);
+                    gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
+                    return di_ty;
+                }
+                if (ty.isPtrLikeOptional()) {
+                    const ptr_di_ty = try o.lowerDebugType(child_ty, resolve);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(ptr_di_ty));
+                    return ptr_di_ty;
+                }
+
+                const di_file: ?*llvm.DIFile = null;
+                const line = 0;
+                const compile_unit_scope = o.di_compile_unit.?.toScope();
+                const fwd_decl = opt_fwd_decl orelse blk: {
+                    const fwd_decl = dib.createReplaceableCompositeType(
+                        DW.TAG.structure_type,
+                        name.ptr,
+                        compile_unit_scope,
+                        di_file,
+                        line,
+                    );
+                    gop.value_ptr.* = AnnotatedDITypePtr.initFwd(fwd_decl);
+                    if (resolve == .fwd) return fwd_decl;
+                    break :blk fwd_decl;
+                };
+
+                const non_null_ty = Type.bool;
+                const payload_size = child_ty.abiSize(target);
+                const payload_align = child_ty.abiAlignment(target);
+                const non_null_size = non_null_ty.abiSize(target);
+                const non_null_align = non_null_ty.abiAlignment(target);
+
+                var offset: u64 = 0;
+                offset += payload_size;
+                offset = std.mem.alignForwardGeneric(u64, offset, non_null_align);
+                const non_null_offset = offset;
+
+                const fields: [2]*llvm.DIType = .{
+                    dib.createMemberType(
+                        fwd_decl.toScope(),
+                        "data",
+                        di_file,
+                        line,
+                        payload_size * 8, // size in bits
+                        payload_align * 8, // align in bits
+                        0, // offset in bits
+                        0, // flags
+                        try o.lowerDebugType(child_ty, .full),
+                    ),
+                    dib.createMemberType(
+                        fwd_decl.toScope(),
+                        "some",
+                        di_file,
+                        line,
+                        non_null_size * 8, // size in bits
+                        non_null_align * 8, // align in bits
+                        non_null_offset * 8, // offset in bits
+                        0, // flags
+                        try o.lowerDebugType(non_null_ty, .full),
+                    ),
+                };
+
+                const full_di_ty = dib.createStructType(
+                    compile_unit_scope,
+                    name.ptr,
+                    di_file,
+                    line,
+                    ty.abiSize(target) * 8, // size in bits
+                    ty.abiAlignment(target) * 8, // align in bits
+                    0, // flags
+                    null, // derived from
+                    &fields,
+                    fields.len,
+                    0, // run time lang
+                    null, // vtable holder
+                    "", // unique id
+                );
+                dib.replaceTemporary(fwd_decl, full_di_ty);
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty));
+                return full_di_ty;
+            },
+            .ErrorUnion => {
+                const err_set_ty = ty.errorUnionSet();
+                const payload_ty = ty.errorUnionPayload();
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                    const err_set_di_ty = try o.lowerDebugType(err_set_ty, .full);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(err_set_di_ty));
+                    return err_set_di_ty;
+                }
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
+                const di_file: ?*llvm.DIFile = null;
+                const line = 0;
+                const compile_unit_scope = o.di_compile_unit.?.toScope();
+                const fwd_decl = opt_fwd_decl orelse blk: {
+                    const fwd_decl = dib.createReplaceableCompositeType(
+                        DW.TAG.structure_type,
+                        name.ptr,
+                        compile_unit_scope,
+                        di_file,
+                        line,
+                    );
+                    gop.value_ptr.* = AnnotatedDITypePtr.initFwd(fwd_decl);
+                    if (resolve == .fwd) return fwd_decl;
+                    break :blk fwd_decl;
+                };
+
+                const err_set_size = err_set_ty.abiSize(target);
+                const err_set_align = err_set_ty.abiAlignment(target);
+                const payload_size = payload_ty.abiSize(target);
+                const payload_align = payload_ty.abiAlignment(target);
+
+                var offset: u64 = 0;
+                offset += err_set_size;
+                offset = std.mem.alignForwardGeneric(u64, offset, payload_align);
+                const payload_offset = offset;
+
+                const fields: [2]*llvm.DIType = .{
+                    dib.createMemberType(
+                        fwd_decl.toScope(),
+                        "tag",
+                        di_file,
+                        line,
+                        err_set_size * 8, // size in bits
+                        err_set_align * 8, // align in bits
+                        0, // offset in bits
+                        0, // flags
+                        try o.lowerDebugType(err_set_ty, .full),
+                    ),
+                    dib.createMemberType(
+                        fwd_decl.toScope(),
+                        "value",
+                        di_file,
+                        line,
+                        payload_size * 8, // size in bits
+                        payload_align * 8, // align in bits
+                        payload_offset * 8, // offset in bits
+                        0, // flags
+                        try o.lowerDebugType(payload_ty, .full),
+                    ),
+                };
+
+                const full_di_ty = dib.createStructType(
+                    compile_unit_scope,
+                    name.ptr,
+                    di_file,
+                    line,
+                    ty.abiSize(target) * 8, // size in bits
+                    ty.abiAlignment(target) * 8, // align in bits
+                    0, // flags
+                    null, // derived from
+                    &fields,
+                    fields.len,
+                    0, // run time lang
+                    null, // vtable holder
+                    "", // unique id
+                );
+                dib.replaceTemporary(fwd_decl, full_di_ty);
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty));
+                return full_di_ty;
+            },
+            .ErrorSet => {
+                // TODO make this a proper enum with all the error codes in it.
+                // will need to consider how to take incremental compilation into account.
+                const di_ty = dib.createBasicType("anyerror", 16, DW.ATE.unsigned);
+                gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
+                return di_ty;
+            },
+            .Struct => {
+                const compile_unit_scope = o.di_compile_unit.?.toScope();
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
+
+                if (ty.castTag(.@"struct")) |payload| {
+                    const struct_obj = payload.data;
+                    if (struct_obj.layout == .Packed) {
+                        var buf: Type.Payload.Bits = undefined;
+                        const info = struct_obj.packedIntegerType(target, &buf).intInfo(target);
+                        const dwarf_encoding: c_uint = switch (info.signedness) {
+                            .signed => DW.ATE.signed,
+                            .unsigned => DW.ATE.unsigned,
+                        };
+                        const di_ty = dib.createBasicType(name, info.bits, dwarf_encoding);
+                        gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
+                        return di_ty;
+                    }
+                }
+
+                const fwd_decl = opt_fwd_decl orelse blk: {
+                    const fwd_decl = dib.createReplaceableCompositeType(
+                        DW.TAG.structure_type,
+                        name.ptr,
+                        compile_unit_scope,
+                        null, // file
+                        0, // line
+                    );
+                    gop.value_ptr.* = AnnotatedDITypePtr.initFwd(fwd_decl);
+                    if (resolve == .fwd) return fwd_decl;
+                    break :blk fwd_decl;
+                };
+
+                if (ty.isTupleOrAnonStruct()) {
+                    const tuple = ty.tupleFields();
+
+                    var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
+                    defer di_fields.deinit(gpa);
+
+                    try di_fields.ensureUnusedCapacity(gpa, tuple.types.len);
+
+                    comptime assert(struct_layout_version == 2);
+                    var offset: u64 = 0;
+
+                    for (tuple.types) |field_ty, i| {
+                        const field_val = tuple.values[i];
+                        if (field_val.tag() != .unreachable_value) continue;
+
+                        const field_size = field_ty.abiSize(target);
+                        const field_align = field_ty.abiAlignment(target);
+                        const field_offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                        offset = field_offset + field_size;
+
+                        const field_name = if (ty.castTag(.anon_struct)) |payload|
+                            try gpa.dupeZ(u8, payload.data.names[i])
+                        else
+                            try std.fmt.allocPrintZ(gpa, "{d}", .{i});
+                        defer gpa.free(field_name);
+
+                        try di_fields.append(gpa, dib.createMemberType(
+                            fwd_decl.toScope(),
+                            field_name,
+                            null, // file
+                            0, // line
+                            field_size * 8, // size in bits
+                            field_align * 8, // align in bits
+                            field_offset * 8, // offset in bits
+                            0, // flags
+                            try o.lowerDebugType(field_ty, .full),
+                        ));
+                    }
+
+                    const full_di_ty = dib.createStructType(
+                        compile_unit_scope,
+                        name.ptr,
+                        null, // file
+                        0, // line
+                        ty.abiSize(target) * 8, // size in bits
+                        ty.abiAlignment(target) * 8, // align in bits
+                        0, // flags
+                        null, // derived from
+                        di_fields.items.ptr,
+                        @intCast(c_int, di_fields.items.len),
+                        0, // run time lang
+                        null, // vtable holder
+                        "", // unique id
+                    );
+                    dib.replaceTemporary(fwd_decl, full_di_ty);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty));
+                    return full_di_ty;
+                }
+
+                if (ty.castTag(.@"struct")) |payload| {
+                    const struct_obj = payload.data;
+                    if (!struct_obj.haveFieldTypes()) {
+                        // TODO: improve the frontend to populate this struct.
+                        // For now we treat it as a zero bit type.
+                        const owner_decl = ty.getOwnerDecl();
+                        const struct_di_ty = try o.makeEmptyNamespaceDIType(owner_decl);
+                        dib.replaceTemporary(fwd_decl, struct_di_ty);
+                        // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
+                        // means we can't use `gop` anymore.
+                        try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(struct_di_ty));
+                        return struct_di_ty;
+                    }
+                }
+
+                if (!ty.hasRuntimeBitsIgnoreComptime()) {
+                    const owner_decl = ty.getOwnerDecl();
+                    const struct_di_ty = try o.makeEmptyNamespaceDIType(owner_decl);
+                    dib.replaceTemporary(fwd_decl, struct_di_ty);
+                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
+                    // means we can't use `gop` anymore.
+                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(struct_di_ty));
+                    return struct_di_ty;
+                }
+
+                const fields = ty.structFields();
+
+                var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
+                defer di_fields.deinit(gpa);
+
+                try di_fields.ensureUnusedCapacity(gpa, fields.count());
+
+                comptime assert(struct_layout_version == 2);
+                var offset: u64 = 0;
+
+                for (fields.values()) |field, i| {
+                    if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+
+                    const field_size = field.ty.abiSize(target);
+                    const field_align = field.normalAlignment(target);
+                    const field_offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                    offset = field_offset + field_size;
+
+                    const field_name = try gpa.dupeZ(u8, fields.keys()[i]);
+                    defer gpa.free(field_name);
+
+                    try di_fields.append(gpa, dib.createMemberType(
+                        fwd_decl.toScope(),
+                        field_name,
+                        null, // file
+                        0, // line
+                        field_size * 8, // size in bits
+                        field_align * 8, // align in bits
+                        field_offset * 8, // offset in bits
+                        0, // flags
+                        try o.lowerDebugType(field.ty, .full),
+                    ));
+                }
+
+                const full_di_ty = dib.createStructType(
+                    compile_unit_scope,
+                    name.ptr,
+                    null, // file
+                    0, // line
+                    ty.abiSize(target) * 8, // size in bits
+                    ty.abiAlignment(target) * 8, // align in bits
+                    0, // flags
+                    null, // derived from
+                    di_fields.items.ptr,
+                    @intCast(c_int, di_fields.items.len),
+                    0, // run time lang
+                    null, // vtable holder
+                    "", // unique id
+                );
+                dib.replaceTemporary(fwd_decl, full_di_ty);
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty));
+                return full_di_ty;
+            },
+            .Union => {
+                const owner_decl = ty.getOwnerDecl();
+
+                const name = try ty.nameAlloc(gpa);
+                defer gpa.free(name);
+
+                const fwd_decl = opt_fwd_decl orelse blk: {
+                    const fwd_decl = dib.createReplaceableCompositeType(
+                        DW.TAG.structure_type,
+                        name.ptr,
+                        o.di_compile_unit.?.toScope(),
+                        null, // file
+                        0, // line
+                    );
+                    gop.value_ptr.* = AnnotatedDITypePtr.initFwd(fwd_decl);
+                    if (resolve == .fwd) return fwd_decl;
+                    break :blk fwd_decl;
+                };
+
+                const TODO_implement_this = true; // TODO
+                if (TODO_implement_this or !ty.hasRuntimeBitsIgnoreComptime()) {
+                    const union_di_ty = try o.makeEmptyNamespaceDIType(owner_decl);
+                    dib.replaceTemporary(fwd_decl, union_di_ty);
+                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
+                    // means we can't use `gop` anymore.
+                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(union_di_ty));
+                    return union_di_ty;
+                }
+
+                @panic("TODO debug info type for union");
+                //const gop = try o.type_map.getOrPut(gpa, ty);
+                //if (gop.found_existing) return gop.value_ptr.*;
+
+                //// The Type memory is ephemeral; since we want to store a longer-lived
+                //// reference, we need to copy it here.
+                //gop.key_ptr.* = try ty.copy(o.type_map_arena.allocator());
+
+                //const layout = ty.unionGetLayout(target);
+                //const union_obj = ty.cast(Type.Payload.Union).?.data;
+
+                //if (layout.payload_size == 0) {
+                //    const enum_tag_llvm_ty = try dg.llvmType(union_obj.tag_ty);
+                //    gop.value_ptr.* = enum_tag_llvm_ty;
+                //    return enum_tag_llvm_ty;
+                //}
+
+                //const name = try union_obj.getFullyQualifiedName(gpa);
+                //defer gpa.free(name);
+
+                //const llvm_union_ty = dg.context.structCreateNamed(name);
+                //gop.value_ptr.* = llvm_union_ty; // must be done before any recursive calls
+
+                //const aligned_field = union_obj.fields.values()[layout.most_aligned_field];
+                //const llvm_aligned_field_ty = try dg.llvmType(aligned_field.ty);
+
+                //const llvm_payload_ty = ty: {
+                //    if (layout.most_aligned_field_size == layout.payload_size) {
+                //        break :ty llvm_aligned_field_ty;
+                //    }
+                //    const padding_len = @intCast(c_uint, layout.payload_size - layout.most_aligned_field_size);
+                //    const fields: [2]*const llvm.Type = .{
+                //        llvm_aligned_field_ty,
+                //        dg.context.intType(8).arrayType(padding_len),
+                //    };
+                //    break :ty dg.context.structType(&fields, fields.len, .True);
+                //};
+
+                //if (layout.tag_size == 0) {
+                //    var llvm_fields: [1]*const llvm.Type = .{llvm_payload_ty};
+                //    llvm_union_ty.structSetBody(&llvm_fields, llvm_fields.len, .False);
+                //    return llvm_union_ty;
+                //}
+                //const enum_tag_llvm_ty = try dg.llvmType(union_obj.tag_ty);
+
+                //// Put the tag before or after the payload depending on which one's
+                //// alignment is greater.
+                //var llvm_fields: [3]*const llvm.Type = undefined;
+                //var llvm_fields_len: c_uint = 2;
+
+                //if (layout.tag_align >= layout.payload_align) {
+                //    llvm_fields = .{ enum_tag_llvm_ty, llvm_payload_ty, undefined };
+                //} else {
+                //    llvm_fields = .{ llvm_payload_ty, enum_tag_llvm_ty, undefined };
+                //}
+
+                //// Insert padding to make the LLVM struct ABI size match the Zig union ABI size.
+                //if (layout.padding != 0) {
+                //    llvm_fields[2] = dg.context.intType(8).arrayType(layout.padding);
+                //    llvm_fields_len = 3;
+                //}
+
+                //llvm_union_ty.structSetBody(&llvm_fields, llvm_fields_len, .False);
+                //return llvm_union_ty;
+            },
+            .Fn => {
+                const fn_info = ty.fnInfo();
+                const sret = firstParamSRet(fn_info, target);
+
+                var param_di_types = std.ArrayList(*llvm.DIType).init(gpa);
+                defer param_di_types.deinit();
+
+                // Return type goes first.
+                const di_ret_ty = if (sret or !fn_info.return_type.hasRuntimeBitsIgnoreComptime())
+                    Type.void
+                else
+                    fn_info.return_type;
+                try param_di_types.append(try o.lowerDebugType(di_ret_ty, .full));
+
+                if (sret) {
+                    var ptr_ty_payload: Type.Payload.ElemType = .{
+                        .base = .{ .tag = .single_mut_pointer },
+                        .data = fn_info.return_type,
+                    };
+                    const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+                    try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
+                }
+
+                for (fn_info.param_types) |param_ty| {
+                    if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
+
+                    if (isByRef(param_ty)) {
+                        var ptr_ty_payload: Type.Payload.ElemType = .{
+                            .base = .{ .tag = .single_mut_pointer },
+                            .data = param_ty,
+                        };
+                        const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+                        try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
+                    } else {
+                        try param_di_types.append(try o.lowerDebugType(param_ty, .full));
+                    }
+                }
+
+                const fn_di_ty = dib.createSubroutineType(
+                    param_di_types.items.ptr,
+                    @intCast(c_int, param_di_types.items.len),
+                    0,
+                );
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(fn_di_ty));
+                return fn_di_ty;
+            },
+            .ComptimeInt => unreachable,
+            .ComptimeFloat => unreachable,
+            .Type => unreachable,
+            .Undefined => unreachable,
+            .Null => unreachable,
+            .EnumLiteral => unreachable,
+
+            .BoundFn => @panic("TODO remove BoundFn from the language"),
+
+            .Frame => @panic("TODO implement lowerDebugType for Frame types"),
+            .AnyFrame => @panic("TODO implement lowerDebugType for AnyFrame types"),
+        }
+    }
+
+    fn namespaceToDebugScope(o: *Object, namespace: *const Module.Namespace) !*llvm.DIScope {
+        if (namespace.parent == null) {
+            const di_file = try o.getDIFile(o.gpa, namespace.file_scope);
+            return di_file.toScope();
+        }
+        const di_type = try o.lowerDebugType(namespace.ty, .fwd);
+        return di_type.toScope();
+    }
+
+    /// This is to be used instead of void for debug info types, to avoid tripping
+    /// Assertion `!isa<DIType>(Scope) && "shouldn't make a namespace scope for a type"'
+    /// when targeting CodeView (Windows).
+    fn makeEmptyNamespaceDIType(o: *Object, decl: *const Module.Decl) !*llvm.DIType {
+        const fields: [0]*llvm.DIType = .{};
+        return o.di_builder.?.createStructType(
+            try o.namespaceToDebugScope(decl.src_namespace),
+            decl.name, // TODO use fully qualified name
+            try o.getDIFile(o.gpa, decl.src_namespace.file_scope),
+            decl.src_line + 1,
+            0, // size in bits
+            0, // align in bits
+            0, // flags
+            null, // derived from
+            undefined, // TODO should be able to pass &fields,
+            fields.len,
+            0, // run time lang
+            null, // vtable holder
+            "", // unique id
+        );
     }
 };
 
@@ -784,7 +1684,7 @@ pub const DeclGen = struct {
             _ = try dg.resolveLlvmFunction(extern_fn.data.owner_decl);
         } else {
             const target = dg.module.getTarget();
-            const global = try dg.resolveGlobalDecl(decl);
+            var global = try dg.resolveGlobalDecl(decl);
             global.setAlignment(decl.getAlignment(target));
             assert(decl.has_tv);
             const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
@@ -828,7 +1728,26 @@ pub const DeclGen = struct {
                     dg.object.decl_map.putAssumeCapacity(decl, new_global);
                     new_global.takeName(global);
                     global.deleteGlobal();
+                    global = new_global;
                 }
+            }
+
+            if (dg.object.di_builder) |dib| {
+                const di_file = try dg.object.getDIFile(dg.gpa, decl.src_namespace.file_scope);
+
+                const line_number = decl.src_line + 1;
+                const is_internal_linkage = !dg.module.decl_exports.contains(decl);
+                const di_global = dib.createGlobalVariable(
+                    di_file.toScope(),
+                    decl.name,
+                    global.getValueName(),
+                    di_file,
+                    line_number,
+                    try dg.object.lowerDebugType(decl.ty, .full),
+                    is_internal_linkage,
+                );
+
+                try dg.object.di_map.put(dg.gpa, dg.decl, di_global.toNode());
             }
         }
     }
@@ -837,11 +1756,14 @@ pub const DeclGen = struct {
     /// Note that this can be called before the function's semantic analysis has
     /// completed, so if any attributes rely on that, they must be done in updateFunc, not here.
     fn resolveLlvmFunction(dg: *DeclGen, decl: *Module.Decl) !*const llvm.Value {
+        return dg.resolveLlvmFunctionExtra(decl, decl.ty);
+    }
+
+    fn resolveLlvmFunctionExtra(dg: *DeclGen, decl: *Module.Decl, zig_fn_type: Type) !*const llvm.Value {
         const gop = try dg.object.decl_map.getOrPut(dg.gpa, decl);
         if (gop.found_existing) return gop.value_ptr.*;
 
         assert(decl.has_tv);
-        const zig_fn_type = decl.ty;
         const fn_info = zig_fn_type.fnInfo();
         const target = dg.module.getTarget();
         const sret = firstParamSRet(fn_info, target);
@@ -855,7 +1777,7 @@ pub const DeclGen = struct {
         const llvm_fn = dg.llvmModule().addFunctionInAddressSpace(fqn, fn_type, llvm_addrspace);
         gop.value_ptr.* = llvm_fn;
 
-        const is_extern = decl.val.tag() == .extern_fn;
+        const is_extern = decl.isExtern();
         if (!is_extern) {
             llvm_fn.setLinkage(.Internal);
             llvm_fn.setUnnamedAddr(.True);
@@ -953,6 +1875,25 @@ pub const DeclGen = struct {
         const llvm_addrspace = dg.llvmAddressSpace(decl.@"addrspace");
         const llvm_global = dg.object.llvm_module.addGlobalInAddressSpace(llvm_type, fqn, llvm_addrspace);
         gop.value_ptr.* = llvm_global;
+
+        // This is needed for declarations created by `@extern`.
+        if (decl.isExtern()) {
+            llvm_global.setValueName(decl.name);
+            llvm_global.setUnnamedAddr(.False);
+            llvm_global.setLinkage(.External);
+            if (decl.val.castTag(.variable)) |variable| {
+                const single_threaded = dg.module.comp.bin_file.options.single_threaded;
+                if (variable.data.is_threadlocal and !single_threaded) {
+                    llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
+                } else {
+                    llvm_global.setThreadLocalMode(.NotThreadLocal);
+                }
+                if (variable.data.is_weak_linkage) llvm_global.setLinkage(.ExternalWeak);
+            }
+        } else {
+            llvm_global.setLinkage(.Internal);
+            llvm_global.setUnnamedAddr(.True);
+        }
 
         return llvm_global;
     }
@@ -1475,26 +2416,8 @@ pub const DeclGen = struct {
                     const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(), .False);
                     return llvm_int.constIntToPtr(try dg.llvmType(tv.ty));
                 },
-                .field_ptr, .opt_payload_ptr, .eu_payload_ptr => {
-                    const parent = try dg.lowerParentPtr(tv.val, tv.ty);
-                    return parent.llvm_ptr.constBitCast(try dg.llvmType(tv.ty));
-                },
-                .elem_ptr => {
-                    const elem_ptr = tv.val.castTag(.elem_ptr).?.data;
-                    const parent = try dg.lowerParentPtr(elem_ptr.array_ptr, tv.ty);
-                    const llvm_usize = try dg.llvmType(Type.usize);
-                    if (parent.llvm_ptr.typeOf().getElementType().getTypeKind() == .Array) {
-                        const indices: [2]*const llvm.Value = .{
-                            llvm_usize.constInt(0, .False),
-                            llvm_usize.constInt(elem_ptr.index, .False),
-                        };
-                        return parent.llvm_ptr.constInBoundsGEP(&indices, indices.len);
-                    } else {
-                        const indices: [1]*const llvm.Value = .{
-                            llvm_usize.constInt(elem_ptr.index, .False),
-                        };
-                        return parent.llvm_ptr.constInBoundsGEP(&indices, indices.len);
-                    }
+                .field_ptr, .opt_payload_ptr, .eu_payload_ptr, .elem_ptr => {
+                    return dg.lowerParentPtr(tv.val, tv.ty.childType());
                 },
                 .null_value, .zero => {
                     const llvm_type = try dg.llvmType(tv.ty);
@@ -1507,18 +2430,19 @@ pub const DeclGen = struct {
                     const bytes = tv.val.castTag(.bytes).?.data;
                     return dg.context.constString(
                         bytes.ptr,
-                        @intCast(c_uint, bytes.len),
+                        @intCast(c_uint, tv.ty.arrayLenIncludingSentinel()),
                         .True, // don't null terminate. bytes has the sentinel, if any.
                     );
                 },
-                .array => {
-                    const elem_vals = tv.val.castTag(.array).?.data;
+                .aggregate => {
+                    const elem_vals = tv.val.castTag(.aggregate).?.data;
                     const elem_ty = tv.ty.elemType();
                     const gpa = dg.gpa;
-                    const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len);
+                    const len = @intCast(usize, tv.ty.arrayLenIncludingSentinel());
+                    const llvm_elems = try gpa.alloc(*const llvm.Value, len);
                     defer gpa.free(llvm_elems);
                     var need_unnamed = false;
-                    for (elem_vals) |elem_val, i| {
+                    for (elem_vals[0..len]) |elem_val, i| {
                         llvm_elems[i] = try dg.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
                         need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[i]);
                     }
@@ -1665,10 +2589,75 @@ pub const DeclGen = struct {
             },
             .Struct => {
                 const llvm_struct_ty = try dg.llvmType(tv.ty);
-                const field_vals = tv.val.castTag(.@"struct").?.data;
+                const field_vals = tv.val.castTag(.aggregate).?.data;
                 const gpa = dg.gpa;
-                const struct_obj = tv.ty.castTag(.@"struct").?.data;
                 const target = dg.module.getTarget();
+
+                if (tv.ty.isTupleOrAnonStruct()) {
+                    const tuple = tv.ty.tupleFields();
+                    var llvm_fields: std.ArrayListUnmanaged(*const llvm.Value) = .{};
+                    defer llvm_fields.deinit(gpa);
+
+                    try llvm_fields.ensureUnusedCapacity(gpa, tuple.types.len);
+
+                    comptime assert(struct_layout_version == 2);
+                    var offset: u64 = 0;
+                    var big_align: u32 = 0;
+                    var need_unnamed = false;
+
+                    for (tuple.types) |field_ty, i| {
+                        if (tuple.values[i].tag() != .unreachable_value) continue;
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+
+                        const field_align = field_ty.abiAlignment(target);
+                        big_align = @maximum(big_align, field_align);
+                        const prev_offset = offset;
+                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+
+                        const padding_len = offset - prev_offset;
+                        if (padding_len > 0) {
+                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
+                            // TODO make this and all other padding elsewhere in debug
+                            // builds be 0xaa not undef.
+                            llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
+                        }
+
+                        const field_llvm_val = try dg.genTypedValue(.{
+                            .ty = field_ty,
+                            .val = field_vals[i],
+                        });
+
+                        need_unnamed = need_unnamed or dg.isUnnamedType(field_ty, field_llvm_val);
+
+                        llvm_fields.appendAssumeCapacity(field_llvm_val);
+
+                        offset += field_ty.abiSize(target);
+                    }
+                    {
+                        const prev_offset = offset;
+                        offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                        const padding_len = offset - prev_offset;
+                        if (padding_len > 0) {
+                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
+                            llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
+                        }
+                    }
+
+                    if (need_unnamed) {
+                        return dg.context.constStruct(
+                            llvm_fields.items.ptr,
+                            @intCast(c_uint, llvm_fields.items.len),
+                            .False,
+                        );
+                    } else {
+                        return llvm_struct_ty.constNamedStruct(
+                            llvm_fields.items.ptr,
+                            @intCast(c_uint, llvm_fields.items.len),
+                        );
+                    }
+                }
+
+                const struct_obj = tv.ty.castTag(.@"struct").?.data;
 
                 if (struct_obj.layout == .Packed) {
                     const big_bits = struct_obj.packedIntegerBits(target);
@@ -1707,8 +2696,8 @@ pub const DeclGen = struct {
                 comptime assert(struct_layout_version == 2);
                 var offset: u64 = 0;
                 var big_align: u32 = 0;
-
                 var need_unnamed = false;
+
                 for (struct_obj.fields.values()) |field, i| {
                     if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -1854,10 +2843,10 @@ pub const DeclGen = struct {
                         @intCast(c_uint, llvm_elems.len),
                     );
                 },
-                .array => {
+                .aggregate => {
                     // Note, sentinel is not stored even if the type has a sentinel.
                     // The value includes the sentinel in those cases.
-                    const elem_vals = tv.val.castTag(.array).?.data;
+                    const elem_vals = tv.val.castTag(.aggregate).?.data;
                     const vector_len = @intCast(usize, tv.ty.arrayLen());
                     assert(vector_len == elem_vals.len or vector_len + 1 == elem_vals.len);
                     const elem_ty = tv.ty.elemType();
@@ -1906,778 +2895,12 @@ pub const DeclGen = struct {
         }
     }
 
-    fn lowerDebugType(dg: *DeclGen, ty: Type) Allocator.Error!*llvm.DIType {
-        const gpa = dg.gpa;
-        // Be careful not to reference this `gop` variable after any recursive calls
-        // to `lowerDebugType`.
-        const gop = try dg.object.di_type_map.getOrPut(gpa, ty);
-        if (gop.found_existing) return gop.value_ptr.*;
-        errdefer assert(dg.object.di_type_map.remove(ty));
-        // The Type memory is ephemeral; since we want to store a longer-lived
-        // reference, we need to copy it here.
-        gop.key_ptr.* = try ty.copy(dg.object.type_map_arena.allocator());
-        const target = dg.module.getTarget();
-        const dib = dg.object.di_builder.?;
-        switch (ty.zigTypeTag()) {
-            .Void, .NoReturn => {
-                gop.value_ptr.* = dib.createBasicType("void", 0, DW.ATE.signed);
-                return gop.value_ptr.*;
-            },
-            .Int => {
-                const info = ty.intInfo(target);
-                assert(info.bits != 0);
-                const name = try ty.nameAlloc(gpa);
-                defer gpa.free(name);
-                const dwarf_encoding: c_uint = switch (info.signedness) {
-                    .signed => DW.ATE.signed,
-                    .unsigned => DW.ATE.unsigned,
-                };
-                gop.value_ptr.* = dib.createBasicType(name, info.bits, dwarf_encoding);
-                return gop.value_ptr.*;
-            },
-            .Enum => {
-                const owner_decl = ty.getOwnerDecl();
-
-                if (!ty.hasRuntimeBitsIgnoreComptime()) {
-                    const enum_di_ty = try dg.makeEmptyNamespaceDIType(owner_decl);
-                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
-                    // means we can't use `gop` anymore.
-                    try dg.object.di_type_map.put(gpa, ty, enum_di_ty);
-                    return enum_di_ty;
-                }
-
-                const field_names = ty.enumFields().keys();
-
-                const enumerators = try gpa.alloc(*llvm.DIEnumerator, field_names.len);
-                defer gpa.free(enumerators);
-
-                var buf_field_index: Value.Payload.U32 = .{
-                    .base = .{ .tag = .enum_field_index },
-                    .data = undefined,
-                };
-                const field_index_val = Value.initPayload(&buf_field_index.base);
-
-                for (field_names) |field_name, i| {
-                    const field_name_z = try gpa.dupeZ(u8, field_name);
-                    defer gpa.free(field_name_z);
-
-                    buf_field_index.data = @intCast(u32, i);
-                    var buf_u64: Value.Payload.U64 = undefined;
-                    const field_int_val = field_index_val.enumToInt(ty, &buf_u64);
-                    // See https://github.com/ziglang/zig/issues/645
-                    const field_int = field_int_val.toSignedInt();
-                    enumerators[i] = dib.createEnumerator(field_name_z, field_int);
-                }
-
-                const di_file = try dg.object.getDIFile(gpa, owner_decl.src_namespace.file_scope);
-                const di_scope = try dg.namespaceToDebugScope(owner_decl.src_namespace);
-
-                const name = try ty.nameAlloc(gpa);
-                defer gpa.free(name);
-                var buffer: Type.Payload.Bits = undefined;
-                const int_ty = ty.intTagType(&buffer);
-
-                const enum_di_ty = dib.createEnumerationType(
-                    di_scope,
-                    name,
-                    di_file,
-                    owner_decl.src_node + 1,
-                    ty.abiSize(target) * 8,
-                    ty.abiAlignment(target) * 8,
-                    enumerators.ptr,
-                    @intCast(c_int, enumerators.len),
-                    try lowerDebugType(dg, int_ty),
-                    "",
-                );
-                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try dg.object.di_type_map.put(gpa, ty, enum_di_ty);
-                return enum_di_ty;
-            },
-            .Float => {
-                const bits = ty.floatBits(target);
-                const name = try ty.nameAlloc(gpa);
-                defer gpa.free(name);
-                gop.value_ptr.* = dib.createBasicType(name, bits, DW.ATE.float);
-                return gop.value_ptr.*;
-            },
-            .Bool => {
-                gop.value_ptr.* = dib.createBasicType("bool", 1, DW.ATE.boolean);
-                return gop.value_ptr.*;
-            },
-            .Pointer => {
-                // Normalize everything that the debug info does not represent.
-                const ptr_info = ty.ptrInfo().data;
-
-                if (ptr_info.sentinel != null or
-                    ptr_info.@"addrspace" != .generic or
-                    ptr_info.bit_offset != 0 or
-                    ptr_info.host_size != 0 or
-                    ptr_info.@"allowzero" or
-                    !ptr_info.mutable or
-                    ptr_info.@"volatile" or
-                    ptr_info.size == .Many or ptr_info.size == .C or
-                    !ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime())
-                {
-                    var payload: Type.Payload.Pointer = .{
-                        .data = .{
-                            .pointee_type = ptr_info.pointee_type,
-                            .sentinel = null,
-                            .@"align" = ptr_info.@"align",
-                            .@"addrspace" = .generic,
-                            .bit_offset = 0,
-                            .host_size = 0,
-                            .@"allowzero" = false,
-                            .mutable = true,
-                            .@"volatile" = false,
-                            .size = switch (ptr_info.size) {
-                                .Many, .C, .One => .One,
-                                .Slice => .Slice,
-                            },
-                        },
-                    };
-                    if (!ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime()) {
-                        payload.data.pointee_type = Type.anyopaque;
-                    }
-                    const bland_ptr_ty = Type.initPayload(&payload.base);
-                    const ptr_di_ty = try dg.lowerDebugType(bland_ptr_ty);
-                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try dg.object.di_type_map.put(gpa, ty, ptr_di_ty);
-                    return ptr_di_ty;
-                }
-
-                if (ty.isSlice()) {
-                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_ty = ty.slicePtrFieldType(&buf);
-                    const len_ty = Type.usize;
-
-                    const name = try ty.nameAlloc(gpa);
-                    defer gpa.free(name);
-                    const di_file: ?*llvm.DIFile = null;
-                    const line = 0;
-                    const compile_unit_scope = dg.object.di_compile_unit.?.toScope();
-                    const fwd_decl = dib.createReplaceableCompositeType(
-                        DW.TAG.structure_type,
-                        name.ptr,
-                        compile_unit_scope,
-                        di_file,
-                        line,
-                    );
-                    gop.value_ptr.* = fwd_decl;
-
-                    const ptr_size = ptr_ty.abiSize(target);
-                    const ptr_align = ptr_ty.abiAlignment(target);
-                    const len_size = len_ty.abiSize(target);
-                    const len_align = len_ty.abiAlignment(target);
-
-                    var offset: u64 = 0;
-                    offset += ptr_size;
-                    offset = std.mem.alignForwardGeneric(u64, offset, len_align);
-                    const len_offset = offset;
-
-                    const fields: [2]*llvm.DIType = .{
-                        dib.createMemberType(
-                            fwd_decl.toScope(),
-                            "ptr",
-                            di_file,
-                            line,
-                            ptr_size * 8, // size in bits
-                            ptr_align * 8, // align in bits
-                            0, // offset in bits
-                            0, // flags
-                            try dg.lowerDebugType(ptr_ty),
-                        ),
-                        dib.createMemberType(
-                            fwd_decl.toScope(),
-                            "len",
-                            di_file,
-                            line,
-                            len_size * 8, // size in bits
-                            len_align * 8, // align in bits
-                            len_offset * 8, // offset in bits
-                            0, // flags
-                            try dg.lowerDebugType(len_ty),
-                        ),
-                    };
-
-                    const replacement_di_ty = dib.createStructType(
-                        compile_unit_scope,
-                        name.ptr,
-                        di_file,
-                        line,
-                        ty.abiSize(target) * 8, // size in bits
-                        ty.abiAlignment(target) * 8, // align in bits
-                        0, // flags
-                        null, // derived from
-                        &fields,
-                        fields.len,
-                        0, // run time lang
-                        null, // vtable holder
-                        "", // unique id
-                    );
-                    dib.replaceTemporary(fwd_decl, replacement_di_ty);
-                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try dg.object.di_type_map.put(gpa, ty, replacement_di_ty);
-                    return replacement_di_ty;
-                }
-
-                const elem_di_ty = try lowerDebugType(dg, ptr_info.pointee_type);
-                const name = try ty.nameAlloc(gpa);
-                defer gpa.free(name);
-                const ptr_di_ty = dib.createPointerType(
-                    elem_di_ty,
-                    target.cpu.arch.ptrBitWidth(),
-                    ty.ptrAlignment(target) * 8,
-                    name,
-                );
-                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try dg.object.di_type_map.put(gpa, ty, ptr_di_ty);
-                return ptr_di_ty;
-            },
-            .Opaque => {
-                if (ty.tag() == .anyopaque) {
-                    gop.value_ptr.* = dib.createBasicType("anyopaque", 0, DW.ATE.signed);
-                    return gop.value_ptr.*;
-                }
-                const name = try ty.nameAlloc(gpa);
-                defer gpa.free(name);
-                const owner_decl = ty.getOwnerDecl();
-                const opaque_di_ty = dib.createForwardDeclType(
-                    DW.TAG.structure_type,
-                    name,
-                    try dg.namespaceToDebugScope(owner_decl.src_namespace),
-                    try dg.object.getDIFile(gpa, owner_decl.src_namespace.file_scope),
-                    owner_decl.src_node + 1,
-                );
-                // The recursive call to `lowerDebugType` va `namespaceToDebugScope`
-                // means we can't use `gop` anymore.
-                try dg.object.di_type_map.put(gpa, ty, opaque_di_ty);
-                return opaque_di_ty;
-            },
-            .Array => {
-                const array_di_ty = dib.createArrayType(
-                    ty.abiSize(target) * 8,
-                    ty.abiAlignment(target) * 8,
-                    try lowerDebugType(dg, ty.childType()),
-                    @intCast(c_int, ty.arrayLen()),
-                );
-                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try dg.object.di_type_map.put(gpa, ty, array_di_ty);
-                return array_di_ty;
-            },
-            .Vector => {
-                const vector_di_ty = dib.createVectorType(
-                    ty.abiSize(target) * 8,
-                    ty.abiAlignment(target) * 8,
-                    try lowerDebugType(dg, ty.childType()),
-                    ty.vectorLen(),
-                );
-                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try dg.object.di_type_map.put(gpa, ty, vector_di_ty);
-                return vector_di_ty;
-            },
-            .Optional => {
-                const name = try ty.nameAlloc(gpa);
-                defer gpa.free(name);
-                var buf: Type.Payload.ElemType = undefined;
-                const child_ty = ty.optionalChild(&buf);
-                if (!child_ty.hasRuntimeBitsIgnoreComptime()) {
-                    gop.value_ptr.* = dib.createBasicType(name, 1, DW.ATE.boolean);
-                    return gop.value_ptr.*;
-                }
-                if (ty.isPtrLikeOptional()) {
-                    const ptr_di_ty = try dg.lowerDebugType(child_ty);
-                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try dg.object.di_type_map.put(gpa, ty, ptr_di_ty);
-                    return ptr_di_ty;
-                }
-
-                const di_file: ?*llvm.DIFile = null;
-                const line = 0;
-                const compile_unit_scope = dg.object.di_compile_unit.?.toScope();
-                const fwd_decl = dib.createReplaceableCompositeType(
-                    DW.TAG.structure_type,
-                    name.ptr,
-                    compile_unit_scope,
-                    di_file,
-                    line,
-                );
-                gop.value_ptr.* = fwd_decl;
-
-                const non_null_ty = Type.bool;
-                const payload_size = child_ty.abiSize(target);
-                const payload_align = child_ty.abiAlignment(target);
-                const non_null_size = non_null_ty.abiSize(target);
-                const non_null_align = non_null_ty.abiAlignment(target);
-
-                var offset: u64 = 0;
-                offset += payload_size;
-                offset = std.mem.alignForwardGeneric(u64, offset, non_null_align);
-                const non_null_offset = offset;
-
-                const fields: [2]*llvm.DIType = .{
-                    dib.createMemberType(
-                        fwd_decl.toScope(),
-                        "data",
-                        di_file,
-                        line,
-                        payload_size * 8, // size in bits
-                        payload_align * 8, // align in bits
-                        0, // offset in bits
-                        0, // flags
-                        try dg.lowerDebugType(child_ty),
-                    ),
-                    dib.createMemberType(
-                        fwd_decl.toScope(),
-                        "some",
-                        di_file,
-                        line,
-                        non_null_size * 8, // size in bits
-                        non_null_align * 8, // align in bits
-                        non_null_offset * 8, // offset in bits
-                        0, // flags
-                        try dg.lowerDebugType(non_null_ty),
-                    ),
-                };
-
-                const replacement_di_ty = dib.createStructType(
-                    compile_unit_scope,
-                    name.ptr,
-                    di_file,
-                    line,
-                    ty.abiSize(target) * 8, // size in bits
-                    ty.abiAlignment(target) * 8, // align in bits
-                    0, // flags
-                    null, // derived from
-                    &fields,
-                    fields.len,
-                    0, // run time lang
-                    null, // vtable holder
-                    "", // unique id
-                );
-                dib.replaceTemporary(fwd_decl, replacement_di_ty);
-                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try dg.object.di_type_map.put(gpa, ty, replacement_di_ty);
-                return replacement_di_ty;
-            },
-            .ErrorUnion => {
-                const err_set_ty = ty.errorUnionSet();
-                const payload_ty = ty.errorUnionPayload();
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-                    const err_set_di_ty = try dg.lowerDebugType(err_set_ty);
-                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try dg.object.di_type_map.put(gpa, ty, err_set_di_ty);
-                    return err_set_di_ty;
-                }
-                const name = try ty.nameAlloc(gpa);
-                defer gpa.free(name);
-                const di_file: ?*llvm.DIFile = null;
-                const line = 0;
-                const compile_unit_scope = dg.object.di_compile_unit.?.toScope();
-                const fwd_decl = dib.createReplaceableCompositeType(
-                    DW.TAG.structure_type,
-                    name.ptr,
-                    compile_unit_scope,
-                    di_file,
-                    line,
-                );
-                gop.value_ptr.* = fwd_decl;
-
-                const err_set_size = err_set_ty.abiSize(target);
-                const err_set_align = err_set_ty.abiAlignment(target);
-                const payload_size = payload_ty.abiSize(target);
-                const payload_align = payload_ty.abiAlignment(target);
-
-                var offset: u64 = 0;
-                offset += err_set_size;
-                offset = std.mem.alignForwardGeneric(u64, offset, payload_align);
-                const payload_offset = offset;
-
-                const fields: [2]*llvm.DIType = .{
-                    dib.createMemberType(
-                        fwd_decl.toScope(),
-                        "tag",
-                        di_file,
-                        line,
-                        err_set_size * 8, // size in bits
-                        err_set_align * 8, // align in bits
-                        0, // offset in bits
-                        0, // flags
-                        try dg.lowerDebugType(err_set_ty),
-                    ),
-                    dib.createMemberType(
-                        fwd_decl.toScope(),
-                        "value",
-                        di_file,
-                        line,
-                        payload_size * 8, // size in bits
-                        payload_align * 8, // align in bits
-                        payload_offset * 8, // offset in bits
-                        0, // flags
-                        try dg.lowerDebugType(payload_ty),
-                    ),
-                };
-
-                const replacement_di_ty = dib.createStructType(
-                    compile_unit_scope,
-                    name.ptr,
-                    di_file,
-                    line,
-                    ty.abiSize(target) * 8, // size in bits
-                    ty.abiAlignment(target) * 8, // align in bits
-                    0, // flags
-                    null, // derived from
-                    &fields,
-                    fields.len,
-                    0, // run time lang
-                    null, // vtable holder
-                    "", // unique id
-                );
-                dib.replaceTemporary(fwd_decl, replacement_di_ty);
-                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try dg.object.di_type_map.put(gpa, ty, replacement_di_ty);
-                return replacement_di_ty;
-            },
-            .ErrorSet => {
-                // TODO make this a proper enum with all the error codes in it.
-                // will need to consider how to take incremental compilation into account.
-                gop.value_ptr.* = dib.createBasicType("anyerror", 16, DW.ATE.unsigned);
-                return gop.value_ptr.*;
-            },
-            .Struct => {
-                const compile_unit_scope = dg.object.di_compile_unit.?.toScope();
-                const name = try ty.nameAlloc(gpa);
-                defer gpa.free(name);
-                const fwd_decl = dib.createReplaceableCompositeType(
-                    DW.TAG.structure_type,
-                    name.ptr,
-                    compile_unit_scope,
-                    null, // file
-                    0, // line
-                );
-                gop.value_ptr.* = fwd_decl;
-
-                if (ty.isTupleOrAnonStruct()) {
-                    const tuple = ty.tupleFields();
-
-                    var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
-                    defer di_fields.deinit(gpa);
-
-                    try di_fields.ensureUnusedCapacity(gpa, tuple.types.len);
-
-                    comptime assert(struct_layout_version == 2);
-                    var offset: u64 = 0;
-
-                    for (tuple.types) |field_ty, i| {
-                        const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value) continue;
-
-                        const field_size = field_ty.abiSize(target);
-                        const field_align = field_ty.abiAlignment(target);
-                        const field_offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                        offset = field_offset + field_size;
-
-                        const field_name = if (ty.castTag(.anon_struct)) |payload|
-                            try gpa.dupeZ(u8, payload.data.names[i])
-                        else
-                            try std.fmt.allocPrintZ(gpa, "{d}", .{i});
-                        defer gpa.free(field_name);
-
-                        try di_fields.append(gpa, dib.createMemberType(
-                            fwd_decl.toScope(),
-                            field_name,
-                            null, // file
-                            0, // line
-                            field_size * 8, // size in bits
-                            field_align * 8, // align in bits
-                            field_offset * 8, // offset in bits
-                            0, // flags
-                            try dg.lowerDebugType(field_ty),
-                        ));
-                    }
-
-                    const replacement_di_ty = dib.createStructType(
-                        compile_unit_scope,
-                        name.ptr,
-                        null, // file
-                        0, // line
-                        ty.abiSize(target) * 8, // size in bits
-                        ty.abiAlignment(target) * 8, // align in bits
-                        0, // flags
-                        null, // derived from
-                        di_fields.items.ptr,
-                        @intCast(c_int, di_fields.items.len),
-                        0, // run time lang
-                        null, // vtable holder
-                        "", // unique id
-                    );
-                    dib.replaceTemporary(fwd_decl, replacement_di_ty);
-                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try dg.object.di_type_map.put(gpa, ty, replacement_di_ty);
-                    return replacement_di_ty;
-                }
-
-                const TODO_implement_this = true; // TODO
-                if (TODO_implement_this or !ty.hasRuntimeBitsIgnoreComptime()) {
-                    const owner_decl = ty.getOwnerDecl();
-                    const struct_di_ty = try dg.makeEmptyNamespaceDIType(owner_decl);
-                    dib.replaceTemporary(fwd_decl, struct_di_ty);
-                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
-                    // means we can't use `gop` anymore.
-                    try dg.object.di_type_map.put(gpa, ty, struct_di_ty);
-                    return struct_di_ty;
-                }
-                @panic("TODO debug info type for struct");
-
-                //const struct_obj = ty.castTag(.@"struct").?.data;
-
-                //if (struct_obj.layout == .Packed) {
-                //    var buf: Type.Payload.Bits = undefined;
-                //    const int_ty = struct_obj.packedIntegerType(target, &buf);
-                //    const int_llvm_ty = try dg.llvmType(int_ty);
-                //    gop.value_ptr.* = int_llvm_ty;
-                //    return int_llvm_ty;
-                //}
-
-                //const name = try struct_obj.getFullyQualifiedName(gpa);
-                //defer gpa.free(name);
-
-                //const llvm_struct_ty = dg.context.structCreateNamed(name);
-                //gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
-
-                //assert(struct_obj.haveFieldTypes());
-
-                //var llvm_field_types: std.ArrayListUnmanaged(*const llvm.Type) = .{};
-                //defer llvm_field_types.deinit(gpa);
-
-                //try llvm_field_types.ensureUnusedCapacity(gpa, struct_obj.fields.count());
-
-                //comptime assert(struct_layout_version == 2);
-                //var offset: u64 = 0;
-                //var big_align: u32 = 0;
-
-                //for (struct_obj.fields.values()) |field| {
-                //    if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
-
-                //    const field_align = field.normalAlignment(target);
-                //    big_align = @maximum(big_align, field_align);
-                //    const prev_offset = offset;
-                //    offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-
-                //    const padding_len = offset - prev_offset;
-                //    if (padding_len > 0) {
-                //        const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
-                //        try llvm_field_types.append(gpa, llvm_array_ty);
-                //    }
-                //    const field_llvm_ty = try dg.llvmType(field.ty);
-                //    try llvm_field_types.append(gpa, field_llvm_ty);
-
-                //    offset += field.ty.abiSize(target);
-                //}
-                //{
-                //    const prev_offset = offset;
-                //    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
-                //    const padding_len = offset - prev_offset;
-                //    if (padding_len > 0) {
-                //        const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
-                //        try llvm_field_types.append(gpa, llvm_array_ty);
-                //    }
-                //}
-
-                //llvm_struct_ty.structSetBody(
-                //    llvm_field_types.items.ptr,
-                //    @intCast(c_uint, llvm_field_types.items.len),
-                //    .False,
-                //);
-
-                //return llvm_struct_ty;
-            },
-            .Union => {
-                const owner_decl = ty.getOwnerDecl();
-
-                const name = try ty.nameAlloc(gpa);
-                defer gpa.free(name);
-                const fwd_decl = dib.createReplaceableCompositeType(
-                    DW.TAG.structure_type,
-                    name.ptr,
-                    dg.object.di_compile_unit.?.toScope(),
-                    null, // file
-                    0, // line
-                );
-                gop.value_ptr.* = fwd_decl;
-
-                const TODO_implement_this = true; // TODO
-                if (TODO_implement_this or !ty.hasRuntimeBitsIgnoreComptime()) {
-                    const union_di_ty = try dg.makeEmptyNamespaceDIType(owner_decl);
-                    dib.replaceTemporary(fwd_decl, union_di_ty);
-                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
-                    // means we can't use `gop` anymore.
-                    try dg.object.di_type_map.put(gpa, ty, union_di_ty);
-                    return union_di_ty;
-                }
-
-                @panic("TODO debug info type for union");
-                //const gop = try dg.object.type_map.getOrPut(gpa, ty);
-                //if (gop.found_existing) return gop.value_ptr.*;
-
-                //// The Type memory is ephemeral; since we want to store a longer-lived
-                //// reference, we need to copy it here.
-                //gop.key_ptr.* = try ty.copy(dg.object.type_map_arena.allocator());
-
-                //const layout = ty.unionGetLayout(target);
-                //const union_obj = ty.cast(Type.Payload.Union).?.data;
-
-                //if (layout.payload_size == 0) {
-                //    const enum_tag_llvm_ty = try dg.llvmType(union_obj.tag_ty);
-                //    gop.value_ptr.* = enum_tag_llvm_ty;
-                //    return enum_tag_llvm_ty;
-                //}
-
-                //const name = try union_obj.getFullyQualifiedName(gpa);
-                //defer gpa.free(name);
-
-                //const llvm_union_ty = dg.context.structCreateNamed(name);
-                //gop.value_ptr.* = llvm_union_ty; // must be done before any recursive calls
-
-                //const aligned_field = union_obj.fields.values()[layout.most_aligned_field];
-                //const llvm_aligned_field_ty = try dg.llvmType(aligned_field.ty);
-
-                //const llvm_payload_ty = ty: {
-                //    if (layout.most_aligned_field_size == layout.payload_size) {
-                //        break :ty llvm_aligned_field_ty;
-                //    }
-                //    const padding_len = @intCast(c_uint, layout.payload_size - layout.most_aligned_field_size);
-                //    const fields: [2]*const llvm.Type = .{
-                //        llvm_aligned_field_ty,
-                //        dg.context.intType(8).arrayType(padding_len),
-                //    };
-                //    break :ty dg.context.structType(&fields, fields.len, .True);
-                //};
-
-                //if (layout.tag_size == 0) {
-                //    var llvm_fields: [1]*const llvm.Type = .{llvm_payload_ty};
-                //    llvm_union_ty.structSetBody(&llvm_fields, llvm_fields.len, .False);
-                //    return llvm_union_ty;
-                //}
-                //const enum_tag_llvm_ty = try dg.llvmType(union_obj.tag_ty);
-
-                //// Put the tag before or after the payload depending on which one's
-                //// alignment is greater.
-                //var llvm_fields: [3]*const llvm.Type = undefined;
-                //var llvm_fields_len: c_uint = 2;
-
-                //if (layout.tag_align >= layout.payload_align) {
-                //    llvm_fields = .{ enum_tag_llvm_ty, llvm_payload_ty, undefined };
-                //} else {
-                //    llvm_fields = .{ llvm_payload_ty, enum_tag_llvm_ty, undefined };
-                //}
-
-                //// Insert padding to make the LLVM struct ABI size match the Zig union ABI size.
-                //if (layout.padding != 0) {
-                //    llvm_fields[2] = dg.context.intType(8).arrayType(layout.padding);
-                //    llvm_fields_len = 3;
-                //}
-
-                //llvm_union_ty.structSetBody(&llvm_fields, llvm_fields_len, .False);
-                //return llvm_union_ty;
-            },
-            .Fn => {
-                const fn_info = ty.fnInfo();
-                const sret = firstParamSRet(fn_info, target);
-
-                var param_di_types = std.ArrayList(*llvm.DIType).init(dg.gpa);
-                defer param_di_types.deinit();
-
-                // Return type goes first.
-                const di_ret_ty = if (sret or !fn_info.return_type.hasRuntimeBitsIgnoreComptime())
-                    Type.void
-                else
-                    fn_info.return_type;
-                try param_di_types.append(try dg.lowerDebugType(di_ret_ty));
-
-                if (sret) {
-                    var ptr_ty_payload: Type.Payload.ElemType = .{
-                        .base = .{ .tag = .single_mut_pointer },
-                        .data = fn_info.return_type,
-                    };
-                    const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-                    try param_di_types.append(try dg.lowerDebugType(ptr_ty));
-                }
-
-                for (fn_info.param_types) |param_ty| {
-                    if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
-
-                    if (isByRef(param_ty)) {
-                        var ptr_ty_payload: Type.Payload.ElemType = .{
-                            .base = .{ .tag = .single_mut_pointer },
-                            .data = param_ty,
-                        };
-                        const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-                        try param_di_types.append(try dg.lowerDebugType(ptr_ty));
-                    } else {
-                        try param_di_types.append(try dg.lowerDebugType(param_ty));
-                    }
-                }
-
-                const fn_di_ty = dib.createSubroutineType(
-                    param_di_types.items.ptr,
-                    @intCast(c_int, param_di_types.items.len),
-                    0,
-                );
-                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try dg.object.di_type_map.put(gpa, ty, fn_di_ty);
-                return fn_di_ty;
-            },
-            .ComptimeInt => unreachable,
-            .ComptimeFloat => unreachable,
-            .Type => unreachable,
-            .Undefined => unreachable,
-            .Null => unreachable,
-            .EnumLiteral => unreachable,
-
-            .BoundFn => @panic("TODO remove BoundFn from the language"),
-
-            .Frame => @panic("TODO implement lowerDebugType for Frame types"),
-            .AnyFrame => @panic("TODO implement lowerDebugType for AnyFrame types"),
-        }
-    }
-
-    fn namespaceToDebugScope(dg: *DeclGen, namespace: *const Module.Namespace) !*llvm.DIScope {
-        if (namespace.parent == null) {
-            const di_file = try dg.object.getDIFile(dg.gpa, namespace.file_scope);
-            return di_file.toScope();
-        }
-        const di_type = try dg.lowerDebugType(namespace.ty);
-        return di_type.toScope();
-    }
-
-    /// This is to be used instead of void for debug info types, to avoid tripping
-    /// Assertion `!isa<DIType>(Scope) && "shouldn't make a namespace scope for a type"'
-    /// when targeting CodeView (Windows).
-    fn makeEmptyNamespaceDIType(dg: *DeclGen, decl: *const Module.Decl) !*llvm.DIType {
-        const fields: [0]*llvm.DIType = .{};
-        return dg.object.di_builder.?.createStructType(
-            try dg.namespaceToDebugScope(decl.src_namespace),
-            decl.name, // TODO use fully qualified name
-            try dg.object.getDIFile(dg.gpa, decl.src_namespace.file_scope),
-            decl.src_line + 1,
-            0, // size in bits
-            0, // align in bits
-            0, // flags
-            null, // derived from
-            undefined, // TODO should be able to pass &fields,
-            fields.len,
-            0, // run time lang
-            null, // vtable holder
-            "", // unique id
-        );
-    }
-
     const ParentPtr = struct {
         ty: Type,
         llvm_ptr: *const llvm.Value,
     };
 
-    fn lowerParentPtrDecl(dg: *DeclGen, ptr_val: Value, decl: *Module.Decl) Error!ParentPtr {
+    fn lowerParentPtrDecl(dg: *DeclGen, ptr_val: Value, decl: *Module.Decl, ptr_child_ty: Type) Error!*const llvm.Value {
         decl.markAlive();
         var ptr_ty_payload: Type.Payload.ElemType = .{
             .base = .{ .tag = .single_mut_pointer },
@@ -2685,123 +2908,107 @@ pub const DeclGen = struct {
         };
         const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
         const llvm_ptr = try dg.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl);
-        return ParentPtr{
-            .llvm_ptr = llvm_ptr,
-            .ty = decl.ty,
-        };
+
+        if (ptr_child_ty.eql(decl.ty)) {
+            return llvm_ptr;
+        } else {
+            return llvm_ptr.constBitCast((try dg.llvmType(ptr_child_ty)).pointerType(0));
+        }
     }
 
-    fn lowerParentPtr(dg: *DeclGen, ptr_val: Value, base_ty: Type) Error!ParentPtr {
-        switch (ptr_val.tag()) {
+    fn lowerParentPtr(dg: *DeclGen, ptr_val: Value, ptr_child_ty: Type) Error!*const llvm.Value {
+        var bitcast_needed: bool = undefined;
+        const llvm_ptr = switch (ptr_val.tag()) {
             .decl_ref_mut => {
                 const decl = ptr_val.castTag(.decl_ref_mut).?.data.decl;
-                return dg.lowerParentPtrDecl(ptr_val, decl);
+                return dg.lowerParentPtrDecl(ptr_val, decl, ptr_child_ty);
             },
             .decl_ref => {
                 const decl = ptr_val.castTag(.decl_ref).?.data;
-                return dg.lowerParentPtrDecl(ptr_val, decl);
+                return dg.lowerParentPtrDecl(ptr_val, decl, ptr_child_ty);
             },
             .variable => {
                 const decl = ptr_val.castTag(.variable).?.data.owner_decl;
-                return dg.lowerParentPtrDecl(ptr_val, decl);
+                return dg.lowerParentPtrDecl(ptr_val, decl, ptr_child_ty);
             },
             .int_i64 => {
                 const int = ptr_val.castTag(.int_i64).?.data;
                 const llvm_usize = try dg.llvmType(Type.usize);
                 const llvm_int = llvm_usize.constInt(@bitCast(u64, int), .False);
-                return ParentPtr{
-                    .llvm_ptr = llvm_int.constIntToPtr(try dg.llvmType(base_ty)),
-                    .ty = base_ty,
-                };
+                return llvm_int.constIntToPtr((try dg.llvmType(ptr_child_ty)).pointerType(0));
             },
             .int_u64 => {
                 const int = ptr_val.castTag(.int_u64).?.data;
                 const llvm_usize = try dg.llvmType(Type.usize);
                 const llvm_int = llvm_usize.constInt(int, .False);
-                return ParentPtr{
-                    .llvm_ptr = llvm_int.constIntToPtr(try dg.llvmType(base_ty)),
-                    .ty = base_ty,
-                };
+                return llvm_int.constIntToPtr((try dg.llvmType(ptr_child_ty)).pointerType(0));
             },
-            .field_ptr => {
+            .field_ptr => blk: {
                 const field_ptr = ptr_val.castTag(.field_ptr).?.data;
-                const parent = try dg.lowerParentPtr(field_ptr.container_ptr, base_ty);
+                const parent_llvm_ptr = try dg.lowerParentPtr(field_ptr.container_ptr, field_ptr.container_ty);
+                const parent_ty = field_ptr.container_ty;
+
                 const field_index = @intCast(u32, field_ptr.field_index);
                 const llvm_u32 = dg.context.intType(32);
                 const target = dg.module.getTarget();
-                switch (parent.ty.zigTypeTag()) {
+                switch (parent_ty.zigTypeTag()) {
                     .Union => {
-                        const fields = parent.ty.unionFields();
-                        const layout = parent.ty.unionGetLayout(target);
-                        const field_ty = fields.values()[field_index].ty;
+                        bitcast_needed = true;
+
+                        const layout = parent_ty.unionGetLayout(target);
                         if (layout.payload_size == 0) {
                             // In this case a pointer to the union and a pointer to any
                             // (void) payload is the same.
-                            return ParentPtr{
-                                .llvm_ptr = parent.llvm_ptr,
-                                .ty = field_ty,
-                            };
+                            break :blk parent_llvm_ptr;
                         }
-                        if (layout.tag_size == 0) {
-                            const indices: [2]*const llvm.Value = .{
-                                llvm_u32.constInt(0, .False),
-                                llvm_u32.constInt(0, .False),
-                            };
-                            return ParentPtr{
-                                .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
-                                .ty = field_ty,
-                            };
-                        }
-                        const llvm_pl_index = @boolToInt(layout.tag_align >= layout.payload_align);
+                        const llvm_pl_index = if (layout.tag_size == 0)
+                            0
+                        else
+                            @boolToInt(layout.tag_align >= layout.payload_align);
                         const indices: [2]*const llvm.Value = .{
                             llvm_u32.constInt(0, .False),
                             llvm_u32.constInt(llvm_pl_index, .False),
                         };
-                        return ParentPtr{
-                            .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
-                            .ty = field_ty,
-                        };
+                        break :blk parent_llvm_ptr.constInBoundsGEP(&indices, indices.len);
                     },
                     .Struct => {
+                        const field_ty = parent_ty.structFieldType(field_index);
+                        bitcast_needed = !field_ty.eql(ptr_child_ty);
+
                         var ty_buf: Type.Payload.Pointer = undefined;
-                        const llvm_field_index = llvmFieldIndex(parent.ty, field_index, target, &ty_buf).?;
+                        const llvm_field_index = llvmFieldIndex(parent_ty, field_index, target, &ty_buf).?;
                         const indices: [2]*const llvm.Value = .{
                             llvm_u32.constInt(0, .False),
                             llvm_u32.constInt(llvm_field_index, .False),
                         };
-                        return ParentPtr{
-                            .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
-                            .ty = parent.ty.structFieldType(field_index),
-                        };
+                        break :blk parent_llvm_ptr.constInBoundsGEP(&indices, indices.len);
                     },
                     else => unreachable,
                 }
             },
-            .elem_ptr => {
+            .elem_ptr => blk: {
                 const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-                const parent = try dg.lowerParentPtr(elem_ptr.array_ptr, base_ty);
+                const parent_llvm_ptr = try dg.lowerParentPtr(elem_ptr.array_ptr, elem_ptr.elem_ty);
+                bitcast_needed = !elem_ptr.elem_ty.eql(ptr_child_ty);
+
                 const llvm_usize = try dg.llvmType(Type.usize);
-                const indices: [2]*const llvm.Value = .{
-                    llvm_usize.constInt(0, .False),
+                const indices: [1]*const llvm.Value = .{
                     llvm_usize.constInt(elem_ptr.index, .False),
                 };
-                return ParentPtr{
-                    .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
-                    .ty = parent.ty.childType(),
-                };
+                break :blk parent_llvm_ptr.constInBoundsGEP(&indices, indices.len);
             },
-            .opt_payload_ptr => {
+            .opt_payload_ptr => blk: {
                 const opt_payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
-                const parent = try dg.lowerParentPtr(opt_payload_ptr, base_ty);
+                const parent_llvm_ptr = try dg.lowerParentPtr(opt_payload_ptr.container_ptr, opt_payload_ptr.container_ty);
                 var buf: Type.Payload.ElemType = undefined;
-                const payload_ty = parent.ty.optionalChild(&buf);
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime() or parent.ty.isPtrLikeOptional()) {
+
+                const payload_ty = opt_payload_ptr.container_ty.optionalChild(&buf);
+                bitcast_needed = !payload_ty.eql(ptr_child_ty);
+
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime() or payload_ty.isPtrLikeOptional()) {
                     // In this case, we represent pointer to optional the same as pointer
                     // to the payload.
-                    return ParentPtr{
-                        .llvm_ptr = parent.llvm_ptr,
-                        .ty = payload_ty,
-                    };
+                    break :blk parent_llvm_ptr;
                 }
 
                 const llvm_u32 = dg.context.intType(32);
@@ -2809,22 +3016,19 @@ pub const DeclGen = struct {
                     llvm_u32.constInt(0, .False),
                     llvm_u32.constInt(0, .False),
                 };
-                return ParentPtr{
-                    .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
-                    .ty = payload_ty,
-                };
+                break :blk parent_llvm_ptr.constInBoundsGEP(&indices, indices.len);
             },
-            .eu_payload_ptr => {
+            .eu_payload_ptr => blk: {
                 const eu_payload_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
-                const parent = try dg.lowerParentPtr(eu_payload_ptr, base_ty);
-                const payload_ty = parent.ty.errorUnionPayload();
+                const parent_llvm_ptr = try dg.lowerParentPtr(eu_payload_ptr.container_ptr, eu_payload_ptr.container_ty);
+
+                const payload_ty = eu_payload_ptr.container_ty.errorUnionPayload();
+                bitcast_needed = !payload_ty.eql(ptr_child_ty);
+
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     // In this case, we represent pointer to error union the same as pointer
                     // to the payload.
-                    return ParentPtr{
-                        .llvm_ptr = parent.llvm_ptr,
-                        .ty = payload_ty,
-                    };
+                    break :blk parent_llvm_ptr;
                 }
 
                 const llvm_u32 = dg.context.intType(32);
@@ -2832,12 +3036,14 @@ pub const DeclGen = struct {
                     llvm_u32.constInt(0, .False),
                     llvm_u32.constInt(1, .False),
                 };
-                return ParentPtr{
-                    .llvm_ptr = parent.llvm_ptr.constInBoundsGEP(&indices, indices.len),
-                    .ty = payload_ty,
-                };
+                break :blk parent_llvm_ptr.constInBoundsGEP(&indices, indices.len);
             },
             else => unreachable,
+        };
+        if (bitcast_needed) {
+            return llvm_ptr.constBitCast((try dg.llvmType(ptr_child_ty)).pointerType(0));
+        } else {
+            return llvm_ptr;
         }
     }
 
@@ -3006,8 +3212,12 @@ pub const FuncGen = struct {
     builder: *const llvm.Builder,
     di_scope: ?*llvm.DIScope,
     di_file: ?*llvm.DIFile,
+    base_line: u32,
     prev_dbg_line: c_uint,
     prev_dbg_column: c_uint,
+
+    /// Stack of locations where a call was inlined.
+    dbg_inlined: std.ArrayListUnmanaged(DbgState) = .{},
 
     /// This stores the LLVM values used in a function, such that they can be referred to
     /// in other instructions. This table is cleared before every function is generated.
@@ -3036,11 +3246,13 @@ pub const FuncGen = struct {
 
     single_threaded: bool,
 
+    const DbgState = struct { loc: *llvm.DILocation, scope: *llvm.DIScope, base_line: u32 };
     const BreakBasicBlocks = std.ArrayListUnmanaged(*const llvm.BasicBlock);
     const BreakValues = std.ArrayListUnmanaged(*const llvm.Value);
 
     fn deinit(self: *FuncGen) void {
         self.builder.dispose();
+        self.dbg_inlined.deinit(self.gpa);
         self.func_inst_table.deinit(self.gpa);
         self.blocks.deinit(self.gpa);
     }
@@ -3126,19 +3338,19 @@ pub const FuncGen = struct {
                 .shr                => try self.airShr(inst, false),
                 .shr_exact          => try self.airShr(inst, true),
 
-                .sqrt         => try self.airUnaryOp(inst, "llvm.sqrt"),
-                .sin          => try self.airUnaryOp(inst, "llvm.sin"),
-                .cos          => try self.airUnaryOp(inst, "llvm.cos"),
-                .exp          => try self.airUnaryOp(inst, "llvm.exp"),
-                .exp2         => try self.airUnaryOp(inst, "llvm.exp2"),
-                .log          => try self.airUnaryOp(inst, "llvm.log"),
-                .log2         => try self.airUnaryOp(inst, "llvm.log2"),
-                .log10        => try self.airUnaryOp(inst, "llvm.log10"),
-                .fabs         => try self.airUnaryOp(inst, "llvm.fabs"),
-                .floor        => try self.airUnaryOp(inst, "llvm.floor"),
-                .ceil         => try self.airUnaryOp(inst, "llvm.ceil"),
-                .round        => try self.airUnaryOp(inst, "llvm.round"),
-                .trunc_float  => try self.airUnaryOp(inst, "llvm.trunc"),
+                .sqrt         => try self.airUnaryOp(inst, "sqrt"),
+                .sin          => try self.airUnaryOp(inst, "sin"),
+                .cos          => try self.airUnaryOp(inst, "cos"),
+                .exp          => try self.airUnaryOp(inst, "exp"),
+                .exp2         => try self.airUnaryOp(inst, "exp2"),
+                .log          => try self.airUnaryOp(inst, "log"),
+                .log2         => try self.airUnaryOp(inst, "log2"),
+                .log10        => try self.airUnaryOp(inst, "log10"),
+                .fabs         => try self.airUnaryOp(inst, "fabs"),
+                .floor        => try self.airUnaryOp(inst, "floor"),
+                .ceil         => try self.airUnaryOp(inst, "ceil"),
+                .round        => try self.airUnaryOp(inst, "round"),
+                .trunc_float  => try self.airUnaryOp(inst, "trunc"),
 
                 .cmp_eq  => try self.airCmp(inst, .eq),
                 .cmp_gt  => try self.airCmp(inst, .gt),
@@ -3259,6 +3471,8 @@ pub const FuncGen = struct {
                 .const_ty => unreachable,
                 .unreach  => self.airUnreach(inst),
                 .dbg_stmt => self.airDbgStmt(inst),
+                .dbg_inline_begin => try self.airDbgInline(inst, true),
+                .dbg_inline_end => try self.airDbgInline(inst, false),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst),
                 // zig fmt: on
@@ -3709,10 +3923,11 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
         const dest_ty = self.air.typeOfIndex(inst);
         const dest_llvm_ty = try self.dg.llvmType(dest_ty);
 
-        if (dest_ty.isSignedInt()) {
+        if (operand_ty.isSignedInt()) {
             return self.builder.buildSIToFP(operand, dest_llvm_ty, "");
         } else {
             return self.builder.buildUIToFP(operand, dest_llvm_ty, "");
@@ -3973,9 +4188,69 @@ pub const FuncGen = struct {
     fn airDbgStmt(self: *FuncGen, inst: Air.Inst.Index) ?*const llvm.Value {
         const di_scope = self.di_scope orelse return null;
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-        self.prev_dbg_line = @intCast(c_uint, self.dg.decl.src_line + dbg_stmt.line + 1);
+        self.prev_dbg_line = @intCast(c_uint, self.base_line + dbg_stmt.line + 1);
         self.prev_dbg_column = @intCast(c_uint, dbg_stmt.column + 1);
-        self.builder.setCurrentDebugLocation(self.prev_dbg_line, self.prev_dbg_column, di_scope);
+        const inlined_at = if (self.dbg_inlined.items.len > 0)
+            self.dbg_inlined.items[self.dbg_inlined.items.len - 1].loc
+        else
+            null;
+        self.builder.setCurrentDebugLocation(self.prev_dbg_line, self.prev_dbg_column, di_scope, inlined_at);
+        return null;
+    }
+
+    fn airDbgInline(self: *FuncGen, inst: Air.Inst.Index, start: bool) !?*const llvm.Value {
+        const dib = self.dg.object.di_builder orelse return null;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+
+        const func = self.air.values[ty_pl.payload].castTag(.function).?.data;
+        const decl = func.owner_decl;
+        const di_file = try self.dg.object.getDIFile(self.gpa, decl.src_namespace.file_scope);
+        self.di_file = di_file;
+        const line_number = decl.src_line + 1;
+        const cur_debug_location = self.builder.getCurrentDebugLocation2();
+        if (start) {
+            try self.dbg_inlined.append(self.gpa, .{
+                .loc = @ptrCast(*llvm.DILocation, cur_debug_location),
+                .scope = self.di_scope.?,
+                .base_line = self.base_line,
+            });
+        } else {
+            const old = self.dbg_inlined.pop();
+            self.di_scope = old.scope;
+            self.base_line = old.base_line;
+            return null;
+        }
+
+        const fn_ty = try self.air.getRefType(ty_pl.ty).copy(self.dg.object.type_map_arena.allocator());
+        const fqn = try decl.getFullyQualifiedName(self.gpa);
+        defer self.gpa.free(fqn);
+        const fn_info = fn_ty.fnInfo();
+
+        const is_internal_linkage = !self.dg.module.decl_exports.contains(decl);
+        const noret_bit: c_uint = if (fn_info.return_type.isNoReturn())
+            llvm.DIFlags.NoReturn
+        else
+            0;
+        const subprogram = dib.createFunction(
+            di_file.toScope(),
+            decl.name,
+            fqn,
+            di_file,
+            line_number,
+            try self.dg.object.lowerDebugType(fn_ty, .full),
+            is_internal_linkage,
+            true, // is definition
+            line_number + func.lbrace_line, // scope line
+            llvm.DIFlags.StaticMember | noret_bit,
+            self.dg.module.comp.bin_file.options.optimize_mode != .Debug,
+            null, // decl_subprogram
+        );
+
+        try self.dg.object.di_map.put(self.gpa, decl, subprogram.toNode());
+
+        const lexical_block = dib.createLexicalBlock(subprogram.toScope(), di_file, line_number, 1);
+        self.di_scope = lexical_block.toScope();
+        self.base_line = decl.src_line;
         return null;
     }
 
@@ -3984,17 +4259,22 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const operand = try self.resolveInst(pl_op.operand);
         const name = self.air.nullTerminatedString(pl_op.payload);
+        const ptr_ty = self.air.typeOf(pl_op.operand);
 
         const di_local_var = dib.createAutoVariable(
             self.di_scope.?,
             name.ptr,
             self.di_file.?,
             self.prev_dbg_line,
-            try self.dg.lowerDebugType(self.air.typeOf(pl_op.operand)),
+            try self.dg.object.lowerDebugType(ptr_ty.childType(), .full),
             true, // always preserve
             0, // flags
         );
-        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?);
+        const inlined_at = if (self.dbg_inlined.items.len > 0)
+            self.dbg_inlined.items[self.dbg_inlined.items.len - 1].loc
+        else
+            null;
+        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?, inlined_at);
         const insert_block = self.builder.getInsertBlock();
         _ = dib.insertDeclareAtEnd(operand, di_local_var, debug_loc, insert_block);
         return null;
@@ -4012,11 +4292,15 @@ pub const FuncGen = struct {
             name.ptr,
             self.di_file.?,
             self.prev_dbg_line,
-            try self.dg.lowerDebugType(operand_ty),
+            try self.dg.object.lowerDebugType(operand_ty, .full),
             true, // always preserve
             0, // flags
         );
-        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?);
+        const inlined_at = if (self.dbg_inlined.items.len > 0)
+            self.dbg_inlined.items[self.dbg_inlined.items.len - 1].loc
+        else
+            null;
+        const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?, inlined_at);
         const insert_block = self.builder.getInsertBlock();
         if (isByRef(operand_ty)) {
             _ = dib.insertDeclareAtEnd(operand, di_local_var, debug_loc, insert_block);
@@ -4558,7 +4842,15 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         const llvm_slice_ty = try self.dg.llvmType(inst_ty);
 
-        const partial = self.builder.buildInsertValue(llvm_slice_ty.getUndef(), ptr, 0, "");
+        // In case of slicing a global, the result type looks something like `{ i8*, i64 }`
+        // but `ptr` is pointing to the global directly. If it's an array, we would want to
+        // do GEP(0,0), or we can just bitcast it to be correct, like we do here.
+        // This prevents an assertion failure.
+        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+        const ptr_ty = inst_ty.slicePtrFieldType(&buf);
+        const ptr_llvm_ty = try self.dg.llvmType(ptr_ty);
+        const casted_ptr = self.builder.buildBitCast(ptr, ptr_llvm_ty, "");
+        const partial = self.builder.buildInsertValue(llvm_slice_ty.getUndef(), casted_ptr, 0, "");
         return self.builder.buildInsertValue(partial, len, 1, "");
     }
 
@@ -5264,13 +5556,13 @@ pub const FuncGen = struct {
                 func.getParamName(src_index).ptr, // TODO test 0 bit args
                 self.di_file.?,
                 lbrace_line,
-                try self.dg.lowerDebugType(inst_ty),
+                try self.dg.object.lowerDebugType(inst_ty, .full),
                 true, // always preserve
                 0, // flags
                 self.arg_index, // includes +1 because 0 is return type
             );
 
-            const debug_loc = llvm.getDebugLoc(lbrace_line, lbrace_col, self.di_scope.?);
+            const debug_loc = llvm.getDebugLoc(lbrace_line, lbrace_col, self.di_scope.?, null);
             const insert_block = self.builder.getInsertBlock();
             if (isByRef(inst_ty)) {
                 _ = dib.insertDeclareAtEnd(arg_val, di_local_var, debug_loc, insert_block);
@@ -5346,21 +5638,22 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const dest_ptr = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const operand_ty = ptr_ty.childType();
+        if (!operand_ty.isFnOrHasRuntimeBitsIgnoreComptime()) return null;
 
         // TODO Sema should emit a different instruction when the store should
         // possibly do the safety 0xaa bytes for undefined.
         const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
         if (val_is_undef) {
-            const elem_ty = ptr_ty.childType();
             const target = self.dg.module.getTarget();
-            const elem_size = elem_ty.abiSize(target);
+            const operand_size = operand_ty.abiSize(target);
             const u8_llvm_ty = self.context.intType(8);
             const ptr_u8_llvm_ty = u8_llvm_ty.pointerType(0);
             const dest_ptr_u8 = self.builder.buildBitCast(dest_ptr, ptr_u8_llvm_ty, "");
             const fill_char = u8_llvm_ty.constInt(0xaa, .False);
             const dest_ptr_align = ptr_ty.ptrAlignment(target);
             const usize_llvm_ty = try self.dg.llvmType(Type.usize);
-            const len = usize_llvm_ty.constInt(elem_size, .False);
+            const len = usize_llvm_ty.constInt(operand_size, .False);
             _ = self.builder.buildMemSet(dest_ptr_u8, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
             if (self.dg.module.comp.bin_file.options.valgrind) {
                 // TODO generate valgrind client request to mark byte range as undefined
@@ -5675,11 +5968,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
         const operand_ty = self.air.typeOf(un_op);
 
-        const operand_llvm_ty = try self.dg.llvmType(operand_ty);
-        const fn_val = self.getIntrinsic(llvm_fn_name, &.{operand_llvm_ty});
-        const params = [_]*const llvm.Value{operand};
-
-        return self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
+        return self.callFloatUnary(operand, operand_ty, llvm_fn_name);
     }
 
     fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !?*const llvm.Value {
@@ -6367,13 +6656,24 @@ pub const FuncGen = struct {
         return self.callFloatUnary(arg, ty, "trunc");
     }
 
-    fn callFloatUnary(self: *FuncGen, arg: *const llvm.Value, ty: Type, name: []const u8) !*const llvm.Value {
+    fn callFloatUnary(
+        self: *FuncGen,
+        arg: *const llvm.Value,
+        ty: Type,
+        name: []const u8,
+    ) !*const llvm.Value {
         const target = self.dg.module.getTarget();
 
         var fn_name_buf: [100]u8 = undefined;
-        const llvm_fn_name = std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.f{d}", .{
-            name, ty.floatBits(target),
-        }) catch unreachable;
+        const llvm_fn_name = switch (ty.zigTypeTag()) {
+            .Vector => std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.v{d}f{d}", .{
+                name, ty.vectorLen(), ty.childType().floatBits(target),
+            }) catch unreachable,
+            .Float => std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.f{d}", .{
+                name, ty.floatBits(target),
+            }) catch unreachable,
+            else => unreachable,
+        };
 
         const llvm_fn = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
             const operand_llvm_ty = try self.dg.llvmType(ty);
@@ -6467,6 +6767,9 @@ pub const FuncGen = struct {
         return self.llvmModule().getIntrinsicDeclaration(id, types.ptr, types.len);
     }
 
+    /// This function always performs a copy. For isByRef=true types, it creates a new
+    /// alloca and copies the value into it, then returns the alloca instruction.
+    /// For isByRef=false types, it creates a load instruction and returns it.
     fn load(self: *FuncGen, ptr: *const llvm.Value, ptr_ty: Type) !?*const llvm.Value {
         const info = ptr_ty.ptrInfo().data;
         if (!info.pointee_type.hasRuntimeBitsIgnoreComptime()) return null;
@@ -6475,7 +6778,25 @@ pub const FuncGen = struct {
         const ptr_alignment = ptr_ty.ptrAlignment(target);
         const ptr_volatile = llvm.Bool.fromBool(ptr_ty.isVolatilePtr());
         if (info.host_size == 0) {
-            if (isByRef(info.pointee_type)) return ptr;
+            if (isByRef(info.pointee_type)) {
+                const elem_llvm_ty = try self.dg.llvmType(info.pointee_type);
+                const result_align = info.pointee_type.abiAlignment(target);
+                const max_align = @maximum(result_align, ptr_alignment);
+                const result_ptr = self.buildAlloca(elem_llvm_ty);
+                result_ptr.setAlignment(max_align);
+                const llvm_ptr_u8 = self.context.intType(8).pointerType(0);
+                const llvm_usize = self.context.intType(Type.usize.intInfo(target).bits);
+                const size_bytes = info.pointee_type.abiSize(target);
+                _ = self.builder.buildMemCpy(
+                    self.builder.buildBitCast(result_ptr, llvm_ptr_u8, ""),
+                    max_align,
+                    self.builder.buildBitCast(ptr, llvm_ptr_u8, ""),
+                    max_align,
+                    llvm_usize.constInt(size_bytes, .False),
+                    info.@"volatile",
+                );
+                return result_ptr;
+            }
             const llvm_inst = self.builder.buildLoad(ptr, "");
             llvm_inst.setAlignment(ptr_alignment);
             llvm_inst.setVolatile(ptr_volatile);
@@ -7004,3 +7325,30 @@ fn backendSupportsF80(target: std.Target) bool {
 /// We can do this because for all types, Zig ABI alignment >= LLVM ABI
 /// alignment.
 const struct_layout_version = 2;
+
+/// We use the least significant bit of the pointer address to tell us
+/// whether the type is fully resolved. Types that are only fwd declared
+/// have the LSB flipped to a 1.
+const AnnotatedDITypePtr = enum(usize) {
+    _,
+
+    fn initFwd(di_type: *llvm.DIType) AnnotatedDITypePtr {
+        const addr = @ptrToInt(di_type);
+        assert(@truncate(u1, addr) == 0);
+        return @intToEnum(AnnotatedDITypePtr, addr | 1);
+    }
+
+    fn initFull(di_type: *llvm.DIType) AnnotatedDITypePtr {
+        const addr = @ptrToInt(di_type);
+        return @intToEnum(AnnotatedDITypePtr, addr);
+    }
+
+    fn toDIType(self: AnnotatedDITypePtr) *llvm.DIType {
+        const fixed_addr = @enumToInt(self) & ~@as(usize, 1);
+        return @intToPtr(*llvm.DIType, fixed_addr);
+    }
+
+    fn isFwdOnly(self: AnnotatedDITypePtr) bool {
+        return @truncate(u1, @enumToInt(self)) != 0;
+    }
+};

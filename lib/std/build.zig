@@ -1321,6 +1321,7 @@ pub const Builder = struct {
                 error.FileNotFound => error.PkgConfigNotInstalled,
                 error.InvalidName => error.PkgConfigNotInstalled,
                 error.PkgConfigInvalidOutput => error.PkgConfigInvalidOutput,
+                error.ChildExecFailed => error.PkgConfigFailed,
                 else => return err,
             };
             self.pkg_config_pkg_list = result;
@@ -1963,6 +1964,7 @@ pub const LibExeObjStep = struct {
             error.ExecNotSupported => return error.PkgConfigFailed,
             error.ExitCodeFailure => return error.PkgConfigFailed,
             error.FileNotFound => return error.PkgConfigNotInstalled,
+            error.ChildExecFailed => return error.PkgConfigFailed,
             else => return err,
         };
         var it = mem.tokenize(u8, stdout, " \r\n\t");

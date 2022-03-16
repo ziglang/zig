@@ -766,3 +766,14 @@ test "two comptime calls with array default initialized to undefined" {
         S.CrossTarget.parse();
     }
 }
+
+test "const type-annotated local initialized with function call has correct type" {
+    const S = struct {
+        fn foo() comptime_int {
+            return 1234;
+        }
+    };
+    const x: u64 = S.foo();
+    try expect(@TypeOf(x) == u64);
+    try expect(x == 1234);
+}

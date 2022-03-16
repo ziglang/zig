@@ -1281,3 +1281,38 @@ test "typed init through error unions and optionals" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "initialize struct with empty literal" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct { x: i32 = 1234 };
+    var s: S = .{};
+    try expect(s.x == 1234);
+}
+
+test "loading a struct pointer perfoms a copy" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: i32,
+        b: i32,
+        c: i32,
+
+        fn swap(a: *@This(), b: *@This()) void {
+            const tmp = a.*;
+            a.* = b.*;
+            b.* = tmp;
+        }
+    };
+    var s1: S = .{ .a = 1, .b = 2, .c = 3 };
+    var s2: S = .{ .a = 4, .b = 5, .c = 6 };
+    S.swap(&s1, &s2);
+    try expect(s1.a == 4);
+    try expect(s1.b == 5);
+    try expect(s1.c == 6);
+    try expect(s2.a == 1);
+    try expect(s2.b == 2);
+    try expect(s2.c == 3);
+}

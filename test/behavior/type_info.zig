@@ -379,16 +379,62 @@ fn testFunction() !void {
     try expect(fn_info.Fn.return_type.? == usize);
     const fn_aligned_info = @typeInfo(@TypeOf(fooAligned));
     try expect(fn_aligned_info.Fn.alignment == 4);
-
-    if (builtin.zig_backend != .stage1) return; // no bound fn in stage2
-    const test_instance: TestPackedStruct = undefined;
-    const bound_fn_info = @typeInfo(@TypeOf(test_instance.foo));
-    try expect(bound_fn_info == .BoundFn);
-    try expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestPackedStruct);
 }
 
 extern fn foo(a: usize, b: bool, ...) callconv(.C) usize;
 extern fn fooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
+
+test "type info: generic function types" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    if (builtin.zig_backend != .stage1) {
+        // stage1 marks all args/return types as null if the function
+        // is generic at all. stage2 is more specific.
+        const G1 = @typeInfo(@TypeOf(generic1));
+        try expect(G1.Fn.args.len == 1);
+        try expect(G1.Fn.args[0].is_generic == true);
+        try expect(G1.Fn.args[0].arg_type == null);
+        try expect(G1.Fn.return_type == void);
+
+        const G2 = @typeInfo(@TypeOf(generic2));
+        try expect(G2.Fn.args.len == 3);
+        try expect(G2.Fn.args[0].is_generic == false);
+        try expect(G2.Fn.args[0].arg_type == type);
+        try expect(G2.Fn.args[1].is_generic == true);
+        try expect(G2.Fn.args[1].arg_type == null);
+        try expect(G2.Fn.args[2].is_generic == false);
+        try expect(G2.Fn.args[2].arg_type == u8);
+        try expect(G2.Fn.return_type == void);
+    }
+
+    const G3 = @typeInfo(@TypeOf(generic3));
+    try expect(G3.Fn.args.len == 1);
+    try expect(G3.Fn.args[0].is_generic == true);
+    try expect(G3.Fn.args[0].arg_type == null);
+    try expect(G3.Fn.return_type == null);
+
+    const G4 = @typeInfo(@TypeOf(generic4));
+    try expect(G4.Fn.args.len == 1);
+    try expect(G4.Fn.args[0].is_generic == true);
+    try expect(G4.Fn.args[0].arg_type == null);
+    try expect(G4.Fn.return_type == null);
+}
+
+fn generic1(param: anytype) void {
+    _ = param;
+}
+fn generic2(comptime T: type, param: T, param2: u8) void {
+    _ = param;
+    _ = param2;
+}
+fn generic3(param: anytype) @TypeOf(param) {
+    _ = param;
+}
+fn generic4(comptime param: anytype) @TypeOf(param) {
+    _ = param;
+}
 
 test "typeInfo with comptime parameter in struct fn def" {
     const S = struct {
@@ -413,7 +459,10 @@ fn testVector() !void {
 }
 
 test "type info: anyframe and anyframe->T" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) {
+        // https://github.com/ziglang/zig/issues/6025
+        return error.SkipZigTest;
+    }
 
     try testAnyFrame();
     comptime try testAnyFrame();
@@ -469,7 +518,10 @@ fn add(a: i32, b: i32) i32 {
 }
 
 test "type info for async frames" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) {
+        // https://github.com/ziglang/zig/issues/6025
+        return error.SkipZigTest;
+    }
 
     switch (@typeInfo(@Frame(add))) {
         .Frame => |frame| {

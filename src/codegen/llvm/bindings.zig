@@ -839,8 +839,8 @@ pub const Builder = opaque {
     pub const buildExactSDiv = LLVMBuildExactSDiv;
     extern fn LLVMBuildExactSDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
-    pub const setCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation;
-    extern fn ZigLLVMSetCurrentDebugLocation(builder: *const Builder, line: c_uint, column: c_uint, scope: *DIScope) void;
+    pub const setCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation2;
+    extern fn ZigLLVMSetCurrentDebugLocation2(builder: *const Builder, line: c_uint, column: c_uint, scope: *DIScope, inlined_at: ?*DILocation) void;
 
     pub const clearCurrentDebugLocation = ZigLLVMClearCurrentDebugLocation;
     extern fn ZigLLVMClearCurrentDebugLocation(builder: *const Builder) void;
@@ -855,7 +855,17 @@ pub const Builder = opaque {
     extern fn LLVMBuildShuffleVector(*const Builder, V1: *const Value, V2: *const Value, Mask: *const Value, Name: [*:0]const u8) *const Value;
 };
 
-pub const DIScope = opaque {};
+pub const MDString = opaque {
+    pub const get = LLVMMDStringInContext2;
+    extern fn LLVMMDStringInContext2(C: *const Context, Str: [*]const u8, SLen: usize) *MDString;
+};
+
+pub const DIScope = opaque {
+    pub const toNode = ZigLLVMScopeToNode;
+    extern fn ZigLLVMScopeToNode(scope: *DIScope) *DINode;
+};
+
+pub const DINode = opaque {};
 pub const Metadata = opaque {};
 
 pub const IntPredicate = enum(c_uint) {
@@ -1421,32 +1431,56 @@ pub const address_space = struct {
 
 pub const DIEnumerator = opaque {};
 pub const DILocalVariable = opaque {};
-pub const DIGlobalVariable = opaque {};
 pub const DILocation = opaque {};
 
+pub const DIGlobalVariable = opaque {
+    pub const toNode = ZigLLVMGlobalVariableToNode;
+    extern fn ZigLLVMGlobalVariableToNode(global_variable: *DIGlobalVariable) *DINode;
+
+    pub const replaceLinkageName = ZigLLVMGlobalVariableReplaceLinkageName;
+    extern fn ZigLLVMGlobalVariableReplaceLinkageName(global_variable: *DIGlobalVariable, linkage_name: *MDString) void;
+};
 pub const DIType = opaque {
     pub const toScope = ZigLLVMTypeToScope;
     extern fn ZigLLVMTypeToScope(ty: *DIType) *DIScope;
+
+    pub const toNode = ZigLLVMTypeToNode;
+    extern fn ZigLLVMTypeToNode(ty: *DIType) *DINode;
 };
 pub const DIFile = opaque {
     pub const toScope = ZigLLVMFileToScope;
     extern fn ZigLLVMFileToScope(difile: *DIFile) *DIScope;
+
+    pub const toNode = ZigLLVMFileToNode;
+    extern fn ZigLLVMFileToNode(difile: *DIFile) *DINode;
 };
 pub const DILexicalBlock = opaque {
     pub const toScope = ZigLLVMLexicalBlockToScope;
     extern fn ZigLLVMLexicalBlockToScope(lexical_block: *DILexicalBlock) *DIScope;
+
+    pub const toNode = ZigLLVMLexicalBlockToNode;
+    extern fn ZigLLVMLexicalBlockToNode(lexical_block: *DILexicalBlock) *DINode;
 };
 pub const DICompileUnit = opaque {
     pub const toScope = ZigLLVMCompileUnitToScope;
     extern fn ZigLLVMCompileUnitToScope(compile_unit: *DICompileUnit) *DIScope;
+
+    pub const toNode = ZigLLVMCompileUnitToNode;
+    extern fn ZigLLVMCompileUnitToNode(compile_unit: *DICompileUnit) *DINode;
 };
 pub const DISubprogram = opaque {
     pub const toScope = ZigLLVMSubprogramToScope;
     extern fn ZigLLVMSubprogramToScope(subprogram: *DISubprogram) *DIScope;
+
+    pub const toNode = ZigLLVMSubprogramToNode;
+    extern fn ZigLLVMSubprogramToNode(subprogram: *DISubprogram) *DINode;
+
+    pub const replaceLinkageName = ZigLLVMSubprogramReplaceLinkageName;
+    extern fn ZigLLVMSubprogramReplaceLinkageName(subprogram: *DISubprogram, linkage_name: *MDString) void;
 };
 
-pub const getDebugLoc = ZigLLVMGetDebugLoc;
-extern fn ZigLLVMGetDebugLoc(line: c_uint, col: c_uint, scope: *DIScope) *DILocation;
+pub const getDebugLoc = ZigLLVMGetDebugLoc2;
+extern fn ZigLLVMGetDebugLoc2(line: c_uint, col: c_uint, scope: *DIScope, inlined_at: ?*DILocation) *DILocation;
 
 pub const DIBuilder = opaque {
     pub const dispose = ZigLLVMDisposeDIBuilder;

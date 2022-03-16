@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const meta = std.meta;
 const mem = std.mem;
@@ -421,7 +422,7 @@ pub fn MultiArrayList(comptime S: type) type {
         }
 
         fn capacityInBytes(capacity: usize) usize {
-            const sizes_vector: std.meta.Vector(sizes.bytes.len, usize) = sizes.bytes;
+            const sizes_vector: @Vector(sizes.bytes.len, usize) = sizes.bytes;
             const capacity_vector = @splat(sizes.bytes.len, capacity);
             return @reduce(.Add, capacity_vector * sizes_vector);
         }
@@ -432,6 +433,19 @@ pub fn MultiArrayList(comptime S: type) type {
 
         fn FieldType(field: Field) type {
             return meta.fieldInfo(S, field).field_type;
+        }
+
+        /// This function is used in tools/zig-gdb.py to fetch the child type to facilitate
+        /// fancy debug printing for this type.
+        fn gdbHelper(self: *Self, child: *S) void {
+            _ = self;
+            _ = child;
+        }
+
+        comptime {
+            if (builtin.mode == .Debug) {
+                _ = gdbHelper;
+            }
         }
     };
 }

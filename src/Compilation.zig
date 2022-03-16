@@ -4513,8 +4513,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     const target = comp.getTarget();
     const generic_arch_name = target.cpu.arch.genericName();
     const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
-    const stage2_x86_cx16 = target.cpu.arch == .x86_64 and
-        std.Target.x86.featureSetHas(target.cpu.features, .cx16);
 
     const zig_backend: std.builtin.CompilerBackend = blk: {
         if (use_stage1) break :blk .stage1;
@@ -4540,8 +4538,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\pub const zig_backend = std.builtin.CompilerBackend.{};
         \\/// Temporary until self-hosted supports the `cpu.arch` value.
         \\pub const stage2_arch: std.Target.Cpu.Arch = .{};
-        \\/// Temporary until self-hosted can call `std.Target.x86.featureSetHas` at comptime.
-        \\pub const stage2_x86_cx16 = {};
         \\
         \\pub const output_mode = std.builtin.OutputMode.{};
         \\pub const link_mode = std.builtin.LinkMode.{};
@@ -4557,7 +4553,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         build_options.version,
         std.zig.fmtId(@tagName(zig_backend)),
         std.zig.fmtId(@tagName(target.cpu.arch)),
-        stage2_x86_cx16,
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,

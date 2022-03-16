@@ -2745,11 +2745,18 @@ fn varDecl(
                 }
                 gz.instructions.items.len = dst;
 
+                // In case the result location did not do the coercion
+                // for us so we must do it here.
+                const coerced_init = if (opt_type_inst != .none)
+                    try gz.addBin(.as, opt_type_inst, init_inst)
+                else
+                    init_inst;
+
                 if (!gz.force_comptime) {
                     _ = try gz.add(.{ .tag = .dbg_var_val, .data = .{
                         .str_op = .{
                             .str = ident_name,
-                            .operand = init_inst,
+                            .operand = coerced_init,
                         },
                     } });
                 }
@@ -2759,7 +2766,7 @@ fn varDecl(
                     .parent = scope,
                     .gen_zir = gz,
                     .name = ident_name,
-                    .inst = init_inst,
+                    .inst = coerced_init,
                     .token_src = name_token,
                     .id_cat = .@"local constant",
                 };
@@ -4068,15 +4075,17 @@ fn structDeclInner(
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
         wip_members.appendToField(doc_comment_index);
 
-        known_non_opv = known_non_opv or
-            nodeImpliesMoreThanOnePossibleValue(tree, member.ast.type_expr);
-        known_comptime_only = known_comptime_only or
-            nodeImpliesComptimeOnly(tree, member.ast.type_expr);
-
         const have_align = member.ast.align_expr != 0;
         const have_value = member.ast.value_expr != 0;
         const is_comptime = member.comptime_token != null;
         const unused = false;
+
+        if (!is_comptime) {
+            known_non_opv = known_non_opv or
+                nodeImpliesMoreThanOnePossibleValue(tree, member.ast.type_expr);
+            known_comptime_only = known_comptime_only or
+                nodeImpliesComptimeOnly(tree, member.ast.type_expr);
+        }
         wip_members.nextField(bits_per_field, .{ have_align, have_value, is_comptime, unused });
 
         if (have_align) {
@@ -4697,14 +4706,36 @@ fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir
     const payload_index = try reserveExtra(astgen, @typeInfo(Zir.Inst.ErrorSetDecl).Struct.fields.len);
     var fields_len: usize = 0;
     {
+        var idents: std.AutoHashMapUnmanaged(u32, Ast.TokenIndex) = .{};
+        defer idents.deinit(gpa);
+
         const error_token = main_tokens[node];
         var tok_i = error_token + 2;
         while (true) : (tok_i += 1) {
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
                 .identifier => {
-                    try astgen.extra.ensureUnusedCapacity(gpa, 2);
                     const str_index = try astgen.identAsString(tok_i);
+                    const gop = try idents.getOrPut(gpa, str_index);
+                    if (gop.found_existing) {
+                        const name = try gpa.dupe(u8, mem.span(astgen.nullTerminatedString(str_index)));
+                        defer gpa.free(name);
+                        return astgen.failTokNotes(
+                            tok_i,
+                            "duplicate error set field '{s}'",
+                            .{name},
+                            &[_]u32{
+                                try astgen.errNoteTok(
+                                    gop.value_ptr.*,
+                                    "previous declaration here",
+                                    .{},
+                                ),
+                            },
+                        );
+                    }
+                    gop.value_ptr.* = tok_i;
+
+                    try astgen.extra.ensureUnusedCapacity(gpa, 2);
                     astgen.extra.appendAssumeCapacity(str_index);
                     const doc_comment_index = try astgen.docCommentAsString(tok_i);
                     astgen.extra.appendAssumeCapacity(doc_comment_index);
@@ -5100,6 +5131,7 @@ fn ifExpr(
     else
         false;
 
+    try emitDbgNode(parent_gz, if_full.ast.cond_expr);
     const cond: struct {
         inst: Zir.Inst.Ref,
         bool_bit: Zir.Inst.Ref,
@@ -5410,6 +5442,7 @@ fn whileExpr(
     else
         false;
 
+    try emitDbgNode(parent_gz, while_full.ast.cond_expr);
     const cond: struct {
         inst: Zir.Inst.Ref,
         bool_bit: Zir.Inst.Ref,
@@ -5629,6 +5662,8 @@ fn forExpr(
         token_tags[payload_token] == .asterisk
     else
         false;
+
+    try emitDbgNode(parent_gz, for_full.ast.cond_expr);
 
     const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
     const array_ptr = try expr(parent_gz, scope, cond_rl, for_full.ast.cond_expr);
@@ -7761,6 +7796,19 @@ fn callExpr(
         }
         break :blk .auto;
     };
+
+    {
+        astgen.advanceSourceCursor(astgen.tree.tokens.items(.start)[call.ast.lparen]);
+        const line = astgen.source_line - gz.decl_line;
+        const column = astgen.source_column;
+
+        _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
+            .dbg_stmt = .{
+                .line = line,
+                .column = column,
+            },
+        } });
+    }
 
     assert(callee != .none);
     assert(node != 0);

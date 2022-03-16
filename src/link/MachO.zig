@@ -3877,7 +3877,7 @@ fn needsPointerRebase(ty: Type, val: Value) bool {
         .Struct => {
             const fields = ty.structFields().values();
             if (fields.len == 0) return false;
-            if (val.castTag(.@"struct")) |payload| {
+            if (val.castTag(.aggregate)) |payload| {
                 const field_values = payload.data;
                 for (field_values) |field_val, i| {
                     if (needsPointerRebase(fields[i].ty, field_val)) return true;

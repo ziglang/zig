@@ -1791,6 +1791,19 @@ test "zig fmt: switch comment before prong" {
     );
 }
 
+test "zig fmt: switch comment after prong" {
+    try testCanonical(
+        \\comptime {
+        \\    switch (a) {
+        \\        0,
+        \\        // hi
+        \\        => {},
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: struct literal no trailing comma" {
     try testTransform(
         \\const a = foo{ .x = 1, .y = 2 };

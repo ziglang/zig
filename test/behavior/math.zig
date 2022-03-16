@@ -6,7 +6,6 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const mem = std.mem;
-const has_f80_rt = builtin.cpu.arch == .x86_64;
 
 test "assignment operators" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -82,7 +81,6 @@ test "@clz big ints" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try testClzBigInts();
     comptime try testClzBigInts();
@@ -1046,12 +1044,14 @@ fn testSqrt(comptime T: type, x: T) !void {
 }
 
 test "@fabs" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     try testFabs(f128, 12.0);
     comptime try testFabs(f128, 12.0);
-    if (has_f80_rt) try testFabs(f80, 12.0);
-    // comptime try testFabs(f80, 12.0);
     try testFabs(f64, 12.0);
     comptime try testFabs(f64, 12.0);
     try testFabs(f32, 12.0);
@@ -1065,20 +1065,25 @@ test "@fabs" {
     comptime try expectEqual(x, z);
 }
 
+test "@fabs f80" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/11030
+        return error.SkipZigTest;
+    }
+
+    try testFabs(f80, 12.0);
+    comptime try testFabs(f80, 12.0);
+}
+
 fn testFabs(comptime T: type, x: T) !void {
     const y = -x;
     const z = @fabs(y);
-    try expectEqual(x, z);
+    try expect(x == z);
 }
 
 test "@floor" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
-    // FIXME: Generates a floorl function call
-    // testFloor(f128, 12.0);
-    comptime try testFloor(f128, 12.0);
-    // try testFloor(f80, 12.0);
-    comptime try testFloor(f80, 12.0);
     try testFloor(f64, 12.0);
     comptime try testFloor(f64, 12.0);
     try testFloor(f32, 12.0);
@@ -1089,23 +1094,39 @@ test "@floor" {
     const x = 14.0;
     const y = x + 0.7;
     const z = @floor(y);
-    comptime try expectEqual(x, z);
+    comptime try expect(x == z);
+}
+
+test "@floor f80" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/11030
+        return error.SkipZigTest;
+    }
+    try testFloor(f80, 12.0);
+    comptime try testFloor(f80, 12.0);
+}
+
+test "@floor f128" {
+    if (builtin.zig_backend == .stage1) {
+        // Fails because it incorrectly lowers to a floorl function call.
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    testFloor(f128, 12.0);
+    comptime try testFloor(f128, 12.0);
 }
 
 fn testFloor(comptime T: type, x: T) !void {
     const y = x + 0.6;
     const z = @floor(y);
-    try expectEqual(x, z);
+    try expect(x == z);
 }
 
 test "@ceil" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
-    // FIXME: Generates a ceill function call
-    //testCeil(f128, 12.0);
-    comptime try testCeil(f128, 12.0);
-    // try testCeil(f80, 12.0);
-    comptime try testCeil(f80, 12.0);
     try testCeil(f64, 12.0);
     comptime try testCeil(f64, 12.0);
     try testCeil(f32, 12.0);
@@ -1116,29 +1137,40 @@ test "@ceil" {
     const x = 14.0;
     const y = x - 0.7;
     const z = @ceil(y);
-    comptime try expectEqual(x, z);
+    comptime try expect(x == z);
+}
+
+test "@ceil f80" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/11030
+        return error.SkipZigTest;
+    }
+
+    try testCeil(f80, 12.0);
+    comptime try testCeil(f80, 12.0);
+}
+
+test "@ceil f128" {
+    if (builtin.zig_backend == .stage1) {
+        // Fails because it incorrectly lowers to a ceill function call.
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    testCeil(f128, 12.0);
+    comptime try testCeil(f128, 12.0);
 }
 
 fn testCeil(comptime T: type, x: T) !void {
     const y = x - 0.8;
     const z = @ceil(y);
-    try expectEqual(x, z);
+    try expect(x == z);
 }
 
 test "@trunc" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
-    // FIXME: Generates a truncl function call
-    //testTrunc(f128, 12.0);
-    comptime try testTrunc(f128, 12.0);
-    // try testTrunc(f80, 12.0);
-    // comptime try testTrunc(f80, 12.0);
-    comptime {
-        const x: f80 = 12.0;
-        const y = x + 0.8;
-        const z = @trunc(y);
-        try expectEqual(x, z);
-    }
     try testTrunc(f64, 12.0);
     comptime try testTrunc(f64, 12.0);
     try testTrunc(f32, 12.0);
@@ -1149,31 +1181,54 @@ test "@trunc" {
     const x = 14.0;
     const y = x + 0.7;
     const z = @trunc(y);
-    comptime try expectEqual(x, z);
+    comptime try expect(x == z);
+}
+
+test "@trunc f80" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/11030
+        return error.SkipZigTest;
+    }
+
+    try testTrunc(f80, 12.0);
+    comptime try testTrunc(f80, 12.0);
+    comptime {
+        const x: f80 = 12.0;
+        const y = x + 0.8;
+        const z = @trunc(y);
+        try expect(x == z);
+    }
+}
+
+test "@trunc f128" {
+    if (builtin.zig_backend == .stage1) {
+        // Fails because it incorrectly lowers to a truncl function call.
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    testTrunc(f128, 12.0);
+    comptime try testTrunc(f128, 12.0);
 }
 
 fn testTrunc(comptime T: type, x: T) !void {
     {
         const y = x + 0.8;
         const z = @trunc(y);
-        try expectEqual(x, z);
+        try expect(x == z);
     }
 
     {
         const y = -x - 0.8;
         const z = @trunc(y);
-        try expectEqual(-x, z);
+        try expect(-x == z);
     }
 }
 
 test "@round" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
-    // FIXME: Generates a roundl function call
-    //testRound(f128, 12.0);
-    comptime try testRound(f128, 12.0);
-    // try testRound(f80, 12.0);
-    comptime try testRound(f80, 12.0);
     try testRound(f64, 12.0);
     comptime try testRound(f64, 12.0);
     try testRound(f32, 12.0);
@@ -1184,13 +1239,35 @@ test "@round" {
     const x = 14.0;
     const y = x + 0.4;
     const z = @round(y);
-    comptime try expectEqual(x, z);
+    comptime try expect(x == z);
+}
+
+test "@round f80" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/11030
+        return error.SkipZigTest;
+    }
+
+    try testRound(f80, 12.0);
+    comptime try testRound(f80, 12.0);
+}
+
+test "@round f128" {
+    if (builtin.zig_backend == .stage1) {
+        // Fails because it incorrectly lowers to a roundl function call.
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    testRound(f128, 12.0);
+    comptime try testRound(f128, 12.0);
 }
 
 fn testRound(comptime T: type, x: T) !void {
     const y = x - 0.5;
     const z = @round(y);
-    try expectEqual(x, z);
+    try expect(x == z);
 }
 
 test "vector integer addition" {
@@ -1225,10 +1302,15 @@ test "NaN comparison" {
     comptime try testNanEqNan(f32);
     comptime try testNanEqNan(f64);
     comptime try testNanEqNan(f128);
+}
 
-    // TODO https://github.com/ziglang/zig/issues/11030
-    // try testNanEqNan(f80);
-    // comptime try testNanEqNan(f80);
+test "NaN comparison f80" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/11030
+        return error.SkipZigTest;
+    }
+    try testNanEqNan(f80);
+    comptime try testNanEqNan(f80);
 }
 
 fn testNanEqNan(comptime F: type) !void {

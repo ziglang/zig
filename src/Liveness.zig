@@ -314,6 +314,8 @@ fn analyzeInst(
         .const_ty,
         .breakpoint,
         .dbg_stmt,
+        .dbg_inline_begin,
+        .dbg_inline_end,
         .unreach,
         .fence,
         .ret_addr,

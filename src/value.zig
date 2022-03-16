@@ -20,6 +20,7 @@ pub const Value = extern union {
     tag_if_small_enough: Tag,
     ptr_otherwise: *Payload,
 
+    // Keep in sync with tools/zig-gdb.py
     pub const Tag = enum(usize) {
         // The first section of this enum are tags that require no payload.
         u1_type,
@@ -127,10 +128,6 @@ pub const Value = extern union {
         /// This value is repeated some number of times. The amount of times to repeat
         /// is stored externally.
         repeated,
-        /// Each element stored as a `Value`.
-        /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
-        /// so the slice length will be one more than the type's array length.
-        array,
         /// An array with length 0 but it has a sentinel.
         empty_array_sentinel,
         /// Pointer and length as sub `Value` objects.
@@ -162,8 +159,11 @@ pub const Value = extern union {
         opt_payload,
         /// A pointer to the payload of an optional, based on a pointer to an optional.
         opt_payload_ptr,
-        /// An instance of a struct.
-        @"struct",
+        /// An instance of a struct, array, or vector.
+        /// Each element/field stored as a `Value`.
+        /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
+        /// so the slice length will be one more than the type's array length.
+        aggregate,
         /// An instance of a union.
         @"union",
         /// This is a special value that tracks a set of types that have been stored
@@ -269,17 +269,18 @@ pub const Value = extern union {
 
                 .repeated,
                 .eu_payload,
-                .eu_payload_ptr,
                 .opt_payload,
-                .opt_payload_ptr,
                 .empty_array_sentinel,
                 => Payload.SubValue,
+
+                .eu_payload_ptr,
+                .opt_payload_ptr,
+                => Payload.PayloadPtr,
 
                 .bytes,
                 .enum_literal,
                 => Payload.Bytes,
 
-                .array => Payload.Array,
                 .slice => Payload.Slice,
 
                 .enum_field_index => Payload.U32,
@@ -301,7 +302,7 @@ pub const Value = extern union {
                 .@"error" => Payload.Error,
                 .inferred_alloc => Payload.InferredAlloc,
                 .inferred_alloc_comptime => Payload.InferredAllocComptime,
-                .@"struct" => Payload.Struct,
+                .aggregate => Payload.Aggregate,
                 .@"union" => Payload.Union,
                 .bound_fn => Payload.BoundFn,
             };
@@ -481,6 +482,20 @@ pub const Value = extern union {
             .variable => return self.copyPayloadShallow(arena, Payload.Variable),
             .decl_ref => return self.copyPayloadShallow(arena, Payload.Decl),
             .decl_ref_mut => return self.copyPayloadShallow(arena, Payload.DeclRefMut),
+            .eu_payload_ptr,
+            .opt_payload_ptr,
+            => {
+                const payload = self.cast(Payload.PayloadPtr).?;
+                const new_payload = try arena.create(Payload.PayloadPtr);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = .{
+                        .container_ptr = try payload.data.container_ptr.copy(arena),
+                        .container_ty = try payload.data.container_ty.copy(arena),
+                    },
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
             .elem_ptr => {
                 const payload = self.castTag(.elem_ptr).?;
                 const new_payload = try arena.create(Payload.ElemPtr);
@@ -488,6 +503,7 @@ pub const Value = extern union {
                     .base = payload.base,
                     .data = .{
                         .array_ptr = try payload.data.array_ptr.copy(arena),
+                        .elem_ty = try payload.data.elem_ty.copy(arena),
                         .index = payload.data.index,
                     },
                 };
@@ -500,6 +516,7 @@ pub const Value = extern union {
                     .base = payload.base,
                     .data = .{
                         .container_ptr = try payload.data.container_ptr.copy(arena),
+                        .container_ty = try payload.data.container_ty.copy(arena),
                         .field_index = payload.data.field_index,
                     },
                 };
@@ -508,9 +525,7 @@ pub const Value = extern union {
             .bytes => return self.copyPayloadShallow(arena, Payload.Bytes),
             .repeated,
             .eu_payload,
-            .eu_payload_ptr,
             .opt_payload,
-            .opt_payload_ptr,
             .empty_array_sentinel,
             => {
                 const payload = self.cast(Payload.SubValue).?;
@@ -519,18 +534,6 @@ pub const Value = extern union {
                     .base = payload.base,
                     .data = try payload.data.copy(arena),
                 };
-                return Value{ .ptr_otherwise = &new_payload.base };
-            },
-            .array => {
-                const payload = self.castTag(.array).?;
-                const new_payload = try arena.create(Payload.Array);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .data = try arena.alloc(Value, payload.data.len),
-                };
-                for (new_payload.data) |*elem, i| {
-                    elem.* = try payload.data[i].copy(arena);
-                }
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .slice => {
@@ -562,15 +565,15 @@ pub const Value = extern union {
             .enum_field_index => return self.copyPayloadShallow(arena, Payload.U32),
             .@"error" => return self.copyPayloadShallow(arena, Payload.Error),
 
-            .@"struct" => {
-                const old_field_values = self.castTag(.@"struct").?.data;
-                const new_payload = try arena.create(Payload.Struct);
+            .aggregate => {
+                const payload = self.castTag(.aggregate).?;
+                const new_payload = try arena.create(Payload.Aggregate);
                 new_payload.* = .{
-                    .base = .{ .tag = .@"struct" },
-                    .data = try arena.alloc(Value, old_field_values.len),
+                    .base = payload.base,
+                    .data = try arena.alloc(Value, payload.data.len),
                 };
-                for (old_field_values) |old_field_val, i| {
-                    new_payload.data[i] = try old_field_val.copy(arena);
+                for (new_payload.data) |*elem, i| {
+                    elem.* = try payload.data[i].copy(arena);
                 }
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
@@ -677,8 +680,8 @@ pub const Value = extern union {
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
-            .@"struct" => {
-                return out_stream.writeAll("(struct value)");
+            .aggregate => {
+                return out_stream.writeAll("(aggregate)");
             },
             .@"union" => {
                 return out_stream.writeAll("(union value)");
@@ -733,7 +736,6 @@ pub const Value = extern union {
                 try out_stream.writeAll("(repeated) ");
                 val = val.castTag(.repeated).?.data;
             },
-            .array => return out_stream.writeAll("(array)"),
             .empty_array_sentinel => return out_stream.writeAll("(empty array with sentinel)"),
             .slice => return out_stream.writeAll("(slice)"),
             .float_16 => return out_stream.print("{}", .{val.castTag(.float_16).?.data}),
@@ -755,11 +757,11 @@ pub const Value = extern union {
             .inferred_alloc_comptime => return out_stream.writeAll("(inferred comptime allocation value)"),
             .eu_payload_ptr => {
                 try out_stream.writeAll("(eu_payload_ptr)");
-                val = val.castTag(.eu_payload_ptr).?.data;
+                val = val.castTag(.eu_payload_ptr).?.data.container_ptr;
             },
             .opt_payload_ptr => {
                 try out_stream.writeAll("(opt_payload_ptr)");
-                val = val.castTag(.opt_payload_ptr).?.data;
+                val = val.castTag(.opt_payload_ptr).?.data.container_ptr;
             },
             .bound_fn => {
                 const bound_func = val.castTag(.bound_fn).?.data;
@@ -1087,7 +1089,7 @@ pub const Value = extern union {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => {
                     const fields = ty.structFields().values();
-                    const field_vals = val.castTag(.@"struct").?.data;
+                    const field_vals = val.castTag(.aggregate).?.data;
                     for (fields) |field, i| {
                         const off = @intCast(usize, ty.structFieldOffset(i, target));
                         writeToMemory(field_vals[i], field.ty, target, buffer[off..]);
@@ -1110,7 +1112,7 @@ pub const Value = extern union {
     fn packedStructToInt(val: Value, ty: Type, target: Target, buf: []std.math.big.Limb) BigIntConst {
         var bigint = BigIntMutable.init(buf, 0);
         const fields = ty.structFields().values();
-        const field_vals = val.castTag(.@"struct").?.data;
+        const field_vals = val.castTag(.aggregate).?.data;
         var bits: u16 = 0;
         // TODO allocate enough heap space instead of using this buffer
         // on the stack.
@@ -1185,7 +1187,7 @@ pub const Value = extern union {
                     elem.* = try readFromMemory(elem_ty, target, buffer[offset..], arena);
                     offset += @intCast(usize, elem_size);
                 }
-                return Tag.array.create(arena, elems);
+                return Tag.aggregate.create(arena, elems);
             },
             .Struct => switch (ty.containerLayout()) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
@@ -1196,7 +1198,7 @@ pub const Value = extern union {
                         const off = @intCast(usize, ty.structFieldOffset(i, target));
                         field_vals[i] = try readFromMemory(field.ty, target, buffer[off..], arena);
                     }
-                    return Tag.@"struct".create(arena, field_vals);
+                    return Tag.aggregate.create(arena, field_vals);
                 },
                 .Packed => {
                     const endian = target.cpu.arch.endian();
@@ -1250,7 +1252,7 @@ pub const Value = extern union {
                 else => unreachable,
             };
         }
-        return Tag.@"struct".create(arena, field_vals);
+        return Tag.aggregate.create(arena, field_vals);
     }
 
     fn bitCastBigIntToFloat(
@@ -1827,9 +1829,9 @@ pub const Value = extern union {
                 assert(op == .eq);
                 return lhs.castTag(.repeated).?.data.compareWithZero(.eq);
             },
-            .array => {
+            .aggregate => {
                 assert(op == .eq);
-                for (lhs.cast(Payload.Array).?.data) |elem_val| {
+                for (lhs.castTag(.aggregate).?.data) |elem_val| {
                     if (!elem_val.compareWithZero(.eq)) return false;
                 }
                 return true;
@@ -1898,29 +1900,16 @@ pub const Value = extern union {
             },
             .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
             .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
-            .array => {
-                const a_array = a.castTag(.array).?.data;
-                const b_array = b.castTag(.array).?.data;
-
-                if (a_array.len != b_array.len) return false;
-
-                const elem_ty = ty.childType();
-                for (a_array) |a_elem, i| {
-                    const b_elem = b_array[i];
-
-                    if (!eql(a_elem, b_elem, elem_ty)) return false;
-                }
-                return true;
-            },
             .function => {
                 const a_payload = a.castTag(.function).?.data;
                 const b_payload = b.castTag(.function).?.data;
                 return a_payload == b_payload;
             },
-            .@"struct" => {
-                const a_field_vals = a.castTag(.@"struct").?.data;
-                const b_field_vals = b.castTag(.@"struct").?.data;
+            .aggregate => {
+                const a_field_vals = a.castTag(.aggregate).?.data;
+                const b_field_vals = b.castTag(.aggregate).?.data;
                 assert(a_field_vals.len == b_field_vals.len);
+
                 if (ty.isTupleOrAnonStruct()) {
                     const types = ty.tupleFields().types;
                     assert(types.len == a_field_vals.len);
@@ -1929,10 +1918,21 @@ pub const Value = extern union {
                     }
                     return true;
                 }
-                const fields = ty.structFields().values();
-                assert(fields.len == a_field_vals.len);
-                for (fields) |field, i| {
-                    if (!eql(a_field_vals[i], b_field_vals[i], field.ty)) return false;
+
+                if (ty.zigTypeTag() == .Struct) {
+                    const fields = ty.structFields().values();
+                    assert(fields.len == a_field_vals.len);
+                    for (fields) |field, i| {
+                        if (!eql(a_field_vals[i], b_field_vals[i], field.ty)) return false;
+                    }
+                    return true;
+                }
+
+                const elem_ty = ty.childType();
+                for (a_field_vals) |a_elem, i| {
+                    const b_elem = b_field_vals[i];
+
+                    if (!eql(a_elem, b_elem, elem_ty)) return false;
                 }
                 return true;
             },
@@ -2002,7 +2002,7 @@ pub const Value = extern union {
             },
             .Struct => {
                 // A tuple can be represented with .empty_struct_value,
-                // the_one_possible_value, .@"struct" in which case we could
+                // the_one_possible_value, .aggregate in which case we could
                 // end up here and the values are equal if the type has zero fields.
                 return ty.structFieldCount() != 0;
             },
@@ -2072,8 +2072,8 @@ pub const Value = extern union {
                             field.default_val.hash(field.ty, hasher);
                         }
                     },
-                    .@"struct" => {
-                        const field_values = val.castTag(.@"struct").?.data;
+                    .aggregate => {
+                        const field_values = val.castTag(.aggregate).?.data;
                         for (field_values) |field_val, i| {
                             field_val.hash(fields[i].ty, hasher);
                         }
@@ -2179,8 +2179,8 @@ pub const Value = extern union {
             .decl_ref_mut => true,
             .elem_ptr => isComptimeMutablePtr(val.castTag(.elem_ptr).?.data.array_ptr),
             .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
-            .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data),
-            .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data),
+            .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
+            .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data.container_ptr),
 
             else => false,
         };
@@ -2190,19 +2190,12 @@ pub const Value = extern union {
         if (val.isComptimeMutablePtr()) return true;
         switch (val.tag()) {
             .repeated => return val.castTag(.repeated).?.data.canMutateComptimeVarState(),
-            .array => {
-                const elems = val.cast(Payload.Array).?.data;
-                for (elems) |elem| {
-                    if (elem.canMutateComptimeVarState()) return true;
-                }
-                return false;
-            },
             .eu_payload => return val.castTag(.eu_payload).?.data.canMutateComptimeVarState(),
-            .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.canMutateComptimeVarState(),
+            .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.container_ptr.canMutateComptimeVarState(),
             .opt_payload => return val.castTag(.opt_payload).?.data.canMutateComptimeVarState(),
-            .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.canMutateComptimeVarState(),
-            .@"struct" => {
-                const fields = val.cast(Payload.Struct).?.data;
+            .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.container_ptr.canMutateComptimeVarState(),
+            .aggregate => {
+                const fields = val.castTag(.aggregate).?.data;
                 for (fields) |field| {
                     if (field.canMutateComptimeVarState()) return true;
                 }
@@ -2263,12 +2256,12 @@ pub const Value = extern union {
             .eu_payload_ptr => {
                 const err_union_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
                 std.hash.autoHash(hasher, Value.Tag.eu_payload_ptr);
-                hashPtr(err_union_ptr, hasher);
+                hashPtr(err_union_ptr.container_ptr, hasher);
             },
             .opt_payload_ptr => {
                 const opt_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
                 std.hash.autoHash(hasher, Value.Tag.opt_payload_ptr);
-                hashPtr(opt_ptr, hasher);
+                hashPtr(opt_ptr.container_ptr, hasher);
             },
 
             .zero,
@@ -2296,17 +2289,14 @@ pub const Value = extern union {
 
             .repeated,
             .eu_payload,
-            .eu_payload_ptr,
             .opt_payload,
-            .opt_payload_ptr,
             .empty_array_sentinel,
             => return markReferencedDeclsAlive(val.cast(Payload.SubValue).?.data),
 
-            .array => {
-                for (val.cast(Payload.Array).?.data) |elem_val| {
-                    markReferencedDeclsAlive(elem_val);
-                }
-            },
+            .eu_payload_ptr,
+            .opt_payload_ptr,
+            => return markReferencedDeclsAlive(val.cast(Payload.PayloadPtr).?.data.container_ptr),
+
             .slice => {
                 const slice = val.cast(Payload.Slice).?.data;
                 markReferencedDeclsAlive(slice.ptr);
@@ -2321,8 +2311,8 @@ pub const Value = extern union {
                 const field_ptr = val.cast(Payload.FieldPtr).?.data;
                 return markReferencedDeclsAlive(field_ptr.container_ptr);
             },
-            .@"struct" => {
-                for (val.cast(Payload.Struct).?.data) |field_val| {
+            .aggregate => {
+                for (val.castTag(.aggregate).?.data) |field_val| {
                     markReferencedDeclsAlive(field_val);
                 }
             },
@@ -2405,7 +2395,7 @@ pub const Value = extern union {
             // No matter the index; all the elements are the same!
             .repeated => return val.castTag(.repeated).?.data,
 
-            .array => return val.castTag(.array).?.data[index],
+            .aggregate => return val.castTag(.aggregate).?.data[index],
             .slice => return val.castTag(.slice).?.data.ptr.elemValueAdvanced(index, arena, buffer),
 
             .decl_ref => return val.castTag(.decl_ref).?.data.val.elemValueAdvanced(index, arena, buffer),
@@ -2423,11 +2413,34 @@ pub const Value = extern union {
         }
     }
 
+    // Asserts that the provided start/end are in-bounds.
+    pub fn sliceArray(val: Value, arena: Allocator, start: usize, end: usize) error{OutOfMemory}!Value {
+        return switch (val.tag()) {
+            .empty_array_sentinel => if (start == 0 and end == 1) val else Value.initTag(.empty_array),
+            .bytes => Tag.bytes.create(arena, val.castTag(.bytes).?.data[start..end]),
+            .aggregate => Tag.aggregate.create(arena, val.castTag(.aggregate).?.data[start..end]),
+            .slice => sliceArray(val.castTag(.slice).?.data.ptr, arena, start, end),
+
+            .decl_ref => sliceArray(val.castTag(.decl_ref).?.data.val, arena, start, end),
+            .decl_ref_mut => sliceArray(val.castTag(.decl_ref_mut).?.data.decl.val, arena, start, end),
+            .elem_ptr => blk: {
+                const elem_ptr = val.castTag(.elem_ptr).?.data;
+                break :blk sliceArray(elem_ptr.array_ptr, arena, start + elem_ptr.index, end + elem_ptr.index);
+            },
+
+            .repeated,
+            .the_only_possible_value,
+            => val,
+
+            else => unreachable,
+        };
+    }
+
     pub fn fieldValue(val: Value, allocator: Allocator, index: usize) error{OutOfMemory}!Value {
         _ = allocator;
         switch (val.tag()) {
-            .@"struct" => {
-                const field_values = val.castTag(.@"struct").?.data;
+            .aggregate => {
+                const field_values = val.castTag(.aggregate).?.data;
                 return field_values[index];
             },
             .@"union" => {
@@ -2451,36 +2464,28 @@ pub const Value = extern union {
     }
 
     /// Returns a pointer to the element value at the index.
-    pub fn elemPtr(val: Value, arena: Allocator, index: usize) Allocator.Error!Value {
-        switch (val.tag()) {
-            .elem_ptr => {
-                const elem_ptr = val.castTag(.elem_ptr).?.data;
+    pub fn elemPtr(val: Value, ty: Type, arena: Allocator, index: usize) Allocator.Error!Value {
+        const elem_ty = ty.elemType2();
+        const ptr_val = switch (val.tag()) {
+            .slice => val.castTag(.slice).?.data.ptr,
+            else => val,
+        };
+
+        if (ptr_val.tag() == .elem_ptr) {
+            const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
+            if (elem_ptr.elem_ty.eql(elem_ty)) {
                 return Tag.elem_ptr.create(arena, .{
                     .array_ptr = elem_ptr.array_ptr,
+                    .elem_ty = elem_ptr.elem_ty,
                     .index = elem_ptr.index + index,
                 });
-            },
-            .slice => {
-                const ptr_val = val.castTag(.slice).?.data.ptr;
-                switch (ptr_val.tag()) {
-                    .elem_ptr => {
-                        const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-                        return Tag.elem_ptr.create(arena, .{
-                            .array_ptr = elem_ptr.array_ptr,
-                            .index = elem_ptr.index + index,
-                        });
-                    },
-                    else => return Tag.elem_ptr.create(arena, .{
-                        .array_ptr = ptr_val,
-                        .index = index,
-                    }),
-                }
-            },
-            else => return Tag.elem_ptr.create(arena, .{
-                .array_ptr = val,
-                .index = index,
-            }),
+            }
         }
+        return Tag.elem_ptr.create(arena, .{
+            .array_ptr = ptr_val,
+            .elem_ty = elem_ty,
+            .index = index,
+        });
     }
 
     pub fn isUndef(self: Value) bool {
@@ -3931,15 +3936,12 @@ pub const Value = extern union {
             },
             80 => {
                 if (true) {
-                    @panic("TODO implement compiler_rt fabs for f80");
+                    @panic("TODO implement compiler_rt fabs for f80 (__fabsx)");
                 }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @fabs(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt fabs for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @fabs(f));
             },
@@ -3963,15 +3965,12 @@ pub const Value = extern union {
             },
             80 => {
                 if (true) {
-                    @panic("TODO implement compiler_rt floor for f80");
+                    @panic("TODO implement compiler_rt floor for f80 (__floorx)");
                 }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @floor(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt floor for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @floor(f));
             },
@@ -4001,9 +4000,6 @@ pub const Value = extern union {
                 return Value.Tag.float_80.create(arena, @ceil(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt ceil for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @ceil(f));
             },
@@ -4033,9 +4029,6 @@ pub const Value = extern union {
                 return Value.Tag.float_80.create(arena, @round(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt round for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @round(f));
             },
@@ -4065,9 +4058,6 @@ pub const Value = extern union {
                 return Value.Tag.float_80.create(arena, @trunc(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt trunc for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @trunc(f));
             },
@@ -4188,12 +4178,21 @@ pub const Value = extern union {
             };
         };
 
+        pub const PayloadPtr = struct {
+            base: Payload,
+            data: struct {
+                container_ptr: Value,
+                container_ty: Type,
+            },
+        };
+
         pub const ElemPtr = struct {
             pub const base_tag = Tag.elem_ptr;
 
             base: Payload = Payload{ .tag = base_tag },
             data: struct {
                 array_ptr: Value,
+                elem_ty: Type,
                 index: usize,
             },
         };
@@ -4204,6 +4203,7 @@ pub const Value = extern union {
             base: Payload = Payload{ .tag = base_tag },
             data: struct {
                 container_ptr: Value,
+                container_ty: Type,
                 field_index: usize,
             },
         };
@@ -4214,8 +4214,10 @@ pub const Value = extern union {
             data: []const u8,
         };
 
-        pub const Array = struct {
+        pub const Aggregate = struct {
             base: Payload,
+            /// Field values. The types are according to the struct or array type.
+            /// The length is provided here so that copying a Value does not depend on the Type.
             data: []Value,
         };
 
@@ -4311,15 +4313,6 @@ pub const Value = extern union {
                 /// 0 means ABI-aligned.
                 alignment: u16,
             },
-        };
-
-        pub const Struct = struct {
-            pub const base_tag = Tag.@"struct";
-
-            base: Payload = .{ .tag = base_tag },
-            /// Field values. The types are according to the struct type.
-            /// The length is provided here so that copying a Value does not depend on the Type.
-            data: []Value,
         };
 
         pub const Union = struct {

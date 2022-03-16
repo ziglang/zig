@@ -2515,13 +2515,14 @@ test "null terminated array" {
 
       {#header_open|Vectors#}
       <p>
-      A vector is a group of booleans, {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
-      in parallel using SIMD instructions. Vector types are created with the builtin function {#link|@Type#},
-      or using the shorthand function {#syntax#}std.meta.Vector{#endsyntax#}.
+      A vector is a group of booleans, {#link|Integers#}, {#link|Floats#}, or
+      {#link|Pointers#} which are operated on in parallel, using SIMD instructions if possible.
+      Vector types are created with the builtin function {#link|@Vector#}.
       </p>
       <p>
-      Vectors support the same builtin operators as their underlying base types. These operations are performed
-      element-wise, and return a vector of the same length as the input vectors. This includes:
+      Vectors support the same builtin operators as their underlying base types.
+      These operations are performed element-wise, and return a vector of the same length
+      as the input vectors. This includes:
       </p>
       <ul>
           <li>Arithmetic ({#syntax#}+{#endsyntax#}, {#syntax#}-{#endsyntax#}, {#syntax#}/{#endsyntax#}, {#syntax#}*{#endsyntax#},
@@ -2532,10 +2533,11 @@ test "null terminated array" {
           <li>Comparison operators ({#syntax#}<{#endsyntax#}, {#syntax#}>{#endsyntax#}, {#syntax#}=={#endsyntax#}, etc.)</li>
       </ul>
       <p>
-      It is prohibited to use a math operator on a mixture of scalars (individual numbers) and vectors.
-      Zig provides the {#link|@splat#} builtin to easily convert from scalars to vectors, and it supports {#link|@reduce#}
-      and array indexing syntax to convert from vectors to scalars. Vectors also support assignment to and from
-      fixed-length arrays with comptime known length.
+      It is prohibited to use a math operator on a mixture of scalars (individual numbers)
+      and vectors. Zig provides the {#link|@splat#} builtin to easily convert from scalars
+      to vectors, and it supports {#link|@reduce#} and array indexing syntax to convert
+      from vectors to scalars. Vectors also support assignment to and from fixed-length
+      arrays with comptime known length.
       </p>
       <p>
       For rearranging elements within and between vectors, Zig provides the {#link|@shuffle#} and {#link|@select#} functions.
@@ -2550,16 +2552,14 @@ test "null terminated array" {
       </p>
       {#code_begin|test|vector_example#}
 const std = @import("std");
-const Vector = std.meta.Vector;
 const expectEqual = std.testing.expectEqual;
 
 test "Basic vector usage" {
-    // Vectors have a compile-time known length and base type,
-    // and can be assigned to using array literal syntax
-    const a: Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
-    const b: Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
+    // Vectors have a compile-time known length and base type.
+    const a = @Vector(4, i32){ 1, 2, 3, 4 };
+    const b = @Vector(4, i32){ 5, 6, 7, 8 };
 
-    // Math operations take place element-wise
+    // Math operations take place element-wise.
     const c = a + b;
 
     // Individual vector elements can be accessed using array indexing syntax.
@@ -2572,19 +2572,19 @@ test "Basic vector usage" {
 test "Conversion between vectors, arrays, and slices" {
     // Vectors and fixed-length arrays can be automatically assigned back and forth
     var arr1: [4]f32 = [_]f32{ 1.1, 3.2, 4.5, 5.6 };
-    var vec: Vector(4, f32) = arr1;
+    var vec: @Vector(4, f32) = arr1;
     var arr2: [4]f32 = vec;
     try expectEqual(arr1, arr2);
 
     // You can also assign from a slice with comptime-known length to a vector using .*
-    const vec2: Vector(2, f32) = arr1[1..3].*;
+    const vec2: @Vector(2, f32) = arr1[1..3].*;
 
     var slice: []const f32 = &arr1;
     var offset: u32 = 1;
     // To extract a comptime-known length from a runtime-known offset,
     // first extract a new slice from the starting offset, then an array of
     // comptime known length
-    const vec3: Vector(2, f32) = slice[offset..][0..2].*;
+    const vec3: @Vector(2, f32) = slice[offset..][0..2].*;
     try expectEqual(slice[offset], vec2[0]);
     try expectEqual(slice[offset + 1], vec2[1]);
     try expectEqual(vec2, vec3);
@@ -9084,7 +9084,7 @@ pub const PrefetchOptions = struct {
       {#header_close#}
 
       {#header_open|@select#}
-      <pre>{#syntax#}@select(comptime T: type, pred: std.meta.Vector(len, bool), a: std.meta.Vector(len, T), b: std.meta.Vector(len, T)) std.meta.Vector(len, T){#endsyntax#}</pre>
+      <pre>{#syntax#}@select(comptime T: type, pred: @Vector(len, bool), a: @Vector(len, T), b: @Vector(len, T)) @Vector(len, T){#endsyntax#}</pre>
       <p>
       Selects values element-wise from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} based on {#syntax#}pred{#endsyntax#}. If {#syntax#}pred[i]{#endsyntax#} is {#syntax#}true{#endsyntax#}, the corresponding element in the result will be {#syntax#}a[i]{#endsyntax#} and otherwise {#syntax#}b[i]{#endsyntax#}.
       </p>
@@ -9252,7 +9252,7 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@shuffle#}
-      <pre>{#syntax#}@shuffle(comptime E: type, a: std.meta.Vector(a_len, E), b: std.meta.Vector(b_len, E), comptime mask: std.meta.Vector(mask_len, i32)) std.meta.Vector(mask_len, E){#endsyntax#}</pre>
+      <pre>{#syntax#}@shuffle(comptime E: type, a: @Vector(a_len, E), b: @Vector(b_len, E), comptime mask: @Vector(mask_len, i32)) @Vector(mask_len, E){#endsyntax#}</pre>
       <p>
       Constructs a new {#link|vector|Vectors#} by selecting elements from {#syntax#}a{#endsyntax#} and
       {#syntax#}b{#endsyntax#} based on {#syntax#}mask{#endsyntax#}.
@@ -9287,22 +9287,21 @@ test "@setRuntimeSafety" {
       </p>
       {#code_begin|test|vector_shuffle#}
 const std = @import("std");
-const Vector = std.meta.Vector;
 const expect = std.testing.expect;
 
 test "vector @shuffle" {
-    const a: Vector(7, u8) = [_]u8{ 'o', 'l', 'h', 'e', 'r', 'z', 'w' };
-    const b: Vector(4, u8) = [_]u8{ 'w', 'd', '!', 'x' };
+    const a = @Vector(7, u8){ 'o', 'l', 'h', 'e', 'r', 'z', 'w' };
+    const b = @Vector(4, u8){ 'w', 'd', '!', 'x' };
 
     // To shuffle within a single vector, pass undefined as the second argument.
     // Notice that we can re-order, duplicate, or omit elements of the input vector
-    const mask1: Vector(5, i32) = [_]i32{ 2, 3, 1, 1, 0 };
-    const res1: Vector(5, u8) = @shuffle(u8, a, undefined, mask1);
+    const mask1 = @Vector(5, i32){ 2, 3, 1, 1, 0 };
+    const res1: @Vector(5, u8) = @shuffle(u8, a, undefined, mask1);
     try expect(std.mem.eql(u8, &@as([5]u8, res1), "hello"));
 
     // Combining two vectors
-    const mask2: Vector(6, i32) = [_]i32{ -1, 0, 4, 1, -2, -3 };
-    const res2: Vector(6, u8) = @shuffle(u8, a, b, mask2);
+    const mask2 = @Vector(6, i32){ -1, 0, 4, 1, -2, -3 };
+    const res2: @Vector(6, u8) = @shuffle(u8, a, b, mask2);
     try expect(std.mem.eql(u8, &@as([6]u8, res2), "world!"));
 }
       {#code_end#}
@@ -9329,7 +9328,7 @@ test "vector @shuffle" {
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: anytype) std.meta.Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(comptime len: u32, scalar: anytype) @Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
       <p>
       Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
       {#syntax#}scalar{#endsyntax#}:
@@ -9341,7 +9340,7 @@ const expect = std.testing.expect;
 test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
-    comptime try expect(@TypeOf(result) == std.meta.Vector(4, u32));
+    comptime try expect(@TypeOf(result) == @Vector(4, u32));
     try expect(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
@@ -9381,10 +9380,10 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "vector @reduce" {
-    const value: std.meta.Vector(4, i32) = [_]i32{ 1, -1, 1, -1 };
+    const value = @Vector(4, i32){ 1, -1, 1, -1 };
     const result = value > @splat(4, @as(i32, 0));
     // result is { true, false, true, false };
-    comptime try expect(@TypeOf(result) == std.meta.Vector(4, bool));
+    comptime try expect(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);
     comptime try expect(@TypeOf(is_all_true) == bool);
     try expect(is_all_true == false);
@@ -9742,6 +9741,12 @@ fn foo(comptime T: type, ptr: *T) T {
       <p>
       {#syntax#}@unionInit{#endsyntax#} forwards its {#link|result location|Result Location Semantics#} to {#syntax#}init_expr{#endsyntax#}.
       </p>
+      {#header_close#}
+
+
+      {#header_open|@Vector#}
+      <pre>{#syntax#}@Vector(len: comptime_int, Element: type) type{#endsyntax#}</pre>
+      <p>Creates {#link|Vectors#}.</p>
       {#header_close#}
       {#header_close#}
 

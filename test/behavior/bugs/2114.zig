@@ -7,11 +7,11 @@ fn ctz(x: anytype) usize {
 }
 
 test "fixed" {
-    try testClz();
-    comptime try testClz();
+    try testCtz();
+    comptime try testCtz();
 }
 
-fn testClz() !void {
+fn testCtz() !void {
     try expect(ctz(@as(u128, 0x40000000000000000000000000000000)) == 126);
     try expect(math.rotl(u128, @as(u128, 0x40000000000000000000000000000000), @as(u8, 1)) == @as(u128, 0x80000000000000000000000000000000));
     try expect(ctz(@as(u128, 0x80000000000000000000000000000000)) == 127);

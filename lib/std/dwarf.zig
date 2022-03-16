@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std.zig");
 const debug = std.debug;
 const fs = std.fs;
@@ -11,87 +12,20 @@ const ArrayList = std.ArrayList;
 pub const TAG = @import("dwarf/TAG.zig");
 pub const AT = @import("dwarf/AT.zig");
 pub const OP = @import("dwarf/OP.zig");
+pub const LANG = @import("dwarf/LANG.zig");
+pub const FORM = @import("dwarf/FORM.zig");
+pub const ATE = @import("dwarf/ATE.zig");
 
-pub const FORM = struct {
-    pub const addr = 0x01;
-    pub const block2 = 0x03;
-    pub const block4 = 0x04;
-    pub const data2 = 0x05;
-    pub const data4 = 0x06;
-    pub const data8 = 0x07;
-    pub const string = 0x08;
-    pub const block = 0x09;
-    pub const block1 = 0x0a;
-    pub const data1 = 0x0b;
-    pub const flag = 0x0c;
-    pub const sdata = 0x0d;
-    pub const strp = 0x0e;
-    pub const udata = 0x0f;
-    pub const ref_addr = 0x10;
-    pub const ref1 = 0x11;
-    pub const ref2 = 0x12;
-    pub const ref4 = 0x13;
-    pub const ref8 = 0x14;
-    pub const ref_udata = 0x15;
-    pub const indirect = 0x16;
-    pub const sec_offset = 0x17;
-    pub const exprloc = 0x18;
-    pub const flag_present = 0x19;
-    pub const ref_sig8 = 0x20;
-
-    // Extensions for Fission.  See http://gcc.gnu.org/wiki/DebugFission.
-    pub const GNU_addr_index = 0x1f01;
-    pub const GNU_str_index = 0x1f02;
-
-    // Extensions for DWZ multifile.
-    // See http://www.dwarfstd.org/ShowIssue.php?issue=120604.1&type=open .
-    pub const GNU_ref_alt = 0x1f20;
-    pub const GNU_strp_alt = 0x1f21;
-};
-
-pub const ATE = struct {
-    pub const @"void" = 0x0;
-    pub const address = 0x1;
-    pub const boolean = 0x2;
-    pub const complex_float = 0x3;
-    pub const float = 0x4;
-    pub const signed = 0x5;
-    pub const signed_char = 0x6;
-    pub const unsigned = 0x7;
-    pub const unsigned_char = 0x8;
-
-    // DWARF 3.
-    pub const imaginary_float = 0x9;
-    pub const packed_decimal = 0xa;
-    pub const numeric_string = 0xb;
-    pub const edited = 0xc;
-    pub const signed_fixed = 0xd;
-    pub const unsigned_fixed = 0xe;
-    pub const decimal_float = 0xf;
-
-    // DWARF 4.
-    pub const UTF = 0x10;
-
-    pub const lo_user = 0x80;
-    pub const hi_user = 0xff;
-
-    // HP extensions.
-    pub const HP_float80 = 0x80; // Floating-point (80 bit).
-    pub const HP_complex_float80 = 0x81; // Complex floating-point (80 bit).
-    pub const HP_float128 = 0x82; // Floating-point (128 bit).
-    pub const HP_complex_float128 = 0x83; // Complex fp (128 bit).
-    pub const HP_floathpintel = 0x84; // Floating-point (82 bit IA64).
-    pub const HP_imaginary_float80 = 0x85;
-    pub const HP_imaginary_float128 = 0x86;
-    pub const HP_VAX_float = 0x88; // F or G floating.
-    pub const HP_VAX_float_d = 0x89; // D floating.
-    pub const HP_packed_decimal = 0x8a; // Cobol.
-    pub const HP_zoned_decimal = 0x8b; // Cobol.
-    pub const HP_edited = 0x8c; // Cobol.
-    pub const HP_signed_fixed = 0x8d; // Cobol.
-    pub const HP_unsigned_fixed = 0x8e; // Cobol.
-    pub const HP_VAX_complex_float = 0x8f; // F or G floating complex.
-    pub const HP_VAX_complex_float_d = 0x90; // D floating complex.
+pub const LLE = struct {
+    pub const end_of_list = 0x00;
+    pub const base_addressx = 0x01;
+    pub const startx_endx = 0x02;
+    pub const startx_length = 0x03;
+    pub const offset_pair = 0x04;
+    pub const default_location = 0x05;
+    pub const base_address = 0x06;
+    pub const start_end = 0x07;
+    pub const start_length = 0x08;
 };
 
 pub const CFA = struct {
@@ -166,45 +100,6 @@ pub const LNE = struct {
     pub const hi_user = 0xff;
 };
 
-pub const LANG = struct {
-    pub const C89 = 0x0001;
-    pub const C = 0x0002;
-    pub const Ada83 = 0x0003;
-    pub const C_plus_plus = 0x0004;
-    pub const Cobol74 = 0x0005;
-    pub const Cobol85 = 0x0006;
-    pub const Fortran77 = 0x0007;
-    pub const Fortran90 = 0x0008;
-    pub const Pascal83 = 0x0009;
-    pub const Modula2 = 0x000a;
-    pub const Java = 0x000b;
-    pub const C99 = 0x000c;
-    pub const Ada95 = 0x000d;
-    pub const Fortran95 = 0x000e;
-    pub const PLI = 0x000f;
-    pub const ObjC = 0x0010;
-    pub const ObjC_plus_plus = 0x0011;
-    pub const UPC = 0x0012;
-    pub const D = 0x0013;
-    pub const Python = 0x0014;
-    pub const Go = 0x0016;
-    pub const C_plus_plus_11 = 0x001a;
-    pub const Rust = 0x001c;
-    pub const C11 = 0x001d;
-    pub const C_plus_plus_14 = 0x0021;
-    pub const Fortran03 = 0x0022;
-    pub const Fortran08 = 0x0023;
-    pub const lo_user = 0x8000;
-    pub const hi_user = 0xffff;
-    pub const Mips_Assembler = 0x8001;
-    pub const Upc = 0x8765;
-    pub const HP_Bliss = 0x8003;
-    pub const HP_Basic91 = 0x8004;
-    pub const HP_Pascal91 = 0x8005;
-    pub const HP_IMacro = 0x8006;
-    pub const HP_Assembler = 0x8007;
-};
-
 pub const UT = struct {
     pub const compile = 0x01;
     pub const @"type" = 0x02;
@@ -212,6 +107,7 @@ pub const UT = struct {
     pub const skeleton = 0x04;
     pub const split_compile = 0x05;
     pub const split_type = 0x06;
+
     pub const lo_user = 0x80;
     pub const hi_user = 0xff;
 };
@@ -222,8 +118,20 @@ pub const LNCT = struct {
     pub const timestamp = 0x3;
     pub const size = 0x4;
     pub const MD5 = 0x5;
+
     pub const lo_user = 0x2000;
     pub const hi_user = 0x3fff;
+};
+
+pub const RLE = struct {
+    pub const end_of_list = 0x00;
+    pub const base_addressx = 0x01;
+    pub const startx_endx = 0x02;
+    pub const startx_length = 0x03;
+    pub const offset_pair = 0x04;
+    pub const base_address = 0x05;
+    pub const start_end = 0x06;
+    pub const start_length = 0x07;
 };
 
 pub const CC = enum(u8) {
@@ -276,6 +184,8 @@ const AbbrevTableEntry = struct {
 const AbbrevAttr = struct {
     attr_id: u64,
     form_id: u64,
+    /// Only valid if form_id is .implicit_const
+    payload: i64,
 };
 
 const FormValue = union(enum) {
@@ -289,6 +199,7 @@ const FormValue = union(enum) {
     RefAddr: u64,
     String: []const u8,
     StrPtr: u64,
+    LineStrPtr: u64,
 };
 
 const Constant = struct {
@@ -356,6 +267,7 @@ const Die = struct {
         return switch (form_value.*) {
             FormValue.String => |value| value,
             FormValue.StrPtr => |offset| di.getString(offset),
+            FormValue.LineStrPtr => |offset| di.getLineString(offset),
             else => error.InvalidDebugInfo,
         };
     }
@@ -588,14 +500,23 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
 
         FORM.string => FormValue{ .String = try in_stream.readUntilDelimiterAlloc(allocator, 0, math.maxInt(usize)) },
         FORM.strp => FormValue{ .StrPtr = try readAddress(in_stream, endian, is_64) },
+        FORM.line_strp => FormValue{ .LineStrPtr = try readAddress(in_stream, endian, is_64) },
         FORM.indirect => {
             const child_form_id = try nosuspend leb.readULEB128(u64, in_stream);
+            if (builtin.zig_backend != .stage1) {
+                return parseFormValue(allocator, in_stream, child_form_id, endian, is_64);
+            }
             const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, endian, is_64));
             var frame = try allocator.create(F);
             defer allocator.destroy(frame);
             return await @asyncCall(frame, {}, parseFormValue, .{ allocator, in_stream, child_form_id, endian, is_64 });
         },
-        else => error.InvalidDebugInfo,
+        FORM.implicit_const => FormValue{ .Const = Constant{ .signed = true, .payload = undefined } },
+
+        else => {
+            std.debug.print("dwarf: unhandled form_id: 0x{x}\n", .{form_id});
+            return error.InvalidDebugInfo;
+        },
     };
 }
 
@@ -613,6 +534,7 @@ pub const DwarfInfo = struct {
     debug_abbrev: []const u8,
     debug_str: []const u8,
     debug_line: []const u8,
+    debug_line_str: ?[]const u8,
     debug_ranges: ?[]const u8,
     // Filled later by the initializer
     abbrev_table_list: ArrayList(AbbrevTableHeader) = undefined,
@@ -652,9 +574,20 @@ pub const DwarfInfo = struct {
             const version = try in.readInt(u16, di.endian);
             if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
-            const debug_abbrev_offset = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
-
-            const address_size = try in.readByte();
+            var address_size: u8 = undefined;
+            var debug_abbrev_offset: u64 = undefined;
+            switch (version) {
+                5 => {
+                    const unit_type = try in.readInt(u8, di.endian);
+                    if (unit_type != UT.compile) return error.InvalidDebugInfo;
+                    address_size = try in.readByte();
+                    debug_abbrev_offset = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
+                },
+                else => {
+                    debug_abbrev_offset = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
+                    address_size = try in.readByte();
+                },
+            }
             if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
 
             const compile_unit_pos = try seekable.getPos();
@@ -756,9 +689,20 @@ pub const DwarfInfo = struct {
             const version = try in.readInt(u16, di.endian);
             if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
-            const debug_abbrev_offset = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
-
-            const address_size = try in.readByte();
+            var address_size: u8 = undefined;
+            var debug_abbrev_offset: u64 = undefined;
+            switch (version) {
+                5 => {
+                    const unit_type = try in.readInt(u8, di.endian);
+                    if (unit_type != UT.compile) return error.InvalidDebugInfo;
+                    address_size = try in.readByte();
+                    debug_abbrev_offset = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
+                },
+                else => {
+                    debug_abbrev_offset = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
+                    address_size = try in.readByte();
+                },
+            }
             if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
 
             const compile_unit_pos = try seekable.getPos();
@@ -890,9 +834,12 @@ pub const DwarfInfo = struct {
                 const attr_id = try leb.readULEB128(u64, in);
                 const form_id = try leb.readULEB128(u64, in);
                 if (attr_id == 0 and form_id == 0) break;
+                // DW_FORM_implicit_const stores its value immediately after the attribute pair :(
+                const payload = if (form_id == FORM.implicit_const) try leb.readILEB128(i64, in) else undefined;
                 try attrs.append(AbbrevAttr{
                     .attr_id = attr_id,
                     .form_id = form_id,
+                    .payload = payload,
                 });
             }
         }
@@ -914,6 +861,9 @@ pub const DwarfInfo = struct {
                 .id = attr.attr_id,
                 .value = try parseFormValue(di.allocator(), in_stream, attr.form_id, di.endian, is_64),
             };
+            if (attr.form_id == FORM.implicit_const) {
+                result.attrs.items[i].value.Const.payload = @bitCast(u64, attr.payload);
+            }
         }
         return result;
     }
@@ -1097,6 +1047,21 @@ pub const DwarfInfo = struct {
         // Valid strings always have a terminating zero byte
         if (mem.indexOfScalarPos(u8, di.debug_str, casted_offset, 0)) |last| {
             return di.debug_str[casted_offset..last];
+        }
+
+        return error.InvalidDebugInfo;
+    }
+
+    fn getLineString(di: *DwarfInfo, offset: u64) ![]const u8 {
+        const debug_line_str = di.debug_line_str orelse return error.InvalidDebugInfo;
+        if (offset > debug_line_str.len)
+            return error.InvalidDebugInfo;
+        const casted_offset = math.cast(usize, offset) catch
+            return error.InvalidDebugInfo;
+
+        // Valid strings always have a terminating zero byte
+        if (mem.indexOfScalarPos(u8, debug_line_str, casted_offset, 0)) |last| {
+            return debug_line_str[casted_offset..last];
         }
 
         return error.InvalidDebugInfo;

@@ -4487,8 +4487,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = a;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:5: error: duplicate error: 'Bar'",
-        "tmp.zig:2:5: note: other error here",
+        "tmp.zig:3:5: error: duplicate error set field 'Bar'",
+        "tmp.zig:2:5: note: previous declaration here",
     });
 
     ctx.objErrStage1("cast negative integer literal to usize",

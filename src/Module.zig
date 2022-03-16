@@ -663,7 +663,7 @@ pub const Decl = struct {
         return (try decl.typedValue()).val;
     }
 
-    pub fn isFunction(decl: *Decl) !bool {
+    pub fn isFunction(decl: Decl) !bool {
         const tv = try decl.typedValue();
         return tv.ty.zigTypeTag() == .Fn;
     }
@@ -852,7 +852,7 @@ pub const ErrorSet = struct {
     }
 };
 
-pub const RequiresComptime = enum { no, yes, unknown, wip };
+pub const PropertyBoolean = enum { no, yes, unknown, wip };
 
 /// Represents the data that a struct declaration provides.
 pub const Struct = struct {
@@ -884,7 +884,7 @@ pub const Struct = struct {
     /// If false, resolving the fields is necessary to determine whether the type has only
     /// one possible value.
     known_non_opv: bool,
-    requires_comptime: RequiresComptime = .unknown,
+    requires_comptime: PropertyBoolean = .unknown,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
@@ -1089,6 +1089,8 @@ pub const EnumFull = struct {
     namespace: Namespace,
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
+    /// true if zig inferred this tag type, false if user specified it
+    tag_ty_inferred: bool,
 
     pub const NameMap = std.StringArrayHashMapUnmanaged(void);
     pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.ArrayHashContext, false);
@@ -1132,7 +1134,7 @@ pub const Union = struct {
         // which `have_layout` does not ensure.
         fully_resolved,
     },
-    requires_comptime: RequiresComptime = .unknown,
+    requires_comptime: PropertyBoolean = .unknown,
 
     pub const Field = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.
@@ -4737,7 +4739,8 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
     // map the comptime parameters to constant values and only emit arg AIR instructions
     // for the runtime ones.
     const fn_ty = decl.ty;
-    const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
+    const fn_ty_info = fn_ty.fnInfo();
+    const runtime_params_len = @intCast(u32, fn_ty_info.param_types.len);
     try inner_block.instructions.ensureTotalCapacityPrecise(gpa, runtime_params_len);
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
     try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
@@ -4769,7 +4772,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
                 continue;
             }
         }
-        const param_type = fn_ty.fnParamType(runtime_param_index);
+        const param_type = fn_ty_info.param_types[runtime_param_index];
         const opt_opv = sema.typeHasOnePossibleValue(&inner_block, param.src, param_type) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
@@ -4819,6 +4822,18 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
 
     func.state = .success;
     log.debug("set {s} to success", .{decl.name});
+
+    // Finally we must resolve the return type and parameter types so that backends
+    // have full access to type information.
+    const src: LazySrcLoc = .{ .node_offset = 0 };
+    sema.resolveFnTypes(&inner_block, src, fn_ty_info) catch |err| switch (err) {
+        error.NeededSourceLocation => unreachable,
+        error.GenericPoison => unreachable,
+        error.ComptimeReturn => unreachable,
+        error.ComptimeBreak => unreachable,
+        error.AnalysisFail => {},
+        else => |e| return e,
+    };
 
     return Air{
         .instructions = sema.air_instructions.toOwnedSlice(),
@@ -5385,7 +5400,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 .len = test_fn_vals.len,
                 .elem_type = try tmp_test_fn_ty.copy(arena),
             }),
-            .val = try Value.Tag.array.create(arena, test_fn_vals),
+            .val = try Value.Tag.aggregate.create(arena, test_fn_vals),
         });
 
         // Add a dependency on each test name and function pointer.
@@ -5417,7 +5432,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 try Value.Tag.decl_ref.create(arena, test_decl), // func
                 Value.initTag(.null_value), // async_frame_size
             };
-            test_fn_vals[i] = try Value.Tag.@"struct".create(arena, field_vals);
+            test_fn_vals[i] = try Value.Tag.aggregate.create(arena, field_vals);
         }
 
         try array_decl.finalizeNewArena(&new_decl_arena);

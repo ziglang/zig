@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const StructField = std.builtin.Type.StructField;
@@ -10,6 +11,12 @@ const text =
 ;
 
 test "issue 6456" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     comptime {
         var fields: []const StructField = &[0]StructField{};
 

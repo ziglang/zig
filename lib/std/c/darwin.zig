@@ -78,15 +78,40 @@ pub const posix_spawn_file_actions_t = *opaque {};
 pub extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int;
 pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) void;
 pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
+pub extern "c" fn posix_spawnattr_getflags(attr: *const posix_spawnattr_t, flags: *c_short) c_int;
 pub extern "c" fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) c_int;
 pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) void;
+pub extern "c" fn posix_spawn_file_actions_addclose(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addopen(
+    actions: *posix_spawn_file_actions_t,
+    filedes: fd_t,
+    path: [*:0]const u8,
+    oflag: c_int,
+    mode: mode_t,
+) c_int;
+pub extern "c" fn posix_spawn_file_actions_adddup2(
+    actions: *posix_spawn_file_actions_t,
+    filedes: fd_t,
+    newfiledes: fd_t,
+) c_int;
+pub extern "c" fn posix_spawn_file_actions_addinherit_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *posix_spawn_file_actions_t, path: [*:0]const u8) c_int;
+pub extern "c" fn posix_spawn_file_actions_addfchdir_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn(
+    pid: *pid_t,
+    path: [*:0]const u8,
+    actions: ?*const posix_spawn_file_actions_t,
+    attr: ?*const posix_spawnattr_t,
+    argv: [*:null]?[*:0]const u8,
+    env: [*:null]?[*:0]const u8,
+) c_int;
 pub extern "c" fn posix_spawnp(
     pid: *pid_t,
     path: [*:0]const u8,
     actions: ?*const posix_spawn_file_actions_t,
-    attr: *const posix_spawnattr_t,
-    argv: [*][*:0]const u8,
-    env: [*][*:0]const u8,
+    attr: ?*const posix_spawnattr_t,
+    argv: [*:null]?[*:0]const u8,
+    env: [*:null]?[*:0]const u8,
 ) c_int;
 
 pub extern "c" fn kevent64(
@@ -2563,16 +2588,16 @@ pub const CPUFAMILY = enum(u32) {
     _,
 };
 
-pub const POSIX_SPAWN_RESETIDS: c_int = 0x0001;
-pub const POSIX_SPAWN_SETPGROUP: c_int = 0x0002;
-pub const POSIX_SPAWN_SETSIGDEF: c_int = 0x0004;
-pub const POSIX_SPAWN_SETSIGMASK: c_int = 0x0008;
-pub const POSIX_SPAWN_SETEXEC: c_int = 0x0040;
-pub const POSIX_SPAWN_START_SUSPENDED: c_int = 0x0080;
-pub const _POSIX_SPAWN_DISABLE_ASLR: c_int = 0x0100;
-pub const POSIX_SPAWN_SETSID: c_int = 0x0400;
-pub const _POSIX_SPAWN_RESLIDE: c_int = 0x0800;
-pub const POSIX_SPAWN_CLOEXEC_DEFAULT: c_int = 0x4000;
+pub const POSIX_SPAWN_RESETIDS = 0x0001;
+pub const POSIX_SPAWN_SETPGROUP = 0x0002;
+pub const POSIX_SPAWN_SETSIGDEF = 0x0004;
+pub const POSIX_SPAWN_SETSIGMASK = 0x0008;
+pub const POSIX_SPAWN_SETEXEC = 0x0040;
+pub const POSIX_SPAWN_START_SUSPENDED = 0x0080;
+pub const _POSIX_SPAWN_DISABLE_ASLR = 0x0100;
+pub const POSIX_SPAWN_SETSID = 0x0400;
+pub const _POSIX_SPAWN_RESLIDE = 0x0800;
+pub const POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000;
 
 pub const PT_TRACE_ME = 0;
 pub const PT_CONTINUE = 7;
