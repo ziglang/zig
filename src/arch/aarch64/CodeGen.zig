@@ -2648,16 +2648,19 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         if (rhs_should_be_register) {
             if (!lhs_is_register and !rhs_is_register) {
                 const regs = try self.register_manager.allocRegs(2, .{
-                    Air.refToIndex(bin_op.rhs).?, Air.refToIndex(bin_op.lhs).?,
+                    Air.refToIndex(bin_op.lhs).?, Air.refToIndex(bin_op.rhs).?,
                 });
                 lhs_mcv = MCValue{ .register = regs[0] };
                 rhs_mcv = MCValue{ .register = regs[1] };
             } else if (!rhs_is_register) {
                 rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.rhs).?) };
+            } else if (!lhs_is_register) {
+                lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.lhs).?) };
             }
-        }
-        if (!lhs_is_register) {
-            lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.lhs).?) };
+        } else {
+            if (!lhs_is_register) {
+                lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.lhs).?) };
+            }
         }
 
         // Move the operands to the newly allocated registers

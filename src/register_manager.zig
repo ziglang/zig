@@ -148,18 +148,19 @@ pub fn RegisterManager(
         ) ?[count]Register {
             comptime assert(count > 0 and count <= tracked_registers.len);
 
-            const free_registers = @popCount(FreeRegInt, self.free_registers);
-            if (free_registers < count) return null;
+            const free_and_not_frozen_registers = self.free_registers & ~self.frozen_registers;
+            const free_and_not_frozen_registers_count = @popCount(FreeRegInt, free_and_not_frozen_registers);
+            if (free_and_not_frozen_registers_count < count) return null;
 
             var regs: [count]Register = undefined;
             var i: usize = 0;
             for (tracked_registers) |reg| {
                 if (i >= count) break;
                 if (self.isRegFrozen(reg)) continue;
-                if (self.isRegFree(reg)) {
-                    regs[i] = reg;
-                    i += 1;
-                }
+                if (!self.isRegFree(reg)) continue;
+
+                regs[i] = reg;
+                i += 1;
             }
             assert(i == count);
 
@@ -193,7 +194,8 @@ pub fn RegisterManager(
             insts: [count]?Air.Inst.Index,
         ) AllocateRegistersError![count]Register {
             comptime assert(count > 0 and count <= tracked_registers.len);
-            if (count > tracked_registers.len - @popCount(FreeRegInt, self.frozen_registers)) return error.OutOfRegisters;
+            const frozen_registers_count = @popCount(FreeRegInt, self.frozen_registers);
+            if (count > tracked_registers.len - frozen_registers_count) return error.OutOfRegisters;
 
             const result = self.tryAllocRegs(count, insts) orelse blk: {
                 // We'll take over the first count registers. Spill
