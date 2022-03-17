@@ -115,11 +115,6 @@ const MCValue = union(enum) {
     /// A pointer-sized integer that fits in a register.
     /// If the type is a pointer, this is the pointer address in virtual address space.
     immediate: u64,
-    /// The constant was emitted into the code, at this offset.
-    /// If the type is a pointer, it means the pointer address is embedded in the code.
-    embedded_in_code: usize,
-    /// The value is a pointer to a constant which was emitted into the code, at this offset.
-    ptr_embedded_in_code: usize,
     /// The value is in a target-specific register.
     register: Register,
     /// The value is in memory at a hard-coded address.
@@ -147,7 +142,7 @@ const MCValue = union(enum) {
 
     fn isMemory(mcv: MCValue) bool {
         return switch (mcv) {
-            .embedded_in_code, .memory, .stack_offset => true,
+            .memory, .stack_offset => true,
             else => false,
         };
     }
@@ -166,12 +161,10 @@ const MCValue = union(enum) {
             .dead => unreachable,
 
             .immediate,
-            .embedded_in_code,
             .memory,
             .compare_flags_unsigned,
             .compare_flags_signed,
             .ptr_stack_offset,
-            .ptr_embedded_in_code,
             .undef,
             => false,
 
@@ -1966,12 +1959,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .compare_flags_signed => unreachable,
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
         .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
-        .ptr_embedded_in_code => |off| {
-            try self.setRegOrMem(elem_ty, dst_mcv, .{ .embedded_in_code = off });
-        },
-        .embedded_in_code => {
-            return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
-        },
         .register => |addr_reg| {
             self.register_manager.freezeRegs(&.{addr_reg});
             defer self.register_manager.unfreezeRegs(&.{addr_reg});
@@ -1980,7 +1967,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .dead => unreachable,
                 .undef => unreachable,
                 .compare_flags_signed, .compare_flags_unsigned => unreachable,
-                .embedded_in_code => unreachable,
                 .register => |dst_reg| {
                     try self.genLdrRegister(dst_reg, addr_reg, elem_size);
                 },
@@ -2243,12 +2229,6 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .ptr_stack_offset => |off| {
             try self.genSetStack(value_ty, off, value);
         },
-        .ptr_embedded_in_code => |off| {
-            try self.setRegOrMem(value_ty, .{ .embedded_in_code = off }, value);
-        },
-        .embedded_in_code => {
-            return self.fail("TODO implement storing to MCValue.embedded_in_code", .{});
-        },
         .register => |addr_reg| {
             self.register_manager.freezeRegs(&.{addr_reg});
             defer self.register_manager.unfreezeRegs(&.{addr_reg});
@@ -2461,7 +2441,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             .immediate => unreachable,
             .unreach => unreachable,
             .dead => unreachable,
-            .embedded_in_code => unreachable,
             .memory => unreachable,
             .compare_flags_signed => unreachable,
             .compare_flags_unsigned => unreachable,
@@ -2476,9 +2455,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             },
             .ptr_stack_offset => {
                 return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-            },
-            .ptr_embedded_in_code => {
-                return self.fail("TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
             },
         }
     }
@@ -3337,14 +3313,9 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
         .compare_flags_signed,
         .immediate,
         .ptr_stack_offset,
-        .ptr_embedded_in_code,
         => {
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
-        },
-        .embedded_in_code => |code_offset| {
-            _ = code_offset;
-            return self.fail("TODO implement set stack variable from embedded_in_code", .{});
         },
         .register => |reg| {
             const adj_off = stack_offset + abi_size;
@@ -3448,7 +3419,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
-        .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
             if (!self.wantSafety())
@@ -3586,7 +3556,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 else => unreachable,
             }
         },
-        else => return self.fail("TODO implement genSetReg for aarch64 {}", .{mcv}),
     }
 }
 
