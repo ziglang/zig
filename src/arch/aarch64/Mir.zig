@@ -249,11 +249,20 @@ pub const Inst = struct {
             imm12: u12,
             sh: u1 = 0,
         },
+        /// Two registers and a shift (shift type and 6-bit amount)
+        ///
+        /// Used by e.g. cmp_shifted_register
+        rr_imm6_shift: struct {
+            rn: Register,
+            rm: Register,
+            imm6: u6,
+            shift: bits.Instruction.AddSubtractShiftedRegisterShift,
+        },
         /// Two registers and a shift (logical instruction version)
         /// (shift type and 6-bit amount)
         ///
         /// Used by e.g. mvn
-        rr_imm6_shift: struct {
+        rr_imm6_logical_shift: struct {
             rd: Register,
             rm: Register,
             imm6: u6,
@@ -287,7 +296,7 @@ pub const Inst = struct {
         },
         /// Three registers and a shift (shift type and 6-bit amount)
         ///
-        /// Used by e.g. cmp_shifted_register
+        /// Used by e.g. add_shifted_register
         rrr_imm6_shift: struct {
             rd: Register,
             rn: Register,

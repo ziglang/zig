@@ -1058,7 +1058,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
 
                             _ = try self.addInst(.{
                                 .tag = .mvn,
-                                .data = .{ .rr_imm6_shift = .{
+                                .data = .{ .rr_imm6_logical_shift = .{
                                     .rd = dest_reg,
                                     .rm = op_reg,
                                     .imm6 = 0,
@@ -1188,6 +1188,7 @@ fn binOpRegister(
         .sub,
         .ptr_sub,
         => .sub_shifted_register,
+        .cmp_eq => .cmp_shifted_register,
         .mul => .mul,
         .bit_and,
         .bool_and,
@@ -1214,6 +1215,12 @@ fn binOpRegister(
         .ptr_sub,
         => .{ .rrr_imm6_shift = .{
             .rd = dest_reg,
+            .rn = lhs_reg,
+            .rm = rhs_reg,
+            .imm6 = 0,
+            .shift = .lsl,
+        } },
+        .cmp_eq => .{ .rr_imm6_shift = .{
             .rn = lhs_reg,
             .rm = rhs_reg,
             .imm6 = 0,
@@ -1296,20 +1303,23 @@ fn binOpImmediate(
     };
     defer self.register_manager.unfreezeRegs(&.{lhs_reg});
 
-    const dest_reg = if (maybe_inst) |inst| blk: {
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const dest_reg = switch (tag) {
+        .cmp_eq => undefined, // cmp has no destination register
+        else => if (maybe_inst) |inst| blk: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-        if (lhs_is_register and self.reuseOperand(
-            inst,
-            if (lhs_and_rhs_swapped) bin_op.rhs else bin_op.lhs,
-            if (lhs_and_rhs_swapped) 1 else 0,
-            lhs,
-        )) {
-            break :blk lhs_reg;
-        } else {
-            break :blk try self.register_manager.allocReg(inst);
-        }
-    } else try self.register_manager.allocReg(null);
+            if (lhs_is_register and self.reuseOperand(
+                inst,
+                if (lhs_and_rhs_swapped) bin_op.rhs else bin_op.lhs,
+                if (lhs_and_rhs_swapped) 1 else 0,
+                lhs,
+            )) {
+                break :blk lhs_reg;
+            } else {
+                break :blk try self.register_manager.allocReg(inst);
+            }
+        } else try self.register_manager.allocReg(null),
+    };
 
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
 
@@ -1325,6 +1335,7 @@ fn binOpImmediate(
             .signed => Mir.Inst.Tag.asr_immediate,
             .unsigned => Mir.Inst.Tag.lsr_immediate,
         },
+        .cmp_eq => .cmp_immediate,
         else => unreachable,
     };
     const mir_data: Mir.Inst.Data = switch (tag) {
@@ -1343,6 +1354,10 @@ fn binOpImmediate(
             .rd = dest_reg,
             .rn = lhs_reg,
             .shift = @intCast(u6, rhs.immediate),
+        } },
+        .cmp_eq => .{ .r_imm12_sh = .{
+            .rn = lhs_reg,
+            .imm12 = @intCast(u12, rhs.immediate),
         } },
         else => unreachable,
     };
@@ -1381,6 +1396,7 @@ fn binOp(
         // Arithmetic operations on integers and floats
         .add,
         .sub,
+        .cmp_eq,
         => {
             switch (lhs_ty.zigTypeTag()) {
                 .Float => return self.fail("TODO binary operations on floats", .{}),
@@ -1394,12 +1410,13 @@ fn binOp(
                         // operands
                         const lhs_immediate_ok = switch (tag) {
                             .add => lhs == .immediate and lhs.immediate <= std.math.maxInt(u12),
-                            .sub => false,
+                            .sub, .cmp_eq => false,
                             else => unreachable,
                         };
                         const rhs_immediate_ok = switch (tag) {
                             .add,
                             .sub,
+                            .cmp_eq,
                             => rhs == .immediate and rhs.immediate <= std.math.maxInt(u12),
                             else => unreachable,
                         };
@@ -2036,8 +2053,7 @@ fn genInlineMemcpy(
     // cmp count, len
     _ = try self.addInst(.{
         .tag = .cmp_shifted_register,
-        .data = .{ .rrr_imm6_shift = .{
-            .rd = .xzr,
+        .data = .{ .rr_imm6_shift = .{
             .rn = count,
             .rm = len,
             .imm6 = 0,
@@ -2615,107 +2631,44 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_ty = self.air.typeOf(bin_op.lhs);
 
-    if (self.liveness.isUnused(inst))
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+        var int_buffer: Type.Payload.Bits = undefined;
+        const int_ty = switch (lhs_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO AArch64 cmp vectors", .{}),
+            .Enum => lhs_ty.intTagType(&int_buffer),
+            .Int => lhs_ty,
+            .Bool => Type.initTag(.u1),
+            .Pointer => Type.usize,
+            .ErrorSet => Type.initTag(.u16),
+            .Optional => blk: {
+                if (lhs_ty.isPtrLikeOptional()) {
+                    break :blk Type.usize;
+                }
 
-    const ty = self.air.typeOf(bin_op.lhs);
-
-    if (ty.abiSize(self.target.*) > 8) {
-        return self.fail("TODO cmp for types with size > 8", .{});
-    }
-
-    try self.spillCompareFlagsIfOccupied();
-    self.compare_flags_inst = inst;
-
-    const signedness: std.builtin.Signedness = blk: {
-        // by default we tell the operand type is unsigned (i.e. bools and enum values)
-        if (ty.zigTypeTag() != .Int) break :blk .unsigned;
-
-        // incase of an actual integer, we emit the correct signedness
-        break :blk ty.intInfo(self.target.*).signedness;
-    };
-
-    const lhs = try self.resolveInst(bin_op.lhs);
-    const rhs = try self.resolveInst(bin_op.rhs);
-    const result: MCValue = result: {
-        const lhs_is_register = lhs == .register;
-        const rhs_is_register = rhs == .register;
-        // lhs should always be a register
-        const rhs_should_be_register = switch (rhs) {
-            .immediate => |imm| imm < 0 or imm > std.math.maxInt(u12),
-            else => true,
-        };
-
-        if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
-        defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
-        if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
-        defer if (rhs_is_register) self.register_manager.unfreezeRegs(&.{rhs.register});
-
-        var lhs_mcv = lhs;
-        var rhs_mcv = rhs;
-
-        // Allocate registers
-        if (rhs_should_be_register) {
-            if (!lhs_is_register and !rhs_is_register) {
-                const regs = try self.register_manager.allocRegs(2, .{
-                    Air.refToIndex(bin_op.lhs).?, Air.refToIndex(bin_op.rhs).?,
-                });
-                lhs_mcv = MCValue{ .register = regs[0] };
-                rhs_mcv = MCValue{ .register = regs[1] };
-            } else if (!rhs_is_register) {
-                rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.rhs).?) };
-            } else if (!lhs_is_register) {
-                lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.lhs).?) };
-            }
-        } else {
-            if (!lhs_is_register) {
-                lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.lhs).?) };
-            }
-        }
-
-        // Move the operands to the newly allocated registers
-        const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-        if (lhs_mcv == .register and !lhs_is_register) {
-            try self.genSetReg(ty, lhs_mcv.register, lhs);
-            branch.inst_table.putAssumeCapacity(Air.refToIndex(bin_op.lhs).?, lhs);
-        }
-        if (rhs_mcv == .register and !rhs_is_register) {
-            try self.genSetReg(ty, rhs_mcv.register, rhs);
-            branch.inst_table.putAssumeCapacity(Air.refToIndex(bin_op.rhs).?, rhs);
-        }
-
-        // The destination register is not present in the cmp instruction
-        // The signedness of the integer does not matter for the cmp instruction
-        switch (rhs_mcv) {
-            .register => |reg| {
-                _ = try self.addInst(.{
-                    .tag = .cmp_shifted_register,
-                    .data = .{ .rrr_imm6_shift = .{
-                        .rd = .xzr,
-                        .rn = lhs_mcv.register,
-                        .rm = reg,
-                        .imm6 = 0,
-                        .shift = .lsl,
-                    } },
-                });
+                return self.fail("TODO AArch64 cmp optionals", .{});
             },
-            .immediate => |imm| {
-                _ = try self.addInst(.{
-                    .tag = .cmp_immediate,
-                    .data = .{ .r_imm12_sh = .{
-                        .rn = lhs_mcv.register,
-                        .imm12 = @intCast(u12, imm),
-                    } },
-                });
-            },
+            .Float => return self.fail("TODO AArch64 cmp floats", .{}),
             else => unreachable,
-        }
-
-        break :result switch (signedness) {
-            .signed => MCValue{ .compare_flags_signed = op },
-            .unsigned => MCValue{ .compare_flags_unsigned = op },
         };
+
+        const int_info = int_ty.intInfo(self.target.*);
+        if (int_info.bits <= 64) {
+            _ = try self.binOp(.cmp_eq, inst, lhs, rhs, int_ty, int_ty);
+
+            try self.spillCompareFlagsIfOccupied();
+            self.compare_flags_inst = inst;
+
+            break :result switch (int_info.signedness) {
+                .signed => MCValue{ .compare_flags_signed = op },
+                .unsigned => MCValue{ .compare_flags_unsigned = op },
+            };
+        } else {
+            return self.fail("TODO AArch64 cmp for ints > 64 bits", .{});
+        }
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
