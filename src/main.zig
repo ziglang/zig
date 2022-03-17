@@ -1308,7 +1308,7 @@ fn buildOutputType(
         .cc, .cpp => {
             emit_h = .no;
             soname = .no;
-            strip = true;
+            strip = false;
             ensure_libc_on_non_freestanding = true;
             ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
             want_native_include_dirs = true;
