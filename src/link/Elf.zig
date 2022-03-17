@@ -511,28 +511,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     };
     const ptr_size: u8 = self.ptrWidthBytes();
 
-    if (self.phdr_load_re_index == null) {
-        self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
-        const file_size = self.base.options.program_code_size_hint;
-        const p_align = self.page_size;
-        const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD RE free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
-        try self.program_headers.append(self.base.allocator, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = file_size,
-            .p_vaddr = entry_addr,
-            .p_paddr = entry_addr,
-            .p_memsz = file_size,
-            .p_align = p_align,
-            .p_flags = elf.PF_X | elf.PF_R,
-        });
-        try self.atom_free_lists.putNoClobber(self.base.allocator, self.phdr_load_re_index.?, .{});
-        self.entry_addr = null;
-        self.phdr_table_dirty = true;
-    }
-
     if (self.phdr_got_index == null) {
         self.phdr_got_index = @intCast(u16, self.program_headers.items.len);
         const file_size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
@@ -555,6 +533,28 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_align = p_align,
             .p_flags = elf.PF_R,
         });
+        self.phdr_table_dirty = true;
+    }
+
+    if (self.phdr_load_re_index == null) {
+        self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
+        const file_size = self.base.options.program_code_size_hint;
+        const p_align = self.page_size;
+        const off = self.findFreeSpace(file_size, p_align);
+        log.debug("found PT_LOAD RE free space 0x{x} to 0x{x}", .{ off, off + file_size });
+        const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
+        try self.program_headers.append(self.base.allocator, .{
+            .p_type = elf.PT_LOAD,
+            .p_offset = off,
+            .p_filesz = file_size,
+            .p_vaddr = entry_addr,
+            .p_paddr = entry_addr,
+            .p_memsz = file_size,
+            .p_align = p_align,
+            .p_flags = elf.PF_X | elf.PF_R,
+        });
+        try self.atom_free_lists.putNoClobber(self.base.allocator, self.phdr_load_re_index.?, .{});
+        self.entry_addr = null;
         self.phdr_table_dirty = true;
     }
 
