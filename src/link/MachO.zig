@@ -4012,27 +4012,8 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
 
         if (need_realloc) {
             const vaddr = try self.growAtom(&decl.link.macho, code_len, required_alignment, match);
-
             log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ sym_name, symbol.n_value, vaddr });
             log.debug("  (required alignment 0x{x})", .{required_alignment});
-
-            if (vaddr != symbol.n_value) {
-                log.debug(" (writing new GOT entry)", .{});
-                const got_index = self.got_entries_table.get(.{ .local = decl.link.macho.local_sym_index }).?;
-                const got_atom = self.got_entries.items[got_index].atom;
-                const got_sym = &self.locals.items[got_atom.local_sym_index];
-                const got_vaddr = try self.allocateAtom(got_atom, @sizeOf(u64), 8, .{
-                    .seg = self.data_const_segment_cmd_index.?,
-                    .sect = self.got_section_index.?,
-                });
-                got_sym.n_value = got_vaddr;
-                got_sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(.{
-                    .seg = self.data_const_segment_cmd_index.?,
-                    .sect = self.got_section_index.?,
-                }).? + 1);
-                got_atom.dirty = true;
-            }
-
             symbol.n_value = vaddr;
         } else if (code_len < decl.link.macho.size) {
             self.shrinkAtom(&decl.link.macho, code_len, match);
