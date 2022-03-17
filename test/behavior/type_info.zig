@@ -385,7 +385,6 @@ extern fn foo(a: usize, b: bool, ...) callconv(.C) usize;
 extern fn fooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
 
 test "type info: generic function types" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 

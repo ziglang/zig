@@ -202,7 +202,6 @@ fn doSomeMangling(array: *[4]u8) void {
 
 test "implicit cast zero sized array ptr to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     {
         var b = "".*;

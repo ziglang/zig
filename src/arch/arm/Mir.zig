@@ -54,6 +54,8 @@ pub const Inst = struct {
         eor,
         /// Load Register
         ldr,
+        /// Pseudo-instruction: Load pointer to stack argument offset
+        ldr_ptr_stack_argument,
         /// Load Register
         ldr_stack_argument,
         /// Load Register Byte

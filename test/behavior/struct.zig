@@ -926,7 +926,6 @@ test "anonymous struct literal syntax" {
 
 test "fully anonymous struct" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -951,7 +950,6 @@ test "fully anonymous struct" {
 
 test "fully anonymous list literal" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {

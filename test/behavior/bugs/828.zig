@@ -30,7 +30,6 @@ fn constCount(comptime cb: *const CountBy, comptime unused: u32) void {
 }
 
 test "comptime struct return should not return the same instance" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     //the first parameter must be passed by reference to trigger the bug

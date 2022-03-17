@@ -112,6 +112,7 @@ pub fn emitMir(
             .str => try emit.mirLoadStore(inst),
             .strb => try emit.mirLoadStore(inst),
 
+            .ldr_ptr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrb_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrh_stack_argument => try emit.mirLoadStackArgument(inst),
@@ -597,6 +598,12 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     const raw_offset = emit.prologue_stack_space - r_stack_offset.stack_offset;
     switch (tag) {
+        .ldr_ptr_stack_argument => {
+            const operand = Instruction.Operand.fromU32(raw_offset) orelse
+                return emit.fail("TODO mirLoadStack larger offsets", .{});
+
+            try emit.writeInstruction(Instruction.add(cond, r_stack_offset.rt, .fp, operand));
+        },
         .ldr_stack_argument,
         .ldrb_stack_argument,
         => {

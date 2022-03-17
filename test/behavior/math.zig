@@ -367,7 +367,6 @@ test "binary not" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try expect(comptime x: {
         break :x ~@as(u16, 0b1010101010101010) == 0b0101010101010101;
@@ -488,7 +487,6 @@ fn mod(comptime T: type, a: T, b: T) T {
 test "unsigned wrapping" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try testUnsignedWrappingEval(maxInt(u32));
     comptime try testUnsignedWrappingEval(maxInt(u32));
@@ -503,7 +501,6 @@ fn testUnsignedWrappingEval(x: u32) !void {
 test "signed wrapping" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try testSignedWrappingEval(maxInt(i32));
     comptime try testSignedWrappingEval(maxInt(i32));
@@ -518,7 +515,6 @@ fn testSignedWrappingEval(x: i32) !void {
 test "signed negation wrapping" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try testSignedNegationWrappingEval(minInt(i16));
     comptime try testSignedNegationWrappingEval(minInt(i16));
@@ -532,7 +528,6 @@ fn testSignedNegationWrappingEval(x: i16) !void {
 test "unsigned negation wrapping" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try testUnsignedNegationWrappingEval(1);
     comptime try testUnsignedNegationWrappingEval(1);
@@ -868,7 +863,6 @@ test "quad hex float literal parsing accurate" {
 
 test "truncating shift left" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testShlTrunc(maxInt(u16));
@@ -881,7 +875,6 @@ fn testShlTrunc(x: u16) !void {
 
 test "exact shift left" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testShlExact(0b00110101);
@@ -894,7 +887,6 @@ fn testShlExact(x: u8) !void {
 
 test "exact shift right" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testShrExact(0b10110100);

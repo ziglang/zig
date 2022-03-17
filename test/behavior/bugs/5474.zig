@@ -49,15 +49,11 @@ fn constant() !void {
 }
 
 test "pointer-to-array constness for zero-size elements, var" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
     try mutable();
     comptime try mutable();
 }
 
 test "pointer-to-array constness for zero-size elements, const" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
     try constant();
     comptime try constant();
 }

@@ -26,7 +26,6 @@ pub const EmptyStruct = struct {};
 
 test "optional pointer to size zero struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var e = EmptyStruct{};
     var o: ?*EmptyStruct = &e;
