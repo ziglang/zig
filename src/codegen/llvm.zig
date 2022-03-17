@@ -974,7 +974,7 @@ pub const Object = struct {
                     const bland_ptr_ty = Type.initPayload(&payload.base);
                     const ptr_di_ty = try o.lowerDebugType(bland_ptr_ty, resolve);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.initFull(ptr_di_ty));
+                    try o.di_type_map.put(gpa, ty, AnnotatedDITypePtr.init(ptr_di_ty, resolve));
                     return ptr_di_ty;
                 }
 
@@ -1560,25 +1560,26 @@ pub const Object = struct {
             },
             .Fn => {
                 const fn_info = ty.fnInfo();
-                const sret = firstParamSRet(fn_info, target);
 
                 var param_di_types = std.ArrayList(*llvm.DIType).init(gpa);
                 defer param_di_types.deinit();
 
                 // Return type goes first.
-                const di_ret_ty = if (sret or !fn_info.return_type.hasRuntimeBitsIgnoreComptime())
-                    Type.void
-                else
-                    fn_info.return_type;
-                try param_di_types.append(try o.lowerDebugType(di_ret_ty, .full));
+                if (fn_info.return_type.hasRuntimeBitsIgnoreComptime()) {
+                    const sret = firstParamSRet(fn_info, target);
+                    const di_ret_ty = if (sret) Type.void else fn_info.return_type;
+                    try param_di_types.append(try o.lowerDebugType(di_ret_ty, .full));
 
-                if (sret) {
-                    var ptr_ty_payload: Type.Payload.ElemType = .{
-                        .base = .{ .tag = .single_mut_pointer },
-                        .data = fn_info.return_type,
-                    };
-                    const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-                    try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
+                    if (sret) {
+                        var ptr_ty_payload: Type.Payload.ElemType = .{
+                            .base = .{ .tag = .single_mut_pointer },
+                            .data = fn_info.return_type,
+                        };
+                        const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+                        try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
+                    }
+                } else {
+                    try param_di_types.append(try o.lowerDebugType(Type.void, .full));
                 }
 
                 for (fn_info.param_types) |param_ty| {
@@ -7341,6 +7342,12 @@ const AnnotatedDITypePtr = enum(usize) {
     fn initFull(di_type: *llvm.DIType) AnnotatedDITypePtr {
         const addr = @ptrToInt(di_type);
         return @intToEnum(AnnotatedDITypePtr, addr);
+    }
+
+    fn init(di_type: *llvm.DIType, resolve: Object.DebugResolveStatus) AnnotatedDITypePtr {
+        const addr = @ptrToInt(di_type);
+        const bit = @boolToInt(resolve == .fwd);
+        return @intToEnum(AnnotatedDITypePtr, addr | bit);
     }
 
     fn toDIType(self: AnnotatedDITypePtr) *llvm.DIType {
