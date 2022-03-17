@@ -5068,6 +5068,7 @@ fn instantiateGenericCall(
         };
         const new_func_val = child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst) catch unreachable;
         const new_func = new_func_val.castTag(.function).?.data;
+        errdefer new_func.deinit(gpa);
         assert(new_func == new_module_func);
 
         arg_i = 0;
