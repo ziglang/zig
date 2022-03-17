@@ -85,10 +85,6 @@ fn vector16() !void {
     var c = @Vector(4, f16){ 6.25, 6.25, 6.25, 6.25 };
     var x = @mulAdd(@Vector(4, f16), a, b, c);
 
-    // TODO use `expectEqual` instead once stage2 supports it
-    // var expected = @Vector(4, f16){ 20, 20, 20, 20 };
-    // try expectEqual(expected, x);
-
     try expect(x[0] == 20);
     try expect(x[1] == 20);
     try expect(x[2] == 20);
@@ -113,10 +109,6 @@ fn vector32() !void {
     var c = @Vector(4, f32){ 6.25, 6.25, 6.25, 6.25 };
     var x = @mulAdd(@Vector(4, f32), a, b, c);
 
-    // TODO use `expectEqual` instead once stage2 supports it
-    // var expected = @Vector(4, f32){ 20, 20, 20, 20 };
-    // try expectEqual(expected, x);
-
     try expect(x[0] == 20);
     try expect(x[1] == 20);
     try expect(x[2] == 20);
@@ -140,10 +132,6 @@ fn vector64() !void {
     var b = @Vector(4, f64){ 2.5, 2.5, 2.5, 2.5 };
     var c = @Vector(4, f64){ 6.25, 6.25, 6.25, 6.25 };
     var x = @mulAdd(@Vector(4, f64), a, b, c);
-
-    // TODO use `expectEqual` instead once stage2 supports it
-    // var expected = @Vector(4, f64){ 20, 20, 20, 20 };
-    // try expectEqual(expected, x);
 
     try expect(x[0] == 20);
     try expect(x[1] == 20);
@@ -189,10 +177,6 @@ fn vector128() !void {
     var b = @Vector(4, f128){ 2.5, 2.5, 2.5, 2.5 };
     var c = @Vector(4, f128){ 6.25, 6.25, 6.25, 6.25 };
     var x = @mulAdd(@Vector(4, f128), a, b, c);
-
-    // TODO use `expectEqual` instead once stage2 supports it
-    // var expected = @Vector(4, f128){ 20, 20, 20, 20 };
-    // try expectEqual(expected, x);
 
     try expect(x[0] == 20);
     try expect(x[1] == 20);
