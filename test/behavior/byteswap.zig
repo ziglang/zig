@@ -114,9 +114,6 @@ fn vector0() !void {
 }
 
 test "@byteSwap vectors u0" {
-    // TODO: vector initialization for @Vector(x, u0) currently fails.
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;

@@ -3205,14 +3205,11 @@ fn zirValidateArrayInit(
         // instruction after it within the same block.
         // Possible performance enhancement: save the `block_index` between iterations
         // of the for loop.
-        const next_air_inst = inst: {
-            var block_index = block.instructions.items.len - 1;
-            while (block.instructions.items[block_index] != elem_ptr_air_inst) {
-                block_index -= 1;
-            }
-            first_block_index = @minimum(first_block_index, block_index);
-            break :inst block.instructions.items[block_index + 1];
-        };
+        var block_index = block.instructions.items.len - 1;
+        while (block.instructions.items[block_index] != elem_ptr_air_inst) {
+            block_index -= 1;
+        }
+        first_block_index = @minimum(first_block_index, block_index);
 
         // Array has one possible value, so value is always comptime-known
         if (opt_opv) |opv| {
@@ -3222,6 +3219,7 @@ fn zirValidateArrayInit(
 
         // If the next instructon is a store with a comptime operand, this element
         // is comptime.
+        const next_air_inst = block.instructions.items[block_index + 1];
         switch (air_tags[next_air_inst]) {
             .store => {
                 const bin_op = air_datas[next_air_inst].bin_op;
