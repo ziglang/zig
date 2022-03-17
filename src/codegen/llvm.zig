@@ -3472,8 +3472,8 @@ pub const FuncGen = struct {
                 .const_ty => unreachable,
                 .unreach  => self.airUnreach(inst),
                 .dbg_stmt => self.airDbgStmt(inst),
-                .dbg_inline_begin => try self.airDbgInline(inst, true),
-                .dbg_inline_end => try self.airDbgInline(inst, false),
+                .dbg_inline_begin => try self.airDbgInlineBegin(inst),
+                .dbg_inline_end => try self.airDbgInlineEnd(inst),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst),
                 // zig fmt: on
@@ -4199,7 +4199,7 @@ pub const FuncGen = struct {
         return null;
     }
 
-    fn airDbgInline(self: *FuncGen, inst: Air.Inst.Index, start: bool) !?*const llvm.Value {
+    fn airDbgInlineBegin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         const dib = self.dg.object.di_builder orelse return null;
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
 
@@ -4209,49 +4209,49 @@ pub const FuncGen = struct {
         self.di_file = di_file;
         const line_number = decl.src_line + 1;
         const cur_debug_location = self.builder.getCurrentDebugLocation2();
-        if (start) {
-            try self.dbg_inlined.append(self.gpa, .{
-                .loc = @ptrCast(*llvm.DILocation, cur_debug_location),
-                .scope = self.di_scope.?,
-                .base_line = self.base_line,
-            });
-        } else {
-            const old = self.dbg_inlined.pop();
-            self.di_scope = old.scope;
-            self.base_line = old.base_line;
-            return null;
-        }
 
-        const fn_ty = try self.air.getRefType(ty_pl.ty).copy(self.dg.object.type_map_arena.allocator());
+        try self.dbg_inlined.append(self.gpa, .{
+            .loc = @ptrCast(*llvm.DILocation, cur_debug_location),
+            .scope = self.di_scope.?,
+            .base_line = self.base_line,
+        });
+
         const fqn = try decl.getFullyQualifiedName(self.gpa);
         defer self.gpa.free(fqn);
-        const fn_info = fn_ty.fnInfo();
 
         const is_internal_linkage = !self.dg.module.decl_exports.contains(decl);
-        const noret_bit: c_uint = if (fn_info.return_type.isNoReturn())
-            llvm.DIFlags.NoReturn
-        else
-            0;
         const subprogram = dib.createFunction(
             di_file.toScope(),
             decl.name,
             fqn,
             di_file,
             line_number,
-            try self.dg.object.lowerDebugType(fn_ty, .full),
+            try self.dg.object.lowerDebugType(Type.initTag(.fn_void_no_args), .full),
             is_internal_linkage,
             true, // is definition
             line_number + func.lbrace_line, // scope line
-            llvm.DIFlags.StaticMember | noret_bit,
+            llvm.DIFlags.StaticMember,
             self.dg.module.comp.bin_file.options.optimize_mode != .Debug,
             null, // decl_subprogram
         );
 
-        try self.dg.object.di_map.put(self.gpa, decl, subprogram.toNode());
-
         const lexical_block = dib.createLexicalBlock(subprogram.toScope(), di_file, line_number, 1);
         self.di_scope = lexical_block.toScope();
         self.base_line = decl.src_line;
+        return null;
+    }
+
+    fn airDbgInlineEnd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.dg.object.di_builder == null) return null;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+
+        const func = self.air.values[ty_pl.payload].castTag(.function).?.data;
+        const decl = func.owner_decl;
+        const di_file = try self.dg.object.getDIFile(self.gpa, decl.src_namespace.file_scope);
+        self.di_file = di_file;
+        const old = self.dbg_inlined.pop();
+        self.di_scope = old.scope;
+        self.base_line = old.base_line;
         return null;
     }
 

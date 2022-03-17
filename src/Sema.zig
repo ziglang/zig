@@ -10907,9 +10907,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                             );
-                            break :v try Value.Tag.slice.create(sema.arena, .{
+                            break :v try Value.Tag.slice.create(fields_anon_decl.arena(), .{
                                 .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
-                                .len = try Value.Tag.int_u64.create(sema.arena, bytes.len),
+                                .len = try Value.Tag.int_u64.create(fields_anon_decl.arena(), bytes.len),
                             });
                         };
 
@@ -10950,9 +10950,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                             try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                         );
-                        break :v try Value.Tag.slice.create(sema.arena, .{
+                        break :v try Value.Tag.slice.create(fields_anon_decl.arena(), .{
                             .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
-                            .len = try Value.Tag.int_u64.create(sema.arena, bytes.len),
+                            .len = try Value.Tag.int_u64.create(fields_anon_decl.arena(), bytes.len),
                         });
                     };
 

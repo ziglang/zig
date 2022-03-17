@@ -8,6 +8,7 @@ const expectApproxEqRel = std.testing.expectApproxEqRel;
 const Vector = std.meta.Vector;
 
 test "implicit cast vector to array - bool" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             const a: Vector(4, bool) = [_]bool{ true, false, true, false };
@@ -20,6 +21,7 @@ test "implicit cast vector to array - bool" {
 }
 
 test "vector wrap operators" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
@@ -36,6 +38,7 @@ test "vector wrap operators" {
 }
 
 test "vector bin compares with mem.eql" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
@@ -53,6 +56,7 @@ test "vector bin compares with mem.eql" {
 }
 
 test "vector int operators" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, i32) = [4]i32{ 10, 20, 30, 40 };
@@ -68,6 +72,7 @@ test "vector int operators" {
 }
 
 test "vector float operators" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, f32) = [4]f32{ 10, 20, 30, 40 };
@@ -83,6 +88,7 @@ test "vector float operators" {
 }
 
 test "vector bit operators" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, u8) = [4]u8{ 0b10101010, 0b10101010, 0b10101010, 0b10101010 };
@@ -97,6 +103,7 @@ test "vector bit operators" {
 }
 
 test "implicit cast vector to array" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var a: Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
@@ -110,6 +117,7 @@ test "implicit cast vector to array" {
 }
 
 test "array to vector" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     var foo: f32 = 3.14;
     var arr = [4]f32{ foo, 1.5, 0.0, 0.0 };
     var vec: Vector(4, f32) = arr;
@@ -117,6 +125,7 @@ test "array to vector" {
 }
 
 test "vector casts of sizes not divisible by 8" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             {
@@ -146,6 +155,7 @@ test "vector casts of sizes not divisible by 8" {
 }
 
 test "vector @splat" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn testForT(comptime N: comptime_int, v: anytype) !void {
             const T = @TypeOf(v);
@@ -181,6 +191,7 @@ test "vector @splat" {
 }
 
 test "load vector elements via comptime index" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, i32) = [_]i32{ 1, 2, 3, undefined };
@@ -198,6 +209,7 @@ test "load vector elements via comptime index" {
 }
 
 test "store vector elements via comptime index" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
@@ -221,6 +233,7 @@ test "store vector elements via comptime index" {
 }
 
 test "load vector elements via runtime index" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, i32) = [_]i32{ 1, 2, 3, undefined };
@@ -238,6 +251,7 @@ test "load vector elements via runtime index" {
 }
 
 test "store vector elements via runtime index" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
@@ -256,6 +270,7 @@ test "store vector elements via runtime index" {
 }
 
 test "initialize vector which is a struct field" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const Vec4Obj = struct {
         data: Vector(4, f32),
     };
@@ -273,6 +288,7 @@ test "initialize vector which is a struct field" {
 }
 
 test "vector comparison operators" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             {
@@ -307,6 +323,7 @@ test "vector comparison operators" {
 }
 
 test "vector division operators" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTestDiv(comptime T: type, x: Vector(4, T), y: Vector(4, T)) !void {
             if (!comptime std.meta.trait.isSignedInt(T)) {
@@ -389,6 +406,7 @@ test "vector division operators" {
 }
 
 test "vector bitwise not operator" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTestNot(comptime T: type, x: Vector(4, T)) !void {
             var y = ~x;
@@ -414,6 +432,7 @@ test "vector bitwise not operator" {
 }
 
 test "vector shift operators" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTestShift(x: anytype, y: anytype) !void {
             const N = @typeInfo(@TypeOf(x)).Array.len;
@@ -501,6 +520,7 @@ test "vector shift operators" {
 }
 
 test "vector reduce operation" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTestReduce(comptime op: std.builtin.ReduceOp, x: anytype, expected: anytype) !void {
             const N = @typeInfo(@TypeOf(x)).Array.len;
@@ -636,6 +656,7 @@ test "vector reduce operation" {
 }
 
 test "mask parameter of @shuffle is comptime scope" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const __v4hi = std.meta.Vector(4, i16);
     var v4_a = __v4hi{ 0, 0, 0, 0 };
     var v4_b = __v4hi{ 0, 0, 0, 0 };
@@ -649,6 +670,7 @@ test "mask parameter of @shuffle is comptime scope" {
 }
 
 test "saturating add" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             const u8x3 = std.meta.Vector(3, u8);
@@ -662,6 +684,7 @@ test "saturating add" {
 }
 
 test "saturating subtraction" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             const u8x3 = std.meta.Vector(3, u8);
@@ -673,6 +696,7 @@ test "saturating subtraction" {
 }
 
 test "saturating multiplication" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     // TODO: once #9660 has been solved, remove this line
     if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
 
@@ -688,6 +712,7 @@ test "saturating multiplication" {
 }
 
 test "saturating shift-left" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     const S = struct {
         fn doTheTest() !void {
             const u8x3 = std.meta.Vector(3, u8);

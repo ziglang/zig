@@ -125,6 +125,7 @@ test {
     _ = @import("behavior/union.zig");
     _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/var_args.zig");
+    _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
 
@@ -179,7 +180,6 @@ test {
                 _ = @import("behavior/select.zig");
                 _ = @import("behavior/struct_contains_slice_of_itself.zig");
                 _ = @import("behavior/typename.zig");
-                _ = @import("behavior/vector.zig");
             }
         }
     }
