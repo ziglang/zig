@@ -272,7 +272,6 @@ test "read/write through global variable array of struct fields initialized via 
 
 test "implicit cast single-item pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try testImplicitCastSingleItemPtr();
     comptime try testImplicitCastSingleItemPtr();

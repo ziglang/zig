@@ -115,7 +115,6 @@ fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) u32 {
 test "specifying alignment allows pointer cast" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     try testBytesAlign(0x33);
 }
