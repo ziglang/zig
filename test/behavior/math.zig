@@ -375,6 +375,9 @@ test "binary not" {
     try expect(comptime x: {
         break :x ~@as(u64, 2147483647) == 18446744071562067968;
     });
+    try expect(comptime x: {
+        break :x ~@as(u0, 0) == 0;
+    });
     try testBinaryNot(0b1010101010101010);
 }
 
