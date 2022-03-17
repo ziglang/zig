@@ -2,7 +2,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
-const expectEqual = testing.expectEqual;
 
 test "tuple concatenation" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -18,8 +17,8 @@ test "tuple concatenation" {
             var x = .{a};
             var y = .{b};
             var c = x ++ y;
-            try expectEqual(@as(i32, 1), c[0]);
-            try expectEqual(@as(i32, 2), c[1]);
+            try expect(@as(i32, 1) == c[0]);
+            try expect(@as(i32, 2) == c[1]);
         }
     };
     try S.doTheTest();
