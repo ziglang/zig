@@ -429,11 +429,7 @@ pub const StackIterator = struct {
         if (native_os == .freestanding) return true;
 
         const aligned_address = address & ~@intCast(usize, (mem.page_size - 1));
-
-        // If the address does not span 2 pages, query only the first one
-        const length: usize = if (aligned_address == address) mem.page_size else 2 * mem.page_size;
-
-        const aligned_memory = @intToPtr([*]align(mem.page_size) u8, aligned_address)[0..length];
+        const aligned_memory = @intToPtr([*]align(mem.page_size) u8, aligned_address)[0..mem.page_size];
 
         if (native_os != .windows) {
             if (native_os != .wasi) {
@@ -451,11 +447,10 @@ pub const StackIterator = struct {
         } else {
             const w = os.windows;
             var memory_info: w.MEMORY_BASIC_INFORMATION = undefined;
-            //const memory_info_ptr = @ptrCast(w.PMEMORY_BASIC_INFORMATION, buffer);
 
             // The only error this function can throw is ERROR_INVALID_PARAMETER.
             // supply an address that invalid i'll be thrown.
-            const rc = w.VirtualQuery(aligned_memory.ptr, &memory_info, aligned_memory.len) catch {
+            const rc = w.VirtualQuery(aligned_memory, &memory_info, aligned_memory.len) catch {
                 return false;
             };
 
