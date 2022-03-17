@@ -3235,7 +3235,7 @@ fn zirValidateArrayInit(
         // any ZIR instructions at comptime; we need to do that here.
         if (array_ty.sentinel()) |sentinel_val| {
             const array_len_ref = try sema.addIntUnsigned(Type.usize, array_len);
-            const sentinel_ptr = try sema.elemPtrArray(block, init_src, array_ptr, array_len_ref, init_src);
+            const sentinel_ptr = try sema.elemPtrArray(block, init_src, array_ptr, init_src, array_len_ref);
             const sentinel = try sema.addConstant(array_ty.childType(), sentinel_val);
             try sema.storePtr2(block, init_src, sentinel_ptr, init_src, sentinel, init_src, .store);
         }
@@ -15746,6 +15746,7 @@ pub const PanicId = enum {
     cast_to_null,
     incorrect_alignment,
     invalid_error_code,
+    index_out_of_bounds,
 };
 
 fn addSafetyCheck(
@@ -15867,6 +15868,7 @@ fn safetyPanic(
         .cast_to_null => "cast causes pointer to be null",
         .incorrect_alignment => "incorrect alignment",
         .invalid_error_code => "invalid error code",
+        .index_out_of_bounds => "attempt to index out of bounds",
     };
 
     const msg_inst = msg_inst: {
@@ -16483,10 +16485,10 @@ fn structFieldPtr(
             return sema.analyzeRef(block, src, len_inst);
         }
         const field_index = try sema.tupleFieldIndex(block, struct_ty, field_name, field_name_src);
-        return sema.tupleFieldPtr(block, struct_ptr, field_index, src, field_name_src);
+        return sema.tupleFieldPtr(block, src, struct_ptr, field_name_src, field_index);
     } else if (struct_ty.isAnonStruct()) {
         const field_index = try sema.anonStructFieldIndex(block, struct_ty, field_name, field_name_src);
-        return sema.tupleFieldPtr(block, struct_ptr, field_index, src, field_name_src);
+        return sema.tupleFieldPtr(block, src, struct_ptr, field_name_src, field_index);
     }
 
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
@@ -16806,67 +16808,55 @@ fn elemPtr(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    array_ptr: Air.Inst.Ref,
+    indexable_ptr: Air.Inst.Ref,
     elem_index: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    const array_ptr_src = src; // TODO better source location
-    const array_ptr_ty = sema.typeOf(array_ptr);
-    const array_ty = switch (array_ptr_ty.zigTypeTag()) {
-        .Pointer => array_ptr_ty.elemType(),
-        else => return sema.fail(block, array_ptr_src, "expected pointer, found '{}'", .{array_ptr_ty}),
+    const indexable_ptr_src = src; // TODO better source location
+    const indexable_ptr_ty = sema.typeOf(indexable_ptr);
+    const indexable_ty = switch (indexable_ptr_ty.zigTypeTag()) {
+        .Pointer => indexable_ptr_ty.elemType(),
+        else => return sema.fail(block, indexable_ptr_src, "expected pointer, found '{}'", .{indexable_ptr_ty}),
     };
-    if (!array_ty.isIndexable()) {
-        return sema.fail(block, src, "array access of non-indexable type '{}'", .{array_ty});
+    if (!indexable_ty.isIndexable()) {
+        return sema.fail(block, src, "element access of non-indexable type '{}'", .{indexable_ty});
     }
 
-    switch (array_ty.zigTypeTag()) {
+    switch (indexable_ty.zigTypeTag()) {
         .Pointer => {
-            // In all below cases, we have to deref the ptr operand to get the actual array pointer.
-            const array = try sema.analyzeLoad(block, array_ptr_src, array_ptr, array_ptr_src);
+            // In all below cases, we have to deref the ptr operand to get the actual indexable pointer.
+            const indexable = try sema.analyzeLoad(block, indexable_ptr_src, indexable_ptr, indexable_ptr_src);
             const target = sema.mod.getTarget();
-            const result_ty = try array_ty.elemPtrType(sema.arena, target);
-            switch (array_ty.ptrSize()) {
-                .Slice => {
-                    const maybe_slice_val = try sema.resolveDefinedValue(block, array_ptr_src, array);
-                    const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
-                    const runtime_src = if (maybe_slice_val) |slice_val| rs: {
-                        const index_val = maybe_index_val orelse break :rs elem_index_src;
-                        const index = @intCast(usize, index_val.toUnsignedInt());
-                        const elem_ptr = try slice_val.elemPtr(array_ty, sema.arena, index);
-                        return sema.addConstant(result_ty, elem_ptr);
-                    } else array_ptr_src;
-
-                    try sema.requireRuntimeBlock(block, runtime_src);
-                    return block.addSliceElemPtr(array, elem_index, result_ty);
-                },
+            const result_ty = try indexable_ty.elemPtrType(sema.arena, target);
+            switch (indexable_ty.ptrSize()) {
+                .Slice => return sema.elemPtrSlice(block, indexable_ptr_src, indexable, elem_index_src, elem_index),
                 .Many, .C => {
-                    const maybe_ptr_val = try sema.resolveDefinedValue(block, array_ptr_src, array);
+                    const maybe_ptr_val = try sema.resolveDefinedValue(block, indexable_ptr_src, indexable);
                     const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
 
                     const runtime_src = rs: {
-                        const ptr_val = maybe_ptr_val orelse break :rs array_ptr_src;
+                        const ptr_val = maybe_ptr_val orelse break :rs indexable_ptr_src;
                         const index_val = maybe_index_val orelse break :rs elem_index_src;
                         const index = @intCast(usize, index_val.toUnsignedInt());
-                        const elem_ptr = try ptr_val.elemPtr(array_ty, sema.arena, index);
+                        const elem_ptr = try ptr_val.elemPtr(indexable_ty, sema.arena, index);
                         return sema.addConstant(result_ty, elem_ptr);
                     };
 
                     try sema.requireRuntimeBlock(block, runtime_src);
-                    return block.addPtrElemPtr(array, elem_index, result_ty);
+                    return block.addPtrElemPtr(indexable, elem_index, result_ty);
                 },
                 .One => {
-                    assert(array_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
-                    return sema.elemPtrArray(block, array_ptr_src, array, elem_index, elem_index_src);
+                    assert(indexable_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
+                    return sema.elemPtrArray(block, indexable_ptr_src, indexable, elem_index_src, elem_index);
                 },
             }
         },
-        .Array, .Vector => return sema.elemPtrArray(block, array_ptr_src, array_ptr, elem_index, elem_index_src),
+        .Array, .Vector => return sema.elemPtrArray(block, indexable_ptr_src, indexable_ptr, elem_index_src, elem_index),
         .Struct => {
             // Tuple field access.
             const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index);
             const index = @intCast(u32, index_val.toUnsignedInt());
-            return sema.tupleFieldPtr(block, array_ptr, index, src, elem_index_src);
+            return sema.tupleFieldPtr(block, src, indexable_ptr, elem_index_src, index);
         },
         else => unreachable,
     }
@@ -16876,90 +16866,66 @@ fn elemVal(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    array: Air.Inst.Ref,
+    indexable: Air.Inst.Ref,
     elem_index_uncasted: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    const array_src = src; // TODO better source location
-    const array_ty = sema.typeOf(array);
+    const indexable_src = src; // TODO better source location
+    const indexable_ty = sema.typeOf(indexable);
 
-    if (!array_ty.isIndexable()) {
-        return sema.fail(block, src, "array access of non-indexable type '{}'", .{array_ty});
+    if (!indexable_ty.isIndexable()) {
+        return sema.fail(block, src, "element access of non-indexable type '{}'", .{indexable_ty});
     }
 
     // TODO in case of a vector of pointers, we need to detect whether the element
     // index is a scalar or vector instead of unconditionally casting to usize.
     const elem_index = try sema.coerce(block, Type.usize, elem_index_uncasted, elem_index_src);
 
-    switch (array_ty.zigTypeTag()) {
-        .Pointer => switch (array_ty.ptrSize()) {
-            .Slice => {
-                const maybe_slice_val = try sema.resolveDefinedValue(block, array_src, array);
-                const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
-                const runtime_src = if (maybe_slice_val) |slice_val| rs: {
-                    const index_val = maybe_index_val orelse break :rs elem_index_src;
-                    const index = @intCast(usize, index_val.toUnsignedInt());
-
-                    const elem_ty = array_ty.elemType2();
-
-                    var payload: Value.Payload.ElemPtr = .{ .data = .{
-                        .array_ptr = slice_val.slicePtr(),
-                        .elem_ty = elem_ty,
-                        .index = index,
-                    } };
-                    const elem_ptr_val = Value.initPayload(&payload.base);
-
-                    if (try sema.pointerDeref(block, array_src, elem_ptr_val, array_ty)) |elem_val| {
-                        return sema.addConstant(elem_ty, elem_val);
-                    }
-                    break :rs array_src;
-                } else array_src;
-
-                try sema.requireRuntimeBlock(block, runtime_src);
-                return block.addBinOp(.slice_elem_val, array, elem_index);
-            },
+    switch (indexable_ty.zigTypeTag()) {
+        .Pointer => switch (indexable_ty.ptrSize()) {
+            .Slice => return sema.elemValSlice(block, indexable_src, indexable, elem_index_src, elem_index),
             .Many, .C => {
-                const maybe_array_val = try sema.resolveDefinedValue(block, array_src, array);
+                const maybe_indexable_val = try sema.resolveDefinedValue(block, indexable_src, indexable);
                 const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
 
                 const runtime_src = rs: {
-                    const array_val = maybe_array_val orelse break :rs array_src;
+                    const indexable_val = maybe_indexable_val orelse break :rs indexable_src;
                     const index_val = maybe_index_val orelse break :rs elem_index_src;
                     const index = @intCast(usize, index_val.toUnsignedInt());
-                    const elem_ty = array_ty.elemType2();
+                    const elem_ty = indexable_ty.elemType2();
 
                     var payload: Value.Payload.ElemPtr = .{ .data = .{
-                        .array_ptr = array_val,
+                        .array_ptr = indexable_val,
                         .elem_ty = elem_ty,
                         .index = index,
                     } };
                     const elem_ptr_val = Value.initPayload(&payload.base);
 
-                    if (try sema.pointerDeref(block, array_src, elem_ptr_val, array_ty)) |elem_val| {
+                    if (try sema.pointerDeref(block, indexable_src, elem_ptr_val, indexable_ty)) |elem_val| {
                         return sema.addConstant(elem_ty, elem_val);
                     }
-                    break :rs array_src;
+                    break :rs indexable_src;
                 };
 
                 try sema.requireRuntimeBlock(block, runtime_src);
-                return block.addBinOp(.ptr_elem_val, array, elem_index);
+                return block.addBinOp(.ptr_elem_val, indexable, elem_index);
             },
             .One => {
-                assert(array_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
-                const elem_ptr = try sema.elemPtr(block, array_src, array, elem_index, elem_index_src);
-                return sema.analyzeLoad(block, array_src, elem_ptr, elem_index_src);
+                assert(indexable_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
+                const elem_ptr = try sema.elemPtr(block, indexable_src, indexable, elem_index, elem_index_src);
+                return sema.analyzeLoad(block, indexable_src, elem_ptr, elem_index_src);
             },
         },
-        .Array => return elemValArray(sema, block, array, elem_index, array_src, elem_index_src),
+        .Array => return elemValArray(sema, block, indexable_src, indexable, elem_index_src, elem_index),
         .Vector => {
             // TODO: If the index is a vector, the result should be a vector.
-            return elemValArray(sema, block, array, elem_index, array_src, elem_index_src);
+            return elemValArray(sema, block, indexable_src, indexable, elem_index_src, elem_index);
         },
         .Struct => {
             // Tuple field access.
             const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index);
             const index = @intCast(u32, index_val.toUnsignedInt());
-            return tupleField(sema, block, array, index, array_src, elem_index_src);
+            return tupleField(sema, block, indexable_src, indexable, elem_index_src, index);
         },
         else => unreachable,
     }
@@ -16968,22 +16934,26 @@ fn elemVal(
 fn tupleFieldPtr(
     sema: *Sema,
     block: *Block,
+    tuple_ptr_src: LazySrcLoc,
     tuple_ptr: Air.Inst.Ref,
-    field_index: u32,
-    tuple_src: LazySrcLoc,
     field_index_src: LazySrcLoc,
+    field_index: u32,
 ) CompileError!Air.Inst.Ref {
     const tuple_ptr_ty = sema.typeOf(tuple_ptr);
     const tuple_ty = tuple_ptr_ty.childType();
-    const tuple = tuple_ty.tupleFields();
+    const tuple_fields = tuple_ty.tupleFields();
 
-    if (field_index > tuple.types.len) {
+    if (tuple_fields.types.len == 0) {
+        return sema.fail(block, field_index_src, "indexing into empty tuple", .{});
+    }
+
+    if (field_index >= tuple_fields.types.len) {
         return sema.fail(block, field_index_src, "index {d} outside tuple of length {d}", .{
-            field_index, tuple.types.len,
+            field_index, tuple_fields.types.len,
         });
     }
 
-    const field_ty = tuple.types[field_index];
+    const field_ty = tuple_fields.types[field_index];
     const target = sema.mod.getTarget();
     const ptr_field_ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = field_ty,
@@ -16991,7 +16961,7 @@ fn tupleFieldPtr(
         .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(),
     });
 
-    if (try sema.resolveMaybeUndefVal(block, tuple_src, tuple_ptr)) |tuple_ptr_val| {
+    if (try sema.resolveMaybeUndefVal(block, tuple_ptr_src, tuple_ptr)) |tuple_ptr_val| {
         return sema.addConstant(
             ptr_field_ty,
             try Value.Tag.field_ptr.create(sema.arena, .{
@@ -17002,29 +16972,33 @@ fn tupleFieldPtr(
         );
     }
 
-    try sema.requireRuntimeBlock(block, tuple_src);
+    try sema.requireRuntimeBlock(block, tuple_ptr_src);
     return block.addStructFieldPtr(tuple_ptr, field_index, ptr_field_ty);
 }
 
 fn tupleField(
     sema: *Sema,
     block: *Block,
-    tuple: Air.Inst.Ref,
-    field_index: u32,
     tuple_src: LazySrcLoc,
+    tuple: Air.Inst.Ref,
     field_index_src: LazySrcLoc,
+    field_index: u32,
 ) CompileError!Air.Inst.Ref {
     const tuple_ty = sema.typeOf(tuple);
-    const tuple_info = tuple_ty.tupleFields();
+    const tuple_fields = tuple_ty.tupleFields();
 
-    if (field_index > tuple_info.types.len) {
+    if (tuple_fields.types.len == 0) {
+        return sema.fail(block, field_index_src, "indexing into empty tuple", .{});
+    }
+
+    if (field_index >= tuple_fields.types.len) {
         return sema.fail(block, field_index_src, "index {d} outside tuple of length {d}", .{
-            field_index, tuple_info.types.len,
+            field_index, tuple_fields.types.len,
         });
     }
 
-    const field_ty = tuple_info.types[field_index];
-    const field_val = tuple_info.values[field_index];
+    const field_ty = tuple_fields.types[field_index];
+    const field_val = tuple_fields.values[field_index];
 
     if (field_val.tag() != .unreachable_value) {
         return sema.addConstant(field_ty, field_val); // comptime field
@@ -17043,57 +17017,221 @@ fn tupleField(
 fn elemValArray(
     sema: *Sema,
     block: *Block,
-    array: Air.Inst.Ref,
-    elem_index: Air.Inst.Ref,
     array_src: LazySrcLoc,
+    array: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
+    elem_index: Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
     const array_ty = sema.typeOf(array);
-    if (try sema.resolveMaybeUndefVal(block, array_src, array)) |array_val| {
-        const elem_ty = array_ty.childType();
-        if (array_val.isUndef()) return sema.addConstUndef(elem_ty);
-        const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+    const array_sent = array_ty.sentinel() != null;
+    const array_len = array_ty.arrayLen();
+    const array_len_s = array_len + @boolToInt(array_sent);
+    const elem_ty = array_ty.childType();
+
+    if (array_len_s == 0) {
+        return sema.fail(block, elem_index_src, "indexing into empty array", .{});
+    }
+
+    const maybe_undef_array_val = try sema.resolveMaybeUndefVal(block, array_src, array);
+    // index must be defined since it can access out of bounds
+    const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+
+    if (maybe_index_val) |index_val| {
+        const index = @intCast(usize, index_val.toUnsignedInt());
+        if (index >= array_len_s) {
+            const sentinel_label: []const u8 = if (array_sent) " +1 (sentinel)" else "";
+            return sema.fail(block, elem_index_src, "index {d} outside array of length {d}{s}", .{ index, array_len, sentinel_label });
+        }
+    }
+    if (maybe_undef_array_val) |array_val| {
+        if (array_val.isUndef()) {
+            return sema.addConstUndef(elem_ty);
+        }
         if (maybe_index_val) |index_val| {
             const index = @intCast(usize, index_val.toUnsignedInt());
-            const len = array_ty.arrayLenIncludingSentinel();
-            if (index >= len) {
-                return sema.fail(block, elem_index_src, "index {d} outside array of length {d}", .{
-                    index, len,
-                });
-            }
             const elem_val = try array_val.elemValue(sema.arena, index);
             return sema.addConstant(elem_ty, elem_val);
         }
     }
-    try sema.requireRuntimeBlock(block, array_src);
+
+    const runtime_src = if (maybe_undef_array_val != null) elem_index_src else array_src;
+    try sema.requireRuntimeBlock(block, runtime_src);
+    if (block.wantSafety()) {
+        // Runtime check is only needed if unable to comptime check
+        if (maybe_index_val == null) {
+            const len_inst = try sema.addIntUnsigned(Type.usize, array_len);
+            const cmp_op: Air.Inst.Tag = if (array_sent) .cmp_lte else .cmp_lt;
+            const is_in_bounds = try block.addBinOp(cmp_op, elem_index, len_inst);
+            try sema.addSafetyCheck(block, is_in_bounds, .index_out_of_bounds);
+        }
+    }
     return block.addBinOp(.array_elem_val, array, elem_index);
 }
 
 fn elemPtrArray(
     sema: *Sema,
     block: *Block,
-    src: LazySrcLoc,
+    array_ptr_src: LazySrcLoc,
     array_ptr: Air.Inst.Ref,
-    elem_index: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
+    elem_index: Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
-    const array_ptr_ty = sema.typeOf(array_ptr);
     const target = sema.mod.getTarget();
-    const result_ty = try array_ptr_ty.elemPtrType(sema.arena, target);
+    const array_ptr_ty = sema.typeOf(array_ptr);
+    const array_ty = array_ptr_ty.childType();
+    const array_sent = array_ty.sentinel() != null;
+    const array_len = array_ty.arrayLen();
+    const array_len_s = array_len + @boolToInt(array_sent);
+    const elem_ptr_ty = try array_ptr_ty.elemPtrType(sema.arena, target);
 
-    if (try sema.resolveDefinedValue(block, src, array_ptr)) |array_ptr_val| {
-        if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| {
-            // Both array pointer and index are compile-time known.
-            const index_u64 = index_val.toUnsignedInt();
-            // @intCast here because it would have been impossible to construct a value that
-            // required a larger index.
-            const elem_ptr = try array_ptr_val.elemPtr(array_ptr_ty, sema.arena, @intCast(usize, index_u64));
-            return sema.addConstant(result_ty, elem_ptr);
+    if (array_len_s == 0) {
+        return sema.fail(block, elem_index_src, "indexing into empty array", .{});
+    }
+
+    const maybe_undef_array_ptr_val = try sema.resolveMaybeUndefVal(block, array_ptr_src, array_ptr);
+    // index must be defined since it can index out of bounds
+    const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+
+    if (maybe_index_val) |index_val| {
+        const index = @intCast(usize, index_val.toUnsignedInt());
+        if (index >= array_len_s) {
+            const sentinel_label: []const u8 = if (array_sent) " +1 (sentinel)" else "";
+            return sema.fail(block, elem_index_src, "index {d} outside array of length {d}{s}", .{ index, array_len, sentinel_label });
         }
     }
-    // TODO safety check for array bounds
-    try sema.requireRuntimeBlock(block, src);
-    return block.addPtrElemPtr(array_ptr, elem_index, result_ty);
+    if (maybe_undef_array_ptr_val) |array_ptr_val| {
+        if (array_ptr_val.isUndef()) {
+            return sema.addConstUndef(elem_ptr_ty);
+        }
+        if (maybe_index_val) |index_val| {
+            const index = @intCast(usize, index_val.toUnsignedInt());
+            const elem_ptr = try array_ptr_val.elemPtr(array_ptr_ty, sema.arena, index);
+            return sema.addConstant(elem_ptr_ty, elem_ptr);
+        }
+    }
+
+    const runtime_src = if (maybe_undef_array_ptr_val != null) elem_index_src else array_ptr_src;
+    try sema.requireRuntimeBlock(block, runtime_src);
+    if (block.wantSafety()) {
+        // Runtime check is only needed if unable to comptime check
+        if (maybe_index_val == null) {
+            const len_inst = try sema.addIntUnsigned(Type.usize, array_len);
+            const cmp_op: Air.Inst.Tag = if (array_sent) .cmp_lte else .cmp_lt;
+            const is_in_bounds = try block.addBinOp(cmp_op, elem_index, len_inst);
+            try sema.addSafetyCheck(block, is_in_bounds, .index_out_of_bounds);
+        }
+    }
+    return block.addPtrElemPtr(array_ptr, elem_index, elem_ptr_ty);
+}
+
+fn elemValSlice(
+    sema: *Sema,
+    block: *Block,
+    slice_src: LazySrcLoc,
+    slice: Air.Inst.Ref,
+    elem_index_src: LazySrcLoc,
+    elem_index: Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
+    const slice_ty = sema.typeOf(slice);
+    const slice_sent = slice_ty.sentinel() != null;
+    const elem_ty = slice_ty.elemType2();
+    var runtime_src = slice_src;
+
+    // slice must be defined since it can dereferenced as null
+    const maybe_slice_val = try sema.resolveDefinedValue(block, slice_src, slice);
+    // index must be defined since it can index out of bounds
+    const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+
+    if (maybe_slice_val) |slice_val| {
+        runtime_src = elem_index_src;
+        const slice_len = slice_val.sliceLen();
+        const slice_len_s = slice_len + @boolToInt(slice_sent);
+        if (slice_len_s == 0) {
+            return sema.fail(block, elem_index_src, "indexing into empty slice", .{});
+        }
+        if (maybe_index_val) |index_val| {
+            const index = @intCast(usize, index_val.toUnsignedInt());
+            if (index >= slice_len_s) {
+                const sentinel_label: []const u8 = if (slice_sent) " +1 (sentinel)" else "";
+                return sema.fail(block, elem_index_src, "index {d} outside slice of length {d}{s}", .{ index, slice_len, sentinel_label });
+            }
+            var elem_ptr_pl: Value.Payload.ElemPtr = .{ .data = .{
+                .array_ptr = slice_val.slicePtr(),
+                .elem_ty = elem_ty,
+                .index = index,
+            } };
+            const elem_ptr_val = Value.initPayload(&elem_ptr_pl.base);
+            if (try sema.pointerDeref(block, slice_src, elem_ptr_val, slice_ty)) |elem_val| {
+                return sema.addConstant(elem_ty, elem_val);
+            }
+            runtime_src = slice_src;
+        }
+    }
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+    if (block.wantSafety()) {
+        const len_inst = if (maybe_slice_val) |slice_val|
+            try sema.addIntUnsigned(Type.usize, slice_val.sliceLen())
+        else
+            try block.addTyOp(.slice_len, Type.usize, slice);
+        const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
+        const is_in_bounds = try block.addBinOp(cmp_op, elem_index, len_inst);
+        try sema.addSafetyCheck(block, is_in_bounds, .index_out_of_bounds);
+    }
+    return block.addBinOp(.slice_elem_val, slice, elem_index);
+}
+
+fn elemPtrSlice(
+    sema: *Sema,
+    block: *Block,
+    slice_src: LazySrcLoc,
+    slice: Air.Inst.Ref,
+    elem_index_src: LazySrcLoc,
+    elem_index: Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
+    const target = sema.mod.getTarget();
+    const slice_ty = sema.typeOf(slice);
+    const slice_sent = slice_ty.sentinel() != null;
+    const elem_ptr_ty = try slice_ty.elemPtrType(sema.arena, target);
+
+    const maybe_undef_slice_val = try sema.resolveMaybeUndefVal(block, slice_src, slice);
+    // index must be defined since it can index out of bounds
+    const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+
+    if (maybe_undef_slice_val) |slice_val| {
+        if (slice_val.isUndef()) {
+            return sema.addConstUndef(elem_ptr_ty);
+        }
+        const slice_len = slice_val.sliceLen();
+        const slice_len_s = slice_len + @boolToInt(slice_sent);
+        if (slice_len_s == 0) {
+            return sema.fail(block, elem_index_src, "indexing into empty slice", .{});
+        }
+        if (maybe_index_val) |index_val| {
+            const index = @intCast(usize, index_val.toUnsignedInt());
+            if (index >= slice_len_s) {
+                const sentinel_label: []const u8 = if (slice_sent) " +1 (sentinel)" else "";
+                return sema.fail(block, elem_index_src, "index {d} outside slice of length {d}{s}", .{ index, slice_len, sentinel_label });
+            }
+            const elem_ptr_val = try slice_val.elemPtr(slice_ty, sema.arena, index);
+            return sema.addConstant(elem_ptr_ty, elem_ptr_val);
+        }
+    }
+
+    const runtime_src = if (maybe_undef_slice_val != null) elem_index_src else slice_src;
+    try sema.requireRuntimeBlock(block, runtime_src);
+    if (block.wantSafety()) {
+        const len_inst = len: {
+            if (maybe_undef_slice_val) |slice_val|
+                if (!slice_val.isUndef())
+                    break :len try sema.addIntUnsigned(Type.usize, slice_val.sliceLen());
+            break :len try block.addTyOp(.slice_len, Type.usize, slice);
+        };
+        const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
+        const is_in_bounds = try block.addBinOp(cmp_op, elem_index, len_inst);
+        try sema.addSafetyCheck(block, is_in_bounds, .index_out_of_bounds);
+    }
+    return block.addSliceElemPtr(slice, elem_index, elem_ptr_ty);
 }
 
 fn coerce(
@@ -18000,7 +18138,7 @@ fn storePtr2(
         for (tuple.types) |_, i_usize| {
             const i = @intCast(u32, i_usize);
             const elem_src = operand_src; // TODO better source location
-            const elem = try tupleField(sema, block, uncasted_operand, i, operand_src, elem_src);
+            const elem = try tupleField(sema, block, operand_src, uncasted_operand, elem_src, i);
             const elem_index = try sema.addIntUnsigned(Type.usize, i);
             const elem_ptr = try sema.elemPtr(block, ptr_src, ptr, elem_index, elem_src);
             try sema.storePtr2(block, src, elem_ptr, elem_src, elem, elem_src, .store);
@@ -18885,7 +19023,7 @@ fn coerceArrayLike(
             try Value.Tag.int_u64.create(sema.arena, i),
         );
         const elem_src = inst_src; // TODO better source location
-        const elem_ref = try elemValArray(sema, block, inst, index_ref, inst_src, elem_src);
+        const elem_ref = try elemValArray(sema, block, inst_src, inst, elem_src, index_ref);
         const coerced = try sema.coerce(block, dest_elem_ty, elem_ref, elem_src);
         element_refs[i] = coerced;
         if (runtime_src == null) {
@@ -18942,7 +19080,7 @@ fn coerceTupleToArray(
     for (element_vals) |*elem, i_usize| {
         const i = @intCast(u32, i_usize);
         const elem_src = inst_src; // TODO better source location
-        const elem_ref = try tupleField(sema, block, inst, i, inst_src, elem_src);
+        const elem_ref = try tupleField(sema, block, inst_src, inst, elem_src, i);
         const coerced = try sema.coerce(block, dest_elem_ty, elem_ref, elem_src);
         element_refs[i] = coerced;
         if (runtime_src == null) {
@@ -19042,7 +19180,7 @@ fn coerceTupleToStruct(
         if (field.is_comptime) {
             return sema.fail(block, dest_ty_src, "TODO: implement coercion from tuples to structs when one of the destination struct fields is comptime", .{});
         }
-        const elem_ref = try tupleField(sema, block, inst, i, inst_src, field_src);
+        const elem_ref = try tupleField(sema, block, inst_src, inst, field_src, i);
         const coerced = try sema.coerce(block, field.ty, elem_ref, field_src);
         field_refs[field_index] = coerced;
         if (runtime_src == null) {
