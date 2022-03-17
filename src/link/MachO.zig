@@ -6441,6 +6441,21 @@ fn snapshotState(self: *MachO) !void {
 
         while (true) {
             const atom_sym = self.locals.items[atom.local_sym_index];
+            const should_skip_atom: bool = blk: {
+                if (self.mh_execute_header_index) |index| {
+                    if (index == atom.local_sym_index) break :blk true;
+                }
+                if (mem.eql(u8, self.getString(atom_sym.n_strx), "___dso_handle")) break :blk true;
+                break :blk false;
+            };
+
+            if (should_skip_atom) {
+                if (atom.next) |next| {
+                    atom = next;
+                } else break;
+                continue;
+            }
+
             var node = Snapshot.Node{
                 .address = atom_sym.n_value,
                 .tag = .atom_start,
@@ -6480,7 +6495,8 @@ fn snapshotState(self: *MachO) !void {
                     };
 
                     if (is_via_got) {
-                        const got_atom = self.got_entries_table.get(rel.target) orelse break :blk 0;
+                        const got_index = self.got_entries_table.get(rel.target) orelse break :blk 0;
+                        const got_atom = self.got_entries.items[got_index].atom;
                         break :blk self.locals.items[got_atom.local_sym_index].n_value;
                     }
 
