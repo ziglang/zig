@@ -2977,6 +2977,11 @@ pub const Value = extern union {
 
         const info = ty.intInfo(target);
 
+        if (info.bits == 0) {
+            assert(val.isZero()); // Sema should guarantee
+            return val;
+        }
+
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var val_space: Value.BigIntSpace = undefined;
