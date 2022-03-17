@@ -155,6 +155,7 @@ pub const vm_map_t = mach_port_t;
 pub const vm_map_read_t = mach_port_t;
 pub const vm_region_flavor_t = c_int;
 pub const vm_region_info_t = *c_int;
+pub const vm_region_recurse_info_t = *c_int;
 pub const mach_vm_address_t = usize;
 pub const vm_offset_t = usize;
 pub const mach_vm_size_t = u64;
@@ -193,13 +194,20 @@ pub extern "c" fn mach_vm_region(
     info_cnt: *mach_msg_type_number_t,
     object_name: *mach_port_t,
 ) kern_return_t;
-
-pub const VM_REGION_BASIC_INFO_64 = 9;
-pub const VM_REGION_SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
+pub extern "c" fn mach_vm_region_recurse(
+    target_task: vm_map_t,
+    address: *mach_vm_address_t,
+    size: *mach_vm_size_t,
+    nesting_depth: *natural_t,
+    info: vm_region_recurse_info_t,
+    info_cnt: *mach_msg_type_number_t,
+) kern_return_t;
 
 pub const vm_inherit_t = u32;
 pub const memory_object_offset_t = u64;
 pub const vm_behavior_t = i32;
+pub const vm32_object_id_t = u32;
+pub const vm_object_id_t = u64;
 
 pub const VM_INHERIT_SHARE: vm_inherit_t = 0;
 pub const VM_INHERIT_COPY: vm_inherit_t = 1;
@@ -221,8 +229,47 @@ pub const VM_BEHAVIOR_REUSE: vm_behavior_t = 9;
 pub const VM_BEHAVIOR_CAN_REUSE: vm_behavior_t = 10;
 pub const VM_BEHAVIOR_PAGEOUT: vm_behavior_t = 11;
 
-pub const vm32_object_id_t = u32;
-pub const vm_object_id_t = u64;
+pub const VM_REGION_BASIC_INFO_64 = 9;
+pub const VM_REGION_EXTENDED_INFO = 13;
+pub const VM_REGION_TOP_INFO = 12;
+pub const VM_REGION_SUBMAP_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
+pub const VM_REGION_SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_short_info_64) / @sizeOf(natural_t);
+pub const VM_REGION_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
+pub const VM_REGION_EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
+pub const VM_REGION_TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
+
+pub const vm_region_basic_info_64 = extern struct {
+    protection: vm_prot_t,
+    max_protection: vm_prot_t,
+    inheritance: vm_inherit_t,
+    shared: boolean_t,
+    reserved: boolean_t,
+    offset: memory_object_offset_t,
+    behavior: vm_behavior_t,
+    user_wired_count: u16,
+};
+
+pub const vm_region_extended_info = extern struct {
+    protection: vm_prot_t,
+    user_tag: u32,
+    pages_resident: u32,
+    pages_shared_now_private: u32,
+    pages_swapped_out: u32,
+    pages_dirtied: u32,
+    ref_count: u32,
+    shadow_depth: u16,
+    external_pager: u8,
+    share_mode: u8,
+    pages_reusable: u32,
+};
+
+pub const vm_region_top_info = extern struct {
+    obj_id: u32,
+    ref_count: u32,
+    private_pages_resident: u32,
+    shared_pages_resident: u32,
+    share_mode: u8,
+};
 
 pub const vm_region_submap_info_64 = extern struct {
     // present across protection
@@ -260,6 +307,34 @@ pub const vm_region_submap_info_64 = extern struct {
     user_wired_count: u16,
     pages_reusable: u32,
     object_id_full: vm_object_id_t,
+};
+
+pub const vm_region_submap_short_info_64 = extern struct {
+    // present access protection
+    protection: vm_prot_t,
+    // max avail through vm_prot
+    max_protection: vm_prot_t,
+    // behavior of map/obj on fork
+    inheritance: vm_inherit_t,
+    // offset into object/map
+    offset: memory_object_offset_t,
+    // user tag on map entry
+    user_tag: u32,
+    // obj/map mappers, etc
+    ref_count: u32,
+    // only for obj
+    shadow_depth: u16,
+    // only for obj
+    external_pager: u8,
+    // see enumeration
+    share_mode: u8,
+    //  submap vs obj
+    is_submap: boolean_t,
+    // access behavior hint
+    behavior: vm_behavior_t,
+    // obj/map name, not a handle
+    object_id: vm32_object_id_t,
+    user_wired_count: u16,
 };
 
 pub const thread_act_t = mach_port_t;
@@ -986,9 +1061,13 @@ pub const MAP = struct {
 };
 
 pub const MSF = struct {
-    pub const ASYNC = 1;
-    pub const INVALIDATE = 2;
-    pub const SYNC = 4;
+    pub const ASYNC = 0x1;
+    pub const INVALIDATE = 0x2;
+    // invalidate, leave mapped
+    pub const KILLPAGES = 0x4;
+    // deactivate, leave mapped
+    pub const DEACTIVATE = 0x8;
+    pub const SYNC = 0x10;
 };
 
 pub const SA = struct {

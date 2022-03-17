@@ -24,28 +24,130 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             return self.port != 0;
         }
 
-        pub fn getCurrProtection(task: MachTask, address: u64, len: usize) MachError!std.c.vm_prot_t {
-            var base_addr = address;
+        pub const RegionInfo = struct {
+            pub const Tag = enum {
+                basic,
+                extended,
+                top,
+            };
+
+            base_addr: u64,
+            tag: Tag,
+            info: union {
+                basic: std.c.vm_region_basic_info_64,
+                extended: std.c.vm_region_extended_info,
+                top: std.c.vm_region_top_info,
+            },
+        };
+
+        pub fn getRegionInfo(
+            task: MachTask,
+            address: u64,
+            len: usize,
+            tag: RegionInfo.Tag,
+        ) MachError!RegionInfo {
+            var info: RegionInfo = .{
+                .base_addr = address,
+                .tag = tag,
+                .info = undefined,
+            };
+            switch (tag) {
+                .basic => info.info = .{ .basic = undefined },
+                .extended => info.info = .{ .extended = undefined },
+                .top => info.info = .{ .top = undefined },
+            }
             var base_len: std.c.mach_vm_size_t = if (len == 1) 2 else len;
             var objname: std.c.mach_port_t = undefined;
-            var info: std.c.vm_region_submap_info_64 = undefined;
-            var count: std.c.mach_msg_type_number_t = std.c.VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+            var count: std.c.mach_msg_type_number_t = switch (tag) {
+                .basic => std.c.VM_REGION_BASIC_INFO_COUNT,
+                .extended => std.c.VM_REGION_EXTENDED_INFO_COUNT,
+                .top => std.c.VM_REGION_TOP_INFO_COUNT,
+            };
             switch (std.c.getKernError(std.c.mach_vm_region(
                 task.port,
-                &base_addr,
+                &info.base_addr,
                 &base_len,
-                std.c.VM_REGION_BASIC_INFO_64,
-                @ptrCast(std.c.vm_region_info_t, &info),
+                switch (tag) {
+                    .basic => std.c.VM_REGION_BASIC_INFO_64,
+                    .extended => std.c.VM_REGION_EXTENDED_INFO,
+                    .top => std.c.VM_REGION_TOP_INFO,
+                },
+                switch (tag) {
+                    .basic => @ptrCast(std.c.vm_region_info_t, &info.info.basic),
+                    .extended => @ptrCast(std.c.vm_region_info_t, &info.info.extended),
+                    .top => @ptrCast(std.c.vm_region_info_t, &info.info.top),
+                },
                 &count,
                 &objname,
             ))) {
-                .SUCCESS => return info.protection,
+                .SUCCESS => return info,
                 .FAILURE => return error.PermissionDenied,
                 else => |err| {
                     log.err("mach_vm_region kernel call failed with error code: {s}", .{@tagName(err)});
                     return error.Unexpected;
                 },
             }
+        }
+
+        pub const RegionSubmapInfo = struct {
+            pub const Tag = enum {
+                short,
+                full,
+            };
+
+            tag: Tag,
+            base_addr: u64,
+            info: union {
+                short: std.c.vm_region_submap_short_info_64,
+                full: std.c.vm_region_submap_info_64,
+            },
+        };
+
+        pub fn getRegionSubmapInfo(
+            task: MachTask,
+            address: u64,
+            len: usize,
+            nesting_depth: u32,
+            tag: RegionSubmapInfo.Tag,
+        ) MachError!RegionSubmapInfo {
+            var info: RegionSubmapInfo = .{
+                .base_addr = address,
+                .tag = tag,
+                .info = undefined,
+            };
+            switch (tag) {
+                .short => info.info = .{ .short = undefined },
+                .full => info.info = .{ .full = undefined },
+            }
+            var nesting = nesting_depth;
+            var base_len: std.c.mach_vm_size_t = if (len == 1) 2 else len;
+            var count: std.c.mach_msg_type_number_t = switch (tag) {
+                .short => std.c.VM_REGION_SUBMAP_SHORT_INFO_COUNT_64,
+                .full => std.c.VM_REGION_SUBMAP_INFO_COUNT_64,
+            };
+            switch (std.c.getKernError(std.c.mach_vm_region_recurse(
+                task.port,
+                &info.base_addr,
+                &base_len,
+                &nesting,
+                switch (tag) {
+                    .short => @ptrCast(std.c.vm_region_recurse_info_t, &info.info.short),
+                    .full => @ptrCast(std.c.vm_region_recurse_info_t, &info.info.full),
+                },
+                &count,
+            ))) {
+                .SUCCESS => return info,
+                .FAILURE => return error.PermissionDenied,
+                else => |err| {
+                    log.err("mach_vm_region kernel call failed with error code: {s}", .{@tagName(err)});
+                    return error.Unexpected;
+                },
+            }
+        }
+
+        pub fn getCurrProtection(task: MachTask, address: u64, len: usize) MachError!std.c.vm_prot_t {
+            const info = try task.getRegionSubmapInfo(address, len, 0, .short);
+            return info.info.short.protection;
         }
 
         pub fn setMaxProtection(task: MachTask, address: u64, len: usize, prot: std.c.vm_prot_t) MachError!void {
@@ -215,5 +317,9 @@ const mach_task = if (builtin.target.isDarwin()) struct {
             },
         }
         return MachTask{ .port = port };
+    }
+
+    pub fn machTaskForSelf() MachTask {
+        return .{ .port = std.c.mach_task_self() };
     }
 } else struct {};
