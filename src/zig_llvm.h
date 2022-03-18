@@ -233,7 +233,7 @@ ZIG_EXTERN_C void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel 
 ZIG_EXTERN_C void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder,
         unsigned int line, unsigned int column, struct ZigLLVMDIScope *scope);
 ZIG_EXTERN_C void ZigLLVMSetCurrentDebugLocation2(LLVMBuilderRef builder, unsigned int line,
-        unsigned int column, ZigLLVMDIScope *scope, ZigLLVMDILocation *inlined_at);
+        unsigned int column, struct ZigLLVMDIScope *scope, struct ZigLLVMDILocation *inlined_at);
 ZIG_EXTERN_C void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder);
 
 ZIG_EXTERN_C struct ZigLLVMDIScope *ZigLLVMLexicalBlockToScope(struct ZigLLVMDILexicalBlock *lexical_block);
@@ -293,7 +293,7 @@ ZIG_EXTERN_C void ZigLLVMDIBuilderFinalize(struct ZigLLVMDIBuilder *dibuilder);
 ZIG_EXTERN_C struct ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col,
         struct ZigLLVMDIScope *scope);
 ZIG_EXTERN_C struct ZigLLVMDILocation *ZigLLVMGetDebugLoc2(unsigned line, unsigned col,
-        ZigLLVMDIScope *scope, ZigLLVMDILocation *inlined_at);
+        struct ZigLLVMDIScope *scope, struct ZigLLVMDILocation *inlined_at);
 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMInsertDeclareAtEnd(struct ZigLLVMDIBuilder *dib,
         LLVMValueRef storage, struct ZigLLVMDILocalVariable *var_info,
