@@ -28,9 +28,10 @@ const type_name = @typeName(TestType);
 const ptr_type_name: [*:0]const u8 = type_name;
 
 test "@typeName() returns a string literal" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // stage1 gets the type wrong
     try std.testing.expectEqual(*const [type_name.len:0]u8, @TypeOf(type_name));
-    try std.testing.expectEqualStrings("TestType", type_name);
-    try std.testing.expectEqualStrings("TestType", ptr_type_name[0..type_name.len]);
+    try std.testing.expectEqualStrings("behavior.bugs.3779.TestType", type_name);
+    try std.testing.expectEqualStrings("behavior.bugs.3779.TestType", ptr_type_name[0..type_name.len]);
 }
 
 const actual_contents = @embedFile("3779_file_to_embed.txt");

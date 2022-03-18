@@ -1767,7 +1767,7 @@ fn zirStructDecl(
     const struct_obj = try new_decl_arena_allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
     const struct_val = try Value.Tag.ty.create(new_decl_arena_allocator, struct_ty);
-    const type_name = try sema.createTypeName(block, small.name_strategy);
+    const type_name = try sema.createTypeName(block, small.name_strategy, "struct");
     const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
         .ty = Type.type,
         .val = struct_val,
@@ -1796,28 +1796,54 @@ fn zirStructDecl(
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
-fn createTypeName(sema: *Sema, block: *Block, name_strategy: Zir.Inst.NameStrategy) ![:0]u8 {
+fn createTypeName(
+    sema: *Sema,
+    block: *Block,
+    name_strategy: Zir.Inst.NameStrategy,
+    anon_prefix: []const u8,
+) ![:0]u8 {
     switch (name_strategy) {
         .anon => {
             // It would be neat to have "struct:line:column" but this name has
             // to survive incremental updates, where it may have been shifted down
             // or up to a different line, but unchanged, and thus not unnecessarily
             // semantically analyzed.
+            // This name is also used as the key in the parent namespace so it cannot be
+            // renamed.
             const name_index = sema.mod.getNextAnonNameIndex();
-            return std.fmt.allocPrintZ(sema.gpa, "{s}__anon_{d}", .{
-                block.src_decl.name, name_index,
+            return std.fmt.allocPrintZ(sema.gpa, "{s}__{s}_{d}", .{
+                block.src_decl.name, anon_prefix, name_index,
             });
         },
         .parent => return sema.gpa.dupeZ(u8, mem.sliceTo(block.src_decl.name, 0)),
         .func => {
-            const name_index = sema.mod.getNextAnonNameIndex();
-            const name = try std.fmt.allocPrintZ(sema.gpa, "{s}__anon_{d}", .{
-                block.src_decl.name, name_index,
-            });
-            log.warn("TODO: handle NameStrategy.func correctly instead of using anon name '{s}'", .{
-                name,
-            });
-            return name;
+            const fn_info = sema.code.getFnInfo(sema.func.?.zir_body_inst);
+            const zir_tags = sema.code.instructions.items(.tag);
+
+            var buf = std.ArrayList(u8).init(sema.gpa);
+            defer buf.deinit();
+            try buf.appendSlice(mem.sliceTo(block.src_decl.name, 0));
+            try buf.appendSlice("(");
+
+            var arg_i: usize = 0;
+            for (fn_info.param_body) |zir_inst| switch (zir_tags[zir_inst]) {
+                .param, .param_comptime, .param_anytype, .param_anytype_comptime => {
+                    const arg = sema.inst_map.get(zir_inst).?;
+                    // The comptime call code in analyzeCall already did this, so we're
+                    // just repeating it here and it's guaranteed to work.
+                    const arg_val = sema.resolveConstMaybeUndefVal(block, .unneeded, arg) catch unreachable;
+
+                    if (arg_i != 0) try buf.appendSlice(",");
+                    try buf.writer().print("{}", .{arg_val});
+
+                    arg_i += 1;
+                    continue;
+                },
+                else => continue,
+            };
+
+            try buf.appendSlice(")");
+            return buf.toOwnedSliceSentinel(0);
         },
     }
 }
@@ -1877,7 +1903,7 @@ fn zirEnumDecl(
     };
     const enum_ty = Type.initPayload(&enum_ty_payload.base);
     const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
-    const type_name = try sema.createTypeName(block, small.name_strategy);
+    const type_name = try sema.createTypeName(block, small.name_strategy, "enum");
     const new_decl = try mod.createAnonymousDeclNamed(block, .{
         .ty = Type.type,
         .val = enum_val,
@@ -2088,7 +2114,7 @@ fn zirUnionDecl(
     };
     const union_ty = Type.initPayload(&union_payload.base);
     const union_val = try Value.Tag.ty.create(new_decl_arena_allocator, union_ty);
-    const type_name = try sema.createTypeName(block, small.name_strategy);
+    const type_name = try sema.createTypeName(block, small.name_strategy, "union");
     const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
         .ty = Type.type,
         .val = union_val,
@@ -2156,7 +2182,7 @@ fn zirOpaqueDecl(
     };
     const opaque_ty = Type.initPayload(&opaque_ty_payload.base);
     const opaque_val = try Value.Tag.ty.create(new_decl_arena_allocator, opaque_ty);
-    const type_name = try sema.createTypeName(block, small.name_strategy);
+    const type_name = try sema.createTypeName(block, small.name_strategy, "opaque");
     const new_decl = try mod.createAnonymousDeclNamed(block, .{
         .ty = Type.type,
         .val = opaque_val,
@@ -2204,7 +2230,7 @@ fn zirErrorSetDecl(
     const error_set = try new_decl_arena_allocator.create(Module.ErrorSet);
     const error_set_ty = try Type.Tag.error_set.create(new_decl_arena_allocator, error_set);
     const error_set_val = try Value.Tag.ty.create(new_decl_arena_allocator, error_set_ty);
-    const type_name = try sema.createTypeName(block, name_strategy);
+    const type_name = try sema.createTypeName(block, name_strategy, "error");
     const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
         .ty = Type.type,
         .val = error_set_val,
@@ -12697,7 +12723,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             };
             const enum_ty = Type.initPayload(&enum_ty_payload.base);
             const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
-            const type_name = try sema.createTypeName(block, .anon);
+            const type_name = try sema.createTypeName(block, .anon, "enum");
             const new_decl = try mod.createAnonymousDeclNamed(block, .{
                 .ty = Type.type,
                 .val = enum_val,
@@ -12707,7 +12733,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
             enum_obj.* = .{
                 .owner_decl = new_decl,
-                .tag_ty = Type.initTag(.@"null"),
+                .tag_ty = Type.@"null",
                 .tag_ty_inferred = true,
                 .fields = .{},
                 .values = .{},
@@ -12785,7 +12811,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             };
             const opaque_ty = Type.initPayload(&opaque_ty_payload.base);
             const opaque_val = try Value.Tag.ty.create(new_decl_arena_allocator, opaque_ty);
-            const type_name = try sema.createTypeName(block, .anon);
+            const type_name = try sema.createTypeName(block, .anon, "opaque");
             const new_decl = try mod.createAnonymousDeclNamed(block, .{
                 .ty = Type.type,
                 .val = opaque_val,
@@ -12836,7 +12862,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             };
             const union_ty = Type.initPayload(&union_payload.base);
             const new_union_val = try Value.Tag.ty.create(new_decl_arena_allocator, union_ty);
-            const type_name = try sema.createTypeName(block, .anon);
+            const type_name = try sema.createTypeName(block, .anon, "union");
             const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
                 .ty = Type.type,
                 .val = new_union_val,
@@ -13001,7 +13027,7 @@ fn reifyStruct(
     const struct_obj = try new_decl_arena_allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
     const new_struct_val = try Value.Tag.ty.create(new_decl_arena_allocator, struct_ty);
-    const type_name = try sema.createTypeName(block, .anon);
+    const type_name = try sema.createTypeName(block, .anon, "struct");
     const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
         .ty = Type.type,
         .val = new_struct_val,

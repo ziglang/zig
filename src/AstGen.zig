@@ -6293,7 +6293,10 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     } else .{
         .ty = try gz.addNodeExtended(.ret_type, node),
     };
+    const prev_anon_name_strategy = gz.anon_name_strategy;
+    gz.anon_name_strategy = .func;
     const operand = try reachableExpr(gz, scope, rl, operand_node, node);
+    gz.anon_name_strategy = prev_anon_name_strategy;
 
     switch (nodeMayEvalToError(tree, operand_node)) {
         .never => {

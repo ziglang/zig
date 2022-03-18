@@ -9702,8 +9702,9 @@ test "integer truncation" {
       <p>
       This function returns the string representation of a type, as
       an array. It is equivalent to a string literal of the type name.
+      The returned type name is fully qualified with the parent namespace included
+      as part of the type name with a series of dots.
       </p>
-
       {#header_close#}
 
       {#header_open|@TypeOf#}

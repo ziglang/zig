@@ -445,6 +445,26 @@ pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
     }
 }
 
+pub fn expectStringStartsWith(actual: []const u8, expected_starts_with: []const u8) !void {
+    if (std.mem.startsWith(u8, actual, expected_starts_with))
+        return;
+
+    const shortened_actual = if (actual.len >= expected_starts_with.len)
+        actual[0..expected_starts_with.len]
+    else
+        actual;
+
+    print("\n====== expected to start with: =========\n", .{});
+    printWithVisibleNewlines(expected_starts_with);
+    print("\n====== instead ended with: ===========\n", .{});
+    printWithVisibleNewlines(shortened_actual);
+    print("\n========= full output: ==============\n", .{});
+    printWithVisibleNewlines(actual);
+    print("\n======================================\n", .{});
+
+    return error.TestExpectedStartsWith;
+}
+
 pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) !void {
     if (std.mem.endsWith(u8, actual, expected_ends_with))
         return;

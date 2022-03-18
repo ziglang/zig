@@ -199,11 +199,18 @@ const OpaqueA = opaque {};
 const OpaqueB = opaque {};
 
 test "opaque types" {
-    try expect(*OpaqueA != *OpaqueB);
-    if (builtin.zig_backend == .stage1) { // TODO make this pass for stage2
-        try expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
-        try expect(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the type names wrong
+        return error.SkipZigTest;
     }
+
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    try expect(*OpaqueA != *OpaqueB);
+
+    try expect(mem.eql(u8, @typeName(OpaqueA), "behavior.basic.OpaqueA"));
+    try expect(mem.eql(u8, @typeName(OpaqueB), "behavior.basic.OpaqueB"));
 }
 
 const global_a: i32 = 1234;

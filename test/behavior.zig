@@ -120,6 +120,7 @@ test {
     _ = @import("behavior/tuple.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
+    _ = @import("behavior/typename.zig");
     _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
@@ -179,7 +180,6 @@ test {
                 _ = @import("behavior/bugs/7027.zig");
                 _ = @import("behavior/select.zig");
                 _ = @import("behavior/struct_contains_slice_of_itself.zig");
-                _ = @import("behavior/typename.zig");
             }
         }
     }

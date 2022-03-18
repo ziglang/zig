@@ -1793,7 +1793,7 @@ pub const Type = extern union {
                 },
                 .error_set_inferred => {
                     const func = ty.castTag(.error_set_inferred).?.data.func;
-                    return writer.print("(inferred error set of {s})", .{func.owner_decl.name});
+                    return writer.print("@typeInfo(@typeInfo(@TypeOf({s})).Fn.return_type.?).ErrorUnion.error_set", .{func.owner_decl.name});
                 },
                 .error_set_merged => {
                     const names = ty.castTag(.error_set_merged).?.data.keys();
@@ -1836,6 +1836,21 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .generic_poison => unreachable,
+            .var_args_param => unreachable,
+            .bound_fn => unreachable,
+
+            // TODO get rid of these Type.Tag values.
+            .atomic_order => unreachable,
+            .atomic_rmw_op => unreachable,
+            .calling_convention => unreachable,
+            .address_space => unreachable,
+            .float_mode => unreachable,
+            .reduce_op => unreachable,
+            .call_options => unreachable,
+            .prefetch_options => unreachable,
+            .export_options => unreachable,
+            .extern_options => unreachable,
+            .type_info => unreachable,
 
             .u1,
             .u8,
@@ -1873,39 +1888,44 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
-            .var_args_param,
-            .bound_fn,
             => return maybeDupe(@tagName(t), ally, is_arena),
 
-            .enum_literal => return maybeDupe("@Type(.EnumLiteral)", ally, is_arena),
-            .@"null" => return maybeDupe("@Type(.Null)", ally, is_arena),
-            .@"undefined" => return maybeDupe("@Type(.Undefined)", ally, is_arena),
+            .enum_literal => return maybeDupe("@TypeOf(.enum_literal)", ally, is_arena),
+            .@"null" => return maybeDupe("@TypeOf(null)", ally, is_arena),
+            .@"undefined" => return maybeDupe("@TypeOf(undefined)", ally, is_arena),
+            .empty_struct_literal => return maybeDupe("@TypeOf(.{})", ally, is_arena),
 
-            .empty_struct, .empty_struct_literal => return maybeDupe("struct {}", ally, is_arena),
+            .empty_struct => {
+                const namespace = ty.castTag(.empty_struct).?.data;
+                var buffer = std.ArrayList(u8).init(ally);
+                defer buffer.deinit();
+                try namespace.renderFullyQualifiedName("", buffer.writer());
+                return buffer.toOwnedSliceSentinel(0);
+            },
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                return try ally.dupeZ(u8, std.mem.sliceTo(struct_obj.owner_decl.name, 0));
+                return try struct_obj.owner_decl.getFullyQualifiedName(ally);
             },
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                return try ally.dupeZ(u8, std.mem.sliceTo(union_obj.owner_decl.name, 0));
+                return try union_obj.owner_decl.getFullyQualifiedName(ally);
             },
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return try ally.dupeZ(u8, std.mem.sliceTo(enum_full.owner_decl.name, 0));
+                return try enum_full.owner_decl.getFullyQualifiedName(ally);
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                return try ally.dupeZ(u8, std.mem.sliceTo(enum_simple.owner_decl.name, 0));
+                return try enum_simple.owner_decl.getFullyQualifiedName(ally);
             },
             .enum_numbered => {
                 const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                return try ally.dupeZ(u8, std.mem.sliceTo(enum_numbered.owner_decl.name, 0));
+                return try enum_numbered.owner_decl.getFullyQualifiedName(ally);
             },
             .@"opaque" => {
                 const opaque_obj = ty.cast(Payload.Opaque).?.data;
-                return try ally.dupeZ(u8, std.mem.sliceTo(opaque_obj.owner_decl.name, 0));
+                return try opaque_obj.owner_decl.getFullyQualifiedName(ally);
             },
 
             .anyerror_void_error_union => return maybeDupe("anyerror!void", ally, is_arena),
@@ -1919,21 +1939,79 @@ pub const Type = extern union {
             .manyptr_u8 => return maybeDupe("[*]u8", ally, is_arena),
             .manyptr_const_u8 => return maybeDupe("[*]const u8", ally, is_arena),
             .manyptr_const_u8_sentinel_0 => return maybeDupe("[*:0]const u8", ally, is_arena),
-            .atomic_order => return maybeDupe("AtomicOrder", ally, is_arena),
-            .atomic_rmw_op => return maybeDupe("AtomicRmwOp", ally, is_arena),
-            .calling_convention => return maybeDupe("CallingConvention", ally, is_arena),
-            .address_space => return maybeDupe("AddressSpace", ally, is_arena),
-            .float_mode => return maybeDupe("FloatMode", ally, is_arena),
-            .reduce_op => return maybeDupe("ReduceOp", ally, is_arena),
-            .call_options => return maybeDupe("CallOptions", ally, is_arena),
-            .prefetch_options => return maybeDupe("PrefetchOptions", ally, is_arena),
-            .export_options => return maybeDupe("ExportOptions", ally, is_arena),
-            .extern_options => return maybeDupe("ExternOptions", ally, is_arena),
-            .type_info => return maybeDupe("Type", ally, is_arena),
+
+            .error_set_inferred => {
+                const func = ty.castTag(.error_set_inferred).?.data.func;
+
+                var buf = std.ArrayList(u8).init(ally);
+                defer buf.deinit();
+                try buf.appendSlice("@typeInfo(@typeInfo(@TypeOf(");
+                try func.owner_decl.renderFullyQualifiedName(buf.writer());
+                try buf.appendSlice(")).Fn.return_type.?).ErrorUnion.error_set");
+                return try buf.toOwnedSliceSentinel(0);
+            },
+
+            .function => {
+                const fn_info = ty.fnInfo();
+                var buf = std.ArrayList(u8).init(ally);
+                defer buf.deinit();
+                try buf.appendSlice("fn(");
+                for (fn_info.param_types) |param_type, i| {
+                    if (i != 0) try buf.appendSlice(", ");
+                    const param_name = try param_type.nameAllocAdvanced(ally, is_arena);
+                    defer if (!is_arena) ally.free(param_name);
+                    try buf.appendSlice(param_name);
+                }
+                if (fn_info.is_var_args) {
+                    if (fn_info.param_types.len != 0) {
+                        try buf.appendSlice(", ");
+                    }
+                    try buf.appendSlice("...");
+                }
+                try buf.appendSlice(") ");
+                if (fn_info.cc != .Unspecified) {
+                    try buf.appendSlice("callconv(.");
+                    try buf.appendSlice(@tagName(fn_info.cc));
+                    try buf.appendSlice(") ");
+                }
+                if (fn_info.alignment != 0) {
+                    try buf.writer().print("align({d}) ", .{fn_info.alignment});
+                }
+                {
+                    const ret_ty_name = try fn_info.return_type.nameAllocAdvanced(ally, is_arena);
+                    defer if (!is_arena) ally.free(ret_ty_name);
+                    try buf.appendSlice(ret_ty_name);
+                }
+                return try buf.toOwnedSliceSentinel(0);
+            },
+
+            .error_union => {
+                const error_union = ty.castTag(.error_union).?.data;
+
+                var buf = std.ArrayList(u8).init(ally);
+                defer buf.deinit();
+
+                {
+                    const err_set_ty_name = try error_union.error_set.nameAllocAdvanced(ally, is_arena);
+                    defer if (!is_arena) ally.free(err_set_ty_name);
+                    try buf.appendSlice(err_set_ty_name);
+                }
+
+                try buf.appendSlice("!");
+
+                {
+                    const payload_ty_name = try error_union.payload.nameAllocAdvanced(ally, is_arena);
+                    defer if (!is_arena) ally.free(payload_ty_name);
+                    try buf.appendSlice(payload_ty_name);
+                }
+
+                return try buf.toOwnedSliceSentinel(0);
+            },
 
             else => {
                 // TODO this is wasteful and also an incorrect implementation of `@typeName`
                 var buf = std.ArrayList(u8).init(ally);
+                defer buf.deinit();
                 try buf.writer().print("{}", .{ty});
                 return try buf.toOwnedSliceSentinel(0);
             },
