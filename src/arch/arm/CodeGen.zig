@@ -118,11 +118,6 @@ const MCValue = union(enum) {
     /// A pointer-sized integer that fits in a register.
     /// If the type is a pointer, this is the pointer address in virtual address space.
     immediate: u32,
-    /// The constant was emitted into the code, at this offset.
-    /// If the type is a pointer, it means the pointer address is embedded in the code.
-    embedded_in_code: usize,
-    /// The value is a pointer to a constant which was emitted into the code, at this offset.
-    ptr_embedded_in_code: usize,
     /// The value is in a target-specific register.
     register: Register,
     /// The value is in memory at a hard-coded address.
@@ -144,7 +139,7 @@ const MCValue = union(enum) {
 
     fn isMemory(mcv: MCValue) bool {
         return switch (mcv) {
-            .embedded_in_code, .memory, .stack_offset, .stack_argument_offset => true,
+            .memory, .stack_offset, .stack_argument_offset => true,
             else => false,
         };
     }
@@ -163,12 +158,10 @@ const MCValue = union(enum) {
             .dead => unreachable,
 
             .immediate,
-            .embedded_in_code,
             .memory,
             .compare_flags_unsigned,
             .compare_flags_signed,
             .ptr_stack_offset,
-            .ptr_embedded_in_code,
             .undef,
             .stack_argument_offset,
             => false,
@@ -1358,24 +1351,28 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn slicePtr(self: *Self, mcv: MCValue) !MCValue {
+    switch (mcv) {
+        .dead, .unreach => unreachable,
+        .register => unreachable, // a slice doesn't fit in one register
+        .stack_argument_offset => |off| {
+            return MCValue{ .stack_argument_offset = off + 4 };
+        },
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off + 4 };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr };
+        },
+        else => return self.fail("TODO implement slice_ptr for {}", .{mcv}),
+    }
+}
+
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(ty_op.operand);
-        switch (mcv) {
-            .dead, .unreach => unreachable,
-            .register => unreachable, // a slice doesn't fit in one register
-            .stack_argument_offset => |off| {
-                break :result MCValue{ .stack_argument_offset = off + 4 };
-            },
-            .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off + 4 };
-            },
-            .memory => |addr| {
-                break :result MCValue{ .memory = addr };
-            },
-            else => return self.fail("TODO implement slice_ptr for {}", .{mcv}),
-        }
+        break :result try self.slicePtr(mcv);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -1409,7 +1406,7 @@ fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
         switch (mcv) {
             .dead, .unreach => unreachable,
             .ptr_stack_offset => |off| {
-                break :result MCValue{ .ptr_stack_offset = off + 4 };
+                break :result MCValue{ .ptr_stack_offset = off };
             },
             else => return self.fail("TODO implement ptr_slice_len_ptr for {}", .{mcv}),
         }
@@ -1424,7 +1421,7 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
         switch (mcv) {
             .dead, .unreach => unreachable,
             .ptr_stack_offset => |off| {
-                break :result MCValue{ .ptr_stack_offset = off };
+                break :result MCValue{ .ptr_stack_offset = off + 4 };
             },
             else => return self.fail("TODO implement ptr_slice_ptr_ptr for {}", .{mcv}),
         }
@@ -1455,15 +1452,17 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         if (index_is_register) self.register_manager.freezeRegs(&.{index_mcv.register});
         defer if (index_is_register) self.register_manager.unfreezeRegs(&.{index_mcv.register});
 
-        const base_mcv: MCValue = switch (slice_mcv) {
-            .stack_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_offset = off + 4 }) },
-            .stack_argument_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_argument_offset = off + 4 }) },
-            else => return self.fail("TODO slice_elem_val when slice is {}", .{slice_mcv}),
-        };
-        self.register_manager.freezeRegs(&.{base_mcv.register});
+        const base_mcv = try self.slicePtr(slice_mcv);
 
         switch (elem_size) {
             1, 4 => {
+                const base_reg = switch (base_mcv) {
+                    .register => |r| r,
+                    else => try self.copyToTmpRegister(slice_ptr_field_type, base_mcv),
+                };
+                self.register_manager.freezeRegs(&.{base_reg});
+                defer self.register_manager.unfreezeRegs(&.{base_reg});
+
                 const dst_reg = try self.register_manager.allocReg(inst);
                 const dst_mcv = MCValue{ .register = dst_reg };
                 self.register_manager.freezeRegs(&.{dst_reg});
@@ -1491,12 +1490,10 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                     .tag = tag,
                     .data = .{ .rr_offset = .{
                         .rt = dst_reg,
-                        .rn = base_mcv.register,
+                        .rn = base_reg,
                         .offset = .{ .offset = Instruction.Offset.reg(index_reg, .{ .lsl = shift }) },
                     } },
                 });
-
-                self.register_manager.unfreezeRegs(&.{base_mcv.register});
 
                 break :result dst_mcv;
             },
@@ -1515,7 +1512,16 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_elem_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const slice_mcv = try self.resolveInst(extra.lhs);
+        const index_mcv = try self.resolveInst(extra.rhs);
+        const base_mcv = try self.slicePtr(slice_mcv);
+
+        const slice_ty = self.air.typeOf(extra.lhs);
+
+        const addr = try self.binOp(.ptr_add, null, base_mcv, index_mcv, slice_ty, Type.usize);
+        break :result addr;
+    };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
@@ -1535,7 +1541,15 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
 fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_elem_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_mcv = try self.resolveInst(extra.lhs);
+        const index_mcv = try self.resolveInst(extra.rhs);
+
+        const ptr_ty = self.air.typeOf(extra.lhs);
+
+        const addr = try self.binOp(.ptr_add, null, ptr_mcv, index_mcv, ptr_ty, Type.usize);
+        break :result addr;
+    };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
@@ -1641,9 +1655,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .compare_flags_signed => unreachable,
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
         .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
-        .ptr_embedded_in_code => |off| {
-            try self.setRegOrMem(elem_ty, dst_mcv, .{ .embedded_in_code = off });
-        },
         .register => |reg| {
             self.register_manager.freezeRegs(&.{reg});
             defer self.register_manager.unfreezeRegs(&.{reg});
@@ -1652,7 +1663,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .dead => unreachable,
                 .undef => unreachable,
                 .compare_flags_signed, .compare_flags_unsigned => unreachable,
-                .embedded_in_code => unreachable,
                 .register => |dst_reg| {
                     try self.genLdrRegister(dst_reg, reg, elem_ty);
                 },
@@ -1690,7 +1700,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
             }
         },
         .memory,
-        .embedded_in_code,
         .stack_offset,
         .stack_argument_offset,
         => {
@@ -1746,9 +1755,6 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .ptr_stack_offset => |off| {
             try self.genSetStack(value_ty, off, value);
         },
-        .ptr_embedded_in_code => |off| {
-            try self.setRegOrMem(value_ty, .{ .embedded_in_code = off }, value);
-        },
         .register => |addr_reg| {
             self.register_manager.freezeRegs(&.{addr_reg});
             defer self.register_manager.unfreezeRegs(&.{addr_reg});
@@ -1760,7 +1766,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     try self.genStrRegister(value_reg, addr_reg, value_ty);
                 },
                 else => {
-                    if (value_ty.abiSize(self.target.*) <= 4) {
+                    if (elem_size <= 4) {
                         const tmp_reg = try self.register_manager.allocReg(null);
                         self.register_manager.freezeRegs(&.{tmp_reg});
                         defer self.register_manager.unfreezeRegs(&.{tmp_reg});
@@ -1784,6 +1790,17 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                             },
                             .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = @intCast(u32, addr) }),
+                            .stack_argument_offset => |unadjusted_off| {
+                                const adj_off = unadjusted_off + elem_size;
+
+                                _ = try self.addInst(.{
+                                    .tag = .ldr_ptr_stack_argument,
+                                    .data = .{ .r_stack_offset = .{
+                                        .rt = src_reg,
+                                        .stack_offset = adj_off,
+                                    } },
+                                });
+                            },
                             else => return self.fail("TODO store {} to register", .{value}),
                         }
 
@@ -1797,7 +1814,6 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             }
         },
         .memory,
-        .embedded_in_code,
         .stack_offset,
         .stack_argument_offset,
         => {
@@ -2680,12 +2696,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             .immediate => unreachable,
             .unreach => unreachable,
             .dead => unreachable,
-            .embedded_in_code => unreachable,
             .memory => unreachable,
             .compare_flags_signed => unreachable,
             .compare_flags_unsigned => unreachable,
             .ptr_stack_offset => unreachable,
-            .ptr_embedded_in_code => unreachable,
             .register => |reg| {
                 try self.register_manager.getReg(reg, null);
                 try self.genSetReg(arg_ty, reg, arg_mcv);
@@ -3584,7 +3598,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
         .compare_flags_signed,
         .immediate,
         .ptr_stack_offset,
-        .ptr_embedded_in_code,
         => {
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
@@ -3637,7 +3650,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             }
         },
         .memory,
-        .embedded_in_code,
         .stack_argument_offset,
         .stack_offset,
         => {
@@ -3684,7 +3696,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             } },
                         });
                     },
-                    .embedded_in_code => return self.fail("TODO genSetStack with src={}", .{mcv}),
                     else => unreachable,
                 }
 
@@ -3704,7 +3715,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
-        .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
             if (!self.wantSafety())
@@ -3964,7 +3974,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 } },
             });
         },
-        else => return self.fail("TODO implement getSetReg for arm {}", .{mcv}),
     }
 }
 
@@ -4028,7 +4037,6 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
         .stack_offset,
         .memory,
         .stack_argument_offset,
-        .embedded_in_code,
         => {
             if (abi_size <= 4) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
@@ -4054,9 +4062,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                         try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                     },
                     .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
-                    .stack_argument_offset,
-                    .embedded_in_code,
-                    => return self.fail("TODO genSetStackArgument src={}", .{mcv}),
+                    .stack_argument_offset => return self.fail("TODO genSetStackArgument src={}", .{mcv}),
                     else => unreachable,
                 }
 
@@ -4085,7 +4091,6 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
         .compare_flags_signed,
         .immediate,
         .ptr_stack_offset,
-        .ptr_embedded_in_code,
         => {
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStackArgument(ty, stack_offset, MCValue{ .register = reg });
