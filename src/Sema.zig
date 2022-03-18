@@ -16945,10 +16945,11 @@ fn coerce(
 
     const arena = sema.arena;
     const target = sema.mod.getTarget();
+    const maybe_inst_val = try sema.resolveMaybeUndefVal(block, inst_src, inst);
 
     const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
-        if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
+        if (maybe_inst_val) |val| {
             // Keep the comptime Value representation; take the new type.
             return sema.addConstant(dest_ty, val);
         }
@@ -16956,16 +16957,15 @@ fn coerce(
         return block.addBitCast(dest_ty, inst);
     }
 
-    // undefined to anything
-    if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
-        if (val.isUndef() or inst_ty.zigTypeTag() == .Undefined) {
-            return sema.addConstant(dest_ty, val);
-        }
-    }
-    assert(inst_ty.zigTypeTag() != .Undefined);
+    const is_undef = if (maybe_inst_val) |val| val.isUndef() else false;
 
     switch (dest_ty.zigTypeTag()) {
         .Optional => {
+            // undefined sets the optional bit also to undefined.
+            if (is_undef) {
+                return sema.addConstUndef(dest_ty);
+            }
+
             // null to ?T
             if (inst_ty.zigTypeTag() == .Null) {
                 return sema.addConstant(dest_ty, Value.@"null");
@@ -17167,8 +17167,8 @@ fn coerce(
                     }
                 },
                 .Many => p: {
+                    if (!inst_ty.isSlice()) break :p;
                     const inst_info = inst_ty.ptrInfo().data;
-                    if (inst_info.size != .Slice) break :p;
 
                     switch (try sema.coerceInMemoryAllowed(
                         block,
@@ -17191,9 +17191,6 @@ fn coerce(
                     return sema.coerceCompatiblePtrs(block, dest_ty, slice_ptr, inst_src);
                 },
             }
-
-            // This will give an extra hint on top of what the bottom of this func would provide.
-            try sema.checkPtrOperand(block, dest_ty_src, inst_ty);
         },
         .Int, .ComptimeInt => switch (inst_ty.zigTypeTag()) {
             .Float, .ComptimeFloat => float: {
@@ -17229,6 +17226,9 @@ fn coerce(
                     try sema.requireRuntimeBlock(block, inst_src);
                     return block.addTyOp(.intcast, dest_ty, inst);
                 }
+            },
+            .Undefined => {
+                return sema.addConstUndef(dest_ty);
             },
             else => {},
         },
@@ -17275,6 +17275,9 @@ fn coerce(
                 //}
                 return try sema.addConstant(dest_ty, result_val);
             },
+            .Undefined => {
+                return sema.addConstUndef(dest_ty);
+            },
             else => {},
         },
         .Enum => switch (inst_ty.zigTypeTag()) {
@@ -17313,11 +17316,14 @@ fn coerce(
                     return sema.unionToTag(block, dest_ty, inst, inst_src);
                 }
             },
+            .Undefined => {
+                return sema.addConstUndef(dest_ty);
+            },
             else => {},
         },
         .ErrorUnion => switch (inst_ty.zigTypeTag()) {
             .ErrorUnion => {
-                if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |inst_val| {
+                if (maybe_inst_val) |inst_val| {
                     switch (inst_val.tag()) {
                         .undef => return sema.addConstUndef(dest_ty),
                         .eu_payload => {
@@ -17341,7 +17347,15 @@ fn coerce(
                 // E to E!T
                 return sema.wrapErrorUnionSet(block, dest_ty, inst, inst_src);
             },
+            .Undefined => {
+                return sema.addConstUndef(dest_ty);
+            },
             else => {
+                // undefined sets the error code also to undefined.
+                if (is_undef) {
+                    return sema.addConstUndef(dest_ty);
+                }
+
                 // T to E!T
                 return sema.wrapErrorUnionPayload(block, dest_ty, inst, inst_src);
             },
@@ -17352,6 +17366,9 @@ fn coerce(
                 if (inst_ty.isAnonStruct()) {
                     return sema.coerceAnonStructToUnion(block, dest_ty, dest_ty_src, inst, inst_src);
                 }
+            },
+            .Undefined => {
+                return sema.addConstUndef(dest_ty);
             },
             else => {},
         },
@@ -17365,10 +17382,16 @@ fn coerce(
                     return sema.coerceTupleToArray(block, dest_ty, dest_ty_src, inst, inst_src);
                 }
             },
+            .Undefined => {
+                return sema.addConstUndef(dest_ty);
+            },
             else => {},
         },
         .Vector => switch (inst_ty.zigTypeTag()) {
             .Array, .Vector => return sema.coerceArrayLike(block, dest_ty, dest_ty_src, inst, inst_src),
+            .Undefined => {
+                return sema.addConstUndef(dest_ty);
+            },
             else => {},
         },
         .Struct => {
@@ -17380,6 +17403,13 @@ fn coerce(
             }
         },
         else => {},
+    }
+
+    // undefined to anything. We do this after the big switch above so that
+    // special logic has a chance to run first, such as `*[N]T` to `[]T` which
+    // should initialize the length field of the slice.
+    if (is_undef) {
+        return sema.addConstUndef(dest_ty);
     }
 
     return sema.fail(block, inst_src, "expected {}, found {}", .{ dest_ty, inst_ty });
@@ -18452,7 +18482,7 @@ fn coerceArrayPtrToSlice(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
+    if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
         const ptr_array_ty = sema.typeOf(inst);
         const array_ty = ptr_array_ty.childType();
         const slice_val = try Value.Tag.slice.create(sema.arena, .{
@@ -21336,7 +21366,7 @@ fn addIntUnsigned(sema: *Sema, ty: Type, int: u64) CompileError!Air.Inst.Ref {
 }
 
 fn addConstUndef(sema: *Sema, ty: Type) CompileError!Air.Inst.Ref {
-    return sema.addConstant(ty, Value.initTag(.undef));
+    return sema.addConstant(ty, Value.undef);
 }
 
 pub fn addConstant(sema: *Sema, ty: Type, val: Value) SemaError!Air.Inst.Ref {

@@ -1138,11 +1138,9 @@ test "packed struct with undefined initializers" {
 }
 
 test "for loop over pointers to struct, getting field from struct pointer" {
-    // When enabling this test, be careful. I have observed it to pass when compiling
-    // stage2 alone, but when using stage1 with -fno-stage1 -fLLVM it fails.
-    // Maybe eyeball the LLVM that it generates and run in valgrind, both the compiler
-    // and the generated test at runtime.
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Foo = struct {
