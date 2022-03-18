@@ -2052,11 +2052,9 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
 
-    _ = try gz.add(.{ .tag = .extended, .data = .{ .extended = .{
-        .opcode = .dbg_block_begin,
-        .small = undefined,
-        .operand = undefined
-    } } });
+    if (statements.len == 0) return;
+
+    try gz.addDbgBlockBegin();
 
     var block_arena = std.heap.ArenaAllocator.init(gz.astgen.gpa);
     defer block_arena.deinit();
@@ -2111,11 +2109,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
         }
     }
 
-    _ = try gz.add(.{ .tag = .extended, .data = .{ .extended = .{
-        .opcode = .dbg_block_end,
-        .small = undefined,
-        .operand = undefined
-    } } });
+    try gz.addDbgBlockEnd();
 
     try genDefers(gz, parent_scope, scope, .normal_only);
     try checkUsed(gz, parent_scope, scope);
@@ -2539,6 +2533,7 @@ fn genDefers(
                         gz.in_defer = true;
                         defer gz.in_defer = prev_in_defer;
                         var local_val_scope: Scope.LocalVal = undefined;
+                        try gz.addDbgBlockBegin();
                         const sub_scope = if (payload_token == 0) defer_scope.parent else blk: {
                             const ident_name = try astgen.identAsString(payload_token);
                             local_val_scope = .{
@@ -2549,9 +2544,11 @@ fn genDefers(
                                 .token_src = payload_token,
                                 .id_cat = .@"capture",
                             };
+                            try gz.addDbgVar(.dbg_var_val, ident_name, err_code);
                             break :blk &local_val_scope.base;
                         };
                         try unusedResultDeferExpr(gz, defer_scope, sub_scope, expr_node);
+                        try gz.addDbgBlockEnd();
                     },
                     .normal_only => continue,
                 }
@@ -2677,14 +2674,7 @@ fn varDecl(
                 } else .none;
                 const init_inst = try reachableExpr(gz, scope, result_loc, var_decl.ast.init_node, node);
 
-                if (!gz.force_comptime) {
-                    _ = try gz.add(.{ .tag = .dbg_var_val, .data = .{
-                        .str_op = .{
-                            .str = ident_name,
-                            .operand = init_inst,
-                        },
-                    } });
-                }
+                try gz.addDbgVar(.dbg_var_val, ident_name, init_inst);
 
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
@@ -2778,14 +2768,7 @@ fn varDecl(
                 else
                     init_inst;
 
-                if (!gz.force_comptime) {
-                    _ = try gz.add(.{ .tag = .dbg_var_val, .data = .{
-                        .str_op = .{
-                            .str = ident_name,
-                            .operand = coerced_init,
-                        },
-                    } });
-                }
+                try gz.addDbgVar(.dbg_var_val, ident_name, coerced_init);
 
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
@@ -2822,14 +2805,7 @@ fn varDecl(
             }
             const const_ptr = try gz.addUnNode(.make_ptr_const, init_scope.rl_ptr, node);
 
-            if (!gz.force_comptime) {
-                _ = try gz.add(.{ .tag = .dbg_var_ptr, .data = .{
-                    .str_op = .{
-                        .str = ident_name,
-                        .operand = const_ptr,
-                    },
-                } });
-            }
+            try gz.addDbgVar(.dbg_var_ptr, ident_name, const_ptr);
 
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
@@ -2895,14 +2871,7 @@ fn varDecl(
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
 
-            if (!gz.force_comptime) {
-                _ = try gz.add(.{ .tag = .dbg_var_ptr, .data = .{
-                    .str_op = .{
-                        .str = ident_name,
-                        .operand = var_data.alloc,
-                    },
-                } });
-            }
+            try gz.addDbgVar(.dbg_var_ptr, ident_name, var_data.alloc);
 
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
@@ -5199,6 +5168,7 @@ fn ifExpr(
 
     var payload_val_scope: Scope.LocalVal = undefined;
 
+    try then_scope.addDbgBlockBegin();
     const then_sub_scope = s: {
         if (if_full.error_token != null) {
             if (if_full.payload_token) |payload_token| {
@@ -5221,6 +5191,7 @@ fn ifExpr(
                     .token_src = payload_token,
                     .id_cat = .@"capture",
                 };
+                try then_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
                 break :s &payload_val_scope.base;
             } else {
                 break :s &then_scope.base;
@@ -5245,6 +5216,7 @@ fn ifExpr(
                 .token_src = ident_token,
                 .id_cat = .@"capture",
             };
+            try then_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
             break :s &payload_val_scope.base;
         } else {
             break :s &then_scope.base;
@@ -5256,6 +5228,7 @@ fn ifExpr(
         block_scope.break_count += 1;
     }
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
+    try then_scope.addDbgBlockEnd();
     // We hold off on the break instructions as well as copying the then/else
     // instructions into place until we know whether to keep store_to_block_ptr
     // instructions or not.
@@ -5268,6 +5241,7 @@ fn ifExpr(
         src: Ast.Node.Index,
         result: Zir.Inst.Ref,
     } = if (else_node != 0) blk: {
+        try else_scope.addDbgBlockBegin();
         const sub_scope = s: {
             if (if_full.error_token) |error_token| {
                 const tag: Zir.Inst.Tag = if (payload_is_ref)
@@ -5288,6 +5262,7 @@ fn ifExpr(
                     .token_src = error_token,
                     .id_cat = .@"capture",
                 };
+                try else_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
                 break :s &payload_val_scope.base;
             } else {
                 break :s &else_scope.base;
@@ -5298,6 +5273,7 @@ fn ifExpr(
             block_scope.break_count += 1;
         }
         try checkUsed(parent_gz, &else_scope.base, sub_scope);
+        try else_scope.addDbgBlockEnd();
         break :blk .{
             .src = else_node,
             .result = e,
@@ -5513,6 +5489,8 @@ fn whileExpr(
     then_scope.instructions_top = GenZir.unstacked_top;
     defer then_scope.unstack();
 
+    var dbg_var_name: ?u32 = null;
+    var dbg_var_inst: Zir.Inst.Ref = undefined;
     var payload_inst: Zir.Inst.Index = 0;
     var payload_val_scope: Scope.LocalVal = undefined;
     const then_sub_scope = s: {
@@ -5539,6 +5517,8 @@ fn whileExpr(
                     .token_src = payload_token,
                     .id_cat = .@"capture",
                 };
+                dbg_var_name = ident_name;
+                dbg_var_inst = indexToRef(payload_inst);
                 break :s &payload_val_scope.base;
             } else {
                 break :s &then_scope.base;
@@ -5564,6 +5544,8 @@ fn whileExpr(
                 .token_src = ident_token,
                 .id_cat = .@"capture",
             };
+            dbg_var_name = ident_name;
+            dbg_var_inst = indexToRef(payload_inst);
             break :s &payload_val_scope.base;
         } else {
             break :s &then_scope.base;
@@ -5574,9 +5556,14 @@ fn whileExpr(
     // are no jumps to it. This happens when the last statement of a while body is noreturn
     // and there are no `continue` statements.
     // Tracking issue: https://github.com/ziglang/zig/issues/9185
+    try then_scope.addDbgBlockBegin();
+    if (dbg_var_name) |some| {
+        try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
+    }
     if (while_full.ast.cont_expr != 0) {
         _ = try expr(&loop_scope, then_sub_scope, .{ .ty = .void_type }, while_full.ast.cont_expr);
     }
+    try then_scope.addDbgBlockEnd();
     const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
     _ = try loop_scope.addNode(repeat_tag, node);
 
@@ -5592,9 +5579,15 @@ fn whileExpr(
 
     // done adding instructions to loop_scope, can now stack then_scope
     then_scope.instructions_top = then_scope.instructions.items.len;
+
     if (payload_inst != 0) try then_scope.instructions.append(astgen.gpa, payload_inst);
+    try then_scope.addDbgBlockBegin();
+    if (dbg_var_name) |some| {
+        try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
+    }
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
+    try then_scope.addDbgBlockEnd();
 
     var else_scope = parent_gz.makeSubBlock(&continue_scope.base);
     defer else_scope.unstack();
@@ -5604,6 +5597,7 @@ fn whileExpr(
         src: Ast.Node.Index,
         result: Zir.Inst.Ref,
     } = if (else_node != 0) blk: {
+        try else_scope.addDbgBlockBegin();
         const sub_scope = s: {
             if (while_full.error_token) |error_token| {
                 const tag: Zir.Inst.Tag = if (payload_is_ref)
@@ -5624,6 +5618,7 @@ fn whileExpr(
                     .token_src = error_token,
                     .id_cat = .@"capture",
                 };
+                try else_scope.addDbgVar(.dbg_var_val, ident_name, else_payload_inst);
                 break :s &payload_val_scope.base;
             } else {
                 break :s &else_scope.base;
@@ -5634,6 +5629,7 @@ fn whileExpr(
             loop_scope.break_count += 1;
         }
         try checkUsed(parent_gz, &else_scope.base, sub_scope);
+        try else_scope.addDbgBlockEnd();
         break :blk .{
             .src = else_node,
             .result = e,
@@ -5755,6 +5751,7 @@ fn forExpr(
     then_scope.markAsLoopBody(loop_scope);
     defer then_scope.unstack();
 
+    try then_scope.addDbgBlockBegin();
     var payload_val_scope: Scope.LocalVal = undefined;
     var index_scope: Scope.LocalPtr = undefined;
     const then_sub_scope = blk: {
@@ -5779,6 +5776,7 @@ fn forExpr(
                 .token_src = ident,
                 .id_cat = .@"capture",
             };
+            try then_scope.addDbgVar(.dbg_var_val, name_str_index, payload_inst);
             payload_sub_scope = &payload_val_scope.base;
         } else if (is_ptr) {
             return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
@@ -5805,11 +5803,13 @@ fn forExpr(
             .maybe_comptime = is_inline,
             .id_cat = .@"loop index capture",
         };
+        try then_scope.addDbgVar(.dbg_var_val, index_name, index_ptr);
         break :blk &index_scope.base;
     };
 
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
+    try then_scope.addDbgBlockEnd();
 
     var else_scope = parent_gz.makeSubBlock(&cond_scope.base);
     defer else_scope.unstack();
@@ -6028,6 +6028,8 @@ fn switchExpr(
         const is_multi_case = case.ast.values.len > 1 or
             (case.ast.values.len == 1 and node_tags[case.ast.values[0]] == .switch_range);
 
+        var dbg_var_name: ?u32 = null;
+        var dbg_var_inst: Zir.Inst.Ref = undefined;
         var capture_inst: Zir.Inst.Index = 0;
         var capture_val_scope: Scope.LocalVal = undefined;
         const sub_scope = blk: {
@@ -6087,6 +6089,8 @@ fn switchExpr(
                 .token_src = payload_token,
                 .id_cat = .@"capture",
             };
+            dbg_var_name = capture_name;
+            dbg_var_inst = indexToRef(capture_inst);
             break :blk &capture_val_scope.base;
         };
 
@@ -6142,12 +6146,17 @@ fn switchExpr(
             defer case_scope.unstack();
 
             if (capture_inst != 0) try case_scope.instructions.append(gpa, capture_inst);
+            try case_scope.addDbgBlockBegin();
+            if (dbg_var_name) |some| {
+                try case_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
+            }
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
             try checkUsed(parent_gz, &case_scope.base, sub_scope);
             if (!parent_gz.refIsNoReturn(case_result)) {
                 block_scope.break_count += 1;
                 _ = try case_scope.addBreak(.@"break", switch_block, case_result);
             }
+            try case_scope.addDbgBlockEnd();
 
             const case_slice = case_scope.instructionsSlice();
             payloads.items[body_len_index] = @intCast(u32, case_slice.len);
@@ -10838,6 +10847,41 @@ const GenZir = struct {
             for (namespace.captures.values()) |capture| {
                 gz.instructions.appendAssumeCapacity(capture);
             }
+        }
+    }
+
+    fn addDbgVar(gz: *GenZir, tag: Zir.Inst.Tag, name: u32, inst: Zir.Inst.Ref) !void {
+        if (gz.force_comptime) return;
+
+        _ = try gz.add(.{ .tag = tag, .data = .{
+            .str_op = .{
+                .str = name,
+                .operand = inst,
+            },
+        } });
+    }
+
+    fn addDbgBlockBegin(gz: *GenZir) !void {
+        if (gz.force_comptime) return;
+
+        _ = try gz.add(.{ .tag = .extended, .data = .{
+            .extended = .{ .opcode = .dbg_block_begin, .small = undefined, .operand = undefined },
+        } });
+    }
+
+    fn addDbgBlockEnd(gz: *GenZir) !void {
+        if (gz.force_comptime) return;
+
+        if (gz.endsWithNoReturn()) {
+            const last = gz.instructions.pop();
+            _ = try gz.add(.{ .tag = .extended, .data = .{
+                .extended = .{ .opcode = .dbg_block_end, .small = undefined, .operand = undefined },
+            } });
+            try gz.instructions.append(gz.astgen.gpa, last);
+        } else {
+            _ = try gz.add(.{ .tag = .extended, .data = .{
+                .extended = .{ .opcode = .dbg_block_end, .small = undefined, .operand = undefined },
+            } });
         }
     }
 

@@ -788,7 +788,6 @@ fn analyzeBodyInner(
             .@"resume"                    => try sema.zirResume(block, inst),
             .@"await"                     => try sema.zirAwait(block, inst, false),
             .await_nosuspend              => try sema.zirAwait(block, inst, true),
-            .extended                     => try sema.zirExtended(block, inst),
             .array_base_ptr               => try sema.zirArrayBasePtr(block, inst),
             .field_base_ptr               => try sema.zirFieldBasePtr(block, inst),
 
@@ -849,6 +848,53 @@ fn analyzeBodyInner(
             .@"unreachable" => break sema.zirUnreachable(block, inst),
             .panic          => break sema.zirPanic(block, inst),
             // zig fmt: on
+
+            .extended => ext: {
+                const extended = datas[inst].extended;
+                break :ext switch (extended.opcode) {
+                    // zig fmt: off
+                    .func               => try sema.zirFuncExtended(      block, extended, inst),
+                    .variable           => try sema.zirVarExtended(       block, extended),
+                    .struct_decl        => try sema.zirStructDecl(        block, extended, inst),
+                    .enum_decl          => try sema.zirEnumDecl(          block, extended),
+                    .union_decl         => try sema.zirUnionDecl(         block, extended, inst),
+                    .opaque_decl        => try sema.zirOpaqueDecl(        block, extended),
+                    .ret_ptr            => try sema.zirRetPtr(            block, extended),
+                    .ret_type           => try sema.zirRetType(           block, extended),
+                    .this               => try sema.zirThis(              block, extended),
+                    .ret_addr           => try sema.zirRetAddr(           block, extended),
+                    .builtin_src        => try sema.zirBuiltinSrc(        block, extended),
+                    .error_return_trace => try sema.zirErrorReturnTrace(  block, extended),
+                    .frame              => try sema.zirFrame(             block, extended),
+                    .frame_address      => try sema.zirFrameAddress(      block, extended),
+                    .alloc              => try sema.zirAllocExtended(     block, extended),
+                    .builtin_extern     => try sema.zirBuiltinExtern(     block, extended),
+                    .@"asm"             => try sema.zirAsm(               block, extended),
+                    .typeof_peer        => try sema.zirTypeofPeer(        block, extended),
+                    .compile_log        => try sema.zirCompileLog(        block, extended),
+                    .add_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
+                    .sub_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
+                    .mul_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
+                    .shl_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
+                    .c_undef            => try sema.zirCUndef(            block, extended),
+                    .c_include          => try sema.zirCInclude(          block, extended),
+                    .c_define           => try sema.zirCDefine(           block, extended),
+                    .wasm_memory_size   => try sema.zirWasmMemorySize(    block, extended),
+                    .wasm_memory_grow   => try sema.zirWasmMemoryGrow(    block, extended),
+                    .prefetch           => try sema.zirPrefetch(          block, extended),
+                    // zig fmt: on
+                    .dbg_block_begin => {
+                        try sema.zirDbgBlockBegin(block);
+                        i += 1;
+                        continue;
+                    },
+                    .dbg_block_end => {
+                        try sema.zirDbgBlockEnd(block);
+                        i += 1;
+                        continue;
+                    },
+                };
+            },
 
             // Instructions that we know can *never* be noreturn based solely on
             // their tag. We avoid needlessly checking if they are noreturn and
@@ -1181,45 +1227,6 @@ fn analyzeBodyInner(
     }
 
     return result;
-}
-
-fn zirExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const extended = sema.code.instructions.items(.data)[inst].extended;
-    switch (extended.opcode) {
-        // zig fmt: off
-        .func               => return sema.zirFuncExtended(      block, extended, inst),
-        .variable           => return sema.zirVarExtended(       block, extended),
-        .struct_decl        => return sema.zirStructDecl(        block, extended, inst),
-        .enum_decl          => return sema.zirEnumDecl(          block, extended),
-        .union_decl         => return sema.zirUnionDecl(         block, extended, inst),
-        .opaque_decl        => return sema.zirOpaqueDecl(        block, extended),
-        .ret_ptr            => return sema.zirRetPtr(            block, extended),
-        .ret_type           => return sema.zirRetType(           block, extended),
-        .this               => return sema.zirThis(              block, extended),
-        .ret_addr           => return sema.zirRetAddr(           block, extended),
-        .builtin_src        => return sema.zirBuiltinSrc(        block, extended),
-        .error_return_trace => return sema.zirErrorReturnTrace(  block, extended),
-        .frame              => return sema.zirFrame(             block, extended),
-        .frame_address      => return sema.zirFrameAddress(      block, extended),
-        .alloc              => return sema.zirAllocExtended(     block, extended),
-        .builtin_extern     => return sema.zirBuiltinExtern(     block, extended),
-        .@"asm"             => return sema.zirAsm(               block, extended),
-        .typeof_peer        => return sema.zirTypeofPeer(        block, extended),
-        .compile_log        => return sema.zirCompileLog(        block, extended),
-        .add_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
-        .sub_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
-        .mul_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
-        .shl_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
-        .c_undef            => return sema.zirCUndef(            block, extended),
-        .c_include          => return sema.zirCInclude(          block, extended),
-        .c_define           => return sema.zirCDefine(           block, extended),
-        .wasm_memory_size   => return sema.zirWasmMemorySize(    block, extended),
-        .wasm_memory_grow   => return sema.zirWasmMemoryGrow(    block, extended),
-        .prefetch           => return sema.zirPrefetch(          block, extended),
-        .dbg_block_begin    => return sema.zirDbgBlockBegin(     block),
-        .dbg_block_end      => return sema.zirDbgBlockEnd(       block),
-        // zig fmt: on
-    }
 }
 
 pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) Air.Inst.Ref {
@@ -4217,24 +4224,22 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
     });
 }
 
-fn zirDbgBlockBegin(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
-    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return .void_value;
+fn zirDbgBlockBegin(sema: *Sema, block: *Block) CompileError!void {
+    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return;
 
     _ = try block.addInst(.{
         .tag = .dbg_block_begin,
         .data = undefined,
     });
-    return .void_value;
 }
 
-fn zirDbgBlockEnd(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
-    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return .void_value;
+fn zirDbgBlockEnd(sema: *Sema, block: *Block) CompileError!void {
+    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return;
 
     _ = try block.addInst(.{
         .tag = .dbg_block_end,
         .data = undefined,
     });
-    return .void_value;
 }
 
 fn zirDbgVar(
