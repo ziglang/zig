@@ -943,11 +943,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (use_stage1)
                 break :blk true;
 
-            // Prefer LLVM for release builds as long as it supports the target architecture.
-            if (options.optimize_mode != .Debug and target_util.hasLlvmSupport(options.target))
+            // If LLVM does not support the target, then we can't use it.
+            if (!target_util.hasLlvmSupport(options.target))
+                break :blk false;
+
+            // Prefer LLVM for release builds.
+            if (options.optimize_mode != .Debug)
                 break :blk true;
 
-            break :blk false;
+            // At this point we would prefer to use our own self-hosted backend,
+            // because the compilation speed is better than LLVM. But only do it if
+            // we are confident in the robustness of the backend.
+            break :blk !target_util.selfHostedBackendIsAsRobustAsLlvm(options.target);
         };
         if (!use_llvm) {
             if (options.use_llvm == true) {
