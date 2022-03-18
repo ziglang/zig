@@ -27,5 +27,13 @@ pub fn generate(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
 ) GenerateSymbolError!FnResult {
+    _ = bin_file;
+    _ = src_loc;
+    _ = module_fn;
+    _ = air;
+    _ = liveness;
+    _ = code;
+    _ = debug_output;
+
     @panic("TODO implement SPARCv9 codegen");
 }
