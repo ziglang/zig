@@ -13489,23 +13489,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-
-    const scalar_ty = if (operand_ty.zigTypeTag() == .Vector)
-        operand_ty.elemType2()
-    else
-        operand_ty;
-
-    switch (operand_ty.zigTypeTag()) {
-        .Int, .ComptimeInt => {},
-        .Vector => {
-            switch (scalar_ty.zigTypeTag()) {
-                .Int, .ComptimeInt => {},
-                else => return sema.fail(block, ty_src, "expected vector of integer type, found vector of '{}'", .{scalar_ty}),
-            }
-        },
-        else => return sema.fail(block, ty_src, "expected integer type or vector of integer type, found '{}'", .{operand_ty}),
-    }
-
+    const scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand, operand_src);
     const target = sema.mod.getTarget();
     const bits = scalar_ty.intInfo(target).bits;
     if (bits % 8 != 0) {
