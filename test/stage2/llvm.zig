@@ -432,7 +432,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    a = @as(?usize, null);
             \\}
         , &[_][]const u8{
-            ":3:21: error: expected pointer type, found '?usize'",
+            ":3:21: error: expected *anyopaque, found ?usize",
         });
     }
 }

@@ -886,9 +886,9 @@ pub const TestContext = struct {
             .directory = emit_directory,
             .basename = "test_case.h",
         } else null;
-        const use_llvm: ?bool = switch (case.backend) {
+        const use_llvm: bool = switch (case.backend) {
             .llvm => true,
-            else => null,
+            else => false,
         };
         const comp = try Compilation.create(allocator, .{
             .local_cache_directory = zig_cache_directory,
