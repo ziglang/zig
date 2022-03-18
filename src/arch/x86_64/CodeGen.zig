@@ -953,7 +953,8 @@ pub fn spillCompareFlagsIfOccupied(self: *Self) !void {
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
     const reg = try self.register_manager.allocReg(null);
-    try self.genSetReg(ty, reg, mcv);
+    const sized_reg = registerAlias(reg, @intCast(u32, ty.abiSize(self.target.*)));
+    try self.genSetReg(ty, sized_reg, mcv);
     return reg;
 }
 
@@ -5337,7 +5338,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg.to64(),
+                    .reg1 = reg,
                     .reg2 = reg.to64(),
                     .flags = 0b01,
                 }).encode(),
