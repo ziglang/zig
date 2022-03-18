@@ -2018,7 +2018,7 @@ fn labeledBlockExpr(
 
     try blockExprStmts(&block_scope, &block_scope.base, statements);
     if (!block_scope.endsWithNoReturn()) {
-        _ = try block_scope.addBreak(.break_inline, block_inst, .void_value);
+        _ = try block_scope.addBreak(.@"break", block_inst, .void_value);
     }
 
     if (!block_scope.label.?.used) {
