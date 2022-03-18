@@ -427,6 +427,7 @@ test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .wasm32) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .arm) return error.SkipZigTest; // TODO
 
     comptime {
         try expect(@sizeOf(Foo24Bits) == 4);
@@ -979,6 +980,7 @@ test "tuple assigned to variable" {
 
 test "comptime struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.stage2_arch == .arm) return error.SkipZigTest; // TODO
 
     const T = struct {
         a: i32,

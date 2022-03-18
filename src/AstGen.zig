@@ -6152,11 +6152,11 @@ fn switchExpr(
             }
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
             try checkUsed(parent_gz, &case_scope.base, sub_scope);
+            try case_scope.addDbgBlockEnd();
             if (!parent_gz.refIsNoReturn(case_result)) {
                 block_scope.break_count += 1;
                 _ = try case_scope.addBreak(.@"break", switch_block, case_result);
             }
-            try case_scope.addDbgBlockEnd();
 
             const case_slice = case_scope.instructionsSlice();
             payloads.items[body_len_index] = @intCast(u32, case_slice.len);
@@ -10871,18 +10871,22 @@ const GenZir = struct {
 
     fn addDbgBlockEnd(gz: *GenZir) !void {
         if (gz.force_comptime) return;
+        const gpa = gz.astgen.gpa;
 
-        if (gz.endsWithNoReturn()) {
-            const last = gz.instructions.pop();
-            _ = try gz.add(.{ .tag = .extended, .data = .{
-                .extended = .{ .opcode = .dbg_block_end, .small = undefined, .operand = undefined },
-            } });
-            try gz.instructions.append(gz.astgen.gpa, last);
-        } else {
-            _ = try gz.add(.{ .tag = .extended, .data = .{
-                .extended = .{ .opcode = .dbg_block_end, .small = undefined, .operand = undefined },
-            } });
+        const tags = gz.astgen.instructions.items(.tag);
+        const data = gz.astgen.instructions.items(.data);
+        const last_inst = gz.instructions.items[gz.instructions.items.len - 1];
+        // remove dbg_block_begin immediately followed by dbg_block_end
+        if (tags[last_inst] == .extended and data[last_inst].extended.opcode == .dbg_block_begin) {
+            _ = gz.instructions.pop();
+            return;
         }
+
+        const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
+        try gz.astgen.instructions.append(gpa, .{ .tag = .extended, .data = .{
+            .extended = .{ .opcode = .dbg_block_end, .small = undefined, .operand = undefined },
+        } });
+        try gz.instructions.insert(gpa, gz.instructions.items.len - 1, new_index);
     }
 
     /// Control flow does not fall through the "then" block of a loop; it continues
