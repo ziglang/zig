@@ -272,6 +272,8 @@ const Writer = struct {
             .mul_with_overflow,
             .shl_with_overflow,
             => try w.writeOverflow(s, inst),
+
+            .dbg_block_begin, .dbg_block_end => {},
         }
     }
 

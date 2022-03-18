@@ -1786,6 +1786,10 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .dbg_inline_end,
             => try airDbgInline(f, inst),
 
+            .dbg_block_begin,
+            .dbg_block_end,
+            => CValue{ .none = {} },
+
             .call              => try airCall(f, inst, .auto),
             .call_always_tail  => try airCall(f, inst, .always_tail),
             .call_never_tail   => try airCall(f, inst, .never_tail),

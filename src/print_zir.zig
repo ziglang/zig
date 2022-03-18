@@ -463,6 +463,10 @@ const Writer = struct {
             .builtin_src,
             => try self.writeExtNode(stream, extended),
 
+            .dbg_block_begin,
+            .dbg_block_end,
+            => try stream.writeAll("))"),
+
             .@"asm" => try self.writeAsm(stream, extended),
             .func => try self.writeFuncExtended(stream, extended),
             .variable => try self.writeVarExtended(stream, extended),

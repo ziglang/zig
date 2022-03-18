@@ -1330,6 +1330,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .dbg_stmt,
         .dbg_inline_begin,
         .dbg_inline_end,
+        .dbg_block_begin,
+        .dbg_block_end,
         .dbg_var_ptr,
         .dbg_var_val,
         => WValue.none,

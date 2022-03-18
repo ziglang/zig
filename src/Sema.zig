@@ -1216,6 +1216,8 @@ fn zirExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .wasm_memory_size   => return sema.zirWasmMemorySize(    block, extended),
         .wasm_memory_grow   => return sema.zirWasmMemoryGrow(    block, extended),
         .prefetch           => return sema.zirPrefetch(          block, extended),
+        .dbg_block_begin    => return sema.zirDbgBlockBegin(     block),
+        .dbg_block_end      => return sema.zirDbgBlockEnd(       block),
         // zig fmt: on
     }
 }
@@ -4215,6 +4217,26 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
     });
 }
 
+fn zirDbgBlockBegin(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
+    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return .void_value;
+
+    _ = try block.addInst(.{
+        .tag = .dbg_block_begin,
+        .data = undefined,
+    });
+    return .void_value;
+}
+
+fn zirDbgBlockEnd(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
+    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return .void_value;
+
+    _ = try block.addInst(.{
+        .tag = .dbg_block_end,
+        .data = undefined,
+    });
+    return .void_value;
+}
+
 fn zirDbgVar(
     sema: *Sema,
     block: *Block,
@@ -5224,7 +5246,9 @@ fn emitDbgInline(
     new_func_ty: Type,
     tag: Air.Inst.Tag,
 ) CompileError!void {
-    // No change of file; no dbg_inline needed.
+    if (sema.mod.comp.bin_file.options.strip) return;
+
+    // Recursive inline call; no dbg_inline needed.
     if (old_func == new_func) return;
 
     try sema.air_values.append(sema.gpa, try Value.Tag.function.create(sema.arena, new_func));

@@ -316,6 +316,8 @@ fn analyzeInst(
         .dbg_stmt,
         .dbg_inline_begin,
         .dbg_inline_end,
+        .dbg_block_begin,
+        .dbg_block_end,
         .unreach,
         .fence,
         .ret_addr,

@@ -2052,6 +2052,12 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
 
+    _ = try gz.add(.{ .tag = .extended, .data = .{ .extended = .{
+        .opcode = .dbg_block_begin,
+        .small = undefined,
+        .operand = undefined
+    } } });
+
     var block_arena = std.heap.ArenaAllocator.init(gz.astgen.gpa);
     defer block_arena.deinit();
     const block_arena_allocator = block_arena.allocator();
@@ -2104,6 +2110,12 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
             // zig fmt: on
         }
     }
+
+    _ = try gz.add(.{ .tag = .extended, .data = .{ .extended = .{
+        .opcode = .dbg_block_end,
+        .small = undefined,
+        .operand = undefined
+    } } });
 
     try genDefers(gz, parent_scope, scope, .normal_only);
     try checkUsed(gz, parent_scope, scope);

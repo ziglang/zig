@@ -1646,6 +1646,10 @@ pub const Inst = struct {
         /// The `@prefetch` builtin.
         /// `operand` is payload index to `BinNode`.
         prefetch,
+        /// Marks the beginning of a semantic scope for debug info variables.
+        dbg_block_begin,
+        /// Marks the end of a semantic scope for debug info variables.
+        dbg_block_end,
 
         pub const InstData = struct {
             opcode: Extended,
