@@ -17484,9 +17484,15 @@ fn unionFieldVal(
                 if (tag_matches) {
                     return sema.addConstant(field.ty, tag_and_val.val);
                 } else {
-                    // TODO enhance this saying which one was active
-                    // and which one was accessed, and showing where the union was declared.
-                    return sema.fail(block, src, "access of inactive union field", .{});
+                    const msg = msg: {
+                        const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
+                        const active_field_name = union_obj.fields.keys()[active_index];
+                        const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.addDeclaredHereNote(msg, union_ty);
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(block, msg);
                 }
             },
             .Packed, .Extern => {
