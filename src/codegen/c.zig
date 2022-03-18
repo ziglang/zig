@@ -1000,6 +1000,46 @@ pub const DeclGen = struct {
         return name;
     }
 
+    fn renderTupleTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
+        const tuple = t.tupleFields();
+
+        var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
+        defer buffer.deinit();
+        const writer = buffer.writer();
+
+        try buffer.appendSlice("typedef struct {\n");
+        {
+            for (tuple.types) |field_ty, i| {
+                const val = tuple.values[i];
+                if (val.tag() != .unreachable_value) continue;
+
+                var name = std.ArrayList(u8).init(dg.gpa);
+                defer name.deinit();
+                try name.writer().print("field_{d}", .{i});
+
+                try buffer.append(' ');
+                try dg.renderTypeAndName(writer, field_ty, .{ .bytes = name.items }, .Mut, Value.initTag(.abi_align_default));
+                try buffer.appendSlice(";\n");
+            }
+        }
+        try buffer.appendSlice("} ");
+
+        const name_start = buffer.items.len;
+        try writer.print("zig_T_{};\n", .{typeToCIdentifier(t)});
+
+        const rendered = buffer.toOwnedSlice();
+        errdefer dg.typedefs.allocator.free(rendered);
+        const name = rendered[name_start .. rendered.len - 2];
+
+        try dg.typedefs.ensureUnusedCapacity(1);
+        dg.typedefs.putAssumeCapacityNoClobber(
+            try t.copy(dg.typedefs_arena),
+            .{ .name = name, .rendered = rendered },
+        );
+
+        return name;
+    }
+
     fn renderUnionTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
         const union_ty = t.cast(Type.Payload.Union).?.data;
         const fqn = try union_ty.getFullyQualifiedName(dg.typedefs.allocator);
@@ -1276,7 +1316,9 @@ pub const DeclGen = struct {
                 return w.writeAll(name);
             },
             .Struct => {
-                const name = dg.getTypedefName(t) orelse
+                const name = dg.getTypedefName(t) orelse if (t.isTuple())
+                    try dg.renderTupleTypedef(t)
+                else
                     try dg.renderStructTypedef(t);
 
                 return w.writeAll(name);
@@ -3116,6 +3158,8 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
     var field_name: []const u8 = undefined;
     var field_val_ty: Type = undefined;
 
+    var buf = std.ArrayList(u8).init(f.object.dg.gpa);
+    defer buf.deinit();
     switch (struct_ty.tag()) {
         .@"struct" => {
             const fields = struct_ty.structFields();
@@ -3126,6 +3170,14 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
             const fields = struct_ty.unionFields();
             field_name = fields.keys()[index];
             field_val_ty = fields.values()[index].ty;
+        },
+        .tuple => {
+            const tuple = struct_ty.tupleFields();
+            if (tuple.values[index].tag() != .unreachable_value) return CValue.none;
+
+            try buf.writer().print("field_{d}", .{index});
+            field_name = buf.items;
+            field_val_ty = tuple.types[index];
         },
         else => unreachable,
     }
@@ -3149,9 +3201,18 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const struct_byval = try f.resolveInst(extra.struct_operand);
     const struct_ty = f.air.typeOf(extra.struct_operand);
+    var buf = std.ArrayList(u8).init(f.object.dg.gpa);
+    defer buf.deinit();
     const field_name = switch (struct_ty.tag()) {
         .@"struct" => struct_ty.structFields().keys()[extra.field_index],
         .@"union", .union_tagged => struct_ty.unionFields().keys()[extra.field_index],
+        .tuple => blk: {
+            const tuple = struct_ty.tupleFields();
+            if (tuple.values[extra.field_index].tag() != .unreachable_value) return CValue.none;
+
+            try buf.writer().print("field_{d}", .{extra.field_index});
+            break :blk buf.items;
+        },
         else => unreachable,
     };
     const payload = if (struct_ty.tag() == .union_tagged) "payload." else "";
@@ -3652,11 +3713,25 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.writeAll(" = ");
+    try writer.writeAll(" = {");
+    switch (vector_ty.zigTypeTag()) {
+        .Struct => {
+            const tuple = vector_ty.tupleFields();
+            var i: usize = 0;
+            for (elements) |elem, elem_index| {
+                if (tuple.values[elem_index].tag() != .unreachable_value) continue;
 
-    _ = elements;
-    _ = local;
-    return f.fail("TODO: C backend: implement airAggregateInit", .{});
+                const value = try f.resolveInst(elem);
+                if (i != 0) try writer.writeAll(", ");
+                try f.writeCValue(writer, value);
+                i += 1;
+            }
+        },
+        else => |tag| return f.fail("TODO: C backend: implement airAggregateInit for type {s}", .{@tagName(tag)}),
+    }
+    try writer.writeAll("};\n");
+
+    return local;
 }
 
 fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
