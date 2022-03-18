@@ -59,7 +59,7 @@ make $JOBS install
 release/bin/zig build -p stage2 -Denable-llvm
 
 stage2/bin/zig test ../test/behavior.zig -I../test -fLLVM
-stage2/bin/zig test ../test/behavior.zig -I../test
+stage2/bin/zig test ../test/behavior.zig -I../test -fno-LLVM
 
 release/bin/zig build test-toolchain -Denable-macos-sdk
 release/bin/zig build test-std
