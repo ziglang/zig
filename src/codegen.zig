@@ -108,7 +108,7 @@ pub fn generateFunction(
         //.riscv32 => return Function(.riscv32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         .riscv64 => return @import("arch/riscv64/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.sparc => return Function(.sparc).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.sparcv9 => return Function(.sparcv9).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .sparcv9 => return @import("arch/sparcv9/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.sparcel => return Function(.sparcel).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.s390x => return Function(.s390x).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.tce => return Function(.tce).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
