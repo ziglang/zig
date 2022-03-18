@@ -13341,28 +13341,14 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const target = sema.mod.getTarget();
     const dest_info = dest_scalar_ty.intInfo(target);
 
-    if (dest_info.bits == 0) {
-        if (is_vector) {
-            return sema.addConstant(
-                dest_ty,
-                try Value.Tag.repeated.create(sema.arena, Value.zero),
-            );
-        } else {
-            return sema.addConstant(dest_ty, Value.zero);
-        }
+    if (try sema.typeHasOnePossibleValue(block, dest_ty_src, dest_ty)) |val| {
+        return sema.addConstant(dest_ty, val);
     }
 
     if (operand_scalar_ty.zigTypeTag() != .ComptimeInt) {
         const operand_info = operand_ty.intInfo(target);
-        if (operand_info.bits == 0) {
-            if (is_vector) {
-                return sema.addConstant(
-                    dest_ty,
-                    try Value.Tag.repeated.create(sema.arena, Value.zero),
-                );
-            } else {
-                return sema.addConstant(dest_ty, Value.zero);
-            }
+        if (try sema.typeHasOnePossibleValue(block, operand_src, operand_ty)) |val| {
+            return sema.addConstant(operand_ty, val);
         }
 
         if (operand_info.signedness != dest_info.signedness) {
@@ -13461,15 +13447,9 @@ fn zirBitCount(
     _ = try checkIntOrVector(sema, block, operand, operand_src);
     const target = sema.mod.getTarget();
     const bits = operand_ty.intInfo(target).bits;
-    if (bits == 0) {
-        switch (operand_ty.zigTypeTag()) {
-            .Vector => return sema.addConstant(
-                try Type.vector(sema.arena, operand_ty.vectorLen(), Type.comptime_int),
-                try Value.Tag.repeated.create(sema.arena, Value.zero),
-            ),
-            .Int => return Air.Inst.Ref.zero,
-            else => unreachable,
-        }
+
+    if (try sema.typeHasOnePossibleValue(block, operand_src, operand_ty)) |val| {
+        return sema.addConstant(operand_ty, val);
     }
 
     const result_scalar_ty = try Type.smallestUnsignedInt(sema.arena, bits);
@@ -13528,10 +13508,12 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         );
     }
 
+    if (try sema.typeHasOnePossibleValue(block, operand_src, operand_ty)) |val| {
+        return sema.addConstant(operand_ty, val);
+    }
+
     switch (operand_ty.zigTypeTag()) {
         .Int, .ComptimeInt => {
-            if (bits == 0) return Air.Inst.Ref.zero;
-
             const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
                 if (val.isUndef()) return sema.addConstUndef(operand_ty);
                 const result_val = try val.byteSwap(operand_ty, target, sema.arena);
@@ -13542,13 +13524,6 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return block.addTyOp(.byte_swap, operand_ty, operand);
         },
         .Vector => {
-            if (bits == 0) {
-                return sema.addConstant(
-                    operand_ty,
-                    try Value.Tag.repeated.create(sema.arena, Value.zero),
-                );
-            }
-
             const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
                 if (val.isUndef())
                     return sema.addConstUndef(operand_ty);
@@ -13575,28 +13550,50 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
 fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    // TODO implement support for vectors
-    if (operand_ty.zigTypeTag() != .Int) {
-        return sema.fail(block, ty_src, "expected integer type, found '{}'", .{
-            operand_ty,
-        });
+    _ = try sema.checkIntOrVectorAllowComptime(block, operand, operand_src);
+
+    if (try sema.typeHasOnePossibleValue(block, operand_src, operand_ty)) |val| {
+        return sema.addConstant(operand_ty, val);
     }
+
     const target = sema.mod.getTarget();
-    const bits = operand_ty.intInfo(target).bits;
-    if (bits == 0) return Air.Inst.Ref.zero;
+    switch (operand_ty.zigTypeTag()) {
+        .Int, .ComptimeInt => {
+            const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+                if (val.isUndef()) return sema.addConstUndef(operand_ty);
+                const result_val = try val.bitReverse(operand_ty, target, sema.arena);
+                return sema.addConstant(operand_ty, result_val);
+            } else operand_src;
 
-    const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
-        if (val.isUndef()) return sema.addConstUndef(operand_ty);
-        const result_val = try val.bitReverse(operand_ty, target, sema.arena);
-        return sema.addConstant(operand_ty, result_val);
-    } else operand_src;
+            try sema.requireRuntimeBlock(block, runtime_src);
+            return block.addTyOp(.bit_reverse, operand_ty, operand);
+        },
+        .Vector => {
+            const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+                if (val.isUndef())
+                    return sema.addConstUndef(operand_ty);
 
-    try sema.requireRuntimeBlock(block, runtime_src);
-    return block.addTyOp(.bit_reverse, operand_ty, operand);
+                const vec_len = operand_ty.vectorLen();
+                var elem_buf: Value.ElemValueBuffer = undefined;
+                const elems = try sema.arena.alloc(Value, vec_len);
+                for (elems) |*elem, i| {
+                    const elem_val = val.elemValueBuffer(i, &elem_buf);
+                    elem.* = try elem_val.bitReverse(operand_ty, target, sema.arena);
+                }
+                return sema.addConstant(
+                    operand_ty,
+                    try Value.Tag.aggregate.create(sema.arena, elems),
+                );
+            } else operand_src;
+
+            try sema.requireRuntimeBlock(block, runtime_src);
+            return block.addTyOp(.bit_reverse, operand_ty, operand);
+        },
+        else => unreachable,
+    }
 }
 
 fn zirBitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
