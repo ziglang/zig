@@ -1939,7 +1939,7 @@ fn blockExpr(
     if (token_tags[lbrace - 1] == .colon and
         token_tags[lbrace - 2] == .identifier)
     {
-        return labeledBlockExpr(gz, scope, rl, block_node, statements, .block);
+        return labeledBlockExpr(gz, scope, rl, block_node, statements);
     }
 
     try blockExprStmts(gz, scope, statements);
@@ -1984,12 +1984,9 @@ fn labeledBlockExpr(
     rl: ResultLoc,
     block_node: Ast.Node.Index,
     statements: []const Ast.Node.Index,
-    zir_tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
-
-    assert(zir_tag == .block);
 
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -2004,7 +2001,7 @@ fn labeledBlockExpr(
 
     // Reserve the Block ZIR instruction index so that we can put it into the GenZir struct
     // so that break statements can reference it.
-    const block_inst = try gz.makeBlockInst(zir_tag, block_node);
+    const block_inst = try gz.makeBlockInst(.block, block_node);
     try gz.instructions.append(astgen.gpa, block_inst);
 
     var block_scope = gz.makeSubBlock(parent_scope);
@@ -2018,7 +2015,7 @@ fn labeledBlockExpr(
 
     try blockExprStmts(&block_scope, &block_scope.base, statements);
     if (!block_scope.endsWithNoReturn()) {
-        _ = try block_scope.addBreak(.break_inline, block_inst, .void_value);
+        _ = try block_scope.addBreak(.@"break", block_inst, .void_value);
     }
 
     if (!block_scope.label.?.used) {
