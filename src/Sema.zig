@@ -614,6 +614,8 @@ fn analyzeBodyInner(
     crash_info.push();
     defer crash_info.pop();
 
+    var dbg_block_begins: u32 = 0;
+
     // We use a while(true) loop here to avoid a redundant way of breaking out of
     // the loop. The only way to break out of the loop is with a `noreturn`
     // instruction.
@@ -884,11 +886,13 @@ fn analyzeBodyInner(
                     .prefetch           => try sema.zirPrefetch(          block, extended),
                     // zig fmt: on
                     .dbg_block_begin => {
+                        dbg_block_begins += 1;
                         try sema.zirDbgBlockBegin(block);
                         i += 1;
                         continue;
                     },
                     .dbg_block_end => {
+                        dbg_block_begins -= 1;
                         try sema.zirDbgBlockEnd(block);
                         i += 1;
                         continue;
@@ -1220,6 +1224,19 @@ fn analyzeBodyInner(
         try map.put(sema.gpa, inst, air_inst);
         i += 1;
     } else unreachable;
+
+    // balance out dbg_block_begins in case of early noreturn
+    const noreturn_inst = block.instructions.popOrNull();
+    while (dbg_block_begins > 0) {
+        dbg_block_begins -= 1;
+        if (block.is_comptime or sema.mod.comp.bin_file.options.strip) continue;
+
+        _ = try block.addInst(.{
+            .tag = .dbg_block_end,
+            .data = undefined,
+        });
+    }
+    if (noreturn_inst) |some| try block.instructions.append(sema.gpa, some);
 
     if (!wip_captures.finalized) {
         try wip_captures.finalize();
