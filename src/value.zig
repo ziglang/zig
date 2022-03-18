@@ -1841,6 +1841,8 @@ pub const Value = extern union {
         return orderAgainstZero(lhs).compare(op);
     }
 
+    /// This function is used by hash maps and so treats floating-point NaNs as equal
+    /// to each other, and not equal to other floating-point values.
     pub fn eql(a: Value, b: Value, ty: Type) bool {
         const a_tag = a.tag();
         const b_tag = b.tag();
@@ -2006,10 +2008,20 @@ pub const Value = extern union {
                 // end up here and the values are equal if the type has zero fields.
                 return ty.structFieldCount() != 0;
             },
+            .Float => {
+                const a_nan = a.isNan();
+                const b_nan = b.isNan();
+                if (a_nan or b_nan) {
+                    return a_nan and b_nan;
+                }
+                return order(a, b).compare(.eq);
+            },
             else => return order(a, b).compare(.eq),
         }
     }
 
+    /// This function is used by hash maps and so treats floating-point NaNs as equal
+    /// to each other, and not equal to other floating-point values.
     pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash) void {
         const zig_ty_tag = ty.zigTypeTag();
         std.hash.autoHash(hasher, zig_ty_tag);
@@ -2030,10 +2042,18 @@ pub const Value = extern union {
                 return val.toType(&buf).hashWithHasher(hasher);
             },
             .Float, .ComptimeFloat => {
-                // TODO double check the lang spec. should we to bitwise hashing here,
-                // or a hash that normalizes the float value?
+                // Normalize the float here because this hash must match eql semantics.
+                // These functions are used for hash maps so we want NaN to equal itself,
+                // and -0.0 to equal +0.0.
                 const float = val.toFloat(f128);
-                std.hash.autoHash(hasher, @bitCast(u128, float));
+                if (std.math.isNan(float)) {
+                    std.hash.autoHash(hasher, std.math.nan_u128);
+                } else if (float == 0.0) {
+                    var normalized_zero: f128 = 0.0;
+                    std.hash.autoHash(hasher, @bitCast(u128, normalized_zero));
+                } else {
+                    std.hash.autoHash(hasher, @bitCast(u128, float));
+                }
             },
             .Bool, .Int, .ComptimeInt, .Pointer => switch (val.tag()) {
                 .slice => {
@@ -2948,7 +2968,7 @@ pub const Value = extern union {
     }
 
     /// Supports both floats and ints; handles undefined.
-    pub fn numberMax(lhs: Value, rhs: Value) !Value {
+    pub fn numberMax(lhs: Value, rhs: Value) Value {
         if (lhs.isUndef() or rhs.isUndef()) return undef;
         if (lhs.isNan()) return rhs;
         if (rhs.isNan()) return lhs;
@@ -2960,7 +2980,7 @@ pub const Value = extern union {
     }
 
     /// Supports both floats and ints; handles undefined.
-    pub fn numberMin(lhs: Value, rhs: Value) !Value {
+    pub fn numberMin(lhs: Value, rhs: Value) Value {
         if (lhs.isUndef() or rhs.isUndef()) return undef;
         if (lhs.isNan()) return rhs;
         if (rhs.isNan()) return lhs;

@@ -13973,17 +13973,27 @@ fn resolveExportOptions(
     };
 }
 
+fn resolveBuiltinEnum(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+    comptime name: []const u8,
+) CompileError!@field(std.builtin, name) {
+    const ty = try sema.getBuiltinType(block, src, name);
+    const air_ref = sema.resolveInst(zir_ref);
+    const coerced = try sema.coerce(block, ty, air_ref, src);
+    const val = try sema.resolveConstValue(block, src, coerced);
+    return val.toEnum(@field(std.builtin, name));
+}
+
 fn resolveAtomicOrder(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
 ) CompileError!std.builtin.AtomicOrder {
-    const atomic_order_ty = try sema.getBuiltinType(block, src, "AtomicOrder");
-    const air_ref = sema.resolveInst(zir_ref);
-    const coerced = try sema.coerce(block, atomic_order_ty, air_ref, src);
-    const val = try sema.resolveConstValue(block, src, coerced);
-    return val.toEnum(std.builtin.AtomicOrder);
+    return resolveBuiltinEnum(sema, block, src, zir_ref, "AtomicOrder");
 }
 
 fn resolveAtomicRmwOp(
@@ -13992,11 +14002,7 @@ fn resolveAtomicRmwOp(
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
 ) CompileError!std.builtin.AtomicRmwOp {
-    const atomic_rmw_op_ty = try sema.getBuiltinType(block, src, "AtomicRmwOp");
-    const air_ref = sema.resolveInst(zir_ref);
-    const coerced = try sema.coerce(block, atomic_rmw_op_ty, air_ref, src);
-    const val = try sema.resolveConstValue(block, src, coerced);
-    return val.toEnum(std.builtin.AtomicRmwOp);
+    return resolveBuiltinEnum(sema, block, src, zir_ref, "AtomicRmwOp");
 }
 
 fn zirCmpxchg(
@@ -14118,8 +14124,72 @@ fn zirSplat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
 fn zirReduce(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirReduce", .{});
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const op_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operation = try sema.resolveBuiltinEnum(block, op_src, extra.lhs, "ReduceOp");
+    const operand = sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+
+    if (operand_ty.zigTypeTag() != .Vector) {
+        return sema.fail(block, operand_src, "expected vector, found {}", .{operand_ty});
+    }
+
+    const scalar_ty = operand_ty.childType();
+
+    // Type-check depending on operation.
+    switch (operation) {
+        .And, .Or, .Xor => switch (scalar_ty.zigTypeTag()) {
+            .Int, .Bool => {},
+            else => return sema.fail(block, operand_src, "@reduce operation '{s}' requires integer or boolean operand; found {}", .{
+                @tagName(operation), operand_ty,
+            }),
+        },
+        .Min, .Max, .Add, .Mul => switch (scalar_ty.zigTypeTag()) {
+            .Int, .Float => {},
+            else => return sema.fail(block, operand_src, "@reduce operation '{s}' requires integer or float operand; found {}", .{
+                @tagName(operation), operand_ty,
+            }),
+        },
+    }
+
+    const vec_len = operand_ty.vectorLen();
+    if (vec_len == 0) {
+        // TODO re-evaluate if we should introduce a "neutral value" for some operations,
+        // e.g. zero for add and one for mul.
+        return sema.fail(block, operand_src, "@reduce operation requires a vector with nonzero length", .{});
+    }
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |operand_val| {
+        if (operand_val.isUndef()) return sema.addConstUndef(scalar_ty);
+
+        const target = sema.mod.getTarget();
+        var accum: Value = try operand_val.elemValue(sema.arena, 0);
+        var elem_buf: Value.ElemValueBuffer = undefined;
+        var i: u32 = 1;
+        while (i < vec_len) : (i += 1) {
+            const elem_val = operand_val.elemValueBuffer(i, &elem_buf);
+            switch (operation) {
+                .And => accum = try accum.bitwiseAnd(elem_val, sema.arena),
+                .Or => accum = try accum.bitwiseOr(elem_val, sema.arena),
+                .Xor => accum = try accum.bitwiseXor(elem_val, sema.arena),
+                .Min => accum = accum.numberMin(elem_val),
+                .Max => accum = accum.numberMax(elem_val),
+                .Add => accum = try accum.numberAddWrap(elem_val, scalar_ty, sema.arena, target),
+                .Mul => accum = try accum.numberMulWrap(elem_val, scalar_ty, sema.arena, target),
+            }
+        }
+        return sema.addConstant(scalar_ty, accum);
+    }
+
+    try sema.requireRuntimeBlock(block, operand_src);
+    return block.addInst(.{
+        .tag = .reduce,
+        .data = .{ .reduce = .{
+            .operand = operand,
+            .operation = operation,
+        } },
+    });
 }
 
 fn zirShuffle(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -14425,8 +14495,8 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
                 .Nand => try stored_val.bitwiseNand  (operand_val, operand_ty, sema.arena, target),
                 .Or   => try stored_val.bitwiseOr    (operand_val,             sema.arena),
                 .Xor  => try stored_val.bitwiseXor   (operand_val,             sema.arena),
-                .Max  => try stored_val.numberMax    (operand_val),
-                .Min  => try stored_val.numberMin    (operand_val),
+                .Max  =>     stored_val.numberMax    (operand_val),
+                .Min  =>     stored_val.numberMin    (operand_val),
                 // zig fmt: on
             };
             try sema.storePtrVal(block, src, ptr_val, new_val, operand_ty);
@@ -14760,7 +14830,7 @@ fn analyzeMinMax(
             else => unreachable,
         };
         const vec_len = simd_op.len orelse {
-            const result_val = try opFunc(lhs_val, rhs_val);
+            const result_val = opFunc(lhs_val, rhs_val);
             return sema.addConstant(simd_op.result_ty, result_val);
         };
         var lhs_buf: Value.ElemValueBuffer = undefined;
@@ -14769,7 +14839,7 @@ fn analyzeMinMax(
         for (elems) |*elem, i| {
             const lhs_elem_val = lhs_val.elemValueBuffer(i, &lhs_buf);
             const rhs_elem_val = rhs_val.elemValueBuffer(i, &rhs_buf);
-            elem.* = try opFunc(lhs_elem_val, rhs_elem_val);
+            elem.* = opFunc(lhs_elem_val, rhs_elem_val);
         }
         return sema.addConstant(
             simd_op.result_ty,
@@ -19246,9 +19316,9 @@ fn cmpNumeric(
     const rhs_ty_tag = rhs_ty.zigTypeTag();
 
     if (lhs_ty_tag == .Vector and rhs_ty_tag == .Vector) {
-        if (lhs_ty.arrayLen() != rhs_ty.arrayLen()) {
+        if (lhs_ty.vectorLen() != rhs_ty.vectorLen()) {
             return sema.fail(block, src, "vector length mismatch: {d} and {d}", .{
-                lhs_ty.arrayLen(), rhs_ty.arrayLen(),
+                lhs_ty.vectorLen(), rhs_ty.vectorLen(),
             });
         }
         return sema.fail(block, src, "TODO implement support for vectors in cmpNumeric", .{});

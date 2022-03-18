@@ -530,6 +530,14 @@ pub const Inst = struct {
         /// Given an integer operand, return the float with the closest mathematical meaning.
         /// Uses the `ty_op` field.
         int_to_float,
+
+        /// Transforms a vector into a scalar value by performing a sequential
+        /// horizontal reduction of its elements using the specified operator.
+        /// The vector element type (and hence result type) will be:
+        ///  * and, or, xor       => integer or boolean
+        ///  * min, max, add, mul => integer or float
+        /// Uses the `reduce` field.
+        reduce,
         /// Given an integer, bool, float, or pointer operand, return a vector with all elements
         /// equal to the scalar value.
         /// Uses the `ty_op` field.
@@ -694,6 +702,10 @@ pub const Inst = struct {
             rw: std.builtin.PrefetchOptions.Rw,
             locality: u2,
             cache: std.builtin.PrefetchOptions.Cache,
+        },
+        reduce: struct {
+            operand: Ref,
+            operation: std.builtin.ReduceOp,
         },
 
         // Make sure we don't accidentally add a field to make this union
@@ -1026,6 +1038,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const ptr_ty = air.typeOf(datas[inst].pl_op.operand);
             return ptr_ty.elemType();
         },
+
+        .reduce => return air.typeOf(datas[inst].reduce.operand).childType(),
 
         .mul_add => return air.typeOf(datas[inst].pl_op.operand),
 

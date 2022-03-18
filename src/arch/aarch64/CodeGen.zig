@@ -640,6 +640,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
             .shuffle         => try self.airShuffle(inst),
+            .reduce          => try self.airReduce(inst),
             .aggregate_init  => try self.airAggregateInit(inst),
             .union_init      => try self.airUnionInit(inst),
             .prefetch        => try self.airPrefetch(inst),
@@ -3725,6 +3726,12 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airShuffle for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
+    const reduce = self.air.instructions.items(.data)[inst].reduce;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airReduce for aarch64", .{});
+    return self.finishAir(inst, result, .{ reduce.operand, .none, .none });
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {

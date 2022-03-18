@@ -3426,6 +3426,7 @@ pub const FuncGen = struct {
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
                 .shuffle        => try self.airShuffle(inst),
+                .reduce         => try self.airReduce(inst),
                 .aggregate_init => try self.airAggregateInit(inst),
                 .union_init     => try self.airUnionInit(inst),
                 .prefetch       => try self.airPrefetch(inst),
@@ -6279,6 +6280,50 @@ pub const FuncGen = struct {
 
         const llvm_mask_value = llvm.constVector(values.ptr, mask_len);
         return self.builder.buildShuffleVector(a, b, llvm_mask_value, "");
+    }
+
+    fn airReduce(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const reduce = self.air.instructions.items(.data)[inst].reduce;
+        const operand = try self.resolveInst(reduce.operand);
+        const scalar_ty = self.air.typeOfIndex(inst);
+
+        // TODO handle the fast math setting
+
+        switch (reduce.operation) {
+            .And => return self.builder.buildAndReduce(operand),
+            .Or => return self.builder.buildOrReduce(operand),
+            .Xor => return self.builder.buildXorReduce(operand),
+            .Min => switch (scalar_ty.zigTypeTag()) {
+                .Int => return self.builder.buildIntMinReduce(operand, scalar_ty.isSignedInt()),
+                .Float => return self.builder.buildFPMinReduce(operand),
+                else => unreachable,
+            },
+            .Max => switch (scalar_ty.zigTypeTag()) {
+                .Int => return self.builder.buildIntMaxReduce(operand, scalar_ty.isSignedInt()),
+                .Float => return self.builder.buildFPMaxReduce(operand),
+                else => unreachable,
+            },
+            .Add => switch (scalar_ty.zigTypeTag()) {
+                .Int => return self.builder.buildAddReduce(operand),
+                .Float => {
+                    const scalar_llvm_ty = try self.dg.llvmType(scalar_ty);
+                    const neutral_value = scalar_llvm_ty.constReal(-0.0);
+                    return self.builder.buildFPAddReduce(neutral_value, operand);
+                },
+                else => unreachable,
+            },
+            .Mul => switch (scalar_ty.zigTypeTag()) {
+                .Int => return self.builder.buildMulReduce(operand),
+                .Float => {
+                    const scalar_llvm_ty = try self.dg.llvmType(scalar_ty);
+                    const neutral_value = scalar_llvm_ty.constReal(1.0);
+                    return self.builder.buildFPMulReduce(neutral_value, operand);
+                },
+                else => unreachable,
+            },
+        }
     }
 
     fn airAggregateInit(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

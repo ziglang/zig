@@ -1263,6 +1263,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .ret_load => self.airRetLoad(inst),
         .splat => self.airSplat(inst),
         .shuffle => self.airShuffle(inst),
+        .reduce => self.airReduce(inst),
         .aggregate_init => self.airAggregateInit(inst),
         .union_init => self.airUnionInit(inst),
         .prefetch => self.airPrefetch(inst),
@@ -2988,7 +2989,6 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
 
-    _ = ty_op;
     _ = operand;
     return self.fail("TODO: Implement wasm airSplat", .{});
 }
@@ -2999,9 +2999,18 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
 
-    _ = ty_op;
     _ = operand;
     return self.fail("TODO: Implement wasm airShuffle", .{});
+}
+
+fn airReduce(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const reduce = self.air.instructions.items(.data)[inst].reduce;
+    const operand = try self.resolveInst(reduce.operand);
+
+    _ = operand;
+    return self.fail("TODO: Implement wasm airReduce", .{});
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
