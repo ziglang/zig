@@ -52,32 +52,74 @@ test "@byteSwap integers" {
     try ByteSwapIntTest.run();
 }
 
-test "@byteSwap vectors" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+fn vector8() !void {
+    var v = @Vector(2, u8){ 0x12, 0x13 };
+    var result = @byteSwap(u8, v);
+    try expect(result[0] == 0x12);
+    try expect(result[1] == 0x13);
+}
+
+test "@byteSwap vectors u8" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
-    const ByteSwapVectorTest = struct {
-        fn run() !void {
-            try t(u8, 2, [_]u8{ 0x12, 0x13 }, [_]u8{ 0x12, 0x13 });
-            try t(u16, 2, [_]u16{ 0x1234, 0x2345 }, [_]u16{ 0x3412, 0x4523 });
-            try t(u24, 2, [_]u24{ 0x123456, 0x234567 }, [_]u24{ 0x563412, 0x674523 });
-        }
+    comptime try vector8();
+    try vector8();
+}
 
-        fn t(
-            comptime I: type,
-            comptime n: comptime_int,
-            input: std.meta.Vector(n, I),
-            expected_vector: std.meta.Vector(n, I),
-        ) !void {
-            const actual_output: [n]I = @byteSwap(I, input);
-            const expected_output: [n]I = expected_vector;
-            try std.testing.expectEqual(expected_output, actual_output);
-        }
-    };
-    comptime try ByteSwapVectorTest.run();
-    try ByteSwapVectorTest.run();
+fn vector16() !void {
+    var v = @Vector(2, u16){ 0x1234, 0x2345 };
+    var result = @byteSwap(u16, v);
+    try expect(result[0] == 0x3412);
+    try expect(result[1] == 0x4523);
+}
+
+test "@byteSwap vectors u16" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    comptime try vector16();
+    try vector16();
+}
+
+fn vector24() !void {
+    var v = @Vector(2, u24){ 0x123456, 0x234567 };
+    var result = @byteSwap(u24, v);
+    try expect(result[0] == 0x563412);
+    try expect(result[1] == 0x674523);
+}
+
+test "@byteSwap vectors u24" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    comptime try vector24();
+    try vector24();
+}
+
+fn vector0() !void {
+    var v = @Vector(2, u0){ 0, 0 };
+    var result = @byteSwap(u0, v);
+    try expect(result[0] == 0);
+    try expect(result[1] == 0);
+}
+
+test "@byteSwap vectors u0" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    comptime try vector0();
+    try vector0();
 }

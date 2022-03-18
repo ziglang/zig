@@ -6078,9 +6078,26 @@ pub const FuncGen = struct {
         if (bits % 16 == 8) {
             // If not an even byte-multiple, we need zero-extend + shift-left 1 byte
             // The truncated result at the end will be the correct bswap
-            operand_llvm_ty = self.context.intType(bits + 8);
-            const extended = self.builder.buildZExt(operand, operand_llvm_ty, "");
-            operand = self.builder.buildShl(extended, operand_llvm_ty.constInt(8, .False), "");
+            const scalar_llvm_ty = self.context.intType(bits + 8);
+            if (operand_ty.zigTypeTag() == .Vector) {
+                const vec_len = operand_ty.vectorLen();
+                operand_llvm_ty = scalar_llvm_ty.vectorType(vec_len);
+
+                const shifts = try self.gpa.alloc(*const llvm.Value, vec_len);
+                defer self.gpa.free(shifts);
+
+                for (shifts) |*elem| {
+                    elem.* = scalar_llvm_ty.constInt(8, .False);
+                }
+                const shift_vec = llvm.constVector(shifts.ptr, vec_len);
+
+                const extended = self.builder.buildZExt(operand, operand_llvm_ty, "");
+                operand = self.builder.buildShl(extended, shift_vec, "");
+            } else {
+                const extended = self.builder.buildZExt(operand, scalar_llvm_ty, "");
+                operand = self.builder.buildShl(extended, scalar_llvm_ty.constInt(8, .False), "");
+                operand_llvm_ty = scalar_llvm_ty;
+            }
             bits = bits + 8;
         }
 
