@@ -9352,22 +9352,23 @@ test "vector @splat" {
       {#header_close#}
 
       {#header_open|@reduce#}
-      <pre>{#syntax#}@reduce(comptime op: std.builtin.ReduceOp, value: anytype) std.meta.Child(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@reduce(comptime op: std.builtin.ReduceOp, value: anytype) E{#endsyntax#}</pre>
       <p>
-      Transforms a {#link|vector|Vectors#} into a scalar value by performing a
-      sequential horizontal reduction of its elements using the specified operator {#syntax#}op{#endsyntax#}.
+      Transforms a {#link|vector|Vectors#} into a scalar value (of type <code>E</code>)
+      by performing a sequential horizontal reduction of its elements using the
+      specified operator {#syntax#}op{#endsyntax#}.
       </p>
       <p>
       Not every operator is available for every vector element type:
       </p>
       <ul>
+          <li>Every operator is available for {#link|integer|Integers#} vectors.</li>
           <li>{#syntax#}.And{#endsyntax#}, {#syntax#}.Or{#endsyntax#},
-            {#syntax#}.Xor{#endsyntax#} are available for
+            {#syntax#}.Xor{#endsyntax#} are additionally available for
             {#syntax#}bool{#endsyntax#} vectors,</li>
           <li>{#syntax#}.Min{#endsyntax#}, {#syntax#}.Max{#endsyntax#},
             {#syntax#}.Add{#endsyntax#}, {#syntax#}.Mul{#endsyntax#} are
-            available for {#link|floating point|Floats#} vectors,</li>
-          <li>Every operator is available for {#link|integer|Integers#} vectors.</li>
+            additionally available for {#link|floating point|Floats#} vectors,</li>
       </ul>
       <p>
       Note that {#syntax#}.Add{#endsyntax#} and {#syntax#}.Mul{#endsyntax#}
