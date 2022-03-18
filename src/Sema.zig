@@ -4269,6 +4269,17 @@ fn zirDbgVar(
 
     const str_op = sema.code.instructions.items(.data)[inst].str_op;
     const operand = sema.resolveInst(str_op.operand);
+    const name = str_op.getStr(sema.code);
+    try sema.addDbgVar(block, operand, air_tag, name);
+}
+
+fn addDbgVar(
+    sema: *Sema,
+    block: *Block,
+    operand: Air.Inst.Ref,
+    air_tag: Air.Inst.Tag,
+    name: []const u8,
+) CompileError!void {
     const operand_ty = sema.typeOf(operand);
     switch (air_tag) {
         .dbg_var_ptr => {
@@ -4279,7 +4290,6 @@ fn zirDbgVar(
         },
         else => unreachable,
     }
-    const name = str_op.getStr(sema.code);
 
     // Add the name to the AIR.
     const name_extra_index = @intCast(u32, sema.air_extra.items.len);
@@ -4835,6 +4845,25 @@ fn analyzeCall(
             const new_func_resolved_ty = try Type.Tag.function.create(sema.arena, new_fn_info);
             if (!is_comptime_call) {
                 try sema.emitDbgInline(block, parent_func.?, module_fn, new_func_resolved_ty, .dbg_inline_begin);
+
+                for (fn_info.param_body) |param| switch (zir_tags[param]) {
+                    .param, .param_comptime => {
+                        const inst_data = sema.code.instructions.items(.data)[param].pl_tok;
+                        const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index);
+                        const param_name = sema.code.nullTerminatedString(extra.data.name);
+                        const inst = sema.inst_map.get(param).?;
+
+                        try sema.addDbgVar(block, inst, .dbg_var_val, param_name);
+                    },
+                    .param_anytype, .param_anytype_comptime => {
+                        const inst_data = sema.code.instructions.items(.data)[param].str_tok;
+                        const param_name = inst_data.get(sema.code);
+                        const inst = sema.inst_map.get(param).?;
+
+                        try sema.addDbgVar(block, inst, .dbg_var_val, param_name);
+                    },
+                    else => continue,
+                };
             }
 
             const result = result: {
