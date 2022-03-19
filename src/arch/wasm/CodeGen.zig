@@ -1818,18 +1818,103 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     return bin_local;
 }
 
+fn lowerParentPtr(self: *Self, ptr_val: Value, ptr_child_ty: Type) InnerError!WValue {
+    switch (ptr_val.tag()) {
+        .decl_ref_mut => {
+            const decl = ptr_val.castTag(.decl_ref_mut).?.data.decl;
+            return self.lowerParentPtrDecl(ptr_val, decl);
+        },
+        .decl_ref => {
+            const decl = ptr_val.castTag(.decl_ref).?.data;
+            return self.lowerParentPtrDecl(ptr_val, decl);
+        },
+        .variable => {
+            const decl = ptr_val.castTag(.variable).?.data.owner_decl;
+            return self.lowerParentPtrDecl(ptr_val, decl);
+        },
+        .field_ptr => {
+            const field_ptr = ptr_val.castTag(.field_ptr).?.data;
+            const parent_ty = field_ptr.container_ty;
+            const parent_ptr = try self.lowerParentPtr(field_ptr.container_ptr, parent_ty);
+
+            const offset = switch (parent_ty.zigTypeTag()) {
+                .Struct => blk: {
+                    const offset = parent_ty.structFieldOffset(field_ptr.field_index, self.target);
+                    break :blk offset;
+                },
+                .Union => blk: {
+                    const layout: Module.Union.Layout = parent_ty.unionGetLayout(self.target);
+                    if (layout.payload_size == 0) break :blk 0;
+                    if (layout.payload_align > layout.tag_align) break :blk 0;
+
+                    // tag is stored first so calculate offset from where payload starts
+                    const offset = @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
+                    break :blk offset;
+                },
+                else => unreachable,
+            };
+
+            return switch (parent_ptr) {
+                .memory => |ptr| WValue{
+                    .memory_offset = .{
+                        .pointer = ptr,
+                        .offset = @intCast(u32, offset),
+                    },
+                },
+                .memory_offset => |mem_off| WValue{
+                    .memory_offset = .{
+                        .pointer = mem_off.pointer,
+                        .offset = @intCast(u32, offset) + mem_off.offset,
+                    },
+                },
+                else => unreachable,
+            };
+        },
+        .elem_ptr => {
+            const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
+            const index = elem_ptr.index;
+            const offset = index * ptr_child_ty.abiSize(self.target);
+            const array_ptr = try self.lowerParentPtr(elem_ptr.array_ptr, elem_ptr.elem_ty);
+
+            return WValue{ .memory_offset = .{
+                .pointer = array_ptr.memory,
+                .offset = @intCast(u32, offset),
+            } };
+        },
+        else => |tag| return self.fail("TODO: Implement lowerParentPtr for tag: {}", .{tag}),
+    }
+}
+
+fn lowerParentPtrDecl(self: *Self, ptr_val: Value, decl: *Module.Decl) InnerError!WValue {
+    decl.markAlive();
+    var ptr_ty_payload: Type.Payload.ElemType = .{
+        .base = .{ .tag = .single_mut_pointer },
+        .data = decl.ty,
+    };
+    const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+    return self.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl);
+}
+
+fn lowerDeclRefValue(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!WValue {
+    if (tv.ty.isSlice()) {
+        return WValue{ .memory = try self.bin_file.lowerUnnamedConst(self.decl, tv) };
+    } else if (decl.ty.zigTypeTag() != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
+        return WValue{ .imm32 = 0xaaaaaaaa };
+    }
+
+    decl.markAlive();
+    const target_sym_index = decl.link.wasm.sym_index;
+    if (decl.ty.zigTypeTag() == .Fn) {
+        try self.bin_file.addTableFunction(target_sym_index);
+        return WValue{ .function_index = target_sym_index };
+    } else return WValue{ .memory = target_sym_index };
+}
+
 fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
     if (val.isUndefDeep()) return self.emitUndefined(ty);
     if (val.castTag(.decl_ref)) |decl_ref| {
         const decl = decl_ref.data;
-        decl.markAlive();
-        const target_sym_index = decl.link.wasm.sym_index;
-        if (ty.isSlice()) {
-            return WValue{ .memory = try self.bin_file.lowerUnnamedConst(self.decl, .{ .ty = ty, .val = val }) };
-        } else if (decl.ty.zigTypeTag() == .Fn) {
-            try self.bin_file.addTableFunction(target_sym_index);
-            return WValue{ .function_index = target_sym_index };
-        } else return WValue{ .memory = target_sym_index };
+        return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl);
     }
 
     switch (ty.zigTypeTag()) {
@@ -1856,37 +1941,8 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             else => unreachable,
         },
         .Pointer => switch (val.tag()) {
-            .elem_ptr => {
-                const elem_ptr = val.castTag(.elem_ptr).?.data;
-                const index = elem_ptr.index;
-                const offset = index * ty.childType().abiSize(self.target);
-                const array_ptr = try self.lowerConstant(elem_ptr.array_ptr, ty);
-
-                return WValue{ .memory_offset = .{
-                    .pointer = array_ptr.memory,
-                    .offset = @intCast(u32, offset),
-                } };
-            },
-            .field_ptr => {
-                const field_ptr = val.castTag(.field_ptr).?.data;
-                const container = field_ptr.container_ptr;
-                const parent_ptr = try self.lowerConstant(container, ty);
-
-                const offset = switch (container.tag()) {
-                    .decl_ref => blk: {
-                        const decl_ref = container.castTag(.decl_ref).?.data;
-                        if (decl_ref.ty.castTag(.@"struct")) |_| {
-                            const offset = decl_ref.ty.structFieldOffset(field_ptr.field_index, self.target);
-                            break :blk offset;
-                        }
-                        return self.fail("Wasm TODO: field_ptr decl_ref for type '{}'", .{decl_ref.ty});
-                    },
-                    else => |tag| return self.fail("Wasm TODO: Implement field_ptr for value tag: '{s}'", .{tag}),
-                };
-                return WValue{ .memory_offset = .{
-                    .pointer = parent_ptr.memory,
-                    .offset = @intCast(u32, offset),
-                } };
+            .field_ptr, .elem_ptr => {
+                return self.lowerParentPtr(val, ty.childType());
             },
             .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt()) },
             .zero, .null_value => return WValue{ .imm32 = 0 },
@@ -1998,6 +2054,11 @@ fn valueAsI32(self: Self, val: Value, ty: Type) i32 {
                             const tag_val = enum_full.values.keys()[field_index.data];
                             return self.valueAsI32(tag_val, enum_full.tag_ty);
                         } else return @bitCast(i32, field_index.data);
+                    },
+                    .enum_numbered => {
+                        const index = field_index.data;
+                        const enum_data = ty.castTag(.enum_numbered).?.data;
+                        return self.valueAsI32(enum_data.values.keys()[index], enum_data.tag_ty);
                     },
                     else => unreachable,
                 }
@@ -2124,8 +2185,16 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
         return self.cmpBigInt(lhs, rhs, operand_ty, op);
     }
 
-    try self.emitWValue(lhs);
-    try self.emitWValue(rhs);
+    // ensure that when we compare pointers, we emit
+    // the true pointer of a stack value, rather than the stack pointer.
+    switch (lhs) {
+        .stack_offset => try self.emitWValue(try self.buildPointerOffset(lhs, 0, .new)),
+        else => try self.emitWValue(lhs),
+    }
+    switch (rhs) {
+        .stack_offset => try self.emitWValue(try self.buildPointerOffset(rhs, 0, .new)),
+        else => try self.emitWValue(rhs),
+    }
 
     const signedness: std.builtin.Signedness = blk: {
         // by default we tell the operand type is unsigned (i.e. bools and enum values)
@@ -3161,16 +3230,16 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
-    const vector_ty = self.air.typeOfIndex(inst);
-    const len = vector_ty.vectorLen();
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const result_ty = self.air.typeOfIndex(inst);
+    const len = @intCast(usize, result_ty.arrayLen());
     const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
 
-    switch (vector_ty.zigTypeTag()) {
+    switch (result_ty.zigTypeTag()) {
         .Vector => return self.fail("TODO: Wasm backend: implement airAggregateInit for vectors", .{}),
         .Array => {
-            const result = try self.allocStack(vector_ty);
-            const elem_ty = vector_ty.childType();
+            const result = try self.allocStack(result_ty);
+            const elem_ty = result_ty.childType();
             const elem_size = @intCast(u32, elem_ty.abiSize(self.target));
 
             // When the element type is by reference, we must copy the entire
@@ -3199,13 +3268,12 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             return result;
         },
         .Struct => {
-            const tuple = vector_ty.castTag(.tuple).?.data;
-            const result = try self.allocStack(vector_ty);
+            const result = try self.allocStack(result_ty);
             const offset = try self.buildPointerOffset(result, 0, .new); // pointer to offset
             for (elements) |elem, elem_index| {
-                if (tuple.values[elem_index].tag() != .unreachable_value) continue;
+                if (result_ty.structFieldValueComptime(elem_index) != null) continue;
 
-                const elem_ty = tuple.types[elem_index];
+                const elem_ty = result_ty.structFieldType(elem_index);
                 const elem_size = @intCast(u32, elem_ty.abiSize(self.target));
                 const value = try self.resolveInst(elem);
                 try self.store(offset, value, elem_ty, 0);
@@ -3223,7 +3291,34 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airUnionInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
-    return self.fail("TODO: Wasm backend: implement airUnionInit", .{});
+
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
+    const union_ty = self.air.typeOfIndex(inst);
+    const layout = union_ty.unionGetLayout(self.target);
+    if (layout.payload_size == 0) {
+        if (layout.tag_size == 0) {
+            return WValue{ .none = {} };
+        }
+        assert(!isByRef(union_ty, self.target));
+        return WValue{ .imm32 = extra.field_index };
+    }
+    assert(isByRef(union_ty, self.target));
+
+    const result_ptr = try self.allocStack(union_ty);
+    const payload = try self.resolveInst(extra.init);
+    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    assert(union_obj.haveFieldTypes());
+    const field = union_obj.fields.values()[extra.field_index];
+
+    if (layout.tag_align >= layout.payload_align) {
+        const payload_ptr = try self.buildPointerOffset(result_ptr, layout.tag_size, .new);
+        try self.store(payload_ptr, payload, field.ty, 0);
+    } else {
+        try self.store(result_ptr, payload, field.ty, 0);
+    }
+
+    return result_ptr;
 }
 
 fn airPrefetch(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
