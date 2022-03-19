@@ -24,6 +24,7 @@ pub const Inst = struct {
     data: Data,
 
     pub const Tag = enum(u16) {
+        add,
         addi,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
@@ -40,6 +41,7 @@ pub const Inst = struct {
         nop,
         ret,
         sd,
+        sub,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -83,6 +85,14 @@ pub const Inst = struct {
             rd: Register,
             rs1: Register,
             imm12: i12,
+        },
+        /// R-Type
+        ///
+        /// Used by e.g. add
+        r_type: struct {
+            rd: Register,
+            rs1: Register,
+            rs2: Register,
         },
         /// U-Type
         ///

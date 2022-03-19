@@ -409,14 +409,17 @@ fn gen(self: *Self) !void {
         });
 
         // exitlude jumps
-        if (self.exitlude_jump_relocs.items.len == 1) {
-            // There is only one relocation. Hence,
-            // this relocation must be at the end of
-            // the code. Therefore, we can just delete
-            // the space initially reserved for the
-            // jump
-            self.mir_instructions.len -= 1;
-        } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+        if (self.exitlude_jump_relocs.items.len > 0 and
+            self.exitlude_jump_relocs.items[self.exitlude_jump_relocs.items.len - 1] == self.mir_instructions.len - 2)
+        {
+            // If the last Mir instruction (apart from the
+            // dbg_epilogue_begin) is the last exitlude jump
+            // relocation (which would just jump one instruction
+            // further), it can be safely removed
+            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop());
+        }
+
+        for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             _ = jmp_reloc;
             return self.fail("TODO add branches in RISCV64", .{});
         }
@@ -489,10 +492,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
         switch (air_tags[inst]) {
             // zig fmt: off
-            .add, .ptr_add   => try self.airAdd(inst),
+            .add, .ptr_add   => try self.airBinOp(inst),
             .addwrap         => try self.airAddWrap(inst),
             .add_sat         => try self.airAddSat(inst),
-            .sub, .ptr_sub   => try self.airSub(inst),
+            .sub, .ptr_sub   => try self.airBinOp(inst),
             .subwrap         => try self.airSubWrap(inst),
             .sub_sat         => try self.airSubSat(inst),
             .mul             => try self.airMul(inst),
@@ -916,9 +919,182 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airAdd(self: *Self, inst: Air.Inst.Index) !void {
+/// Don't call this function directly. Use binOp instead.
+///
+/// Calling this function signals an intention to generate a Mir
+/// instruction of the form
+///
+///     op dest, lhs, rhs
+///
+/// Asserts that generating an instruction of that form is possible.
+fn binOpRegister(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) !MCValue {
+    const lhs_is_register = lhs == .register;
+    const rhs_is_register = rhs == .register;
+
+    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+
+    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+
+    const lhs_reg = if (lhs_is_register) lhs.register else blk: {
+        const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            break :inst Air.refToIndex(bin_op.lhs).?;
+        } else null;
+
+        const reg = try self.register_manager.allocReg(track_inst);
+        self.register_manager.freezeRegs(&.{reg});
+
+        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
+        break :blk reg;
+    };
+    defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+
+    const rhs_reg = if (rhs_is_register) rhs.register else blk: {
+        const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            break :inst Air.refToIndex(bin_op.rhs).?;
+        } else null;
+
+        const reg = try self.register_manager.allocReg(track_inst);
+        self.register_manager.freezeRegs(&.{reg});
+
+        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
+        break :blk reg;
+    };
+    defer self.register_manager.unfreezeRegs(&.{rhs_reg});
+
+    const dest_reg = if (maybe_inst) |inst| blk: {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
+        if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
+            break :blk lhs_reg;
+        } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
+            break :blk rhs_reg;
+        } else {
+            break :blk try self.register_manager.allocReg(inst);
+        }
+    } else try self.register_manager.allocReg(null);
+
+    if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+    if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
+
+    const mir_tag: Mir.Inst.Tag = switch (tag) {
+        .add => .add,
+        .sub => .sub,
+        else => unreachable,
+    };
+    const mir_data: Mir.Inst.Data = switch (tag) {
+        .add,
+        .sub,
+        => .{ .r_type = .{
+            .rd = dest_reg,
+            .rs1 = lhs_reg,
+            .rs2 = rhs_reg,
+        } },
+        else => unreachable,
+    };
+
+    _ = try self.addInst(.{
+        .tag = mir_tag,
+        .data = mir_data,
+    });
+
+    return MCValue{ .register = dest_reg };
+}
+
+/// For all your binary operation needs, this function will generate
+/// the corresponding Mir instruction(s). Returns the location of the
+/// result.
+///
+/// If the binary operation itself happens to be an Air instruction,
+/// pass the corresponding index in the inst parameter. That helps
+/// this function do stuff like reusing operands.
+///
+/// This function does not do any lowering to Mir itself, but instead
+/// looks at the lhs and rhs and determines which kind of lowering
+/// would be best suitable and then delegates the lowering to other
+/// functions.
+fn binOp(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) InnerError!MCValue {
+    switch (tag) {
+        // Arithmetic operations on integers and floats
+        .add,
+        .sub,
+        => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO binary operations on floats", .{}),
+                .Vector => return self.fail("TODO binary operations on vectors", .{}),
+                .Int => {
+                    assert(lhs_ty.eql(rhs_ty));
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 64) {
+                        // TODO immediate operands
+                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                    } else {
+                        return self.fail("TODO binary operations on int with bits > 64", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        .ptr_add,
+        .ptr_sub,
+        => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Pointer => {
+                    const ptr_ty = lhs_ty;
+                    const elem_ty = switch (ptr_ty.ptrSize()) {
+                        .One => ptr_ty.childType().childType(), // ptr to array, so get array element type
+                        else => ptr_ty.childType(),
+                    };
+                    const elem_size = elem_ty.abiSize(self.target.*);
+
+                    if (elem_size == 1) {
+                        const base_tag: Air.Inst.Tag = switch (tag) {
+                            .ptr_add => .add,
+                            .ptr_sub => .sub,
+                            else => unreachable,
+                        };
+
+                        return try self.binOpRegister(base_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                    } else {
+                        return self.fail("TODO ptr_add with elem_size > 1", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        else => unreachable,
+    }
+}
+
+fn airBinOp(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[inst];
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement add for {}", .{self.target.cpu.arch});
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.binOp(tag, inst, lhs, rhs, lhs_ty, rhs_ty);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -931,12 +1107,6 @@ fn airAddWrap(self: *Self, inst: Air.Inst.Index) !void {
 fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement add_sat for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airSub(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement sub for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
