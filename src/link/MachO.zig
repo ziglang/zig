@@ -58,11 +58,6 @@ d_sym: ?DebugSymbols = null,
 /// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
 page_size: u16,
 
-/// TODO Should we figure out embedding code signatures for other Apple platforms as part of the linker?
-/// Or should this be a separate tool?
-/// https://github.com/ziglang/zig/issues/9567
-requires_adhoc_codesig: bool,
-
 /// If true, the linker will preallocate several sections and segments before starting the linking
 /// process. This is for example true for stage2 debug builds, however, this is false for stage1
 /// and potentially stage2 release builds in the future.
@@ -75,6 +70,9 @@ header_pad: u16 = 0x1000,
 
 /// The absolute address of the entry point.
 entry_addr: ?u64 = null,
+
+/// Code signature (if any)
+code_signature: ?CodeSignature = null,
 
 objects: std.ArrayListUnmanaged(Object) = .{},
 archives: std.ArrayListUnmanaged(Archive) = .{},
@@ -402,7 +400,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             .file = null,
         },
         .page_size = page_size,
-        .requires_adhoc_codesig = requires_adhoc_codesig,
+        .code_signature = if (requires_adhoc_codesig) CodeSignature.init(page_size) else null,
         .needs_prealloc = needs_prealloc,
     };
 
@@ -534,6 +532,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         }
         link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
         man.hash.addOptionalBytes(self.base.options.sysroot);
+        try man.addOptionalFile(self.base.options.entitlements);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -859,6 +858,19 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 self.load_commands_dirty = true;
             }
 
+            // code signature and entitlements
+            if (self.base.options.entitlements) |path| {
+                if (self.code_signature) |*csig| {
+                    try csig.addEntitlements(self.base.allocator, path);
+                    csig.code_directory.ident = self.base.options.emit.?.sub_path;
+                } else {
+                    var csig = CodeSignature.init(self.page_size);
+                    try csig.addEntitlements(self.base.allocator, path);
+                    csig.code_directory.ident = self.base.options.emit.?.sub_path;
+                    self.code_signature = csig;
+                }
+            }
+
             if (self.base.options.verbose_link) {
                 var argv = std.ArrayList([]const u8).init(arena);
 
@@ -1033,13 +1045,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try d_sym.flushModule(self.base.allocator, self.base.options);
         }
 
-        if (self.requires_adhoc_codesig) {
+        if (self.code_signature) |*csig| {
+            csig.clear(self.base.allocator);
+            csig.code_directory.ident = self.base.options.emit.?.sub_path;
             // Preallocate space for the code signature.
             // We need to do this at this stage so that we have the load commands with proper values
             // written out to the file.
             // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
             // where the code signature goes into.
-            try self.writeCodeSignaturePadding();
+            try self.writeCodeSignaturePadding(csig);
         }
 
         try self.writeLoadCommands();
@@ -1055,8 +1069,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
         assert(!self.load_commands_dirty);
 
-        if (self.requires_adhoc_codesig) {
-            try self.writeCodeSignature(); // code signing always comes last
+        if (self.code_signature) |*csig| {
+            try self.writeCodeSignature(csig); // code signing always comes last
         }
 
         if (build_options.enable_link_snapshots) {
@@ -3315,7 +3329,7 @@ fn addLoadDylibLC(self: *MachO, id: u16) !void {
 }
 
 fn addCodeSignatureLC(self: *MachO) !void {
-    if (self.code_signature_cmd_index != null or !self.requires_adhoc_codesig) return;
+    if (self.code_signature_cmd_index != null or self.code_signature == null) return;
     self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
     try self.load_commands.append(self.base.allocator, .{
         .linkedit_data = .{
@@ -3429,6 +3443,10 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.atom_by_index_table.deinit(self.base.allocator);
+
+    if (self.code_signature) |*csig| {
+        csig.deinit(self.base.allocator);
+    }
 }
 
 pub fn closeFiles(self: MachO) void {
@@ -6143,7 +6161,7 @@ fn writeLinkeditSegment(self: *MachO) !void {
     seg.inner.vmsize = mem.alignForwardGeneric(u64, seg.inner.filesize, self.page_size);
 }
 
-fn writeCodeSignaturePadding(self: *MachO) !void {
+fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -6153,11 +6171,7 @@ fn writeCodeSignaturePadding(self: *MachO) !void {
     // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
     const fileoff = mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, 16);
     const padding = fileoff - (linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize);
-    const needed_size = CodeSignature.calcCodeSignaturePaddingSize(
-        self.base.options.emit.?.sub_path,
-        fileoff,
-        self.page_size,
-    );
+    const needed_size = code_sig.estimateSize(fileoff);
     code_sig_cmd.dataoff = @intCast(u32, fileoff);
     code_sig_cmd.datasize = needed_size;
 
@@ -6173,34 +6187,30 @@ fn writeCodeSignaturePadding(self: *MachO) !void {
     self.load_commands_dirty = true;
 }
 
-fn writeCodeSignature(self: *MachO) !void {
+fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].segment;
     const code_sig_cmd = self.load_commands.items[self.code_signature_cmd_index.?].linkedit_data;
 
-    var code_sig: CodeSignature = .{};
-    defer code_sig.deinit(self.base.allocator);
+    var buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacityPrecise(code_sig.size());
+    try code_sig.writeAdhocSignature(self.base.allocator, .{
+        .file = self.base.file.?,
+        .text_segment = text_segment.inner,
+        .code_sig_cmd = code_sig_cmd,
+        .output_mode = self.base.options.output_mode,
+    }, buffer.writer());
+    assert(buffer.items.len == code_sig.size());
 
-    try code_sig.calcAdhocSignature(
-        self.base.allocator,
-        self.base.file.?,
-        self.base.options.emit.?.sub_path,
-        text_segment.inner,
-        code_sig_cmd,
-        self.base.options.output_mode,
-        self.page_size,
-    );
+    log.debug("writing code signature from 0x{x} to 0x{x}", .{
+        code_sig_cmd.dataoff,
+        code_sig_cmd.dataoff + buffer.items.len,
+    });
 
-    var buffer = try self.base.allocator.alloc(u8, code_sig.size());
-    defer self.base.allocator.free(buffer);
-    var stream = std.io.fixedBufferStream(buffer);
-    try code_sig.write(stream.writer());
-
-    log.debug("writing code signature from 0x{x} to 0x{x}", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
-
-    try self.base.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
+    try self.base.file.?.pwriteAll(buffer.items, code_sig_cmd.dataoff);
 }
 
 /// Writes all load commands and section headers.

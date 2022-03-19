@@ -183,6 +183,9 @@ pub const Options = struct {
     /// (Darwin) Install name for the dylib
     install_name: ?[]const u8 = null,
 
+    /// (Darwin) Path to entitlements file
+    entitlements: ?[]const u8 = null,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }
