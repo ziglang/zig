@@ -3221,7 +3221,34 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airUnionInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
-    return self.fail("TODO: Wasm backend: implement airUnionInit", .{});
+
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
+    const union_ty = self.air.typeOfIndex(inst);
+    const layout = union_ty.unionGetLayout(self.target);
+    if (layout.payload_size == 0) {
+        if (layout.tag_size == 0) {
+            return WValue{ .none = {} };
+        }
+        assert(!isByRef(union_ty, self.target));
+        return WValue{ .imm32 = extra.field_index };
+    }
+    assert(isByRef(union_ty, self.target));
+
+    const result_ptr = try self.allocStack(union_ty);
+    const payload = try self.resolveInst(extra.init);
+    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    assert(union_obj.haveFieldTypes());
+    const field = union_obj.fields.values()[extra.field_index];
+
+    if (layout.tag_align >= layout.payload_align) {
+        const payload_ptr = try self.buildPointerOffset(result_ptr, layout.tag_size, .new);
+        try self.store(payload_ptr, payload, field.ty, 0);
+    } else {
+        try self.store(result_ptr, payload, field.ty, 0);
+    }
+
+    return result_ptr;
 }
 
 fn airPrefetch(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
