@@ -267,7 +267,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    });
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:31: error: expected type 'std.builtin.Type', found 'std.builtin.Int'",
+        "tmp.zig:3:31: error: expected type 'std.builtin.Type', found 'std.builtin.Type.Int'",
     });
 
     ctx.objErrStage1("indexing a undefined slice at comptime",
@@ -3461,7 +3461,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = field;
         \\}
     , &[_][]const u8{
-        "tmp.zig:9:51: error: values of type 'std.builtin.StructField' must be comptime known, but index value is runtime known",
+        "tmp.zig:9:51: error: values of type 'std.builtin.Type.StructField' must be comptime known, but index value is runtime known",
     });
 
     ctx.objErrStage1("compile log statement inside function which must be comptime evaluated",
