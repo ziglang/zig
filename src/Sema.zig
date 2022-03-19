@@ -486,15 +486,19 @@ pub const Block = struct {
             wad.* = undefined;
         }
 
-        pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value) !*Decl {
+        pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value, alignment: u32) !*Decl {
             const sema = wad.block.sema;
             // Do this ahead of time because `createAnonymousDecl` depends on calling
             // `type.hasRuntimeBits()`.
             _ = try sema.typeHasRuntimeBits(wad.block, wad.src, ty);
+            const align_val = if (alignment != 0) blk: {
+                break :blk try Value.Tag.int_u64.create(wad.arena(), alignment);
+            } else Value.@"null";
             const new_decl = try sema.mod.createAnonymousDecl(wad.block, .{
                 .ty = ty,
                 .val = val,
             });
+            new_decl.align_val = align_val;
             errdefer sema.mod.abortAnonDecl(new_decl);
             try new_decl.finalizeNewArena(&wad.new_decl_arena);
             wad.finished = true;
@@ -1644,6 +1648,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     iac.data.decl = try anon_decl.finish(
                         try pointee_ty.copy(anon_decl.arena()),
                         Value.undef,
+                        iac.data.alignment,
                     );
                     if (iac.data.alignment != 0) {
                         try sema.resolveTypeLayout(block, src, pointee_ty);
@@ -2711,6 +2716,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                     const new_decl = try anon_decl.finish(
                         try final_elem_ty.copy(anon_decl.arena()),
                         try store_val.copy(anon_decl.arena()),
+                        inferred_alloc.data.alignment,
                     );
                     break :d new_decl;
                 };
@@ -3503,8 +3509,8 @@ fn storeToInferredAllocComptime(
         iac.data.decl = try anon_decl.finish(
             try operand_ty.copy(anon_decl.arena()),
             try operand_val.copy(anon_decl.arena()),
+            iac.data.alignment,
         );
-        // TODO set the alignment on the decl
         return;
     } else {
         return sema.failWithNeededComptime(block, src);
@@ -3583,6 +3589,7 @@ fn addStrLit(sema: *Sema, block: *Block, zir_bytes: []const u8) CompileError!Air
     const new_decl = try anon_decl.finish(
         try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
         try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+        0, // default alignment
     );
 
     return sema.analyzeDeclRef(new_decl);
@@ -8147,6 +8154,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     embed_file.owner_decl = try anon_decl.finish(
         try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), embed_file.bytes.len),
         try Value.Tag.bytes.create(anon_decl.arena(), bytes_including_null),
+        0, // default alignment
     );
 
     return sema.analyzeDeclRef(embed_file.owner_decl);
@@ -8560,7 +8568,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 .elem_type = try lhs_info.elem_type.copy(anon_decl.arena()),
             });
             const val = try Value.Tag.aggregate.create(anon_decl.arena(), buf);
-            const decl = try anon_decl.finish(ty, val);
+            const decl = try anon_decl.finish(ty, val, 0);
             if (lhs_single_ptr or rhs_single_ptr) {
                 return sema.analyzeDeclRef(decl);
             } else {
@@ -8733,7 +8741,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             }
             break :blk try Value.Tag.aggregate.create(anon_decl.arena(), buf);
         };
-        const decl = try anon_decl.finish(final_ty, val);
+        const decl = try anon_decl.finish(final_ty, val, 0);
         if (is_single_ptr) {
             return sema.analyzeDeclRef(decl);
         } else {
@@ -10384,6 +10392,7 @@ fn zirBuiltinSrc(
         const new_decl = try anon_decl.finish(
             try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len - 1),
             try Value.Tag.bytes.create(anon_decl.arena(), bytes),
+            0, // default alignment
         );
         break :blk try Value.Tag.decl_ref.create(sema.arena, new_decl);
     };
@@ -10395,6 +10404,7 @@ fn zirBuiltinSrc(
         const new_decl = try anon_decl.finish(
             try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), name.len),
             try Value.Tag.bytes.create(anon_decl.arena(), name[0 .. name.len + 1]),
+            0, // default alignment
         );
         break :blk try Value.Tag.decl_ref.create(sema.arena, new_decl);
     };
@@ -10547,6 +10557,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         params_anon_decl.arena(),
                         param_vals,
                     ),
+                    0, // default alignment
                 );
                 break :v try Value.Tag.slice.create(sema.arena, .{
                     .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
@@ -10736,6 +10747,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         const new_decl = try anon_decl.finish(
                             try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                             try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                            0, // default alignment
                         );
                         break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
                     };
@@ -10766,6 +10778,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         fields_anon_decl.arena(),
                         vals,
                     ),
+                    0, // default alignment
                 );
 
                 const new_decl_val = try Value.Tag.decl_ref.create(sema.arena, new_decl);
@@ -10844,6 +10857,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const new_decl = try anon_decl.finish(
                         try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                         try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                        0, // default alignment
                     );
                     break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
                 };
@@ -10868,6 +10882,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         fields_anon_decl.arena(),
                         enum_field_vals,
                     ),
+                    0, // default alignment
                 );
                 break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
             };
@@ -10936,6 +10951,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const new_decl = try anon_decl.finish(
                         try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                         try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                        0, // default alignment
                     );
                     break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
                 };
@@ -10967,6 +10983,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         fields_anon_decl.arena(),
                         try fields_anon_decl.arena().dupe(Value, union_field_vals),
                     ),
+                    0, // default alignment
                 );
                 break :v try Value.Tag.slice.create(sema.arena, .{
                     .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
@@ -11044,6 +11061,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             const new_decl = try anon_decl.finish(
                                 try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                                0, // default alignment
                             );
                             break :v try Value.Tag.slice.create(fields_anon_decl.arena(), .{
                                 .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
@@ -11087,6 +11105,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         const new_decl = try anon_decl.finish(
                             try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                             try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                            0, // default alignment
                         );
                         break :v try Value.Tag.slice.create(fields_anon_decl.arena(), .{
                             .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
@@ -11132,6 +11151,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         fields_anon_decl.arena(),
                         try fields_anon_decl.arena().dupe(Value, struct_field_vals),
                     ),
+                    0, // default alignment
                 );
                 break :v try Value.Tag.slice.create(sema.arena, .{
                     .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
@@ -11225,6 +11245,7 @@ fn typeInfoDecls(
             const new_decl = try anon_decl.finish(
                 try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                0, // default alignment
             );
             break :v try Value.Tag.slice.create(decls_anon_decl.arena(), .{
                 .ptr = try Value.Tag.decl_ref.create(decls_anon_decl.arena(), new_decl),
@@ -11251,6 +11272,7 @@ fn typeInfoDecls(
             decls_anon_decl.arena(),
             try decls_anon_decl.arena().dupe(Value, decls_vals),
         ),
+        0, // default alignment
     );
     return try Value.Tag.slice.create(sema.arena, .{
         .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
@@ -12350,6 +12372,7 @@ fn addConstantMaybeRef(
     const decl = try anon_decl.finish(
         try ty.copy(anon_decl.arena()),
         try val.copy(anon_decl.arena()),
+        0, // default alignment
     );
     return sema.analyzeDeclRef(decl);
 }
@@ -13227,6 +13250,7 @@ fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const new_decl = try anon_decl.finish(
         try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
         try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+        0, // default alignment
     );
 
     return sema.analyzeDeclRef(new_decl);
@@ -15851,6 +15875,7 @@ fn safetyPanic(
         break :msg_inst try sema.analyzeDeclRef(try anon_decl.finish(
             try Type.Tag.array_u8.create(anon_decl.arena(), msg.len),
             try Value.Tag.bytes.create(anon_decl.arena(), msg),
+            0, // default alignment
         ));
     };
 
@@ -16080,6 +16105,7 @@ fn fieldPtr(
                 return sema.analyzeDeclRef(try anon_decl.finish(
                     Type.usize,
                     try Value.Tag.int_u64.create(anon_decl.arena(), inner_ty.arrayLen()),
+                    0, // default alignment
                 ));
             } else {
                 return sema.fail(
@@ -16107,6 +16133,7 @@ fn fieldPtr(
                     return sema.analyzeDeclRef(try anon_decl.finish(
                         try slice_ptr_ty.copy(anon_decl.arena()),
                         try val.slicePtr().copy(anon_decl.arena()),
+                        0, // default alignment
                     ));
                 }
                 try sema.requireRuntimeBlock(block, src);
@@ -16126,6 +16153,7 @@ fn fieldPtr(
                     return sema.analyzeDeclRef(try anon_decl.finish(
                         Type.usize,
                         try Value.Tag.int_u64.create(anon_decl.arena(), val.sliceLen()),
+                        0, // default alignment
                     ));
                 }
                 try sema.requireRuntimeBlock(block, src);
@@ -16175,6 +16203,7 @@ fn fieldPtr(
                     return sema.analyzeDeclRef(try anon_decl.finish(
                         try child_type.copy(anon_decl.arena()),
                         try Value.Tag.@"error".create(anon_decl.arena(), .{ .name = name }),
+                        0, // default alignment
                     ));
                 },
                 .Union => {
@@ -16191,6 +16220,7 @@ fn fieldPtr(
                             return sema.analyzeDeclRef(try anon_decl.finish(
                                 try enum_ty.copy(anon_decl.arena()),
                                 try Value.Tag.enum_field_index.create(anon_decl.arena(), field_index_u32),
+                                0, // default alignment
                             ));
                         }
                     }
@@ -16211,6 +16241,7 @@ fn fieldPtr(
                     return sema.analyzeDeclRef(try anon_decl.finish(
                         try child_type.copy(anon_decl.arena()),
                         try Value.Tag.enum_field_index.create(anon_decl.arena(), field_index_u32),
+                        0, // default alignment
                     ));
                 },
                 .Struct, .Opaque => {
@@ -16522,10 +16553,8 @@ fn structFieldPtrByIndex(
         const decl = try anon_decl.finish(
             try field.ty.copy(anon_decl.arena()),
             try field.default_val.copy(anon_decl.arena()),
+            ptr_ty_data.@"align",
         );
-        if (ptr_ty_data.@"align" != 0) {
-            decl.align_val = field.abi_align;
-        }
         return sema.analyzeDeclRef(decl);
     }
 
@@ -19114,6 +19143,7 @@ fn refValue(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type, val: Value) !
     const decl = try anon_decl.finish(
         try ty.copy(anon_decl.arena()),
         try val.copy(anon_decl.arena()),
+        0, // default alignment
     );
     try sema.mod.declareDeclDependency(sema.owner_decl, decl);
     return try Value.Tag.decl_ref.create(sema.arena, decl);
@@ -19170,6 +19200,7 @@ fn analyzeRef(
         return sema.analyzeDeclRef(try anon_decl.finish(
             try operand_ty.copy(anon_decl.arena()),
             try val.copy(anon_decl.arena()),
+            0, // default alignment
         ));
     }
 
@@ -21614,6 +21645,7 @@ fn analyzeComptimeAlloc(
         // sub-fields. So we need to initialize with undef to allow the mechanism to expand
         // into fields/elements and have those overridden with stored values.
         Value.undef,
+        alignment,
     );
     decl.align_val = align_val;
 
