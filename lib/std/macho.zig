@@ -624,7 +624,9 @@ pub const segment_command_64 = extern struct {
     cmd: LC = .SEGMENT_64,
 
     /// includes sizeof section_64 structs
-    cmdsize: u32 = @sizeOf(segment_command_64),
+    cmdsize: u32,
+    // TODO lazy values in stage2
+    // cmdsize: u32 = @sizeOf(segment_command_64),
 
     /// segment name
     segname: [16]u8,

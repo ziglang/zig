@@ -4301,6 +4301,7 @@ fn populateMissingMetadata(self: *MachO) !void {
                 .inner = .{
                     .segname = makeStaticString("__PAGEZERO"),
                     .vmsize = pagezero_vmsize,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });
@@ -4326,6 +4327,7 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .filesize = needed_size,
                     .maxprot = macho.PROT.READ | macho.PROT.EXEC,
                     .initprot = macho.PROT.READ | macho.PROT.EXEC,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });
@@ -4431,6 +4433,7 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .filesize = needed_size,
                     .maxprot = macho.PROT.READ | macho.PROT.WRITE,
                     .initprot = macho.PROT.READ | macho.PROT.WRITE,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });
@@ -4480,6 +4483,7 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .filesize = needed_size,
                     .maxprot = macho.PROT.READ | macho.PROT.WRITE,
                     .initprot = macho.PROT.READ | macho.PROT.WRITE,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });
@@ -4589,6 +4593,7 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .fileoff = fileoff,
                     .maxprot = macho.PROT.READ,
                     .initprot = macho.PROT.READ,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });

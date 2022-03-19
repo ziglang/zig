@@ -148,6 +148,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
                     .vmsize = needed_size,
                     .fileoff = fileoff,
                     .filesize = needed_size,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });

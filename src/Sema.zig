@@ -131,6 +131,9 @@ pub const Block = struct {
 
     c_import_buf: ?*std.ArrayList(u8) = null,
 
+    /// type of `err` in `else => |err|`
+    switch_else_err_ty: ?Type = null,
+
     const Param = struct {
         /// `noreturn` means `anytype`.
         ty: Type,
@@ -189,6 +192,7 @@ pub const Block = struct {
             .runtime_index = parent.runtime_index,
             .want_safety = parent.want_safety,
             .c_import_buf = parent.c_import_buf,
+            .switch_else_err_ty = parent.switch_else_err_ty,
         };
     }
 
@@ -6714,12 +6718,6 @@ fn zirSwitchCapture(
 
     if (capture_info.prong_index == std.math.maxInt(@TypeOf(capture_info.prong_index))) {
         // It is the else/`_` prong.
-        switch (operand_ty.zigTypeTag()) {
-            .ErrorSet => {
-                return sema.fail(block, operand_src, "TODO implement Sema for zirSwitchCaptureElse for error sets", .{});
-            },
-            else => {},
-        }
         if (is_ref) {
             assert(operand_is_ref);
             return operand_ptr;
@@ -6730,7 +6728,10 @@ fn zirSwitchCapture(
         else
             operand_ptr;
 
-        return operand;
+        switch (operand_ty.zigTypeTag()) {
+            .ErrorSet => return sema.bitCast(block, block.switch_else_err_ty.?, operand, operand_src),
+            else => return operand,
+        }
     }
 
     if (is_multi) {
@@ -6906,6 +6907,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     };
 
     const operand_ty = sema.typeOf(operand);
+
+    var else_error_ty: ?Type = null;
 
     // Validate usage of '_' prongs.
     if (special_prong == .under and !operand_ty.isNonexhaustiveEnum()) {
@@ -7099,6 +7102,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         .{},
                     );
                 }
+                else_error_ty = Type.@"anyerror";
             } else {
                 var maybe_msg: ?*Module.ErrorMsg = null;
                 errdefer if (maybe_msg) |msg| msg.destroy(sema.gpa);
@@ -7143,6 +7147,17 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         .{},
                     );
                 }
+
+                const error_names = operand_ty.errorSetNames();
+                var names: Module.ErrorSet.NameMap = .{};
+                try names.ensureUnusedCapacity(sema.arena, error_names.len);
+                for (error_names) |error_name| {
+                    if (seen_errors.contains(error_name)) continue;
+
+                    names.putAssumeCapacityNoClobber(error_name, {});
+                }
+
+                else_error_ty = try Type.Tag.error_set_merged.create(sema.arena, names);
             }
         },
         .Union => return sema.fail(block, src, "TODO validate switch .Union", .{}),
@@ -7420,6 +7435,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .label = &label,
         .inlining = block.inlining,
         .is_comptime = block.is_comptime,
+        .switch_else_err_ty = else_error_ty,
     };
     const merges = &child_block.label.?.merges;
     defer child_block.instructions.deinit(gpa);
@@ -18523,8 +18539,8 @@ pub fn bitCastVal(
     const abi_size = try sema.usizeCast(block, src, old_ty.abiSize(target));
     const buffer = try sema.gpa.alloc(u8, abi_size);
     defer sema.gpa.free(buffer);
-    val.writeToMemory(old_ty, target, buffer);
-    return Value.readFromMemory(new_ty, target, buffer[buffer_offset..], sema.arena);
+    val.writeToMemory(old_ty, sema.mod, buffer);
+    return Value.readFromMemory(new_ty, sema.mod, buffer[buffer_offset..], sema.arena);
 }
 
 fn coerceArrayPtrToSlice(

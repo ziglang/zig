@@ -624,8 +624,7 @@ pub const pthread_attr_t = extern struct {
     __opaque: [56]u8,
 };
 
-const pthread_t = std.c.pthread_t;
-pub extern "c" fn pthread_threadid_np(thread: ?pthread_t, thread_id: *u64) c_int;
+pub extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, thread_id: *u64) c_int;
 pub extern "c" fn pthread_setname_np(name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
 
@@ -921,12 +920,17 @@ pub const siginfo_t = extern struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub usingnamespace if (builtin.zig_backend == .stage1) struct {
+        pub const handler_fn = fn (c_int) callconv(.C) void;
+        pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    } else struct {
+        pub const handler_fn = *const fn (c_int) callconv(.C) void;
+        pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    };
 
     handler: extern union {
-        handler: ?handler_fn,
-        sigaction: ?sigaction_fn,
+        handler: ?Sigaction.handler_fn,
+        sigaction: ?Sigaction.sigaction_fn,
     },
     mask: sigset_t,
     flags: c_uint,
