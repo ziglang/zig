@@ -341,7 +341,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                             const slot_index = @intCast(SlotIndex, used_bits_byte * 8 + bit_index);
                             const stack_trace = bucketStackTrace(bucket, size_class, slot_index, .alloc);
                             const addr = bucket.page + slot_index * size_class;
-                            if (builtin.zig_backend == .stage1) {
+                            if (builtin.zig_backend == .stage1 or builtin.os.tag == .linux) {
                                 log.err("memory address 0x{x} leaked: {s}", .{
                                     @ptrToInt(addr), stack_trace,
                                 });
@@ -379,7 +379,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             while (it.next()) |large_alloc| {
                 if (config.retain_metadata and large_alloc.freed) continue;
                 const stack_trace = large_alloc.getStackTrace(.alloc);
-                if (builtin.zig_backend == .stage1) {
+                if (builtin.zig_backend == .stage1 or builtin.os.tag == .linux) {
                     log.err("memory address 0x{x} leaked: {s}", .{
                         @ptrToInt(large_alloc.bytes.ptr), stack_trace,
                     });

@@ -1080,12 +1080,19 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) restore_rt else restore;
+        const restore_rt_ptr = if (builtin.zig_backend == .stage1) restore_rt else &syscall_bits.restore_rt;
+        // TODO https://github.com/ziglang/zig/issues/11227
+        const restore_ptr = if (builtin.zig_backend == .stage1) restore else switch (native_arch) {
+            .arm, .thumb, .mips, .mipsel, .i386 => &syscall_bits.restore,
+            .x86_64, .aarch64, .riscv64, .sparcv9, .powerpc, .powerpc64, .powerpc64le => &syscall_bits.restore_rt,
+            else => unreachable,
+        };
+        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) restore_rt_ptr else restore_ptr;
         ksa = k_sigaction{
             .handler = new.handler.handler,
             .flags = new.flags | SA.RESTORER,
             .mask = undefined,
-            .restorer = @ptrCast(fn () callconv(.C) void, restorer_fn),
+            .restorer = @ptrCast(k_sigaction_funcs.restorer, restorer_fn),
         };
         @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &new.mask), mask_size);
     }
@@ -3047,39 +3054,55 @@ pub const sigset_t = [1024 / 32]u32;
 pub const all_mask: sigset_t = [_]u32{0xffffffff} ** sigset_t.len;
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
+const k_sigaction_funcs = if (builtin.zig_backend == .stage1) struct {
+    const handler = ?fn (c_int) callconv(.C) void;
+    const restorer = fn () callconv(.C) void;
+} else struct {
+    const handler = ?*const fn (c_int) callconv(.C) void;
+    const restorer = *const fn () callconv(.C) void;
+};
+
 pub const k_sigaction = switch (native_arch) {
     .mips, .mipsel => extern struct {
         flags: c_uint,
-        handler: ?fn (c_int) callconv(.C) void,
+        handler: k_sigaction_funcs.handler,
         mask: [4]c_ulong,
-        restorer: fn () callconv(.C) void,
+        restorer: k_sigaction_funcs.restorer,
     },
     .mips64, .mips64el => extern struct {
         flags: c_uint,
-        handler: ?fn (c_int) callconv(.C) void,
+        handler: k_sigaction_funcs.handler,
         mask: [2]c_ulong,
-        restorer: fn () callconv(.C) void,
+        restorer: k_sigaction_funcs.restorer,
     },
     else => extern struct {
-        handler: ?fn (c_int) callconv(.C) void,
+        handler: k_sigaction_funcs.handler,
         flags: c_ulong,
-        restorer: fn () callconv(.C) void,
+        restorer: k_sigaction_funcs.restorer,
         mask: [2]c_uint,
     },
 };
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub usingnamespace if (builtin.zig_backend == .stage1) struct {
+        pub const handler_fn = fn (c_int) callconv(.C) void;
+        pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    } else struct {
+        pub const handler_fn = *const fn (c_int) callconv(.C) void;
+        pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    };
 
     handler: extern union {
-        handler: ?handler_fn,
-        sigaction: ?sigaction_fn,
+        handler: ?Sigaction.handler_fn,
+        sigaction: ?Sigaction.sigaction_fn,
     },
     mask: sigset_t,
     flags: c_uint,
-    restorer: ?fn () callconv(.C) void = null,
+    restorer: ?if (builtin.zig_backend == .stage1)
+        fn () callconv(.C) void
+    else
+        *const fn () callconv(.C) void = null,
 };
 
 pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).Array.len;
