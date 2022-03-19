@@ -3259,7 +3259,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return 5678;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:11: error: Ambiguous use of '&&'. Instead, use 'and' for logical and, or change whitespace to ' & &' for bitwise and",
+        "tmp.zig:2:11: error: ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND",
     });
 
     ctx.objErrStage1("attempted `||` on boolean values",
