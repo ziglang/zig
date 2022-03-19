@@ -111,11 +111,6 @@ const MCValue = union(enum) {
     /// A pointer-sized integer that fits in a register.
     /// If the type is a pointer, this is the pointer address in virtual address space.
     immediate: u64,
-    /// The constant was emitted into the code, at this offset.
-    /// If the type is a pointer, it means the pointer address is embedded in the code.
-    embedded_in_code: usize,
-    /// The value is a pointer to a constant which was emitted into the code, at this offset.
-    ptr_embedded_in_code: usize,
     /// The value is in a target-specific register.
     register: Register,
     /// The value is in memory at a hard-coded address.
@@ -129,7 +124,7 @@ const MCValue = union(enum) {
 
     fn isMemory(mcv: MCValue) bool {
         return switch (mcv) {
-            .embedded_in_code, .memory, .stack_offset => true,
+            .memory, .stack_offset => true,
             else => false,
         };
     }
@@ -148,10 +143,8 @@ const MCValue = union(enum) {
             .dead => unreachable,
 
             .immediate,
-            .embedded_in_code,
             .memory,
             .ptr_stack_offset,
-            .ptr_embedded_in_code,
             .undef,
             => false,
 
@@ -1279,12 +1272,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .dead => unreachable,
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
         .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
-        .ptr_embedded_in_code => |off| {
-            try self.setRegOrMem(elem_ty, dst_mcv, .{ .embedded_in_code = off });
-        },
-        .embedded_in_code => {
-            return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
-        },
         .register => {
             return self.fail("TODO implement loading from MCValue.register", .{});
         },
@@ -1327,27 +1314,19 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airStore(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const ptr = try self.resolveInst(bin_op.lhs);
-    const value = try self.resolveInst(bin_op.rhs);
-    const elem_ty = self.air.typeOf(bin_op.rhs);
+fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) !void {
+    _ = ptr_ty;
+
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
         .unreach => unreachable,
         .dead => unreachable,
         .immediate => |imm| {
-            try self.setRegOrMem(elem_ty, .{ .memory = imm }, value);
+            try self.setRegOrMem(value_ty, .{ .memory = imm }, value);
         },
         .ptr_stack_offset => |off| {
-            try self.genSetStack(elem_ty, off, value);
-        },
-        .ptr_embedded_in_code => |off| {
-            try self.setRegOrMem(elem_ty, .{ .embedded_in_code = off }, value);
-        },
-        .embedded_in_code => {
-            return self.fail("TODO implement storing to MCValue.embedded_in_code", .{});
+            try self.genSetStack(value_ty, off, value);
         },
         .register => {
             return self.fail("TODO implement storing to MCValue.register", .{});
@@ -1359,6 +1338,17 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
             return self.fail("TODO implement storing to MCValue.stack_offset", .{});
         },
     }
+}
+
+fn airStore(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ptr = try self.resolveInst(bin_op.lhs);
+    const value = try self.resolveInst(bin_op.rhs);
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const value_ty = self.air.typeOf(bin_op.rhs);
+
+    try self.store(ptr, value, ptr_ty, value_ty);
+
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1504,7 +1494,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 .immediate => unreachable,
                 .unreach => unreachable,
                 .dead => unreachable,
-                .embedded_in_code => unreachable,
                 .memory => unreachable,
                 .register => |reg| {
                     try self.register_manager.getReg(reg, null);
@@ -1515,9 +1504,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 },
                 .ptr_stack_offset => {
                     return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-                },
-                .ptr_embedded_in_code => {
-                    return self.fail("TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
                 },
             }
         }
@@ -2043,7 +2029,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
     switch (mcv) {
         .dead => unreachable,
         .ptr_stack_offset => unreachable,
-        .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
             if (!self.wantSafety())
@@ -2310,27 +2295,6 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
             return mcv;
         }
     }
-}
-
-/// If the MCValue is an immediate, and it does not fit within this type,
-/// we put it in a register.
-/// A potential opportunity for future optimization here would be keeping track
-/// of the fact that the instruction is available both as an immediate
-/// and as a register.
-fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCValue {
-    const mcv = try self.resolveInst(operand);
-    const ti = @typeInfo(T).Int;
-    switch (mcv) {
-        .immediate => |imm| {
-            // This immediate is unsigned.
-            const U = std.meta.Int(.unsigned, ti.bits - @boolToInt(ti.signedness == .signed));
-            if (imm >= math.maxInt(U)) {
-                return MCValue{ .register = try self.copyToTmpRegister(Type.initTag(.usize), mcv) };
-            }
-        },
-        else => {},
-    }
-    return mcv;
 }
 
 fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCValue {
