@@ -416,3 +416,18 @@ test "align(N) on functions" {
 fn overaligned_fn() align(0x1000) i32 {
     return 42;
 }
+
+test "comptime alloc alignment" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    comptime var bytes1 = [_]u8{0};
+    _ = bytes1;
+
+    comptime var bytes2 align(256) = [_]u8{0};
+    var bytes2_addr = @ptrToInt(&bytes2);
+    try std.testing.expect(bytes2_addr & 0xff == 0);
+}
