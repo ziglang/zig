@@ -326,6 +326,10 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
+        /// Marks the beginning of a semantic scope for debug info variables.
+        dbg_block_begin,
+        /// Marks the end of a semantic scope for debug info variables.
+        dbg_block_end,
         /// Marks the start of an inline call.
         /// Uses `ty_pl` with the payload being the index of a Value.Function in air.values.
         dbg_inline_begin,
@@ -990,6 +994,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .dbg_stmt,
         .dbg_inline_begin,
         .dbg_inline_end,
+        .dbg_block_begin,
+        .dbg_block_end,
         .dbg_var_ptr,
         .dbg_var_val,
         .store,

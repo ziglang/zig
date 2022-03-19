@@ -3220,6 +3220,10 @@ pub const FuncGen = struct {
     /// Stack of locations where a call was inlined.
     dbg_inlined: std.ArrayListUnmanaged(DbgState) = .{},
 
+    /// Stack of `DILexicalBlock`s. dbg_block instructions cannot happend accross
+    /// dbg_inline instructions so no special handling there is required.
+    dbg_block_stack: std.ArrayListUnmanaged(*llvm.DIScope) = .{},
+
     /// This stores the LLVM values used in a function, such that they can be referred to
     /// in other instructions. This table is cleared before every function is generated.
     func_inst_table: std.AutoHashMapUnmanaged(Air.Inst.Ref, *const llvm.Value),
@@ -3254,6 +3258,7 @@ pub const FuncGen = struct {
     fn deinit(self: *FuncGen) void {
         self.builder.dispose();
         self.dbg_inlined.deinit(self.gpa);
+        self.dbg_block_stack.deinit(self.gpa);
         self.func_inst_table.deinit(self.gpa);
         self.blocks.deinit(self.gpa);
     }
@@ -3475,6 +3480,8 @@ pub const FuncGen = struct {
                 .dbg_stmt => self.airDbgStmt(inst),
                 .dbg_inline_begin => try self.airDbgInlineBegin(inst),
                 .dbg_inline_end => try self.airDbgInlineEnd(inst),
+                .dbg_block_begin => try self.airDbgBlockBegin(),
+                .dbg_block_end => try self.airDbgBlockEnd(),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst),
                 // zig fmt: on
@@ -4253,6 +4260,21 @@ pub const FuncGen = struct {
         const old = self.dbg_inlined.pop();
         self.di_scope = old.scope;
         self.base_line = old.base_line;
+        return null;
+    }
+
+    fn airDbgBlockBegin(self: *FuncGen) !?*const llvm.Value {
+        const dib = self.dg.object.di_builder orelse return null;
+        const old_scope = self.di_scope.?;
+        try self.dbg_block_stack.append(self.gpa, old_scope);
+        const lexical_block = dib.createLexicalBlock(old_scope, self.di_file.?, self.prev_dbg_line, self.prev_dbg_column);
+        self.di_scope = lexical_block.toScope();
+        return null;
+    }
+
+    fn airDbgBlockEnd(self: *FuncGen) !?*const llvm.Value {
+        if (self.dg.object.di_builder == null) return null;
+        self.di_scope = self.dbg_block_stack.pop();
         return null;
     }
 

@@ -654,6 +654,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_inline_end,
             => try self.airDbgInline(inst),
 
+            .dbg_block_begin,
+            .dbg_block_end,
+            => try self.airDbgBlock(inst),
+
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
             .call_never_tail   => try self.airCall(inst, .never_tail),
@@ -2728,6 +2732,11 @@ fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const function = self.air.values[ty_pl.payload].castTag(.function).?.data;
     // TODO emit debug info for function change
     _ = function;
+    return self.finishAir(inst, .dead, .{ .none, .none, .none });
+}
+
+fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
+    // TODO emit debug info lexical block
     return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
