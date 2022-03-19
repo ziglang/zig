@@ -530,8 +530,7 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Struct => {
-            const struct_obj = typed_value.ty.castTag(.@"struct").?.data;
-            if (struct_obj.layout == .Packed) {
+            if (typed_value.ty.containerLayout() == .Packed) {
                 return Result{
                     .fail = try ErrorMsg.create(
                         bin_file.allocator,
