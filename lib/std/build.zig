@@ -1570,6 +1570,9 @@ pub const LibExeObjStep = struct {
     /// (Darwin) Install name for the dylib
     install_name: ?[]const u8 = null,
 
+    /// (Darwin) Path to entitlements file
+    entitlements: ?[]const u8 = null,
+
     /// Position Independent Code
     force_pic: ?bool = null,
 
@@ -2513,6 +2516,10 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-install_name");
                 try zig_args.append(install_name);
             }
+        }
+
+        if (self.entitlements) |entitlements| {
+            try zig_args.appendSlice(&[_][]const u8{ "--entitlements", entitlements });
         }
 
         if (self.bundle_compiler_rt) |x| {
