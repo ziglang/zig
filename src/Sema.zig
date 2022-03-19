@@ -3930,6 +3930,23 @@ fn analyzeBlockBody(
     // to emit a jump instruction to after the block when it encounters the break.
     try parent_block.instructions.append(gpa, merges.block_inst);
     const resolved_ty = try sema.resolvePeerTypes(parent_block, src, merges.results.items, .none);
+
+    const type_src = src; // TODO: better source location
+    const valid_rt = try sema.validateRunTimeType(child_block, type_src, resolved_ty, false);
+    if (!valid_rt) {
+        const msg = msg: {
+            const msg = try sema.errMsg(child_block, type_src, "value with comptime only type '{}' depends on runtime control flow", .{resolved_ty});
+            errdefer msg.destroy(sema.gpa);
+
+            const runtime_src = child_block.runtime_cond orelse child_block.runtime_loop.?;
+            try sema.errNote(child_block, runtime_src, msg, "runtime control flow here", .{});
+
+            try sema.explainWhyTypeIsComptime(child_block, type_src, msg, type_src.toSrcLoc(child_block.src_decl), resolved_ty);
+
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(child_block, msg);
+    }
     const ty_inst = try sema.addType(resolved_ty);
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
         child_block.instructions.items.len);
@@ -4191,6 +4208,11 @@ fn zirBreak(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError
                 const br_ref = try start_block.addBr(label.merges.block_inst, operand);
                 try label.merges.results.append(sema.gpa, operand);
                 try label.merges.br_list.append(sema.gpa, Air.refToIndex(br_ref).?);
+                block.runtime_index += 1;
+                if (block.runtime_cond == null and block.runtime_loop == null) {
+                    block.runtime_cond = start_block.runtime_cond orelse start_block.runtime_loop;
+                    block.runtime_loop = start_block.runtime_loop;
+                }
                 return inst;
             }
         }
@@ -15447,56 +15469,7 @@ fn validateVarType(
     var_ty: Type,
     is_extern: bool,
 ) CompileError!void {
-    var ty = var_ty;
-    while (true) switch (ty.zigTypeTag()) {
-        .Bool,
-        .Int,
-        .Float,
-        .ErrorSet,
-        .Enum,
-        .Frame,
-        .AnyFrame,
-        .Void,
-        => return,
-
-        .BoundFn,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .EnumLiteral,
-        .NoReturn,
-        .Type,
-        .Undefined,
-        .Null,
-        .Fn,
-        => break,
-
-        .Pointer => {
-            const elem_ty = ty.childType();
-            switch (elem_ty.zigTypeTag()) {
-                .Opaque, .Fn => return,
-                else => ty = elem_ty,
-            }
-        },
-        .Opaque => if (is_extern) return else break,
-
-        .Optional => {
-            var buf: Type.Payload.ElemType = undefined;
-            const child_ty = ty.optionalChild(&buf);
-            return validateVarType(sema, block, src, child_ty, is_extern);
-        },
-        .Array, .Vector => ty = ty.elemType(),
-
-        .ErrorUnion => ty = ty.errorUnionPayload(),
-
-        .Struct, .Union => {
-            const resolved_ty = try sema.resolveTypeFields(block, src, ty);
-            if (try sema.typeRequiresComptime(block, src, resolved_ty)) {
-                break;
-            } else {
-                return;
-            }
-        },
-    } else unreachable; // TODO should not need else unreachable
+    if (try sema.validateRunTimeType(block, src, var_ty, is_extern)) return;
 
     const msg = msg: {
         const msg = try sema.errMsg(block, src, "variable of type '{}' must be const or comptime", .{var_ty});
@@ -15507,6 +15480,62 @@ fn validateVarType(
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
+}
+
+fn validateRunTimeType(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    var_ty: Type,
+    is_extern: bool,
+) CompileError!bool {
+    var ty = var_ty;
+    while (true) switch (ty.zigTypeTag()) {
+        .Bool,
+        .Int,
+        .Float,
+        .ErrorSet,
+        .Enum,
+        .Frame,
+        .AnyFrame,
+        .Void,
+        => return true,
+
+        .BoundFn,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .NoReturn,
+        .Type,
+        .Undefined,
+        .Null,
+        .Fn,
+        => return false,
+
+        .Pointer => {
+            const elem_ty = ty.childType();
+            switch (elem_ty.zigTypeTag()) {
+                .Opaque, .Fn => return true,
+                else => ty = elem_ty,
+            }
+        },
+        .Opaque => return is_extern,
+
+        .Optional => {
+            var buf: Type.Payload.ElemType = undefined;
+            const child_ty = ty.optionalChild(&buf);
+            return validateRunTimeType(sema, block, src, child_ty, is_extern);
+        },
+        .Array, .Vector => ty = ty.elemType(),
+
+        .ErrorUnion => ty = ty.errorUnionPayload(),
+
+        .Struct, .Union => {
+            const resolved_ty = try sema.resolveTypeFields(block, src, ty);
+            const needs_comptime = try sema.typeRequiresComptime(block, src, resolved_ty);
+            return !needs_comptime;
+        },
+    };
 }
 
 fn explainWhyTypeIsComptime(
@@ -20351,6 +20380,20 @@ pub fn resolveTypeFully(
             return resolveTypeFully(sema, block, src, ty.optionalChild(&buf));
         },
         .ErrorUnion => return resolveTypeFully(sema, block, src, ty.errorUnionPayload()),
+        .Fn => {
+            const info = ty.fnInfo();
+            if (info.is_generic) {
+                // Resolving of generic function types is defeerred to when
+                // the function is instantiated.
+                return;
+            }
+            for (info.param_types) |param_ty| {
+                const param_ty_src = src; // TODO better source location
+                try sema.resolveTypeFully(block, param_ty_src, param_ty);
+            }
+            const return_ty_src = src; // TODO better source location
+            try sema.resolveTypeFully(block, return_ty_src, info.return_type);
+        },
         else => {},
     }
 }
