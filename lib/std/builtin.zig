@@ -753,7 +753,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
     @setCold(true);
     // Until self-hosted catches up with stage1 language features, we have a simpler
     // default panic function:
-    if (builtin.zig_backend != .stage1) {
+    if (builtin.zig_backend != .stage1 and builtin.zig_backend != .stage2_llvm) {
         while (true) {
             @breakpoint();
         }

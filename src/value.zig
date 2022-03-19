@@ -1042,7 +1042,8 @@ pub const Value = extern union {
         };
     }
 
-    pub fn writeToMemory(val: Value, ty: Type, target: Target, buffer: []u8) void {
+    pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) void {
+        const target = mod.getTarget();
         if (val.isUndef()) {
             const size = @intCast(usize, ty.abiSize(target));
             std.mem.set(u8, buffer[0..size], 0xaa);
@@ -1081,7 +1082,7 @@ pub const Value = extern union {
                 var buf_off: usize = 0;
                 while (elem_i < len) : (elem_i += 1) {
                     const elem_val = val.elemValueBuffer(elem_i, &elem_value_buf);
-                    writeToMemory(elem_val, elem_ty, target, buffer[buf_off..]);
+                    writeToMemory(elem_val, elem_ty, mod, buffer[buf_off..]);
                     buf_off += elem_size;
                 }
             },
@@ -1092,7 +1093,7 @@ pub const Value = extern union {
                     const field_vals = val.castTag(.aggregate).?.data;
                     for (fields) |field, i| {
                         const off = @intCast(usize, ty.structFieldOffset(i, target));
-                        writeToMemory(field_vals[i], field.ty, target, buffer[off..]);
+                        writeToMemory(field_vals[i], field.ty, mod, buffer[off..]);
                     }
                 },
                 .Packed => {
@@ -1104,6 +1105,12 @@ pub const Value = extern union {
                     const bit_size = @intCast(usize, ty.bitSize(target));
                     host_int.writeTwosComplement(buffer, bit_size, abi_size, target.cpu.arch.endian());
                 },
+            },
+            .ErrorSet => {
+                // TODO revisit this when we have the concept of the error tag type
+                const Int = u16;
+                const int = mod.global_error_set.get(val.castTag(.@"error").?.data.name).?;
+                std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @intCast(Int, int), target.cpu.arch.endian());
             },
             else => @panic("TODO implement writeToMemory for more types"),
         }
@@ -1153,10 +1160,11 @@ pub const Value = extern union {
 
     pub fn readFromMemory(
         ty: Type,
-        target: Target,
+        mod: *Module,
         buffer: []const u8,
         arena: Allocator,
     ) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (ty.zigTypeTag()) {
             .Int => {
                 if (buffer.len == 0) return Value.zero;
@@ -1184,7 +1192,7 @@ pub const Value = extern union {
                 const elems = try arena.alloc(Value, @intCast(usize, ty.arrayLen()));
                 var offset: usize = 0;
                 for (elems) |*elem| {
-                    elem.* = try readFromMemory(elem_ty, target, buffer[offset..], arena);
+                    elem.* = try readFromMemory(elem_ty, mod, buffer[offset..], arena);
                     offset += @intCast(usize, elem_size);
                 }
                 return Tag.aggregate.create(arena, elems);
@@ -1196,7 +1204,7 @@ pub const Value = extern union {
                     const field_vals = try arena.alloc(Value, fields.len);
                     for (fields) |field, i| {
                         const off = @intCast(usize, ty.structFieldOffset(i, target));
-                        field_vals[i] = try readFromMemory(field.ty, target, buffer[off..], arena);
+                        field_vals[i] = try readFromMemory(field.ty, mod, buffer[off..], arena);
                     }
                     return Tag.aggregate.create(arena, field_vals);
                 },
@@ -1211,6 +1219,18 @@ pub const Value = extern union {
                     bigint.readTwosComplement(buffer, bit_size, abi_size, endian, .unsigned);
                     return intToPackedStruct(ty, target, bigint.toConst(), arena);
                 },
+            },
+            .ErrorSet => {
+                // TODO revisit this when we have the concept of the error tag type
+                const Int = u16;
+                const int = std.mem.readInt(Int, buffer[0..@sizeOf(Int)], target.cpu.arch.endian());
+
+                const payload = try arena.create(Value.Payload.Error);
+                payload.* = .{
+                    .base = .{ .tag = .@"error" },
+                    .data = .{ .name = mod.error_name_list.items[@intCast(usize, int)] },
+                };
+                return Value.initPayload(&payload.base);
             },
             else => @panic("TODO implement readFromMemory for more types"),
         }

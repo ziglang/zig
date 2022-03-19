@@ -1541,7 +1541,6 @@ pub const ModuleDebugInfo = switch (native_os) {
                         .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
                         .compile_unit_name = compile_unit.die.getAttrString(o_file_di, DW.AT.name) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                            else => return err,
                         },
                         .line_info = o_file_di.getLineNumberInfo(compile_unit.*, relocated_address_o + addr_off) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => null,

@@ -331,6 +331,7 @@ fn copy(src: *const u64, dst: *u64) void {
 }
 
 test "call result of if else expression" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // stage1 has different function pointers
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -341,7 +342,7 @@ test "call result of if else expression" {
     try expect(mem.eql(u8, f2(false), "b"));
 }
 fn f2(x: bool) []const u8 {
-    return (if (x) fA else fB)();
+    return (if (x) &fA else &fB)();
 }
 
 test "memcpy and memset intrinsics" {
