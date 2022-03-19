@@ -6336,7 +6336,7 @@ fn zirAs(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst
     defer tracy.end();
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    return sema.analyzeAs(block, .unneeded, bin_inst.lhs, bin_inst.rhs);
+    return sema.analyzeAs(block, sema.src, bin_inst.lhs, bin_inst.rhs);
 }
 
 fn zirAsNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
