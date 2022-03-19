@@ -2074,6 +2074,20 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 return self.fail("TODO genSetReg 33-64 bit immediates for riscv64", .{}); // glhf
             }
         },
+        .register => |src_reg| {
+            // If the registers are the same, nothing to do.
+            if (src_reg.id() == reg.id())
+                return;
+
+            // mov reg, src_reg
+            _ = try self.addInst(.{
+                .tag = .mv,
+                .data = .{ .rr = .{
+                    .rd = reg,
+                    .rs = src_reg,
+                } },
+            });
+        },
         .memory => |addr| {
             // The value is in memory at a hard-coded address.
             // If the type is a pointer, it means the pointer address is at this memory location.

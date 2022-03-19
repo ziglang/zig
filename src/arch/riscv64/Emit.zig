@@ -56,6 +56,8 @@ pub fn emitMir(
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
 
+            .mv => try emit.mirRR(inst),
+
             .nop => try emit.mirNop(inst),
             .ret => try emit.mirNop(inst),
 
@@ -186,6 +188,15 @@ fn mirDebugEpilogueBegin(self: *Emit) !void {
     }
 }
 
+fn mirRR(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rr = emit.mir.instructions.items(.data)[inst].rr;
+
+    switch (tag) {
+        .mv => try emit.writeInstruction(Instruction.addi(rr.rd, rr.rs, 0)),
+        else => unreachable,
+    }
+}
 fn mirUType(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const u_type = emit.mir.instructions.items(.data)[inst].u_type;

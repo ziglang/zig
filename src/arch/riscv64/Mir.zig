@@ -36,6 +36,7 @@ pub const Inst = struct {
         jalr,
         ld,
         lui,
+        mv,
         nop,
         ret,
         sd,
@@ -68,6 +69,13 @@ pub const Inst = struct {
         ///
         /// Used by e.g. blr
         reg: Register,
+        /// Two registers
+        ///
+        /// Used by e.g. mv
+        rr: struct {
+            rd: Register,
+            rs: Register,
+        },
         /// I-Type
         ///
         /// Used by e.g. jalr
