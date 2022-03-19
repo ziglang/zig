@@ -5305,6 +5305,50 @@ pub const Type = extern union {
         }
     }
 
+    pub fn getNodeOffset(ty: Type) i32 {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.node_offset;
+            },
+            .enum_numbered => return ty.castTag(.enum_numbered).?.data.node_offset,
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return enum_simple.node_offset;
+            },
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.node_offset;
+            },
+            .error_set => {
+                const error_set = ty.castTag(.error_set).?.data;
+                return error_set.node_offset;
+            },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                return union_obj.node_offset;
+            },
+            .@"opaque" => {
+                const opaque_obj = ty.cast(Payload.Opaque).?.data;
+                return opaque_obj.node_offset;
+            },
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .prefetch_options,
+            .export_options,
+            .extern_options,
+            .type_info,
+            => unreachable, // These need to be resolved earlier.
+
+            else => unreachable,
+        }
+    }
+
     /// Asserts the type is an enum.
     pub fn enumHasInt(ty: Type, int: Value, target: Target) bool {
         const S = struct {

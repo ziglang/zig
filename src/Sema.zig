@@ -21727,7 +21727,7 @@ fn resolveTypeFieldsUnion(
     }
 
     union_obj.status = .field_types_wip;
-    try semaUnionFields(sema.mod, union_obj);
+    try semaUnionFields(block, sema.mod, union_obj);
     union_obj.status = .have_field_types;
 }
 
@@ -21967,7 +21967,7 @@ fn semaStructFields(
     }
 }
 
-fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
+fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -22067,6 +22067,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     var int_tag_ty: Type = undefined;
     var enum_field_names: ?*Module.EnumNumbered.NameMap = null;
     var enum_value_map: ?*Module.EnumNumbered.ValueMap = null;
+    var tag_ty_field_names: ?Module.EnumFull.NameMap = null;
     if (tag_type_ref != .none) {
         const provided_ty = try sema.resolveType(&block_scope, src, tag_type_ref);
         if (small.auto_enum_tag) {
@@ -22079,6 +22080,10 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         } else {
             // The provided type is the enum tag type.
             union_obj.tag_ty = try provided_ty.copy(decl_arena_allocator);
+            // The fields of the union must match the enum exactly.
+            // Store a copy of the enum field names so we can check for
+            // missing or extraneous fields later.
+            tag_ty_field_names = try union_obj.tag_ty.enumFields().clone(decl_arena_allocator);
         }
     } else {
         // If auto_enum_tag is false, this is an untagged union. However, for semantic analysis
@@ -22172,6 +22177,20 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             set.putAssumeCapacity(field_name, {});
         }
 
+        if (tag_ty_field_names) |*names| {
+            const enum_has_field = names.contains(field_name);
+            if (!enum_has_field) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, src, "enum '{}' has no field named '{s}'", .{ union_obj.tag_ty.fmt(target), field_name });
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+            _ = names.orderedRemove(field_name);
+        }
+
         const field_ty: Type = if (!has_type)
             Type.void
         else if (field_type_ref == .none)
@@ -22200,6 +22219,27 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             gop.value_ptr.abi_align = try sema.resolveAlign(&block_scope, src, align_ref);
         } else {
             gop.value_ptr.abi_align = 0;
+        }
+    }
+
+    if (tag_ty_field_names) |names| {
+        if (names.count() > 0) {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "enum field(s) missing in union", .{});
+                errdefer msg.destroy(sema.gpa);
+
+                const enum_ty = union_obj.tag_ty;
+                const tree = try sema.getAstTree(block);
+                const enum_decl = enum_ty.getOwnerDecl();
+                for (names.keys()) |field_name| {
+                    const field_index = enum_ty.enumFieldIndex(field_name).?;
+                    const field_src = enumFieldSrcLoc(enum_decl, tree.*, enum_ty.getNodeOffset(), field_index);
+                    try sema.mod.errNoteNonLazy(field_src.toSrcLoc(enum_decl), msg, "field '{s}' missing, declared here", .{field_name});
+                }
+                try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
         }
     }
 }
