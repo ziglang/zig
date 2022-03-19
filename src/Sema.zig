@@ -4853,14 +4853,14 @@ fn analyzeCall(
                         const param_name = sema.code.nullTerminatedString(extra.data.name);
                         const inst = sema.inst_map.get(param).?;
 
-                        try sema.addDbgVar(block, inst, .dbg_var_val, param_name);
+                        try sema.addDbgVar(&child_block, inst, .dbg_var_val, param_name);
                     },
                     .param_anytype, .param_anytype_comptime => {
                         const inst_data = sema.code.instructions.items(.data)[param].str_tok;
                         const param_name = inst_data.get(sema.code);
                         const inst = sema.inst_map.get(param).?;
 
-                        try sema.addDbgVar(block, inst, .dbg_var_val, param_name);
+                        try sema.addDbgVar(&child_block, inst, .dbg_var_val, param_name);
                     },
                     else => continue,
                 };

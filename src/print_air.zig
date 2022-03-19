@@ -386,8 +386,8 @@ const Writer = struct {
     }
 
     fn writeShuffle(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
-        const extra = w.air.extraData(Air.Shuffle, pl_op.payload).data;
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
         try w.writeOperand(s, inst, 0, extra.a);
         try s.writeAll(", ");
