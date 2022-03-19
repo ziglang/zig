@@ -1078,7 +1078,7 @@ test "Serialize formats" {
         },
         .{
             .inst = Instruction.format4d(8, 0, .xcc, 0, .l2),
-            .expected = 0b10_10010_001000_1_0000_1_1_0_00000000000
+            .expected = 0b10_10010_001000_1_0000_1_1_0_00000000000,
         },
         .{
             .inst = Instruction.format4e(8, .xcc, .g0, .o1, 0),
