@@ -19596,13 +19596,17 @@ fn coerceEnumToUnion(
         const field = union_obj.fields.values()[field_index];
         const field_ty = try sema.resolveTypeFields(block, inst_src, field.ty);
         const opv = (try sema.typeHasOnePossibleValue(block, inst_src, field_ty)) orelse {
-            // TODO resolve the field names and include in the error message,
-            // also instead of 'union declared here' make it 'field "foo" declared here'.
             const msg = msg: {
-                const msg = try sema.errMsg(block, inst_src, "coercion to union {} must initialize {} field", .{
-                    union_ty.fmt(target), field_ty.fmt(target),
+                const field_name = union_obj.fields.keys()[field_index];
+                const msg = try sema.errMsg(block, inst_src, "coercion from enum '{}' to union '{}' must initialize '{}' field '{s}'", .{
+                    inst_ty.fmt(target), union_ty.fmt(target), field_ty.fmt(target), field_name,
                 });
                 errdefer msg.destroy(sema.gpa);
+
+                const tree = try sema.getAstTree(block);
+                const union_decl = union_obj.owner_decl;
+                const field_src = enumFieldSrcLoc(union_decl, tree.*, union_obj.node_offset, field_index);
+                try sema.mod.errNoteNonLazy(field_src.toSrcLoc(union_decl), msg, "field '{s}' declared here", .{field_name});
                 try sema.addDeclaredHereNote(msg, union_ty);
                 break :msg msg;
             };
@@ -19634,13 +19638,27 @@ fn coerceEnumToUnion(
         return block.addBitCast(union_ty, enum_tag);
     }
 
-    // TODO resolve the field names and add a hint that says "field 'foo' has type 'bar'"
-    // instead of the "union declared here" hint
     const msg = msg: {
-        const msg = try sema.errMsg(block, inst_src, "runtime coercion to union {} which has non-void fields", .{
-            union_ty.fmt(target),
-        });
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const msg = try sema.errMsg(
+            block,
+            inst_src,
+            "runtime coercion from enum '{}' to union '{}' which has non-void fields",
+            .{ tag_ty.fmt(target), union_ty.fmt(target) },
+        );
         errdefer msg.destroy(sema.gpa);
+
+        const tree = try sema.getAstTree(block);
+        const union_decl = union_obj.owner_decl;
+        var it = union_obj.fields.iterator();
+        var field_index: usize = 0;
+        while (it.next()) |field| {
+            const field_name = field.key_ptr.*;
+            const field_ty = field.value_ptr.ty;
+            const field_src = enumFieldSrcLoc(union_decl, tree.*, union_obj.node_offset, field_index);
+            try sema.mod.errNoteNonLazy(field_src.toSrcLoc(union_decl), msg, "field '{s}' has type '{}'", .{ field_name, field_ty.fmt(target) });
+            field_index += 1;
+        }
         try sema.addDeclaredHereNote(msg, union_ty);
         break :msg msg;
     };
