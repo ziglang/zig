@@ -3642,8 +3642,17 @@ pub const FuncGen = struct {
     }
 
     fn airCmpVector(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        _ = inst;
-        return self.todo("implement airCmpVector");
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.VectorCmp, ty_pl.payload).data;
+
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+        const vec_ty = self.air.typeOf(extra.lhs);
+        const cmp_op = extra.compareOperator();
+
+        return self.cmp(lhs, rhs, vec_ty, cmp_op);
     }
 
     fn cmp(
@@ -3656,9 +3665,10 @@ pub const FuncGen = struct {
         var int_buffer: Type.Payload.Bits = undefined;
         var opt_buffer: Type.Payload.ElemType = undefined;
 
-        const int_ty = switch (operand_ty.zigTypeTag()) {
-            .Enum => operand_ty.intTagType(&int_buffer),
-            .Int, .Bool, .Pointer, .ErrorSet => operand_ty,
+        const scalar_ty = operand_ty.scalarType();
+        const int_ty = switch (scalar_ty.zigTypeTag()) {
+            .Enum => scalar_ty.intTagType(&int_buffer),
+            .Int, .Bool, .Pointer, .ErrorSet => scalar_ty,
             .Optional => blk: {
                 const payload_ty = operand_ty.optionalChild(&opt_buffer);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime() or operand_ty.isPtrLikeOptional()) {
