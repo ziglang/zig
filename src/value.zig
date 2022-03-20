@@ -3359,6 +3359,8 @@ pub const Value = extern union {
     }
 
     pub fn intTrunc(val: Value, allocator: Allocator, signedness: std.builtin.Signedness, bits: u16) !Value {
+        if (bits == 0) return Value.zero;
+
         var val_space: Value.BigIntSpace = undefined;
         const val_bigint = val.toBigInt(&val_space);
 
