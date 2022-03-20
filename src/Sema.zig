@@ -1589,6 +1589,21 @@ fn errNote(
     return sema.mod.errNoteNonLazy(src.toSrcLoc(block.src_decl), parent, format, args);
 }
 
+fn addFieldErrNote(
+    sema: *Sema,
+    block: *Block,
+    container_ty: Type,
+    field_index: usize,
+    parent: *Module.ErrorMsg,
+    comptime format: []const u8,
+    args: anytype,
+) !void {
+    const decl = container_ty.getOwnerDecl();
+    const tree = try sema.getAstTree(block);
+    const field_src = enumFieldSrcLoc(decl, tree.*, container_ty.getNodeOffset(), field_index);
+    try sema.mod.errNoteNonLazy(field_src.toSrcLoc(decl), parent, format, args);
+}
+
 fn errMsg(
     sema: *Sema,
     block: *Block,
@@ -19603,10 +19618,7 @@ fn coerceEnumToUnion(
                 });
                 errdefer msg.destroy(sema.gpa);
 
-                const tree = try sema.getAstTree(block);
-                const union_decl = union_obj.owner_decl;
-                const field_src = enumFieldSrcLoc(union_decl, tree.*, union_obj.node_offset, field_index);
-                try sema.mod.errNoteNonLazy(field_src.toSrcLoc(union_decl), msg, "field '{s}' declared here", .{field_name});
+                try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
                 try sema.addDeclaredHereNote(msg, union_ty);
                 break :msg msg;
             };
@@ -19648,15 +19660,12 @@ fn coerceEnumToUnion(
         );
         errdefer msg.destroy(sema.gpa);
 
-        const tree = try sema.getAstTree(block);
-        const union_decl = union_obj.owner_decl;
         var it = union_obj.fields.iterator();
         var field_index: usize = 0;
         while (it.next()) |field| {
             const field_name = field.key_ptr.*;
             const field_ty = field.value_ptr.ty;
-            const field_src = enumFieldSrcLoc(union_decl, tree.*, union_obj.node_offset, field_index);
-            try sema.mod.errNoteNonLazy(field_src.toSrcLoc(union_decl), msg, "field '{s}' has type '{}'", .{ field_name, field_ty.fmt(target) });
+            try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' has type '{}'", .{ field_name, field_ty.fmt(target) });
             field_index += 1;
         }
         try sema.addDeclaredHereNote(msg, union_ty);
@@ -22229,12 +22238,9 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
                 errdefer msg.destroy(sema.gpa);
 
                 const enum_ty = union_obj.tag_ty;
-                const tree = try sema.getAstTree(block);
-                const enum_decl = enum_ty.getOwnerDecl();
                 for (names.keys()) |field_name| {
                     const field_index = enum_ty.enumFieldIndex(field_name).?;
-                    const field_src = enumFieldSrcLoc(enum_decl, tree.*, enum_ty.getNodeOffset(), field_index);
-                    try sema.mod.errNoteNonLazy(field_src.toSrcLoc(enum_decl), msg, "field '{s}' missing, declared here", .{field_name});
+                    try sema.addFieldErrNote(block, enum_ty, field_index, msg, "field '{s}' missing, declared here", .{field_name});
                 }
                 try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                 break :msg msg;
