@@ -6231,6 +6231,10 @@ fn funcCommon(
             comptime_params[i] = param.is_comptime or
                 try sema.typeRequiresComptime(block, param_src, param.ty);
             is_generic = is_generic or comptime_params[i] or param.ty.tag() == .generic_poison;
+            if (is_extern and is_generic) {
+                // TODO add note: function is generic because of this parameter
+                return sema.fail(block, param_src, "extern function cannot be generic", .{});
+            }
         }
 
         is_generic = is_generic or
