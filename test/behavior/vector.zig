@@ -3,8 +3,6 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectApproxEqRel = std.testing.expectApproxEqRel;
 const Vector = std.meta.Vector;
 
 test "implicit cast vector to array - bool" {
@@ -118,10 +116,16 @@ test "implicit cast vector to array" {
 
 test "array to vector" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-    var foo: f32 = 3.14;
-    var arr = [4]f32{ foo, 1.5, 0.0, 0.0 };
-    var vec: Vector(4, f32) = arr;
-    _ = vec;
+    const S = struct {
+        fn doTheTest() !void {
+            var foo: f32 = 3.14;
+            var arr = [4]f32{ foo, 1.5, 0.0, 0.0 };
+            var vec: Vector(4, f32) = arr;
+            try expect(mem.eql(f32, &@as([4]f32, vec), &arr));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "vector casts of sizes not divisible by 8" {
@@ -160,9 +164,9 @@ test "vector @splat" {
         fn testForT(comptime N: comptime_int, v: anytype) !void {
             const T = @TypeOf(v);
             var vec = @splat(N, v);
-            try expectEqual(Vector(N, T), @TypeOf(vec));
+            try expect(Vector(N, T) == @TypeOf(vec));
             var as_array = @as([N]T, vec);
-            for (as_array) |elem| try expectEqual(v, elem);
+            for (as_array) |elem| try expect(v == elem);
         }
         fn doTheTest() !void {
             // Splats with multiple-of-8 bit types that fill a 128bit vector.
@@ -294,27 +298,27 @@ test "vector comparison operators" {
             {
                 const v1: Vector(4, bool) = [_]bool{ true, false, true, false };
                 const v2: Vector(4, bool) = [_]bool{ false, true, false, true };
-                try expectEqual(@splat(4, true), v1 == v1);
-                try expectEqual(@splat(4, false), v1 == v2);
-                try expectEqual(@splat(4, true), v1 != v2);
-                try expectEqual(@splat(4, false), v2 != v2);
+                try expect(mem.eql(bool, &@as([4]bool, @splat(4, true)), &@as([4]bool, v1 == v1)));
+                try expect(mem.eql(bool, &@as([4]bool, @splat(4, false)), &@as([4]bool, v1 == v2)));
+                try expect(mem.eql(bool, &@as([4]bool, @splat(4, true)), &@as([4]bool, v1 != v2)));
+                try expect(mem.eql(bool, &@as([4]bool, @splat(4, false)), &@as([4]bool, v2 != v2)));
             }
             {
                 const v1 = @splat(4, @as(u32, 0xc0ffeeee));
                 const v2: Vector(4, c_uint) = v1;
                 const v3 = @splat(4, @as(u32, 0xdeadbeef));
-                try expectEqual(@splat(4, true), v1 == v2);
-                try expectEqual(@splat(4, false), v1 == v3);
-                try expectEqual(@splat(4, true), v1 != v3);
-                try expectEqual(@splat(4, false), v1 != v2);
+                try expect(mem.eql(bool, &@as([4]bool, @splat(4, true)), &@as([4]bool, v1 == v2)));
+                try expect(mem.eql(bool, &@as([4]bool, @splat(4, false)), &@as([4]bool, v1 == v3)));
+                try expect(mem.eql(bool, &@as([4]bool, @splat(4, true)), &@as([4]bool, v1 != v3)));
+                try expect(mem.eql(bool, &@as([4]bool, @splat(4, false)), &@as([4]bool, v1 != v2)));
             }
             {
                 // Comptime-known LHS/RHS
                 var v1: @Vector(4, u32) = [_]u32{ 2, 1, 2, 1 };
                 const v2 = @splat(4, @as(u32, 2));
                 const v3: @Vector(4, bool) = [_]bool{ true, false, true, false };
-                try expectEqual(v3, v1 == v2);
-                try expectEqual(v3, v2 == v1);
+                try expect(mem.eql(bool, &@as([4]bool, v3), &@as([4]bool, v1 == v2)));
+                try expect(mem.eql(bool, &@as([4]bool, v3), &@as([4]bool, v2 == v1)));
             }
         }
     };
@@ -329,20 +333,20 @@ test "vector division operators" {
             if (!comptime std.meta.trait.isSignedInt(T)) {
                 const d0 = x / y;
                 for (@as([4]T, d0)) |v, i| {
-                    try expectEqual(x[i] / y[i], v);
+                    try expect(x[i] / y[i] == v);
                 }
             }
             const d1 = @divExact(x, y);
             for (@as([4]T, d1)) |v, i| {
-                try expectEqual(@divExact(x[i], y[i]), v);
+                try expect(@divExact(x[i], y[i]) == v);
             }
             const d2 = @divFloor(x, y);
             for (@as([4]T, d2)) |v, i| {
-                try expectEqual(@divFloor(x[i], y[i]), v);
+                try expect(@divFloor(x[i], y[i]) == v);
             }
             const d3 = @divTrunc(x, y);
             for (@as([4]T, d3)) |v, i| {
-                try expectEqual(@divTrunc(x[i], y[i]), v);
+                try expect(@divTrunc(x[i], y[i]) == v);
             }
         }
 
@@ -350,16 +354,16 @@ test "vector division operators" {
             if ((!comptime std.meta.trait.isSignedInt(T)) and @typeInfo(T) != .Float) {
                 const r0 = x % y;
                 for (@as([4]T, r0)) |v, i| {
-                    try expectEqual(x[i] % y[i], v);
+                    try expect(x[i] % y[i] == v);
                 }
             }
             const r1 = @mod(x, y);
             for (@as([4]T, r1)) |v, i| {
-                try expectEqual(@mod(x[i], y[i]), v);
+                try expect(@mod(x[i], y[i]) == v);
             }
             const r2 = @rem(x, y);
             for (@as([4]T, r2)) |v, i| {
-                try expectEqual(@rem(x[i], y[i]), v);
+                try expect(@rem(x[i], y[i]) == v);
             }
         }
 
@@ -411,7 +415,7 @@ test "vector bitwise not operator" {
         fn doTheTestNot(comptime T: type, x: Vector(4, T)) !void {
             var y = ~x;
             for (@as([4]T, y)) |v, i| {
-                try expectEqual(~x[i], v);
+                try expect(~x[i] == v);
             }
         }
         fn doTheTest() !void {
@@ -444,11 +448,11 @@ test "vector shift operators" {
 
             var z0 = xv >> yv;
             for (@as([N]TX, z0)) |v, i| {
-                try expectEqual(x[i] >> y[i], v);
+                try expect(x[i] >> y[i] == v);
             }
             var z1 = xv << yv;
             for (@as([N]TX, z1)) |v, i| {
-                try expectEqual(x[i] << y[i], v);
+                try expect(x[i] << y[i] == v);
             }
         }
         fn doTheTestShiftExact(x: anytype, y: anytype, dir: enum { Left, Right }) !void {
@@ -462,7 +466,7 @@ test "vector shift operators" {
             var z = if (dir == .Left) @shlExact(xv, yv) else @shrExact(xv, yv);
             for (@as([N]TX, z)) |v, i| {
                 const check = if (dir == .Left) x[i] << y[i] else x[i] >> y[i];
-                try expectEqual(check, v);
+                try expect(check == v);
             }
         }
         fn doTheTest() !void {
@@ -681,9 +685,9 @@ test "saturating add" {
     const S = struct {
         fn doTheTest() !void {
             const u8x3 = std.meta.Vector(3, u8);
-            try expectEqual(u8x3{ 255, 255, 255 }, (u8x3{ 255, 254, 1 } +| u8x3{ 1, 2, 255 }));
+            try expect(mem.eql(u8, &@as([3]u8, u8x3{ 255, 255, 255 }), &@as([3]u8, u8x3{ 255, 254, 1 } +| u8x3{ 1, 2, 255 })));
             const i8x3 = std.meta.Vector(3, i8);
-            try expectEqual(i8x3{ 127, 127, 127 }, (i8x3{ 127, 126, 1 } +| i8x3{ 1, 2, 127 }));
+            try expect(mem.eql(i8, &@as([3]i8, i8x3{ 127, 127, 127 }), &@as([3]i8, i8x3{ 127, 126, 1 } +| i8x3{ 1, 2, 127 })));
         }
     };
     try S.doTheTest();
@@ -695,7 +699,7 @@ test "saturating subtraction" {
     const S = struct {
         fn doTheTest() !void {
             const u8x3 = std.meta.Vector(3, u8);
-            try expectEqual(u8x3{ 0, 0, 0 }, (u8x3{ 0, 0, 0 } -| u8x3{ 255, 255, 255 }));
+            try expect(mem.eql(u8, &@as([3]u8, u8x3{ 0, 0, 0 }), &@as([3]u8, u8x3{ 0, 0, 0 } -| u8x3{ 255, 255, 255 })));
         }
     };
     try S.doTheTest();
@@ -710,7 +714,7 @@ test "saturating multiplication" {
     const S = struct {
         fn doTheTest() !void {
             const u8x3 = std.meta.Vector(3, u8);
-            try expectEqual(u8x3{ 255, 255, 255 }, (u8x3{ 2, 2, 2 } *| u8x3{ 255, 255, 255 }));
+            try expect(mem.eql(u8, &@as([3]u8, u8x3{ 255, 255, 255 }), &@as([3]u8, u8x3{ 2, 2, 2 } *| u8x3{ 255, 255, 255 })));
         }
     };
 
@@ -723,7 +727,7 @@ test "saturating shift-left" {
     const S = struct {
         fn doTheTest() !void {
             const u8x3 = std.meta.Vector(3, u8);
-            try expectEqual(u8x3{ 255, 255, 255 }, (u8x3{ 255, 255, 255 } <<| u8x3{ 1, 1, 1 }));
+            try expect(mem.eql(u8, &@as([3]u8, u8x3{ 255, 255, 255 }), &@as([3]u8, u8x3{ 255, 255, 255 } <<| u8x3{ 1, 1, 1 })));
         }
     };
     try S.doTheTest();
