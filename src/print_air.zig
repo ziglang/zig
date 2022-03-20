@@ -470,8 +470,8 @@ const Writer = struct {
     }
 
     fn writeFieldParentPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const pl_op = w.air.instructions.items(.data)[inst].ty_pl;
-        const extra = w.air.extraData(Air.FieldParentPtr, pl_op.payload).data;
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
         try w.writeOperand(s, inst, 0, extra.field_ptr);
         try s.print(", {d}", .{extra.field_index});
