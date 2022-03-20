@@ -5563,7 +5563,8 @@ pub const FuncGen = struct {
             if (bitcast_ok) {
                 const llvm_vector_ty = try self.dg.llvmType(operand_ty);
                 const casted_ptr = self.builder.buildBitCast(array_ptr, llvm_vector_ty.pointerType(0), "");
-                _ = self.builder.buildStore(operand, casted_ptr);
+                const llvm_store = self.builder.buildStore(operand, casted_ptr);
+                llvm_store.setAlignment(inst_ty.abiAlignment(target));
             } else {
                 // If the ABI size of the element type is not evenly divisible by size in bits;
                 // a simple bitcast will not work, and we fall back to extractelement.
