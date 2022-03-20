@@ -3375,6 +3375,7 @@ pub const FuncGen = struct {
                 .cmp_lt  => try self.airCmp(inst, .lt),
                 .cmp_lte => try self.airCmp(inst, .lte),
                 .cmp_neq => try self.airCmp(inst, .neq),
+                .cmp_vector => try self.airCmpVector(inst),
 
                 .is_non_null     => try self.airIsNonNull(inst, false, false, .NE),
                 .is_non_null_ptr => try self.airIsNonNull(inst, true , false, .NE),
@@ -3638,6 +3639,11 @@ pub const FuncGen = struct {
         const operand_ty = self.air.typeOf(bin_op.lhs);
 
         return self.cmp(lhs, rhs, operand_ty, op);
+    }
+
+    fn airCmpVector(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        _ = inst;
+        return self.todo("implement airCmpVector");
     }
 
     fn cmp(

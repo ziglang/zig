@@ -266,6 +266,7 @@ const Writer = struct {
             .mul_add => try w.writeMulAdd(s, inst),
             .shuffle => try w.writeShuffle(s, inst),
             .reduce => try w.writeReduce(s, inst),
+            .cmp_vector => try w.writeCmpVector(s, inst),
 
             .add_with_overflow,
             .sub_with_overflow,
@@ -400,6 +401,16 @@ const Writer = struct {
 
         try w.writeOperand(s, inst, 0, reduce.operand);
         try s.print(", {s}", .{@tagName(reduce.operation)});
+    }
+
+    fn writeCmpVector(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.VectorCmp, ty_pl.payload).data;
+
+        try s.print("{s}, ", .{@tagName(extra.compareOperator())});
+        try w.writeOperand(s, inst, 0, extra.lhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.rhs);
     }
 
     fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

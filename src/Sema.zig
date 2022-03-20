@@ -397,6 +397,20 @@ pub const Block = struct {
         });
     }
 
+    fn addCmpVector(block: *Block, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref, cmp_op: std.math.CompareOperator, vector_ty: Air.Inst.Ref) !Air.Inst.Ref {
+        return block.addInst(.{
+            .tag = .cmp_vector,
+            .data = .{ .ty_pl = .{
+                .ty = vector_ty,
+                .payload = try block.sema.addExtra(Air.VectorCmp{
+                    .lhs = lhs,
+                    .rhs = rhs,
+                    .op = Air.VectorCmp.encodeOp(cmp_op),
+                }),
+            } },
+        });
+    }
+
     fn addAggregateInit(
         block: *Block,
         aggregate_ty: Type,
