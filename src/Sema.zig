@@ -10304,7 +10304,14 @@ fn zirAsm(
         const name = sema.code.nullTerminatedString(input.data.name);
         _ = name; // TODO: use the name
 
-        arg.* = sema.resolveInst(input.data.operand);
+        const uncasted_arg = sema.resolveInst(input.data.operand);
+        const uncasted_arg_ty = sema.typeOf(uncasted_arg);
+        switch (uncasted_arg_ty.zigTypeTag()) {
+            .ComptimeInt => arg.* = try sema.coerce(block, Type.initTag(.usize), uncasted_arg, src),
+            .ComptimeFloat => arg.* = try sema.coerce(block, Type.initTag(.f64), uncasted_arg, src),
+            else => arg.* = uncasted_arg,
+        }
+
         const constraint = sema.code.nullTerminatedString(input.data.constraint);
         needed_capacity += constraint.len / 4 + 1;
         inputs[arg_i] = constraint;

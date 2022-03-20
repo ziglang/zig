@@ -6842,7 +6842,7 @@ fn asmExpr(
         const name = try astgen.identAsString(symbolic_name);
         const constraint_token = symbolic_name + 2;
         const constraint = (try astgen.strLitAsString(constraint_token)).index;
-        const operand = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[input_node].lhs);
+        const operand = try expr(gz, scope, .none, node_datas[input_node].lhs);
         inputs[i] = .{
             .name = name,
             .constraint = constraint,
