@@ -669,24 +669,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         .mod      => return simpleBinOp(gz, scope, rl, node, .mod_rem),
         .shl_sat  => return simpleBinOp(gz, scope, rl, node, .shl_sat),
 
-        .bit_and  => {
-            const current_ampersand_token = main_tokens[node];
-            if (token_tags[current_ampersand_token + 1] == .ampersand) {
-                const token_starts = tree.tokens.items(.start);
-                const current_token_offset = token_starts[current_ampersand_token];
-                const next_token_offset = token_starts[current_ampersand_token + 1];
-                if (current_token_offset + 1 == next_token_offset) {
-                    return astgen.failTok(
-                        current_ampersand_token,
-                        "`&&` is invalid; note that `and` is boolean AND",
-                        .{},
-                    );
-                }
-            }
-
-            return simpleBinOp(gz, scope, rl, node, .bit_and);
-        },
-
+        .bit_and          => return simpleBinOp(gz, scope, rl, node, .bit_and),
         .bit_or           => return simpleBinOp(gz, scope, rl, node, .bit_or),
         .bit_xor          => return simpleBinOp(gz, scope, rl, node, .xor),
         .bang_equal       => return simpleBinOp(gz, scope, rl, node, .cmp_neq),

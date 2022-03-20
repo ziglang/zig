@@ -328,7 +328,12 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .expected_initializer => {
             return stream.writeAll("expected field initializer");
         },
-
+        .mismatched_binary_op_whitespace => {
+            return stream.print("binary operator `{s}` has whitespace on one side, but not the other.", .{token_tags[parse_error.token].lexeme().?});
+        },
+        .invalid_ampersand_ampersand => {
+            return stream.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");
+        },
         .previous_field => {
             return stream.writeAll("field before declarations here");
         },
@@ -2534,6 +2539,8 @@ pub const Error = struct {
         expected_comma_after_initializer,
         expected_comma_after_switch_prong,
         expected_initializer,
+        mismatched_binary_op_whitespace,
+        invalid_ampersand_ampersand,
 
         previous_field,
         next_field,

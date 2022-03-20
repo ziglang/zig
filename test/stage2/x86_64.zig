@@ -1555,7 +1555,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
             case.addError(
                 \\pub const a = if (true && false) 1 else 2;
-            , &[_][]const u8{":1:24: error: `&&` is invalid; note that `and` is boolean AND"});
+            , &[_][]const u8{":1:24: error: ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND"});
 
             case.addError(
                 \\pub fn main() void {

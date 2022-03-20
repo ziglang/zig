@@ -4203,7 +4203,7 @@ test "zig fmt: integer literals with underscore separators" {
         \\const
         \\ x     =
         \\ 1_234_567
-        \\ +(0b0_1-0o7_0+0xff_FF ) +  0_0;
+        \\ + (0b0_1-0o7_0+0xff_FF ) +  0_0;
     ,
         \\const x =
         \\    1_234_567 + (0b0_1 - 0o7_0 + 0xff_FF) + 0_0;
@@ -5105,7 +5105,7 @@ test "recovery: missing comma" {
         \\        2 => {}
         \\        3 => {}
         \\        else => {
-        \\            foo && bar +;
+        \\            foo & bar +;
         \\        }
         \\    }
         \\}
@@ -5139,7 +5139,7 @@ test "recovery: extra qualifier" {
 test "recovery: missing return type" {
     try testError(
         \\fn foo() {
-        \\    a && b;
+        \\    a & b;
         \\}
         \\test ""
     , &[_]Error{
@@ -5154,7 +5154,7 @@ test "recovery: continue after invalid decl" {
         \\    inline;
         \\}
         \\pub test "" {
-        \\    async a && b;
+        \\    async a & b;
         \\}
     , &[_]Error{
         .expected_token,
@@ -5163,7 +5163,7 @@ test "recovery: continue after invalid decl" {
     });
     try testError(
         \\threadlocal test "" {
-        \\    @a && b;
+        \\    @a & b;
         \\}
     , &[_]Error{
         .expected_var_decl,
@@ -5173,12 +5173,12 @@ test "recovery: continue after invalid decl" {
 
 test "recovery: invalid extern/inline" {
     try testError(
-        \\inline test "" { a && b; }
+        \\inline test "" { a & b; }
     , &[_]Error{
         .expected_fn,
     });
     try testError(
-        \\extern "" test "" { a && b; }
+        \\extern "" test "" { a & b; }
     , &[_]Error{
         .expected_var_decl_or_fn,
     });
@@ -5187,8 +5187,8 @@ test "recovery: invalid extern/inline" {
 test "recovery: missing semicolon" {
     try testError(
         \\test "" {
-        \\    comptime a && b
-        \\    c && d
+        \\    comptime a & b
+        \\    c & d
         \\    @foo
         \\}
     , &[_]Error{
@@ -5206,7 +5206,7 @@ test "recovery: invalid container members" {
         \\bar@,
         \\while (a == 2) { test "" {}}
         \\test "" {
-        \\    a && b
+        \\    a & b
         \\}
     , &[_]Error{
         .expected_expr,
@@ -5224,7 +5224,7 @@ test "recovery: extra '}' at top level" {
     try testError(
         \\}}}
         \\test "" {
-        \\    a && b;
+        \\    a & b;
         \\}
     , &[_]Error{
         .expected_token,
@@ -5244,7 +5244,7 @@ test "recovery: mismatched bracket at top level" {
 test "recovery: invalid global error set access" {
     try testError(
         \\test "" {
-        \\    error && foo;
+        \\    error & foo;
         \\}
     , &[_]Error{
         .expected_token,
@@ -5259,13 +5259,15 @@ test "recovery: invalid asterisk after pointer dereference" {
         \\}
     , &[_]Error{
         .asterisk_after_ptr_deref,
+        .mismatched_binary_op_whitespace,
     });
     try testError(
         \\test "" {
-        \\    var sequence = "repeat".** 10&&a;
+        \\    var sequence = "repeat".** 10&a;
         \\}
     , &[_]Error{
         .asterisk_after_ptr_deref,
+        .mismatched_binary_op_whitespace,
     });
 }
 
@@ -5275,7 +5277,7 @@ test "recovery: missing semicolon after if, for, while stmt" {
         \\    if (foo) bar
         \\    for (foo) |a| bar
         \\    while (foo) bar
-        \\    a && b;
+        \\    a & b;
         \\}
     , &[_]Error{
         .expected_semi_or_else,
@@ -5373,6 +5375,54 @@ test "recovery: eof in c pointer" {
     });
 }
 
+test "matching whitespace on minus op" {
+    try testError(
+        \\ _ = 2 -1, 
+        \\ _ = 2- 1, 
+        \\ _ = 2-
+        \\     2,
+        \\ _ = 2
+        \\     -2,
+    , &[_]Error{
+        .mismatched_binary_op_whitespace,
+        .mismatched_binary_op_whitespace,
+        .mismatched_binary_op_whitespace,
+        .mismatched_binary_op_whitespace,
+    });
+
+    try testError(
+        \\ _ = - 1,
+        \\ _ = -1,
+        \\ _ = 2 - -1,
+        \\ _ = 2 - 1,
+        \\ _ = 2-1, 
+        \\ _ = 2 -
+        \\1,
+        \\ _ = 2
+        \\     - 1,
+    , &[_]Error{});
+}
+
+test "ampersand" {
+    try testError(
+        \\ _ = bar && foo,
+        \\ _ = bar&&foo, 
+        \\ _ = bar& & foo, 
+        \\ _ = bar& &foo,
+    , &.{
+        .invalid_ampersand_ampersand,
+        .invalid_ampersand_ampersand,
+        .mismatched_binary_op_whitespace,
+        .mismatched_binary_op_whitespace,
+    });
+
+    try testError(
+        \\ _ = bar & &foo, 
+        \\ _ = bar & &&foo, 
+        \\ _ = &&foo, 
+    , &.{});
+}
+
 const std = @import("std");
 const mem = std.mem;
 const print = std.debug.print;
@@ -5466,7 +5516,10 @@ fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(expected_errors.len, tree.errors.len);
+    std.testing.expectEqual(expected_errors.len, tree.errors.len) catch |err| {
+        std.debug.print("errors found: {any}\n", .{tree.errors});
+        return err;
+    };
     for (expected_errors) |expected, i| {
         try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
