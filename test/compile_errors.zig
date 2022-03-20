@@ -90,7 +90,7 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:31: note: cast discards const qualifier",
         "tmp.zig:6:33: error: cannot cast pointer to array literal to '*[2][]const u8'",
         "tmp.zig:6:33: note: cast discards const qualifier",
-        "tmp.zig:11:21: error: expected type '*S', found '*const struct:11:21'",
+        "tmp.zig:11:21: error: expected value of type '*S', found '*const struct:11:21'",
         "tmp.zig:11:21: note: cast discards const qualifier",
     });
 
@@ -267,7 +267,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    });
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:31: error: expected type 'std.builtin.Type', found 'std.builtin.Type.Int'",
+        "tmp.zig:3:31: error: expected value of type 'std.builtin.Type', found 'std.builtin.Type.Int'",
     });
 
     ctx.objErrStage1("indexing a undefined slice at comptime",
@@ -520,7 +520,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = y;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:37: error: expected type '[:1]const u8', found '*const [2:2]u8'",
+        "tmp.zig:2:37: error: expected value of type '[:1]const u8', found '*const [2:2]u8'",
     });
 
     ctx.objErrStage1("@Type for union with zero fields",
@@ -782,13 +782,13 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    buf = bar();
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:17: error: expected type 'u32', found 'error{Ohno}'",
+        "tmp.zig:2:17: error: expected value of type 'u32', found 'error{Ohno}'",
         "tmp.zig:1:17: note: function cannot return an error",
-        "tmp.zig:8:5: error: expected type 'void', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set'",
+        "tmp.zig:8:5: error: expected value of type 'void', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set'",
         "tmp.zig:7:17: note: function cannot return an error",
-        "tmp.zig:11:15: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
+        "tmp.zig:11:15: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected value of type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
         "tmp.zig:10:17: note: function cannot return an error",
-        "tmp.zig:15:14: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
+        "tmp.zig:15:14: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected value of type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
         "tmp.zig:14:5: note: cannot store an error in type 'u32'",
     });
 
@@ -1025,7 +1025,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    a = b;
         \\}
     , &[_][]const u8{
-        "tmp.zig:6:9: error: expected type '?fn(i8) void', found '?fn(u64) void'",
+        "tmp.zig:6:9: error: expected value of type '?fn(i8) void', found '?fn(u64) void'",
         "tmp.zig:6:9: note: optional type child 'fn(u64) void' cannot cast into optional type child 'fn(i8) void'",
     });
 
@@ -1132,7 +1132,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    x = x ++ .{ 1, 2, 3 };
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:11: error: expected type 'struct:2:14', found 'struct:3:11'",
+        "tmp.zig:3:11: error: expected value of type 'struct:2:14', found 'struct:3:11'",
     });
 
     ctx.testErrStage1("@tagName on invalid value of non-exhaustive enum",
@@ -1197,7 +1197,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:22: error: expected type 'fn([*c]u8, ...) callconv(.C) void', found 'fn([*:0]u8, ...) callconv(.C) void'",
+        "tmp.zig:5:22: error: expected value of type 'fn([*c]u8, ...) callconv(.C) void', found 'fn([*:0]u8, ...) callconv(.C) void'",
     });
 
     ctx.objErrStage1("function call assigned to incorrect type",
@@ -1209,7 +1209,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return [1]f32{0}**16;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:17: error: expected type '[4]f32', found '[16]f32'",
+        "tmp.zig:3:17: error: expected value of type '[4]f32', found '[16]f32'",
     });
 
     ctx.objErrStage1("generic function call assigned to incorrect type",
@@ -1221,7 +1221,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    unreachable;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:18: error: expected type '[]i32', found 'anyerror!i32",
+        "tmp.zig:3:18: error: expected value of type '[]i32', found 'anyerror!i32",
     });
 
     ctx.testErrStage1("non-exhaustive enum marker assigned a value",
@@ -1501,7 +1501,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\comptime { _ = foo; }
     , &[_][]const u8{
-        "tmp.zig:3:12: error: expected type '[:0]u8', found '[]u8'",
+        "tmp.zig:3:12: error: expected value of type '[:0]u8', found '[]u8'",
         "tmp.zig:3:12: note: destination pointer requires a terminating '0' sentinel",
     });
 
@@ -1823,14 +1823,14 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = array;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:12: error: expected type '[*:0]u8', found '[*:255]u8'",
+        "tmp.zig:2:12: error: expected value of type '[*:0]u8', found '[*:255]u8'",
         "tmp.zig:2:12: note: destination pointer requires a terminating '0' sentinel, but source pointer has a terminating '255' sentinel",
-        "tmp.zig:5:12: error: expected type '[*:0]u8', found '[*]u8'",
+        "tmp.zig:5:12: error: expected value of type '[*:0]u8', found '[*]u8'",
         "tmp.zig:5:12: note: destination pointer requires a terminating '0' sentinel",
 
-        "tmp.zig:8:35: error: expected type '[2:255]u8', found '[2:0]u8'",
+        "tmp.zig:8:35: error: expected value of type '[2:255]u8', found '[2:0]u8'",
         "tmp.zig:8:35: note: destination array requires a terminating '255' sentinel, but source array has a terminating '0' sentinel",
-        "tmp.zig:12:31: error: expected type '[2:0]u8', found '[2]u8'",
+        "tmp.zig:12:31: error: expected value of type '[2:0]u8', found '[2]u8'",
         "tmp.zig:12:31: note: destination array requires a terminating '0' sentinel",
     });
 
@@ -1860,7 +1860,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\     unreachable;
         \\ }
     , &[_][]const u8{
-        "tmp.zig:8:16: error: expected type 'A', found 'B'",
+        "tmp.zig:8:16: error: expected value of type 'A', found 'B'",
     });
 
     ctx.objErrStage1("regression test #2980: base type u32 is not type checked properly when assigning a value within a struct",
@@ -1880,7 +1880,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = afoo;
         \\}
     , &[_][]const u8{
-        "tmp.zig:12:25: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(get_uval)).Fn.return_type.?).ErrorUnion.error_set!u32'",
+        "tmp.zig:12:25: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected value of type 'u32', found '@typeInfo(@typeInfo(@TypeOf(get_uval)).Fn.return_type.?).ErrorUnion.error_set!u32'",
     });
 
     ctx.objErrStage1("assigning to struct or union fields that are not optionals with a function that returns an optional",
@@ -1900,7 +1900,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = s;
         \\}
     , &[_][]const u8{
-        "tmp.zig:11:27: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type 'u8', found '?u8'",
+        "tmp.zig:11:27: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected value of type 'u8', found '?u8'",
     });
 
     ctx.objErrStage1("missing result type for phi node",
@@ -1937,7 +1937,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = puts(no_zero_ptr);
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:14: error: expected type '[*:0]const u8', found '[*]const u8'",
+        "tmp.zig:5:14: error: expected value of type '[*:0]const u8', found '[*]const u8'",
     });
 
     ctx.objErrStage1("atomic orderings of atomicStore Acquire or AcqRel",
@@ -2085,7 +2085,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = @Type(0);
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: expected type 'std.builtin.Type', found 'comptime_int'",
+        "tmp.zig:2:15: error: expected value of type 'std.builtin.Type', found 'comptime_int'",
     });
 
     ctx.objErrStage1("@Type with non-constant expression",
@@ -2123,7 +2123,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return 1234;
         \\}
     , &[_][]const u8{
-        "tmp.zig:6:37: error: expected type '*i32', found 'bool'",
+        "tmp.zig:6:37: error: expected value of type '*i32', found 'bool'",
     });
 
     ctx.objErrStage1("shift amount has to be an integer type",
@@ -2185,7 +2185,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:20: error: expected type 'u29', found 'bool'",
+        "tmp.zig:2:20: error: expected value of type 'u29', found 'bool'",
         "tmp.zig:6:19: error: fractional component prevents float value 12.340000 from being casted to type 'u29'",
     });
 
@@ -2273,7 +2273,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\fn func() callconv(.Async) void {}
         , &[_][]const u8{
-            "tmp.zig:4:21: error: expected type '[]align(8) u8', found '*[64]u8'",
+            "tmp.zig:4:21: error: expected value of type '[]align(8) u8', found '*[64]u8'",
         });
     }
 
@@ -2292,7 +2292,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = y;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:30: error: expected type '[]align(16) u8', found '*[10]u8'",
+        "tmp.zig:3:30: error: expected value of type '[]align(16) u8', found '*[10]u8'",
     });
 
     ctx.objErrStage1("result location incompatibility mismatching handle_is_ptr (generic call)",
@@ -2309,7 +2309,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    not_optional: i32,
         \\};
     , &[_][]const u8{
-        "tmp.zig:3:36: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type 'i32', found '?i32'",
+        "tmp.zig:3:36: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected value of type 'i32', found '?i32'",
     });
 
     ctx.objErrStage1("result location incompatibility mismatching handle_is_ptr",
@@ -2326,7 +2326,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    not_optional: i32,
         \\};
     , &[_][]const u8{
-        "tmp.zig:3:36: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type 'i32', found '?i32'",
+        "tmp.zig:3:36: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected value of type 'i32', found '?i32'",
     });
 
     ctx.objErrStage1("const frame cast to anyframe",
@@ -2343,8 +2343,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    suspend {}
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:12: error: expected type 'anyframe', found '*const @Frame(func)'",
-        "tmp.zig:7:24: error: expected type 'anyframe', found '*const @Frame(func)'",
+        "tmp.zig:3:12: error: expected value of type 'anyframe', found '*const @Frame(func)'",
+        "tmp.zig:7:24: error: expected value of type 'anyframe', found '*const @Frame(func)'",
     });
 
     ctx.objErrStage1("prevent bad implicit casting of anyframe types",
@@ -2365,9 +2365,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\fn func() void {}
     , &[_][]const u8{
-        "tmp.zig:3:28: error: expected type 'anyframe->i32', found 'anyframe'",
-        "tmp.zig:8:28: error: expected type 'anyframe->i32', found 'i32'",
-        "tmp.zig:13:29: error: expected type 'anyframe->i32', found '*@Frame(func)'",
+        "tmp.zig:3:28: error: expected value of type 'anyframe->i32', found 'anyframe'",
+        "tmp.zig:8:28: error: expected value of type 'anyframe->i32', found 'i32'",
+        "tmp.zig:13:29: error: expected value of type 'anyframe->i32', found '*@Frame(func)'",
     });
 
     ctx.objErrStage1("wrong frame type used for async call",
@@ -2382,7 +2382,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    suspend {}
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:13: error: expected type '*@Frame(bar)', found '*@Frame(foo)'",
+        "tmp.zig:3:13: error: expected value of type '*@Frame(bar)', found '*@Frame(foo)'",
     });
 
     ctx.objErrStage1("@Frame() of generic function",
@@ -2625,7 +2625,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    strValue = strValue orelse "";
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:32: error: expected type '[*c]u8', found '*const [0:0]u8'",
+        "tmp.zig:3:32: error: expected value of type '[*c]u8', found '*const [0:0]u8'",
         "tmp.zig:3:32: note: cast discards const qualifier",
     });
 
@@ -2649,7 +2649,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    }
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:9: error: expected type 'error{Hi}', found '@Type(.EnumLiteral)'",
+        "tmp.zig:3:9: error: expected value of type 'error{Hi}', found '@Type(.EnumLiteral)'",
     });
 
     ctx.objErrStage1("@sizeOf bad type",
@@ -2806,7 +2806,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\pub fn panic() void {}
         \\
     , &[_][]const u8{
-        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn() void'",
+        "error: expected value of type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn() void'",
     });
 
     ctx.objErrStage1("wrong panic signature, generic function",
@@ -2816,7 +2816,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\const builtin = @import("std").builtin;
     , &[_][]const u8{
-        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,anytype) anytype'",
+        "error: expected value of type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,anytype) anytype'",
         "note: only one of the functions is generic",
     });
 
@@ -2890,7 +2890,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\const InvalidToken = struct {};
         \\const ExpectedVarDeclOrFn = struct {};
     , &[_][]const u8{
-        "tmp.zig:4:9: error: expected type '@typeInfo(Error).Union.tag_type.?', found 'type'",
+        "tmp.zig:4:9: error: expected value of type '@typeInfo(Error).Union.tag_type.?', found 'type'",
     });
 
     ctx.testErrStage1("binary OR operator on error sets",
@@ -3101,11 +3101,11 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{
         "tmp.zig:3:27: error: cast increases pointer alignment",
         "tmp.zig:8:18: error: cast discards const qualifier",
-        "tmp.zig:13:19: error: expected type '*u32', found '[*c]u8'",
+        "tmp.zig:13:19: error: expected value of type '*u32', found '[*c]u8'",
         "tmp.zig:13:19: note: pointer type child 'u8' cannot cast into pointer type child 'u32'",
         "tmp.zig:18:22: error: cast increases pointer alignment",
         "tmp.zig:23:21: error: cast discards const qualifier",
-        "tmp.zig:28:22: error: expected type '[*c]u32', found '*u8'",
+        "tmp.zig:28:22: error: expected value of type '[*c]u32', found '*u8'",
     });
 
     ctx.objErrStage1("implicit casting null c pointer to zig pointer",
@@ -3145,10 +3145,10 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = c_ptr;
         \\}
     , &[_][]const u8{
-        "tmp.zig:6:24: error: expected type '*const [*]const u8', found '[*c]const [*c]const u8'",
+        "tmp.zig:6:24: error: expected value of type '*const [*]const u8', found '[*c]const [*c]const u8'",
         "tmp.zig:6:24: note: pointer type child '[*c]const u8' cannot cast into pointer type child '[*]const u8'",
         "tmp.zig:6:24: note: '[*c]const u8' could have null values which are illegal in type '[*]const u8'",
-        "tmp.zig:13:35: error: expected type '[*c][*c]const u8', found '*[*]u8'",
+        "tmp.zig:13:35: error: expected value of type '[*c][*c]const u8', found '*[*]u8'",
         "tmp.zig:13:35: note: pointer type child '[*]u8' cannot cast into pointer type child '[*c]const u8'",
         "tmp.zig:13:35: note: mutable '[*c]const u8' allows illegal null values stored to type '[*]u8'",
     });
@@ -3221,7 +3221,7 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.testErrStage1("return invalid type from test",
         \\test "example" { return 1; }
     , &[_][]const u8{
-        "tmp.zig:1:25: error: expected type 'void', found 'comptime_int'",
+        "tmp.zig:1:25: error: expected value of type 'void', found 'comptime_int'",
     });
 
     ctx.objErrStage1("threadlocal qualifier on const",
@@ -3341,7 +3341,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    do_the_thing(bar);
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:18: error: expected type 'fn(i32) void', found 'fn(bool) void",
+        "tmp.zig:4:18: error: expected value of type 'fn(i32) void', found 'fn(bool) void",
         "tmp.zig:4:18: note: parameter 0: 'bool' cannot cast into 'i32'",
     });
     ctx.objErrStage1("cast negative value to unsigned integer",
@@ -3384,9 +3384,9 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{
         "tmp.zig:3:18: error: cast from 'u16' to 'u8' truncates bits",
         "tmp.zig:8:22: error: integer value 300 cannot be coerced to type 'u8'",
-        "tmp.zig:13:20: error: expected type 'u8', found 'u16'",
+        "tmp.zig:13:20: error: expected value of type 'u8', found 'u16'",
         "tmp.zig:13:20: note: unsigned 8-bit int cannot represent all possible unsigned 16-bit values",
-        "tmp.zig:18:25: error: expected type 'u64', found 'i8'",
+        "tmp.zig:18:25: error: expected value of type 'u64', found 'i8'",
         "tmp.zig:18:25: note: unsigned 64-bit int cannot represent all possible signed 8-bit values",
     });
 
@@ -3406,7 +3406,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
-        "tmp.zig:2:14: error: expected type 'f32', found 'f64'",
+        "tmp.zig:2:14: error: expected value of type 'f32', found 'f64'",
     });
 
     ctx.objErrStage1("exceeded maximum bit width of integer",
@@ -3445,7 +3445,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = ptr2;
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:29: error: expected type '*anyopaque', found '**u32'",
+        "tmp.zig:5:29: error: expected value of type '*anyopaque', found '**u32'",
     });
 
     ctx.objErrStage1("runtime index into comptime type slice",
@@ -3994,7 +3994,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
             \\fn bar(x: *b.Foo) void {_ = x;}
         , &[_][]const u8{
-            "tmp.zig:6:10: error: expected type '*b.Foo', found '*a.Foo'",
+            "tmp.zig:6:10: error: expected value of type '*b.Foo', found '*a.Foo'",
             "tmp.zig:6:10: note: pointer type child 'a.Foo' cannot cast into pointer type child 'b.Foo'",
             "a.zig:1:17: note: a.Foo declared here",
             "b.zig:1:17: note: b.Foo declared here",
@@ -4036,7 +4036,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = y;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:23: error: expected type '*?*i32', found '**i32'",
+        "tmp.zig:4:23: error: expected value of type '*?*i32', found '**i32'",
     });
 
     ctx.objErrStage1("attempted implicit cast from T to [*]const T",
@@ -4045,7 +4045,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:30: error: expected type '[*]const bool', found 'bool'",
+        "tmp.zig:2:30: error: expected value of type '[*]const bool', found 'bool'",
     });
 
     ctx.objErrStage1("dereference unknown length pointer",
@@ -4087,7 +4087,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = rule_set;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:19: error: expected type 'i32', found 'type'",
+        "tmp.zig:2:19: error: expected value of type 'i32', found 'type'",
     });
 
     ctx.objErrStage1("slicing single-item pointer",
@@ -4120,7 +4120,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return null;
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:34: error: expected type '?NextError!i32', found '?OtherError!i32'",
+        "tmp.zig:5:34: error: expected value of type '?NextError!i32', found '?OtherError!i32'",
         "tmp.zig:5:34: note: optional type child 'OtherError!i32' cannot cast into optional type child 'NextError!i32'",
         "tmp.zig:5:34: note: error set 'OtherError' cannot cast into error set 'NextError'",
         "tmp.zig:2:26: note: 'error.OutOfMemory' not a member of destination error set",
@@ -4180,7 +4180,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    @panic(e);
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:12: error: expected type '[]const u8', found 'error{Foo}'",
+        "tmp.zig:3:12: error: expected value of type '[]const u8', found 'error{Foo}'",
     });
 
     ctx.objErrStage1("@tagName used on union with no associated enum tag",
@@ -4206,7 +4206,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return error.ShouldBeCompileError;
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
+        "tmp.zig:5:17: error: expected value of type 'void', found 'error{ShouldBeCompileError}'",
     });
 
     ctx.objErrStage1("@ptrCast discards const qualifier",
@@ -4237,7 +4237,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    a(c);
         \\}
     , &[_][]const u8{
-        "tmp.zig:6:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'",
+        "tmp.zig:6:7: error: expected value of type 'fn(*const u8) void', found 'fn(u8) void'",
     });
 
     ctx.objErrStage1("no else prong on switch on global error set",
@@ -4306,7 +4306,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    }
         \\}
     , &[_][]const u8{
-        "tmp.zig:9:10: error: expected type 'usize', found 'E'",
+        "tmp.zig:9:10: error: expected value of type 'usize', found 'E'",
     });
 
     ctx.objErrStage1("range operator in switch used on error set",
@@ -4401,7 +4401,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return error.B;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'anyerror!i32'",
+        "tmp.zig:3:35: error: expected value of type 'SmallErrorSet!i32', found 'anyerror!i32'",
         "tmp.zig:3:35: note: error set 'anyerror' cannot cast into error set 'SmallErrorSet'",
         "tmp.zig:3:35: note: cannot cast global error set into smaller set",
     });
@@ -4416,7 +4416,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return error.B;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:31: error: expected type 'SmallErrorSet', found 'anyerror'",
+        "tmp.zig:3:31: error: expected value of type 'SmallErrorSet', found 'anyerror'",
         "tmp.zig:3:31: note: cannot cast global error set into smaller set",
     });
     ctx.objErrStage1("recursive inferred error set",
@@ -4441,7 +4441,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:7:19: error: expected type 'Set2', found 'Set1'",
+        "tmp.zig:7:19: error: expected value of type 'Set2', found 'Set1'",
         "tmp.zig:1:23: note: 'error.B' not a member of destination error set",
     });
 
@@ -4942,14 +4942,14 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn a() noreturn {return;}
         \\export fn entry() void { a(); }
     , &[_][]const u8{
-        "tmp.zig:1:18: error: expected type 'noreturn', found 'void'",
+        "tmp.zig:1:18: error: expected value of type 'noreturn', found 'void'",
     });
 
     ctx.objErrStage1("control reaches end of non-void function",
         \\fn a() i32 {}
         \\export fn entry() void { _ = a(); }
     , &[_][]const u8{
-        "tmp.zig:1:12: error: expected type 'i32', found 'void'",
+        "tmp.zig:1:12: error: expected value of type 'i32', found 'void'",
     });
 
     ctx.objErrStage1("undefined function call",
@@ -5074,7 +5074,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return a;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:12: error: expected type 'i32', found '*const [1:0]u8'",
+        "tmp.zig:3:12: error: expected value of type 'i32', found '*const [1:0]u8'",
     });
 
     ctx.objErrStage1("if condition is bool, not int",
@@ -5082,7 +5082,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    if (0) {}
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:9: error: expected type 'bool', found 'comptime_int'",
+        "tmp.zig:2:9: error: expected value of type 'bool', found 'comptime_int'",
     });
 
     ctx.objErrStage1("assign unreachable",
@@ -5100,7 +5100,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = a;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:25: error: expected type 'noreturn', found 'void'",
+        "tmp.zig:2:25: error: expected value of type 'noreturn', found 'void'",
     });
 
     ctx.objErrStage1("unreachable parameter",
@@ -5169,8 +5169,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = array[bad];
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:11: error: expected type 'usize', found 'bool'",
-        "tmp.zig:9:15: error: expected type 'usize', found 'bool'",
+        "tmp.zig:4:11: error: expected value of type 'usize', found 'bool'",
+        "tmp.zig:9:15: error: expected value of type 'usize', found 'bool'",
     });
 
     ctx.objErrStage1("write to const global variable",
@@ -5194,7 +5194,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\export fn entry() void { f(true); g(true); }
     , &[_][]const u8{
-        "tmp.zig:2:21: error: expected type 'i32', found 'void'",
+        "tmp.zig:2:21: error: expected value of type 'i32', found 'void'",
         "tmp.zig:6:15: error: incompatible types: 'i32' and 'void'",
     });
 
@@ -5596,7 +5596,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn foo() *const i32 { return y; }
         \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
-        "tmp.zig:3:30: error: expected type '*const i32', found '*const comptime_int'",
+        "tmp.zig:3:30: error: expected value of type '*const i32', found '*const comptime_int'",
     });
 
     ctx.objErrStage1("integer overflow error",
@@ -5667,7 +5667,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn c() i32 {return 2;}
         \\export fn entry() usize { return @sizeOf(@TypeOf(fns)); }
     , &[_][]const u8{
-        "tmp.zig:1:28: error: expected type 'fn() void', found 'fn() i32'",
+        "tmp.zig:1:28: error: expected value of type 'fn() void', found 'fn() i32'",
     });
 
     ctx.objErrStage1("extern function pointer mismatch",
@@ -5678,7 +5678,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(fns)); }
     , &[_][]const u8{
-        "tmp.zig:1:37: error: expected type 'fn(i32) i32', found 'fn(i32) callconv(.C) i32'",
+        "tmp.zig:1:37: error: expected value of type 'fn(i32) i32', found 'fn(i32) callconv(.C) i32'",
     });
 
     ctx.objErrStage1("colliding invalid top level functions",
@@ -5764,7 +5764,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(a)); }
     , &[_][]const u8{
-        "tmp.zig:1:16: error: expected type '*u8', found '@Type(.Null)'",
+        "tmp.zig:1:16: error: expected value of type '*u8', found '@Type(.Null)'",
     });
 
     ctx.objErrStage1("indexing an array of size zero",
@@ -6355,7 +6355,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\fn something() anyerror!void { }
     , &[_][]const u8{
-        "tmp.zig:2:5: error: expected type 'void', found 'anyerror'",
+        "tmp.zig:2:5: error: expected value of type 'void', found 'anyerror'",
     });
 
     ctx.objErrStage1("invalid pointer for var type",
@@ -6511,7 +6511,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    derp.init();
         \\}
     , &[_][]const u8{
-        "tmp.zig:14:5: error: expected type 'i32', found 'Foo'",
+        "tmp.zig:14:5: error: expected value of type 'i32', found 'Foo'",
     });
 
     ctx.objErrStage1("method call with first arg type wrong container",
@@ -6540,7 +6540,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    x.init();
         \\}
     , &[_][]const u8{
-        "tmp.zig:23:5: error: expected type '*Allocator', found '*List'",
+        "tmp.zig:23:5: error: expected value of type '*Allocator', found '*List'",
     });
 
     ctx.objErrStage1("binary not on number literal",
@@ -6625,7 +6625,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(a)); }
     , &[_][]const u8{
-        "tmp.zig:2:11: error: expected type 'type', found 'i32'",
+        "tmp.zig:2:11: error: expected value of type 'type', found 'i32'",
     });
 
     ctx.objErrStage1("assign to constant field",
@@ -6715,7 +6715,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
-        "tmp.zig:8:26: error: expected type '*const u3', found '*align(:3:1) const u3'",
+        "tmp.zig:8:26: error: expected value of type '*const u3', found '*align(:3:1) const u3'",
     });
 
     ctx.objErrStage1("referring to a struct that is invalid",
@@ -6833,7 +6833,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
-        "tmp.zig:4:19: error: expected type '*[]const u8', found '*const []const u8'",
+        "tmp.zig:4:19: error: expected value of type '*[]const u8', found '*const []const u8'",
     });
 
     {
@@ -6864,7 +6864,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    foo(global_array);
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:9: error: expected type '[]i32', found '[10]i32'",
+        "tmp.zig:4:9: error: expected value of type '[]i32', found '[10]i32'",
     });
 
     ctx.objErrStage1("ptrcast to non-pointer",
@@ -7041,7 +7041,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\fn bar() ?i32 { return 1; }
     , &[_][]const u8{
-        "tmp.zig:2:15: error: expected type 'bool', found '?i32'",
+        "tmp.zig:2:15: error: expected value of type 'bool', found '?i32'",
     });
 
     ctx.objErrStage1("while expected bool, got error union",
@@ -7050,7 +7050,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\fn bar() anyerror!i32 { return 1; }
     , &[_][]const u8{
-        "tmp.zig:2:15: error: expected type 'bool', found 'anyerror!i32'",
+        "tmp.zig:2:15: error: expected value of type 'bool', found 'anyerror!i32'",
     });
 
     ctx.objErrStage1("while expected optional, got bool",
@@ -7299,7 +7299,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return x << y;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:17: error: expected type 'u3', found 'u8'",
+        "tmp.zig:2:17: error: expected value of type 'u3', found 'u8'",
     });
 
     ctx.objErrStage1("locally shadowing a primitive type",
@@ -7349,7 +7349,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    x.* += 1;
         \\}
     , &[_][]const u8{
-        "tmp.zig:8:13: error: expected type '*u32', found '*align(1) u32'",
+        "tmp.zig:8:13: error: expected value of type '*u32', found '*align(1) u32'",
     });
 
     ctx.objErrStage1("implicitly increasing slice alignment",
@@ -7402,7 +7402,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\fn alignedSmall() align(4) i32 { return 1234; }
     , &[_][]const u8{
-        "tmp.zig:2:35: error: expected type 'fn() align(8) i32', found 'fn() align(4) i32'",
+        "tmp.zig:2:35: error: expected value of type 'fn() align(8) i32', found 'fn() align(4) i32'",
     });
 
     ctx.objErrStage1("passing a not-aligned-enough pointer to cmpxchg",
@@ -7413,7 +7413,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return x == 5678;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:32: error: expected type '*i32', found '*align(1) i32'",
+        "tmp.zig:4:32: error: expected value of type '*i32', found '*align(1) i32'",
     });
 
     ctx.objErrStage1("wrong size to an array literal",
@@ -7433,7 +7433,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    bar(@ptrCast(*anyopaque, &x));
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:9: error: expected type '*Derp', found '*anyopaque'",
+        "tmp.zig:5:9: error: expected value of type '*Derp', found '*anyopaque'",
     });
 
     ctx.objErrStage1("non-const variables of things that require const variables",
@@ -7501,7 +7501,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, @as(u32, 1234), @as(u32, 1234))) {}
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:47: error: expected type 'std.builtin.AtomicOrder', found 'u32'",
+        "tmp.zig:3:47: error: expected value of type 'std.builtin.AtomicOrder', found 'u32'",
     });
 
     ctx.objErrStage1("wrong types given to @export",
@@ -7510,7 +7510,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    @export(entry, .{.name = "entry", .linkage = @as(u32, 1234) });
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:59: error: expected type 'std.builtin.GlobalLinkage', found 'comptime_int'",
+        "tmp.zig:3:59: error: expected value of type 'std.builtin.GlobalLinkage', found 'comptime_int'",
     });
 
     ctx.objErrStage1("struct with invalid field",
@@ -7672,7 +7672,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\pub extern fn foo(format: *const u8, ...) void;
     , &[_][]const u8{
-        "tmp.zig:2:16: error: expected type '*const u8', found '[5:0]u8'",
+        "tmp.zig:2:16: error: expected value of type '*const u8', found '[5:0]u8'",
     });
 
     ctx.objErrStage1("constant inside comptime function has compile error",
@@ -7740,7 +7740,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:9:22: error: expected type 'u2', found 'Small'",
+        "tmp.zig:9:22: error: expected value of type 'u2', found 'Small'",
     });
 
     ctx.objErrStage1("explicitly casting non tag type to enum",
@@ -8192,7 +8192,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = byte;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:22: error: expected type '*[1]i32', found '*const i32'",
+        "tmp.zig:4:22: error: expected value of type '*[1]i32', found '*const i32'",
         "tmp.zig:4:22: note: cast discards const qualifier",
     });
 
@@ -8203,7 +8203,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:23: error: expected type '[]u32', found '*const u32'",
+        "tmp.zig:3:23: error: expected value of type '[]u32', found '*const u32'",
     });
 
     ctx.objErrStage1("for loop body expression ignored",
@@ -8704,7 +8704,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return buffer[0..];
         \\}
     , &[_][]const u8{
-        ":3:18: error: expected type '[*:0]const u8', found '*[64]u8'",
+        ":3:18: error: expected value of type '[*:0]const u8', found '*[64]u8'",
         ":3:18: note: destination pointer requires a terminating '0' sentinel",
     });
 
@@ -8831,7 +8831,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    v = u;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:9: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type '*anyopaque', found '?*anyopaque'",
+        "tmp.zig:4:9: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected value of type '*anyopaque', found '?*anyopaque'",
     });
 
     ctx.objErrStage1("Issue #6823: don't allow .* to be followed by **",

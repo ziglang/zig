@@ -3320,7 +3320,7 @@ test "pointer to non-byte-aligned field" {
       However, the pointer to a non-byte-aligned field has special properties and cannot
       be passed when a normal pointer is expected:
       </p>
-      {#code_begin|test_err|expected type#}
+      {#code_begin|test_err|expected value of type#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3402,7 +3402,7 @@ test "pointer to non-bit-aligned field" {
       Zig should correctly understand the alignment of fields. However there is
       <a href="https://github.com/ziglang/zig/issues/1994">a bug</a>:
       </p>
-      {#code_begin|test_err|expected type '*u32', found '*align(1) u32'#}
+      {#code_begin|test_err|expected value of type '*u32', found '*align(1) u32'#}
 const S = packed struct {
     a: u32,
     b: u32,
@@ -3964,7 +3964,7 @@ fn makeNumber() Number {
       This is typically used for type safety when interacting with C code that does not expose struct details.
       Example:
       </p>
-      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
+      {#code_begin|test_err|expected value of type '*Derp', found '*Wat'#}
 const Derp = opaque {};
 const Wat = opaque {};
 

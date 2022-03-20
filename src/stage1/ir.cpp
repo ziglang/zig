@@ -6004,7 +6004,7 @@ static ZigValue *ir_resolve_type_lazy(IrAnalyze *ira, Stage1AirInst *type_value)
 
     if (type_value->value->type->id != ZigTypeIdMetaType) {
         ir_add_error_node(ira, type_value->source_node,
-                buf_sprintf("expected type 'type', found '%s'", buf_ptr(&type_value->value->type->name)));
+                buf_sprintf("expected value of type 'type', found '%s'", buf_ptr(&type_value->value->type->name)));
         return nullptr;
     }
 
@@ -8297,7 +8297,7 @@ static Stage1AirInst *ir_analyze_cast(IrAnalyze *ira, Scope *scope, AstNode *sou
             source_node, false).id == ConstCastResultIdOk)
         {
             ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
-                buf_sprintf("cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected type '%s', found '%s'",
+                buf_sprintf("cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected value of type '%s', found '%s'",
                     buf_ptr(&wanted_type->name),
                     buf_ptr(&actual_type->name)));
             report_recursive_error(ira, source_node, &const_cast_result, parent_msg);
@@ -8311,7 +8311,7 @@ static Stage1AirInst *ir_analyze_cast(IrAnalyze *ira, Scope *scope, AstNode *sou
             source_node, false).id == ConstCastResultIdOk)
         {
             ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
-                buf_sprintf("cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type '%s', found '%s'",
+                buf_sprintf("cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected value of type '%s', found '%s'",
                     buf_ptr(&wanted_type->name),
                     buf_ptr(&actual_type->name)));
             report_recursive_error(ira, source_node, &const_cast_result, parent_msg);
@@ -8320,7 +8320,7 @@ static Stage1AirInst *ir_analyze_cast(IrAnalyze *ira, Scope *scope, AstNode *sou
     }
 
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
-        buf_sprintf("expected type '%s', found '%s'",
+        buf_sprintf("expected value of type '%s', found '%s'",
             buf_ptr(&wanted_type->name),
             buf_ptr(&actual_type->name)));
     report_recursive_error(ira, source_node, &const_cast_result, parent_msg);
