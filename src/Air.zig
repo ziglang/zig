@@ -904,6 +904,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .shl_sat,
         .min,
         .max,
+        .bool_and,
+        .bool_or,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
         .sqrt,
@@ -935,8 +937,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .is_non_err,
         .is_err_ptr,
         .is_non_err_ptr,
-        .bool_and,
-        .bool_or,
         => return Type.initTag(.bool),
 
         .const_ty => return Type.initTag(.type),
