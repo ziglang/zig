@@ -10253,6 +10253,11 @@ fn zirAsm(
     const inputs_len = @truncate(u5, extended.small >> 5);
     const clobbers_len = @truncate(u5, extended.small >> 10);
     const is_volatile = @truncate(u1, extended.small >> 15) != 0;
+    const is_global_assembly = sema.func == null;
+
+    if (block.is_comptime and !is_global_assembly) {
+        try sema.requireRuntimeBlock(block, src);
+    }
 
     if (extra.data.asm_source == 0) {
         // This can move to become an AstGen error after inline assembly improvements land
@@ -10317,7 +10322,6 @@ fn zirAsm(
     needed_capacity += (asm_source.len + 3) / 4;
 
     const gpa = sema.gpa;
-    try sema.requireRuntimeBlock(block, src);
     try sema.air_extra.ensureUnusedCapacity(gpa, needed_capacity);
     const asm_air = try block.addInst(.{
         .tag = .assembly,
