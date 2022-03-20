@@ -2693,16 +2693,14 @@ pub const Value = extern union {
         if (int_ty.zigTypeTag() == .Vector) {
             const result_data = try arena.alloc(Value, int_ty.vectorLen());
             for (result_data) |*scalar, i| {
-                scalar.* = try intToFloatScalar(val.indexVectorlike(i), arena, int_ty.scalarType(), float_ty.scalarType(), target);
+                scalar.* = try intToFloatScalar(val.indexVectorlike(i), arena, float_ty.scalarType(), target);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return intToFloatScalar(val, arena, int_ty, float_ty, target);
+        return intToFloatScalar(val, arena, float_ty, target);
     }
 
-    pub fn intToFloatScalar(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, target: Target) !Value {
-        assert(int_ty.isNumeric() and !int_ty.isAnyFloat());
-        assert(float_ty.isAnyFloat());
+    pub fn intToFloatScalar(val: Value, arena: Allocator, float_ty: Type, target: Target) !Value {
         switch (val.tag()) {
             .undef, .zero, .one => return val,
             .the_only_possible_value => return Value.initTag(.zero), // for i0, u0
@@ -2754,16 +2752,14 @@ pub const Value = extern union {
         if (float_ty.zigTypeTag() == .Vector) {
             const result_data = try arena.alloc(Value, float_ty.vectorLen());
             for (result_data) |*scalar, i| {
-                scalar.* = try floatToIntScalar(val.indexVectorlike(i), arena, float_ty.scalarType(), int_ty.scalarType(), target);
+                scalar.* = try floatToIntScalar(val.indexVectorlike(i), arena, int_ty.scalarType(), target);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatToIntScalar(val, arena, float_ty, int_ty, target);
+        return floatToIntScalar(val, arena, int_ty, target);
     }
 
-    pub fn floatToIntScalar(val: Value, arena: Allocator, float_ty: Type, int_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
-        assert(float_ty.isAnyFloat());
-        assert(int_ty.isInt());
+    pub fn floatToIntScalar(val: Value, arena: Allocator, int_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
         const Limb = std.math.big.Limb;
 
         var value = val.toFloat(f64); // TODO: f128 ?
