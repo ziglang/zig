@@ -486,19 +486,17 @@ pub const Block = struct {
             wad.* = undefined;
         }
 
+        /// `alignment` value of 0 means to use ABI alignment.
         pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value, alignment: u32) !*Decl {
             const sema = wad.block.sema;
             // Do this ahead of time because `createAnonymousDecl` depends on calling
             // `type.hasRuntimeBits()`.
             _ = try sema.typeHasRuntimeBits(wad.block, wad.src, ty);
-            const align_val = if (alignment != 0) blk: {
-                break :blk try Value.Tag.int_u64.create(wad.arena(), alignment);
-            } else Value.@"null";
             const new_decl = try sema.mod.createAnonymousDecl(wad.block, .{
                 .ty = ty,
                 .val = val,
             });
-            new_decl.align_val = align_val;
+            new_decl.@"align" = alignment;
             errdefer sema.mod.abortAnonDecl(new_decl);
             try new_decl.finalizeNewArena(&wad.new_decl_arena);
             wad.finished = true;
@@ -1281,7 +1279,7 @@ fn resolveConstBool(
     return val.toBool();
 }
 
-fn resolveConstString(
+pub fn resolveConstString(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -1539,7 +1537,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: *Block, err_msg: *Module.ErrorMsg) 
     return error.AnalysisFail;
 }
 
-fn resolveAlign(
+pub fn resolveAlign(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -13061,7 +13059,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                     var buffer: Value.ToTypeBuffer = undefined;
                     gop.value_ptr.* = .{
                         .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
-                        .abi_align = try alignment_val.copy(new_decl_arena_allocator),
+                        .abi_align = @intCast(u32, alignment_val.toUnsignedInt()),
                     };
                 }
             }
@@ -13230,7 +13228,7 @@ fn reifyStruct(
         var buffer: Value.ToTypeBuffer = undefined;
         gop.value_ptr.* = .{
             .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
-            .abi_align = try alignment_val.copy(new_decl_arena_allocator),
+            .abi_align = @intCast(u32, alignment_val.toUnsignedInt()),
             .default_val = default_val,
             .is_comptime = is_comptime_val.toBool(),
             .offset = undefined,
@@ -14949,9 +14947,9 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     };
 
     if (struct_obj.layout == .Packed) {
-        // TODO handle packed structs
-    } else if (field.abi_align.tag() != .abi_align_default) {
-        ptr_ty_data.@"align" = @intCast(u32, field.abi_align.toUnsignedInt());
+        return sema.fail(block, src, "TODO handle packed structs with @fieldParentPtr", .{});
+    } else {
+        ptr_ty_data.@"align" = field.abi_align;
     }
 
     const target = sema.mod.getTarget();
@@ -15552,8 +15550,8 @@ fn zirBuiltinExtern(
     new_decl.src_line = sema.owner_decl.src_line;
     new_decl.ty = try ty.copy(new_decl_arena_allocator);
     new_decl.val = try Value.Tag.variable.create(new_decl_arena_allocator, new_var);
-    new_decl.align_val = Value.@"null";
-    new_decl.linksection_val = Value.@"null";
+    new_decl.@"align" = 0;
+    new_decl.@"linksection" = null;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = sema.mod.generation;
@@ -16543,9 +16541,7 @@ fn structFieldPtrByIndex(
             ptr_ty_data.bit_offset += struct_ptr_ty_info.bit_offset;
         }
     } else {
-        if (field.abi_align.tag() != .abi_align_default) {
-            ptr_ty_data.@"align" = @intCast(u32, field.abi_align.toUnsignedInt());
-        }
+        ptr_ty_data.@"align" = field.abi_align;
     }
 
     const target = sema.mod.getTarget();
@@ -19168,15 +19164,11 @@ fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
     const decl_tv = try decl.typedValue();
     if (decl_tv.val.castTag(.variable)) |payload| {
         const variable = payload.data;
-        const alignment: u32 = if (decl.align_val.tag() == .null_value)
-            0
-        else
-            @intCast(u32, decl.align_val.toUnsignedInt());
         const ty = try Type.ptr(sema.arena, target, .{
             .pointee_type = decl_tv.ty,
             .mutable = variable.is_mutable,
             .@"addrspace" = decl.@"addrspace",
-            .@"align" = alignment,
+            .@"align" = decl.@"align",
         });
         return sema.addConstant(ty, try Value.Tag.decl_ref.create(sema.arena, decl));
     }
@@ -20848,7 +20840,7 @@ fn semaStructFields(
         assert(!gop.found_existing);
         gop.value_ptr.* = .{
             .ty = try field_ty.copy(decl_arena_allocator),
-            .abi_align = Value.initTag(.abi_align_default),
+            .abi_align = 0,
             .default_val = Value.initTag(.unreachable_value),
             .is_comptime = is_comptime,
             .offset = undefined,
@@ -20860,8 +20852,7 @@ fn semaStructFields(
             // TODO: if we need to report an error here, use a source location
             // that points to this alignment expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
-            const abi_align_val = (try sema.resolveInstConst(&block_scope, src, align_ref)).val;
-            gop.value_ptr.abi_align = try abi_align_val.copy(decl_arena_allocator);
+            gop.value_ptr.abi_align = try sema.resolveAlign(&block_scope, src, align_ref);
         }
         if (has_default) {
             const default_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
@@ -21088,17 +21079,16 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         assert(!gop.found_existing);
         gop.value_ptr.* = .{
             .ty = try field_ty.copy(decl_arena_allocator),
-            .abi_align = Value.initTag(.abi_align_default),
+            .abi_align = 0,
         };
 
         if (align_ref != .none) {
             // TODO: if we need to report an error here, use a source location
             // that points to this alignment expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
-            const abi_align_val = (try sema.resolveInstConst(&block_scope, src, align_ref)).val;
-            gop.value_ptr.abi_align = try abi_align_val.copy(decl_arena_allocator);
+            gop.value_ptr.abi_align = try sema.resolveAlign(&block_scope, src, align_ref);
         } else {
-            gop.value_ptr.abi_align = Value.initTag(.abi_align_default);
+            gop.value_ptr.abi_align = 0;
         }
     }
 }
@@ -21638,11 +21628,6 @@ fn analyzeComptimeAlloc(
     var anon_decl = try block.startAnonDecl(src);
     defer anon_decl.deinit();
 
-    const align_val = if (alignment == 0)
-        Value.@"null"
-    else
-        try Value.Tag.int_u64.create(anon_decl.arena(), alignment);
-
     const decl = try anon_decl.finish(
         try var_type.copy(anon_decl.arena()),
         // There will be stores before the first load, but they may be to sub-elements or
@@ -21651,7 +21636,7 @@ fn analyzeComptimeAlloc(
         Value.undef,
         alignment,
     );
-    decl.align_val = align_val;
+    decl.@"align" = alignment;
 
     try sema.mod.declareDeclDependency(sema.owner_decl, decl);
     return sema.addConstant(ptr_type, try Value.Tag.decl_ref_mut.create(sema.arena, .{
@@ -22066,10 +22051,10 @@ fn unionFieldAlignment(
     src: LazySrcLoc,
     field: Module.Union.Field,
 ) !u32 {
-    if (field.abi_align.tag() == .abi_align_default) {
+    if (field.abi_align == 0) {
         return sema.typeAbiAlignment(block, src, field.ty);
     } else {
-        return @intCast(u32, field.abi_align.toUnsignedInt());
+        return field.abi_align;
     }
 }
 

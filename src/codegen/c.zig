@@ -245,7 +245,7 @@ pub const Function = struct {
                     ty,
                     decl_c_value,
                     .Const,
-                    Value.initTag(.abi_align_default),
+                    0,
                 );
                 try writer.writeAll(" = ");
                 try f.object.dg.renderValue(writer, ty, val);
@@ -267,10 +267,10 @@ pub const Function = struct {
     }
 
     fn allocLocal(f: *Function, ty: Type, mutability: Mutability) !CValue {
-        return f.allocAlignedLocal(ty, mutability, Value.initTag(.abi_align_default));
+        return f.allocAlignedLocal(ty, mutability, 0);
     }
 
-    fn allocAlignedLocal(f: *Function, ty: Type, mutability: Mutability, alignment: Value) !CValue {
+    fn allocAlignedLocal(f: *Function, ty: Type, mutability: Mutability, alignment: u32) !CValue {
         const local_value = f.allocLocalValue();
         try f.object.dg.renderTypeAndName(
             f.object.writer(),
@@ -854,8 +854,7 @@ pub const DeclGen = struct {
                 try w.writeAll(", ");
             }
             const name = CValue{ .arg = index };
-            const alignment = Value.initTag(.abi_align_default);
-            try dg.renderTypeAndName(w, dg.decl.ty.fnParamType(index), name, .Mut, alignment);
+            try dg.renderTypeAndName(w, dg.decl.ty.fnParamType(index), name, .Mut, 0);
             params_written += 1;
         }
 
@@ -928,8 +927,7 @@ pub const DeclGen = struct {
         var ptr_type_buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const ptr_type = t.slicePtrFieldType(&ptr_type_buf);
         const ptr_name = CValue{ .bytes = "ptr" };
-        const ptr_alignment = Value.initTag(.abi_align_default);
-        try dg.renderTypeAndName(bw, ptr_type, ptr_name, .Mut, ptr_alignment);
+        try dg.renderTypeAndName(bw, ptr_type, ptr_name, .Mut, 0);
 
         const ptr_sentinel = ptr_type.ptrInfo().data.sentinel;
         const child_type = t.childType();
@@ -1018,7 +1016,7 @@ pub const DeclGen = struct {
                 try name.writer().print("field_{d}", .{i});
 
                 try buffer.append(' ');
-                try dg.renderTypeAndName(writer, field_ty, .{ .bytes = name.items }, .Mut, Value.initTag(.abi_align_default));
+                try dg.renderTypeAndName(writer, field_ty, .{ .bytes = name.items }, .Mut, 0);
                 try buffer.appendSlice(";\n");
             }
         }
@@ -1056,7 +1054,7 @@ pub const DeclGen = struct {
             const name: CValue = .{ .bytes = "tag" };
             try buffer.appendSlice("struct {\n ");
             if (layout.tag_size != 0) {
-                try dg.renderTypeAndName(buffer.writer(), tag_ty, name, .Mut, Value.initTag(.abi_align_default));
+                try dg.renderTypeAndName(buffer.writer(), tag_ty, name, .Mut, 0);
                 try buffer.appendSlice(";\n");
             }
         }
@@ -1106,8 +1104,7 @@ pub const DeclGen = struct {
 
         try bw.writeAll("typedef struct { ");
         const payload_name = CValue{ .bytes = "payload" };
-        const alignment = Value.initTag(.abi_align_default);
-        try dg.renderTypeAndName(bw, child_type, payload_name, .Mut, alignment);
+        try dg.renderTypeAndName(bw, child_type, payload_name, .Mut, 0);
         try bw.writeAll("; uint16_t error; } ");
         const name_index = buffer.items.len;
         if (err_set_type.castTag(.error_set_inferred)) |inf_err_set_payload| {
@@ -1172,8 +1169,7 @@ pub const DeclGen = struct {
 
         try bw.writeAll("typedef struct { ");
         const payload_name = CValue{ .bytes = "payload" };
-        const alignment = Value.initTag(.abi_align_default);
-        try dg.renderTypeAndName(bw, child_type, payload_name, .Mut, alignment);
+        try dg.renderTypeAndName(bw, child_type, payload_name, .Mut, 0);
         try bw.writeAll("; bool is_null; } ");
         const name_index = buffer.items.len;
         try bw.print("zig_Q_{s};\n", .{typeToCIdentifier(child_type)});
@@ -1375,12 +1371,9 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         w: anytype,
         ty: Type,
-        //mutability: Mutability,
-        //alignment: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const name = CValue{ .bytes = "" };
-        const alignment = Value.initTag(.abi_align_default);
-        return renderTypeAndName(dg, w, ty, name, .Mut, alignment);
+        return renderTypeAndName(dg, w, ty, name, .Mut, 0);
     }
 
     /// Renders a type and name in field declaration/definition format.
@@ -1398,7 +1391,7 @@ pub const DeclGen = struct {
         ty: Type,
         name: CValue,
         mutability: Mutability,
-        alignment: Value,
+        alignment: u32,
     ) error{ OutOfMemory, AnalysisFail }!void {
         var suffix = std.ArrayList(u8).init(dg.gpa);
         defer suffix.deinit();
@@ -1413,8 +1406,8 @@ pub const DeclGen = struct {
             render_ty = render_ty.elemType();
         }
 
-        if (alignment.tag() != .abi_align_default and alignment.tag() != .null_value)
-            try w.print("ZIG_ALIGN({}) ", .{alignment.toUnsignedInt()});
+        if (alignment != 0)
+            try w.print("ZIG_ALIGN({}) ", .{alignment});
         try dg.renderType(w, render_ty);
 
         const const_prefix = switch (mutability) {
@@ -1570,7 +1563,7 @@ pub fn genDecl(o: *Object) !void {
 
         const decl_c_value: CValue = if (is_global) .{ .bytes = mem.span(o.dg.decl.name) } else .{ .decl = o.dg.decl };
 
-        try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.align_val);
+        try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align");
         try fwd_decl_writer.writeAll(";\n");
 
         if (variable.init.isUndefDeep()) {
@@ -1579,7 +1572,7 @@ pub fn genDecl(o: *Object) !void {
 
         try o.indent_writer.insertNewline();
         const w = o.writer();
-        try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.align_val);
+        try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align");
         try w.writeAll(" = ");
         if (variable.init.tag() != .unreachable_value) {
             try o.dg.renderValue(w, tv.ty, variable.init);
@@ -1594,7 +1587,7 @@ pub fn genDecl(o: *Object) !void {
         // https://github.com/ziglang/zig/issues/7582
 
         const decl_c_value: CValue = .{ .decl = o.dg.decl };
-        try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut, o.dg.decl.align_val);
+        try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut, o.dg.decl.@"align");
 
         try writer.writeAll(" = ");
         try o.dg.renderValue(writer, tv.ty, tv.val);
@@ -1993,15 +1986,8 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     }
 
     const target = f.object.dg.module.getTarget();
-    const alignment = inst_ty.ptrAlignment(target);
-    var payload = Value.Payload.U64{
-        .base = .{ .tag = .int_u64 },
-        .data = alignment,
-    };
-    const alignment_value = Value.initPayload(&payload.base);
-
     // First line: the variable used as data storage.
-    const local = try f.allocAlignedLocal(elem_type, mutability, alignment_value);
+    const local = try f.allocAlignedLocal(elem_type, mutability, inst_ty.ptrAlignment(target));
     try writer.writeAll(";\n");
 
     return CValue{ .local_ref = local.local };

@@ -98,7 +98,6 @@ pub const Value = extern union {
         bool_false,
         generic_poison,
 
-        abi_align_default,
         empty_struct_value,
         empty_array, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
@@ -241,7 +240,6 @@ pub const Value = extern union {
                 .null_value,
                 .bool_true,
                 .bool_false,
-                .abi_align_default,
                 .manyptr_u8_type,
                 .manyptr_const_u8_type,
                 .manyptr_const_u8_sentinel_0_type,
@@ -437,7 +435,6 @@ pub const Value = extern union {
             .bool_true,
             .bool_false,
             .empty_struct_value,
-            .abi_align_default,
             .manyptr_u8_type,
             .manyptr_const_u8_type,
             .manyptr_const_u8_sentinel_0_type,
@@ -677,7 +674,6 @@ pub const Value = extern union {
             .export_options_type => return out_stream.writeAll("std.builtin.ExportOptions"),
             .extern_options_type => return out_stream.writeAll("std.builtin.ExternOptions"),
             .type_info_type => return out_stream.writeAll("std.builtin.Type"),
-            .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
             .aggregate => {

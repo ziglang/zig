@@ -349,12 +349,13 @@ pub const Decl = struct {
     /// Populated when `has_tv`.
     val: Value,
     /// Populated when `has_tv`.
-    align_val: Value,
+    /// Points to memory inside value_arena.
+    @"linksection": ?[*:0]const u8,
     /// Populated when `has_tv`.
-    linksection_val: Value,
+    @"align": u32,
     /// Populated when `has_tv`.
     @"addrspace": std.builtin.AddressSpace,
-    /// The memory for ty, val, align_val, linksection_val, and captures.
+    /// The memory for ty, val, align, linksection, and captures.
     /// If this is `null` then there is no memory management needed.
     value_arena: ?*std.heap.ArenaAllocator.State = null,
     /// The direct parent namespace of the Decl.
@@ -423,7 +424,7 @@ pub const Decl = struct {
         /// to require re-analysis.
         outdated,
     },
-    /// Whether `typed_value`, `align_val`, `linksection_val` and `addrspace` are populated.
+    /// Whether `typed_value`, `align`, `linksection` and `addrspace` are populated.
     has_tv: bool,
     /// If `true` it means the `Decl` is the resource owner of the type/value associated
     /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
@@ -794,9 +795,9 @@ pub const Decl = struct {
 
     pub fn getAlignment(decl: Decl, target: Target) u32 {
         assert(decl.has_tv);
-        if (decl.align_val.tag() != .null_value) {
+        if (decl.@"align" != 0) {
             // Explicit alignment.
-            return @intCast(u32, decl.align_val.toUnsignedInt());
+            return decl.@"align";
         } else {
             // Natural alignment.
             return decl.ty.abiAlignment(target);
@@ -893,9 +894,10 @@ pub const Struct = struct {
         /// Uses `noreturn` to indicate `anytype`.
         /// undefined until `status` is `have_field_types` or `have_layout`.
         ty: Type,
-        abi_align: Value,
         /// Uses `unreachable_value` to indicate no default.
         default_val: Value,
+        /// Zero means to use the ABI alignment of the type.
+        abi_align: u32,
         /// undefined until `status` is `have_layout`.
         offset: u32,
         /// If true then `default_val` is the comptime field value.
@@ -903,10 +905,10 @@ pub const Struct = struct {
 
         /// Returns the field alignment, assuming the struct is not packed.
         pub fn normalAlignment(field: Field, target: Target) u32 {
-            if (field.abi_align.tag() == .abi_align_default) {
+            if (field.abi_align == 0) {
                 return field.ty.abiAlignment(target);
             } else {
-                return @intCast(u32, field.abi_align.toUnsignedInt());
+                return field.abi_align;
             }
         }
     };
@@ -1139,16 +1141,17 @@ pub const Union = struct {
     pub const Field = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.
         ty: Type,
-        abi_align: Value,
+        /// 0 means the ABI alignment of the type.
+        abi_align: u32,
 
         /// Returns the field alignment, assuming the union is not packed.
         /// Keep implementation in sync with `Sema.unionFieldAlignment`.
         /// Prefer to call that function instead of this one during Sema.
         pub fn normalAlignment(field: Field, target: Target) u32 {
-            if (field.abi_align.tag() == .abi_align_default) {
+            if (field.abi_align == 0) {
                 return field.ty.abiAlignment(target);
             } else {
-                return @intCast(u32, field.abi_align.toUnsignedInt());
+                return field.abi_align;
             }
         }
     };
@@ -1224,7 +1227,7 @@ pub const Union = struct {
             if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
-                if (field.abi_align.tag() == .abi_align_default) {
+                if (field.abi_align == 0) {
                     break :a field.ty.abiAlignment(target);
                 } else {
                     break :a @intCast(u32, field.abi_align.toUnsignedInt());
@@ -1246,10 +1249,10 @@ pub const Union = struct {
             if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
-                if (field.abi_align.tag() == .abi_align_default) {
+                if (field.abi_align == 0) {
                     break :a field.ty.abiAlignment(target);
                 } else {
-                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    break :a field.abi_align;
                 }
             };
             max_align = @maximum(max_align, field_align);
@@ -1300,10 +1303,10 @@ pub const Union = struct {
             if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             const field_align = a: {
-                if (field.abi_align.tag() == .abi_align_default) {
+                if (field.abi_align == 0) {
                     break :a field.ty.abiAlignment(target);
                 } else {
-                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    break :a field.abi_align;
                 }
             };
             const field_size = field.ty.abiSize(target);
@@ -3863,15 +3866,16 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     try wip_captures.finalize();
     const src: LazySrcLoc = .{ .node_offset = 0 };
     const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
-    const align_val = blk: {
+    const decl_align: u16 = blk: {
         const align_ref = decl.zirAlignRef();
-        if (align_ref == .none) break :blk Value.initTag(.null_value);
-        break :blk (try sema.resolveInstConst(&block_scope, src, align_ref)).val;
+        if (align_ref == .none) break :blk 0;
+        break :blk try sema.resolveAlign(&block_scope, src, align_ref);
     };
-    const linksection_val = blk: {
+    const decl_linksection: ?[*:0]const u8 = blk: {
         const linksection_ref = decl.zirLinksectionRef();
-        if (linksection_ref == .none) break :blk Value.initTag(.null_value);
-        break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
+        if (linksection_ref == .none) break :blk null;
+        const bytes = try sema.resolveConstString(&block_scope, src, linksection_ref);
+        break :blk (try decl_arena_allocator.dupeZ(u8, bytes)).ptr;
     };
     const address_space = blk: {
         const addrspace_ctx: Sema.AddressSpaceContext = switch (decl_tv.val.tag()) {
@@ -3911,8 +3915,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
         decl.ty = ty_ty;
         decl.val = try Value.Tag.ty.create(decl_arena_allocator, ty);
-        decl.align_val = Value.initTag(.null_value);
-        decl.linksection_val = Value.initTag(.null_value);
+        decl.@"align" = 0;
+        decl.@"linksection" = null;
         decl.has_tv = true;
         decl.owns_tv = false;
         decl_arena_state.* = decl_arena.state;
@@ -3942,8 +3946,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
             decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
             decl.val = try decl_tv.val.copy(decl_arena_allocator);
-            decl.align_val = try align_val.copy(decl_arena_allocator);
-            decl.linksection_val = try linksection_val.copy(decl_arena_allocator);
+            decl.@"align" = decl_align;
+            decl.@"linksection" = decl_linksection;
             decl.@"addrspace" = address_space;
             decl.has_tv = true;
             decl.owns_tv = owns_tv;
@@ -4022,8 +4026,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
     decl.val = try decl_tv.val.copy(decl_arena_allocator);
-    decl.align_val = try align_val.copy(decl_arena_allocator);
-    decl.linksection_val = try linksection_val.copy(decl_arena_allocator);
+    decl.@"align" = decl_align;
+    decl.@"linksection" = decl_linksection;
     decl.@"addrspace" = address_space;
     decl.has_tv = true;
     decl_arena_state.* = decl_arena.state;
@@ -4889,8 +4893,8 @@ pub fn allocateNewDecl(
         .owns_tv = false,
         .ty = undefined,
         .val = undefined,
-        .align_val = undefined,
-        .linksection_val = undefined,
+        .@"align" = undefined,
+        .@"linksection" = undefined,
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
         .deletion_flag = false,
@@ -4995,8 +4999,8 @@ pub fn createAnonymousDeclFromDeclNamed(
     new_decl.src_line = src_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
-    new_decl.align_val = Value.@"null";
-    new_decl.linksection_val = Value.@"null";
+    new_decl.@"align" = 0;
+    new_decl.@"linksection" = null;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;

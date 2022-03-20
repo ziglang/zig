@@ -179,9 +179,8 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
             var byte_i: usize = 0; // out of 8
             const fields = ty.structFields();
             for (fields.values()) |field| {
-                if (field.abi_align.tag() != .abi_align_default) {
-                    const field_alignment = field.abi_align.toUnsignedInt();
-                    if (field_alignment < field.ty.abiAlignment(target)) {
+                if (field.abi_align != 0) {
+                    if (field.abi_align < field.ty.abiAlignment(target)) {
                         return memory_class;
                     }
                 }
@@ -288,9 +287,8 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
 
             const fields = ty.unionFields();
             for (fields.values()) |field| {
-                if (field.abi_align.tag() != .abi_align_default) {
-                    const field_alignment = field.abi_align.toUnsignedInt();
-                    if (field_alignment < field.ty.abiAlignment(target)) {
+                if (field.abi_align != 0) {
+                    if (field.abi_align < field.ty.abiAlignment(target)) {
                         return memory_class;
                     }
                 }
