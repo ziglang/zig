@@ -5735,7 +5735,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
 }
 
 fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
-    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty, tv.val });
+    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty, tv.val.fmtDebug() });
     const local_sym_index = self.bin_file.lowerUnnamedConst(tv, self.mod_fn.owner_decl) catch |err| {
         return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
     };

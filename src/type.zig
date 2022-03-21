@@ -1633,7 +1633,7 @@ pub const Type = extern union {
                 },
                 .array_sentinel => {
                     const payload = ty.castTag(.array_sentinel).?.data;
-                    try writer.print("[{d}:{}]", .{ payload.len, payload.sentinel });
+                    try writer.print("[{d}:{}]", .{ payload.len, payload.sentinel.fmtValue(payload.elem_type) });
                     ty = payload.elem_type;
                     continue;
                 },
@@ -1648,8 +1648,7 @@ pub const Type = extern union {
                         }
                         try field_ty.format("", .{}, writer);
                         if (val.tag() != .unreachable_value) {
-                            try writer.writeAll(" = ");
-                            try val.format("", .{}, writer);
+                            try writer.print(" = {}", .{val.fmtValue(field_ty)});
                         }
                     }
                     try writer.writeAll("}");
@@ -1668,8 +1667,7 @@ pub const Type = extern union {
                         try writer.writeAll(": ");
                         try field_ty.format("", .{}, writer);
                         if (val.tag() != .unreachable_value) {
-                            try writer.writeAll(" = ");
-                            try val.format("", .{}, writer);
+                            try writer.print(" = {}", .{val.fmtValue(field_ty)});
                         }
                     }
                     try writer.writeAll("}");
@@ -1754,8 +1752,8 @@ pub const Type = extern union {
                     const payload = ty.castTag(.pointer).?.data;
                     if (payload.sentinel) |some| switch (payload.size) {
                         .One, .C => unreachable,
-                        .Many => try writer.print("[*:{}]", .{some}),
-                        .Slice => try writer.print("[:{}]", .{some}),
+                        .Many => try writer.print("[*:{}]", .{some.fmtValue(payload.pointee_type)}),
+                        .Slice => try writer.print("[:{}]", .{some.fmtValue(payload.pointee_type)}),
                     } else switch (payload.size) {
                         .One => try writer.writeAll("*"),
                         .Many => try writer.writeAll("[*]"),

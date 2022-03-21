@@ -491,7 +491,7 @@ const Writer = struct {
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const val = w.air.values[ty_pl.payload];
-        try s.print("{}, {}", .{ w.air.getRefType(ty_pl.ty), val });
+        try s.print("{}, {}", .{ w.air.getRefType(ty_pl.ty), val.fmtDebug() });
     }
 
     fn writeAssembly(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

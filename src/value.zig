@@ -600,9 +600,17 @@ pub const Value = extern union {
         return Value{ .ptr_otherwise = &new_payload.base };
     }
 
+    pub fn format(val: Value, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = val;
+        _ = fmt;
+        _ = options;
+        _ = writer;
+        @compileError("do not use format values directly; use either fmtDebug or fmtValue");
+    }
+
     /// TODO this should become a debug dump() function. In order to print values in a meaningful way
     /// we also need access to the type.
-    pub fn format(
+    pub fn dump(
         start_val: Value,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
@@ -764,6 +772,16 @@ pub const Value = extern union {
                 return out_stream.print("(bound_fn %{}(%{})", .{ bound_func.func_inst, bound_func.arg0_inst });
             },
         };
+    }
+
+    pub fn fmtDebug(val: Value) std.fmt.Formatter(dump) {
+        return .{ .data = val };
+    }
+
+    const TypedValue = @import("TypedValue.zig");
+
+    pub fn fmtValue(val: Value, ty: Type) std.fmt.Formatter(TypedValue.format) {
+        return .{ .data = .{ .ty = ty, .val = val } };
     }
 
     /// Asserts that the value is representable as an array of bytes.
