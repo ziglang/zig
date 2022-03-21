@@ -210,7 +210,10 @@ pub fn generateZirData(self: *Autodoc) !void {
     const data_js_f = output_dir.createFile("data.js", .{}) catch unreachable;
     defer data_js_f.close();
     const out = data_js_f.writer();
-    out.print("zigAnalysis=", .{}) catch unreachable;
+    out.print(
+        \\ /** @type {{DocData}} */
+        \\ var zigAnalysis=
+    , .{}) catch unreachable;
     std.json.stringify(
         data,
         .{
