@@ -1,9 +1,19 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
-const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
+
+/// A more basic implementation of std.testing.expectError which
+/// does not require formatter/printing support
+fn expectError(expected_err: anyerror, observed_err_union: anytype) !void {
+    if (observed_err_union) {
+        return error.TestExpectedError;
+    } else |err| if (err == expected_err) {
+        return; // Success
+    }
+    return error.TestExpectedError;
+}
 
 test "error values" {
     const a = @errorToInt(error.err1);
@@ -329,7 +339,6 @@ fn intLiteral(str: []const u8) !?i64 {
 
 test "nested error union function call in optional unwrap" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -377,7 +386,6 @@ test "nested error union function call in optional unwrap" {
 }
 
 test "return function call to error set from error union function" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -410,7 +418,6 @@ test "optional error set is the same size as error set" {
 }
 
 test "nested catch" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -471,7 +478,6 @@ test "function pointer with return type that is error union with payload which i
 
 test "return result loc as peer result loc in inferred error set function" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -503,7 +509,6 @@ test "return result loc as peer result loc in inferred error set function" {
 }
 
 test "error payload type is correctly resolved" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -519,7 +524,7 @@ test "error payload type is correctly resolved" {
         }
     };
 
-    try expectEqual(MyIntWrapper{ .x = 42 }, try MyIntWrapper.create());
+    try expect(std.meta.eql(MyIntWrapper{ .x = 42 }, try MyIntWrapper.create()));
 }
 
 test "error union comptime caching" {
