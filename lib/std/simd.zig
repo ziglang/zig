@@ -184,14 +184,22 @@ test "vector patterns" {
     }
 }
 
+/// Joins two vectors, shifts them leftwards (towards lower indices) and extracts the leftmost elements into a vector the size of a and b.
+pub fn mergeShift(a: anytype, b: anytype, comptime shift: VectorCount(@TypeOf(a, b))) @TypeOf(a, b) {
+    const len = vectorLength(@TypeOf(a, b));
+
+    return extract(join(a, b), shift, len);
+}
+
 /// Elements are shifted rightwards (towards higher indices). New elements are added to the left, and the rightmost elements are cut off
 /// so that the size of the vector stays the same.
 pub fn shiftElementsRight(vec: anytype, comptime amount: VectorCount(@TypeOf(vec)), shift_in: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
     // It may be possible to implement shifts and rotates with a runtime-friendly slice of two joined vectors, as the length of the
     // slice would be comptime-known. This would permit vector shifts and rotates by a non-comptime-known amount.
     // However, I am unsure whether compiler optimizations would handle that well enough on all platforms.
+    const len = vectorLength(@TypeOf(vec));
 
-    return join(@splat(amount, shift_in), extract(vec, 0, vectorLength(@TypeOf(vec)) - amount));
+    return mergeShift(@splat(len, shift_in), vec, len - amount);
 }
 
 /// Elements are shifted leftwards (towards lower indices). New elements are added to the right, and the leftmost elements are cut off
@@ -199,19 +207,12 @@ pub fn shiftElementsRight(vec: anytype, comptime amount: VectorCount(@TypeOf(vec
 pub fn shiftElementsLeft(vec: anytype, comptime amount: VectorCount(@TypeOf(vec)), shift_in: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
     const len = vectorLength(@TypeOf(vec));
 
-    return join(extract(vec, amount, len - amount), @splat(amount, shift_in));
+    return mergeShift(vec, @splat(len, shift_in), amount);
 }
 
 /// Elements are shifted leftwards (towards lower indices). Elements that leave to the left will reappear to the right in the same order.
 pub fn rotateElementsLeft(vec: anytype, comptime amount: VectorCount(@TypeOf(vec))) @TypeOf(vec) {
-    const Child = std.meta.Child(@TypeOf(vec));
-    const len = vectorLength(@TypeOf(vec));
-
-    std.debug.assert(amount <= len);
-
-    const indices = comptime @mod(iota(i32, len) + @splat(len, @as(i32, amount)), @splat(len, @intCast(i32, len)));
-
-    return @shuffle(Child, vec, undefined, indices);
+    return mergeShift(vec, vec, amount);
 }
 
 /// Elements are shifted rightwards (towards higher indices). Elements that leave to the right will reappear to the left in the same order.
@@ -325,7 +326,8 @@ pub fn prefixScanWithFunc(
 /// Returns a vector whose elements are the result of performing the specified operation on the corresponding
 /// element of the input vector and every hop'th element that came before it (or after, if hop is negative).
 /// Supports the same operations as the @reduce() builtin. Takes O(logN) to compute.
-/// Due to the algorithm used, floating point inaccuracies will only be deterministic if the size of the vector is consistent.
+/// The scan is not linear, which may affect floating point errors. This may affect the determinism of
+/// algorithms that use this function.
 pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: anytype) @TypeOf(vec) {
     const VecType = @TypeOf(vec);
     const Child = std.meta.Child(VecType);
@@ -334,7 +336,7 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
     const identity = comptime switch (@typeInfo(Child)) {
         .Bool => switch (op) {
             .Or, .Xor => false,
-            .And => true,
+            .And => true, 
             else => @compileError("Invalid prefixScan operation " ++ @tagName(op) ++ " for vector of booleans."),
         },
         .Int => switch (op) {
@@ -361,7 +363,7 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
                 .Xor => a != b,
                 else => unreachable,
             } else switch (op) {
-                .And => a & b,
+                .And => a & b, 
                 .Or => a | b,
                 .Xor => a ^ b,
                 .Add => a + b,
