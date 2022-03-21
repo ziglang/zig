@@ -953,8 +953,7 @@ pub fn spillCompareFlagsIfOccupied(self: *Self) !void {
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
     const reg = try self.register_manager.allocReg(null);
-    const sized_reg = registerAlias(reg, @intCast(u32, ty.abiSize(self.target.*)));
-    try self.genSetReg(ty, sized_reg, mcv);
+    try self.genSetReg(ty, reg, mcv);
     return reg;
 }
 
@@ -5201,7 +5200,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (!self.wantSafety())
                 return; // The already existing value will do just fine.
             // Write the debug undefined value.
-            switch (reg.size()) {
+            switch (registerAlias(reg, abi_size).size()) {
                 8 => return self.genSetReg(ty, reg, .{ .immediate = 0xaa }),
                 16 => return self.genSetReg(ty, reg, .{ .immediate = 0xaaaa }),
                 32 => return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaa }),
@@ -5338,7 +5337,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = registerAlias(reg, abi_size),
                     .reg2 = reg.to64(),
                     .flags = 0b01,
                 }).encode(),
@@ -5351,7 +5350,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 _ = try self.addInst(.{
                     .tag = .mov,
                     .ops = (Mir.Ops{
-                        .reg1 = reg,
+                        .reg1 = registerAlias(reg, abi_size),
                         .flags = 0b01,
                     }).encode(),
                     .data = .{ .imm = @truncate(u32, x) },
@@ -5378,8 +5377,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     _ = try self.addInst(.{
                         .tag = .mov,
                         .ops = (Mir.Ops{
-                            .reg1 = reg,
-                            .reg2 = reg,
+                            .reg1 = registerAlias(reg, abi_size),
+                            .reg2 = reg.to64(),
                             .flags = 0b01,
                         }).encode(),
                         .data = .{ .imm = 0 },
