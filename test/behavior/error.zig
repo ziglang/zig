@@ -168,7 +168,6 @@ fn testErrorUnionType() !void {
 }
 
 test "error set type" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     try testErrorSetType();
@@ -194,7 +193,6 @@ fn testErrorSetType() !void {
 }
 
 test "explicit error set cast" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     try testExplicitErrorSetCast(Set1.A);
@@ -213,7 +211,6 @@ fn testExplicitErrorSetCast(set1: Set1) !void {
 }
 
 test "comptime test error for empty error set" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -294,7 +291,6 @@ fn foo3(b: usize) Error!usize {
 
 test "error: Infer error set from literals" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     _ = nullLiteral("n") catch |err| handleErrors(err);
