@@ -1661,6 +1661,8 @@ pub const CSMAGIC_EMBEDDED_SIGNATURE: u32 = 0xfade0cc0;
 pub const CSMAGIC_EMBEDDED_SIGNATURE_OLD: u32 = 0xfade0b02;
 /// Embedded entitlements
 pub const CSMAGIC_EMBEDDED_ENTITLEMENTS: u32 = 0xfade7171;
+/// Embedded DER encoded entitlements
+pub const CSMAGIC_EMBEDDED_DER_ENTITLEMENTS: u32 = 0xfade7172;
 /// Multi-arch collection of embedded signatures
 pub const CSMAGIC_DETACHED_SIGNATURE: u32 = 0xfade0cc1;
 /// CMS Signature, among other things
@@ -1678,6 +1680,7 @@ pub const CSSLOT_REQUIREMENTS: u32 = 2;
 pub const CSSLOT_RESOURCEDIR: u32 = 3;
 pub const CSSLOT_APPLICATION: u32 = 4;
 pub const CSSLOT_ENTITLEMENTS: u32 = 5;
+pub const CSSLOT_DER_ENTITLEMENTS: u32 = 7;
 
 /// first alternate CodeDirectory, if any
 pub const CSSLOT_ALTERNATE_CODEDIRECTORIES: u32 = 0x1000;
