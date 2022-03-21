@@ -336,7 +336,7 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
     const identity = comptime switch (@typeInfo(Child)) {
         .Bool => switch (op) {
             .Or, .Xor => false,
-            .And => true, 
+            .And => true,
             else => @compileError("Invalid prefixScan operation " ++ @tagName(op) ++ " for vector of booleans."),
         },
         .Int => switch (op) {
@@ -363,7 +363,7 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
                 .Xor => a != b,
                 else => unreachable,
             } else switch (op) {
-                .And => a & b, 
+                .And => a & b,
                 .Or => a | b,
                 .Xor => a ^ b,
                 .Add => a + b,
