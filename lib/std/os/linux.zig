@@ -1080,13 +1080,8 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        const restore_rt_ptr = if (builtin.zig_backend == .stage1) restore_rt else &syscall_bits.restore_rt;
-        // TODO https://github.com/ziglang/zig/issues/11227
-        const restore_ptr = if (builtin.zig_backend == .stage1) restore else switch (native_arch) {
-            .arm, .thumb, .mips, .mipsel, .i386 => &syscall_bits.restore,
-            .x86_64, .aarch64, .riscv64, .sparcv9, .powerpc, .powerpc64, .powerpc64le => &syscall_bits.restore_rt,
-            else => unreachable,
-        };
+        const restore_rt_ptr = if (builtin.zig_backend == .stage1) restore_rt else &restore_rt;
+        const restore_ptr = if (builtin.zig_backend == .stage1) restore else &restore;
         const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) restore_rt_ptr else restore_ptr;
         ksa = k_sigaction{
             .handler = new.handler.handler,
