@@ -39,7 +39,6 @@ fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
 }
 
 test "reinterpret bytes inside auto-layout struct as integer with nonzero offset" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -80,9 +79,9 @@ fn testReinterpretBytesAsExternStruct() !void {
     try expect(val == 5);
 }
 
-test "reinterpret bytes of an extern struct into another" {
+test "reinterpret bytes of an extern struct (with under-aligned fields) into another" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO: Under-aligned fields are not yet supported in the CBE
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     try testReinterpretExternStructAsExternStruct();
@@ -106,12 +105,39 @@ fn testReinterpretExternStructAsExternStruct() !void {
     try expect(val == 5);
 }
 
-test "lower reinterpreted comptime field ptr" {
+test "reinterpret bytes of an extern struct into another" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    try testReinterpretOverAlignedExternStructAsExternStruct();
+    comptime try testReinterpretOverAlignedExternStructAsExternStruct();
+}
+
+fn testReinterpretOverAlignedExternStructAsExternStruct() !void {
+    const S1 = extern struct {
+        a: u32,
+        b: u32,
+        c: u8,
+    };
+    comptime var bytes: S1 = .{ .a = 0, .b = 0, .c = 5 };
+
+    const S2 = extern struct {
+        a0: u32,
+        a1: u16,
+        a2: u16,
+        c: u8,
+    };
+    var ptr = @ptrCast(*const S2, &bytes);
+    var val = ptr.c;
+    try expect(val == 5);
+}
+
+test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO: CBE does not yet support under-aligned fields
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     // Test lowering a field ptr
@@ -131,8 +157,31 @@ test "lower reinterpreted comptime field ptr" {
     try expect(val2.* == 5);
 }
 
+test "lower reinterpreted comptime field ptr" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    // Test lowering a field ptr
+    comptime var bytes align(4) = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    const S = extern struct {
+        a: u32,
+        c: u8,
+    };
+    comptime var ptr = @ptrCast(*const S, &bytes);
+    var val = &ptr.c;
+    try expect(val.* == 5);
+
+    // Test lowering an elem ptr
+    comptime var src_value = S{ .a = 15, .c = 5 };
+    comptime var ptr2 = @ptrCast(*[@sizeOf(S)]u8, &src_value);
+    var val2 = &ptr2[4];
+    try expect(val2.* == 5);
+}
+
 test "reinterpret struct field at comptime" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -164,7 +213,6 @@ test "comptime ptrcast keeps larger alignment" {
 }
 
 test "implicit optional pointer to optional anyopaque pointer" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
