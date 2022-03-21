@@ -3073,6 +3073,17 @@ pub const DeclGen = struct {
             return self.context.constStruct(&fields, fields.len, .False);
         }
 
+        // In the case of something like:
+        // fn foo() void {}
+        // const bar = foo;
+        // ... &bar;
+        // `bar` is just an alias and we actually want to lower a reference to `foo`.
+        if (decl.val.castTag(.function)) |func| {
+            if (func.data.owner_decl != decl) {
+                return self.lowerDeclRefValue(tv, func.data.owner_decl);
+            }
+        }
+
         const is_fn_body = decl.ty.zigTypeTag() == .Fn;
         if (!is_fn_body and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
             return self.lowerPtrToVoid(tv.ty);

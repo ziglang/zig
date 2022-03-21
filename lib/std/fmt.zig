@@ -762,7 +762,6 @@ fn formatFloatValue(
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
         formatFloatScientific(value, options, buf_stream.writer()) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
-            else => |e| return e,
         };
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
         formatFloatDecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
