@@ -257,6 +257,20 @@ pub const Inst = struct {
         movabs,
 
         /// ops flags:  form:
+        ///      0b00    word ptr [reg1 + imm32]
+        ///      0b01    dword ptr [reg1 + imm32]
+        ///      0b10    qword ptr [reg1 + imm32]
+        /// Notes:
+        ///   * source is always ST(0)
+        ///   * only supports memory operands as destination
+        fisttp,
+
+        /// ops flags:  form:
+        ///      0b01    dword ptr [reg1 + imm32]
+        ///      0b10    qword ptr [reg1 + imm32]
+        fld,
+
+        /// ops flags:  form:
         ///      0b00    inst
         ///      0b01    reg1
         ///      0b01    [imm32] if reg1 is none
