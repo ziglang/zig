@@ -325,7 +325,7 @@ pub fn prefixScanWithFunc(
 /// Returns a vector whose elements are the result of performing the specified operation on the corresponding
 /// element of the input vector and every hop'th element that came before it (or after, if hop is negative).
 /// Supports the same operations as the @reduce() builtin. Takes O(logN) to compute.
-/// Note that the algorithm used by this function might affect floating point rounding errors.
+/// Due to the algorithm used, floating point inaccuracies will only be deterministic if the size of the vector is consistent.
 pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: anytype) @TypeOf(vec) {
     const VecType = @TypeOf(vec);
     const Child = std.meta.Child(VecType);
@@ -393,7 +393,7 @@ test "vector prefix scan" {
     try std.testing.expectEqual(Vector(4, i32){ 11, 11, 9, -21 }, prefixScan(.Min, 1, int_base));
     try std.testing.expectEqual(Vector(4, i32){ 11, 23, 23, 23 }, prefixScan(.Max, 1, int_base));
 
-    // Trying to predict the rounding errors of addition and multiplication of floats would be a mess, so we don't test those.
+    // Trying to predict all inaccuracies when adding and multiplying floats with prefixScans would be a mess, so we don't test those.
     try std.testing.expectEqual(Vector(4, f32){ 2, 0.5, -10, -10 }, prefixScan(.Min, 1, float_base));
     try std.testing.expectEqual(Vector(4, f32){ 2, 2, 2, 6.54321 }, prefixScan(.Max, 1, float_base));
 
