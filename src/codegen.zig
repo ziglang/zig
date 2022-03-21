@@ -165,7 +165,7 @@ pub fn generateSymbol(
     const target = bin_file.options.target;
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateSymbol: ty = {}, val = {}", .{ typed_value.ty, typed_value.val });
+    log.debug("generateSymbol: ty = {}, val = {}", .{ typed_value.ty, typed_value.val.fmtDebug() });
 
     if (typed_value.val.isUndefDeep()) {
         const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));

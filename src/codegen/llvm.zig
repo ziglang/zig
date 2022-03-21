@@ -1676,7 +1676,7 @@ pub const DeclGen = struct {
         const decl = dg.decl;
         assert(decl.has_tv);
 
-        log.debug("gen: {s} type: {}, value: {}", .{ decl.name, decl.ty, decl.val });
+        log.debug("gen: {s} type: {}, value: {}", .{ decl.name, decl.ty, decl.val.fmtDebug() });
 
         if (decl.val.castTag(.function)) |func_payload| {
             _ = func_payload;

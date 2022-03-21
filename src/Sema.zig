@@ -1867,7 +1867,7 @@ fn createTypeName(
                     const arg_val = sema.resolveConstMaybeUndefVal(block, .unneeded, arg) catch unreachable;
 
                     if (arg_i != 0) try buf.appendSlice(",");
-                    try buf.writer().print("{}", .{arg_val});
+                    try buf.writer().print("{}", .{arg_val.fmtValue(sema.typeOf(arg))});
 
                     arg_i += 1;
                     continue;
@@ -3673,7 +3673,7 @@ fn zirCompileLog(
         const arg = sema.resolveInst(arg_ref);
         const arg_ty = sema.typeOf(arg);
         if (try sema.resolveMaybeUndefVal(block, src, arg)) |val| {
-            try writer.print("@as({}, {})", .{ arg_ty, val });
+            try writer.print("@as({}, {})", .{ arg_ty, val.fmtValue(arg_ty) });
         } else {
             try writer.print("@as({}, [runtime value])", .{arg_ty});
         }
@@ -5670,7 +5670,7 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
                     block,
                     src,
                     "enum '{}' has no tag with value {}",
-                    .{ dest_ty, int_val },
+                    .{ dest_ty, int_val.fmtValue(sema.typeOf(operand)) },
                 );
                 errdefer msg.destroy(sema.gpa);
                 try sema.mod.errNoteNonLazy(
@@ -7900,7 +7900,7 @@ fn validateSwitchItemEnum(
                 block,
                 src,
                 "enum '{}' has no tag with value '{}'",
-                .{ item_tv.ty, item_tv.val },
+                .{ item_tv.ty, item_tv.val.fmtValue(item_tv.ty) },
             );
             errdefer msg.destroy(sema.gpa);
             try sema.mod.errNoteNonLazy(
@@ -17507,7 +17507,7 @@ fn coerce(
                 const val = (try sema.resolveDefinedValue(block, inst_src, inst)) orelse break :float;
 
                 if (val.floatHasFraction()) {
-                    return sema.fail(block, inst_src, "fractional component prevents float value {} from coercion to type '{}'", .{ val, dest_ty });
+                    return sema.fail(block, inst_src, "fractional component prevents float value {} from coercion to type '{}'", .{ val.fmtValue(inst_ty), dest_ty });
                 }
                 const result_val = val.floatToInt(sema.arena, dest_ty, target) catch |err| switch (err) {
                     error.FloatCannotFit => {
@@ -17521,7 +17521,7 @@ fn coerce(
                 if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
                     // comptime known integer to other number
                     if (!val.intFitsInType(dest_ty, target)) {
-                        return sema.fail(block, inst_src, "type {} cannot represent integer value {}", .{ dest_ty, val });
+                        return sema.fail(block, inst_src, "type {} cannot represent integer value {}", .{ dest_ty, val.fmtValue(inst_ty) });
                     }
                     return try sema.addConstant(dest_ty, val);
                 }
@@ -17556,7 +17556,7 @@ fn coerce(
                             block,
                             inst_src,
                             "type {} cannot represent float value {}",
-                            .{ dest_ty, val },
+                            .{ dest_ty, val.fmtValue(inst_ty) },
                         );
                     }
                     return try sema.addConstant(dest_ty, result_val);
@@ -18850,7 +18850,7 @@ fn coerceEnumToUnion(
         const field_index = union_obj.tag_ty.enumTagFieldIndex(val) orelse {
             const msg = msg: {
                 const msg = try sema.errMsg(block, inst_src, "union {} has no tag with value {}", .{
-                    union_ty, val,
+                    union_ty, val.fmtValue(tag_ty),
                 });
                 errdefer msg.destroy(sema.gpa);
                 try sema.addDeclaredHereNote(msg, union_ty);
