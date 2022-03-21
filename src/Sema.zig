@@ -19587,6 +19587,14 @@ fn analyzeSlice(
             if (!end_is_len) {
                 const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
                 if (try sema.resolveMaybeUndefVal(block, end_src, end)) |end_val| {
+                    if (end_val.compare(.gt, len_val, Type.usize)) {
+                        return sema.fail(
+                            block,
+                            end_src,
+                            "end index {} out of bounds for array of length {}",
+                            .{ end_val.fmtValue(Type.usize), len_val.fmtValue(Type.usize) },
+                        );
+                    }
                     if (end_val.eql(len_val, Type.usize)) {
                         end_is_len = true;
                     }
@@ -19605,6 +19613,14 @@ fn analyzeSlice(
                             .data = slice_val.sliceLen(),
                         };
                         const slice_len_val = Value.initPayload(&int_payload.base);
+                        if (end_val.compare(.gt, slice_len_val, Type.usize)) {
+                            return sema.fail(
+                                block,
+                                end_src,
+                                "end index {} out of bounds for slice of length {}",
+                                .{ end_val.fmtValue(Type.usize), slice_len_val.fmtValue(Type.usize) },
+                            );
+                        }
                         if (end_val.eql(slice_len_val, Type.usize)) {
                             end_is_len = true;
                         }
@@ -19634,6 +19650,20 @@ fn analyzeSlice(
         }
         break :s null;
     };
+
+    // requirement: start <= end
+    if (try sema.resolveDefinedValue(block, src, end)) |end_val| {
+        if (try sema.resolveDefinedValue(block, src, start)) |start_val| {
+            if (start_val.compare(.gt, end_val, Type.usize)) {
+                return sema.fail(
+                    block,
+                    start_src,
+                    "start index {} is larger than end index {}",
+                    .{ start_val.fmtValue(Type.usize), end_val.fmtValue(Type.usize) },
+                );
+            }
+        }
+    }
 
     const new_len = try sema.analyzeArithmetic(block, .sub, end, start, src, end_src, start_src);
     const opt_new_len_val = try sema.resolveDefinedValue(block, src, new_len);
