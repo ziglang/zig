@@ -22,22 +22,22 @@ comptime_exprs: std.ArrayListUnmanaged(DocData.ComptimeExpr) = .{},
 
 // These fields hold temporary state of the analysis process
 // and are mainly used by the decl path resolving algorithm.
-pending_decl_paths: std.AutoHashMapUnmanaged(
-    *usize, // pointer to declpath head (ie `&decl_path[0]`)
-    std.ArrayListUnmanaged(DeclPathResumeInfo),
+pending_ref_paths: std.AutoHashMapUnmanaged(
+    *DocData.WalkResult, // pointer to declpath tail end (ie `&decl_path[decl_path.len - 1]`)
+    std.ArrayListUnmanaged(RefPathResumeInfo),
 ) = .{},
-decl_paths_pending_on_decls: std.AutoHashMapUnmanaged(
+ref_paths_pending_on_decls: std.AutoHashMapUnmanaged(
     usize,
-    std.ArrayListUnmanaged(DeclPathResumeInfo),
+    std.ArrayListUnmanaged(RefPathResumeInfo),
 ) = .{},
-decl_paths_pending_on_types: std.AutoHashMapUnmanaged(
+ref_paths_pending_on_types: std.AutoHashMapUnmanaged(
     usize,
-    std.ArrayListUnmanaged(DeclPathResumeInfo),
+    std.ArrayListUnmanaged(RefPathResumeInfo),
 ) = .{},
 
-const DeclPathResumeInfo = struct {
+const RefPathResumeInfo = struct {
     file: *File,
-    decl_path: DocData.DeclPath,
+    ref_path: []DocData.WalkResult,
 };
 
 var arena_allocator: std.heap.ArenaAllocator = undefined;
@@ -79,6 +79,8 @@ pub fn generateZirData(self: *Autodoc) !void {
         try self.types.append(self.arena, .{
             .ComptimeExpr = .{ .name = "ComptimeExpr" },
         });
+
+        var tr = DocData.WalkResult{ .type = @enumToInt(Ref.usize_type) };
         // this skipts Ref.none but it's ok becuse we replaced it with ComptimeExpr
         var i: u32 = 1;
         while (i <= @enumToInt(Ref.anyerror_void_error_union_type)) : (i += 1) {
@@ -94,9 +96,7 @@ pub fn generateZirData(self: *Autodoc) !void {
                             .Array = .{
                                 .len = .{
                                     .int = .{
-                                        .typeRef = .{
-                                            .type = @enumToInt(Ref.usize_type),
-                                        },
+                                        .typeRef = &tr,
                                         .value = 1,
                                         .negated = false,
                                     },
@@ -165,15 +165,15 @@ pub fn generateZirData(self: *Autodoc) !void {
     try self.files.put(self.arena, file, main_type_index);
     _ = try self.walkInstruction(file, &root_scope, Zir.main_struct_inst);
 
-    if (self.decl_paths_pending_on_decls.count() > 0) {
+    if (self.ref_paths_pending_on_decls.count() > 0) {
         @panic("some decl paths were never fully analized (pending on decls)");
     }
 
-    if (self.decl_paths_pending_on_types.count() > 0) {
+    if (self.ref_paths_pending_on_types.count() > 0) {
         @panic("some decl paths were never fully analized (pending on types)");
     }
 
-    if (self.pending_decl_paths.count() > 0) {
+    if (self.pending_ref_paths.count() > 0) {
         @panic("some decl paths were never fully analized");
     }
 
@@ -304,7 +304,7 @@ const DocData = struct {
     decls: []Decl,
     comptimeExprs: []ComptimeExpr,
     const Call = struct {
-        func: TypeRef,
+        func: WalkResult,
         args: []WalkResult,
         ret: WalkResult,
     };
@@ -337,7 +337,7 @@ const DocData = struct {
 
     const ComptimeExpr = struct {
         code: []const u8,
-        typeRef: TypeRef,
+        typeRef: WalkResult,
     };
     const Package = struct {
         name: []const u8 = "root",
@@ -379,18 +379,18 @@ const DocData = struct {
         Float: struct { name: []const u8 },
         Pointer: struct {
             size: std.builtin.TypeInfo.Pointer.Size,
-            child: TypeRef,
+            child: WalkResult,
         },
         Array: struct {
             len: WalkResult,
-            child: TypeRef,
+            child: WalkResult,
         },
         Struct: struct {
             name: []const u8,
-            src: ?usize = null, // index into astNodes
+            src: usize, // index into astNodes
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
-            fields: ?[]TypeRef = null, // (use src->fields to find names)
+            fields: ?[]WalkResult = null, // (use src->fields to find names)
         },
         ComptimeExpr: struct { name: []const u8 },
         ComptimeFloat: struct { name: []const u8 },
@@ -399,7 +399,7 @@ const DocData = struct {
         Null: struct { name: []const u8 },
         Optional: struct {
             name: []const u8,
-            child: TypeRef,
+            child: WalkResult,
         },
         ErrorUnion: struct { name: []const u8 },
         ErrorSet: struct {
@@ -418,13 +418,13 @@ const DocData = struct {
             src: ?usize = null, // index into astNodes
             privDecls: ?[]usize = null, // index into decls
             pubDecls: ?[]usize = null, // index into decls
-            fields: ?[]TypeRef = null, // (use src->fields to find names)
+            fields: ?[]WalkResult = null, // (use src->fields to find names)
         },
         Fn: struct {
             name: []const u8,
             src: ?usize = null, // index into astNodes
-            ret: TypeRef,
-            params: ?[]TypeRef = null, // (use src->fields to find names)
+            ret: WalkResult,
+            params: ?[]WalkResult = null, // (use src->fields to find names)
         },
         BoundFn: struct { name: []const u8 },
         Opaque: struct { name: []const u8 },
@@ -511,66 +511,6 @@ const DocData = struct {
         }
     };
 
-    /// A DeclPath represents an expression such as `foo.bar.baz` where each
-    /// component has been resolved to a corresponding index in `self.decls`.
-    /// If a DeclPath has a component that can't be fully solved (eg the
-    /// function call in `foo.bar().baz`), then it will be solved up until the
-    /// unresolved component, leaving the remaining part unresolved.
-    ///
-    /// Note that DeclPaths are currently stored in inverse order: the innermost
-    /// component is at index 0.
-    const DeclPath = struct {
-        path: []usize, // indexes in `decls`
-        hasCte: bool = false, // a prefix of this path could not be resolved
-        // TODO: make hasCte return the actual index where the cte is!
-    };
-
-    /// A TypeRef is a subset of WalkResult that refers a type in a direct or
-    /// indirect manner.
-    ///
-    /// An example of directness is `const foo = struct {...};`.
-    /// An example of indidirectness is `const bar = foo;`.
-    const TypeRef = union(enum) {
-        unspecified,
-        @"anytype",
-        declPath: DeclPath,
-        type: usize, // index in `types`
-        comptimeExpr: usize, // index in `comptimeExprs`
-        // TODO: maybe we should not consider calls to be typerefs and instread
-        // directly refer to their return value. The problem at the moment
-        // is that we can't analyze function calls at all.
-        call: usize, // index in `calls`
-        typeOf: *WalkResult,
-
-        pub fn jsonStringify(
-            self: TypeRef,
-            options: std.json.StringifyOptions,
-            w: anytype,
-        ) !void {
-            switch (self) {
-                .typeOf => |v| try std.json.stringify(v, options, w),
-                .unspecified, .@"anytype" => {
-                    try w.print(
-                        \\{{ "{s}":{{}} }}
-                    , .{@tagName(self)});
-                },
-
-                .type, .comptimeExpr, .call => |v| {
-                    try w.print(
-                        \\{{ "{s}":{} }}
-                    , .{ @tagName(self), v });
-                },
-                .declPath => |v| {
-                    try w.print("{{ \"hasCte\": {}, \"declPath\": [", .{v.hasCte});
-                    for (v.path) |d, i| {
-                        const comma = if (i == v.path.len - 1) "]}" else ",";
-                        try w.print("{d}{s}", .{ d, comma });
-                    }
-                },
-            }
-        }
-    };
-
     /// A WalkResult represents the result of the analysis process done to a
     /// declaration. This includes: decls, fields, etc.
     ///
@@ -581,20 +521,23 @@ const DocData = struct {
         comptimeExpr: usize, // index in `comptimeExprs`
         void,
         @"unreachable",
-        @"null": TypeRef,
-        @"undefined": TypeRef,
+        @"null": *WalkResult,
+        @"undefined": *WalkResult,
         @"struct": Struct,
         bool: bool,
         @"anytype",
         type: usize, // index in `types`
-        declPath: DeclPath,
+        this: usize, // index in `types`
+        declRef: usize, // index in `decls`
+        fieldRef: FieldRef,
+        refPath: []WalkResult,
         int: struct {
-            typeRef: TypeRef,
+            typeRef: *WalkResult,
             value: usize, // direct value
             negated: bool = false,
         },
         float: struct {
-            typeRef: TypeRef,
+            typeRef: *WalkResult,
             value: f64, // direct value
             negated: bool = false,
         },
@@ -606,8 +549,13 @@ const DocData = struct {
         compileError: []const u8,
         string: []const u8,
 
+        const FieldRef = struct {
+            type: usize, // index in `types`
+            index: usize, // index in type.fields
+        };
+
         const Struct = struct {
-            typeRef: TypeRef,
+            typeRef: *WalkResult,
             fieldVals: []FieldVal,
 
             const FieldVal = struct {
@@ -616,7 +564,7 @@ const DocData = struct {
             };
         };
         const Array = struct {
-            typeRef: TypeRef,
+            typeRef: *WalkResult,
             data: []WalkResult,
         };
 
@@ -624,14 +572,14 @@ const DocData = struct {
             self: WalkResult,
             options: std.json.StringifyOptions,
             w: anytype,
-        ) !void {
+        ) std.os.WriteError!void {
             switch (self) {
                 .void, .@"unreachable", .@"anytype" => {
                     try w.print(
                         \\{{ "{s}":{{}} }}
                     , .{@tagName(self)});
                 },
-                .type, .comptimeExpr, .call => |v| {
+                .type, .comptimeExpr, .call, .this, .declRef => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
@@ -666,16 +614,22 @@ const DocData = struct {
                 .typeOf, .sizeOf => |v| try std.json.stringify(v, options, w),
                 .compileError => |v| try std.json.stringify(v, options, w),
                 .string => |v| try std.json.stringify(v, options, w),
+                .fieldRef => |v| try std.json.stringify(
+                    struct { fieldRef: FieldRef }{ .fieldRef = v },
+                    options,
+                    w,
+                ),
                 .@"struct" => |v| try std.json.stringify(
                     struct { @"struct": Struct }{ .@"struct" = v },
                     options,
                     w,
                 ),
-                .declPath => |v| {
-                    try w.print("{{ \"hasCte\": {}, \"declPath\": [", .{v.hasCte});
-                    for (v.path) |d, i| {
-                        const comma = if (i == v.path.len - 1) "]}" else ",";
-                        try w.print("{d}{s}", .{ d, comma });
+                .refPath => |v| {
+                    try w.print("{{ \"refPath\": [", .{});
+                    for (v) |c, i| {
+                        const comma = if (i == v.len - 1) "]}" else ",\n";
+                        try c.jsonStringify(options, w);
+                        try w.print("{s}", .{comma});
                     }
                 },
                 .array => |v| try std.json.stringify(
@@ -758,6 +712,7 @@ fn walkInstruction(
                     .comptimeExpr = cte_slot_index,
                 };
             }
+
             const new_file = self.module.importFile(file, path) catch unreachable;
             const result = try self.files.getOrPut(self.arena, new_file.file);
             if (result.found_existing) {
@@ -794,37 +749,24 @@ fn walkInstruction(
 
             return DocData.WalkResult{ .compileError = operand.string };
         },
-        .switch_block => {
-            const cte_slot_index = self.comptime_exprs.items.len;
-            try self.comptime_exprs.append(self.arena, .{
-                .code = "switch",
-                .typeRef = .{
-                    .type = @enumToInt(DocData.DocTypeKinds.ComptimeExpr),
-                },
-            });
-
-            return DocData.WalkResult{ .comptimeExpr = cte_slot_index };
-        },
+        .switch_block => return self.cteTodo("[switch]"),
         .enum_literal => {
             const str_tok = data[inst_index].str_tok;
             const literal = file.zir.nullTerminatedString(str_tok.start);
             return DocData.WalkResult{ .enumLiteral = literal };
         },
-        .div_exact, .div => {
-            const cte_slot_index = self.comptime_exprs.items.len;
-            try self.comptime_exprs.append(self.arena, .{
-                .code = "@div*(...)",
-                .typeRef = .{ .type = @enumToInt(DocData.DocTypeKinds.ComptimeExpr) },
-            });
-            return DocData.WalkResult{ .comptimeExpr = cte_slot_index };
-        },
+        .div_exact, .div => return self.cteTodo("@div(...)"),
+        .mul => return self.cteTodo("@mul(...)"),
+        .array_mul => return self.cteTodo("a ** b"),
+        .bool_br_and, .bool_br_or => return self.cteTodo("bool op"),
+        .cmp_eq => return self.cteTodo("bool op"),
         .int => {
             const int = data[inst_index].int;
+            const t = try self.arena.create(DocData.WalkResult);
+            t.* = .{ .type = @enumToInt(Ref.comptime_int_type) };
             return DocData.WalkResult{
                 .int = .{
-                    .typeRef = .{
-                        .type = @enumToInt(Ref.comptime_int_type),
-                    },
+                    .typeRef = t,
                     .value = int,
                 },
             };
@@ -843,7 +785,7 @@ fn walkInstruction(
             try self.types.append(self.arena, .{
                 .Pointer = .{
                     .size = ptr.size,
-                    .child = walkResultToTypeRef(elem_type_ref),
+                    .child = elem_type_ref,
                 },
             });
 
@@ -862,7 +804,7 @@ fn walkInstruction(
             try self.types.append(self.arena, .{
                 .Pointer = .{
                     .size = ptr.size,
-                    .child = walkResultToTypeRef(elem_type_ref),
+                    .child = elem_type_ref,
                 },
             });
 
@@ -871,7 +813,7 @@ fn walkInstruction(
         .array_type => {
             const bin = data[inst_index].bin;
             const len = try self.walkRef(file, parent_scope, bin.lhs);
-            const child = walkResultToTypeRef(try self.walkRef(file, parent_scope, bin.rhs));
+            const child = try self.walkRef(file, parent_scope, bin.rhs);
 
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
@@ -891,12 +833,15 @@ fn walkInstruction(
                 array_data[idx] = try self.walkRef(file, parent_scope, op);
             }
 
+            const at = try self.arena.create(DocData.WalkResult);
+            at.* = .{ .type = @enumToInt(Ref.usize_type) };
+
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
                 .Array = .{
                     .len = .{
                         .int = .{
-                            .typeRef = .{ .type = @enumToInt(Ref.usize_type) },
+                            .typeRef = at,
                             .value = operands.len,
                             .negated = false,
                         },
@@ -905,18 +850,22 @@ fn walkInstruction(
                 },
             });
 
+            const t = try self.arena.create(DocData.WalkResult);
+            t.* = .{ .type = type_slot_index };
             return DocData.WalkResult{ .array = .{
-                .typeRef = .{ .type = type_slot_index },
+                .typeRef = t,
                 .data = array_data,
             } };
         },
         .float => {
             const float = data[inst_index].float;
+
+            const t = try self.arena.create(DocData.WalkResult);
+            t.* = .{ .type = @enumToInt(Ref.comptime_float_type) };
+
             return DocData.WalkResult{
                 .float = .{
-                    .typeRef = .{
-                        .type = @enumToInt(Ref.comptime_float_type),
-                    },
+                    .typeRef = t,
                     .value = float,
                 },
             };
@@ -956,7 +905,7 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.As, pl_node.payload_index);
             const dest_type_walk = try self.walkRef(file, parent_scope, extra.data.dest_type);
-            const dest_type_ref = walkResultToTypeRef(dest_type_walk);
+            const dest_type_ref = dest_type_walk;
 
             var operand = try self.walkRef(file, parent_scope, extra.data.operand);
 
@@ -967,7 +916,7 @@ fn walkInstruction(
                     "TODO: handle {s} in `walkInstruction.as_node`\n",
                     .{@tagName(operand)},
                 ),
-                .declPath, .type, .string => {},
+                .refPath, .type, .string, .call, .enumLiteral => {},
                 // we don't do anything because up until now,
                 // I've only seen this used as such:
                 //       @as(@as(type, Baz), .{})
@@ -979,9 +928,9 @@ fn walkInstruction(
                 .comptimeExpr => {
                     self.comptime_exprs.items[operand.comptimeExpr].typeRef = dest_type_ref;
                 },
-                .int => operand.int.typeRef = dest_type_ref,
-                .@"struct" => operand.@"struct".typeRef = dest_type_ref,
-                .@"undefined" => operand.@"undefined" = dest_type_ref,
+                .int => operand.int.typeRef.* = dest_type_ref,
+                .@"struct" => operand.@"struct".typeRef.* = dest_type_ref,
+                .@"undefined" => operand.@"undefined".* = dest_type_ref,
             }
 
             return operand;
@@ -993,7 +942,7 @@ fn walkInstruction(
                 parent_scope,
                 un_node.operand,
             );
-            const type_ref = walkResultToTypeRef(operand);
+            const type_ref = operand;
             const res = DocData.WalkResult{ .type = self.types.items.len };
             try self.types.append(self.arena, .{
                 .Optional = .{ .name = "?TODO", .child = type_ref },
@@ -1003,9 +952,7 @@ fn walkInstruction(
         .decl_val, .decl_ref => {
             const str_tok = data[inst_index].str_tok;
             const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
-            var path = try self.arena.alloc(usize, 1);
-            path[0] = decls_slot_index;
-            return DocData.WalkResult{ .declPath = .{ .path = path } };
+            return DocData.WalkResult{ .declRef = decls_slot_index };
         },
         .field_val, .field_call_bind, .field_ptr, .field_type => {
             // TODO: field type uses Zir.Inst.FieldType, it just happens to have the
@@ -1013,101 +960,51 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
 
-            var path: std.ArrayListUnmanaged(usize) = .{};
+            var path: std.ArrayListUnmanaged(DocData.WalkResult) = .{};
             var lhs = @enumToInt(extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
 
-            try path.append(self.arena, extra.data.field_name_start);
+            try path.append(self.arena, .{
+                .string = file.zir.nullTerminatedString(extra.data.field_name_start),
+            });
             // Put inside path the starting index of each decl name that
             // we encounter as we navigate through all the field_vals
             while (tags[lhs] == .field_val or
                 tags[lhs] == .field_call_bind or
-                tags[lhs] == .field_ptr)
+                tags[lhs] == .field_ptr or
+                tags[lhs] == .field_type)
             {
                 const lhs_extra = file.zir.extraData(
                     Zir.Inst.Field,
                     data[lhs].pl_node.payload_index,
                 );
 
-                try path.append(self.arena, lhs_extra.data.field_name_start);
+                try path.append(self.arena, .{
+                    .string = file.zir.nullTerminatedString(lhs_extra.data.field_name_start),
+                });
                 lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
             }
 
-            switch (tags[lhs]) {
-                else => panicWithContext(
-                    file,
-                    inst_index,
-                    "TODO: handle `{s}` in walkInstruction.field_val",
-                    .{@tagName(tags[lhs])},
-                ),
-                .call => {
-                    const walk_result = try self.walkInstruction(file, parent_scope, lhs);
-                    const ast_node_index = idx: {
-                        const idx = self.ast_nodes.items.len;
-                        try self.ast_nodes.append(self.arena, .{
-                            .file = 0,
-                            .line = 0,
-                            .col = 0,
-                            .docs = "",
-                            .fields = null,
-                        });
-                        break :idx idx;
-                    };
+            const wr = try self.walkInstruction(file, parent_scope, lhs);
+            try path.append(self.arena, wr);
 
-                    const decls_slot_index = self.decls.items.len;
-                    try self.decls.append(self.arena, .{
-                        ._analyzed = true,
-                        .name = "call()",
-                        .src = ast_node_index,
-                        .value = walk_result,
-                        .kind = "const",
-                    });
-                    try path.append(self.arena, decls_slot_index);
-                },
-                .import => {
-                    const walk_result = try self.walkInstruction(file, parent_scope, lhs);
+            // This way the data in `path` has the same ordering that the ref
+            // path has in the text: most general component first.
+            std.mem.reverse(DocData.WalkResult, path.items);
 
-                    // astnode
-                    const ast_node_index = idx: {
-                        const idx = self.ast_nodes.items.len;
-                        try self.ast_nodes.append(self.arena, .{
-                            .file = 0,
-                            .line = 0,
-                            .col = 0,
-                            .docs = "",
-                            .fields = null,
-                        });
-                        break :idx idx;
-                    };
-                    const str_tok = data[lhs].str_tok;
-                    const file_path = str_tok.get(file.zir);
-
-                    const name = try std.fmt.allocPrint(self.arena, "@import({s})", .{file_path});
-                    const decls_slot_index = self.decls.items.len;
-                    try self.decls.append(self.arena, .{
-                        ._analyzed = true,
-                        .name = name,
-                        .src = ast_node_index,
-                        // .typeRef = decl_type_ref,
-                        .value = walk_result,
-                        .kind = "const", // find where this information can be found
-                    });
-                    try path.append(self.arena, decls_slot_index);
-                },
-                .decl_val, .decl_ref => {
-                    const str_tok = data[lhs].str_tok;
-                    const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
-                    try path.append(self.arena, decls_slot_index);
-                },
-            }
-
-            // Righ now, every element of `path` is the first index of a
-            // decl name except for the final element, which instead points to
-            // the analyzed data corresponding to the top-most decl of this path.
-            // We are now going to reverse loop over `path` to resolve each name
-            // to its corresponding index in `decls`.
-            var decl_path: DocData.DeclPath = .{ .path = path.items };
-            try self.tryResolveDeclPath(file, &decl_path);
-            return DocData.WalkResult{ .declPath = decl_path };
+            // Righ now, every element of `path` is a string except its first
+            // element (at index 0). We're now going to attempt to resolve each
+            // string. If one or more components in this path are not yet fully
+            // analyzed, the path will only be solved partially, but we expect
+            // to eventually solve it fully(or give up in case of a
+            // comptimeExpr). This means that:
+            // - (1) Paths can be not fully analyzed temporarily, so any code
+            //       that requires to know where a ref path leads to, neeeds to
+            //       implement support for lazyness (see self.pending_ref_paths)
+            // - (2) Paths can sometimes never resolve fully. This means that
+            //       any value that depends on that will have to become a
+            //       comptimeExpr.
+            try self.tryResolveRefPath(file, lhs, path.items);
+            return DocData.WalkResult{ .refPath = path.items };
         },
         .int_type => {
             const int_type = data[inst_index].int_type;
@@ -1139,7 +1036,7 @@ fn walkInstruction(
                 extra.data.fields_len,
             );
 
-            var type_ref: DocData.TypeRef = undefined;
+            const type_ref = try self.arena.create(DocData.WalkResult);
             var idx = extra.end;
             for (field_vals) |*fv| {
                 const init_extra = file.zir.extraData(Zir.Inst.StructInit.Item, idx);
@@ -1161,11 +1058,10 @@ fn walkInstruction(
                             parent_scope,
                             field_extra.data.container_type,
                         );
-                        type_ref = walkResultToTypeRef(wr);
+                        type_ref.* = wr;
                     }
                     break :blk file.zir.nullTerminatedString(field_extra.data.name_start);
                 };
-
                 const value = try self.walkRef(file, parent_scope, init_extra.data.init);
                 fv.* = .{ .name = field_name, .val = value };
             }
@@ -1236,9 +1132,7 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Call, pl_node.payload_index);
 
-            const callee = walkResultToTypeRef(
-                try self.walkRef(file, parent_scope, extra.data.callee),
-            );
+            const callee = try self.walkRef(file, parent_scope, extra.data.callee);
 
             const args_len = extra.data.flags.args_len;
             var args = try self.arena.alloc(DocData.WalkResult, args_len);
@@ -1267,16 +1161,20 @@ fn walkInstruction(
             return DocData.WalkResult{ .call = call_slot_index };
         },
         .func, .func_inferred => {
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{ .Unanalyzed = {} });
+
             return self.analyzeFunction(
                 file,
                 parent_scope,
                 inst_index,
                 self_ast_node_index,
+                type_slot_index,
             );
         },
         .extended => {
             // NOTE: this code + the subsequent defer block are working towards
-            // solving pending decl paths that depend on a type to be analyzed.
+            // solving pending decl paths that depend on completing the analysis of a type.
             // When we don't find a type, the defer will run anyway but shouldn't
             // ever be able to find a match inside `decl_paths_pending_on_types`
             // TODO: extract this logic into a function and only call it when appropriate.
@@ -1284,14 +1182,18 @@ fn walkInstruction(
             try self.types.append(self.arena, .{ .Unanalyzed = {} });
 
             defer {
-                if (self.decl_paths_pending_on_types.get(type_slot_index)) |paths| {
-                    for (paths.items) |*resume_info| {
-                        self.tryResolveDeclPath(resume_info.file, &resume_info.decl_path) catch {
+                if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
+                    for (paths.items) |resume_info| {
+                        self.tryResolveRefPath(
+                            resume_info.file,
+                            inst_index,
+                            resume_info.ref_path,
+                        ) catch {
                             @panic("Out of memory");
                         };
                     }
 
-                    _ = self.decl_paths_pending_on_types.remove(type_slot_index);
+                    _ = self.ref_paths_pending_on_types.remove(type_slot_index);
                     // TODO: we should deallocate the arraylist that holds all the
                     //       decl paths. not doing it now since it's arena-allocated
                     //       anyway, but maybe we should put it elsewhere.
@@ -1308,12 +1210,15 @@ fn walkInstruction(
                         .{@tagName(extended.opcode)},
                     );
                 },
+
+                .opaque_decl => return self.cteTodo("opaque {...}"),
                 .func => {
                     return try self.analyzeFunction(
                         file,
                         parent_scope,
                         inst_index,
                         self_ast_node_index,
+                        type_slot_index,
                     );
                 },
                 .variable => {
@@ -1403,7 +1308,7 @@ fn walkInstruction(
                     // const body = file.zir.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
-                    var field_type_refs = try std.ArrayListUnmanaged(DocData.TypeRef).initCapacity(
+                    var field_type_refs = try std.ArrayListUnmanaged(DocData.WalkResult).initCapacity(
                         self.arena,
                         fields_len,
                     );
@@ -1633,7 +1538,7 @@ fn walkInstruction(
                     // const body = file.zir.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
-                    var field_type_refs: std.ArrayListUnmanaged(DocData.TypeRef) = .{};
+                    var field_type_refs: std.ArrayListUnmanaged(DocData.WalkResult) = .{};
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
                     try self.collectStructFieldInfo(
                         file,
@@ -1659,22 +1564,7 @@ fn walkInstruction(
                     return DocData.WalkResult{ .type = type_slot_index };
                 },
                 .this => {
-                    // TODO: consider if we should reuse an existing decl
-                    //       that points to this type (if present).
-                    const decl_slot_index = self.decls.items.len;
-                    try self.decls.append(self.arena, .{
-                        .name = "@This()",
-                        .value = .{ .type = parent_scope.enclosing_type },
-                        .src = 0,
-                        .kind = "const",
-                        ._analyzed = false,
-                    });
-                    const dpath = try self.arena.alloc(usize, 1);
-                    dpath[0] = decl_slot_index;
-                    return DocData.WalkResult{ .declPath = .{
-                        .hasCte = false,
-                        .path = dpath,
-                    } };
+                    return DocData.WalkResult{ .this = parent_scope.enclosing_type };
                 },
             }
         },
@@ -1900,14 +1790,18 @@ fn walkDecls(
         };
 
         // Unblock any pending decl path that was waiting for this decl.
-        if (self.decl_paths_pending_on_decls.get(decls_slot_index)) |paths| {
-            for (paths.items) |*resume_info| {
-                try self.tryResolveDeclPath(resume_info.file, &resume_info.decl_path);
+        if (self.ref_paths_pending_on_decls.get(decls_slot_index)) |paths| {
+            for (paths.items) |resume_info| {
+                try self.tryResolveRefPath(
+                    resume_info.file,
+                    decl_index,
+                    resume_info.ref_path,
+                );
             }
 
-            _ = self.decl_paths_pending_on_decls.remove(decls_slot_index);
+            _ = self.ref_paths_pending_on_decls.remove(decls_slot_index);
             // TODO: we should deallocate the arraylist that holds all the
-            //       decl paths. not doing it now since it's arena-allocated
+            //       ref paths. not doing it now since it's arena-allocated
             //       anyway, but maybe we should put it elsewhere.
         }
     }
@@ -1915,109 +1809,139 @@ fn walkDecls(
     return extra_index;
 }
 
-/// An unresolved path has a decl index at its end, while every other element
-/// is an index into the string table. Resolving means iteratively map each
-/// string to a decl_index.
+/// An unresolved path has a non-string WalkResult at its beginnig, while every
+/// other element is a string WalkResult. Resolving means iteratively map each
+/// string to a Decl / Type / Call / etc.
 ///
 /// If we encounter an unanalyzed decl during the process, we append the
-/// unsolved sub-path to `self.decl_paths_pending_on_decls` and bail out.
+/// unsolved sub-path to `self.ref_paths_pending_on_decls` and bail out.
 /// Same happens when a decl holds a type definition that hasn't been fully
-/// analyzed yet (except that we append to `self.decl_paths_pending_on_types`.
+/// analyzed yet (except that we append to `self.ref_paths_pending_on_types`.
 ///
-/// When a decl or a type is fully analyzed if will then check if there's any
-/// pending decl path blocked on it and, if any, will progress their resolution
-/// by calling tryResolveDeclPath again.
+/// When walkDecls / walkInstruction finishes analyzing a decl / type, it will
+/// then check if there's any pending ref path blocked on it and, if any, it
+/// will progress their resolution by calling tryResolveRefPath again.
 ///
-/// Decl paths can also depend on other decl paths. See
-/// `self.pending_decl_paths` for more info.
+/// Ref paths can also depend on other ref paths. See
+/// `self.pending_ref_paths` for more info.
 ///
-/// A decl path that has a component that resolves into a comptimeExpr will
-/// give up its resolution process entirely.
-///
-/// TODO: when giving up, translate remaining string indexes into data that
-///       can be used by the frontend. Requires implementing a frontend string
-///       table.
-fn tryResolveDeclPath(
+/// A ref path that has a component that resolves into a comptimeExpr will
+/// give up its resolution process entirely, leaving the remaining components
+/// as strings.
+fn tryResolveRefPath(
     self: *Autodoc,
     /// File from which the decl path originates.
     file: *File,
-    decl_path: *DocData.DeclPath,
+    inst_index: usize, // used only for panicWithContext
+    path: []DocData.WalkResult,
 ) error{OutOfMemory}!void {
-    const path: []usize = decl_path.path;
+    var i: usize = 0;
+    outer: while (i < path.len - 1) : (i += 1) {
+        const parent = path[i];
+        const child_string = path[i + 1].string; // we expect to find a string union case
 
-    var i: usize = path.len;
-    outer: while (i > 1) {
-        i -= 1;
-        const decl_index = path[i];
-        const string_index = path[i - 1];
+        var resolved_parent = parent;
+        var j: usize = 0;
+        while (j < 10_000) : (j += 1) {
+            switch (resolved_parent) {
+                else => break,
+                .declRef => |decl_index| {
+                    const decl = self.decls.items[decl_index];
+                    if (decl._analyzed) {
+                        resolved_parent = decl.value;
+                        continue;
+                    }
 
-        const parent = self.decls.items[decl_index];
-        if (!parent._analyzed) {
-            // This decl path is pending completion
-            {
-                const res = try self.pending_decl_paths.getOrPut(self.arena, &path[0]);
-                if (!res.found_existing) res.value_ptr.* = .{};
+                    // This decl path is pending completion
+                    {
+                        const res = try self.pending_ref_paths.getOrPut(
+                            self.arena,
+                            &path[path.len - 1],
+                        );
+                        if (!res.found_existing) res.value_ptr.* = .{};
+                    }
+
+                    const res = try self.ref_paths_pending_on_decls.getOrPut(
+                        self.arena,
+                        decl_index,
+                    );
+                    if (!res.found_existing) res.value_ptr.* = .{};
+                    try res.value_ptr.*.append(self.arena, .{
+                        .file = file,
+                        .ref_path = path[i..path.len],
+                    });
+
+                    // We return instead doing `break :outer` to prevent the
+                    // code after the :outer while loop to run, as it assumes
+                    // that the path will have been fully analyzed (or we
+                    // have given up because of a comptimeExpr).
+                    return;
+                },
+                .refPath => |rp| {
+                    if (self.pending_ref_paths.getPtr(&rp[rp.len - 1])) |waiter_list| {
+                        try waiter_list.append(self.arena, .{
+                            .file = file,
+                            .ref_path = path[i..path.len],
+                        });
+
+                        // This decl path is pending completion
+                        {
+                            const res = try self.pending_ref_paths.getOrPut(
+                                self.arena,
+                                &path[path.len - 1],
+                            );
+                            if (!res.found_existing) res.value_ptr.* = .{};
+                        }
+
+                        return;
+                    }
+
+                    // If the last element is a string or a CTE, then we give up,
+                    // otherwise we resovle the parent to it and loop again.
+                    // NOTE: we assume that if we find a string, it's because of
+                    // a CTE component somewhere in the path. We know that the path
+                    // is not pending futher evaluation because we just checked!
+                    const last = rp[rp.len - 1];
+                    switch (last) {
+                        .comptimeExpr, .string => break :outer,
+                        else => {
+                            resolved_parent = last;
+                            continue;
+                        },
+                    }
+                },
             }
-
-            const res = try self.decl_paths_pending_on_decls.getOrPut(self.arena, decl_index);
-            if (!res.found_existing) res.value_ptr.* = .{};
-            try res.value_ptr.*.append(self.arena, .{
-                .file = file,
-                .decl_path = .{ .path = path[0 .. i + 1] },
-            });
-
-            return;
+        } else {
+            panicWithContext(
+                file,
+                inst_index,
+                "exhausted eval quota for `{}`in tryResolveDecl\n",
+                .{resolved_parent},
+            );
         }
 
-        const child_decl_name = file.zir.nullTerminatedString(string_index);
-        switch (parent.value) {
+        switch (resolved_parent) {
             else => {
-                std.debug.panic(
-                    "TODO: handle `{s}`in tryResolveDecl\n \"{s}\":{}",
-                    .{ @tagName(parent.value), parent.name, parent.value },
+                // NOTE: indirect references to types / decls should be handled
+                //       in the switch above this one!
+                panicWithContext(
+                    file,
+                    inst_index,
+                    "TODO: handle `{s}`in tryResolveRefPath\nInfo: {}",
+                    .{ @tagName(resolved_parent), resolved_parent },
                 );
             },
             .comptimeExpr, .call => {
                 // Since we hit a cte, we leave the remaining strings unresolved
                 // and completely give up on resolving this decl path.
-                decl_path.hasCte = true;
+                //decl_path.hasCte = true;
                 break :outer;
-            },
-            .declPath => |dp| {
-                if (dp.hasCte) {
-                    decl_path.hasCte = true;
-                    break :outer;
-                }
-                if (self.pending_decl_paths.getPtr(&dp.path[0])) |waiter_list| {
-                    try waiter_list.append(self.arena, .{
-                        .file = file,
-                        .decl_path = .{ .path = path[0 .. i + 1] },
-                    });
-
-                    // This decl path is pending completion
-                    {
-                        const res = try self.pending_decl_paths.getOrPut(self.arena, &path[0]);
-                        if (!res.found_existing) res.value_ptr.* = .{};
-                    }
-
-                    return;
-                }
-
-                const final_decl_index = dp.path[0];
-                // For the purpose of being able to call tryResolveDeclPath again,
-                // we momentarily replace the decl index present in `path[i]`
-                // with the final decl in `dp`.
-                // We then write the original value back as soon as we're done with the
-                // recoursive call. This will work out correctly even if the path
-                // will not get fully resolved (also in the case that final_decl is
-                // not resolved yet).
-                path[i] = final_decl_index;
-                try self.tryResolveDeclPath(file, decl_path);
-                path[i] = decl_index;
             },
             .type => |t_index| switch (self.types.items[t_index]) {
                 else => {
-                    std.debug.panic(
+                    panicWithContext(
+                        file,
+                        inst_index,
                         "TODO: handle `{s}` in tryResolveDeclPath.type\n",
                         .{@tagName(self.types.items[t_index])},
                     );
@@ -2025,53 +1949,87 @@ fn tryResolveDeclPath(
                 .Unanalyzed => {
                     // This decl path is pending completion
                     {
-                        const res = try self.pending_decl_paths.getOrPut(self.arena, &path[0]);
+                        const res = try self.pending_ref_paths.getOrPut(
+                            self.arena,
+                            &path[path.len - 1],
+                        );
                         if (!res.found_existing) res.value_ptr.* = .{};
                     }
 
-                    const res = try self.decl_paths_pending_on_types.getOrPut(
+                    const res = try self.ref_paths_pending_on_types.getOrPut(
                         self.arena,
                         t_index,
                     );
                     if (!res.found_existing) res.value_ptr.* = .{};
                     try res.value_ptr.*.append(self.arena, .{
                         .file = file,
-                        .decl_path = .{ .path = path[0 .. i + 1] },
+                        .ref_path = path[i..path.len],
                     });
 
                     return;
                 },
                 .Struct => |t_struct| {
+                    std.debug.print("search: {s}\n", .{child_string});
                     for (t_struct.pubDecls) |d| {
                         // TODO: this could be improved a lot
                         //       by having our own string table!
                         const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_decl_name)) {
-                            path[i - 1] = d;
-                            continue;
+                        std.debug.print("pub decl `{s}`\n", .{decl.name});
+                        if (std.mem.eql(u8, decl.name, child_string)) {
+                            std.debug.print("match!\n", .{});
+                            path[i + 1] = .{ .declRef = d };
+                            continue :outer;
                         }
                     }
                     for (t_struct.privDecls) |d| {
                         // TODO: this could be improved a lot
                         //       by having our own string table!
                         const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_decl_name)) {
-                            path[i - 1] = d;
-                            continue;
+                        std.debug.print("priv decl `{s}`\n", .{decl.name});
+                        if (std.mem.eql(u8, decl.name, child_string)) {
+                            std.debug.print("match!\n", .{});
+                            path[i + 1] = .{ .declRef = d };
+                            continue :outer;
                         }
                     }
+
+                    for (self.ast_nodes.items[t_struct.src].fields.?) |ast_node, idx| {
+                        const name = self.ast_nodes.items[ast_node].name.?;
+                        std.debug.print("field `{s}`\n", .{name});
+                        if (std.mem.eql(u8, name, child_string)) {
+                            std.debug.print("match!\n", .{});
+                            // TODO: should we really create an artificial
+                            //       decl for this type? Probably not.
+
+                            path[i + 1] = .{
+                                .fieldRef = .{
+                                    .type = t_index,
+                                    .index = idx,
+                                },
+                            };
+                            continue :outer;
+                        }
+                    }
+
+                    // if we got here, our search failed
+                    panicWithContext(
+                        file,
+                        inst_index,
+                        "failed to match `{s}`",
+                        .{child_string},
+                    );
                 },
             },
         }
     }
 
-    if (self.pending_decl_paths.get(&path[0])) |waiter_list| {
+    if (self.pending_ref_paths.get(&path[path.len - 1])) |waiter_list| {
         // It's important to de-register oureslves as pending before
         // attempting to resolve any other decl.
-        _ = self.pending_decl_paths.remove(&path[0]);
+        _ = self.pending_ref_paths.remove(&path[path.len - 1]);
 
-        for (waiter_list.items) |*resume_info| {
-            try self.tryResolveDeclPath(resume_info.file, &resume_info.decl_path);
+        for (waiter_list.items) |resume_info| {
+            try self.tryResolveRefPath(resume_info.file, inst_index, resume_info.ref_path);
         }
         // TODO: this is where we should free waiter_list, but its in the arena
         //       that said, we might want to store it elsewhere and reclaim memory asap
@@ -2084,13 +2042,14 @@ fn analyzeFunction(
     scope: *Scope,
     inst_index: usize,
     self_ast_node_index: usize,
+    type_slot_index: usize,
 ) error{OutOfMemory}!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
-
     const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
+
     try self.ast_nodes.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
-    var param_type_refs = try std.ArrayListUnmanaged(DocData.TypeRef).initCapacity(
+    var param_type_refs = try std.ArrayListUnmanaged(DocData.WalkResult).initCapacity(
         self.arena,
         fn_info.total_params_len,
     );
@@ -2098,6 +2057,7 @@ fn analyzeFunction(
         self.arena,
         fn_info.total_params_len,
     );
+
     // TODO: handle scope rules for fn parameters
     for (fn_info.param_body[0..fn_info.total_params_len]) |param_index| {
         switch (tags[param_index]) {
@@ -2121,7 +2081,7 @@ fn analyzeFunction(
                 });
 
                 param_type_refs.appendAssumeCapacity(
-                    DocData.TypeRef{ .@"anytype" = {} },
+                    DocData.WalkResult{ .@"anytype" = {} },
                 );
             },
             .param, .param_comptime => {
@@ -2144,9 +2104,7 @@ fn analyzeFunction(
                 const break_operand = data[break_index].@"break".operand;
                 const param_type_ref = try self.walkRef(file, scope, break_operand);
 
-                param_type_refs.appendAssumeCapacity(
-                    walkResultToTypeRef(param_type_ref),
-                );
+                param_type_refs.appendAssumeCapacity(param_type_ref);
             },
         }
     }
@@ -2156,18 +2114,18 @@ fn analyzeFunction(
         const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
         const break_operand = data[last_instr_index].@"break".operand;
         const wr = try self.walkRef(file, scope, break_operand);
-        break :blk walkResultToTypeRef(wr);
+        break :blk wr;
     };
 
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
-    try self.types.append(self.arena, .{
+    self.types.items[type_slot_index] = .{
         .Fn = .{
             .name = "todo_name func",
             .src = self_ast_node_index,
             .params = param_type_refs.items,
             .ret = ret_type_ref,
         },
-    });
+    };
     return DocData.WalkResult{ .type = self.types.items.len - 1 };
 }
 
@@ -2176,7 +2134,7 @@ fn collectUnionFieldInfo(
     file: *File,
     scope: *Scope,
     fields_len: usize,
-    field_type_refs: *std.ArrayListUnmanaged(DocData.TypeRef),
+    field_type_refs: *std.ArrayListUnmanaged(DocData.WalkResult),
     field_name_indexes: *std.ArrayListUnmanaged(usize),
     ei: usize,
 ) !void {
@@ -2222,10 +2180,7 @@ fn collectUnionFieldInfo(
         // type
         {
             const walk_result = try self.walkRef(file, scope, field_type);
-            try field_type_refs.append(
-                self.arena,
-                walkResultToTypeRef(walk_result),
-            );
+            try field_type_refs.append(self.arena, walk_result);
         }
 
         // ast node
@@ -2248,7 +2203,7 @@ fn collectStructFieldInfo(
     file: *File,
     scope: *Scope,
     fields_len: usize,
-    field_type_refs: *std.ArrayListUnmanaged(DocData.TypeRef),
+    field_type_refs: *std.ArrayListUnmanaged(DocData.WalkResult),
     field_name_indexes: *std.ArrayListUnmanaged(usize),
     ei: usize,
 ) !void {
@@ -2291,10 +2246,7 @@ fn collectStructFieldInfo(
         // type
         {
             const walk_result = try self.walkRef(file, scope, field_type);
-            try field_type_refs.append(
-                self.arena,
-                walkResultToTypeRef(walk_result),
-            );
+            try field_type_refs.append(self.arena, walk_result);
         }
 
         // ast node
@@ -2334,17 +2286,24 @@ fn walkRef(
                 });
             },
             .undef => {
-                return DocData.WalkResult{ .@"undefined" = .unspecified };
+                var t = try self.arena.create(DocData.WalkResult);
+                t.* = .void;
+
+                return DocData.WalkResult{ .@"undefined" = t };
             },
             .zero => {
+                var t = try self.arena.create(DocData.WalkResult);
+                t.* = .{ .type = @enumToInt(Ref.comptime_int_type) };
                 return DocData.WalkResult{ .int = .{
-                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .typeRef = t,
                     .value = 0,
                 } };
             },
             .one => {
+                var t = try self.arena.create(DocData.WalkResult);
+                t.* = .{ .type = @enumToInt(Ref.comptime_int_type) };
                 return DocData.WalkResult{ .int = .{
-                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .typeRef = t,
                     .value = 1,
                 } };
             },
@@ -2356,7 +2315,9 @@ fn walkRef(
                 return DocData.WalkResult{ .@"unreachable" = {} };
             },
             .null_value => {
-                return DocData.WalkResult{ .@"null" = .unspecified };
+                var t = try self.arena.create(DocData.WalkResult);
+                t.* = .void;
+                return DocData.WalkResult{ .@"null" = t };
             },
             .bool_true => {
                 return DocData.WalkResult{ .bool = true };
@@ -2365,20 +2326,27 @@ fn walkRef(
                 return DocData.WalkResult{ .bool = false };
             },
             .empty_struct => {
+                var t = try self.arena.create(DocData.WalkResult);
+                t.* = .void;
+
                 return DocData.WalkResult{ .@"struct" = .{
-                    .typeRef = .unspecified,
+                    .typeRef = t,
                     .fieldVals = &.{},
                 } };
             },
             .zero_usize => {
+                var t = try self.arena.create(DocData.WalkResult);
+                t.* = .{ .type = @enumToInt(Ref.usize_type) };
                 return DocData.WalkResult{ .int = .{
-                    .typeRef = .{ .type = @enumToInt(Ref.usize_type) },
+                    .typeRef = t,
                     .value = 0,
                 } };
             },
             .one_usize => {
+                var t = try self.arena.create(DocData.WalkResult);
+                t.* = .{ .type = @enumToInt(Ref.usize_type) };
                 return DocData.WalkResult{ .int = .{
-                    .typeRef = .{ .type = @enumToInt(Ref.usize_type) },
+                    .typeRef = t,
                     .value = 1,
                 } };
             },
@@ -2408,37 +2376,19 @@ fn walkRef(
     }
 }
 
-/// Maps some `DocData.WalkResult` cases to `DocData.TypeRef`.
-/// Correct code should never cause this function to fail but
-/// incorrect code might (eg: `const foo: 5 = undefined;`)
-fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
-    return switch (wr) {
-        else => std.debug.panic(
-            "TODO: handle `{s}` in `walkResultToTypeRef`\n",
-            .{@tagName(wr)},
-        ),
-
-        .typeOf => |v| .{ .typeOf = v },
-        .comptimeExpr => |v| .{ .comptimeExpr = v },
-        .declPath => |v| .{ .declPath = v },
-        .type => |v| .{ .type = v },
-        .call => |v| .{ .call = v },
-    };
-}
-
 /// Given a WalkResult, tries to find its type.
 /// Used to analyze instructions like `array_init`, which require us to
 /// inspect its first element to find out the array type.
-fn typeOfWalkResult(wr: DocData.WalkResult) DocData.TypeRef {
+fn typeOfWalkResult(wr: DocData.WalkResult) DocData.WalkResult {
     return switch (wr) {
         else => std.debug.panic(
             "TODO: handle `{s}` in typeOfWalkResult\n",
             .{@tagName(wr)},
         ),
         .type => .{ .type = @enumToInt(DocData.DocTypeKinds.Type) },
-        .int => |v| v.typeRef,
-        .float => |v| v.typeRef,
-        .array => |v| v.typeRef,
+        .int => |v| v.typeRef.*,
+        .float => |v| v.typeRef.*,
+        .array => |v| v.typeRef.*,
     };
 }
 
@@ -2453,4 +2403,13 @@ fn getBlockInlineBreak(zir: Zir, inst_index: usize) Zir.Inst.Ref {
 fn panicWithContext(file: *File, inst: usize, comptime fmt: []const u8, args: anytype) noreturn {
     std.debug.print("Context [{s}] % {}\n", .{ file.sub_file_path, inst });
     std.debug.panic(fmt, args);
+}
+
+fn cteTodo(self: *Autodoc, msg: []const u8) error{OutOfMemory}!DocData.WalkResult {
+    const cte_slot_index = self.comptime_exprs.items.len;
+    try self.comptime_exprs.append(self.arena, .{
+        .code = msg,
+        .typeRef = .{ .type = @enumToInt(DocData.DocTypeKinds.ComptimeExpr) },
+    });
+    return DocData.WalkResult{ .comptimeExpr = cte_slot_index };
 }
