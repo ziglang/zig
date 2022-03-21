@@ -713,7 +713,7 @@ static float128_t decfloat(struct MuslFILE *f, int c, int bits, int emin, int si
         //y += bias;
         {
             float128_t new_value;
-            f128M_add(&y, &frac, &new_value);
+            f128M_add(&y, &bias, &new_value);
             y = new_value;
         }
     }
