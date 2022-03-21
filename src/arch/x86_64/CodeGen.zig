@@ -2174,10 +2174,44 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
 fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement ptr_elem_val for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else result: {
+        // this is identical to the `airPtrElemPtr` codegen expect here an
+        // additional `mov` is needed at the end to get the actual value
+
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const ptr = try self.resolveInst(bin_op.lhs);
+        ptr.freezeIfRegister(&self.register_manager);
+        defer ptr.unfreezeIfRegister(&self.register_manager);
+
+        const elem_ty = ptr_ty.elemType2();
+        const elem_abi_size = elem_ty.abiSize(self.target.*);
+        const index_ty = self.air.typeOf(bin_op.rhs);
+        const index = try self.resolveInst(bin_op.rhs);
+        index.freezeIfRegister(&self.register_manager);
+        defer index.unfreezeIfRegister(&self.register_manager);
+
+        const offset_reg = try self.elemOffset(index_ty, index, elem_abi_size);
+        self.register_manager.freezeRegs(&.{offset_reg});
+        defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+        const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ptr_ty, ptr);
+        try self.genBinMathOpMir(.add, ptr_ty, dst_mcv, .{ .register = offset_reg });
+        if (elem_abi_size > 8) {
+            return self.fail("TODO copy value with size {} from pointer", .{elem_abi_size});
+        } else {
+            // mov dst_mcv, [dst_mcv]
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .flags = 0b01,
+                    .reg1 = registerAlias(dst_mcv.register, @intCast(u32, elem_abi_size)),
+                    .reg2 = dst_mcv.register,
+                }).encode(),
+                .data = .{ .imm = 0 },
+            });
+            break :result .{ .register = registerAlias(dst_mcv.register, @intCast(u32, elem_abi_size)) };
+        }
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -5166,7 +5200,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (!self.wantSafety())
                 return; // The already existing value will do just fine.
             // Write the debug undefined value.
-            switch (reg.size()) {
+            switch (registerAlias(reg, abi_size).size()) {
                 8 => return self.genSetReg(ty, reg, .{ .immediate = 0xaa }),
                 16 => return self.genSetReg(ty, reg, .{ .immediate = 0xaaaa }),
                 32 => return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaa }),
@@ -5303,7 +5337,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg.to64(),
+                    .reg1 = registerAlias(reg, abi_size),
                     .reg2 = reg.to64(),
                     .flags = 0b01,
                 }).encode(),
@@ -5316,7 +5350,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 _ = try self.addInst(.{
                     .tag = .mov,
                     .ops = (Mir.Ops{
-                        .reg1 = reg,
+                        .reg1 = registerAlias(reg, abi_size),
                         .flags = 0b01,
                     }).encode(),
                     .data = .{ .imm = @truncate(u32, x) },
@@ -5343,8 +5377,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     _ = try self.addInst(.{
                         .tag = .mov,
                         .ops = (Mir.Ops{
-                            .reg1 = reg,
-                            .reg2 = reg,
+                            .reg1 = registerAlias(reg, abi_size),
+                            .reg2 = reg.to64(),
                             .flags = 0b01,
                         }).encode(),
                         .data = .{ .imm = 0 },

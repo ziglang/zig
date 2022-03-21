@@ -382,7 +382,6 @@ fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
 test "take address of parameter" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try testTakeAddressOfParameter(12.34);
 }
@@ -408,7 +407,6 @@ fn testPointerToVoidReturnType2() *const void {
 test "array 2D const double ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const rect_2d_vertexes = [_][1]f32{
@@ -421,7 +419,6 @@ test "array 2D const double ptr" {
 test "array 2D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const rect_2d_vertexes = [_][2]f32{
@@ -434,7 +431,6 @@ test "array 2D const double ptr with offset" {
 test "array 3D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const rect_3d_vertexes = [_][2][2]f32{
@@ -519,7 +515,6 @@ var global_foo: *i32 = undefined;
 test "peer result location with typed parent, runtime condition, comptime prongs" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(arg: i32) i32 {
@@ -620,7 +615,6 @@ test "self reference through fn ptr field" {
 test "global variable initialized to global variable array element" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
@@ -655,7 +649,6 @@ test "global constant is loaded with a runtime-known index" {
 test "multiline string literal is null terminated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const s1 =
         \\one

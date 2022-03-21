@@ -424,6 +424,7 @@ test "f64 at compile time is lossy" {
 }
 
 test {
+    if (builtin.zig_backend != .stage1 and builtin.os.tag == .macos) return error.SkipZigTest;
     comptime try expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
