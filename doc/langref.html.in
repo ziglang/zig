@@ -52,255 +52,255 @@
         #contents-wrapper {
           margin-left: calc(var(--nav-width) + var(--nav-margin-l));
         }
-    }
-
-    a:hover,a:focus {
-      background: #fff2a8;
-    }
-    dt {
-      font-weight: bold;
-    }
-    table, th, td {
-      border-collapse: collapse;
-      border: 1px solid grey;
-    }
-    th, td {
-      padding: 0.1em;
-    }
-    th[scope=row] {
-        text-align: left;
-        font-weight: normal;
-    }
-    .t0_1, .t37, .t37_1 {
-      font-weight: bold;
-    }
-    .t2_0 {
-      color: #575757;
-    }
-    .t31_1 {
-      color: #b40000;
-    }
-    .t32_1 {
-      color: green;
-    }
-    .t36_1 {
-      color: #005C7A;
-    }
-    .file {
-      font-weight: bold;
-      border: unset;
-    }
-    code {
-      background: #f8f8f8;
-      border: 1px dotted silver;
-      padding-left: 0.3em;
-      padding-right: 0.3em;
-    }
-    pre > code {
-      display: block;
-      overflow: auto;
-      padding: 0.5em;
-      border: 1px solid #eee;
-      line-height: normal;
-    }
-    samp {
-      background: #fafafa;
-    }
-    pre > samp {
-      display: block;
-      overflow: auto;
-      padding: 0.5em;
-      border: 1px solid #eee;
-      line-height: normal;
-    }
-    kbd {
-      font-weight: bold;
-    }
-    .table-wrapper {
-      width: 100%;
-      overflow-x: auto;
-    }
-
-    .tok-kw {
-        color: #333;
-        font-weight: bold;
-    }
-    .tok-str {
-        color: #d14;
-    }
-    .tok-builtin {
-        color: #005C7A;
-    }
-    .tok-comment {
-        color: #545454;
-        font-style: italic;
-    }
-    .tok-fn {
-        color: #900;
-        font-weight: bold;
-    }
-    .tok-null {
-        color: #005C5C;
-    }
-    .tok-number {
-        color: #005C5C;
-    }
-    .tok-type {
-        color: #458;
-        font-weight: bold;
-    }
-
-    figure {
-      margin: auto 0;
-    }
-    figure pre {
-      margin-top: 0;
-    }
-
-    figcaption {
-      padding-left: 0.5em;
-      font-size: small;
-      border-top-left-radius: 5px;
-      border-top-right-radius: 5px;
-    }
-    figcaption.zig-cap {
-      background: #fcdba5;
-    }
-    figcaption.c-cap {
-      background: #a8b9cc;
-      color: #000;
-    }
-    figcaption.peg-cap {
-      background: #fcdba5;
-    }
-    figcaption.javascript-cap {
-      background: #365d95;
-      color: #fff;
-    }
-    figcaption.shell-cap {
-      background: #ccc;
-      color: #000;
-    }
-
-    aside {
-      border-left: 0.25em solid #f7a41d;
-      padding: 0 1em 0 1em;
-    }
-
-    h1 a, h2 a, h3 a, h4 a, h5 a {
-      text-decoration: none;
-      color: #333;
-    }
-
-    a.hdr {
-      visibility: hidden;
-    }
-    h1:hover > a.hdr, h2:hover > a.hdr, h3:hover > a.hdr, h4:hover > a.hdr, h5:hover > a.hdr {
-      visibility: visible;
-    }
-
-    pre {
-      counter-reset: line;
-    }
-    pre .line:before {
-      counter-increment: line;
-      content: counter(line);
-      display: inline-block;
-      padding-right: 1em;
-      width: 2em;
-      text-align: right;
-      color: #999;
-    }
-    th pre code {
-        background: none;
-    }
-    th .line:before {
-        display: none;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      body{
-          background:#121212;
-          color: #ccc;
       }
-      a {
-          color: #88f;
-      }
+
       a:hover,a:focus {
-          color: #000;
+        background: #fff2a8;
+      }
+      dt {
+        font-weight: bold;
       }
       table, th, td {
-          border-color: grey;
+        border-collapse: collapse;
+        border: 1px solid grey;
+      }
+      th, td {
+        padding: 0.1em;
+      }
+      th[scope=row] {
+          text-align: left;
+          font-weight: normal;
+      }
+      .t0_1, .t37, .t37_1 {
+        font-weight: bold;
       }
       .t2_0 {
-          color: grey;
+        color: #575757;
       }
       .t31_1 {
-          color: red;
+        color: #b40000;
       }
       .t32_1 {
-          color: #00B800;
+        color: green;
       }
       .t36_1 {
-          color: #0086b3;
+        color: #005C7A;
       }
-      code {
-        background: #222;
-        border-color: #444;
-      }
-      pre > code {
-          color: #ccc;
-          background: #222;
-          border: unset;
-      }
-      samp {
-        background: #000;
-        color: #ccc;
-      }
-      pre > samp {
+      .file {
+        font-weight: bold;
         border: unset;
       }
+      code {
+        background: #f8f8f8;
+        border: 1px dotted silver;
+        padding-left: 0.3em;
+        padding-right: 0.3em;
+      }
+      pre > code {
+        display: block;
+        overflow: auto;
+        padding: 0.5em;
+        border: 1px solid #eee;
+        line-height: normal;
+      }
+      samp {
+        background: #fafafa;
+      }
+      pre > samp {
+        display: block;
+        overflow: auto;
+        padding: 0.5em;
+        border: 1px solid #eee;
+        line-height: normal;
+      }
+      kbd {
+        font-weight: bold;
+      }
+      .table-wrapper {
+        width: 100%;
+        overflow-x: auto;
+      }
+
       .tok-kw {
-          color: #eee;
+          color: #333;
+          font-weight: bold;
       }
       .tok-str {
-          color: #2e5;
+          color: #d14;
       }
       .tok-builtin {
-          color: #ff894c;
+          color: #005C7A;
       }
       .tok-comment {
-          color: #aa7;
+          color: #545454;
+          font-style: italic;
       }
       .tok-fn {
-          color: #B1A0F8;
+          color: #900;
+          font-weight: bold;
       }
       .tok-null {
-          color: #ff8080;
+          color: #005C5C;
       }
       .tok-number {
-          color: #ff8080;
+          color: #005C5C;
       }
       .tok-type {
-          color: #68f;
+          color: #458;
+          font-weight: bold;
       }
-      h1 a, h2 a, h3 a, h4 a, h5 a {
-          color: #aaa;
+
+      figure {
+        margin: auto 0;
+      }
+      figure pre {
+        margin-top: 0;
+      }
+
+      figcaption {
+        padding-left: 0.5em;
+        font-size: small;
+        border-top-left-radius: 5px;
+        border-top-right-radius: 5px;
       }
       figcaption.zig-cap {
-          background-color: #b27306;
-          color: #000;
+        background: #fcdba5;
+      }
+      figcaption.c-cap {
+        background: #a8b9cc;
+        color: #000;
       }
       figcaption.peg-cap {
-          background-color: #b27306;
-          color: #000;
+        background: #fcdba5;
       }
-      figcaption.shell-cap {
-        background: #2a2a2a;
+      figcaption.javascript-cap {
+        background: #365d95;
         color: #fff;
       }
-    }
-  </style>
+      figcaption.shell-cap {
+        background: #ccc;
+        color: #000;
+      }
+
+      aside {
+        border-left: 0.25em solid #f7a41d;
+        padding: 0 1em 0 1em;
+      }
+
+      h1 a, h2 a, h3 a, h4 a, h5 a {
+        text-decoration: none;
+        color: #333;
+      }
+
+      a.hdr {
+        visibility: hidden;
+      }
+      h1:hover > a.hdr, h2:hover > a.hdr, h3:hover > a.hdr, h4:hover > a.hdr, h5:hover > a.hdr {
+        visibility: visible;
+      }
+
+      pre {
+        counter-reset: line;
+      }
+      pre .line:before {
+        counter-increment: line;
+        content: counter(line);
+        display: inline-block;
+        padding-right: 1em;
+        width: 2em;
+        text-align: right;
+        color: #999;
+      }
+      th pre code {
+          background: none;
+      }
+      th .line:before {
+          display: none;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body{
+            background:#121212;
+            color: #ccc;
+        }
+        a {
+            color: #88f;
+        }
+        a:hover,a:focus {
+            color: #000;
+        }
+        table, th, td {
+            border-color: grey;
+        }
+        .t2_0 {
+            color: grey;
+        }
+        .t31_1 {
+            color: red;
+        }
+        .t32_1 {
+            color: #00B800;
+        }
+        .t36_1 {
+            color: #0086b3;
+        }
+        code {
+          background: #222;
+          border-color: #444;
+        }
+        pre > code {
+            color: #ccc;
+            background: #222;
+            border: unset;
+        }
+        samp {
+          background: #000;
+          color: #ccc;
+        }
+        pre > samp {
+          border: unset;
+        }
+        .tok-kw {
+            color: #eee;
+        }
+        .tok-str {
+            color: #2e5;
+        }
+        .tok-builtin {
+            color: #ff894c;
+        }
+        .tok-comment {
+            color: #aa7;
+        }
+        .tok-fn {
+            color: #B1A0F8;
+        }
+        .tok-null {
+            color: #ff8080;
+        }
+        .tok-number {
+            color: #ff8080;
+        }
+        .tok-type {
+            color: #68f;
+        }
+        h1 a, h2 a, h3 a, h4 a, h5 a {
+            color: #aaa;
+        }
+        figcaption.zig-cap {
+            background-color: #b27306;
+            color: #000;
+        }
+        figcaption.peg-cap {
+            background-color: #b27306;
+            color: #000;
+        }
+        figcaption.shell-cap {
+          background: #2a2a2a;
+          color: #fff;
+        }
+      }
+    </style>
 </head>
 <body>
   <header><h1>Zig Language Reference</h1></header>
@@ -535,8 +535,8 @@ const Timestamp = struct {
       {#header_close#}
       {#header_open|Top-Level Doc Comments#}
       <p>User documentation that doesn't belong to whatever
-      immediately follows it, like package-level documentation, goes
-      in top-level doc comments. A top-level doc comment is one that
+      immediately follows it, like container level documentation, goes
+      in top level doc comments. A top level doc comment is one that
       begins with two slashes and an exclamation point:
       {#syntax#}//!{#endsyntax#}.</p>
       {#code_begin|syntax|tldoc_comments#}
