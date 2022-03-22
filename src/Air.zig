@@ -308,6 +308,10 @@ pub const Inst = struct {
         /// `!=`. Result type is always bool.
         /// Uses the `bin_op` field.
         cmp_neq,
+        /// Conditional between two vectors.
+        /// Result type is always a vector of bools.
+        /// Uses the `ty_pl` field, payload is `VectorCmp`.
+        cmp_vector,
 
         /// Conditional branch.
         /// Result type is always noreturn; no instructions in a block follow this one.
@@ -781,6 +785,20 @@ pub const Shuffle = struct {
     mask_len: u32,
 };
 
+pub const VectorCmp = struct {
+    lhs: Inst.Ref,
+    rhs: Inst.Ref,
+    op: u32,
+
+    pub fn compareOperator(self: VectorCmp) std.math.CompareOperator {
+        return @intToEnum(std.math.CompareOperator, @truncate(u3, self.op));
+    }
+
+    pub fn encodeOp(compare_operator: std.math.CompareOperator) u32 {
+        return @enumToInt(compare_operator);
+    }
+};
+
 /// Trailing:
 /// 0. `Inst.Ref` for every outputs_len
 /// 1. `Inst.Ref` for every inputs_len
@@ -886,6 +904,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .shl_sat,
         .min,
         .max,
+        .bool_and,
+        .bool_or,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
         .sqrt,
@@ -917,8 +937,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .is_non_err,
         .is_err_ptr,
         .is_non_err_ptr,
-        .bool_and,
-        .bool_or,
         => return Type.initTag(.bool),
 
         .const_ty => return Type.initTag(.type),
@@ -942,6 +960,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .aggregate_init,
         .union_init,
         .field_parent_ptr,
+        .cmp_vector,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,

@@ -441,6 +441,10 @@ fn analyzeInst(
             const reduce = inst_datas[inst].reduce;
             return trackOperands(a, new_set, inst, main_tomb, .{ reduce.operand, .none, .none });
         },
+        .cmp_vector => {
+            const extra = a.air.extraData(Air.VectorCmp, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
+        },
         .aggregate_init => {
             const ty_pl = inst_datas[inst].ty_pl;
             const aggregate_ty = a.air.getRefType(ty_pl.ty);

@@ -1309,6 +1309,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .cmp_lte => self.airCmp(inst, .lte),
         .cmp_lt => self.airCmp(inst, .lt),
         .cmp_neq => self.airCmp(inst, .neq),
+        .cmp_vector => self.airCmpVector(inst),
 
         .array_elem_val => self.airArrayElemVal(inst),
         .array_to_slice => self.airArrayToSlice(inst),
@@ -2220,6 +2221,11 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
     const cmp_tmp = try self.allocLocal(Type.initTag(.i32)); // bool is always i32
     try self.addLabel(.local_set, cmp_tmp.local);
     return cmp_tmp;
+}
+
+fn airCmpVector(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    _ = inst;
+    return self.fail("TODO implement airCmpVector for wasm", .{});
 }
 
 fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {

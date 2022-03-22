@@ -658,6 +658,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_gte => try self.airCmp(inst, .gte),
             .cmp_gt  => try self.airCmp(inst, .gt),
             .cmp_neq => try self.airCmp(inst, .neq),
+            .cmp_vector => try self.airCmpVector(inst),
 
             .bool_and        => try self.airBoolOp(inst),
             .bool_or         => try self.airBoolOp(inst),
@@ -3697,6 +3698,11 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     };
 
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airCmpVector(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airCmpVector for {}", .{self.target.cpu.arch});
 }
 
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {

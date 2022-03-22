@@ -3375,6 +3375,7 @@ pub const FuncGen = struct {
                 .cmp_lt  => try self.airCmp(inst, .lt),
                 .cmp_lte => try self.airCmp(inst, .lte),
                 .cmp_neq => try self.airCmp(inst, .neq),
+                .cmp_vector => try self.airCmpVector(inst),
 
                 .is_non_null     => try self.airIsNonNull(inst, false, false, .NE),
                 .is_non_null_ptr => try self.airIsNonNull(inst, true , false, .NE),
@@ -3640,6 +3641,20 @@ pub const FuncGen = struct {
         return self.cmp(lhs, rhs, operand_ty, op);
     }
 
+    fn airCmpVector(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.VectorCmp, ty_pl.payload).data;
+
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+        const vec_ty = self.air.typeOf(extra.lhs);
+        const cmp_op = extra.compareOperator();
+
+        return self.cmp(lhs, rhs, vec_ty, cmp_op);
+    }
+
     fn cmp(
         self: *FuncGen,
         lhs: *const llvm.Value,
@@ -3650,9 +3665,10 @@ pub const FuncGen = struct {
         var int_buffer: Type.Payload.Bits = undefined;
         var opt_buffer: Type.Payload.ElemType = undefined;
 
-        const int_ty = switch (operand_ty.zigTypeTag()) {
-            .Enum => operand_ty.intTagType(&int_buffer),
-            .Int, .Bool, .Pointer, .ErrorSet => operand_ty,
+        const scalar_ty = operand_ty.scalarType();
+        const int_ty = switch (scalar_ty.zigTypeTag()) {
+            .Enum => scalar_ty.intTagType(&int_buffer),
+            .Int, .Bool, .Pointer, .ErrorSet => scalar_ty,
             .Optional => blk: {
                 const payload_ty = operand_ty.optionalChild(&opt_buffer);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime() or operand_ty.isPtrLikeOptional()) {
@@ -3944,10 +3960,11 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.air.typeOf(ty_op.operand);
+        const operand_scalar_ty = operand_ty.scalarType();
         const dest_ty = self.air.typeOfIndex(inst);
         const dest_llvm_ty = try self.dg.llvmType(dest_ty);
 
-        if (operand_ty.isSignedInt()) {
+        if (operand_scalar_ty.isSignedInt()) {
             return self.builder.buildSIToFP(operand, dest_llvm_ty, "");
         } else {
             return self.builder.buildUIToFP(operand, dest_llvm_ty, "");
@@ -3961,11 +3978,12 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const dest_ty = self.air.typeOfIndex(inst);
+        const dest_scalar_ty = dest_ty.scalarType();
         const dest_llvm_ty = try self.dg.llvmType(dest_ty);
 
         // TODO set fast math flag
 
-        if (dest_ty.isSignedInt()) {
+        if (dest_scalar_ty.isSignedInt()) {
             return self.builder.buildFPToSI(operand, dest_llvm_ty, "");
         } else {
             return self.builder.buildFPToUI(operand, dest_llvm_ty, "");
@@ -4896,9 +4914,10 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isAnyFloat()) return self.builder.buildFAdd(lhs, rhs, "");
-        if (inst_ty.isSignedInt()) return self.builder.buildNSWAdd(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.builder.buildFAdd(lhs, rhs, "");
+        if (scalar_ty.isSignedInt()) return self.builder.buildNSWAdd(lhs, rhs, "");
         return self.builder.buildNUWAdd(lhs, rhs, "");
     }
 
@@ -4919,9 +4938,10 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isAnyFloat()) return self.todo("saturating float add", .{});
-        if (inst_ty.isSignedInt()) return self.builder.buildSAddSat(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.todo("saturating float add", .{});
+        if (scalar_ty.isSignedInt()) return self.builder.buildSAddSat(lhs, rhs, "");
 
         return self.builder.buildUAddSat(lhs, rhs, "");
     }
@@ -4933,9 +4953,10 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isAnyFloat()) return self.builder.buildFSub(lhs, rhs, "");
-        if (inst_ty.isSignedInt()) return self.builder.buildNSWSub(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.builder.buildFSub(lhs, rhs, "");
+        if (scalar_ty.isSignedInt()) return self.builder.buildNSWSub(lhs, rhs, "");
         return self.builder.buildNUWSub(lhs, rhs, "");
     }
 
@@ -4956,9 +4977,10 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isAnyFloat()) return self.todo("saturating float sub", .{});
-        if (inst_ty.isSignedInt()) return self.builder.buildSSubSat(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.todo("saturating float sub", .{});
+        if (scalar_ty.isSignedInt()) return self.builder.buildSSubSat(lhs, rhs, "");
         return self.builder.buildUSubSat(lhs, rhs, "");
     }
 
@@ -4969,9 +4991,10 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isAnyFloat()) return self.builder.buildFMul(lhs, rhs, "");
-        if (inst_ty.isSignedInt()) return self.builder.buildNSWMul(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.builder.buildFMul(lhs, rhs, "");
+        if (scalar_ty.isSignedInt()) return self.builder.buildNSWMul(lhs, rhs, "");
         return self.builder.buildNUWMul(lhs, rhs, "");
     }
 
@@ -4992,9 +5015,10 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isAnyFloat()) return self.todo("saturating float mul", .{});
-        if (inst_ty.isSignedInt()) return self.builder.buildSMulFixSat(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.todo("saturating float mul", .{});
+        if (scalar_ty.isSignedInt()) return self.builder.buildSMulFixSat(lhs, rhs, "");
         return self.builder.buildUMulFixSat(lhs, rhs, "");
     }
 
@@ -5015,12 +5039,13 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isRuntimeFloat()) {
+        if (scalar_ty.isRuntimeFloat()) {
             const result = self.builder.buildFDiv(lhs, rhs, "");
             return self.callTrunc(result, inst_ty);
         }
-        if (inst_ty.isSignedInt()) return self.builder.buildSDiv(lhs, rhs, "");
+        if (scalar_ty.isSignedInt()) return self.builder.buildSDiv(lhs, rhs, "");
         return self.builder.buildUDiv(lhs, rhs, "");
     }
 
@@ -5031,12 +5056,13 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isRuntimeFloat()) {
+        if (scalar_ty.isRuntimeFloat()) {
             const result = self.builder.buildFDiv(lhs, rhs, "");
             return try self.callFloor(result, inst_ty);
         }
-        if (inst_ty.isSignedInt()) {
+        if (scalar_ty.isSignedInt()) {
             // const d = @divTrunc(a, b);
             // const r = @rem(a, b);
             // return if (r == 0) d else d - ((a < 0) ^ (b < 0));
@@ -5062,9 +5088,10 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isRuntimeFloat()) return self.builder.buildFDiv(lhs, rhs, "");
-        if (inst_ty.isSignedInt()) return self.builder.buildExactSDiv(lhs, rhs, "");
+        if (scalar_ty.isRuntimeFloat()) return self.builder.buildFDiv(lhs, rhs, "");
+        if (scalar_ty.isSignedInt()) return self.builder.buildExactSDiv(lhs, rhs, "");
         return self.builder.buildExactUDiv(lhs, rhs, "");
     }
 
@@ -5075,9 +5102,10 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isRuntimeFloat()) return self.builder.buildFRem(lhs, rhs, "");
-        if (inst_ty.isSignedInt()) return self.builder.buildSRem(lhs, rhs, "");
+        if (scalar_ty.isRuntimeFloat()) return self.builder.buildFRem(lhs, rhs, "");
+        if (scalar_ty.isSignedInt()) return self.builder.buildSRem(lhs, rhs, "");
         return self.builder.buildURem(lhs, rhs, "");
     }
 
@@ -5089,8 +5117,9 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);
         const inst_llvm_ty = try self.dg.llvmType(inst_ty);
+        const scalar_ty = inst_ty.scalarType();
 
-        if (inst_ty.isRuntimeFloat()) {
+        if (scalar_ty.isRuntimeFloat()) {
             const a = self.builder.buildFRem(lhs, rhs, "");
             const b = self.builder.buildFAdd(a, rhs, "");
             const c = self.builder.buildFRem(b, rhs, "");
@@ -5098,7 +5127,7 @@ pub const FuncGen = struct {
             const ltz = self.builder.buildFCmp(.OLT, lhs, zero, "");
             return self.builder.buildSelect(ltz, c, a, "");
         }
-        if (inst_ty.isSignedInt()) {
+        if (scalar_ty.isSignedInt()) {
             const a = self.builder.buildSRem(lhs, rhs, "");
             const b = self.builder.buildNSWAdd(a, rhs, "");
             const c = self.builder.buildSRem(b, rhs, "");
@@ -5323,15 +5352,22 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const lhs_type = self.air.typeOf(bin_op.lhs);
+
+        const lhs_ty = self.air.typeOf(bin_op.lhs);
+        const rhs_ty = self.air.typeOf(bin_op.rhs);
+        const lhs_scalar_ty = lhs_ty.scalarType();
+        const rhs_scalar_ty = rhs_ty.scalarType();
+
         const tg = self.dg.module.getTarget();
-        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
-            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
+
+        const casted_rhs = if (rhs_scalar_ty.bitSize(tg) < lhs_scalar_ty.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_ty), "")
         else
             rhs;
-        if (lhs_type.isSignedInt()) return self.builder.buildNSWShl(lhs, casted_rhs, "");
+        if (lhs_scalar_ty.isSignedInt()) return self.builder.buildNSWShl(lhs, casted_rhs, "");
         return self.builder.buildNUWShl(lhs, casted_rhs, "");
     }
 
@@ -5339,11 +5375,18 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
+
         const lhs_type = self.air.typeOf(bin_op.lhs);
+        const rhs_type = self.air.typeOf(bin_op.rhs);
+        const lhs_scalar_ty = lhs_type.scalarType();
+        const rhs_scalar_ty = rhs_type.scalarType();
+
         const tg = self.dg.module.getTarget();
-        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
+
+        const casted_rhs = if (rhs_scalar_ty.bitSize(tg) < lhs_scalar_ty.bitSize(tg))
             self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
         else
             rhs;
@@ -5354,31 +5397,45 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const lhs_type = self.air.typeOf(bin_op.lhs);
+
+        const lhs_ty = self.air.typeOf(bin_op.lhs);
+        const rhs_ty = self.air.typeOf(bin_op.rhs);
+        const lhs_scalar_ty = lhs_ty.scalarType();
+        const rhs_scalar_ty = rhs_ty.scalarType();
+
         const tg = self.dg.module.getTarget();
-        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
-            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
+
+        const casted_rhs = if (rhs_scalar_ty.bitSize(tg) < lhs_scalar_ty.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_ty), "")
         else
             rhs;
-        if (lhs_type.isSignedInt()) return self.builder.buildSShlSat(lhs, casted_rhs, "");
+        if (lhs_scalar_ty.isSignedInt()) return self.builder.buildSShlSat(lhs, casted_rhs, "");
         return self.builder.buildUShlSat(lhs, casted_rhs, "");
     }
 
     fn airShr(self: *FuncGen, inst: Air.Inst.Index, is_exact: bool) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
+
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const lhs_type = self.air.typeOf(bin_op.lhs);
+
+        const lhs_ty = self.air.typeOf(bin_op.lhs);
+        const rhs_ty = self.air.typeOf(bin_op.rhs);
+        const lhs_scalar_ty = lhs_ty.scalarType();
+        const rhs_scalar_ty = rhs_ty.scalarType();
+
         const tg = self.dg.module.getTarget();
-        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
-            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
+
+        const casted_rhs = if (rhs_scalar_ty.bitSize(tg) < lhs_scalar_ty.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_ty), "")
         else
             rhs;
-        const is_signed_int = self.air.typeOfIndex(inst).isSignedInt();
+        const is_signed_int = lhs_scalar_ty.isSignedInt();
 
         if (is_exact) {
             if (is_signed_int) {
@@ -5506,7 +5563,8 @@ pub const FuncGen = struct {
             if (bitcast_ok) {
                 const llvm_vector_ty = try self.dg.llvmType(operand_ty);
                 const casted_ptr = self.builder.buildBitCast(array_ptr, llvm_vector_ty.pointerType(0), "");
-                _ = self.builder.buildStore(operand, casted_ptr);
+                const llvm_store = self.builder.buildStore(operand, casted_ptr);
+                llvm_store.setAlignment(inst_ty.abiAlignment(target));
             } else {
                 // If the ABI size of the element type is not evenly divisible by size in bits;
                 // a simple bitcast will not work, and we fall back to extractelement.

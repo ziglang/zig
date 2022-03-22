@@ -1846,8 +1846,23 @@ pub const Value = extern union {
         return order(lhs, rhs).compare(op);
     }
 
-    /// Asserts the value is comparable. Both operands have type `ty`.
+    /// Asserts the values are comparable. Both operands have type `ty`.
+    /// Vector results will be reduced with AND.
     pub fn compare(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type) bool {
+        if (ty.zigTypeTag() == .Vector) {
+            var i: usize = 0;
+            while (i < ty.vectorLen()) : (i += 1) {
+                if (!compareScalar(lhs.indexVectorlike(i), op, rhs.indexVectorlike(i), ty.scalarType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return compareScalar(lhs, op, rhs, ty);
+    }
+
+    /// Asserts the values are comparable. Both operands have type `ty`.
+    pub fn compareScalar(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type) bool {
         return switch (op) {
             .eq => lhs.eql(rhs, ty),
             .neq => !lhs.eql(rhs, ty),
@@ -1855,18 +1870,25 @@ pub const Value = extern union {
         };
     }
 
+    /// Asserts the values are comparable vectors of type `ty`.
+    pub fn compareVector(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        assert(ty.zigTypeTag() == .Vector);
+        const result_data = try allocator.alloc(Value, ty.vectorLen());
+        for (result_data) |*scalar, i| {
+            const res_bool = compareScalar(lhs.indexVectorlike(i), op, rhs.indexVectorlike(i), ty.scalarType());
+            scalar.* = if (res_bool) Value.@"true" else Value.@"false";
+        }
+        return Value.Tag.aggregate.create(allocator, result_data);
+    }
+
     /// Asserts the value is comparable.
-    /// For vectors this is only valid with op == .eq.
+    /// Vector results will be reduced with AND.
     pub fn compareWithZero(lhs: Value, op: std.math.CompareOperator) bool {
         switch (lhs.tag()) {
-            .repeated => {
-                assert(op == .eq);
-                return lhs.castTag(.repeated).?.data.compareWithZero(.eq);
-            },
+            .repeated => return lhs.castTag(.repeated).?.data.compareWithZero(op),
             .aggregate => {
-                assert(op == .eq);
                 for (lhs.castTag(.aggregate).?.data) |elem_val| {
-                    if (!elem_val.compareWithZero(.eq)) return false;
+                    if (!elem_val.compareWithZero(op)) return false;
                 }
                 return true;
             },
@@ -2404,6 +2426,27 @@ pub const Value = extern union {
         };
     }
 
+    /// Index into a vector-like `Value`. Asserts `index` is a valid index for `val`.
+    /// Some scalar values are considered vector-like to avoid needing to allocate
+    /// a new `repeated` each time a constant is used.
+    pub fn indexVectorlike(val: Value, index: usize) Value {
+        return switch (val.tag()) {
+            .aggregate => val.castTag(.aggregate).?.data[index],
+
+            .repeated => val.castTag(.repeated).?.data,
+            // These values will implicitly be treated as `repeated`.
+            .zero,
+            .one,
+            .bool_false,
+            .bool_true,
+            .int_i64,
+            .int_u64,
+            => val,
+
+            else => unreachable,
+        };
+    }
+
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
     pub fn elemValue(val: Value, arena: Allocator, index: usize) !Value {
@@ -2646,25 +2689,36 @@ pub const Value = extern union {
         };
     }
 
-    pub fn intToFloat(val: Value, arena: Allocator, dest_ty: Type, target: Target) !Value {
+    pub fn intToFloat(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, target: Target) !Value {
+        if (int_ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, int_ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intToFloatScalar(val.indexVectorlike(i), arena, float_ty.scalarType(), target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return intToFloatScalar(val, arena, float_ty, target);
+    }
+
+    pub fn intToFloatScalar(val: Value, arena: Allocator, float_ty: Type, target: Target) !Value {
         switch (val.tag()) {
             .undef, .zero, .one => return val,
             .the_only_possible_value => return Value.initTag(.zero), // for i0, u0
             .int_u64 => {
-                return intToFloatInner(val.castTag(.int_u64).?.data, arena, dest_ty, target);
+                return intToFloatInner(val.castTag(.int_u64).?.data, arena, float_ty, target);
             },
             .int_i64 => {
-                return intToFloatInner(val.castTag(.int_i64).?.data, arena, dest_ty, target);
+                return intToFloatInner(val.castTag(.int_i64).?.data, arena, float_ty, target);
             },
             .int_big_positive => {
                 const limbs = val.castTag(.int_big_positive).?.data;
                 const float = bigIntToFloat(limbs, true);
-                return floatToValue(float, arena, dest_ty, target);
+                return floatToValue(float, arena, float_ty, target);
             },
             .int_big_negative => {
                 const limbs = val.castTag(.int_big_negative).?.data;
                 const float = bigIntToFloat(limbs, false);
-                return floatToValue(float, arena, dest_ty, target);
+                return floatToValue(float, arena, float_ty, target);
             },
             else => unreachable,
         }
@@ -2694,7 +2748,18 @@ pub const Value = extern union {
         }
     }
 
-    pub fn floatToInt(val: Value, arena: Allocator, dest_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
+    pub fn floatToInt(val: Value, arena: Allocator, float_ty: Type, int_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
+        if (float_ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatToIntScalar(val.indexVectorlike(i), arena, int_ty.scalarType(), target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatToIntScalar(val, arena, int_ty, target);
+    }
+
+    pub fn floatToIntScalar(val: Value, arena: Allocator, int_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
         const Limb = std.math.big.Limb;
 
         var value = val.toFloat(f64); // TODO: f128 ?
@@ -2724,7 +2789,7 @@ pub const Value = extern union {
         else
             try Value.Tag.int_big_positive.create(arena, result_limbs);
 
-        if (result.intFitsInType(dest_ty, target)) {
+        if (result.intFitsInType(int_ty, target)) {
             return result;
         } else {
             return error.FloatCannotFit;
@@ -2771,8 +2836,26 @@ pub const Value = extern union {
         };
     }
 
-    /// Supports both floats and ints; handles undefined.
+    /// Supports both (vectors of) floats and ints; handles undefined scalars.
     pub fn numberAddWrap(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try numberAddWrapScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return numberAddWrapScalar(lhs, rhs, ty, arena, target);
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberAddWrapScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2782,7 +2865,7 @@ pub const Value = extern union {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
         if (ty.zigTypeTag() == .ComptimeInt) {
-            return intAdd(lhs, rhs, arena);
+            return intAdd(lhs, rhs, ty, arena);
         }
 
         if (ty.isAnyFloat()) {
@@ -2809,8 +2892,26 @@ pub const Value = extern union {
         }
     }
 
-    /// Supports integers only; asserts neither operand is undefined.
+    /// Supports (vectors of) integers only; asserts neither operand is undefined.
     pub fn intAddSat(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intAddSatScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return intAddSatScalar(lhs, rhs, ty, arena, target);
+    }
+
+    /// Supports integers only; asserts neither operand is undefined.
+    pub fn intAddSatScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2861,8 +2962,26 @@ pub const Value = extern union {
         };
     }
 
-    /// Supports both floats and ints; handles undefined.
+    /// Supports both (vectors of) floats and ints; handles undefined scalars.
     pub fn numberSubWrap(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try numberSubWrapScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return numberSubWrapScalar(lhs, rhs, ty, arena, target);
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberSubWrapScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2872,7 +2991,7 @@ pub const Value = extern union {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
         if (ty.zigTypeTag() == .ComptimeInt) {
-            return intSub(lhs, rhs, arena);
+            return intSub(lhs, rhs, ty, arena);
         }
 
         if (ty.isAnyFloat()) {
@@ -2883,8 +3002,26 @@ pub const Value = extern union {
         return overflow_result.wrapped_result;
     }
 
-    /// Supports integers only; asserts neither operand is undefined.
+    /// Supports (vectors of) integers only; asserts neither operand is undefined.
     pub fn intSubSat(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intSubSatScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return intSubSatScalar(lhs, rhs, ty, arena, target);
+    }
+
+    /// Supports integers only; asserts neither operand is undefined.
+    pub fn intSubSatScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2944,8 +3081,26 @@ pub const Value = extern union {
         };
     }
 
-    /// Supports both floats and ints; handles undefined.
+    /// Supports both (vectors of) floats and ints; handles undefined scalars.
     pub fn numberMulWrap(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try numberMulWrapScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return numberMulWrapScalar(lhs, rhs, ty, arena, target);
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberMulWrapScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2955,7 +3110,7 @@ pub const Value = extern union {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
         if (ty.zigTypeTag() == .ComptimeInt) {
-            return intMul(lhs, rhs, arena);
+            return intMul(lhs, rhs, ty, arena);
         }
 
         if (ty.isAnyFloat()) {
@@ -2966,8 +3121,26 @@ pub const Value = extern union {
         return overflow_result.wrapped_result;
     }
 
-    /// Supports integers only; asserts neither operand is undefined.
+    /// Supports (vectors of) integers only; asserts neither operand is undefined.
     pub fn intMulSat(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intMulSatScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return intMulSatScalar(lhs, rhs, ty, arena, target);
+    }
+
+    /// Supports (vectors of) integers only; asserts neither operand is undefined.
+    pub fn intMulSatScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -3025,8 +3198,20 @@ pub const Value = extern union {
         };
     }
 
-    /// operands must be integers; handles undefined.
+    /// operands must be (vectors of) integers; handles undefined scalars.
     pub fn bitwiseNot(val: Value, ty: Type, arena: Allocator, target: Target) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try bitwiseNotScalar(val.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return bitwiseNotScalar(val, ty, arena, target);
+    }
+
+    /// operands must be integers; handles undefined.
+    pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, target: Target) !Value {
         if (val.isUndef()) return Value.initTag(.undef);
 
         const info = ty.intInfo(target);
@@ -3050,8 +3235,20 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
+    /// operands must be (vectors of) integers; handles undefined scalars.
+    pub fn bitwiseAnd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try bitwiseAndScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return bitwiseAndScalar(lhs, rhs, allocator);
+    }
+
     /// operands must be integers; handles undefined.
-    pub fn bitwiseAnd(lhs: Value, rhs: Value, arena: Allocator) !Value {
+    pub fn bitwiseAndScalar(lhs: Value, rhs: Value, arena: Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
         // TODO is this a performance issue? maybe we should try the operation without
@@ -3070,22 +3267,46 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
-    /// operands must be integers; handles undefined.
+    /// operands must be (vectors of) integers; handles undefined scalars.
     pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: Allocator, target: Target) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try bitwiseNandScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return bitwiseNandScalar(lhs, rhs, ty, arena, target);
+    }
+
+    /// operands must be integers; handles undefined.
+    pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, target: Target) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
-        const anded = try bitwiseAnd(lhs, rhs, arena);
+        const anded = try bitwiseAnd(lhs, rhs, ty, arena);
 
         const all_ones = if (ty.isSignedInt())
             try Value.Tag.int_i64.create(arena, -1)
         else
             try ty.maxInt(arena, target);
 
-        return bitwiseXor(anded, all_ones, arena);
+        return bitwiseXor(anded, all_ones, ty, arena);
+    }
+
+    /// operands must be (vectors of) integers; handles undefined scalars.
+    pub fn bitwiseOr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try bitwiseOrScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return bitwiseOrScalar(lhs, rhs, allocator);
     }
 
     /// operands must be integers; handles undefined.
-    pub fn bitwiseOr(lhs: Value, rhs: Value, arena: Allocator) !Value {
+    pub fn bitwiseOrScalar(lhs: Value, rhs: Value, arena: Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
         // TODO is this a performance issue? maybe we should try the operation without
@@ -3103,8 +3324,20 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
+    /// operands must be (vectors of) integers; handles undefined scalars.
+    pub fn bitwiseXor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try bitwiseXorScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return bitwiseXorScalar(lhs, rhs, allocator);
+    }
+
     /// operands must be integers; handles undefined.
-    pub fn bitwiseXor(lhs: Value, rhs: Value, arena: Allocator) !Value {
+    pub fn bitwiseXorScalar(lhs: Value, rhs: Value, arena: Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
         // TODO is this a performance issue? maybe we should try the operation without
@@ -3123,7 +3356,18 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
-    pub fn intAdd(lhs: Value, rhs: Value, allocator: Allocator) !Value {
+    pub fn intAdd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intAddScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return intAddScalar(lhs, rhs, allocator);
+    }
+
+    pub fn intAddScalar(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3139,7 +3383,18 @@ pub const Value = extern union {
         return fromBigInt(allocator, result_bigint.toConst());
     }
 
-    pub fn intSub(lhs: Value, rhs: Value, allocator: Allocator) !Value {
+    pub fn intSub(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intSubScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return intSubScalar(lhs, rhs, allocator);
+    }
+
+    pub fn intSubScalar(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3155,7 +3410,18 @@ pub const Value = extern union {
         return fromBigInt(allocator, result_bigint.toConst());
     }
 
-    pub fn intDiv(lhs: Value, rhs: Value, allocator: Allocator) !Value {
+    pub fn intDiv(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intDivScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return intDivScalar(lhs, rhs, allocator);
+    }
+
+    pub fn intDivScalar(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3180,7 +3446,18 @@ pub const Value = extern union {
         return fromBigInt(allocator, result_q.toConst());
     }
 
-    pub fn intDivFloor(lhs: Value, rhs: Value, allocator: Allocator) !Value {
+    pub fn intDivFloor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intDivFloorScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return intDivFloorScalar(lhs, rhs, allocator);
+    }
+
+    pub fn intDivFloorScalar(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3205,7 +3482,18 @@ pub const Value = extern union {
         return fromBigInt(allocator, result_q.toConst());
     }
 
-    pub fn intRem(lhs: Value, rhs: Value, allocator: Allocator) !Value {
+    pub fn intRem(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intRemScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return intRemScalar(lhs, rhs, allocator);
+    }
+
+    pub fn intRemScalar(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3232,7 +3520,18 @@ pub const Value = extern union {
         return fromBigInt(allocator, result_r.toConst());
     }
 
-    pub fn intMod(lhs: Value, rhs: Value, allocator: Allocator) !Value {
+    pub fn intMod(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intModScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return intModScalar(lhs, rhs, allocator);
+    }
+
+    pub fn intModScalar(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3270,6 +3569,17 @@ pub const Value = extern union {
     }
 
     pub fn floatRem(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, target: Target) !Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatRemScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatRemScalar(lhs, rhs, float_type, arena, target);
+    }
+
+    pub fn floatRemScalar(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, target: Target) !Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const lhs_val = lhs.toFloat(f16);
@@ -3304,6 +3614,17 @@ pub const Value = extern union {
     }
 
     pub fn floatMod(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, target: Target) !Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatModScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatModScalar(lhs, rhs, float_type, arena, target);
+    }
+
+    pub fn floatModScalar(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, target: Target) !Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const lhs_val = lhs.toFloat(f16);
@@ -3337,7 +3658,18 @@ pub const Value = extern union {
         }
     }
 
-    pub fn intMul(lhs: Value, rhs: Value, allocator: Allocator) !Value {
+    pub fn intMul(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intMulScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return intMulScalar(lhs, rhs, allocator);
+    }
+
+    pub fn intMulScalar(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3358,7 +3690,32 @@ pub const Value = extern union {
         return fromBigInt(allocator, result_bigint.toConst());
     }
 
-    pub fn intTrunc(val: Value, allocator: Allocator, signedness: std.builtin.Signedness, bits: u16) !Value {
+    pub fn intTrunc(val: Value, ty: Type, allocator: Allocator, signedness: std.builtin.Signedness, bits: u16) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intTruncScalar(val.indexVectorlike(i), allocator, signedness, bits);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return intTruncScalar(val, allocator, signedness, bits);
+    }
+
+    /// This variant may vectorize on `bits`. Asserts that `bits` is a (vector of) `u16`.
+    pub fn intTruncBitsAsValue(val: Value, ty: Type, allocator: Allocator, signedness: std.builtin.Signedness, bits: Value) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try intTruncScalar(val.indexVectorlike(i), allocator, signedness, @intCast(u16, bits.indexVectorlike(i).toUnsignedInt()));
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return intTruncScalar(val, allocator, signedness, @intCast(u16, bits.toUnsignedInt()));
+    }
+
+    pub fn intTruncScalar(val: Value, allocator: Allocator, signedness: std.builtin.Signedness, bits: u16) !Value {
+        if (bits == 0) return Value.zero;
+
         var val_space: Value.BigIntSpace = undefined;
         const val_bigint = val.toBigInt(&val_space);
 
@@ -3372,7 +3729,18 @@ pub const Value = extern union {
         return fromBigInt(allocator, result_bigint.toConst());
     }
 
-    pub fn shl(lhs: Value, rhs: Value, allocator: Allocator) !Value {
+    pub fn shl(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try shlScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return shlScalar(lhs, rhs, allocator);
+    }
+
+    pub fn shlScalar(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3429,6 +3797,23 @@ pub const Value = extern union {
         arena: Allocator,
         target: Target,
     ) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try shlSatScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return shlSatScalar(lhs, rhs, ty, arena, target);
+    }
+
+    pub fn shlSatScalar(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         const info = ty.intInfo(target);
@@ -3456,13 +3841,41 @@ pub const Value = extern union {
         arena: Allocator,
         target: Target,
     ) !Value {
-        const shifted = try lhs.shl(rhs, arena);
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try shlTruncScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return shlTruncScalar(lhs, rhs, ty, arena, target);
+    }
+
+    pub fn shlTruncScalar(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        const shifted = try lhs.shl(rhs, ty, arena);
         const int_info = ty.intInfo(target);
-        const truncated = try shifted.intTrunc(arena, int_info.signedness, int_info.bits);
+        const truncated = try shifted.intTrunc(ty, arena, int_info.signedness, int_info.bits);
         return truncated;
     }
 
-    pub fn shr(lhs: Value, rhs: Value, allocator: Allocator) !Value {
+    pub fn shr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator) !Value {
+        if (ty.zigTypeTag() == .Vector) {
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try shrScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator);
+            }
+            return Value.Tag.aggregate.create(allocator, result_data);
+        }
+        return shrScalar(lhs, rhs, allocator);
+    }
+
+    pub fn shrScalar(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3490,6 +3903,23 @@ pub const Value = extern union {
     }
 
     pub fn floatAdd(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatAddScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatAddScalar(lhs, rhs, float_type, arena, target);
+    }
+
+    pub fn floatAddScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
@@ -3533,6 +3963,23 @@ pub const Value = extern union {
         arena: Allocator,
         target: Target,
     ) !Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatSubScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatSubScalar(lhs, rhs, float_type, arena, target);
+    }
+
+    pub fn floatSubScalar(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const lhs_val = lhs.toFloat(f16);
@@ -3564,6 +4011,23 @@ pub const Value = extern union {
     }
 
     pub fn floatDiv(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatDivScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatDivScalar(lhs, rhs, float_type, arena, target);
+    }
+
+    pub fn floatDivScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
@@ -3610,6 +4074,23 @@ pub const Value = extern union {
         arena: Allocator,
         target: Target,
     ) !Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatDivFloorScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatDivFloorScalar(lhs, rhs, float_type, arena, target);
+    }
+
+    pub fn floatDivFloorScalar(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const lhs_val = lhs.toFloat(f16);
@@ -3644,6 +4125,23 @@ pub const Value = extern union {
     }
 
     pub fn floatDivTrunc(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatDivTruncScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatDivTruncScalar(lhs, rhs, float_type, arena, target);
+    }
+
+    pub fn floatDivTruncScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
@@ -3690,6 +4188,23 @@ pub const Value = extern union {
         arena: Allocator,
         target: Target,
     ) !Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatMulScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatMulScalar(lhs, rhs, float_type, arena, target);
+    }
+
+    pub fn floatMulScalar(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const lhs_val = lhs.toFloat(f16);
@@ -3724,6 +4239,17 @@ pub const Value = extern union {
     }
 
     pub fn sqrt(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try sqrtScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return sqrtScalar(val, float_type, arena, target);
+    }
+
+    pub fn sqrtScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -3756,6 +4282,17 @@ pub const Value = extern union {
     }
 
     pub fn sin(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try sinScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return sinScalar(val, float_type, arena, target);
+    }
+
+    pub fn sinScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -3788,6 +4325,17 @@ pub const Value = extern union {
     }
 
     pub fn cos(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try cosScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return cosScalar(val, float_type, arena, target);
+    }
+
+    pub fn cosScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -3820,6 +4368,17 @@ pub const Value = extern union {
     }
 
     pub fn exp(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try expScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return expScalar(val, float_type, arena, target);
+    }
+
+    pub fn expScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -3852,6 +4411,17 @@ pub const Value = extern union {
     }
 
     pub fn exp2(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try exp2Scalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return exp2Scalar(val, float_type, arena, target);
+    }
+
+    pub fn exp2Scalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -3884,6 +4454,17 @@ pub const Value = extern union {
     }
 
     pub fn log(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try logScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return logScalar(val, float_type, arena, target);
+    }
+
+    pub fn logScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -3916,6 +4497,17 @@ pub const Value = extern union {
     }
 
     pub fn log2(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try log2Scalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return log2Scalar(val, float_type, arena, target);
+    }
+
+    pub fn log2Scalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -3948,6 +4540,17 @@ pub const Value = extern union {
     }
 
     pub fn log10(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try log10Scalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return log10Scalar(val, float_type, arena, target);
+    }
+
+    pub fn log10Scalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -3980,6 +4583,17 @@ pub const Value = extern union {
     }
 
     pub fn fabs(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try fabsScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return fabsScalar(val, float_type, arena, target);
+    }
+
+    pub fn fabsScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -4009,6 +4623,17 @@ pub const Value = extern union {
     }
 
     pub fn floor(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floorScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floorScalar(val, float_type, arena, target);
+    }
+
+    pub fn floorScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -4038,6 +4663,17 @@ pub const Value = extern union {
     }
 
     pub fn ceil(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try ceilScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return ceilScalar(val, float_type, arena, target);
+    }
+
+    pub fn ceilScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -4067,6 +4703,17 @@ pub const Value = extern union {
     }
 
     pub fn round(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try roundScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return roundScalar(val, float_type, arena, target);
+    }
+
+    pub fn roundScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -4096,6 +4743,17 @@ pub const Value = extern union {
     }
 
     pub fn trunc(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try truncScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return truncScalar(val, float_type, arena, target);
+    }
+
+    pub fn truncScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         switch (float_type.floatBits(target)) {
             16 => {
                 const f = val.toFloat(f16);
@@ -4125,6 +4783,31 @@ pub const Value = extern union {
     }
 
     pub fn mulAdd(
+        float_type: Type,
+        mulend1: Value,
+        mulend2: Value,
+        addend: Value,
+        arena: Allocator,
+        target: Target,
+    ) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try mulAddScalar(
+                    float_type.scalarType(),
+                    mulend1.indexVectorlike(i),
+                    mulend2.indexVectorlike(i),
+                    addend.indexVectorlike(i),
+                    arena,
+                    target,
+                );
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return mulAddScalar(float_type, mulend1, mulend2, addend, arena, target);
+    }
+
+    pub fn mulAddScalar(
         float_type: Type,
         mulend1: Value,
         mulend2: Value,

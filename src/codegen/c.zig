@@ -1715,6 +1715,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .cmp_eq  => try airEquality(f, inst, "((", "=="),
             .cmp_neq => try airEquality(f, inst, "!((", "!="),
 
+            .cmp_vector => return f.fail("TODO: C backend: implement binary op for tag '{s}'", .{@tagName(Air.Inst.Tag.cmp_vector)}),
+
             // bool_and and bool_or are non-short-circuit operations
             .bool_and        => try airBinOp(f, inst, " & "),
             .bool_or         => try airBinOp(f, inst, " | "),
