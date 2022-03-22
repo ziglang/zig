@@ -19863,6 +19863,32 @@ fn analyzeSlice(
     });
 
     try sema.requireRuntimeBlock(block, src);
+    if (block.wantSafety()) {
+        // requirement: end <= len
+        const opt_len_inst = if (array_ty.zigTypeTag() == .Array)
+            try sema.addIntUnsigned(Type.usize, array_ty.arrayLenIncludingSentinel())
+        else if (slice_ty.isSlice()) blk: {
+            if (try sema.resolveDefinedValue(block, src, ptr_or_slice)) |slice_val| {
+                // we don't need to add one for sentinels because the
+                // underlying value data includes the sentinel
+                break :blk try sema.addIntUnsigned(Type.usize, slice_val.sliceLen());
+            }
+
+            const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
+            if (slice_ty.sentinel() == null) break :blk slice_len_inst;
+
+            // we have to add one because slice lengths don't include the sentinel
+            break :blk try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src);
+        } else null;
+        if (opt_len_inst) |len_inst| {
+            const end_is_in_bounds = try block.addBinOp(.cmp_lte, end, len_inst);
+            try sema.addSafetyCheck(block, end_is_in_bounds, .index_out_of_bounds);
+        }
+
+        // requirement: start <= end
+        const start_is_in_bounds = try block.addBinOp(.cmp_lte, start, end);
+        try sema.addSafetyCheck(block, start_is_in_bounds, .index_out_of_bounds);
+    }
     return block.addInst(.{
         .tag = .slice,
         .data = .{ .ty_pl = .{
