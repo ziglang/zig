@@ -535,8 +535,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .mod             => try self.airMod(inst),
             .shl, .shl_exact => try self.airBinOp(inst),
             .shl_sat         => try self.airShlSat(inst),
-            .min             => try self.airMin(inst),
-            .max             => try self.airMax(inst),
+            .min             => try self.airMinMax(inst),
+            .max             => try self.airMinMax(inst),
             .slice           => try self.airSlice(inst),
 
             .sqrt,
@@ -1140,15 +1140,119 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airMin(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement min for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+fn minMax(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) !MCValue {
+    switch (lhs_ty.zigTypeTag()) {
+        .Float => return self.fail("TODO ARM min/max on floats", .{}),
+        .Vector => return self.fail("TODO ARM min/max on vectors", .{}),
+        .Int => {
+            assert(lhs_ty.eql(rhs_ty));
+            const int_info = lhs_ty.intInfo(self.target.*);
+            if (int_info.bits <= 32) {
+                const lhs_is_register = lhs == .register;
+                const rhs_is_register = rhs == .register;
+
+                const lhs_reg = switch (lhs) {
+                    .register => |r| r,
+                    else => try self.copyToTmpRegister(lhs_ty, lhs),
+                };
+                self.register_manager.freezeRegs(&.{lhs_reg});
+                defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+
+                const rhs_reg = switch (rhs) {
+                    .register => |r| r,
+                    else => try self.copyToTmpRegister(rhs_ty, rhs),
+                };
+                self.register_manager.freezeRegs(&.{rhs_reg});
+                defer self.register_manager.unfreezeRegs(&.{rhs_reg});
+
+                const dest_reg = if (maybe_inst) |inst| blk: {
+                    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
+                    if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
+                        break :blk lhs_reg;
+                    } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
+                        break :blk rhs_reg;
+                    } else {
+                        break :blk try self.register_manager.allocReg(inst);
+                    }
+                } else try self.register_manager.allocReg(null);
+
+                // lhs == reg should have been checked by airMinMax
+                //
+                // By guaranteeing lhs != rhs, we guarantee (dst !=
+                // lhs) or (dst != rhs), which is a property we use to
+                // omit generating one instruction when we reuse a
+                // register.
+                assert(lhs_reg != rhs_reg); // see note above
+
+                _ = try self.binOpRegister(.cmp_eq, null, .{ .register = lhs_reg }, .{ .register = rhs_reg }, lhs_ty, rhs_ty);
+
+                const cond_choose_lhs: Condition = switch (tag) {
+                    .max => switch (int_info.signedness) {
+                        .signed => Condition.gt,
+                        .unsigned => Condition.hi,
+                    },
+                    .min => switch (int_info.signedness) {
+                        .signed => Condition.lt,
+                        .unsigned => Condition.cc,
+                    },
+                    else => unreachable,
+                };
+                const cond_choose_rhs = cond_choose_lhs.negate();
+
+                if (dest_reg != lhs_reg) {
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .cond = cond_choose_lhs,
+                        .data = .{ .rr_op = .{
+                            .rd = dest_reg,
+                            .rn = .r0,
+                            .op = Instruction.Operand.reg(lhs_reg, Instruction.Operand.Shift.none),
+                        } },
+                    });
+                }
+                if (dest_reg != rhs_reg) {
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .cond = cond_choose_rhs,
+                        .data = .{ .rr_op = .{
+                            .rd = dest_reg,
+                            .rn = .r0,
+                            .op = Instruction.Operand.reg(rhs_reg, Instruction.Operand.Shift.none),
+                        } },
+                    });
+                }
+
+                return MCValue{ .register = dest_reg };
+            } else {
+                return self.fail("TODO ARM min/max on integers > u32/i32", .{});
+            }
+        },
+        else => unreachable,
+    }
 }
 
-fn airMax(self: *Self, inst: Air.Inst.Index) !void {
+fn airMinMax(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[inst];
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement max for {}", .{self.target.cpu.arch});
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        if (bin_op.lhs == bin_op.rhs) break :result lhs;
+
+        break :result try self.minMax(tag, inst, lhs, rhs, lhs_ty, rhs_ty);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
