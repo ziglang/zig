@@ -384,7 +384,7 @@ fn addDbgInfoTypeReloc(self: *Emit, ty: Type) !void {
             const index = dbg_out.dbg_info.items.len;
             try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.bin_file.allocator, ty);
+            const gop = try dbg_out.dbg_info_type_relocs.getOrPutContext(self.bin_file.allocator, ty, .{ .target = self.target.* });
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .off = undefined,
@@ -404,6 +404,7 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
     const ty = self.function.air.instructions.items(.data)[inst].ty;
     const name = self.function.mod_fn.getParamName(arg_index);
     const name_with_null = name.ptr[0 .. name.len + 1];
+    const target = self.target.*;
 
     switch (mcv) {
         .register => |reg| {
@@ -429,7 +430,7 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
-                        return self.fail("type '{}' too big to fit into stack frame", .{ty});
+                        return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(target)});
                     };
                     const adjusted_stack_offset = switch (mcv) {
                         .stack_offset => |offset| math.negateCast(offset + abi_size) catch {

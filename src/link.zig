@@ -457,7 +457,7 @@ pub const File = struct {
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) UpdateDeclError!void {
-        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty });
+        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmtDebug() });
         assert(decl.has_tv);
         switch (base.tag) {
             // zig fmt: off
@@ -477,7 +477,7 @@ pub const File = struct {
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
         log.debug("updateFunc {*} ({s}), type={}", .{
-            func.owner_decl, func.owner_decl.name, func.owner_decl.ty,
+            func.owner_decl, func.owner_decl.name, func.owner_decl.ty.fmtDebug(),
         });
         switch (base.tag) {
             // zig fmt: off

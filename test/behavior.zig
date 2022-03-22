@@ -125,6 +125,7 @@ test {
     _ = @import("behavior/src.zig");
     _ = @import("behavior/struct.zig");
     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
+    _ = @import("behavior/struct_contains_slice_of_itself.zig");
     _ = @import("behavior/switch.zig");
     _ = @import("behavior/switch_prong_err_enum.zig");
     _ = @import("behavior/switch_prong_implicit_cast.zig");
@@ -179,6 +180,5 @@ test {
         _ = @import("behavior/bugs/6781.zig");
         _ = @import("behavior/bugs/7027.zig");
         _ = @import("behavior/select.zig");
-        _ = @import("behavior/struct_contains_slice_of_itself.zig");
     }
 }

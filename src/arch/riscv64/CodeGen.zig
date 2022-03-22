@@ -749,7 +749,9 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
             const index = dbg_out.dbg_info.items.len;
             try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.gpa, ty);
+            const gop = try dbg_out.dbg_info_type_relocs.getOrPutContext(self.gpa, ty, .{
+                .target = self.target.*,
+            });
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .off = undefined,
@@ -781,8 +783,9 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
 /// Use a pointer instruction as the basis for allocating stack memory.
 fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const elem_ty = self.air.typeOfIndex(inst).elemType();
+    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = elem_ty.abiAlignment(self.target.*);
@@ -791,8 +794,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const elem_ty = self.air.typeOfIndex(inst);
+    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
     };
     const abi_align = elem_ty.abiAlignment(self.target.*);
     if (abi_align > self.stack_align)
@@ -1048,7 +1052,7 @@ fn binOp(
                 .Float => return self.fail("TODO binary operations on floats", .{}),
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
                 .Int => {
-                    assert(lhs_ty.eql(rhs_ty));
+                    assert(lhs_ty.eql(rhs_ty, self.target.*));
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 64) {
                         // TODO immediate operands
@@ -1778,7 +1782,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
     const ty = self.air.typeOf(bin_op.lhs);
-    assert(ty.eql(self.air.typeOf(bin_op.rhs)));
+    assert(ty.eql(self.air.typeOf(bin_op.rhs), self.target.*));
     if (ty.zigTypeTag() == .ErrorSet)
         return self.fail("TODO implement cmp for errors", .{});
 
@@ -2531,6 +2535,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
         return self.lowerDeclRef(typed_value, payload.data.decl);
     }
+    const target = self.target.*;
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
     switch (typed_value.ty.zigTypeTag()) {
         .Pointer => switch (typed_value.ty.ptrSize()) {
@@ -2538,7 +2543,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const ptr_type = typed_value.ty.slicePtrFieldType(&buf);
                 const ptr_mcv = try self.genTypedValue(.{ .ty = ptr_type, .val = typed_value.val });
-                const slice_len = typed_value.val.sliceLen();
+                const slice_len = typed_value.val.sliceLen(target);
                 // Codegen can't handle some kinds of indirection. If the wrong union field is accessed here it may mean
                 // the Sema code needs to use anonymous Decls or alloca instructions to store data.
                 const ptr_imm = ptr_mcv.memory;
@@ -2549,7 +2554,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             },
             else => {
                 if (typed_value.val.tag() == .int_u64) {
-                    return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                    return MCValue{ .immediate = typed_value.val.toUnsignedInt(target) };
                 }
                 return self.fail("TODO codegen more kinds of const pointers", .{});
             },
@@ -2559,7 +2564,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             if (info.bits > ptr_bits or info.signedness == .signed) {
                 return self.fail("TODO const int bigger than ptr and signed int", .{});
             }
-            return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+            return MCValue{ .immediate = typed_value.val.toUnsignedInt(target) };
         },
         .Bool => {
             return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
@@ -2629,9 +2634,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 return self.genTypedValue(.{ .ty = error_type, .val = sub_val });
             }
 
-            return self.fail("TODO implement error union const of type '{}'", .{typed_value.ty});
+            return self.fail("TODO implement error union const of type '{}'", .{typed_value.ty.fmtDebug()});
         },
-        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
+        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty.fmtDebug()}),
     }
 }
 

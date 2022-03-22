@@ -146,6 +146,8 @@ const MonomorphedFuncsSet = std.HashMapUnmanaged(
 );
 
 const MonomorphedFuncsContext = struct {
+    target: Target,
+
     pub fn eql(ctx: @This(), a: *Fn, b: *Fn) bool {
         _ = ctx;
         return a == b;
@@ -153,7 +155,6 @@ const MonomorphedFuncsContext = struct {
 
     /// Must match `Sema.GenericCallAdapter.hash`.
     pub fn hash(ctx: @This(), key: *Fn) u64 {
-        _ = ctx;
         var hasher = std.hash.Wyhash.init(0);
 
         // The generic function Decl is guaranteed to be the first dependency
@@ -168,7 +169,7 @@ const MonomorphedFuncsContext = struct {
         const generic_ty_info = generic_owner_decl.ty.fnInfo();
         for (generic_ty_info.param_types) |param_ty, i| {
             if (generic_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
-                comptime_args[i].val.hash(param_ty, &hasher);
+                comptime_args[i].val.hash(param_ty, &hasher, ctx.target);
             }
         }
 
@@ -184,6 +185,8 @@ pub const MemoizedCallSet = std.HashMapUnmanaged(
 );
 
 pub const MemoizedCall = struct {
+    target: std.Target,
+
     pub const Key = struct {
         func: *Fn,
         args: []TypedValue,
@@ -195,14 +198,12 @@ pub const MemoizedCall = struct {
     };
 
     pub fn eql(ctx: @This(), a: Key, b: Key) bool {
-        _ = ctx;
-
         if (a.func != b.func) return false;
 
         assert(a.args.len == b.args.len);
         for (a.args) |a_arg, arg_i| {
             const b_arg = b.args[arg_i];
-            if (!a_arg.eql(b_arg)) {
+            if (!a_arg.eql(b_arg, ctx.target)) {
                 return false;
             }
         }
@@ -212,8 +213,6 @@ pub const MemoizedCall = struct {
 
     /// Must match `Sema.GenericCallAdapter.hash`.
     pub fn hash(ctx: @This(), key: Key) u64 {
-        _ = ctx;
-
         var hasher = std.hash.Wyhash.init(0);
 
         // The generic function Decl is guaranteed to be the first dependency
@@ -223,7 +222,7 @@ pub const MemoizedCall = struct {
         // This logic must be kept in sync with the logic in `analyzeCall` that
         // computes the hash.
         for (key.args) |arg| {
-            arg.hash(&hasher);
+            arg.hash(&hasher, ctx.target);
         }
 
         return hasher.final();
@@ -1230,7 +1229,7 @@ pub const Union = struct {
                 if (field.abi_align == 0) {
                     break :a field.ty.abiAlignment(target);
                 } else {
-                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    break :a field.abi_align;
                 }
             };
             if (field_align > most_alignment) {
@@ -3877,6 +3876,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         const bytes = try sema.resolveConstString(&block_scope, src, linksection_ref);
         break :blk (try decl_arena_allocator.dupeZ(u8, bytes)).ptr;
     };
+    const target = sema.mod.getTarget();
     const address_space = blk: {
         const addrspace_ctx: Sema.AddressSpaceContext = switch (decl_tv.val.tag()) {
             .function, .extern_fn => .function,
@@ -3886,9 +3886,9 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
         break :blk switch (decl.zirAddrspaceRef()) {
             .none => switch (addrspace_ctx) {
-                .function => target_util.defaultAddressSpace(sema.mod.getTarget(), .function),
-                .variable => target_util.defaultAddressSpace(sema.mod.getTarget(), .global_mutable),
-                .constant => target_util.defaultAddressSpace(sema.mod.getTarget(), .global_constant),
+                .function => target_util.defaultAddressSpace(target, .function),
+                .variable => target_util.defaultAddressSpace(target, .global_mutable),
+                .constant => target_util.defaultAddressSpace(target, .global_constant),
                 else => unreachable,
             },
             else => |addrspace_ref| try sema.analyzeAddrspace(&block_scope, src, addrspace_ref, addrspace_ctx),
@@ -3904,13 +3904,15 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     if (decl.is_usingnamespace) {
         const ty_ty = Type.initTag(.type);
-        if (!decl_tv.ty.eql(ty_ty)) {
-            return sema.fail(&block_scope, src, "expected type, found {}", .{decl_tv.ty});
+        if (!decl_tv.ty.eql(ty_ty, target)) {
+            return sema.fail(&block_scope, src, "expected type, found {}", .{
+                decl_tv.ty.fmt(target),
+            });
         }
         var buffer: Value.ToTypeBuffer = undefined;
         const ty = decl_tv.val.toType(&buffer);
         if (ty.getNamespace() == null) {
-            return sema.fail(&block_scope, src, "type {} has no namespace", .{ty});
+            return sema.fail(&block_scope, src, "type {} has no namespace", .{ty.fmt(target)});
         }
 
         decl.ty = ty_ty;
@@ -3937,7 +3939,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
             if (decl.has_tv) {
                 prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits();
-                type_changed = !decl.ty.eql(decl_tv.ty);
+                type_changed = !decl.ty.eql(decl_tv.ty, target);
                 if (decl.getFunction()) |prev_func| {
                     prev_is_inline = prev_func.state == .inline_only;
                 }
@@ -3986,7 +3988,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     }
     var type_changed = true;
     if (decl.has_tv) {
-        type_changed = !decl.ty.eql(decl_tv.ty);
+        type_changed = !decl.ty.eql(decl_tv.ty, target);
         decl.clearValues(gpa);
     }
 
@@ -5052,22 +5054,6 @@ pub fn errNoteNonLazy(
         .src_loc = src_loc,
         .msg = msg,
     };
-}
-
-pub fn errorUnionType(
-    arena: Allocator,
-    error_set: Type,
-    payload: Type,
-) Allocator.Error!Type {
-    assert(error_set.zigTypeTag() == .ErrorSet);
-    if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
-        return Type.initTag(.anyerror_void_error_union);
-    }
-
-    return Type.Tag.error_union.create(arena, .{
-        .error_set = error_set,
-        .payload = payload,
-    });
 }
 
 pub fn getTarget(mod: Module) Target {

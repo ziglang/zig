@@ -165,7 +165,10 @@ pub fn generateSymbol(
     const target = bin_file.options.target;
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateSymbol: ty = {}, val = {}", .{ typed_value.ty, typed_value.val.fmtDebug() });
+    log.debug("generateSymbol: ty = {}, val = {}", .{
+        typed_value.ty.fmtDebug(),
+        typed_value.val.fmtDebug(),
+    });
 
     if (typed_value.val.isUndefDeep()) {
         const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
@@ -295,11 +298,11 @@ pub fn generateSymbol(
             .zero, .one, .int_u64, .int_big_positive => {
                 switch (target.cpu.arch.ptrBitWidth()) {
                     32 => {
-                        const x = typed_value.val.toUnsignedInt();
+                        const x = typed_value.val.toUnsignedInt(target);
                         mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, x), endian);
                     },
                     64 => {
-                        const x = typed_value.val.toUnsignedInt();
+                        const x = typed_value.val.toUnsignedInt(target);
                         mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
                     },
                     else => unreachable,
@@ -433,7 +436,7 @@ pub fn generateSymbol(
             // TODO populate .debug_info for the integer
             const info = typed_value.ty.intInfo(bin_file.options.target);
             if (info.bits <= 8) {
-                const x = @intCast(u8, typed_value.val.toUnsignedInt());
+                const x = @intCast(u8, typed_value.val.toUnsignedInt(target));
                 try code.append(x);
                 return Result{ .appended = {} };
             }
@@ -443,20 +446,20 @@ pub fn generateSymbol(
                         bin_file.allocator,
                         src_loc,
                         "TODO implement generateSymbol for big ints ('{}')",
-                        .{typed_value.ty},
+                        .{typed_value.ty.fmtDebug()},
                     ),
                 };
             }
             switch (info.signedness) {
                 .unsigned => {
                     if (info.bits <= 16) {
-                        const x = @intCast(u16, typed_value.val.toUnsignedInt());
+                        const x = @intCast(u16, typed_value.val.toUnsignedInt(target));
                         mem.writeInt(u16, try code.addManyAsArray(2), x, endian);
                     } else if (info.bits <= 32) {
-                        const x = @intCast(u32, typed_value.val.toUnsignedInt());
+                        const x = @intCast(u32, typed_value.val.toUnsignedInt(target));
                         mem.writeInt(u32, try code.addManyAsArray(4), x, endian);
                     } else {
-                        const x = typed_value.val.toUnsignedInt();
+                        const x = typed_value.val.toUnsignedInt(target);
                         mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
                     }
                 },
@@ -482,7 +485,7 @@ pub fn generateSymbol(
 
             const info = typed_value.ty.intInfo(target);
             if (info.bits <= 8) {
-                const x = @intCast(u8, int_val.toUnsignedInt());
+                const x = @intCast(u8, int_val.toUnsignedInt(target));
                 try code.append(x);
                 return Result{ .appended = {} };
             }
@@ -492,20 +495,20 @@ pub fn generateSymbol(
                         bin_file.allocator,
                         src_loc,
                         "TODO implement generateSymbol for big int enums ('{}')",
-                        .{typed_value.ty},
+                        .{typed_value.ty.fmtDebug()},
                     ),
                 };
             }
             switch (info.signedness) {
                 .unsigned => {
                     if (info.bits <= 16) {
-                        const x = @intCast(u16, int_val.toUnsignedInt());
+                        const x = @intCast(u16, int_val.toUnsignedInt(target));
                         mem.writeInt(u16, try code.addManyAsArray(2), x, endian);
                     } else if (info.bits <= 32) {
-                        const x = @intCast(u32, int_val.toUnsignedInt());
+                        const x = @intCast(u32, int_val.toUnsignedInt(target));
                         mem.writeInt(u32, try code.addManyAsArray(4), x, endian);
                     } else {
-                        const x = int_val.toUnsignedInt();
+                        const x = int_val.toUnsignedInt(target);
                         mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
                     }
                 },
@@ -597,7 +600,7 @@ pub fn generateSymbol(
             }
 
             const union_ty = typed_value.ty.cast(Type.Payload.Union).?.data;
-            const field_index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag).?;
+            const field_index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag, target).?;
             assert(union_ty.haveFieldTypes());
             const field_ty = union_ty.fields.values()[field_index].ty;
             if (!field_ty.hasRuntimeBits()) {
@@ -787,6 +790,7 @@ fn lowerDeclRef(
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
 ) GenerateSymbolError!Result {
+    const target = bin_file.options.target;
     if (typed_value.ty.isSlice()) {
         // generate ptr
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
@@ -805,7 +809,7 @@ fn lowerDeclRef(
         // generate length
         var slice_len: Value.Payload.U64 = .{
             .base = .{ .tag = .int_u64 },
-            .data = typed_value.val.sliceLen(),
+            .data = typed_value.val.sliceLen(target),
         };
         switch (try generateSymbol(bin_file, src_loc, .{
             .ty = Type.usize,
@@ -821,7 +825,6 @@ fn lowerDeclRef(
         return Result{ .appended = {} };
     }
 
-    const target = bin_file.options.target;
     const ptr_width = target.cpu.arch.ptrBitWidth();
     const is_fn_body = decl.ty.zigTypeTag() == .Fn;
     if (!is_fn_body and !decl.ty.hasRuntimeBits()) {

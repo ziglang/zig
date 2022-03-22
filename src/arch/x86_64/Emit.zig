@@ -1118,7 +1118,9 @@ fn addDbgInfoTypeReloc(emit: *Emit, ty: Type) !void {
             const index = dbg_out.dbg_info.items.len;
             try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(emit.bin_file.allocator, ty);
+            const gop = try dbg_out.dbg_info_type_relocs.getOrPutContext(emit.bin_file.allocator, ty, .{
+                .target = emit.target.*,
+            });
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .off = undefined,

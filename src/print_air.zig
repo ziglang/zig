@@ -299,12 +299,12 @@ const Writer = struct {
 
     fn writeTy(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty = w.air.instructions.items(.data)[inst].ty;
-        try s.print("{}", .{ty});
+        try s.print("{}", .{ty.fmtDebug()});
     }
 
     fn writeTyOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_op = w.air.instructions.items(.data)[inst].ty_op;
-        try s.print("{}, ", .{w.air.getRefType(ty_op.ty)});
+        try s.print("{}, ", .{w.air.getRefType(ty_op.ty).fmtDebug()});
         try w.writeOperand(s, inst, 0, ty_op.operand);
     }
 
@@ -313,7 +313,7 @@ const Writer = struct {
         const extra = w.air.extraData(Air.Block, ty_pl.payload);
         const body = w.air.extra[extra.end..][0..extra.data.body_len];
 
-        try s.print("{}, {{\n", .{w.air.getRefType(ty_pl.ty)});
+        try s.print("{}, {{\n", .{w.air.getRefType(ty_pl.ty).fmtDebug()});
         const old_indent = w.indent;
         w.indent += 2;
         try w.writeBody(s, body);
@@ -328,7 +328,7 @@ const Writer = struct {
         const len = @intCast(usize, vector_ty.arrayLen());
         const elements = @bitCast([]const Air.Inst.Ref, w.air.extra[ty_pl.payload..][0..len]);
 
-        try s.print("{}, [", .{vector_ty});
+        try s.print("{}, [", .{vector_ty.fmtDebug()});
         for (elements) |elem, i| {
             if (i != 0) try s.writeAll(", ");
             try w.writeOperand(s, inst, i, elem);
@@ -502,7 +502,7 @@ const Writer = struct {
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const val = w.air.values[ty_pl.payload];
-        try s.print("{}, {}", .{ w.air.getRefType(ty_pl.ty), val.fmtDebug() });
+        try s.print("{}, {}", .{ w.air.getRefType(ty_pl.ty).fmtDebug(), val.fmtDebug() });
     }
 
     fn writeAssembly(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -514,7 +514,7 @@ const Writer = struct {
         var op_index: usize = 0;
 
         const ret_ty = w.air.typeOfIndex(inst);
-        try s.print("{}", .{ret_ty});
+        try s.print("{}", .{ret_ty.fmtDebug()});
 
         if (is_volatile) {
             try s.writeAll(", volatile");

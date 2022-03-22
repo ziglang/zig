@@ -892,8 +892,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
         return self.allocMem(inst, @sizeOf(usize), @alignOf(usize));
     }
 
+    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = ptr_ty.ptrAlignment(self.target.*);
@@ -902,8 +903,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const elem_ty = self.air.typeOfIndex(inst);
+    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
     };
     const abi_align = elem_ty.abiAlignment(self.target.*);
     if (abi_align > self.stack_align)
@@ -1142,7 +1144,7 @@ fn airMin(self: *Self, inst: Air.Inst.Index) !void {
 
     const ty = self.air.typeOfIndex(inst);
     if (ty.zigTypeTag() != .Int) {
-        return self.fail("TODO implement min for type {}", .{ty});
+        return self.fail("TODO implement min for type {}", .{ty.fmtDebug()});
     }
     const signedness = ty.intInfo(self.target.*).signedness;
     const result: MCValue = result: {
@@ -1676,13 +1678,13 @@ fn airShl(self: *Self, inst: Air.Inst.Index) !void {
     const ty = self.air.typeOfIndex(inst);
     const tag = self.air.instructions.items(.tag)[inst];
     switch (tag) {
-        .shl_exact => return self.fail("TODO implement {} for type {}", .{ tag, ty }),
+        .shl_exact => return self.fail("TODO implement {} for type {}", .{ tag, ty.fmtDebug() }),
         .shl => {},
         else => unreachable,
     }
 
     if (ty.zigTypeTag() != .Int) {
-        return self.fail("TODO implement .shl for type {}", .{ty});
+        return self.fail("TODO implement .shl for type {}", .{ty.fmtDebug()});
     }
     if (ty.abiSize(self.target.*) > 8) {
         return self.fail("TODO implement .shl for integers larger than 8 bytes", .{});
@@ -5820,7 +5822,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
 }
 
 fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
-    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty, tv.val.fmtDebug() });
+    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
     const local_sym_index = self.bin_file.lowerUnnamedConst(tv, self.mod_fn.owner_decl) catch |err| {
         return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
@@ -5850,13 +5852,15 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         return self.lowerDeclRef(typed_value, payload.data.decl);
     }
 
+    const target = self.target.*;
+
     switch (typed_value.ty.zigTypeTag()) {
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {},
             else => {
                 switch (typed_value.val.tag()) {
                     .int_u64 => {
-                        return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                        return MCValue{ .immediate = typed_value.val.toUnsignedInt(target) };
                     },
                     else => {},
                 }
@@ -5868,7 +5872,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 return MCValue{ .immediate = @bitCast(u64, typed_value.val.toSignedInt()) };
             }
             if (!(info.bits > ptr_bits or info.signedness == .signed)) {
-                return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                return MCValue{ .immediate = typed_value.val.toUnsignedInt(target) };
             }
         },
         .Bool => {
