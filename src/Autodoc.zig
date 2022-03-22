@@ -411,17 +411,17 @@ const DocData = struct {
         },
         Enum: struct {
             name: []const u8,
-            src: ?usize = null, // index into astNodes
-            privDecls: ?[]usize = null, // index into decls
-            pubDecls: ?[]usize = null, // index into decls
+            src: usize, // index into astNodes
+            privDecls: []usize = &.{}, // index into decls
+            pubDecls: []usize = &.{}, // index into decls
             // (use src->fields to find field names)
         },
         Union: struct {
             name: []const u8,
-            src: ?usize = null, // index into astNodes
-            privDecls: ?[]usize = null, // index into decls
-            pubDecls: ?[]usize = null, // index into decls
-            fields: ?[]WalkResult = null, // (use src->fields to find names)
+            src: usize, // index into astNodes
+            privDecls: []usize = &.{}, // index into decls
+            pubDecls: []usize = &.{}, // index into decls
+            fields: []WalkResult = &.{}, // (use src->fields to find names)
         },
         Fn: struct {
             name: []const u8,
@@ -465,6 +465,7 @@ const DocData = struct {
                 .Struct => |v| try printTypeBody(v, options, w),
                 .Fn => |v| try printTypeBody(v, options, w),
                 .Union => |v| try printTypeBody(v, options, w),
+                .ErrorSet => |v| try printTypeBody(v, options, w),
                 .Enum => |v| try printTypeBody(v, options, w),
                 .Int => |v| try printTypeBody(v, options, w),
                 .Float => |v| try printTypeBody(v, options, w),
@@ -604,8 +605,12 @@ const DocData = struct {
                     , .{});
                     try v.typeRef.jsonStringify(options, w);
                     try w.print(
-                        \\, "value": {s}{} }} }}
-                    , .{ neg, v.value });
+                        \\, "value": {s}1 }} }}
+                    , .{neg});
+                    // TODO: uncomment once float panic is fixed in stdlib
+                    // try w.print(
+                    //     \\, "value": {s}{e} }} }}
+                    // , .{ neg, v.value });
                 },
                 .bool => |v| {
                     try w.print(
@@ -685,12 +690,13 @@ fn walkInstruction(
 
     switch (tags[inst_index]) {
         else => {
-            panicWithContext(
+            printWithContext(
                 file,
                 inst_index,
                 "TODO: implement `{s}` for walkInstruction\n\n",
                 .{@tagName(tags[inst_index])},
             );
+            return self.cteTodo(@tagName(tags[inst_index]));
         },
         .closure_get => {
             const inst_node = data[inst_index].inst_node;
@@ -752,17 +758,11 @@ fn walkInstruction(
 
             return DocData.WalkResult{ .compileError = operand.string };
         },
-        .switch_block => return self.cteTodo("[switch]"),
         .enum_literal => {
             const str_tok = data[inst_index].str_tok;
             const literal = file.zir.nullTerminatedString(str_tok.start);
             return DocData.WalkResult{ .enumLiteral = literal };
         },
-        .div_exact, .div => return self.cteTodo("@div(...)"),
-        .mul => return self.cteTodo("@mul(...)"),
-        .array_mul => return self.cteTodo("a ** b"),
-        .bool_br_and, .bool_br_or => return self.cteTodo("bool op"),
-        .cmp_eq => return self.cteTodo("bool op"),
         .int => {
             const int = data[inst_index].int;
             const t = try self.arena.create(DocData.WalkResult);
@@ -849,7 +849,7 @@ fn walkInstruction(
                             .negated = false,
                         },
                     },
-                    .child = typeOfWalkResult(array_data[0]),
+                    .child = try self.typeOfWalkResult(array_data[0]),
                 },
             });
 
@@ -880,7 +880,17 @@ fn walkInstruction(
                 parent_scope,
                 un_node.operand,
             );
-            operand.int.negated = true; // only support ints for now
+            switch (operand) {
+                .int => |*int| int.negated = true,
+                else => {
+                    printWithContext(
+                        file,
+                        inst_index,
+                        "TODO: support negation for more types",
+                        .{},
+                    );
+                },
+            }
             return operand;
         },
         .size_of => {
@@ -913,21 +923,19 @@ fn walkInstruction(
             var operand = try self.walkRef(file, parent_scope, extra.data.operand);
 
             switch (operand) {
-                else => panicWithContext(
+                else => printWithContext(
                     file,
                     inst_index,
-                    "TODO: handle {s} in `walkInstruction.as_node`\n",
+                    "TODO: handle {s} in `walkInstruction.as_node`",
                     .{@tagName(operand)},
                 ),
-                .refPath, .type, .string, .call, .enumLiteral => {},
+                .declRef, .refPath, .type, .string, .call, .enumLiteral => {},
                 // we don't do anything because up until now,
                 // I've only seen this used as such:
                 //       @as(@as(type, Baz), .{})
                 // and we don't want to toss away the
                 // decl_val information (eg by replacing it with
                 // a WalkResult.type).
-                // TODO: Actually, this is a good moment to check if
-                // the result is indeed a type!!
                 .comptimeExpr => {
                     self.comptime_exprs.items[operand.comptimeExpr].typeRef = dest_type_ref;
                 },
@@ -1043,7 +1051,7 @@ fn walkInstruction(
             var idx = extra.end;
             for (field_vals) |*fv| {
                 const init_extra = file.zir.extraData(Zir.Inst.StructInit.Item, idx);
-                idx = init_extra.end;
+                defer idx = init_extra.end;
 
                 const field_name = blk: {
                     const field_inst_index = init_extra.data.field_type;
@@ -1176,53 +1184,45 @@ fn walkInstruction(
             );
         },
         .extended => {
-            // NOTE: this code + the subsequent defer block are working towards
-            // solving pending decl paths that depend on completing the analysis of a type.
-            // When we don't find a type, the defer will run anyway but shouldn't
-            // ever be able to find a match inside `decl_paths_pending_on_types`
-            // TODO: extract this logic into a function and only call it when appropriate.
-            const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{ .Unanalyzed = {} });
-
-            defer {
-                if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
-                    for (paths.items) |resume_info| {
-                        self.tryResolveRefPath(
-                            resume_info.file,
-                            inst_index,
-                            resume_info.ref_path,
-                        ) catch {
-                            @panic("Out of memory");
-                        };
-                    }
-
-                    _ = self.ref_paths_pending_on_types.remove(type_slot_index);
-                    // TODO: we should deallocate the arraylist that holds all the
-                    //       decl paths. not doing it now since it's arena-allocated
-                    //       anyway, but maybe we should put it elsewhere.
-                }
-            }
-
             const extended = data[inst_index].extended;
             switch (extended.opcode) {
                 else => {
-                    panicWithContext(
+                    printWithContext(
                         file,
                         inst_index,
-                        "TODO: implement `walkInstruction.extended` for {s}\n\n",
+                        "TODO: implement `walkInstruction.extended` for {s}",
                         .{@tagName(extended.opcode)},
                     );
+                    return self.cteTodo(@tagName(extended.opcode));
                 },
 
                 .opaque_decl => return self.cteTodo("opaque {...}"),
                 .func => {
-                    return try self.analyzeFunction(
+                    const type_slot_index = self.types.items.len;
+                    try self.types.append(self.arena, .{ .Unanalyzed = {} });
+
+                    const result = try self.analyzeFunction(
                         file,
                         parent_scope,
                         inst_index,
                         self_ast_node_index,
                         type_slot_index,
                     );
+                    if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
+                        for (paths.items) |resume_info| {
+                            try self.tryResolveRefPath(
+                                resume_info.file,
+                                inst_index,
+                                resume_info.ref_path,
+                            );
+                        }
+
+                        _ = self.ref_paths_pending_on_types.remove(type_slot_index);
+                        // TODO: we should deallocate the arraylist that holds all the
+                        //       decl paths. not doing it now since it's arena-allocated
+                        //       anyway, but maybe we should put it elsewhere.
+                    }
+                    return result;
                 },
                 .variable => {
                     const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
@@ -1237,6 +1237,9 @@ fn walkInstruction(
                     return value;
                 },
                 .union_decl => {
+                    const type_slot_index = self.types.items.len;
+                    try self.types.append(self.arena, .{ .Unanalyzed = {} });
+
                     var scope: Scope = .{
                         .parent = parent_scope,
                         .enclosing_type = type_slot_index,
@@ -1340,9 +1343,27 @@ fn walkInstruction(
                         },
                     };
 
+                    if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
+                        for (paths.items) |resume_info| {
+                            try self.tryResolveRefPath(
+                                resume_info.file,
+                                inst_index,
+                                resume_info.ref_path,
+                            );
+                        }
+
+                        _ = self.ref_paths_pending_on_types.remove(type_slot_index);
+                        // TODO: we should deallocate the arraylist that holds all the
+                        //       decl paths. not doing it now since it's arena-allocated
+                        //       anyway, but maybe we should put it elsewhere.
+                    }
+
                     return DocData.WalkResult{ .type = type_slot_index };
                 },
                 .enum_decl => {
+                    const type_slot_index = self.types.items.len;
+                    try self.types.append(self.arena, .{ .Unanalyzed = {} });
+
                     var scope: Scope = .{
                         .parent = parent_scope,
                         .enclosing_type = type_slot_index,
@@ -1470,10 +1491,27 @@ fn walkInstruction(
                             .pubDecls = decl_indexes.items,
                         },
                     };
+                    if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
+                        for (paths.items) |resume_info| {
+                            try self.tryResolveRefPath(
+                                resume_info.file,
+                                inst_index,
+                                resume_info.ref_path,
+                            );
+                        }
+
+                        _ = self.ref_paths_pending_on_types.remove(type_slot_index);
+                        // TODO: we should deallocate the arraylist that holds all the
+                        //       decl paths. not doing it now since it's arena-allocated
+                        //       anyway, but maybe we should put it elsewhere.
+                    }
 
                     return DocData.WalkResult{ .type = type_slot_index };
                 },
                 .struct_decl => {
+                    const type_slot_index = self.types.items.len;
+                    try self.types.append(self.arena, .{ .Unanalyzed = {} });
+
                     var scope: Scope = .{
                         .parent = parent_scope,
                         .enclosing_type = type_slot_index,
@@ -1563,6 +1601,20 @@ fn walkInstruction(
                             .fields = field_type_refs.items,
                         },
                     };
+                    if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
+                        for (paths.items) |resume_info| {
+                            try self.tryResolveRefPath(
+                                resume_info.file,
+                                inst_index,
+                                resume_info.ref_path,
+                            );
+                        }
+
+                        _ = self.ref_paths_pending_on_types.remove(type_slot_index);
+                        // TODO: we should deallocate the arraylist that holds all the
+                        //       decl paths. not doing it now since it's arena-allocated
+                        //       anyway, but maybe we should put it elsewhere.
+                    }
 
                     return DocData.WalkResult{ .type = type_slot_index };
                 },
@@ -1608,9 +1660,9 @@ fn walkDecls(
         cur_bit_bag >>= 1;
         const is_exported = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
-        // const has_align = @truncate(u1, cur_bit_bag) != 0;
+        const has_align = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
-        // const has_section_or_addrspace = @truncate(u1, cur_bit_bag) != 0;
+        const has_section_or_addrspace = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
 
         // const sub_index = extra_index;
@@ -1626,21 +1678,26 @@ fn walkDecls(
         const doc_comment_index = file.zir.extra[extra_index];
         extra_index += 1;
 
-        // const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
-        //     const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-        //     extra_index += 1;
-        //     break :inst inst;
-        // };
-        // const section_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        //     const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-        //     extra_index += 1;
-        //     break :inst inst;
-        // };
-        // const addrspace_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        //     const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-        //     extra_index += 1;
-        //     break :inst inst;
-        // };
+        const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
+            const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+            extra_index += 1;
+            break :inst inst;
+        };
+        _ = align_inst;
+
+        const section_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
+            const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+            extra_index += 1;
+            break :inst inst;
+        };
+        _ = section_inst;
+
+        const addrspace_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
+            const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+            extra_index += 1;
+            break :inst inst;
+        };
+        _ = addrspace_inst;
 
         // const pub_str = if (is_pub) "pub " else "";
         // const hash_bytes = @bitCast([16]u8, hash_u32s.*);
@@ -1848,6 +1905,7 @@ fn tryResolveRefPath(
         while (j < 10_000) : (j += 1) {
             switch (resolved_parent) {
                 else => break,
+                .this => |t| resolved_parent = .{ .type = t },
                 .declRef => |decl_index| {
                     const decl = self.decls.items[decl_index];
                     if (decl._analyzed) {
@@ -1927,12 +1985,14 @@ fn tryResolveRefPath(
             else => {
                 // NOTE: indirect references to types / decls should be handled
                 //       in the switch above this one!
-                panicWithContext(
+                printWithContext(
                     file,
                     inst_index,
                     "TODO: handle `{s}`in tryResolveRefPath\nInfo: {}",
                     .{ @tagName(resolved_parent), resolved_parent },
                 );
+                path[i + 1] = try self.cteTodo("match failure");
+                continue :outer;
             },
             .comptimeExpr, .call => {
                 // Since we hit a cte, we leave the remaining strings unresolved
@@ -1971,36 +2031,29 @@ fn tryResolveRefPath(
 
                     return;
                 },
-                .Struct => |t_struct| {
-                    std.debug.print("search: {s}\n", .{child_string});
-                    for (t_struct.pubDecls) |d| {
+                .Enum => |t_enum| {
+                    for (t_enum.pubDecls) |d| {
                         // TODO: this could be improved a lot
                         //       by having our own string table!
                         const decl = self.decls.items[d];
-                        std.debug.print("pub decl `{s}`\n", .{decl.name});
                         if (std.mem.eql(u8, decl.name, child_string)) {
-                            std.debug.print("match!\n", .{});
                             path[i + 1] = .{ .declRef = d };
                             continue :outer;
                         }
                     }
-                    for (t_struct.privDecls) |d| {
+                    for (t_enum.privDecls) |d| {
                         // TODO: this could be improved a lot
                         //       by having our own string table!
                         const decl = self.decls.items[d];
-                        std.debug.print("priv decl `{s}`\n", .{decl.name});
                         if (std.mem.eql(u8, decl.name, child_string)) {
-                            std.debug.print("match!\n", .{});
                             path[i + 1] = .{ .declRef = d };
                             continue :outer;
                         }
                     }
 
-                    for (self.ast_nodes.items[t_struct.src].fields.?) |ast_node, idx| {
+                    for (self.ast_nodes.items[t_enum.src].fields.?) |ast_node, idx| {
                         const name = self.ast_nodes.items[ast_node].name.?;
-                        std.debug.print("field `{s}`\n", .{name});
                         if (std.mem.eql(u8, name, child_string)) {
-                            std.debug.print("match!\n", .{});
                             // TODO: should we really create an artificial
                             //       decl for this type? Probably not.
 
@@ -2015,12 +2068,108 @@ fn tryResolveRefPath(
                     }
 
                     // if we got here, our search failed
-                    panicWithContext(
+                    printWithContext(
                         file,
                         inst_index,
-                        "failed to match `{s}`",
+                        "failed to match `{s}` in enum",
                         .{child_string},
                     );
+
+                    path[i + 1] = try self.cteTodo("match failure");
+                    continue :outer;
+                },
+                .Union => |t_union| {
+                    for (t_union.pubDecls) |d| {
+                        // TODO: this could be improved a lot
+                        //       by having our own string table!
+                        const decl = self.decls.items[d];
+                        if (std.mem.eql(u8, decl.name, child_string)) {
+                            path[i + 1] = .{ .declRef = d };
+                            continue :outer;
+                        }
+                    }
+                    for (t_union.privDecls) |d| {
+                        // TODO: this could be improved a lot
+                        //       by having our own string table!
+                        const decl = self.decls.items[d];
+                        if (std.mem.eql(u8, decl.name, child_string)) {
+                            path[i + 1] = .{ .declRef = d };
+                            continue :outer;
+                        }
+                    }
+
+                    for (self.ast_nodes.items[t_union.src].fields.?) |ast_node, idx| {
+                        const name = self.ast_nodes.items[ast_node].name.?;
+                        if (std.mem.eql(u8, name, child_string)) {
+                            // TODO: should we really create an artificial
+                            //       decl for this type? Probably not.
+
+                            path[i + 1] = .{
+                                .fieldRef = .{
+                                    .type = t_index,
+                                    .index = idx,
+                                },
+                            };
+                            continue :outer;
+                        }
+                    }
+
+                    // if we got here, our search failed
+                    printWithContext(
+                        file,
+                        inst_index,
+                        "failed to match `{s}` in union",
+                        .{child_string},
+                    );
+                    path[i + 1] = try self.cteTodo("match failure");
+                    continue :outer;
+                },
+
+                .Struct => |t_struct| {
+                    for (t_struct.pubDecls) |d| {
+                        // TODO: this could be improved a lot
+                        //       by having our own string table!
+                        const decl = self.decls.items[d];
+                        if (std.mem.eql(u8, decl.name, child_string)) {
+                            path[i + 1] = .{ .declRef = d };
+                            continue :outer;
+                        }
+                    }
+                    for (t_struct.privDecls) |d| {
+                        // TODO: this could be improved a lot
+                        //       by having our own string table!
+                        const decl = self.decls.items[d];
+                        if (std.mem.eql(u8, decl.name, child_string)) {
+                            path[i + 1] = .{ .declRef = d };
+                            continue :outer;
+                        }
+                    }
+
+                    for (self.ast_nodes.items[t_struct.src].fields.?) |ast_node, idx| {
+                        const name = self.ast_nodes.items[ast_node].name.?;
+                        if (std.mem.eql(u8, name, child_string)) {
+                            // TODO: should we really create an artificial
+                            //       decl for this type? Probably not.
+
+                            path[i + 1] = .{
+                                .fieldRef = .{
+                                    .type = t_index,
+                                    .index = idx,
+                                },
+                            };
+                            continue :outer;
+                        }
+                    }
+
+                    // if we got here, our search failed
+                    printWithContext(
+                        file,
+                        inst_index,
+                        "failed to match `{s}` in struct",
+                        .{child_string},
+                    );
+                    path[i + 1] = try self.cteTodo("match failure");
+                    continue :outer;
                 },
             },
         }
@@ -2070,7 +2219,7 @@ fn analyzeFunction(
                 "TODO: handle `{s}` in walkInstruction.func\n",
                 .{@tagName(tags[param_index])},
             ),
-            .param_anytype => {
+            .param_anytype, .param_anytype_comptime => {
                 // TODO: where are the doc comments?
                 const str_tok = data[param_index].str_tok;
 
@@ -2097,7 +2246,7 @@ fn analyzeFunction(
                 const name = file.zir.nullTerminatedString(extra.data.name);
 
                 param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
-                self.ast_nodes.appendAssumeCapacity(.{
+                try self.ast_nodes.append(self.arena, .{
                     .name = name,
                     .docs = doc_comment,
                     .@"comptime" = tags[param_index] == .param_comptime,
@@ -2382,12 +2531,15 @@ fn walkRef(
 /// Given a WalkResult, tries to find its type.
 /// Used to analyze instructions like `array_init`, which require us to
 /// inspect its first element to find out the array type.
-fn typeOfWalkResult(wr: DocData.WalkResult) DocData.WalkResult {
+fn typeOfWalkResult(self: *Autodoc, wr: DocData.WalkResult) !DocData.WalkResult {
     return switch (wr) {
-        else => std.debug.panic(
-            "TODO: handle `{s}` in typeOfWalkResult\n",
-            .{@tagName(wr)},
-        ),
+        else => {
+            std.debug.print(
+                "TODO: handle `{s}` in typeOfWalkResult\n",
+                .{@tagName(wr)},
+            );
+            return self.cteTodo(@tagName(wr));
+        },
         .type => .{ .type = @enumToInt(DocData.DocTypeKinds.Type) },
         .int => |v| v.typeRef.*,
         .float => |v| v.typeRef.*,
@@ -2403,9 +2555,15 @@ fn getBlockInlineBreak(zir: Zir, inst_index: usize) Zir.Inst.Ref {
     return data[break_index].@"break".operand;
 }
 
-fn panicWithContext(file: *File, inst: usize, comptime fmt: []const u8, args: anytype) noreturn {
+fn printWithContext(file: *File, inst: usize, comptime fmt: []const u8, args: anytype) void {
     std.debug.print("Context [{s}] % {}\n", .{ file.sub_file_path, inst });
-    std.debug.panic(fmt, args);
+    std.debug.print(fmt, args);
+    std.debug.print("\n", .{});
+}
+
+fn panicWithContext(file: *File, inst: usize, comptime fmt: []const u8, args: anytype) noreturn {
+    printWithContext(file, inst, fmt, args);
+    unreachable;
 }
 
 fn cteTodo(self: *Autodoc, msg: []const u8) error{OutOfMemory}!DocData.WalkResult {
