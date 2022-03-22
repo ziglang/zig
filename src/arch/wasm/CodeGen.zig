@@ -1403,6 +1403,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
         .wrap_errunion_err => self.airWrapErrUnionErr(inst),
         .errunion_payload_ptr_set => self.airErrUnionPayloadPtrSet(inst),
+        .error_name => self.airErrorName(inst),
 
         .wasm_memory_size => self.airWasmMemorySize(inst),
         .wasm_memory_grow => self.airWasmMemoryGrow(inst),
@@ -1458,7 +1459,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .atomic_store_seq_cst,
         .atomic_rmw,
         .tag_name,
-        .error_name,
         .mul_add,
 
         // For these 4, probably best to wait until https://github.com/ziglang/zig/issues/10248
@@ -3617,4 +3617,47 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const result = try self.allocLocal(op_ty);
     try self.addLabel(.local_set, result.local);
     return result;
+}
+
+fn airErrorName(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
+
+    // First retrieve the symbol index to the error name table
+    // that will be used to emit a relocation for the pointer
+    // to the error name table.
+    //
+    // Each entry to this table is a slice (ptr+len).
+    // The operand in this instruction represents the index within this table.
+    // This means to get the final name, we emit the base pointer and then perform
+    // pointer arithmetic to find the pointer to this slice and return that.
+    //
+    // As the names are global and the slice elements are constant, we do not have
+    // to make a copy of the ptr+value but can point towards them directly.
+    const error_table_symbol = try self.bin_file.getErrorTableSymbol();
+    const name_ty = Type.initTag(.const_slice_u8_sentinel_0);
+    const abi_size = name_ty.abiSize(self.target);
+
+    const error_name_value: WValue = .{ .memory = error_table_symbol }; // emitting this will create a relocation
+    try self.emitWValue(error_name_value);
+    try self.emitWValue(operand);
+    switch (self.arch()) {
+        .wasm32 => {
+            try self.addImm32(@bitCast(i32, @intCast(u32, abi_size)));
+            try self.addTag(.i32_mul);
+            try self.addTag(.i32_add);
+        },
+        .wasm64 => {
+            try self.addImm64(abi_size);
+            try self.addTag(.i64_mul);
+            try self.addTag(.i64_add);
+        },
+        else => unreachable,
+    }
+
+    const result_ptr = try self.allocLocal(Type.usize);
+    try self.addLabel(.local_set, result_ptr.local);
+    return result_ptr;
 }
