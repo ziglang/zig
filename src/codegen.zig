@@ -479,7 +479,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Enum => {
-            // TODO populate .debug_info for the enum
             var int_buffer: Value.Payload.U64 = undefined;
             const int_val = typed_value.enumToInt(&int_buffer);
 
