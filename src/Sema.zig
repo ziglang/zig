@@ -14118,8 +14118,8 @@ fn checkVectorizableBinaryOperands(
     lhs_src: LazySrcLoc,
     rhs_src: LazySrcLoc,
 ) CompileError!void {
-    const lhs_zig_ty_tag = lhs_ty.zigTypeTag();
-    const rhs_zig_ty_tag = rhs_ty.zigTypeTag();
+    const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
+    const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
     if (lhs_zig_ty_tag == .Vector and rhs_zig_ty_tag == .Vector) {
         const lhs_len = lhs_ty.vectorLen();
         const rhs_len = rhs_ty.vectorLen();
