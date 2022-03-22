@@ -3256,10 +3256,15 @@ const ThisModule = @This();
 pub const Step = struct {
     id: Id,
     name: []const u8,
-    makeFn: fn (self: *Step) anyerror!void,
+    makeFn: MakeFn,
     dependencies: ArrayList(*Step),
     loop_flag: bool,
     done_flag: bool,
+
+    const MakeFn = switch (builtin.zig_backend) {
+        .stage1 => fn (self: *Step) anyerror!void,
+        else => *const fn (self: *Step) anyerror!void,
+    };
 
     pub const Id = enum {
         top_level,
@@ -3279,7 +3284,7 @@ pub const Step = struct {
         custom,
     };
 
-    pub fn init(id: Id, name: []const u8, allocator: Allocator, makeFn: fn (*Step) anyerror!void) Step {
+    pub fn init(id: Id, name: []const u8, allocator: Allocator, makeFn: MakeFn) Step {
         return Step{
             .id = id,
             .name = allocator.dupe(u8, name) catch unreachable,

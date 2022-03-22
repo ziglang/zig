@@ -408,11 +408,6 @@ fn posixCallMainAndExit() noreturn {
         // Initialize the TLS area.
         std.os.linux.tls.initStaticTLS(phdrs);
 
-        if (builtin.zig_backend == .stage2_llvm) {
-            root.main();
-            exit2(0);
-        }
-
         // The way Linux executables represent stack size is via the PT_GNU_STACK
         // program header. However the kernel does not recognize it; it always gives 8 MiB.
         // Here we look for the stack size in our program headers and use setrlimit
@@ -453,6 +448,10 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
 fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
+
+    if (builtin.zig_backend == .stage2_llvm) {
+        return @call(.{ .modifier = .always_inline }, callMain, .{});
+    }
 
     std.debug.maybeEnableSegfaultHandler();
 

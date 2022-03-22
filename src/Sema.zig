@@ -12439,7 +12439,11 @@ fn zirErrorReturnTrace(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
-    return sema.fail(block, src, "TODO: Sema.zirErrorReturnTrace", .{});
+    const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
+    const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
+    const opt_stack_trace_ty = try Type.optional(sema.arena, stack_trace_ty);
+    // https://github.com/ziglang/zig/issues/11259
+    return sema.addConstant(opt_stack_trace_ty, Value.@"null");
 }
 
 fn zirFrame(
