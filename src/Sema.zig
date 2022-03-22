@@ -19732,7 +19732,10 @@ fn analyzeSlice(
                             block,
                             end_src,
                             "end index {} out of bounds for array of length {}",
-                            .{ end_val.fmtValue(Type.usize), len_val.fmtValue(Type.usize) },
+                            .{
+                                end_val.fmtValue(Type.usize, target),
+                                len_val.fmtValue(Type.usize, target),
+                            },
                         );
                     }
                     if (end_val.eql(len_val, Type.usize, target)) {
@@ -19758,7 +19761,10 @@ fn analyzeSlice(
                                 block,
                                 end_src,
                                 "end index {} out of bounds for slice of length {}",
-                                .{ end_val.fmtValue(Type.usize), slice_len_val.fmtValue(Type.usize) },
+                                .{
+                                    end_val.fmtValue(Type.usize, target),
+                                    slice_len_val.fmtValue(Type.usize, target),
+                                },
                             );
                         }
                         if (end_val.eql(slice_len_val, Type.usize, target)) {
@@ -19794,12 +19800,15 @@ fn analyzeSlice(
     // requirement: start <= end
     if (try sema.resolveDefinedValue(block, src, end)) |end_val| {
         if (try sema.resolveDefinedValue(block, src, start)) |start_val| {
-            if (start_val.compare(.gt, end_val, Type.usize)) {
+            if (start_val.compare(.gt, end_val, Type.usize, target)) {
                 return sema.fail(
                     block,
                     start_src,
                     "start index {} is larger than end index {}",
-                    .{ start_val.fmtValue(Type.usize), end_val.fmtValue(Type.usize) },
+                    .{
+                        start_val.fmtValue(Type.usize, target),
+                        end_val.fmtValue(Type.usize, target),
+                    },
                 );
             }
         }
