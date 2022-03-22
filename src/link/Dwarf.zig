@@ -81,8 +81,10 @@ pub const abbrev_base_type = 4;
 pub const abbrev_ptr_type = 5;
 pub const abbrev_struct_type = 6;
 pub const abbrev_struct_member = 7;
-pub const abbrev_pad1 = 8;
-pub const abbrev_parameter = 9;
+pub const abbrev_enum_type = 8;
+pub const abbrev_enum_variant = 9;
+pub const abbrev_pad1 = 10;
+pub const abbrev_parameter = 11;
 
 /// The reloc offset for the virtual address of a function in its Line Number Program.
 /// Size is a virtual address integer.
@@ -879,6 +881,11 @@ fn addDbgInfoType(
             }
         },
         .Struct => blk: {
+            if (ty.tag() == .tuple) {
+                log.debug("TODO implement .debug_info for type '{}'", .{ty.fmtDebug()});
+                try dbg_info_buffer.append(abbrev_pad1);
+                break :blk;
+            }
             // try dbg_info_buffer.ensureUnusedCapacity(23);
             // DW.AT.structure_type
             try dbg_info_buffer.append(abbrev_struct_type);
@@ -916,6 +923,46 @@ fn addDbgInfoType(
             }
 
             // DW.AT.structure_type delimit children
+            try dbg_info_buffer.append(0);
+        },
+        .Enum => {
+            // DW.AT.enumeration_type
+            try dbg_info_buffer.append(abbrev_enum_type);
+            // DW.AT.byte_size, DW.FORM.sdata
+            const abi_size = ty.abiSize(target);
+            try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+            // DW.AT.name, DW.FORM.string
+            const enum_name = try ty.nameAllocArena(arena, target);
+            try dbg_info_buffer.ensureUnusedCapacity(enum_name.len + 1);
+            dbg_info_buffer.appendSliceAssumeCapacity(enum_name);
+            dbg_info_buffer.appendAssumeCapacity(0);
+
+            const fields = ty.enumFields();
+            const values: ?Module.EnumFull.ValueMap = switch (ty.tag()) {
+                .enum_full, .enum_nonexhaustive => ty.cast(Type.Payload.EnumFull).?.data.values,
+                .enum_simple => null,
+                .enum_numbered => ty.castTag(.enum_numbered).?.data.values,
+                else => unreachable,
+            };
+            const target_endian = self.target.cpu.arch.endian();
+            for (fields.keys()) |field_name, field_i| {
+                // DW.AT.enumerator
+                try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2 + @sizeOf(u64));
+                dbg_info_buffer.appendAssumeCapacity(abbrev_enum_variant);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity(field_name);
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.const_value, DW.FORM.data8
+                const value: u64 = if (values) |vals| value: {
+                    if (vals.count() == 0) break :value @intCast(u64, field_i); // auto-numbered
+                    const value = vals.keys()[field_i];
+                    var int_buffer: Value.Payload.U64 = undefined;
+                    break :value value.enumToInt(ty, &int_buffer).toUnsignedInt(target);
+                } else @intCast(u64, field_i);
+                mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), value, target_endian);
+            }
+
+            // DW.AT.enumeration_type delimit children
             try dbg_info_buffer.append(0);
         },
         else => {
@@ -1004,6 +1051,24 @@ pub fn writeDbgAbbrev(self: *Dwarf, file: *File) !void {
         DW.FORM.ref4,
         DW.AT.data_member_location,
         DW.FORM.sdata,
+        0,
+        0, // table sentinel
+        abbrev_enum_type,
+        DW.TAG.enumeration_type,
+        DW.CHILDREN.yes, // header
+        DW.AT.byte_size,
+        DW.FORM.sdata,
+        DW.AT.name,
+        DW.FORM.string,
+        0,
+        0, // table sentinel
+        abbrev_enum_variant,
+        DW.TAG.enumerator,
+        DW.CHILDREN.no, // header
+        DW.AT.name,
+        DW.FORM.string,
+        DW.AT.const_value,
+        DW.FORM.data8,
         0,
         0, // table sentinel
         abbrev_pad1,
