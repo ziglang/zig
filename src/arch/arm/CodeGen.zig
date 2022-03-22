@@ -3017,36 +3017,41 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         const rhs = try self.resolveInst(bin_op.rhs);
         const lhs_ty = self.air.typeOf(bin_op.lhs);
 
-        switch (lhs_ty.zigTypeTag()) {
-            .Optional => return self.fail("TODO ARM cmp optionals", .{}),
-            .Float => return self.fail("TODO ARM cmp floats", .{}),
-            .Int, .Bool, .Pointer, .ErrorSet, .Enum => {
-                var int_buffer: Type.Payload.Bits = undefined;
-                const int_ty = switch (lhs_ty.zigTypeTag()) {
-                    .Enum => lhs_ty.intTagType(&int_buffer),
-                    .Int => lhs_ty,
-                    .Bool => Type.initTag(.u1),
-                    .Pointer => Type.usize,
-                    .ErrorSet => Type.initTag(.u16),
-                    else => unreachable,
-                };
-
-                const int_info = int_ty.intInfo(self.target.*);
-                if (int_info.bits <= 32) {
-                    try self.spillCompareFlagsIfOccupied();
-                    self.compare_flags_inst = inst;
-
-                    _ = try self.binOp(.cmp_eq, inst, lhs, rhs, int_ty, int_ty);
-
-                    break :result switch (int_info.signedness) {
-                        .signed => MCValue{ .compare_flags_signed = op },
-                        .unsigned => MCValue{ .compare_flags_unsigned = op },
-                    };
+        var int_buffer: Type.Payload.Bits = undefined;
+        const int_ty = switch (lhs_ty.zigTypeTag()) {
+            .Optional => blk: {
+                var opt_buffer: Type.Payload.ElemType = undefined;
+                const payload_ty = lhs_ty.optionalChild(&opt_buffer);
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                    break :blk Type.initTag(.u1);
+                } else if (lhs_ty.isPtrLikeOptional()) {
+                    break :blk Type.usize;
                 } else {
-                    return self.fail("TODO ARM cmp for ints > 32 bits", .{});
+                    return self.fail("TODO ARM cmp non-pointer optionals", .{});
                 }
             },
+            .Float => return self.fail("TODO ARM cmp floats", .{}),
+            .Enum => lhs_ty.intTagType(&int_buffer),
+            .Int => lhs_ty,
+            .Bool => Type.initTag(.u1),
+            .Pointer => Type.usize,
+            .ErrorSet => Type.initTag(.u16),
             else => unreachable,
+        };
+
+        const int_info = int_ty.intInfo(self.target.*);
+        if (int_info.bits <= 32) {
+            try self.spillCompareFlagsIfOccupied();
+            self.compare_flags_inst = inst;
+
+            _ = try self.binOp(.cmp_eq, inst, lhs, rhs, int_ty, int_ty);
+
+            break :result switch (int_info.signedness) {
+                .signed => MCValue{ .compare_flags_signed = op },
+                .unsigned => MCValue{ .compare_flags_unsigned = op },
+            };
+        } else {
+            return self.fail("TODO ARM cmp for ints > 32 bits", .{});
         }
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
