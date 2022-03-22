@@ -2452,7 +2452,11 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                         if (case_value.integer == value) break :blk @intCast(u32, idx);
                     }
                 }
-                break :blk if (has_else_body) case_i else unreachable;
+                // error sets are almost always sparse so we use the default case
+                // for errors that are not present in any branch. This is fine as this default
+                // case will never be hit for those cases but we do save runtime cost and size
+                // by using a jump table for this instead of if-else chains.
+                break :blk if (has_else_body or target_ty.zigTypeTag() == .ErrorSet) case_i else unreachable;
             };
             self.mir_extra.appendAssumeCapacity(idx);
         } else if (has_else_body) {
