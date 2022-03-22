@@ -177,6 +177,12 @@ const MonomorphedFuncsContext = struct {
     }
 };
 
+pub const WipAnalysis = struct {
+    sema: *Sema,
+    block: *Sema.Block,
+    src: Module.LazySrcLoc,
+};
+
 pub const MemoizedCallSet = std.HashMapUnmanaged(
     MemoizedCall.Key,
     MemoizedCall.Result,

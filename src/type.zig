@@ -1483,18 +1483,27 @@ pub const Type = extern union {
         @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
     }
 
-    pub fn fmt(ty: Type, target: Target) std.fmt.Formatter(TypedValue.format) {
-        var ty_payload: Value.Payload.Ty = .{
-            .base = .{ .tag = .ty },
-            .data = ty,
-        };
+    pub fn fmt(ty: Type, target: Target) std.fmt.Formatter(format2) {
         return .{ .data = .{
-            .tv = .{
-                .ty = Type.type,
-                .val = Value.initPayload(&ty_payload.base),
-            },
+            .ty = ty,
             .target = target,
         } };
+    }
+
+    const FormatContext = struct {
+        ty: Type,
+        target: Target,
+    };
+
+    fn format2(
+        ctx: FormatContext,
+        comptime unused_format_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        comptime assert(unused_format_string.len == 0);
+        _ = options;
+        return print(ctx.ty, writer, ctx.target);
     }
 
     pub fn fmtDebug(ty: Type) std.fmt.Formatter(dump) {
@@ -2241,8 +2250,12 @@ pub const Type = extern union {
     /// * the type has only one possible value, making its ABI size 0.
     /// When `ignore_comptime_only` is true, then types that are comptime only
     /// may return false positives.
-    pub fn hasRuntimeBitsAdvanced(ty: Type, ignore_comptime_only: bool) bool {
-        return switch (ty.tag()) {
+    pub fn hasRuntimeBitsAdvanced(
+        ty: Type,
+        ignore_comptime_only: bool,
+        sema_kit: ?Module.WipAnalysis,
+    ) Module.CompileError!bool {
+        switch (ty.tag()) {
             .u1,
             .u8,
             .i8,
@@ -2296,7 +2309,7 @@ pub const Type = extern union {
             .@"anyframe",
             .anyopaque,
             .@"opaque",
-            => true,
+            => return true,
 
             // These are false because they are comptime-only types.
             .single_const_pointer_to_comptime_int,
@@ -2320,7 +2333,7 @@ pub const Type = extern union {
             .fn_void_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
-            => false,
+            => return false,
 
             // These types have more than one possible value, so the result is the same as
             // asking whether they are comptime-only types.
@@ -2337,20 +2350,34 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .pointer,
-            => if (ignore_comptime_only) true else !comptimeOnly(ty),
+            => {
+                if (ignore_comptime_only) {
+                    return true;
+                } else if (sema_kit) |sk| {
+                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
+                } else {
+                    return !comptimeOnly(ty);
+                }
+            },
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
+                if (sema_kit) |sk| {
+                    _ = try sk.sema.typeRequiresComptime(sk.block, sk.src, ty);
+                }
                 switch (struct_obj.requires_comptime) {
                     .wip => unreachable,
                     .yes => return false,
                     .no => if (struct_obj.known_non_opv) return true,
                     .unknown => {},
                 }
+                if (sema_kit) |sk| {
+                    _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                }
                 assert(struct_obj.haveFieldTypes());
                 for (struct_obj.fields.values()) |value| {
                     if (value.is_comptime) continue;
-                    if (value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only))
+                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
                         return true;
                 } else {
                     return false;
@@ -2368,14 +2395,17 @@ pub const Type = extern union {
             .enum_numbered, .enum_nonexhaustive => {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = ty.intTagType(&buffer);
-                return int_tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only);
+                return int_tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit);
             },
 
             .@"union" => {
                 const union_obj = ty.castTag(.@"union").?.data;
+                if (sema_kit) |sk| {
+                    _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                }
                 assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
-                    if (value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only))
+                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
                         return true;
                 } else {
                     return false;
@@ -2383,29 +2413,32 @@ pub const Type = extern union {
             },
             .union_tagged => {
                 const union_obj = ty.castTag(.union_tagged).?.data;
-                if (union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only)) {
+                if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) {
                     return true;
+                }
+                if (sema_kit) |sk| {
+                    _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
                 }
                 assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
-                    if (value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only))
+                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
                         return true;
                 } else {
                     return false;
                 }
             },
 
-            .array, .vector => ty.arrayLen() != 0 and
-                ty.elemType().hasRuntimeBitsAdvanced(ignore_comptime_only),
-            .array_u8 => ty.arrayLen() != 0,
-            .array_sentinel => ty.childType().hasRuntimeBitsAdvanced(ignore_comptime_only),
+            .array, .vector => return ty.arrayLen() != 0 and
+                try ty.elemType().hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit),
+            .array_u8 => return ty.arrayLen() != 0,
+            .array_sentinel => return ty.childType().hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit),
 
-            .int_signed, .int_unsigned => ty.cast(Payload.Bits).?.data != 0,
+            .int_signed, .int_unsigned => return ty.cast(Payload.Bits).?.data != 0,
 
             .error_union => {
                 const payload = ty.castTag(.error_union).?.data;
-                return payload.error_set.hasRuntimeBitsAdvanced(ignore_comptime_only) or
-                    payload.payload.hasRuntimeBitsAdvanced(ignore_comptime_only);
+                return (try payload.error_set.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) or
+                    (try payload.payload.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit));
             },
 
             .tuple, .anon_struct => {
@@ -2413,7 +2446,7 @@ pub const Type = extern union {
                 for (tuple.types) |field_ty, i| {
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) continue; // comptime field
-                    if (field_ty.hasRuntimeBitsAdvanced(ignore_comptime_only)) return true;
+                    if (try field_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) return true;
                 }
                 return false;
             },
@@ -2422,7 +2455,7 @@ pub const Type = extern union {
             .inferred_alloc_mut => unreachable,
             .var_args_param => unreachable,
             .generic_poison => unreachable,
-        };
+        }
     }
 
     /// true if and only if the type has a well-defined memory layout
@@ -2548,11 +2581,11 @@ pub const Type = extern union {
     }
 
     pub fn hasRuntimeBits(ty: Type) bool {
-        return hasRuntimeBitsAdvanced(ty, false);
+        return hasRuntimeBitsAdvanced(ty, false, null) catch unreachable;
     }
 
     pub fn hasRuntimeBitsIgnoreComptime(ty: Type) bool {
-        return hasRuntimeBitsAdvanced(ty, true);
+        return hasRuntimeBitsAdvanced(ty, true, null) catch unreachable;
     }
 
     pub fn isFnOrHasRuntimeBits(ty: Type) bool {
@@ -4538,6 +4571,8 @@ pub const Type = extern union {
 
     /// During semantic analysis, instead call `Sema.typeRequiresComptime` which
     /// resolves field types rather than asserting they are already resolved.
+    /// TODO merge these implementations together with the "advanced" pattern seen
+    /// elsewhere in this file.
     pub fn comptimeOnly(ty: Type) bool {
         return switch (ty.tag()) {
             .u1,

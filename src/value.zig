@@ -9,6 +9,7 @@ const Allocator = std.mem.Allocator;
 const Module = @import("Module.zig");
 const Air = @import("Air.zig");
 const TypedValue = @import("TypedValue.zig");
+const Sema = @import("Sema.zig");
 
 /// This is the raw data, with no bookkeeping, no memory awareness,
 /// no de-duplication, and no type system awareness.
@@ -990,6 +991,16 @@ pub const Value = extern union {
 
     /// Asserts the value is an integer.
     pub fn toBigInt(val: Value, space: *BigIntSpace, target: Target) BigIntConst {
+        return val.toBigIntAdvanced(space, target, null) catch unreachable;
+    }
+
+    /// Asserts the value is an integer.
+    pub fn toBigIntAdvanced(
+        val: Value,
+        space: *BigIntSpace,
+        target: Target,
+        sema_kit: ?Module.WipAnalysis,
+    ) !BigIntConst {
         switch (val.tag()) {
             .zero,
             .bool_false,
@@ -1008,7 +1019,11 @@ pub const Value = extern union {
             .undef => unreachable,
 
             .lazy_align => {
-                const x = val.castTag(.lazy_align).?.data.abiAlignment(target);
+                const ty = val.castTag(.lazy_align).?.data;
+                if (sema_kit) |sk| {
+                    try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
+                }
+                const x = ty.abiAlignment(target);
                 return BigIntMutable.init(&space.limbs, x).toConst();
             },
 
@@ -1019,6 +1034,12 @@ pub const Value = extern union {
     /// If the value fits in a u64, return it, otherwise null.
     /// Asserts not undefined.
     pub fn getUnsignedInt(val: Value, target: Target) ?u64 {
+        return getUnsignedIntAdvanced(val, target, null) catch unreachable;
+    }
+
+    /// If the value fits in a u64, return it, otherwise null.
+    /// Asserts not undefined.
+    pub fn getUnsignedIntAdvanced(val: Value, target: Target, sema_kit: ?Module.WipAnalysis) !?u64 {
         switch (val.tag()) {
             .zero,
             .bool_false,
@@ -1036,7 +1057,13 @@ pub const Value = extern union {
 
             .undef => unreachable,
 
-            .lazy_align => return val.castTag(.lazy_align).?.data.abiAlignment(target),
+            .lazy_align => {
+                const ty = val.castTag(.lazy_align).?.data;
+                if (sema_kit) |sk| {
+                    try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
+                }
+                return ty.abiAlignment(target);
+            },
 
             else => return null,
         }
@@ -1777,6 +1804,10 @@ pub const Value = extern union {
     }
 
     pub fn orderAgainstZero(lhs: Value) std.math.Order {
+        return orderAgainstZeroAdvanced(lhs, null) catch unreachable;
+    }
+
+    pub fn orderAgainstZeroAdvanced(lhs: Value, sema_kit: ?Module.WipAnalysis) !std.math.Order {
         return switch (lhs.tag()) {
             .zero,
             .bool_false,
@@ -1799,7 +1830,7 @@ pub const Value = extern union {
 
             .lazy_align => {
                 const ty = lhs.castTag(.lazy_align).?.data;
-                if (ty.hasRuntimeBitsIgnoreComptime()) {
+                if (try ty.hasRuntimeBitsAdvanced(false, sema_kit)) {
                     return .gt;
                 } else {
                     return .eq;
@@ -1818,10 +1849,16 @@ pub const Value = extern union {
 
     /// Asserts the value is comparable.
     pub fn order(lhs: Value, rhs: Value, target: Target) std.math.Order {
+        return orderAdvanced(lhs, rhs, target, null) catch unreachable;
+    }
+
+    /// Asserts the value is comparable.
+    /// If sema_kit is null then this function asserts things are resolved and cannot fail.
+    pub fn orderAdvanced(lhs: Value, rhs: Value, target: Target, sema_kit: ?Module.WipAnalysis) !std.math.Order {
         const lhs_tag = lhs.tag();
         const rhs_tag = rhs.tag();
-        const lhs_against_zero = lhs.orderAgainstZero();
-        const rhs_against_zero = rhs.orderAgainstZero();
+        const lhs_against_zero = try lhs.orderAgainstZeroAdvanced(sema_kit);
+        const rhs_against_zero = try rhs.orderAgainstZeroAdvanced(sema_kit);
         switch (lhs_against_zero) {
             .lt => if (rhs_against_zero != .lt) return .lt,
             .eq => return rhs_against_zero.invert(),
@@ -1855,14 +1892,24 @@ pub const Value = extern union {
 
         var lhs_bigint_space: BigIntSpace = undefined;
         var rhs_bigint_space: BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_bigint_space, target);
-        const rhs_bigint = rhs.toBigInt(&rhs_bigint_space, target);
+        const lhs_bigint = try lhs.toBigIntAdvanced(&lhs_bigint_space, target, sema_kit);
+        const rhs_bigint = try rhs.toBigIntAdvanced(&rhs_bigint_space, target, sema_kit);
         return lhs_bigint.order(rhs_bigint);
     }
 
     /// Asserts the value is comparable. Does not take a type parameter because it supports
     /// comparisons between heterogeneous types.
     pub fn compareHetero(lhs: Value, op: std.math.CompareOperator, rhs: Value, target: Target) bool {
+        return compareHeteroAdvanced(lhs, op, rhs, target, null) catch unreachable;
+    }
+
+    pub fn compareHeteroAdvanced(
+        lhs: Value,
+        op: std.math.CompareOperator,
+        rhs: Value,
+        target: Target,
+        sema_kit: ?Module.WipAnalysis,
+    ) !bool {
         if (lhs.pointerDecl()) |lhs_decl| {
             if (rhs.pointerDecl()) |rhs_decl| {
                 switch (op) {
@@ -1884,7 +1931,7 @@ pub const Value = extern union {
                 else => {},
             }
         }
-        return order(lhs, rhs, target).compare(op);
+        return (try orderAdvanced(lhs, rhs, target, sema_kit)).compare(op);
     }
 
     /// Asserts the values are comparable. Both operands have type `ty`.

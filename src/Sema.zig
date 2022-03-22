@@ -1591,7 +1591,7 @@ fn resolveInt(
     const coerced = try sema.coerce(block, dest_ty, air_inst, src);
     const val = try sema.resolveConstValue(block, src, coerced);
     const target = sema.mod.getTarget();
-    return val.toUnsignedInt(target);
+    return (try val.getUnsignedIntAdvanced(target, sema.kit(block, src))).?;
 }
 
 // Returns a compile error if the value has tag `variable`. See `resolveInstValue` for
@@ -9926,7 +9926,7 @@ fn analyzePtrArithmetic(
                 const offset_int = try sema.usizeCast(block, offset_src, offset_val.toUnsignedInt(target));
                 // TODO I tried to put this check earlier but it the LLVM backend generate invalid instructinons
                 if (offset_int == 0) return ptr;
-                if (ptr_val.getUnsignedInt(target)) |addr| {
+                if (try ptr_val.getUnsignedIntAdvanced(target, sema.kit(block, ptr_src))) |addr| {
                     const ptr_child_ty = ptr_ty.childType();
                     const elem_ty = if (ptr_ty.isSinglePointer() and ptr_child_ty.zigTypeTag() == .Array)
                         ptr_child_ty.childType()
@@ -11863,6 +11863,8 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const elem_ty_src: LazySrcLoc = .unneeded;
     const inst_data = sema.code.instructions.items(.data)[inst].ptr_type;
     const extra = sema.code.extraData(Zir.Inst.PtrType, inst_data.payload_index);
+    const unresolved_elem_ty = try sema.resolveType(block, elem_ty_src, extra.data.elem_type);
+    const target = sema.mod.getTarget();
 
     var extra_i = extra.end;
 
@@ -11872,10 +11874,19 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         break :blk (try sema.resolveInstConst(block, .unneeded, ref)).val;
     } else null;
 
-    const abi_align = if (inst_data.flags.has_align) blk: {
+    const abi_align: u32 = if (inst_data.flags.has_align) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        const abi_align = try sema.resolveInt(block, .unneeded, ref, Type.u32);
+        const coerced = try sema.coerce(block, Type.u32, sema.resolveInst(ref), src);
+        const val = try sema.resolveConstValue(block, src, coerced);
+        // Check if this happens to be the lazy alignment of our element type, in
+        // which case we can make this 0 without resolving it.
+        if (val.castTag(.lazy_align)) |payload| {
+            if (payload.data.eql(unresolved_elem_ty, target)) {
+                break :blk 0;
+            }
+        }
+        const abi_align = (try val.getUnsignedIntAdvanced(target, sema.kit(block, src))).?;
         break :blk @intCast(u32, abi_align);
     } else 0;
 
@@ -11903,7 +11914,6 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         return sema.fail(block, src, "bit offset starts after end of host integer", .{});
     }
 
-    const unresolved_elem_ty = try sema.resolveType(block, elem_ty_src, extra.data.elem_type);
     const elem_ty = if (abi_align == 0)
         unresolved_elem_ty
     else t: {
@@ -11911,7 +11921,6 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         try sema.resolveTypeLayout(block, elem_ty_src, elem_ty);
         break :t elem_ty;
     };
-    const target = sema.mod.getTarget();
     const ty = try Type.ptr(sema.arena, target, .{
         .pointee_type = elem_ty,
         .sentinel = sentinel,
@@ -18390,15 +18399,15 @@ fn storePtrVal(
     operand_val: Value,
     operand_ty: Type,
 ) !void {
-    var kit = try beginComptimePtrMutation(sema, block, src, ptr_val);
-    try sema.checkComptimeVarStore(block, src, kit.decl_ref_mut);
+    var mut_kit = try beginComptimePtrMutation(sema, block, src, ptr_val);
+    try sema.checkComptimeVarStore(block, src, mut_kit.decl_ref_mut);
 
-    const bitcasted_val = try sema.bitCastVal(block, src, operand_val, operand_ty, kit.ty, 0);
+    const bitcasted_val = try sema.bitCastVal(block, src, operand_val, operand_ty, mut_kit.ty, 0);
 
-    const arena = kit.beginArena(sema.gpa);
-    defer kit.finishArena();
+    const arena = mut_kit.beginArena(sema.gpa);
+    defer mut_kit.finishArena();
 
-    kit.val.* = try bitcasted_val.copy(arena);
+    mut_kit.val.* = try bitcasted_val.copy(arena);
 }
 
 const ComptimePtrMutationKit = struct {
@@ -19891,7 +19900,7 @@ fn cmpNumeric(
                         return Air.Inst.Ref.bool_false;
                     }
                 }
-                if (Value.compareHetero(lhs_val, op, rhs_val, target)) {
+                if (try Value.compareHeteroAdvanced(lhs_val, op, rhs_val, target, sema.kit(block, src))) {
                     return Air.Inst.Ref.bool_true;
                 } else {
                     return Air.Inst.Ref.bool_false;
@@ -20758,7 +20767,7 @@ pub fn resolveFnTypes(
     }
 }
 
-fn resolveTypeLayout(
+pub fn resolveTypeLayout(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -20929,7 +20938,7 @@ fn resolveUnionFully(
     union_obj.status = .fully_resolved;
 }
 
-fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!Type {
+pub fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!Type {
     switch (ty.tag()) {
         .@"struct" => {
             const struct_obj = ty.castTag(.@"struct").?.data;
@@ -22209,7 +22218,9 @@ fn typePtrOrOptionalPtrTy(
 /// This function returns false negatives when structs and unions are having their
 /// field types resolved.
 /// TODO assert the return value matches `ty.comptimeOnly`
-fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
+/// TODO merge these implementations together with the "advanced"/sema_kit pattern seen
+/// elsewhere in value.zig
+pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
     return switch (ty.tag()) {
         .u1,
         .u8,
@@ -22415,6 +22426,7 @@ fn typeAbiSize(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u64 {
     return ty.abiSize(target);
 }
 
+/// TODO merge with Type.abiAlignmentAdvanced
 fn typeAbiAlignment(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u32 {
     try sema.resolveTypeLayout(block, src, ty);
     const target = sema.mod.getTarget();
@@ -22497,4 +22509,8 @@ fn anonStructFieldIndex(
     return sema.fail(block, field_src, "anonymous struct {} has no such field '{s}'", .{
         struct_ty.fmt(target), field_name,
     });
+}
+
+fn kit(sema: *Sema, block: *Block, src: LazySrcLoc) Module.WipAnalysis {
+    return .{ .sema = sema, .block = block, .src = src };
 }
