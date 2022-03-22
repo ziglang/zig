@@ -740,7 +740,7 @@ pub const mcontext_t = extern struct {
 
 pub const ucontext_t = extern struct {
     flags: u32,
-    link: *ucontext_t,
+    link: ?*ucontext_t,
     stack: stack_t,
     pad: [7]i32,
     regs: *mcontext_t,

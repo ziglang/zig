@@ -744,7 +744,7 @@ pub const mcontext_t = extern struct {
 
 pub const ucontext_t = extern struct {
     flags: usize,
-    link: *ucontext_t,
+    link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
     sigmask: sigset_t,
