@@ -2197,6 +2197,10 @@ fn buildOutputType(
             clang_argv.appendAssumeCapacity(framework_dir);
             framework_dirs.appendAssumeCapacity(framework_dir);
         }
+
+        for (paths.lib_dirs.items) |lib_dir| {
+            try lib_dirs.append(lib_dir);
+        }
         for (paths.rpaths.items) |rpath| {
             try rpath_list.append(rpath);
         }
