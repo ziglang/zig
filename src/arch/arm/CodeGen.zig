@@ -1261,27 +1261,84 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const optional_ty = self.air.typeOfIndex(inst);
+        const abi_size = @intCast(u32, optional_ty.abiSize(self.target.*));
+
+        // Optional with a zero-bit payload type is just a boolean true
+        if (abi_size == 1) {
+            break :result MCValue{ .immediate = 1 };
+        } else {
+            return self.fail("TODO implement wrap optional for {}", .{self.target.cpu.arch});
+        }
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+/// Given an error union, returns the error
+fn errUnionErr(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
+    const payload_ty = error_union_ty.errorUnionPayload();
+    if (!payload_ty.hasRuntimeBits()) return error_union_mcv;
+
+    switch (error_union_mcv) {
+        .register => return self.fail("TODO errUnionErr for registers", .{}),
+        .stack_argument_offset => |off| {
+            return MCValue{ .stack_argument_offset = off };
+        },
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr };
+        },
+        else => unreachable, // invalid MCValue for an error union
+    }
+}
+
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.air.typeOf(ty_op.operand);
-        const payload_ty = error_union_ty.errorUnionPayload();
         const mcv = try self.resolveInst(ty_op.operand);
-        if (!payload_ty.hasRuntimeBits()) break :result mcv;
-
-        return self.fail("TODO implement unwrap error union error for non-empty payloads", .{});
+        break :result try self.errUnionErr(mcv, error_union_ty);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+/// Given an error union, returns the payload
+fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
+    const payload_ty = error_union_ty.errorUnionPayload();
+    if (!payload_ty.hasRuntimeBits()) return MCValue.none;
+
+    const error_ty = error_union_ty.errorUnionSet();
+    const error_size = @intCast(u32, error_ty.abiSize(self.target.*));
+    const eu_align = @intCast(u32, error_union_ty.abiAlignment(self.target.*));
+    const offset = std.mem.alignForwardGeneric(u32, error_size, eu_align);
+
+    // TODO optimization for small error unions: put into register
+    switch (error_union_mcv) {
+        .register => return self.fail("TODO errUnionPayload for registers", .{}),
+        .stack_argument_offset => |off| {
+            return MCValue{ .stack_argument_offset = off - offset };
+        },
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off - offset };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr - offset };
+        },
+        else => unreachable, // invalid MCValue for an error union
+    }
 }
 
 fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.air.typeOf(ty_op.operand);
-        const payload_ty = error_union_ty.errorUnionPayload();
-        if (!payload_ty.hasRuntimeBits()) break :result MCValue.none;
-
-        return self.fail("TODO implement unwrap error union payload for non-empty payloads", .{});
+        const mcv = try self.resolveInst(ty_op.operand);
+        break :result try self.errUnionPayload(mcv, error_union_ty);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -1306,22 +1363,6 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const optional_ty = self.air.typeOfIndex(inst);
-        const abi_size = @intCast(u32, optional_ty.abiSize(self.target.*));
-
-        // Optional with a zero-bit payload type is just a boolean true
-        if (abi_size == 1) {
-            break :result MCValue{ .immediate = 1 };
-        } else {
-            return self.fail("TODO implement wrap optional for {}", .{self.target.cpu.arch});
-        }
-    };
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-}
-
 /// T to E!T
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -1343,9 +1384,9 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn slicePtr(self: *Self, mcv: MCValue) !MCValue {
+/// Given a slice, returns the length
+fn slicePtr(mcv: MCValue) MCValue {
     switch (mcv) {
-        .dead, .unreach => unreachable,
         .register => unreachable, // a slice doesn't fit in one register
         .stack_argument_offset => |off| {
             return MCValue{ .stack_argument_offset = off };
@@ -1356,7 +1397,7 @@ fn slicePtr(self: *Self, mcv: MCValue) !MCValue {
         .memory => |addr| {
             return MCValue{ .memory = addr };
         },
-        else => return self.fail("TODO implement slice_ptr for {}", .{mcv}),
+        else => unreachable, // invalid MCValue for a slice
     }
 }
 
@@ -1364,7 +1405,7 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(ty_op.operand);
-        break :result try self.slicePtr(mcv);
+        break :result slicePtr(mcv);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -1444,7 +1485,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         if (index_is_register) self.register_manager.freezeRegs(&.{index_mcv.register});
         defer if (index_is_register) self.register_manager.unfreezeRegs(&.{index_mcv.register});
 
-        const base_mcv = try self.slicePtr(slice_mcv);
+        const base_mcv = slicePtr(slice_mcv);
 
         switch (elem_size) {
             1, 4 => {
@@ -1507,7 +1548,7 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const slice_mcv = try self.resolveInst(extra.lhs);
         const index_mcv = try self.resolveInst(extra.rhs);
-        const base_mcv = try self.slicePtr(slice_mcv);
+        const base_mcv = slicePtr(slice_mcv);
 
         const slice_ty = self.air.typeOf(extra.lhs);
 
@@ -3163,35 +3204,15 @@ fn isNonNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
 
 fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     const error_type = ty.errorUnionSet();
-    const payload_type = ty.errorUnionPayload();
+    const error_int_type = Type.initTag(.u16);
 
     if (!error_type.hasRuntimeBits()) {
         return MCValue{ .immediate = 0 }; // always false
     }
 
-    if (!payload_type.hasRuntimeBits()) {
-        if (error_type.abiSize(self.target.*) <= 4) {
-            const reg_mcv: MCValue = switch (operand) {
-                .register => operand,
-                else => .{ .register = try self.copyToTmpRegister(error_type, operand) },
-            };
-
-            _ = try self.addInst(.{
-                .tag = .cmp,
-                .data = .{ .rr_op = .{
-                    .rd = undefined,
-                    .rn = reg_mcv.register,
-                    .op = Instruction.Operand.fromU32(0).?,
-                } },
-            });
-
-            return MCValue{ .compare_flags_unsigned = .gt };
-        } else {
-            return self.fail("TODO isErr for errors with size > 4", .{});
-        }
-    } else {
-        return self.fail("TODO isErr for non-empty payloads", .{});
-    }
+    const error_mcv = try self.errUnionErr(operand, ty);
+    _ = try self.binOp(.cmp_eq, null, error_mcv, .{ .immediate = 0 }, error_int_type, error_int_type);
+    return MCValue{ .compare_flags_unsigned = .gt };
 }
 
 fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
@@ -4044,7 +4065,15 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                         try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                     },
                     .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
-                    .stack_argument_offset => return self.fail("TODO genSetStackArgument src={}", .{mcv}),
+                    .stack_argument_offset => |off| {
+                        _ = try self.addInst(.{
+                            .tag = .ldr_ptr_stack_argument,
+                            .data = .{ .r_stack_offset = .{
+                                .rt = src_reg,
+                                .stack_offset = off,
+                            } },
+                        });
+                    },
                     else => unreachable,
                 }
 
