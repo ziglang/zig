@@ -17045,17 +17045,9 @@ fn elemVal(
                     const indexable_val = maybe_indexable_val orelse break :rs indexable_src;
                     const index_val = maybe_index_val orelse break :rs elem_index_src;
                     const index = @intCast(usize, index_val.toUnsignedInt(target));
-                    const elem_ty = indexable_ty.elemType2();
-
-                    var payload: Value.Payload.ElemPtr = .{ .data = .{
-                        .array_ptr = indexable_val,
-                        .elem_ty = elem_ty,
-                        .index = index,
-                    } };
-                    const elem_ptr_val = Value.initPayload(&payload.base);
-
+                    const elem_ptr_val = try indexable_val.elemPtr(indexable_ty, sema.arena, index, target);
                     if (try sema.pointerDeref(block, indexable_src, elem_ptr_val, indexable_ty)) |elem_val| {
-                        return sema.addConstant(elem_ty, elem_val);
+                        return sema.addConstant(indexable_ty.elemType2(), elem_val);
                     }
                     break :rs indexable_src;
                 };
@@ -17310,12 +17302,7 @@ fn elemValSlice(
                 const sentinel_label: []const u8 = if (slice_sent) " +1 (sentinel)" else "";
                 return sema.fail(block, elem_index_src, "index {d} outside slice of length {d}{s}", .{ index, slice_len, sentinel_label });
             }
-            var elem_ptr_pl: Value.Payload.ElemPtr = .{ .data = .{
-                .array_ptr = slice_val.slicePtr(),
-                .elem_ty = elem_ty,
-                .index = index,
-            } };
-            const elem_ptr_val = Value.initPayload(&elem_ptr_pl.base);
+            const elem_ptr_val = try slice_val.elemPtr(slice_ty, sema.arena, index, target);
             if (try sema.pointerDeref(block, slice_src, elem_ptr_val, slice_ty)) |elem_val| {
                 return sema.addConstant(elem_ty, elem_val);
             }
