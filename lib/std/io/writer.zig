@@ -84,7 +84,7 @@ pub fn Writer(
 
         pub fn writeStruct(self: Self, value: anytype) Error!void {
             // Only extern and packed structs have defined in-memory layout.
-            comptime assert(@typeInfo(@TypeOf(value)).Struct.layout != std.builtin.TypeInfo.ContainerLayout.Auto);
+            comptime assert(@typeInfo(@TypeOf(value)).Struct.layout != .Auto);
             return self.writeAll(mem.asBytes(&value));
         }
     };

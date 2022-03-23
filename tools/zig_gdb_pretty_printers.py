@@ -1,5 +1,5 @@
-# gdb pretty printers for Zig language constructs
-
+# pretty printing for the language.
+# put "source /path/to/zig_gdb_pretty_printers.py" in ~/.gdbinit to load it automatically.
 import gdb.printing
 
 class ZigPrettyPrinter(gdb.printing.PrettyPrinter):

@@ -296,6 +296,7 @@ fn voidFun(a: i32, b: void, c: i32, d: void) !void {
 }
 
 test "call function with empty string" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     acceptsString("");
@@ -306,13 +307,20 @@ fn acceptsString(foo: []u8) void {
 }
 
 test "function pointers" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) {
+        // stage1 has wrong semantics for function pointers
+        return error.SkipZigTest;
+    }
 
-    const fns = [_]@TypeOf(fn1){
-        fn1,
-        fn2,
-        fn3,
-        fn4,
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const fns = [_]*const @TypeOf(fn1){
+        &fn1,
+        &fn2,
+        &fn3,
+        &fn4,
     };
     for (fns) |f, i| {
         try expect(f() == @intCast(u32, i) + 5);
@@ -379,7 +387,8 @@ test "ability to give comptime types and non comptime types to same parameter" {
 }
 
 test "function with inferred error set but returning no error" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn foo() !void {}

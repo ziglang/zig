@@ -2,6 +2,7 @@ const std = @import("std");
 const Type = @import("../../type.zig").Type;
 const Target = std.Target;
 const assert = std.debug.assert;
+const Register = @import("bits.zig").Register;
 
 pub const Class = enum { integer, sse, sseup, x87, x87up, complex_x87, memory, none };
 
@@ -178,9 +179,8 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
             var byte_i: usize = 0; // out of 8
             const fields = ty.structFields();
             for (fields.values()) |field| {
-                if (field.abi_align.tag() != .abi_align_default) {
-                    const field_alignment = field.abi_align.toUnsignedInt();
-                    if (field_alignment < field.ty.abiAlignment(target)) {
+                if (field.abi_align != 0) {
+                    if (field.abi_align < field.ty.abiAlignment(target)) {
                         return memory_class;
                     }
                 }
@@ -287,9 +287,8 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
 
             const fields = ty.unionFields();
             for (fields.values()) |field| {
-                if (field.abi_align.tag() != .abi_align_default) {
-                    const field_alignment = field.abi_align.toUnsignedInt();
-                    if (field_alignment < field.ty.abiAlignment(target)) {
+                if (field.abi_align != 0) {
+                    if (field.abi_align < field.ty.abiAlignment(target)) {
                         return memory_class;
                     }
                 }
@@ -370,3 +369,9 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
         else => unreachable,
     }
 }
+
+/// These registers need to be preserved (saved on the stack) and restored by the callee before getting clobbered
+/// and when the callee returns.
+pub const callee_preserved_regs = [_]Register{ .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };

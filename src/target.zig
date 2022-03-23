@@ -268,6 +268,15 @@ pub fn hasLlvmSupport(target: std.Target) bool {
     };
 }
 
+/// The set of targets that our own self-hosted backends have robust support for.
+/// Used to select between LLVM backend and self-hosted backend when compiling in
+/// debug mode. A given target should only return true here if it is passing greater
+/// than or equal to the number of behavior tests as the respective LLVM backend.
+pub fn selfHostedBackendIsAsRobustAsLlvm(target: std.Target) bool {
+    _ = target;
+    return false;
+}
+
 pub fn supportsStackProbing(target: std.Target) bool {
     return target.os.tag != .windows and target.os.tag != .uefi and
         (target.cpu.arch == .i386 or target.cpu.arch == .x86_64);

@@ -30,14 +30,14 @@ pub const Register = enum(u7) {
 
     // 16 through 31, 32-bit registers. 24-31 are extended.
     // id is int value - 16.
-    eax, ecx, edx, ebx, esp, ebp, esi, edi, 
+    eax, ecx, edx, ebx, esp, ebp, esi, edi,
     r8d, r9d, r10d, r11d, r12d, r13d, r14d, r15d,
 
     // 32-47, 16-bit registers. 40-47 are extended.
     // id is int value - 32.
     ax, cx, dx, bx, sp, bp, si, di,
     r8w, r9w, r10w, r11w, r12w, r13w, r14w, r15w,
-    
+
     // 48-63, 8-bit registers. 56-63 are extended.
     // id is int value - 48.
     al, cl, dl, bl, ah, ch, dh, bh,
@@ -79,20 +79,6 @@ pub const Register = enum(u7) {
     /// Like id, but only returns the lower 3 bits.
     pub fn lowId(self: Register) u3 {
         return @truncate(u3, @enumToInt(self));
-    }
-
-    /// Returns the index into `callee_preserved_regs`.
-    pub fn allocIndex(self: Register) ?u4 {
-        return switch (self) {
-            .rcx, .ecx, .cx, .cl => 0,
-            .rsi, .esi, .si => 1,
-            .rdi, .edi, .di => 2,
-            .r8, .r8d, .r8w, .r8b => 3,
-            .r9, .r9d, .r9w, .r9b => 4,
-            .r10, .r10d, .r10w, .r10b => 5,
-            .r11, .r11d, .r11w, .r11b => 6,
-            else => null,
-        };
     }
 
     /// Convert from any register to its 64 bit alias.
@@ -141,13 +127,6 @@ pub const Register = enum(u7) {
 };
 
 // zig fmt: on
-
-/// TODO this set is actually a set of caller-saved registers.
-/// These registers need to be preserved (saved on the stack) and restored by the callee before getting clobbered
-/// and when the callee returns.
-pub const callee_preserved_regs = [_]Register{ .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
-pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
-pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
 
 /// Encoding helper functions for x86_64 instructions
 ///

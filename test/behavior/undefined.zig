@@ -77,8 +77,12 @@ test "assign undefined to struct with method" {
 }
 
 test "type name of undefined" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the type name wrong
+        return error.SkipZigTest;
+    }
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const x = undefined;
-    try expect(mem.eql(u8, @typeName(@TypeOf(x)), "@Type(.Undefined)"));
+    try expect(mem.eql(u8, @typeName(@TypeOf(x)), "@TypeOf(undefined)"));
 }

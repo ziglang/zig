@@ -162,14 +162,6 @@ pub const Register = enum(u5) {
         return @truncate(u4, @enumToInt(self));
     }
 
-    /// Returns the index into `callee_preserved_regs`.
-    pub fn allocIndex(self: Register) ?u4 {
-        inline for (callee_preserved_regs) |cpreg, i| {
-            if (self.id() == cpreg.id()) return i;
-        }
-        return null;
-    }
-
     pub fn dwarfLocOp(self: Register) u8 {
         return @as(u8, self.id()) + DW.OP.reg0;
     }
@@ -186,10 +178,6 @@ pub const Psr = enum {
     cpsr,
     spsr,
 };
-
-pub const callee_preserved_regs = [_]Register{ .r4, .r5, .r6, .r7, .r8, .r10 };
-pub const c_abi_int_param_regs = [_]Register{ .r0, .r1, .r2, .r3 };
-pub const c_abi_int_return_regs = [_]Register{ .r0, .r1 };
 
 /// Represents an instruction in the ARM instruction set architecture
 pub const Instruction = union(enum) {

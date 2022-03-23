@@ -227,12 +227,23 @@ const Writer = struct {
             .ptr_elem_ptr,
             => try w.writeTyPlBin(s, inst),
 
+            .call,
+            .call_always_tail,
+            .call_never_tail,
+            .call_never_inline,
+            => try w.writeCall(s, inst),
+
+            .dbg_var_ptr,
+            .dbg_var_val,
+            => try w.writeDbgVar(s, inst),
+
             .struct_field_ptr => try w.writeStructField(s, inst),
             .struct_field_val => try w.writeStructField(s, inst),
             .constant => try w.writeConstant(s, inst),
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
-            .call => try w.writeCall(s, inst),
+
+            .dbg_inline_begin, .dbg_inline_end => try w.writeDbgInline(s, inst),
             .aggregate_init => try w.writeAggregateInit(s, inst),
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
@@ -253,12 +264,17 @@ const Writer = struct {
             .wasm_memory_size => try w.writeWasmMemorySize(s, inst),
             .wasm_memory_grow => try w.writeWasmMemoryGrow(s, inst),
             .mul_add => try w.writeMulAdd(s, inst),
+            .shuffle => try w.writeShuffle(s, inst),
+            .reduce => try w.writeReduce(s, inst),
+            .cmp_vector => try w.writeCmpVector(s, inst),
 
             .add_with_overflow,
             .sub_with_overflow,
             .mul_with_overflow,
             .shl_with_overflow,
             => try w.writeOverflow(s, inst),
+
+            .dbg_block_begin, .dbg_block_end => {},
         }
     }
 
@@ -283,12 +299,12 @@ const Writer = struct {
 
     fn writeTy(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty = w.air.instructions.items(.data)[inst].ty;
-        try s.print("{}", .{ty});
+        try s.print("{}", .{ty.fmtDebug()});
     }
 
     fn writeTyOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_op = w.air.instructions.items(.data)[inst].ty_op;
-        try s.print("{}, ", .{w.air.getRefType(ty_op.ty)});
+        try s.print("{}, ", .{w.air.getRefType(ty_op.ty).fmtDebug()});
         try w.writeOperand(s, inst, 0, ty_op.operand);
     }
 
@@ -297,7 +313,7 @@ const Writer = struct {
         const extra = w.air.extraData(Air.Block, ty_pl.payload);
         const body = w.air.extra[extra.end..][0..extra.data.body_len];
 
-        try s.print("{}, {{\n", .{w.air.getRefType(ty_pl.ty)});
+        try s.print("{}, {{\n", .{w.air.getRefType(ty_pl.ty).fmtDebug()});
         const old_indent = w.indent;
         w.indent += 2;
         try w.writeBody(s, body);
@@ -312,7 +328,7 @@ const Writer = struct {
         const len = @intCast(usize, vector_ty.arrayLen());
         const elements = @bitCast([]const Air.Inst.Ref, w.air.extra[ty_pl.payload..][0..len]);
 
-        try s.print("{}, [", .{vector_ty});
+        try s.print("{}, [", .{vector_ty.fmtDebug()});
         for (elements) |elem, i| {
             if (i != 0) try s.writeAll(", ");
             try w.writeOperand(s, inst, i, elem);
@@ -368,6 +384,33 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, extra.rhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, pl_op.operand);
+    }
+
+    fn writeShuffle(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.Shuffle, ty_pl.payload).data;
+
+        try w.writeOperand(s, inst, 0, extra.a);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.b);
+        try s.print(", mask {d}, len {d}", .{ extra.mask, extra.mask_len });
+    }
+
+    fn writeReduce(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const reduce = w.air.instructions.items(.data)[inst].reduce;
+
+        try w.writeOperand(s, inst, 0, reduce.operand);
+        try s.print(", {s}", .{@tagName(reduce.operation)});
+    }
+
+    fn writeCmpVector(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.VectorCmp, ty_pl.payload).data;
+
+        try s.print("{s}, ", .{@tagName(extra.compareOperator())});
+        try w.writeOperand(s, inst, 0, extra.lhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.rhs);
     }
 
     fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -438,8 +481,8 @@ const Writer = struct {
     }
 
     fn writeFieldParentPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const pl_op = w.air.instructions.items(.data)[inst].ty_pl;
-        const extra = w.air.extraData(Air.FieldParentPtr, pl_op.payload).data;
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
         try w.writeOperand(s, inst, 0, extra.field_ptr);
         try s.print(", {d}", .{extra.field_index});
@@ -459,7 +502,7 @@ const Writer = struct {
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const val = w.air.values[ty_pl.payload];
-        try s.print("{}, {}", .{ w.air.getRefType(ty_pl.ty), val });
+        try s.print("{}, {}", .{ w.air.getRefType(ty_pl.ty).fmtDebug(), val.fmtDebug() });
     }
 
     fn writeAssembly(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -471,7 +514,7 @@ const Writer = struct {
         var op_index: usize = 0;
 
         const ret_ty = w.air.typeOfIndex(inst);
-        try s.print("{}", .{ret_ty});
+        try s.print("{}", .{ret_ty.fmtDebug()});
 
         if (is_volatile) {
             try s.writeAll(", volatile");
@@ -483,7 +526,7 @@ const Writer = struct {
         extra_i += inputs.len;
 
         for (outputs) |output| {
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(w.air.extra[extra_i..]), 0);
+            const constraint = w.air.nullTerminatedString(extra_i);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += constraint.len / 4 + 1;
@@ -499,7 +542,7 @@ const Writer = struct {
         }
 
         for (inputs) |input| {
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(w.air.extra[extra_i..]), 0);
+            const constraint = w.air.nullTerminatedString(extra_i);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += constraint.len / 4 + 1;
@@ -513,7 +556,7 @@ const Writer = struct {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(w.air.extra[extra_i..]), 0);
+                const clobber = w.air.nullTerminatedString(extra_i);
                 // This equation accounts for the fact that even if we have exactly 4 bytes
                 // for the string, we still use the next u32 for the null terminator.
                 extra_i += clobber.len / 4 + 1;
@@ -530,6 +573,19 @@ const Writer = struct {
     fn writeDbgStmt(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const dbg_stmt = w.air.instructions.items(.data)[inst].dbg_stmt;
         try s.print("{d}:{d}", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
+    }
+
+    fn writeDbgInline(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const function = w.air.values[ty_pl.payload].castTag(.function).?.data;
+        try s.print("{s}", .{function.owner_decl.name});
+    }
+
+    fn writeDbgVar(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        try w.writeOperand(s, inst, 0, pl_op.operand);
+        const name = w.air.nullTerminatedString(pl_op.payload);
+        try s.print(", {s}", .{name});
     }
 
     fn writeCall(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

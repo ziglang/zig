@@ -66,7 +66,6 @@ test "ignore lval with underscore (for loop)" {
 }
 
 test "basic for loop" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -178,7 +177,8 @@ fn mangleString(s: []u8) void {
 }
 
 test "for copies its payload" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -186,7 +186,7 @@ test "for copies its payload" {
             for (x) |value, i| {
                 // Modify the original array
                 x[i] += 99;
-                try expectEqual(value, i + 1);
+                try expect(value == i + 1);
             }
         }
     };

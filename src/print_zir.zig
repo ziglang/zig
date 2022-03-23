@@ -238,6 +238,7 @@ const Writer = struct {
             .field_base_ptr,
             .validate_array_init_ty,
             .validate_struct_init_ty,
+            .make_ptr_const,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -423,6 +424,10 @@ const Writer = struct {
             .param_anytype_comptime,
             => try self.writeStrTok(stream, inst),
 
+            .dbg_var_ptr,
+            .dbg_var_val,
+            => try self.writeStrOp(stream, inst),
+
             .param, .param_comptime => try self.writeParam(stream, inst),
 
             .func => try self.writeFunc(stream, inst, false),
@@ -457,6 +462,10 @@ const Writer = struct {
             .frame_address,
             .builtin_src,
             => try self.writeExtNode(stream, extended),
+
+            .dbg_block_begin,
+            .dbg_block_end,
+            => try stream.writeAll("))"),
 
             .@"asm" => try self.writeAsm(stream, extended),
             .func => try self.writeFuncExtended(stream, extended),
@@ -1836,6 +1845,13 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
+    fn writeStrOp(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].str_op;
+        const str = inst_data.getStr(self.code);
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.print(", \"{}\")", .{std.zig.fmtEscapes(str)});
+    }
+
     fn writeFunc(
         self: *Writer,
         stream: anytype,
@@ -1941,6 +1957,7 @@ const Writer = struct {
             break :blk init_inst;
         };
         try self.writeFlag(stream, ", is_extern", small.is_extern);
+        try self.writeFlag(stream, ", is_threadlocal", small.is_threadlocal);
         try self.writeOptionalInstRef(stream, ", align=", align_inst);
         try self.writeOptionalInstRef(stream, ", init=", init_inst);
         try stream.writeAll("))");

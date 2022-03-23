@@ -16,6 +16,6 @@ pub fn addCases(ctx: *TestContext) !void {
     try @import("stage2/riscv64.zig").addCases(ctx);
     try @import("stage2/plan9.zig").addCases(ctx);
     try @import("stage2/x86_64.zig").addCases(ctx);
-    // TODO https://github.com/ziglang/zig/issues/10968
+    // https://github.com/ziglang/zig/issues/10968
     //try @import("stage2/nvptx.zig").addCases(ctx);
 }

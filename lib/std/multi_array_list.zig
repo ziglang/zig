@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const meta = std.meta;
 const mem = std.mem;
@@ -392,8 +393,36 @@ pub fn MultiArrayList(comptime S: type) type {
             return result;
         }
 
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sort(self: Self, ctx: anytype) void {
+            const SortContext = struct {
+                sub_ctx: @TypeOf(ctx),
+                slice: Slice,
+
+                pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
+                    inline for (fields) |field_info, i| {
+                        if (@sizeOf(field_info.field_type) != 0) {
+                            const field = @intToEnum(Field, i);
+                            const ptr = sc.slice.items(field);
+                            mem.swap(field_info.field_type, &ptr[a_index], &ptr[b_index]);
+                        }
+                    }
+                }
+
+                pub fn lessThan(sc: @This(), a_index: usize, b_index: usize) bool {
+                    return sc.sub_ctx.lessThan(a_index, b_index);
+                }
+            };
+
+            std.sort.sortContext(self.len, SortContext{
+                .sub_ctx = ctx,
+                .slice = self.slice(),
+            });
+        }
+
         fn capacityInBytes(capacity: usize) usize {
-            const sizes_vector: std.meta.Vector(sizes.bytes.len, usize) = sizes.bytes;
+            const sizes_vector: @Vector(sizes.bytes.len, usize) = sizes.bytes;
             const capacity_vector = @splat(sizes.bytes.len, capacity);
             return @reduce(.Add, capacity_vector * sizes_vector);
         }
@@ -404,6 +433,19 @@ pub fn MultiArrayList(comptime S: type) type {
 
         fn FieldType(field: Field) type {
             return meta.fieldInfo(S, field).field_type;
+        }
+
+        /// This function is used in tools/zig-gdb.py to fetch the child type to facilitate
+        /// fancy debug printing for this type.
+        fn gdbHelper(self: *Self, child: *S) void {
+            _ = self;
+            _ = child;
+        }
+
+        comptime {
+            if (builtin.mode == .Debug) {
+                _ = gdbHelper;
+            }
         }
     };
 }

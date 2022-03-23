@@ -127,7 +127,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
                 .error_msg = null,
                 .decl = decl,
                 .fwd_decl = fwd_decl.toManaged(module.gpa),
-                .typedefs = typedefs.promote(module.gpa),
+                .typedefs = typedefs.promoteContext(module.gpa, .{ .target = module.getTarget() }),
                 .typedefs_arena = self.arena.allocator(),
             },
             .code = code.toManaged(module.gpa),
@@ -192,7 +192,7 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
             .error_msg = null,
             .decl = decl,
             .fwd_decl = fwd_decl.toManaged(module.gpa),
-            .typedefs = typedefs.promote(module.gpa),
+            .typedefs = typedefs.promoteContext(module.gpa, .{ .target = module.getTarget() }),
             .typedefs_arena = self.arena.allocator(),
         },
         .code = code.toManaged(module.gpa),
@@ -366,7 +366,9 @@ fn flushDecl(self: *C, f: *Flush, decl: *const Module.Decl) FlushDeclError!void 
         try f.typedefs.ensureUnusedCapacity(gpa, @intCast(u32, decl_block.typedefs.count()));
         var it = decl_block.typedefs.iterator();
         while (it.next()) |new| {
-            const gop = f.typedefs.getOrPutAssumeCapacity(new.key_ptr.*);
+            const gop = f.typedefs.getOrPutAssumeCapacityContext(new.key_ptr.*, .{
+                .target = self.base.options.target,
+            });
             if (!gop.found_existing) {
                 try f.err_typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
             }

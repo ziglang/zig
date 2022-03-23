@@ -72,7 +72,7 @@ pub const Options = struct {
     object_format: std.Target.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     machine_code_model: std.builtin.CodeModel,
-    root_name: []const u8,
+    root_name: [:0]const u8,
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
     module: ?*Module,
     dynamic_linker: ?[]const u8,
@@ -183,6 +183,9 @@ pub const Options = struct {
     /// (Darwin) Install name for the dylib
     install_name: ?[]const u8 = null,
 
+    /// (Darwin) Path to entitlements file
+    entitlements: ?[]const u8 = null,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }
@@ -221,9 +224,9 @@ pub const File = struct {
     };
 
     pub const LinkFn = union {
-        elf: Elf.SrcFn,
+        elf: Dwarf.SrcFn,
         coff: Coff.SrcFn,
-        macho: MachO.SrcFn,
+        macho: Dwarf.SrcFn,
         plan9: void,
         c: void,
         wasm: Wasm.FnData,
@@ -373,17 +376,18 @@ pub const File = struct {
                     return;
                 }
                 if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
-                    if (base.options.target.cpu.arch != .aarch64) return; // If we're not targeting aarch64, nothing to do.
-                    // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
-                    // Any change to the binary will effectively invalidate the kernel's cache
-                    // resulting in a SIGKILL on each subsequent run. Since when doing incremental
-                    // linking we're modifying a binary in-place, this will end up with the kernel
-                    // killing it on every subsequent run. To circumvent it, we will copy the file
-                    // into a new inode, remove the original file, and rename the copy to match
-                    // the original file. This is super messy, but there doesn't seem any other
-                    // way to please the XNU.
-                    const emit = base.options.emit orelse return;
-                    try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
+                    if (base.options.target.cpu.arch == .aarch64) {
+                        // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
+                        // Any change to the binary will effectively invalidate the kernel's cache
+                        // resulting in a SIGKILL on each subsequent run. Since when doing incremental
+                        // linking we're modifying a binary in-place, this will end up with the kernel
+                        // killing it on every subsequent run. To circumvent it, we will copy the file
+                        // into a new inode, remove the original file, and rename the copy to match
+                        // the original file. This is super messy, but there doesn't seem any other
+                        // way to please the XNU.
+                        const emit = base.options.emit orelse return;
+                        try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
+                    }
                 }
                 f.close();
                 base.file = null;
@@ -453,7 +457,7 @@ pub const File = struct {
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) UpdateDeclError!void {
-        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty });
+        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmtDebug() });
         assert(decl.has_tv);
         switch (base.tag) {
             // zig fmt: off
@@ -473,7 +477,7 @@ pub const File = struct {
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
         log.debug("updateFunc {*} ({s}), type={}", .{
-            func.owner_decl, func.owner_decl.name, func.owner_decl.ty,
+            func.owner_decl, func.owner_decl.name, func.owner_decl.ty.fmtDebug(),
         });
         switch (base.tag) {
             // zig fmt: off
@@ -915,6 +919,7 @@ pub const File = struct {
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
     pub const NvPtx = @import("link/NvPtx.zig");
+    pub const Dwarf = @import("link/Dwarf.zig");
 };
 
 pub fn determineMode(options: Options) fs.File.Mode {

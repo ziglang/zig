@@ -112,6 +112,7 @@ pub fn emitMir(
             .str => try emit.mirLoadStore(inst),
             .strb => try emit.mirLoadStore(inst),
 
+            .ldr_ptr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrb_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrh_stack_argument => try emit.mirLoadStackArgument(inst),
@@ -383,7 +384,7 @@ fn addDbgInfoTypeReloc(self: *Emit, ty: Type) !void {
             const index = dbg_out.dbg_info.items.len;
             try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.bin_file.allocator, ty);
+            const gop = try dbg_out.dbg_info_type_relocs.getOrPutContext(self.bin_file.allocator, ty, .{ .target = self.target.* });
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .off = undefined,
@@ -403,13 +404,14 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
     const ty = self.function.air.instructions.items(.data)[inst].ty;
     const name = self.function.mod_fn.getParamName(arg_index);
     const name_with_null = name.ptr[0 .. name.len + 1];
+    const target = self.target.*;
 
     switch (mcv) {
         .register => |reg| {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_info.ensureUnusedCapacity(3);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
                     dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // ULEB128 dwarf expression length
                         reg.dwarfLocOp(),
@@ -428,7 +430,7 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
-                        return self.fail("type '{}' too big to fit into stack frame", .{ty});
+                        return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(target)});
                     };
                     const adjusted_stack_offset = switch (mcv) {
                         .stack_offset => |offset| math.negateCast(offset + abi_size) catch {
@@ -440,7 +442,7 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
                         else => unreachable,
                     };
 
-                    try dbg_out.dbg_info.append(link.File.Elf.abbrev_parameter);
+                    try dbg_out.dbg_info.append(link.File.Dwarf.abbrev_parameter);
 
                     // Get length of the LEB128 stack offset
                     var counting_writer = std.io.countingWriter(std.io.null_writer);
@@ -597,6 +599,12 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     const raw_offset = emit.prologue_stack_space - r_stack_offset.stack_offset;
     switch (tag) {
+        .ldr_ptr_stack_argument => {
+            const operand = Instruction.Operand.fromU32(raw_offset) orelse
+                return emit.fail("TODO mirLoadStack larger offsets", .{});
+
+            try emit.writeInstruction(Instruction.add(cond, r_stack_offset.rt, .fp, operand));
+        },
         .ldr_stack_argument,
         .ldrb_stack_argument,
         => {

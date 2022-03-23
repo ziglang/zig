@@ -341,15 +341,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                             const slot_index = @intCast(SlotIndex, used_bits_byte * 8 + bit_index);
                             const stack_trace = bucketStackTrace(bucket, size_class, slot_index, .alloc);
                             const addr = bucket.page + slot_index * size_class;
-                            if (builtin.zig_backend == .stage1) {
-                                log.err("memory address 0x{x} leaked: {s}", .{
-                                    @ptrToInt(addr), stack_trace,
-                                });
-                            } else { // TODO
-                                log.err("memory address 0x{x} leaked", .{
-                                    @ptrToInt(addr),
-                                });
-                            }
+                            log.err("memory address 0x{x} leaked: {s}", .{
+                                @ptrToInt(addr), stack_trace,
+                            });
                             leaks = true;
                         }
                         if (bit_index == math.maxInt(u3))
@@ -379,15 +373,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             while (it.next()) |large_alloc| {
                 if (config.retain_metadata and large_alloc.freed) continue;
                 const stack_trace = large_alloc.getStackTrace(.alloc);
-                if (builtin.zig_backend == .stage1) {
-                    log.err("memory address 0x{x} leaked: {s}", .{
-                        @ptrToInt(large_alloc.bytes.ptr), stack_trace,
-                    });
-                } else { // TODO
-                    log.err("memory address 0x{x} leaked", .{
-                        @ptrToInt(large_alloc.bytes.ptr),
-                    });
-                }
+                log.err("memory address 0x{x} leaked: {s}", .{
+                    @ptrToInt(large_alloc.bytes.ptr), stack_trace,
+                });
                 leaks = true;
             }
             return leaks;
@@ -1109,7 +1097,8 @@ test "shrink large object to large object with larger alignment" {
     const allocator = gpa.allocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = std.heap.FixedBufferAllocator.init(&debug_buffer).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
+    const debug_allocator = fba.allocator();
 
     const alloc_size = page_size * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
@@ -1180,7 +1169,8 @@ test "realloc large object to larger alignment" {
     const allocator = gpa.allocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = std.heap.FixedBufferAllocator.init(&debug_buffer).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
+    const debug_allocator = fba.allocator();
 
     var slice = try allocator.alignedAlloc(u8, 16, page_size * 2 + 50);
     defer allocator.free(slice);

@@ -175,6 +175,7 @@ pub const TestContext = struct {
         is_test: bool = false,
         expect_exact: bool = false,
         backend: Backend = .stage2,
+        link_libc: bool = false,
 
         files: std.ArrayList(File),
 
@@ -331,6 +332,7 @@ pub const TestContext = struct {
             .output_mode = .Exe,
             .files = std.ArrayList(File).init(ctx.cases.allocator),
             .backend = .llvm,
+            .link_libc = true,
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -884,15 +886,10 @@ pub const TestContext = struct {
             .directory = emit_directory,
             .basename = "test_case.h",
         } else null;
-        const use_llvm: ?bool = switch (case.backend) {
+        const use_llvm: bool = switch (case.backend) {
             .llvm => true,
-            else => null,
+            else => false,
         };
-        const use_stage1: ?bool = switch (case.backend) {
-            .stage1 => true,
-            else => null,
-        };
-        const link_libc = case.backend == .llvm;
         const comp = try Compilation.create(allocator, .{
             .local_cache_directory = zig_cache_directory,
             .global_cache_directory = global_cache_directory,
@@ -914,9 +911,9 @@ pub const TestContext = struct {
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
-            .link_libc = link_libc,
+            .link_libc = case.link_libc,
             .use_llvm = use_llvm,
-            .use_stage1 = use_stage1,
+            .use_stage1 = null, // We already handled stage1 tests
             .self_exe_path = std.testing.zig_exe_path,
         });
         defer comp.destroy();
@@ -1145,7 +1142,7 @@ pub const TestContext = struct {
                                 "-lc",
                                 exe_path,
                             });
-                        } else switch (host.getExternalExecutor(target_info, .{ .link_libc = link_libc })) {
+                        } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
                             .native => try argv.append(exe_path),
                             .bad_dl, .bad_os_or_cpu => return, // Pass test.
 
@@ -1156,8 +1153,7 @@ pub const TestContext = struct {
                             },
 
                             .qemu => |qemu_bin_name| if (enable_qemu) {
-                                // TODO Ability for test cases to specify whether to link libc.
-                                const need_cross_glibc = false; // target.isGnuLibC() and self.is_linking_libc;
+                                const need_cross_glibc = target.isGnuLibC() and case.link_libc;
                                 const glibc_dir_arg = if (need_cross_glibc)
                                     glibc_runtimes_dir orelse return // glibc dir not available; pass test
                                 else

@@ -1166,7 +1166,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\    _ = x;
                 \\}
             , &[_][]const u8{
-                ":2:9: error: variable of type '@Type(.Null)' must be const or comptime",
+                ":2:9: error: variable of type '@TypeOf(null)' must be const or comptime",
             });
         }
 
@@ -1413,25 +1413,6 @@ pub fn addCases(ctx: *TestContext) !void {
         }
 
         {
-            var case = ctx.exe("error set equality", target);
-
-            case.addCompareOutput(
-                \\pub fn main() void {
-                \\    assert(@TypeOf(error.Foo) == @TypeOf(error.Foo));
-                \\    assert(@TypeOf(error.Bar) != @TypeOf(error.Foo));
-                \\    assert(anyerror == anyerror);
-                \\    assert(error{Foo} != error{Foo});
-                \\    // TODO put inferred error sets here when @typeInfo works
-                \\}
-                \\fn assert(b: bool) void {
-                \\    if (!b) unreachable;
-                \\}
-            ,
-                "",
-            );
-        }
-
-        {
             var case = ctx.exe("comptime var", target);
 
             case.addError(
@@ -1574,7 +1555,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
             case.addError(
                 \\pub const a = if (true && false) 1 else 2;
-            , &[_][]const u8{":1:24: error: `&&` is invalid; note that `and` is boolean AND"});
+            , &[_][]const u8{":1:24: error: ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND"});
 
             case.addError(
                 \\pub fn main() void {
@@ -1944,7 +1925,7 @@ fn addLinuxTestCases(ctx: *TestContext) !void {
         var case = ctx.exe("hello world with updates", linux_x64);
 
         case.addError("", &[_][]const u8{
-            ":99:9: error: struct 'tmp.tmp' has no member named 'main'",
+            ":108:9: error: struct 'tmp.tmp' has no member named 'main'",
         });
 
         // Incorrect return type
@@ -2195,7 +2176,7 @@ fn addMacOsTestCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("darwin hello world with updates", macos_x64);
         case.addError("", &[_][]const u8{
-            ":99:9: error: struct 'tmp.tmp' has no member named 'main'",
+            ":108:9: error: struct 'tmp.tmp' has no member named 'main'",
         });
 
         // Incorrect return type

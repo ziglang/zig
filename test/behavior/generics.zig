@@ -17,7 +17,6 @@ fn checkSize(comptime T: type) usize {
 }
 
 test "simple generic fn" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(max(i32, 3, -1) == 3);
@@ -189,8 +188,6 @@ test "generic fn keeps non-generic parameter types" {
 }
 
 test "array of generic fns" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-
     try expect(foos[0](true));
     try expect(!foos[1](true));
 }
@@ -230,4 +227,17 @@ fn GenNode(comptime T: type) type {
             return n.value;
         }
     };
+}
+
+test "function parameter is generic" {
+    const S = struct {
+        pub fn init(pointer: anytype, comptime fillFn: fn (ptr: *@TypeOf(pointer)) void) void {
+            _ = fillFn;
+        }
+        pub fn fill(self: *u32) void {
+            _ = self;
+        }
+    };
+    var rng: u32 = 2;
+    S.init(rng, S.fill);
 }

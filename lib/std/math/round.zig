@@ -20,6 +20,10 @@ pub fn round(x: anytype) @TypeOf(x) {
         f32 => round32(x),
         f64 => round64(x),
         f128 => round128(x),
+
+        // TODO this is not correct for some targets
+        c_longdouble => @floatCast(c_longdouble, round128(x)),
+
         else => @compileError("round not implemented for " ++ @typeName(T)),
     };
 }

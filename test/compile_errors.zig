@@ -21,6 +21,29 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{
             ":2:20: error: import of file outside package path: '../../above.zig'",
         });
+
+        case.addError(
+            \\comptime {
+            \\    var array = [_:0]u8{ 1, 2, 3, 4 };
+            \\    var src_slice: [:0]u8 = &array;
+            \\    var slice = src_slice[2..5];
+            \\    _ = slice;
+            \\}
+            \\comptime {
+            \\    var array = [_:0]u8{ 1, 2, 3, 4 };
+            \\    var slice = array[2..5];
+            \\    _ = slice;
+            \\}
+            \\comptime {
+            \\    var array = [_:0]u8{ 1, 2, 3, 4 };
+            \\    var slice = array[3..2];
+            \\    _ = slice;
+            \\}
+        , &[_][]const u8{
+            ":4:26: error: end index 5 out of bounds for slice of length 4",
+            ":9:22: error: end index 5 out of bounds for array of length 4",
+            ":14:22: error: start index 3 is larger than end index 2",
+        });
     }
 
     ctx.objErrStage1("exported enum without explicit integer tag type",
@@ -95,12 +118,12 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("@Type() union payload is undefined",
-        \\const Foo = @Type(@import("std").builtin.TypeInfo{
+        \\const Foo = @Type(.{
         \\    .Struct = undefined,
         \\});
         \\comptime { _ = Foo; }
     , &[_][]const u8{
-        "tmp.zig:1:50: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:1:20: error: use of undefined value here causes undefined behavior",
     });
 
     ctx.objErrStage1("wrong initializer for union payload of type 'type'",
@@ -258,16 +281,16 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:8:12: note: called from here",
     });
 
-    ctx.objErrStage1("@Type with TypeInfo.Int",
+    ctx.objErrStage1("@Type with Type.Int",
         \\const builtin = @import("std").builtin;
         \\export fn entry() void {
-        \\    _ = @Type(builtin.TypeInfo.Int {
+        \\    _ = @Type(builtin.Type.Int{
         \\        .signedness = .signed,
         \\        .bits = 8,
         \\    });
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:36: error: expected type 'std.builtin.TypeInfo', found 'std.builtin.Int'",
+        "tmp.zig:3:31: error: expected type 'std.builtin.Type', found 'std.builtin.Type.Int'",
     });
 
     ctx.objErrStage1("indexing a undefined slice at comptime",
@@ -293,13 +316,12 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("@Type for exhaustive enum with undefined tag type",
-        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
         \\        .tag_type = undefined,
-        \\        .fields = &[_]TypeInfo.EnumField{},
-        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .fields = &.{},
+        \\        .decls = &.{},
         \\        .is_exhaustive = false,
         \\    },
         \\});
@@ -307,7 +329,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = @intToEnum(Tag, 0);
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:20: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:1:20: error: use of undefined value here causes undefined behavior",
     });
 
     ctx.objErrStage1("extern struct with non-extern-compatible integer tag type",
@@ -324,13 +346,12 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("@Type for exhaustive enum with non-integer tag type",
-        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
         \\        .tag_type = bool,
-        \\        .fields = &[_]TypeInfo.EnumField{},
-        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .fields = &.{},
+        \\        .decls = &.{},
         \\        .is_exhaustive = false,
         \\    },
         \\});
@@ -338,7 +359,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = @intToEnum(Tag, 0);
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:20: error: TypeInfo.Enum.tag_type must be an integer type, not 'bool'",
+        "tmp.zig:1:20: error: Type.Enum.tag_type must be an integer type, not 'bool'",
     });
 
     ctx.objErrStage1("extern struct with extern-compatible but inferred integer tag type",
@@ -384,17 +405,16 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("@Type for tagged union with extra enum field",
-        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
         \\        .tag_type = u2,
-        \\        .fields = &[_]TypeInfo.EnumField{
+        \\        .fields = &.{
         \\            .{ .name = "signed", .value = 0 },
         \\            .{ .name = "unsigned", .value = 1 },
         \\            .{ .name = "arst", .value = 2 },
         \\        },
-        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .decls = &.{},
         \\        .is_exhaustive = true,
         \\    },
         \\});
@@ -402,11 +422,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    .Union = .{
         \\        .layout = .Auto,
         \\        .tag_type = Tag,
-        \\        .fields = &[_]TypeInfo.UnionField{
+        \\        .fields = &.{
         \\            .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
         \\            .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
         \\        },
-        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .decls = &.{},
         \\    },
         \\});
         \\export fn entry() void {
@@ -414,7 +434,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    tagged = .{ .unsigned = 1 };
         \\}
     , &[_][]const u8{
-        "tmp.zig:15:23: error: enum field missing: 'arst'",
+        "tmp.zig:14:23: error: enum field missing: 'arst'",
     });
 
     ctx.objErrStage1("field access of opaque type",
@@ -450,12 +470,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .is_generic = true,
         \\        .is_var_args = false,
         \\        .return_type = u0,
-        \\        .args = &[_]@import("std").builtin.TypeInfo.Fn.Param{},
+        \\        .args = &.{},
         \\    },
         \\});
         \\comptime { _ = Foo; }
     , &[_][]const u8{
-        "tmp.zig:1:20: error: TypeInfo.Fn.is_generic must be false for @Type",
+        "tmp.zig:1:20: error: Type.Fn.is_generic must be false for @Type",
     });
 
     ctx.objErrStage1("@Type(.Fn) with is_var_args = true and non-C callconv",
@@ -466,7 +486,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .is_generic = false,
         \\        .is_var_args = true,
         \\        .return_type = u0,
-        \\        .args = &[_]@import("std").builtin.TypeInfo.Fn.Param{},
+        \\        .args = &.{},
         \\    },
         \\});
         \\comptime { _ = Foo; }
@@ -482,31 +502,30 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .is_generic = false,
         \\        .is_var_args = false,
         \\        .return_type = null,
-        \\        .args = &[_]@import("std").builtin.TypeInfo.Fn.Param{},
+        \\        .args = &.{},
         \\    },
         \\});
         \\comptime { _ = Foo; }
     , &[_][]const u8{
-        "tmp.zig:1:20: error: TypeInfo.Fn.return_type must be non-null for @Type",
+        "tmp.zig:1:20: error: Type.Fn.return_type must be non-null for @Type",
     });
 
     ctx.objErrStage1("@Type for union with opaque field",
-        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Untagged = @Type(.{
         \\    .Union = .{
         \\        .layout = .Auto,
         \\        .tag_type = null,
-        \\        .fields = &[_]TypeInfo.UnionField{
+        \\        .fields = &.{
         \\            .{ .name = "foo", .field_type = opaque {}, .alignment = 1 },
         \\        },
-        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .decls = &.{},
         \\    },
         \\});
         \\export fn entry() void {
         \\    _ = Untagged{};
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:25: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
+        "tmp.zig:1:25: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
     });
 
     ctx.objErrStage1("slice sentinel mismatch",
@@ -528,30 +547,28 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("@Type for union with zero fields",
-        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Untagged = @Type(.{
         \\    .Union = .{
         \\        .layout = .Auto,
         \\        .tag_type = null,
-        \\        .fields = &[_]TypeInfo.UnionField{},
-        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .fields = &.{},
+        \\        .decls = &.{},
         \\    },
         \\});
         \\export fn entry() void {
         \\    _ = Untagged{};
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:25: error: unions must have 1 or more fields",
+        "tmp.zig:1:25: error: unions must have 1 or more fields",
     });
 
     ctx.objErrStage1("@Type for exhaustive enum with zero fields",
-        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
         \\        .tag_type = u1,
-        \\        .fields = &[_]TypeInfo.EnumField{},
-        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .fields = &.{},
+        \\        .decls = &.{},
         \\        .is_exhaustive = true,
         \\    },
         \\});
@@ -559,20 +576,19 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = @intToEnum(Tag, 0);
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:20: error: enums must have 1 or more fields",
+        "tmp.zig:1:20: error: enums must have 1 or more fields",
     });
 
     ctx.objErrStage1("@Type for tagged union with extra union field",
-        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
         \\        .tag_type = u1,
-        \\        .fields = &[_]TypeInfo.EnumField{
+        \\        .fields = &.{
         \\            .{ .name = "signed", .value = 0 },
         \\            .{ .name = "unsigned", .value = 1 },
         \\        },
-        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .decls = &.{},
         \\        .is_exhaustive = true,
         \\    },
         \\});
@@ -580,12 +596,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    .Union = .{
         \\        .layout = .Auto,
         \\        .tag_type = Tag,
-        \\        .fields = &[_]TypeInfo.UnionField{
+        \\        .fields = &.{
         \\            .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
         \\            .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
         \\            .{ .name = "arst", .field_type = f32, .alignment = @alignOf(f32) },
         \\        },
-        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .decls = &.{},
         \\    },
         \\});
         \\export fn entry() void {
@@ -593,8 +609,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    tagged = .{ .unsigned = 1 };
         \\}
     , &[_][]const u8{
-        "tmp.zig:14:23: error: enum field not found: 'arst'",
-        "tmp.zig:2:20: note: enum declared here",
+        "tmp.zig:13:23: error: enum field not found: 'arst'",
+        "tmp.zig:1:20: note: enum declared here",
     });
 
     ctx.objErrStage1("@Type with undefined",
@@ -621,7 +637,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = @Type(@typeInfo(struct { const foo = 1; }));
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: TypeInfo.Struct.decls must be empty for @Type",
+        "tmp.zig:2:15: error: Type.Struct.decls must be empty for @Type",
     });
 
     ctx.objErrStage1("enum with declarations unavailable for @Type",
@@ -629,7 +645,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = @Type(@typeInfo(enum { foo, const bar = 1; }));
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: TypeInfo.Enum.decls must be empty for @Type",
+        "tmp.zig:2:15: error: Type.Enum.decls must be empty for @Type",
     });
 
     ctx.testErrStage1("reject extern variables with initializers",
@@ -2081,10 +2097,10 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.objErrStage1("attempt to create 17 bit float type",
         \\const builtin = @import("std").builtin;
         \\comptime {
-        \\    _ = @Type(builtin.TypeInfo { .Float = builtin.TypeInfo.Float { .bits = 17 } });
+        \\    _ = @Type(.{ .Float = .{ .bits = 17 } });
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:32: error: 17-bit float unsupported",
+        "tmp.zig:3:16: error: 17-bit float unsupported",
     });
 
     ctx.objErrStage1("wrong type for @Type",
@@ -2092,12 +2108,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = @Type(0);
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: expected type 'std.builtin.TypeInfo', found 'comptime_int'",
+        "tmp.zig:2:15: error: expected type 'std.builtin.Type', found 'comptime_int'",
     });
 
     ctx.objErrStage1("@Type with non-constant expression",
         \\const builtin = @import("std").builtin;
-        \\var globalTypeInfo : builtin.TypeInfo = undefined;
+        \\var globalTypeInfo : builtin.Type = undefined;
         \\export fn entry() void {
         \\    _ = @Type(globalTypeInfo);
         \\}
@@ -3266,7 +3282,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return 5678;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:11: error: `&&` is invalid; note that `and` is boolean AND",
+        "tmp.zig:2:11: error: ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND",
     });
 
     ctx.objErrStage1("attempted `||` on boolean values",
@@ -3468,7 +3484,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = field;
         \\}
     , &[_][]const u8{
-        "tmp.zig:9:51: error: values of type 'std.builtin.StructField' must be comptime known, but index value is runtime known",
+        "tmp.zig:9:51: error: values of type 'std.builtin.Type.StructField' must be comptime known, but index value is runtime known",
     });
 
     ctx.objErrStage1("compile log statement inside function which must be comptime evaluated",
@@ -4494,8 +4510,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = a;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:5: error: duplicate error: 'Bar'",
-        "tmp.zig:2:5: note: other error here",
+        "tmp.zig:3:5: error: duplicate error set field 'Bar'",
+        "tmp.zig:2:5: note: previous declaration here",
     });
 
     ctx.objErrStage1("cast negative integer literal to usize",
@@ -8156,12 +8172,12 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.testErrStage1("nested vectors",
         \\export fn entry() void {
         \\    const V1 = @import("std").meta.Vector(4, u8);
-        \\    const V2 = @Type(@import("std").builtin.TypeInfo{ .Vector = .{ .len = 4, .child = V1 } });
+        \\    const V2 = @Type(.{ .Vector = .{ .len = 4, .child = V1 } });
         \\    var v: V2 = undefined;
         \\    _ = v;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:53: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
+        "tmp.zig:3:23: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
     });
 
     ctx.testErrStage1("bad @splat type",

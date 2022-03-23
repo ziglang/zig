@@ -43,6 +43,9 @@ pub fn emitMir(
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
+            .add => try emit.mirRType(inst),
+            .sub => try emit.mirRType(inst),
+
             .addi => try emit.mirIType(inst),
             .jalr => try emit.mirIType(inst),
             .ld => try emit.mirIType(inst),
@@ -55,6 +58,8 @@ pub fn emitMir(
 
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
+
+            .mv => try emit.mirRR(inst),
 
             .nop => try emit.mirNop(inst),
             .ret => try emit.mirNop(inst),
@@ -131,6 +136,17 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     }
 }
 
+fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const r_type = emit.mir.instructions.items(.data)[inst].r_type;
+
+    switch (tag) {
+        .add => try emit.writeInstruction(Instruction.add(r_type.rd, r_type.rs1, r_type.rs2)),
+        .sub => try emit.writeInstruction(Instruction.sub(r_type.rd, r_type.rs1, r_type.rs2)),
+        else => unreachable,
+    }
+}
+
 fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const i_type = emit.mir.instructions.items(.data)[inst].i_type;
@@ -186,6 +202,15 @@ fn mirDebugEpilogueBegin(self: *Emit) !void {
     }
 }
 
+fn mirRR(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rr = emit.mir.instructions.items(.data)[inst].rr;
+
+    switch (tag) {
+        .mv => try emit.writeInstruction(Instruction.addi(rr.rd, rr.rs, 0)),
+        else => unreachable,
+    }
+}
 fn mirUType(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const u_type = emit.mir.instructions.items(.data)[inst].u_type;

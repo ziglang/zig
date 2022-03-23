@@ -4,16 +4,16 @@ const DW = std.dwarf;
 // zig fmt: off
 pub const Register = enum(u8) {
     // 0 through 7, 32-bit registers. id is int value
-    eax, ecx, edx, ebx, esp, ebp, esi, edi, 
+    eax, ecx, edx, ebx, esp, ebp, esi, edi,
 
     // 8-15, 16-bit registers. id is int value - 8.
     ax, cx, dx, bx, sp, bp, si, di,
-    
+
     // 16-23, 8-bit registers. id is int value - 16.
     al, cl, dl, bl, ah, ch, dh, bh,
 
     /// Returns the bit-width of the register.
-    pub fn size(self: @This()) u7 {
+    pub fn size(self: Register) u7 {
         return switch (@enumToInt(self)) {
             0...7 => 32,
             8...15 => 16,
@@ -25,20 +25,8 @@ pub const Register = enum(u8) {
     /// Returns the register's id. This is used in practically every opcode the
     /// x86 has. It is embedded in some instructions, such as the `B8 +rd` move
     /// instruction, and is used in the R/M byte.
-    pub fn id(self: @This()) u3 {
+    pub fn id(self: Register) u3 {
         return @truncate(u3, @enumToInt(self));
-    }
-
-    /// Returns the index into `callee_preserved_regs`.
-    pub fn allocIndex(self: Register) ?u4 {
-        return switch (self) {
-            .eax, .ax, .al => 0,
-            .ecx, .cx, .cl => 1,
-            .edx, .dx, .dl => 2,
-            .esi, .si  => 3,
-            .edi, .di => 4,
-            else => null,
-        };
     }
 
     /// Convert from any register to its 32 bit alias.
@@ -55,7 +43,6 @@ pub const Register = enum(u8) {
     pub fn to8(self: Register) Register {
         return @intToEnum(Register, @as(u8, self.id()) + 16);
     }
-
 
     pub fn dwarfLocOp(reg: Register) u8 {
         return switch (reg.to32()) {

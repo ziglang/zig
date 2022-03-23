@@ -51,17 +51,17 @@ $ZIG fmt --check .
 $ZIG build -p stage2 -Denable-llvm -Duse-zig-libcxx
 
 stage2/bin/zig test test/behavior.zig -I test -fLLVM
-stage2/bin/zig test test/behavior.zig -I test
-stage2/bin/zig test test/behavior.zig -I test -fLLVM -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
-stage2/bin/zig test test/behavior.zig -I test        -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test -fno-LLVM
+stage2/bin/zig test test/behavior.zig -I test -fLLVM    -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
 stage2/bin/zig test test/behavior.zig -I test -ofmt=c
-stage2/bin/zig test test/behavior.zig -I test        -target  wasm32-wasi  --test-cmd wasmtime     --test-cmd-bin
-stage2/bin/zig test test/behavior.zig -I test -fLLVM -target  wasm32-wasi  --test-cmd wasmtime     --test-cmd-bin
-stage2/bin/zig test test/behavior.zig -I test        -target     arm-linux --test-cmd qemu-arm     --test-cmd-bin
-stage2/bin/zig test test/behavior.zig -I test -fLLVM -target aarch64-macos --test-no-exec
-stage2/bin/zig test test/behavior.zig -I test        -target aarch64-macos --test-no-exec
-stage2/bin/zig test test/behavior.zig -I test -fLLVM -target  x86_64-macos --test-no-exec
-stage2/bin/zig test test/behavior.zig -I test        -target  x86_64-macos --test-no-exec
+stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target  wasm32-wasi  --test-cmd wasmtime     --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test -fLLVM    -target  wasm32-wasi  --test-cmd wasmtime     --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target     arm-linux --test-cmd qemu-arm     --test-cmd-bin
+stage2/bin/zig test test/behavior.zig -I test -fLLVM    -target aarch64-macos --test-no-exec
+stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target aarch64-macos --test-no-exec
+stage2/bin/zig test test/behavior.zig -I test -fLLVM    -target  x86_64-macos --test-no-exec
+stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target  x86_64-macos --test-no-exec
 
 $ZIG build test-behavior         -fqemu -fwasmtime
 $ZIG build test-compiler-rt      -fqemu -fwasmtime

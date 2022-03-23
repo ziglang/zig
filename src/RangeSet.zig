@@ -6,6 +6,7 @@ const RangeSet = @This();
 const SwitchProngSrc = @import("Module.zig").SwitchProngSrc;
 
 ranges: std.ArrayList(Range),
+target: std.Target,
 
 pub const Range = struct {
     first: Value,
@@ -13,9 +14,10 @@ pub const Range = struct {
     src: SwitchProngSrc,
 };
 
-pub fn init(allocator: std.mem.Allocator) RangeSet {
+pub fn init(allocator: std.mem.Allocator, target: std.Target) RangeSet {
     return .{
         .ranges = std.ArrayList(Range).init(allocator),
+        .target = target,
     };
 }
 
@@ -30,8 +32,12 @@ pub fn add(
     ty: Type,
     src: SwitchProngSrc,
 ) !?SwitchProngSrc {
+    const target = self.target;
+
     for (self.ranges.items) |range| {
-        if (last.compare(.gte, range.first, ty) and first.compare(.lte, range.last, ty)) {
+        if (last.compare(.gte, range.first, ty, target) and
+            first.compare(.lte, range.last, ty, target))
+        {
             return range.src; // They overlap.
         }
     }
@@ -43,19 +49,26 @@ pub fn add(
     return null;
 }
 
+const LessThanContext = struct { ty: Type, target: std.Target };
+
 /// Assumes a and b do not overlap
-fn lessThan(ty: Type, a: Range, b: Range) bool {
-    return a.first.compare(.lt, b.first, ty);
+fn lessThan(ctx: LessThanContext, a: Range, b: Range) bool {
+    return a.first.compare(.lt, b.first, ctx.ty, ctx.target);
 }
 
 pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
     if (self.ranges.items.len == 0)
         return false;
 
-    std.sort.sort(Range, self.ranges.items, ty, lessThan);
+    const target = self.target;
 
-    if (!self.ranges.items[0].first.eql(first, ty) or
-        !self.ranges.items[self.ranges.items.len - 1].last.eql(last, ty))
+    std.sort.sort(Range, self.ranges.items, LessThanContext{
+        .ty = ty,
+        .target = target,
+    }, lessThan);
+
+    if (!self.ranges.items[0].first.eql(first, ty, target) or
+        !self.ranges.items[self.ranges.items.len - 1].last.eql(last, ty, target))
     {
         return false;
     }
@@ -71,10 +84,10 @@ pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
         const prev = self.ranges.items[i];
 
         // prev.last + 1 == cur.first
-        try counter.copy(prev.last.toBigInt(&space));
+        try counter.copy(prev.last.toBigInt(&space, target));
         try counter.addScalar(counter.toConst(), 1);
 
-        const cur_start_int = cur.first.toBigInt(&space);
+        const cur_start_int = cur.first.toBigInt(&space, target);
         if (!cur_start_int.eq(counter.toConst())) {
             return false;
         }

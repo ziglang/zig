@@ -184,11 +184,17 @@ pub const Value = opaque {
     pub const setFunctionCallConv = LLVMSetFunctionCallConv;
     extern fn LLVMSetFunctionCallConv(Fn: *const Value, CC: CallConv) void;
 
+    pub const fnSetSubprogram = ZigLLVMFnSetSubprogram;
+    extern fn ZigLLVMFnSetSubprogram(f: *const Value, subprogram: *DISubprogram) void;
+
     pub const setValueName = LLVMSetValueName;
     extern fn LLVMSetValueName(Val: *const Value, Name: [*:0]const u8) void;
 
     pub const setValueName2 = LLVMSetValueName2;
     extern fn LLVMSetValueName2(Val: *const Value, Name: [*]const u8, NameLen: usize) void;
+
+    pub const getValueName = LLVMGetValueName;
+    extern fn LLVMGetValueName(Val: *const Value) [*:0]const u8;
 
     pub const takeName = ZigLLVMTakeName;
     extern fn ZigLLVMTakeName(new_owner: *const Value, victim: *const Value) void;
@@ -354,6 +360,18 @@ pub const Module = opaque {
         Name: [*:0]const u8,
         NameLen: usize,
     ) ?*const Value;
+
+    pub const setTarget = LLVMSetTarget;
+    extern fn LLVMSetTarget(M: *const Module, Triple: [*:0]const u8) void;
+
+    pub const addModuleDebugInfoFlag = ZigLLVMAddModuleDebugInfoFlag;
+    extern fn ZigLLVMAddModuleDebugInfoFlag(module: *const Module) void;
+
+    pub const addModuleCodeViewFlag = ZigLLVMAddModuleCodeViewFlag;
+    extern fn ZigLLVMAddModuleCodeViewFlag(module: *const Module) void;
+
+    pub const createDIBuilder = ZigLLVMCreateDIBuilder;
+    extern fn ZigLLVMCreateDIBuilder(module: *const Module, allow_unresolved: bool) *DIBuilder;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
@@ -821,8 +839,8 @@ pub const Builder = opaque {
     pub const buildExactSDiv = LLVMBuildExactSDiv;
     extern fn LLVMBuildExactSDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
-    pub const zigSetCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation;
-    extern fn ZigLLVMSetCurrentDebugLocation(builder: *const Builder, line: c_int, column: c_int, scope: *DIScope) void;
+    pub const setCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation2;
+    extern fn ZigLLVMSetCurrentDebugLocation2(builder: *const Builder, line: c_uint, column: c_uint, scope: *DIScope, inlined_at: ?*DILocation) void;
 
     pub const clearCurrentDebugLocation = ZigLLVMClearCurrentDebugLocation;
     extern fn ZigLLVMClearCurrentDebugLocation(builder: *const Builder) void;
@@ -835,9 +853,52 @@ pub const Builder = opaque {
 
     pub const buildShuffleVector = LLVMBuildShuffleVector;
     extern fn LLVMBuildShuffleVector(*const Builder, V1: *const Value, V2: *const Value, Mask: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildAndReduce = ZigLLVMBuildAndReduce;
+    extern fn ZigLLVMBuildAndReduce(B: *const Builder, Val: *const Value) *const Value;
+
+    pub const buildOrReduce = ZigLLVMBuildOrReduce;
+    extern fn ZigLLVMBuildOrReduce(B: *const Builder, Val: *const Value) *const Value;
+
+    pub const buildXorReduce = ZigLLVMBuildXorReduce;
+    extern fn ZigLLVMBuildXorReduce(B: *const Builder, Val: *const Value) *const Value;
+
+    pub const buildIntMaxReduce = ZigLLVMBuildIntMaxReduce;
+    extern fn ZigLLVMBuildIntMaxReduce(B: *const Builder, Val: *const Value, is_signed: bool) *const Value;
+
+    pub const buildIntMinReduce = ZigLLVMBuildIntMinReduce;
+    extern fn ZigLLVMBuildIntMinReduce(B: *const Builder, Val: *const Value, is_signed: bool) *const Value;
+
+    pub const buildFPMaxReduce = ZigLLVMBuildFPMaxReduce;
+    extern fn ZigLLVMBuildFPMaxReduce(B: *const Builder, Val: *const Value) *const Value;
+
+    pub const buildFPMinReduce = ZigLLVMBuildFPMinReduce;
+    extern fn ZigLLVMBuildFPMinReduce(B: *const Builder, Val: *const Value) *const Value;
+
+    pub const buildAddReduce = ZigLLVMBuildAddReduce;
+    extern fn ZigLLVMBuildAddReduce(B: *const Builder, Val: *const Value) *const Value;
+
+    pub const buildMulReduce = ZigLLVMBuildMulReduce;
+    extern fn ZigLLVMBuildMulReduce(B: *const Builder, Val: *const Value) *const Value;
+
+    pub const buildFPAddReduce = ZigLLVMBuildFPAddReduce;
+    extern fn ZigLLVMBuildFPAddReduce(B: *const Builder, Acc: *const Value, Val: *const Value) *const Value;
+
+    pub const buildFPMulReduce = ZigLLVMBuildFPMulReduce;
+    extern fn ZigLLVMBuildFPMulReduce(B: *const Builder, Acc: *const Value, Val: *const Value) *const Value;
 };
 
-pub const DIScope = opaque {};
+pub const MDString = opaque {
+    pub const get = LLVMMDStringInContext2;
+    extern fn LLVMMDStringInContext2(C: *const Context, Str: [*]const u8, SLen: usize) *MDString;
+};
+
+pub const DIScope = opaque {
+    pub const toNode = ZigLLVMScopeToNode;
+    extern fn ZigLLVMScopeToNode(scope: *DIScope) *DINode;
+};
+
+pub const DINode = opaque {};
 pub const Metadata = opaque {};
 
 pub const IntPredicate = enum(c_uint) {
@@ -1203,7 +1264,7 @@ pub const WriteImportLibrary = ZigLLVMWriteImportLibrary;
 extern fn ZigLLVMWriteImportLibrary(
     def_path: [*:0]const u8,
     arch: ArchType,
-    output_lib_path: [*c]const u8,
+    output_lib_path: [*:0]const u8,
     kill_at: bool,
 ) bool;
 
@@ -1399,4 +1460,358 @@ pub const address_space = struct {
         pub const constant_buffer_14: c_uint = 22;
         pub const constant_buffer_15: c_uint = 23;
     };
+};
+
+pub const DIEnumerator = opaque {};
+pub const DILocalVariable = opaque {};
+pub const DILocation = opaque {};
+
+pub const DIGlobalVariable = opaque {
+    pub const toNode = ZigLLVMGlobalVariableToNode;
+    extern fn ZigLLVMGlobalVariableToNode(global_variable: *DIGlobalVariable) *DINode;
+
+    pub const replaceLinkageName = ZigLLVMGlobalVariableReplaceLinkageName;
+    extern fn ZigLLVMGlobalVariableReplaceLinkageName(global_variable: *DIGlobalVariable, linkage_name: *MDString) void;
+};
+pub const DIType = opaque {
+    pub const toScope = ZigLLVMTypeToScope;
+    extern fn ZigLLVMTypeToScope(ty: *DIType) *DIScope;
+
+    pub const toNode = ZigLLVMTypeToNode;
+    extern fn ZigLLVMTypeToNode(ty: *DIType) *DINode;
+};
+pub const DIFile = opaque {
+    pub const toScope = ZigLLVMFileToScope;
+    extern fn ZigLLVMFileToScope(difile: *DIFile) *DIScope;
+
+    pub const toNode = ZigLLVMFileToNode;
+    extern fn ZigLLVMFileToNode(difile: *DIFile) *DINode;
+};
+pub const DILexicalBlock = opaque {
+    pub const toScope = ZigLLVMLexicalBlockToScope;
+    extern fn ZigLLVMLexicalBlockToScope(lexical_block: *DILexicalBlock) *DIScope;
+
+    pub const toNode = ZigLLVMLexicalBlockToNode;
+    extern fn ZigLLVMLexicalBlockToNode(lexical_block: *DILexicalBlock) *DINode;
+};
+pub const DICompileUnit = opaque {
+    pub const toScope = ZigLLVMCompileUnitToScope;
+    extern fn ZigLLVMCompileUnitToScope(compile_unit: *DICompileUnit) *DIScope;
+
+    pub const toNode = ZigLLVMCompileUnitToNode;
+    extern fn ZigLLVMCompileUnitToNode(compile_unit: *DICompileUnit) *DINode;
+};
+pub const DISubprogram = opaque {
+    pub const toScope = ZigLLVMSubprogramToScope;
+    extern fn ZigLLVMSubprogramToScope(subprogram: *DISubprogram) *DIScope;
+
+    pub const toNode = ZigLLVMSubprogramToNode;
+    extern fn ZigLLVMSubprogramToNode(subprogram: *DISubprogram) *DINode;
+
+    pub const replaceLinkageName = ZigLLVMSubprogramReplaceLinkageName;
+    extern fn ZigLLVMSubprogramReplaceLinkageName(subprogram: *DISubprogram, linkage_name: *MDString) void;
+};
+
+pub const getDebugLoc = ZigLLVMGetDebugLoc2;
+extern fn ZigLLVMGetDebugLoc2(line: c_uint, col: c_uint, scope: *DIScope, inlined_at: ?*DILocation) *DILocation;
+
+pub const DIBuilder = opaque {
+    pub const dispose = ZigLLVMDisposeDIBuilder;
+    extern fn ZigLLVMDisposeDIBuilder(dib: *DIBuilder) void;
+
+    pub const finalize = ZigLLVMDIBuilderFinalize;
+    extern fn ZigLLVMDIBuilderFinalize(dib: *DIBuilder) void;
+
+    pub const createPointerType = ZigLLVMCreateDebugPointerType;
+    extern fn ZigLLVMCreateDebugPointerType(
+        dib: *DIBuilder,
+        pointee_type: *DIType,
+        size_in_bits: u64,
+        align_in_bits: u64,
+        name: [*:0]const u8,
+    ) *DIType;
+
+    pub const createBasicType = ZigLLVMCreateDebugBasicType;
+    extern fn ZigLLVMCreateDebugBasicType(
+        dib: *DIBuilder,
+        name: [*:0]const u8,
+        size_in_bits: u64,
+        encoding: c_uint,
+    ) *DIType;
+
+    pub const createArrayType = ZigLLVMCreateDebugArrayType;
+    extern fn ZigLLVMCreateDebugArrayType(
+        dib: *DIBuilder,
+        size_in_bits: u64,
+        align_in_bits: u64,
+        elem_type: *DIType,
+        elem_count: c_int,
+    ) *DIType;
+
+    pub const createEnumerator = ZigLLVMCreateDebugEnumerator;
+    extern fn ZigLLVMCreateDebugEnumerator(
+        dib: *DIBuilder,
+        name: [*:0]const u8,
+        val: i64,
+    ) *DIEnumerator;
+
+    pub const createEnumerationType = ZigLLVMCreateDebugEnumerationType;
+    extern fn ZigLLVMCreateDebugEnumerationType(
+        dib: *DIBuilder,
+        scope: *DIScope,
+        name: [*:0]const u8,
+        file: *DIFile,
+        line_number: c_uint,
+        size_in_bits: u64,
+        align_in_bits: u64,
+        enumerator_array: [*]const *DIEnumerator,
+        enumerator_array_len: c_int,
+        underlying_type: *DIType,
+        unique_id: [*:0]const u8,
+    ) *DIType;
+
+    pub const createStructType = ZigLLVMCreateDebugStructType;
+    extern fn ZigLLVMCreateDebugStructType(
+        dib: *DIBuilder,
+        scope: *DIScope,
+        name: [*:0]const u8,
+        file: ?*DIFile,
+        line_number: c_uint,
+        size_in_bits: u64,
+        align_in_bits: u64,
+        flags: c_uint,
+        derived_from: ?*DIType,
+        types_array: [*]const *DIType,
+        types_array_len: c_int,
+        run_time_lang: c_uint,
+        vtable_holder: ?*DIType,
+        unique_id: [*:0]const u8,
+    ) *DIType;
+
+    pub const createUnionType = ZigLLVMCreateDebugUnionType;
+    extern fn ZigLLVMCreateDebugUnionType(
+        dib: *DIBuilder,
+        scope: *DIScope,
+        name: [*:0]const u8,
+        file: *DIFile,
+        line_number: c_uint,
+        size_in_bits: u64,
+        align_in_bits: u64,
+        flags: c_uint,
+        types_array: [*]const *DIType,
+        types_array_len: c_int,
+        run_time_lang: c_uint,
+        unique_id: [*:0]const u8,
+    ) *DIType;
+
+    pub const createMemberType = ZigLLVMCreateDebugMemberType;
+    extern fn ZigLLVMCreateDebugMemberType(
+        dib: *DIBuilder,
+        scope: *DIScope,
+        name: [*:0]const u8,
+        file: ?*DIFile,
+        line: c_uint,
+        size_in_bits: u64,
+        align_in_bits: u64,
+        offset_in_bits: u64,
+        flags: c_uint,
+        ty: *DIType,
+    ) *DIType;
+
+    pub const createReplaceableCompositeType = ZigLLVMCreateReplaceableCompositeType;
+    extern fn ZigLLVMCreateReplaceableCompositeType(
+        dib: *DIBuilder,
+        tag: c_uint,
+        name: [*:0]const u8,
+        scope: *DIScope,
+        file: ?*DIFile,
+        line: c_uint,
+    ) *DIType;
+
+    pub const createForwardDeclType = ZigLLVMCreateDebugForwardDeclType;
+    extern fn ZigLLVMCreateDebugForwardDeclType(
+        dib: *DIBuilder,
+        tag: c_uint,
+        name: [*:0]const u8,
+        scope: *DIScope,
+        file: *DIFile,
+        line: c_uint,
+    ) *DIType;
+
+    pub const replaceTemporary = ZigLLVMReplaceTemporary;
+    extern fn ZigLLVMReplaceTemporary(dib: *DIBuilder, ty: *DIType, replacement: *DIType) void;
+
+    pub const replaceDebugArrays = ZigLLVMReplaceDebugArrays;
+    extern fn ZigLLVMReplaceDebugArrays(
+        dib: *DIBuilder,
+        ty: *DIType,
+        types_array: [*]const *DIType,
+        types_array_len: c_int,
+    ) void;
+
+    pub const createSubroutineType = ZigLLVMCreateSubroutineType;
+    extern fn ZigLLVMCreateSubroutineType(
+        dib: *DIBuilder,
+        types_array: [*]const *DIType,
+        types_array_len: c_int,
+        flags: c_uint,
+    ) *DIType;
+
+    pub const createAutoVariable = ZigLLVMCreateAutoVariable;
+    extern fn ZigLLVMCreateAutoVariable(
+        dib: *DIBuilder,
+        scope: *DIScope,
+        name: [*:0]const u8,
+        file: *DIFile,
+        line_no: c_uint,
+        ty: *DIType,
+        always_preserve: bool,
+        flags: c_uint,
+    ) *DILocalVariable;
+
+    pub const createGlobalVariable = ZigLLVMCreateGlobalVariable;
+    extern fn ZigLLVMCreateGlobalVariable(
+        dib: *DIBuilder,
+        scope: *DIScope,
+        name: [*:0]const u8,
+        linkage_name: [*:0]const u8,
+        file: *DIFile,
+        line_no: c_uint,
+        di_type: *DIType,
+        is_local_to_unit: bool,
+    ) *DIGlobalVariable;
+
+    pub const createParameterVariable = ZigLLVMCreateParameterVariable;
+    extern fn ZigLLVMCreateParameterVariable(
+        dib: *DIBuilder,
+        scope: *DIScope,
+        name: [*:0]const u8,
+        file: *DIFile,
+        line_no: c_uint,
+        ty: *DIType,
+        always_preserve: bool,
+        flags: c_uint,
+        arg_no: c_uint,
+    ) *DILocalVariable;
+
+    pub const createLexicalBlock = ZigLLVMCreateLexicalBlock;
+    extern fn ZigLLVMCreateLexicalBlock(
+        dib: *DIBuilder,
+        scope: *DIScope,
+        file: *DIFile,
+        line: c_uint,
+        col: c_uint,
+    ) *DILexicalBlock;
+
+    pub const createCompileUnit = ZigLLVMCreateCompileUnit;
+    extern fn ZigLLVMCreateCompileUnit(
+        dib: *DIBuilder,
+        lang: c_uint,
+        difile: *DIFile,
+        producer: [*:0]const u8,
+        is_optimized: bool,
+        flags: [*:0]const u8,
+        runtime_version: c_uint,
+        split_name: [*:0]const u8,
+        dwo_id: u64,
+        emit_debug_info: bool,
+    ) *DICompileUnit;
+
+    pub const createFile = ZigLLVMCreateFile;
+    extern fn ZigLLVMCreateFile(
+        dib: *DIBuilder,
+        filename: [*:0]const u8,
+        directory: [*:0]const u8,
+    ) *DIFile;
+
+    pub const createFunction = ZigLLVMCreateFunction;
+    extern fn ZigLLVMCreateFunction(
+        dib: *DIBuilder,
+        scope: *DIScope,
+        name: [*:0]const u8,
+        linkage_name: [*:0]const u8,
+        file: *DIFile,
+        lineno: c_uint,
+        fn_di_type: *DIType,
+        is_local_to_unit: bool,
+        is_definition: bool,
+        scope_line: c_uint,
+        flags: c_uint,
+        is_optimized: bool,
+        decl_subprogram: ?*DISubprogram,
+    ) *DISubprogram;
+
+    pub const createVectorType = ZigLLVMDIBuilderCreateVectorType;
+    extern fn ZigLLVMDIBuilderCreateVectorType(
+        dib: *DIBuilder,
+        SizeInBits: u64,
+        AlignInBits: u32,
+        Ty: *DIType,
+        elem_count: u32,
+    ) *DIType;
+
+    pub const insertDeclareAtEnd = ZigLLVMInsertDeclareAtEnd;
+    extern fn ZigLLVMInsertDeclareAtEnd(
+        dib: *DIBuilder,
+        storage: *const Value,
+        var_info: *DILocalVariable,
+        debug_loc: *DILocation,
+        basic_block_ref: *const BasicBlock,
+    ) *const Value;
+
+    pub const insertDeclare = ZigLLVMInsertDeclare;
+    extern fn ZigLLVMInsertDeclare(
+        dib: *DIBuilder,
+        storage: *const Value,
+        var_info: *DILocalVariable,
+        debug_loc: *DILocation,
+        insert_before_instr: *const Value,
+    ) *const Value;
+
+    pub const insertDbgValueIntrinsicAtEnd = ZigLLVMInsertDbgValueIntrinsicAtEnd;
+    extern fn ZigLLVMInsertDbgValueIntrinsicAtEnd(
+        dib: *DIBuilder,
+        val: *const Value,
+        var_info: *DILocalVariable,
+        debug_loc: *DILocation,
+        basic_block_ref: *const BasicBlock,
+    ) *const Value;
+};
+
+pub const DIFlags = opaque {
+    pub const Zero = 0;
+    pub const Private = 1;
+    pub const Protected = 2;
+    pub const Public = 3;
+
+    pub const FwdDecl = 1 << 2;
+    pub const AppleBlock = 1 << 3;
+    pub const BlockByrefStruct = 1 << 4;
+    pub const Virtual = 1 << 5;
+    pub const Artificial = 1 << 6;
+    pub const Explicit = 1 << 7;
+    pub const Prototyped = 1 << 8;
+    pub const ObjcClassComplete = 1 << 9;
+    pub const ObjectPointer = 1 << 10;
+    pub const Vector = 1 << 11;
+    pub const StaticMember = 1 << 12;
+    pub const LValueReference = 1 << 13;
+    pub const RValueReference = 1 << 14;
+    pub const Reserved = 1 << 15;
+
+    pub const SingleInheritance = 1 << 16;
+    pub const MultipleInheritance = 2 << 16;
+    pub const VirtualInheritance = 3 << 16;
+
+    pub const IntroducedVirtual = 1 << 18;
+    pub const BitField = 1 << 19;
+    pub const NoReturn = 1 << 20;
+    pub const TypePassByValue = 1 << 22;
+    pub const TypePassByReference = 1 << 23;
+    pub const EnumClass = 1 << 24;
+    pub const Thunk = 1 << 25;
+    pub const NonTrivial = 1 << 26;
+    pub const BigEndian = 1 << 27;
+    pub const LittleEndian = 1 << 28;
+    pub const AllCallsDescribed = 1 << 29;
 };

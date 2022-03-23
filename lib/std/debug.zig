@@ -429,11 +429,7 @@ pub const StackIterator = struct {
         if (native_os == .freestanding) return true;
 
         const aligned_address = address & ~@intCast(usize, (mem.page_size - 1));
-
-        // If the address does not span 2 pages, query only the first one
-        const length: usize = if (aligned_address == address) mem.page_size else 2 * mem.page_size;
-
-        const aligned_memory = @intToPtr([*]align(mem.page_size) u8, aligned_address)[0..length];
+        const aligned_memory = @intToPtr([*]align(mem.page_size) u8, aligned_address)[0..mem.page_size];
 
         if (native_os != .windows) {
             if (native_os != .wasi) {
@@ -451,11 +447,10 @@ pub const StackIterator = struct {
         } else {
             const w = os.windows;
             var memory_info: w.MEMORY_BASIC_INFORMATION = undefined;
-            //const memory_info_ptr = @ptrCast(w.PMEMORY_BASIC_INFORMATION, buffer);
 
             // The only error this function can throw is ERROR_INVALID_PARAMETER.
             // supply an address that invalid i'll be thrown.
-            const rc = w.VirtualQuery(aligned_memory.ptr, &memory_info, aligned_memory.len) catch {
+            const rc = w.VirtualQuery(aligned_memory, &memory_info, aligned_memory.len) catch {
                 return false;
             };
 
@@ -797,6 +792,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
             const debug_abbrev_data = di.coff.getSectionData(".debug_abbrev", allocator) catch null;
             const debug_str_data = di.coff.getSectionData(".debug_str", allocator) catch null;
             const debug_line_data = di.coff.getSectionData(".debug_line", allocator) catch null;
+            const debug_line_str_data = di.coff.getSectionData(".debug_line_str", allocator) catch null;
             const debug_ranges_data = di.coff.getSectionData(".debug_ranges", allocator) catch null;
 
             var dwarf = DW.DwarfInfo{
@@ -805,6 +801,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
                 .debug_abbrev = debug_abbrev_data orelse return error.MissingDebugInfo,
                 .debug_str = debug_str_data orelse return error.MissingDebugInfo,
                 .debug_line = debug_line_data orelse return error.MissingDebugInfo,
+                .debug_line_str = debug_line_str_data,
                 .debug_ranges = debug_ranges_data,
             };
             try DW.openDwarfDebugInfo(&dwarf, allocator);
@@ -871,6 +868,7 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
         var opt_debug_abbrev: ?[]const u8 = null;
         var opt_debug_str: ?[]const u8 = null;
         var opt_debug_line: ?[]const u8 = null;
+        var opt_debug_line_str: ?[]const u8 = null;
         var opt_debug_ranges: ?[]const u8 = null;
 
         for (shdrs) |*shdr| {
@@ -885,6 +883,8 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
                 opt_debug_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_line")) {
                 opt_debug_line = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_line_str")) {
+                opt_debug_line_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_ranges")) {
                 opt_debug_ranges = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             }
@@ -896,6 +896,7 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
             .debug_abbrev = opt_debug_abbrev orelse return error.MissingDebugInfo,
             .debug_str = opt_debug_str orelse return error.MissingDebugInfo,
             .debug_line = opt_debug_line orelse return error.MissingDebugInfo,
+            .debug_line_str = opt_debug_line_str,
             .debug_ranges = opt_debug_ranges,
         };
 
@@ -1434,6 +1435,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             var opt_debug_info: ?*const macho.section_64 = null;
             var opt_debug_abbrev: ?*const macho.section_64 = null;
             var opt_debug_str: ?*const macho.section_64 = null;
+            var opt_debug_line_str: ?*const macho.section_64 = null;
             var opt_debug_ranges: ?*const macho.section_64 = null;
 
             const sections = @ptrCast(
@@ -1456,6 +1458,8 @@ pub const ModuleDebugInfo = switch (native_os) {
                     opt_debug_abbrev = sect;
                 } else if (mem.eql(u8, name, "__debug_str")) {
                     opt_debug_str = sect;
+                } else if (mem.eql(u8, name, "__debug_line_str")) {
+                    opt_debug_line_str = sect;
                 } else if (mem.eql(u8, name, "__debug_ranges")) {
                     opt_debug_ranges = sect;
                 }
@@ -1476,6 +1480,10 @@ pub const ModuleDebugInfo = switch (native_os) {
                 .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
                 .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),
                 .debug_line = try chopSlice(mapped_mem, debug_line.offset, debug_line.size),
+                .debug_line_str = if (opt_debug_line_str) |debug_line_str|
+                    try chopSlice(mapped_mem, debug_line_str.offset, debug_line_str.size)
+                else
+                    null,
                 .debug_ranges = if (opt_debug_ranges) |debug_ranges|
                     try chopSlice(mapped_mem, debug_ranges.offset, debug_ranges.size)
                 else
@@ -1533,7 +1541,6 @@ pub const ModuleDebugInfo = switch (native_os) {
                         .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
                         .compile_unit_name = compile_unit.die.getAttrString(o_file_di, DW.AT.name) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                            else => return err,
                         },
                         .line_info = o_file_di.getLineNumberInfo(compile_unit.*, relocated_address_o + addr_off) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => null,
@@ -1630,7 +1637,6 @@ fn getSymbolFromDwarf(address: u64, di: *DW.DwarfInfo) !SymbolInfo {
             .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
             .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                else => return err,
             },
             .line_info = nosuspend di.getLineNumberInfo(compile_unit.*, address) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => null,
@@ -1682,6 +1688,12 @@ pub fn maybeEnableSegfaultHandler() void {
 
 var windows_segfault_handle: ?windows.HANDLE = null;
 
+pub fn updateSegfaultHandler(act: ?*const os.Sigaction) error{OperationNotSupported}!void {
+    try os.sigaction(os.SIG.SEGV, act, null);
+    try os.sigaction(os.SIG.ILL, act, null);
+    try os.sigaction(os.SIG.BUS, act, null);
+}
+
 /// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
@@ -1697,9 +1709,9 @@ pub fn attachSegfaultHandler() void {
         .flags = (os.SA.SIGINFO | os.SA.RESTART | os.SA.RESETHAND),
     };
 
-    os.sigaction(os.SIG.SEGV, &act, null);
-    os.sigaction(os.SIG.ILL, &act, null);
-    os.sigaction(os.SIG.BUS, &act, null);
+    updateSegfaultHandler(&act) catch {
+        @panic("unable to install segfault handler, maybe adjust have_segfault_handling_support in std/debug.zig");
+    };
 }
 
 fn resetSegfaultHandler() void {
@@ -1715,9 +1727,8 @@ fn resetSegfaultHandler() void {
         .mask = os.empty_sigset,
         .flags = 0,
     };
-    os.sigaction(os.SIG.SEGV, &act, null);
-    os.sigaction(os.SIG.ILL, &act, null);
-    os.sigaction(os.SIG.BUS, &act, null);
+    // do nothing if an error happens to avoid a double-panic
+    updateSegfaultHandler(&act) catch {};
 }
 
 fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {

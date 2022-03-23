@@ -37,7 +37,6 @@ test "usingnamespace does not redeclare an imported variable" {
 
 usingnamespace @import("usingnamespace/foo.zig");
 test "usingnamespace omits mixing in private functions" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(@This().privateFunction());
@@ -53,7 +52,6 @@ test {
 
 usingnamespace @import("usingnamespace/a.zig");
 test "two files usingnamespace import each other" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect(@This().ok());

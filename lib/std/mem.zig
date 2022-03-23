@@ -163,7 +163,7 @@ fn failAllocatorAlloc(_: *anyopaque, n: usize, alignment: u29, len_align: u29, r
     return error.OutOfMemory;
 }
 
-test "mem.Allocator basics" {
+test "Allocator basics" {
     try testing.expectError(error.OutOfMemory, fail_allocator.alloc(u8, 1));
     try testing.expectError(error.OutOfMemory, fail_allocator.allocSentinel(u8, 1, 0));
 }
@@ -330,7 +330,7 @@ pub fn zeroes(comptime T: type) T {
     }
 }
 
-test "mem.zeroes" {
+test "zeroes" {
     const C_struct = extern struct {
         x: u32,
         y: u32,
@@ -544,7 +544,7 @@ pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
     return order(T, lhs, rhs) == .lt;
 }
 
-test "mem.lessThan" {
+test "lessThan" {
     try testing.expect(lessThan(u8, "abcd", "bee"));
     try testing.expect(!lessThan(u8, "abc", "abc"));
     try testing.expect(lessThan(u8, "abc", "abc0"));
@@ -608,7 +608,7 @@ pub fn Span(comptime T: type) type {
                 .Many, .Slice => {},
             }
             new_ptr_info.size = .Slice;
-            return @Type(std.builtin.TypeInfo{ .Pointer = new_ptr_info });
+            return @Type(.{ .Pointer = new_ptr_info });
         },
         else => @compileError("invalid type given to std.mem.Span"),
     }
@@ -720,7 +720,7 @@ fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
                     new_ptr_info.is_allowzero = false;
                 },
             }
-            return @Type(std.builtin.TypeInfo{ .Pointer = new_ptr_info });
+            return @Type(.{ .Pointer = new_ptr_info });
         },
         else => {},
     }
@@ -970,7 +970,7 @@ pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []co
     return slice[begin..end];
 }
 
-test "mem.trim" {
+test "trim" {
     try testing.expectEqualSlices(u8, "foo\n ", trimLeft(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, " foo", trimRight(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, "foo", trim(u8, " foo\n ", " \n"));
@@ -1132,7 +1132,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
     return null;
 }
 
-test "mem.indexOf" {
+test "indexOf" {
     try testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
     try testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
     try testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "two two") == null);
@@ -1157,7 +1157,7 @@ test "mem.indexOf" {
     try testing.expect(lastIndexOfScalar(u8, "boo", 'o').? == 2);
 }
 
-test "mem.indexOf multibyte" {
+test "indexOf multibyte" {
     {
         // make haystack and needle long enough to trigger boyer-moore-horspool algorithm
         const haystack = [1]u16{0} ** 100 ++ [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff };
@@ -1185,7 +1185,7 @@ test "mem.indexOf multibyte" {
     }
 }
 
-test "mem.indexOfPos empty needle" {
+test "indexOfPos empty needle" {
     try testing.expectEqual(indexOfPos(u8, "abracadabra", 5, ""), 5);
 }
 
@@ -1205,7 +1205,7 @@ pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
     return found;
 }
 
-test "mem.count" {
+test "count" {
     try testing.expect(count(u8, "", "h") == 0);
     try testing.expect(count(u8, "h", "h") == 1);
     try testing.expect(count(u8, "hh", "h") == 2);
@@ -1237,7 +1237,7 @@ pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: us
     return false;
 }
 
-test "mem.containsAtLeast" {
+test "containsAtLeast" {
     try testing.expect(containsAtLeast(u8, "aa", 0, "a"));
     try testing.expect(containsAtLeast(u8, "aa", 1, "a"));
     try testing.expect(containsAtLeast(u8, "aa", 2, "a"));
@@ -1583,7 +1583,7 @@ pub fn tokenize(comptime T: type, buffer: []const T, delimiter_bytes: []const T)
     };
 }
 
-test "mem.tokenize" {
+test "tokenize" {
     var it = tokenize(u8, "   abc def   ghi  ", " ");
     try testing.expect(eql(u8, it.next().?, "abc"));
     try testing.expect(eql(u8, it.next().?, "def"));
@@ -1625,7 +1625,7 @@ test "mem.tokenize" {
     try testing.expect(it16.next() == null);
 }
 
-test "mem.tokenize (multibyte)" {
+test "tokenize (multibyte)" {
     var it = tokenize(u8, "a|b,c/d e", " /,|");
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.next().?, "b"));
@@ -1647,7 +1647,7 @@ test "mem.tokenize (multibyte)" {
     try testing.expect(it16.next() == null);
 }
 
-test "mem.tokenize (reset)" {
+test "tokenize (reset)" {
     var it = tokenize(u8, "   abc def   ghi  ", " ");
     try testing.expect(eql(u8, it.next().?, "abc"));
     try testing.expect(eql(u8, it.next().?, "def"));
@@ -1678,7 +1678,7 @@ pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIte
     };
 }
 
-test "mem.split" {
+test "split" {
     var it = split(u8, "abc|def||ghi", "|");
     try testing.expect(eql(u8, it.next().?, "abc"));
     try testing.expect(eql(u8, it.next().?, "def"));
@@ -1708,7 +1708,7 @@ test "mem.split" {
     try testing.expect(it16.next() == null);
 }
 
-test "mem.split (multibyte)" {
+test "split (multibyte)" {
     var it = split(u8, "a, b ,, c, d, e", ", ");
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.next().?, "b ,"));
@@ -1734,7 +1734,7 @@ pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool
     return if (needle.len > haystack.len) false else eql(T, haystack[0..needle.len], needle);
 }
 
-test "mem.startsWith" {
+test "startsWith" {
     try testing.expect(startsWith(u8, "Bob", "Bo"));
     try testing.expect(!startsWith(u8, "Needle in haystack", "haystack"));
 }
@@ -1743,7 +1743,7 @@ pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len ..], needle);
 }
 
-test "mem.endsWith" {
+test "endsWith" {
     try testing.expect(endsWith(u8, "Needle in haystack", "haystack"));
     try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
@@ -1867,7 +1867,7 @@ fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []con
     return buf;
 }
 
-test "mem.join" {
+test "join" {
     {
         const str = try join(testing.allocator, ",", &[_][]const u8{});
         defer testing.allocator.free(str);
@@ -1890,7 +1890,7 @@ test "mem.join" {
     }
 }
 
-test "mem.joinZ" {
+test "joinZ" {
     {
         const str = try joinZ(testing.allocator, ",", &[_][]const u8{});
         defer testing.allocator.free(str);
@@ -2168,7 +2168,7 @@ pub fn min(comptime T: type, slice: []const T) T {
     return best;
 }
 
-test "mem.min" {
+test "min" {
     try testing.expectEqual(min(u8, "abcdefg"), 'a');
     try testing.expectEqual(min(u8, "bcdefga"), 'a');
     try testing.expectEqual(min(u8, "a"), 'a');
@@ -2185,7 +2185,7 @@ pub fn max(comptime T: type, slice: []const T) T {
     return best;
 }
 
-test "mem.max" {
+test "max" {
     try testing.expectEqual(max(u8, "abcdefg"), 'g');
     try testing.expectEqual(max(u8, "gabcdef"), 'g');
     try testing.expectEqual(max(u8, "g"), 'g');
@@ -2205,7 +2205,7 @@ pub fn minMax(comptime T: type, slice: []const T) struct { min: T, max: T } {
     return .{ .min = minVal, .max = maxVal };
 }
 
-test "mem.minMax" {
+test "minMax" {
     try testing.expectEqual(minMax(u8, "abcdefg"), .{ .min = 'a', .max = 'g' });
     try testing.expectEqual(minMax(u8, "bcdefga"), .{ .min = 'a', .max = 'g' });
     try testing.expectEqual(minMax(u8, "a"), .{ .min = 'a', .max = 'a' });
@@ -2226,7 +2226,7 @@ pub fn indexOfMin(comptime T: type, slice: []const T) usize {
     return index;
 }
 
-test "mem.indexOfMin" {
+test "indexOfMin" {
     try testing.expectEqual(indexOfMin(u8, "abcdefg"), 0);
     try testing.expectEqual(indexOfMin(u8, "bcdefga"), 6);
     try testing.expectEqual(indexOfMin(u8, "a"), 0);
@@ -2247,7 +2247,7 @@ pub fn indexOfMax(comptime T: type, slice: []const T) usize {
     return index;
 }
 
-test "mem.indexOfMax" {
+test "indexOfMax" {
     try testing.expectEqual(indexOfMax(u8, "abcdefg"), 6);
     try testing.expectEqual(indexOfMax(u8, "gabcdef"), 0);
     try testing.expectEqual(indexOfMax(u8, "a"), 0);
@@ -2275,7 +2275,7 @@ pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { index_min: usi
     return .{ .index_min = minIdx, .index_max = maxIdx };
 }
 
-test "mem.indexOfMinMax" {
+test "indexOfMinMax" {
     try testing.expectEqual(indexOfMinMax(u8, "abcdefg"), .{ .index_min = 0, .index_max = 6 });
     try testing.expectEqual(indexOfMinMax(u8, "gabcdef"), .{ .index_min = 1, .index_max = 0 });
     try testing.expectEqual(indexOfMinMax(u8, "a"), .{ .index_min = 0, .index_max = 0 });
@@ -2588,7 +2588,7 @@ test "alignPointer" {
 
 fn CopyPtrAttrs(
     comptime source: type,
-    comptime size: std.builtin.TypeInfo.Pointer.Size,
+    comptime size: std.builtin.Type.Pointer.Size,
     comptime child: type,
 ) type {
     const info = @typeInfo(source).Pointer;

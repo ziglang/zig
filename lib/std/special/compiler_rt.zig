@@ -303,10 +303,8 @@ comptime {
 
     const __floatunsisf = @import("compiler_rt/floatunsisf.zig").__floatunsisf;
     @export(__floatunsisf, .{ .name = "__floatunsisf", .linkage = linkage });
-    if (builtin.zig_backend == .stage1) { // TODO it's crashing on a switch expression
-        const __floatundisf = @import("compiler_rt/floatundisf.zig").__floatundisf;
-        @export(__floatundisf, .{ .name = "__floatundisf", .linkage = linkage });
-    }
+    const __floatundisf = @import("compiler_rt/floatundisf.zig").__floatundisf;
+    @export(__floatundisf, .{ .name = "__floatundisf", .linkage = linkage });
     const __floatunsidf = @import("compiler_rt/floatunsidf.zig").__floatunsidf;
     @export(__floatunsidf, .{ .name = "__floatunsidf", .linkage = linkage });
     const __floatundidf = @import("compiler_rt/floatundidf.zig").__floatundidf;
@@ -682,6 +680,10 @@ comptime {
         @export(floor, .{ .name = "floor", .linkage = linkage });
         @export(floorl, .{ .name = "floorl", .linkage = linkage });
 
+        @export(ceilf, .{ .name = "ceilf", .linkage = linkage });
+        @export(ceil, .{ .name = "ceil", .linkage = linkage });
+        @export(ceill, .{ .name = "ceill", .linkage = linkage });
+
         @export(fma, .{ .name = "fma", .linkage = linkage });
         @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
         @export(fmal, .{ .name = "fmal", .linkage = linkage });
@@ -811,6 +813,19 @@ fn floorl(x: c_longdouble) callconv(.C) c_longdouble {
         @panic("TODO implement this");
     }
     return math.floor(x);
+}
+
+fn ceilf(x: f32) callconv(.C) f32 {
+    return math.ceil(x);
+}
+fn ceil(x: f64) callconv(.C) f64 {
+    return math.ceil(x);
+}
+fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
+    return math.ceil(x);
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,

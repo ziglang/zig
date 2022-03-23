@@ -8,7 +8,7 @@ const root = @import("root");
 pub const trait = @import("meta/trait.zig");
 pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
-const TypeInfo = std.builtin.TypeInfo;
+const Type = std.builtin.Type;
 
 pub fn tagName(v: anytype) []const u8 {
     const T = @TypeOf(v);
@@ -335,7 +335,7 @@ test "std.meta.assumeSentinel" {
     try testing.expect(?[*:0]u8 == @TypeOf(assumeSentinel(@as(?[*]u8, undefined), 0)));
 }
 
-pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
+pub fn containerLayout(comptime T: type) Type.ContainerLayout {
     return switch (@typeInfo(T)) {
         .Struct => |info| info.layout,
         .Enum => |info| info.layout,
@@ -370,9 +370,9 @@ test "std.meta.containerLayout" {
     try testing.expect(containerLayout(U3) == .Extern);
 }
 
-/// Instead of this function, prefer to use e.g. `@TypeInfo(foo).Struct.decls`
+/// Instead of this function, prefer to use e.g. `@typeInfo(foo).Struct.decls`
 /// directly when you know what kind of type it is.
-pub fn declarations(comptime T: type) []const TypeInfo.Declaration {
+pub fn declarations(comptime T: type) []const Type.Declaration {
     return switch (@typeInfo(T)) {
         .Struct => |info| info.decls,
         .Enum => |info| info.decls,
@@ -400,7 +400,7 @@ test "std.meta.declarations" {
         fn a() void {}
     };
 
-    const decls = comptime [_][]const TypeInfo.Declaration{
+    const decls = comptime [_][]const Type.Declaration{
         declarations(E1),
         declarations(S1),
         declarations(U1),
@@ -413,7 +413,7 @@ test "std.meta.declarations" {
     }
 }
 
-pub fn declarationInfo(comptime T: type, comptime decl_name: []const u8) TypeInfo.Declaration {
+pub fn declarationInfo(comptime T: type, comptime decl_name: []const u8) Type.Declaration {
     inline for (comptime declarations(T)) |decl| {
         if (comptime mem.eql(u8, decl.name, decl_name))
             return decl;
@@ -437,7 +437,7 @@ test "std.meta.declarationInfo" {
         fn a() void {}
     };
 
-    const infos = comptime [_]TypeInfo.Declaration{
+    const infos = comptime [_]Type.Declaration{
         declarationInfo(E1, "a"),
         declarationInfo(S1, "a"),
         declarationInfo(U1, "a"),
@@ -450,10 +450,10 @@ test "std.meta.declarationInfo" {
 }
 
 pub fn fields(comptime T: type) switch (@typeInfo(T)) {
-    .Struct => []const TypeInfo.StructField,
-    .Union => []const TypeInfo.UnionField,
-    .ErrorSet => []const TypeInfo.Error,
-    .Enum => []const TypeInfo.EnumField,
+    .Struct => []const Type.StructField,
+    .Union => []const Type.UnionField,
+    .ErrorSet => []const Type.Error,
+    .Enum => []const Type.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
     return switch (@typeInfo(T)) {
@@ -495,10 +495,10 @@ test "std.meta.fields" {
 }
 
 pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
-    .Struct => TypeInfo.StructField,
-    .Union => TypeInfo.UnionField,
-    .ErrorSet => TypeInfo.Error,
-    .Enum => TypeInfo.EnumField,
+    .Struct => Type.StructField,
+    .Union => Type.UnionField,
+    .ErrorSet => Type.Error,
+    .Enum => Type.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
     return fields(T)[@enumToInt(field)];
@@ -570,8 +570,8 @@ test "std.meta.fieldNames" {
 
 pub fn FieldEnum(comptime T: type) type {
     const fieldInfos = fields(T);
-    var enumFields: [fieldInfos.len]std.builtin.TypeInfo.EnumField = undefined;
-    var decls = [_]std.builtin.TypeInfo.Declaration{};
+    var enumFields: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
+    var decls = [_]std.builtin.Type.Declaration{};
     inline for (fieldInfos) |field, i| {
         enumFields[i] = .{
             .name = field.name,
@@ -594,8 +594,8 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
     // testing.expectEqual(@typeInfo(expected).Enum, @typeInfo(actual).Enum);
     try testing.expectEqual(@typeInfo(expected).Enum.layout, @typeInfo(actual).Enum.layout);
     try testing.expectEqual(@typeInfo(expected).Enum.tag_type, @typeInfo(actual).Enum.tag_type);
-    comptime try testing.expectEqualSlices(std.builtin.TypeInfo.EnumField, @typeInfo(expected).Enum.fields, @typeInfo(actual).Enum.fields);
-    comptime try testing.expectEqualSlices(std.builtin.TypeInfo.Declaration, @typeInfo(expected).Enum.decls, @typeInfo(actual).Enum.decls);
+    comptime try testing.expectEqualSlices(std.builtin.Type.EnumField, @typeInfo(expected).Enum.fields, @typeInfo(actual).Enum.fields);
+    comptime try testing.expectEqualSlices(std.builtin.Type.Declaration, @typeInfo(expected).Enum.decls, @typeInfo(actual).Enum.decls);
     try testing.expectEqual(@typeInfo(expected).Enum.is_exhaustive, @typeInfo(actual).Enum.is_exhaustive);
 }
 
@@ -607,8 +607,8 @@ test "std.meta.FieldEnum" {
 
 pub fn DeclEnum(comptime T: type) type {
     const fieldInfos = std.meta.declarations(T);
-    var enumDecls: [fieldInfos.len]std.builtin.TypeInfo.EnumField = undefined;
-    var decls = [_]std.builtin.TypeInfo.Declaration{};
+    var enumDecls: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
+    var decls = [_]std.builtin.Type.Declaration{};
     inline for (fieldInfos) |field, i| {
         enumDecls[i] = .{ .name = field.name, .value = i };
     }
@@ -909,7 +909,7 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
 pub const IntType = @compileError("replaced by std.meta.Int");
 
 pub fn Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16) type {
-    return @Type(TypeInfo{
+    return @Type(.{
         .Int = .{
             .signedness = signedness,
             .bits = bit_count,
@@ -918,7 +918,7 @@ pub fn Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16)
 }
 
 pub fn Float(comptime bit_count: u8) type {
-    return @Type(TypeInfo{
+    return @Type(.{
         .Float = .{ .bits = bit_count },
     });
 }
@@ -930,8 +930,9 @@ test "std.meta.Float" {
     try testing.expectEqual(f128, Float(128));
 }
 
+/// Deprecated. Use `@Vector`.
 pub fn Vector(comptime len: u32, comptime child: type) type {
-    return @Type(TypeInfo{
+    return @Type(.{
         .Vector = .{
             .len = len,
             .child = child,
@@ -957,12 +958,12 @@ pub fn ArgsTuple(comptime Function: type) type {
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
-    var argument_field_list: [function_info.args.len]std.builtin.TypeInfo.StructField = undefined;
+    var argument_field_list: [function_info.args.len]std.builtin.Type.StructField = undefined;
     inline for (function_info.args) |arg, i| {
         const T = arg.arg_type.?;
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
-        argument_field_list[i] = std.builtin.TypeInfo.StructField{
+        argument_field_list[i] = .{
             .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
             .field_type = T,
             .default_value = @as(?T, null),
@@ -971,11 +972,11 @@ pub fn ArgsTuple(comptime Function: type) type {
         };
     }
 
-    return @Type(std.builtin.TypeInfo{
-        .Struct = std.builtin.TypeInfo.Struct{
+    return @Type(.{
+        .Struct = .{
             .is_tuple = true,
             .layout = .Auto,
-            .decls = &[_]std.builtin.TypeInfo.Declaration{},
+            .decls = &.{},
             .fields = &argument_field_list,
         },
     });
@@ -989,11 +990,11 @@ pub fn ArgsTuple(comptime Function: type) type {
 /// - `Tuple(&[_]type {f32})` ⇒ `tuple { f32 }`
 /// - `Tuple(&[_]type {f32,u32})` ⇒ `tuple { f32, u32 }`
 pub fn Tuple(comptime types: []const type) type {
-    var tuple_fields: [types.len]std.builtin.TypeInfo.StructField = undefined;
+    var tuple_fields: [types.len]std.builtin.Type.StructField = undefined;
     inline for (types) |T, i| {
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
-        tuple_fields[i] = std.builtin.TypeInfo.StructField{
+        tuple_fields[i] = .{
             .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
             .field_type = T,
             .default_value = @as(?T, null),
@@ -1002,11 +1003,11 @@ pub fn Tuple(comptime types: []const type) type {
         };
     }
 
-    return @Type(std.builtin.TypeInfo{
-        .Struct = std.builtin.TypeInfo.Struct{
+    return @Type(.{
+        .Struct = .{
             .is_tuple = true,
             .layout = .Auto,
-            .decls = &[_]std.builtin.TypeInfo.Declaration{},
+            .decls = &.{},
             .fields = &tuple_fields,
         },
     });

@@ -18,6 +18,10 @@ test "@sizeOf on compile-time types" {
 }
 
 test "@TypeOf() with multiple arguments" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     {
         var var_1: u32 = undefined;
         var var_2: u8 = undefined;
@@ -74,6 +78,8 @@ const P = packed struct {
 };
 
 test "@offsetOf" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     // Packed structs have fixed memory layout
     try expect(@offsetOf(P, "a") == 0);
@@ -180,6 +186,8 @@ test "@sizeOf(T) == 0 doesn't force resolving struct size" {
 }
 
 test "@TypeOf() has no runtime side effects" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     const S = struct {
         fn foo(comptime T: type, ptr: *T) T {
             ptr.* += 1;
@@ -193,6 +201,9 @@ test "@TypeOf() has no runtime side effects" {
 }
 
 test "branching logic inside @TypeOf" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     const S = struct {
         var data: i32 = 0;
         fn foo() anyerror!i32 {
@@ -219,7 +230,10 @@ test "@bitSizeOf" {
 }
 
 test "@sizeOf comparison against zero" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the wrong answer for size of pointers to zero bit types
+        return error.SkipZigTest;
+    }
 
     const S0 = struct {
         f: *@This(),
@@ -249,12 +263,13 @@ test "@sizeOf comparison against zero" {
     };
     const S = struct {
         fn doTheTest(comptime T: type, comptime result: bool) !void {
-            try expectEqual(result, @sizeOf(T) > 0);
+            try expect(result == (@sizeOf(T) > 0));
         }
     };
     // Zero-sized type
     try S.doTheTest(u0, false);
-    try S.doTheTest(*u0, false);
+    // Pointers to zero sized types still have addresses.
+    try S.doTheTest(*u0, true);
     // Non byte-sized type
     try S.doTheTest(u1, true);
     try S.doTheTest(*u1, true);

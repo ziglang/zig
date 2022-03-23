@@ -6,6 +6,9 @@ const native_arch = builtin.target.cpu.arch;
 const maxInt = std.math.maxInt;
 const iovec_const = std.os.iovec_const;
 
+pub const aarch64 = @import("darwin/aarch64.zig");
+pub const x86_64 = @import("darwin/x86_64.zig");
+
 const arch_bits = switch (native_arch) {
     .aarch64 => @import("darwin/aarch64.zig"),
     .x86_64 => @import("darwin/x86_64.zig"),
@@ -70,6 +73,47 @@ pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) kern_retu
 pub extern "c" fn malloc_size(?*const anyopaque) usize;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
+pub const posix_spawnattr_t = *opaque {};
+pub const posix_spawn_file_actions_t = *opaque {};
+pub extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int;
+pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) void;
+pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
+pub extern "c" fn posix_spawnattr_getflags(attr: *const posix_spawnattr_t, flags: *c_short) c_int;
+pub extern "c" fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) void;
+pub extern "c" fn posix_spawn_file_actions_addclose(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addopen(
+    actions: *posix_spawn_file_actions_t,
+    filedes: fd_t,
+    path: [*:0]const u8,
+    oflag: c_int,
+    mode: mode_t,
+) c_int;
+pub extern "c" fn posix_spawn_file_actions_adddup2(
+    actions: *posix_spawn_file_actions_t,
+    filedes: fd_t,
+    newfiledes: fd_t,
+) c_int;
+pub extern "c" fn posix_spawn_file_actions_addinherit_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *posix_spawn_file_actions_t, path: [*:0]const u8) c_int;
+pub extern "c" fn posix_spawn_file_actions_addfchdir_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn(
+    pid: *pid_t,
+    path: [*:0]const u8,
+    actions: ?*const posix_spawn_file_actions_t,
+    attr: ?*const posix_spawnattr_t,
+    argv: [*:null]?[*:0]const u8,
+    env: [*:null]?[*:0]const u8,
+) c_int;
+pub extern "c" fn posix_spawnp(
+    pid: *pid_t,
+    path: [*:0]const u8,
+    actions: ?*const posix_spawn_file_actions_t,
+    attr: ?*const posix_spawnattr_t,
+    argv: [*:null]?[*:0]const u8,
+    env: [*:null]?[*:0]const u8,
+) c_int;
+
 pub extern "c" fn kevent64(
     kq: c_int,
     changelist: [*]const kevent64_s,
@@ -106,6 +150,375 @@ pub const _errno = __error;
 pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn mach_host_self() mach_port_t;
 pub extern "c" fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_timespec_t) kern_return_t;
+
+pub const vm_map_t = mach_port_t;
+pub const vm_map_read_t = mach_port_t;
+pub const vm_region_flavor_t = c_int;
+pub const vm_region_info_t = *c_int;
+pub const vm_region_recurse_info_t = *c_int;
+pub const mach_vm_address_t = usize;
+pub const vm_offset_t = usize;
+pub const mach_vm_size_t = u64;
+pub const mach_msg_type_number_t = natural_t;
+
+extern "c" var mach_task_self_: mach_port_t;
+pub fn mach_task_self() callconv(.C) mach_port_t {
+    return mach_task_self_;
+}
+
+pub const task_read_t = mach_port_t;
+
+pub extern "c" fn task_resume(target_task: task_read_t) kern_return_t;
+pub extern "c" fn task_suspend(target_task: task_read_t) kern_return_t;
+
+pub extern "c" fn task_for_pid(target_tport: mach_port_name_t, pid: pid_t, t: *mach_port_name_t) kern_return_t;
+pub extern "c" fn mach_vm_read(
+    target_task: vm_map_read_t,
+    address: mach_vm_address_t,
+    size: mach_vm_size_t,
+    data: *vm_offset_t,
+    data_cnt: *mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn mach_vm_write(
+    target_task: vm_map_t,
+    address: mach_vm_address_t,
+    data: vm_offset_t,
+    data_cnt: mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn mach_vm_region(
+    target_task: vm_map_t,
+    address: *mach_vm_address_t,
+    size: *mach_vm_size_t,
+    flavor: vm_region_flavor_t,
+    info: vm_region_info_t,
+    info_cnt: *mach_msg_type_number_t,
+    object_name: *mach_port_t,
+) kern_return_t;
+pub extern "c" fn mach_vm_region_recurse(
+    target_task: vm_map_t,
+    address: *mach_vm_address_t,
+    size: *mach_vm_size_t,
+    nesting_depth: *natural_t,
+    info: vm_region_recurse_info_t,
+    info_cnt: *mach_msg_type_number_t,
+) kern_return_t;
+
+pub const vm_inherit_t = u32;
+pub const memory_object_offset_t = u64;
+pub const vm_behavior_t = i32;
+pub const vm32_object_id_t = u32;
+pub const vm_object_id_t = u64;
+
+pub const VM_INHERIT_SHARE: vm_inherit_t = 0;
+pub const VM_INHERIT_COPY: vm_inherit_t = 1;
+pub const VM_INHERIT_NONE: vm_inherit_t = 2;
+pub const VM_INHERIT_DONATE_COPY: vm_inherit_t = 3;
+pub const VM_INHERIT_DEFAULT = VM_INHERIT_COPY;
+
+pub const VM_BEHAVIOR_DEFAULT: vm_behavior_t = 0;
+pub const VM_BEHAVIOR_RANDOM: vm_behavior_t = 1;
+pub const VM_BEHAVIOR_SEQUENTIAL: vm_behavior_t = 2;
+pub const VM_BEHAVIOR_RSEQNTL: vm_behavior_t = 3;
+
+pub const VM_BEHAVIOR_WILLNEED: vm_behavior_t = 4;
+pub const VM_BEHAVIOR_DONTNEED: vm_behavior_t = 5;
+pub const VM_BEHAVIOR_FREE: vm_behavior_t = 6;
+pub const VM_BEHAVIOR_ZERO_WIRED_PAGES: vm_behavior_t = 7;
+pub const VM_BEHAVIOR_REUSABLE: vm_behavior_t = 8;
+pub const VM_BEHAVIOR_REUSE: vm_behavior_t = 9;
+pub const VM_BEHAVIOR_CAN_REUSE: vm_behavior_t = 10;
+pub const VM_BEHAVIOR_PAGEOUT: vm_behavior_t = 11;
+
+pub const VM_REGION_BASIC_INFO_64 = 9;
+pub const VM_REGION_EXTENDED_INFO = 13;
+pub const VM_REGION_TOP_INFO = 12;
+pub const VM_REGION_SUBMAP_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
+pub const VM_REGION_SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_short_info_64) / @sizeOf(natural_t);
+pub const VM_REGION_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
+pub const VM_REGION_EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
+pub const VM_REGION_TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
+
+pub const vm_region_basic_info_64 = extern struct {
+    protection: vm_prot_t,
+    max_protection: vm_prot_t,
+    inheritance: vm_inherit_t,
+    shared: boolean_t,
+    reserved: boolean_t,
+    offset: memory_object_offset_t,
+    behavior: vm_behavior_t,
+    user_wired_count: u16,
+};
+
+pub const vm_region_extended_info = extern struct {
+    protection: vm_prot_t,
+    user_tag: u32,
+    pages_resident: u32,
+    pages_shared_now_private: u32,
+    pages_swapped_out: u32,
+    pages_dirtied: u32,
+    ref_count: u32,
+    shadow_depth: u16,
+    external_pager: u8,
+    share_mode: u8,
+    pages_reusable: u32,
+};
+
+pub const vm_region_top_info = extern struct {
+    obj_id: u32,
+    ref_count: u32,
+    private_pages_resident: u32,
+    shared_pages_resident: u32,
+    share_mode: u8,
+};
+
+pub const vm_region_submap_info_64 = extern struct {
+    // present across protection
+    protection: vm_prot_t,
+    // max avail through vm_prot
+    max_protection: vm_prot_t,
+    // behavior of map/obj on fork
+    inheritance: vm_inherit_t,
+    // offset into object/map
+    offset: memory_object_offset_t,
+    // user tag on map entry
+    user_tag: u32,
+    // only valid for objects
+    pages_resident: u32,
+    // only for objects
+    pages_shared_now_private: u32,
+    // only for objects
+    pages_swapped_out: u32,
+    // only for objects
+    pages_dirtied: u32,
+    // obj/map mappers, etc.
+    ref_count: u32,
+    // only for obj
+    shadow_depth: u16,
+    // only for obj
+    external_pager: u8,
+    // see enumeration
+    share_mode: u8,
+    // submap vs obj
+    is_submap: boolean_t,
+    // access behavior hint
+    behavior: vm_behavior_t,
+    // obj/map name, not a handle
+    object_id: vm32_object_id_t,
+    user_wired_count: u16,
+    pages_reusable: u32,
+    object_id_full: vm_object_id_t,
+};
+
+pub const vm_region_submap_short_info_64 = extern struct {
+    // present access protection
+    protection: vm_prot_t,
+    // max avail through vm_prot
+    max_protection: vm_prot_t,
+    // behavior of map/obj on fork
+    inheritance: vm_inherit_t,
+    // offset into object/map
+    offset: memory_object_offset_t,
+    // user tag on map entry
+    user_tag: u32,
+    // obj/map mappers, etc
+    ref_count: u32,
+    // only for obj
+    shadow_depth: u16,
+    // only for obj
+    external_pager: u8,
+    // see enumeration
+    share_mode: u8,
+    //  submap vs obj
+    is_submap: boolean_t,
+    // access behavior hint
+    behavior: vm_behavior_t,
+    // obj/map name, not a handle
+    object_id: vm32_object_id_t,
+    user_wired_count: u16,
+};
+
+pub const thread_act_t = mach_port_t;
+pub const thread_state_t = *natural_t;
+pub const mach_port_array_t = *mach_port_t;
+
+pub extern "c" fn task_threads(
+    target_task: mach_port_t,
+    init_port_set: *mach_port_array_t,
+    init_port_count: *mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn thread_get_state(
+    thread: thread_act_t,
+    flavor: thread_flavor_t,
+    state: thread_state_t,
+    count: *mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn thread_set_state(
+    thread: thread_act_t,
+    flavor: thread_flavor_t,
+    new_state: thread_state_t,
+    count: mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn thread_info(
+    thread: thread_act_t,
+    flavor: thread_flavor_t,
+    info: thread_info_t,
+    count: *mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn thread_resume(thread: thread_act_t) kern_return_t;
+
+pub const THREAD_BASIC_INFO = 3;
+pub const THREAD_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_basic_info) / @sizeOf(natural_t);
+
+pub const thread_flavor_t = natural_t;
+pub const thread_info_t = *integer_t;
+pub const time_value_t = time_value;
+pub const task_policy_flavor_t = natural_t;
+pub const task_policy_t = *integer_t;
+pub const policy_t = c_int;
+
+pub const time_value = extern struct {
+    seconds: integer_t,
+    microseconds: integer_t,
+};
+
+pub const thread_basic_info = extern struct {
+    // user run time
+    user_time: time_value_t,
+    // system run time
+    system_time: time_value_t,
+    // scaled cpu usage percentage
+    cpu_usage: integer_t,
+    // scheduling policy in effect
+    policy: policy_t,
+    // run state
+    run_state: integer_t,
+    // various flags
+    flags: integer_t,
+    // suspend count for thread
+    suspend_count: integer_t,
+    // number of seconds that thread has been sleeping
+    sleep_time: integer_t,
+};
+
+/// Cachability
+pub const MATTR_CACHE = 1;
+/// Migrability
+pub const MATTR_MIGRATE = 2;
+/// Replicability
+pub const MATTR_REPLICATE = 4;
+
+/// (Generic) turn attribute off
+pub const MATTR_VAL_OFF = 0;
+/// (Generic) turn attribute on
+pub const MATTR_VAL_ON = 1;
+/// (Generic) return current value
+pub const MATTR_VAL_GET = 2;
+/// Flush from all caches
+pub const MATTR_VAL_CACHE_FLUSH = 6;
+/// Flush from data caches
+pub const MATTR_VAL_DCACHE_FLUSH = 7;
+/// Flush from instruction caches
+pub const MATTR_VAL_ICACHE_FLUSH = 8;
+/// Sync I+D caches
+pub const MATTR_VAL_CACHE_SYNC = 9;
+/// Get page info (stats)
+pub const MATTR_VAL_GET_INFO = 10;
+
+pub const TASK_VM_INFO = 22;
+pub const TASK_VM_INFO_COUNT: mach_msg_type_number_t = @sizeOf(task_vm_info_data_t) / @sizeOf(natural_t);
+
+pub const task_vm_info = extern struct {
+    // virtual memory size (bytes)
+    virtual_size: mach_vm_size_t,
+    // number of memory regions
+    region_count: integer_t,
+    page_size: integer_t,
+    // resident memory size (bytes)
+    resident_size: mach_vm_size_t,
+    // peak resident size (bytes)
+    resident_size_peak: mach_vm_size_t,
+
+    device: mach_vm_size_t,
+    device_peak: mach_vm_size_t,
+    internal: mach_vm_size_t,
+    internal_peak: mach_vm_size_t,
+    external: mach_vm_size_t,
+    external_peak: mach_vm_size_t,
+    reusable: mach_vm_size_t,
+    reusable_peak: mach_vm_size_t,
+    purgeable_volatile_pmap: mach_vm_size_t,
+    purgeable_volatile_resident: mach_vm_size_t,
+    purgeable_volatile_virtual: mach_vm_size_t,
+    compressed: mach_vm_size_t,
+    compressed_peak: mach_vm_size_t,
+    compressed_lifetime: mach_vm_size_t,
+
+    // added for rev1
+    phys_footprint: mach_vm_size_t,
+
+    // added for rev2
+    min_address: mach_vm_address_t,
+    max_address: mach_vm_address_t,
+
+    // added for rev3
+    ledger_phys_footprint_peak: i64,
+    ledger_purgeable_nonvolatile: i64,
+    ledger_purgeable_novolatile_compressed: i64,
+    ledger_purgeable_volatile: i64,
+    ledger_purgeable_volatile_compressed: i64,
+    ledger_tag_network_nonvolatile: i64,
+    ledger_tag_network_nonvolatile_compressed: i64,
+    ledger_tag_network_volatile: i64,
+    ledger_tag_network_volatile_compressed: i64,
+    ledger_tag_media_footprint: i64,
+    ledger_tag_media_footprint_compressed: i64,
+    ledger_tag_media_nofootprint: i64,
+    ledger_tag_media_nofootprint_compressed: i64,
+    ledger_tag_graphics_footprint: i64,
+    ledger_tag_graphics_footprint_compressed: i64,
+    ledger_tag_graphics_nofootprint: i64,
+    ledger_tag_graphics_nofootprint_compressed: i64,
+    ledger_tag_neural_footprint: i64,
+    ledger_tag_neural_footprint_compressed: i64,
+    ledger_tag_neural_nofootprint: i64,
+    ledger_tag_neural_nofootprint_compressed: i64,
+
+    // added for rev4
+    limit_bytes_remaining: u64,
+
+    // added for rev5
+    decompressions: integer_t,
+};
+pub const task_vm_info_data_t = task_vm_info;
+
+pub const vm_prot_t = c_int;
+pub const boolean_t = c_int;
+
+pub extern "c" fn mach_vm_protect(
+    target_task: vm_map_t,
+    address: mach_vm_address_t,
+    size: mach_vm_size_t,
+    set_maximum: boolean_t,
+    new_protection: vm_prot_t,
+) kern_return_t;
+
+pub extern "c" fn mach_port_deallocate(target_tport: mach_port_name_t, task: mach_port_name_t) kern_return_t;
+
+pub extern "c" fn task_info(
+    target_task: task_name_t,
+    flavor: task_flavor_t,
+    task_info_out: task_info_t,
+    task_info_outCnt: *mach_msg_type_number_t,
+) kern_return_t;
+pub extern "c" fn _host_page_size(task: mach_port_t, size: *vm_size_t) kern_return_t;
+pub extern "c" fn vm_deallocate(target_task: vm_map_t, address: vm_address_t, size: vm_size_t) kern_return_t;
+pub extern "c" fn vm_machine_attribute(
+    target_task: vm_map_t,
+    address: vm_address_t,
+    size: vm_size_t,
+    attribute: vm_machine_attribute_t,
+    value: *vm_machine_attribute_val_t,
+) kern_return_t;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
@@ -211,8 +624,7 @@ pub const pthread_attr_t = extern struct {
     __opaque: [56]u8,
 };
 
-const pthread_t = std.c.pthread_t;
-pub extern "c" fn pthread_threadid_np(thread: ?pthread_t, thread_id: *u64) c_int;
+pub extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, thread_id: *u64) c_int;
 pub extern "c" fn pthread_setname_np(name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
 
@@ -508,12 +920,17 @@ pub const siginfo_t = extern struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub usingnamespace if (builtin.zig_backend == .stage1) struct {
+        pub const handler_fn = fn (c_int) callconv(.C) void;
+        pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    } else struct {
+        pub const handler_fn = *const fn (c_int) callconv(.C) void;
+        pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    };
 
     handler: extern union {
-        handler: ?handler_fn,
-        sigaction: ?sigaction_fn,
+        handler: ?Sigaction.handler_fn,
+        sigaction: ?Sigaction.sigaction_fn,
     },
     mask: sigset_t,
     flags: c_uint,
@@ -546,12 +963,14 @@ pub const Kevent = extern struct {
 // to make sure the struct is laid out the same. These values were
 // produced from C code using the offsetof macro.
 comptime {
-    assert(@offsetOf(Kevent, "ident") == 0);
-    assert(@offsetOf(Kevent, "filter") == 8);
-    assert(@offsetOf(Kevent, "flags") == 10);
-    assert(@offsetOf(Kevent, "fflags") == 12);
-    assert(@offsetOf(Kevent, "data") == 16);
-    assert(@offsetOf(Kevent, "udata") == 24);
+    if (builtin.target.isDarwin()) {
+        assert(@offsetOf(Kevent, "ident") == 0);
+        assert(@offsetOf(Kevent, "filter") == 8);
+        assert(@offsetOf(Kevent, "flags") == 10);
+        assert(@offsetOf(Kevent, "fflags") == 12);
+        assert(@offsetOf(Kevent, "data") == 16);
+        assert(@offsetOf(Kevent, "udata") == 24);
+    }
 }
 
 pub const kevent64_s = extern struct {
@@ -568,13 +987,15 @@ pub const kevent64_s = extern struct {
 // to make sure the struct is laid out the same. These values were
 // produced from C code using the offsetof macro.
 comptime {
-    assert(@offsetOf(kevent64_s, "ident") == 0);
-    assert(@offsetOf(kevent64_s, "filter") == 8);
-    assert(@offsetOf(kevent64_s, "flags") == 10);
-    assert(@offsetOf(kevent64_s, "fflags") == 12);
-    assert(@offsetOf(kevent64_s, "data") == 16);
-    assert(@offsetOf(kevent64_s, "udata") == 24);
-    assert(@offsetOf(kevent64_s, "ext") == 32);
+    if (builtin.target.isDarwin()) {
+        assert(@offsetOf(kevent64_s, "ident") == 0);
+        assert(@offsetOf(kevent64_s, "filter") == 8);
+        assert(@offsetOf(kevent64_s, "flags") == 10);
+        assert(@offsetOf(kevent64_s, "fflags") == 12);
+        assert(@offsetOf(kevent64_s, "data") == 16);
+        assert(@offsetOf(kevent64_s, "udata") == 24);
+        assert(@offsetOf(kevent64_s, "ext") == 32);
+    }
 }
 
 pub const mach_port_t = c_uint;
@@ -588,6 +1009,15 @@ pub const mach_timespec_t = extern struct {
 };
 pub const kern_return_t = c_int;
 pub const host_t = mach_port_t;
+pub const integer_t = c_int;
+pub const task_flavor_t = natural_t;
+pub const task_info_t = *integer_t;
+pub const task_name_t = mach_port_name_t;
+pub const vm_address_t = vm_offset_t;
+pub const vm_size_t = mach_vm_size_t;
+pub const vm_machine_attribute_t = usize;
+pub const vm_machine_attribute_val_t = isize;
+
 pub const CALENDAR_CLOCK = 1;
 
 pub const PATH_MAX = 1024;
@@ -599,13 +1029,19 @@ pub const STDERR_FILENO = 2;
 
 pub const PROT = struct {
     /// [MC2] no permissions
-    pub const NONE = 0x00;
+    pub const NONE: vm_prot_t = 0x00;
     /// [MC2] pages can be read
-    pub const READ = 0x01;
+    pub const READ: vm_prot_t = 0x01;
     /// [MC2] pages can be written
-    pub const WRITE = 0x02;
+    pub const WRITE: vm_prot_t = 0x02;
     /// [MC2] pages can be executed
-    pub const EXEC = 0x04;
+    pub const EXEC: vm_prot_t = 0x04;
+    /// When a caller finds that they cannot obtain write permission on a
+    /// mapped entry, the following flag can be used. The entry will be
+    /// made "needs copy" effectively copying the object (using COW),
+    /// and write permission will be added to the maximum protections for
+    /// the associated entry.
+    pub const COPY: vm_prot_t = 0x10;
 };
 
 pub const MAP = struct {
@@ -629,9 +1065,13 @@ pub const MAP = struct {
 };
 
 pub const MSF = struct {
-    pub const ASYNC = 1;
-    pub const INVALIDATE = 2;
-    pub const SYNC = 4;
+    pub const ASYNC = 0x1;
+    pub const INVALIDATE = 0x2;
+    // invalidate, leave mapped
+    pub const KILLPAGES = 0x4;
+    // deactivate, leave mapped
+    pub const DEACTIVATE = 0x8;
+    pub const SYNC = 0x10;
 };
 
 pub const SA = struct {
@@ -1450,6 +1890,230 @@ pub const E = enum(u16) {
     _,
 };
 
+pub fn getKernError(err: kern_return_t) KernE {
+    return @intToEnum(KernE, @truncate(u8, @intCast(usize, err)));
+}
+
+/// Kernel return values
+pub const KernE = enum(u8) {
+    SUCCESS = 0,
+
+    /// Specified address is not currently valid
+    INVALID_ADDRESS = 1,
+
+    /// Specified memory is valid, but does not permit the
+    /// required forms of access.
+    PROTECTION_FAILURE = 2,
+
+    /// The address range specified is already in use, or
+    /// no address range of the size specified could be
+    /// found.
+    NO_SPACE = 3,
+
+    /// The function requested was not applicable to this
+    /// type of argument, or an argument is invalid
+    INVALID_ARGUMENT = 4,
+
+    /// The function could not be performed.  A catch-all.
+    FAILURE = 5,
+
+    /// A system resource could not be allocated to fulfill
+    /// this request.  This failure may not be permanent.
+    RESOURCE_SHORTAGE = 6,
+
+    /// The task in question does not hold receive rights
+    /// for the port argument.
+    NOT_RECEIVER = 7,
+
+    /// Bogus access restriction.
+    NO_ACCESS = 8,
+
+    /// During a page fault, the target address refers to a
+    /// memory object that has been destroyed.  This
+    /// failure is permanent.
+    MEMORY_FAILURE = 9,
+
+    /// During a page fault, the memory object indicated
+    /// that the data could not be returned.  This failure
+    /// may be temporary; future attempts to access this
+    /// same data may succeed, as defined by the memory
+    /// object.
+    MEMORY_ERROR = 10,
+
+    /// The receive right is already a member of the portset.
+    ALREADY_IN_SET = 11,
+
+    /// The receive right is not a member of a port set.
+    NOT_IN_SET = 12,
+
+    /// The name already denotes a right in the task.
+    NAME_EXISTS = 13,
+
+    /// The operation was aborted.  Ipc code will
+    /// catch this and reflect it as a message error.
+    ABORTED = 14,
+
+    /// The name doesn't denote a right in the task.
+    INVALID_NAME = 15,
+
+    /// Target task isn't an active task.
+    INVALID_TASK = 16,
+
+    /// The name denotes a right, but not an appropriate right.
+    INVALID_RIGHT = 17,
+
+    /// A blatant range error.
+    INVALID_VALUE = 18,
+
+    /// Operation would overflow limit on user-references.
+    UREFS_OVERFLOW = 19,
+
+    /// The supplied (port) capability is improper.
+    INVALID_CAPABILITY = 20,
+
+    /// The task already has send or receive rights
+    /// for the port under another name.
+    RIGHT_EXISTS = 21,
+
+    /// Target host isn't actually a host.
+    INVALID_HOST = 22,
+
+    /// An attempt was made to supply "precious" data
+    /// for memory that is already present in a
+    /// memory object.
+    MEMORY_PRESENT = 23,
+
+    /// A page was requested of a memory manager via
+    /// memory_object_data_request for an object using
+    /// a MEMORY_OBJECT_COPY_CALL strategy, with the
+    /// VM_PROT_WANTS_COPY flag being used to specify
+    /// that the page desired is for a copy of the
+    /// object, and the memory manager has detected
+    /// the page was pushed into a copy of the object
+    /// while the kernel was walking the shadow chain
+    /// from the copy to the object. This error code
+    /// is delivered via memory_object_data_error
+    /// and is handled by the kernel (it forces the
+    /// kernel to restart the fault). It will not be
+    /// seen by users.
+    MEMORY_DATA_MOVED = 24,
+
+    /// A strategic copy was attempted of an object
+    /// upon which a quicker copy is now possible.
+    /// The caller should retry the copy using
+    /// vm_object_copy_quickly. This error code
+    /// is seen only by the kernel.
+    MEMORY_RESTART_COPY = 25,
+
+    /// An argument applied to assert processor set privilege
+    /// was not a processor set control port.
+    INVALID_PROCESSOR_SET = 26,
+
+    /// The specified scheduling attributes exceed the thread's
+    /// limits.
+    POLICY_LIMIT = 27,
+
+    /// The specified scheduling policy is not currently
+    /// enabled for the processor set.
+    INVALID_POLICY = 28,
+
+    /// The external memory manager failed to initialize the
+    /// memory object.
+    INVALID_OBJECT = 29,
+
+    /// A thread is attempting to wait for an event for which
+    /// there is already a waiting thread.
+    ALREADY_WAITING = 30,
+
+    /// An attempt was made to destroy the default processor
+    /// set.
+    DEFAULT_SET = 31,
+
+    /// An attempt was made to fetch an exception port that is
+    /// protected, or to abort a thread while processing a
+    /// protected exception.
+    EXCEPTION_PROTECTED = 32,
+
+    /// A ledger was required but not supplied.
+    INVALID_LEDGER = 33,
+
+    /// The port was not a memory cache control port.
+    INVALID_MEMORY_CONTROL = 34,
+
+    /// An argument supplied to assert security privilege
+    /// was not a host security port.
+    INVALID_SECURITY = 35,
+
+    /// thread_depress_abort was called on a thread which
+    /// was not currently depressed.
+    NOT_DEPRESSED = 36,
+
+    /// Object has been terminated and is no longer available
+    TERMINATED = 37,
+
+    /// Lock set has been destroyed and is no longer available.
+    LOCK_SET_DESTROYED = 38,
+
+    /// The thread holding the lock terminated before releasing
+    /// the lock
+    LOCK_UNSTABLE = 39,
+
+    /// The lock is already owned by another thread
+    LOCK_OWNED = 40,
+
+    /// The lock is already owned by the calling thread
+    LOCK_OWNED_SELF = 41,
+
+    /// Semaphore has been destroyed and is no longer available.
+    SEMAPHORE_DESTROYED = 42,
+
+    /// Return from RPC indicating the target server was
+    /// terminated before it successfully replied
+    RPC_SERVER_TERMINATED = 43,
+
+    /// Terminate an orphaned activation.
+    RPC_TERMINATE_ORPHAN = 44,
+
+    /// Allow an orphaned activation to continue executing.
+    RPC_CONTINUE_ORPHAN = 45,
+
+    /// Empty thread activation (No thread linked to it)
+    NOT_SUPPORTED = 46,
+
+    /// Remote node down or inaccessible.
+    NODE_DOWN = 47,
+
+    /// A signalled thread was not actually waiting.
+    NOT_WAITING = 48,
+
+    /// Some thread-oriented operation (semaphore_wait) timed out
+    OPERATION_TIMED_OUT = 49,
+
+    /// During a page fault, indicates that the page was rejected
+    /// as a result of a signature check.
+    CODESIGN_ERROR = 50,
+
+    /// The requested property cannot be changed at this time.
+    POLICY_STATIC = 51,
+
+    /// The provided buffer is of insufficient size for the requested data.
+    INSUFFICIENT_BUFFER_SIZE = 52,
+
+    /// Denied by security policy
+    DENIED = 53,
+
+    /// The KC on which the function is operating is missing
+    MISSING_KC = 54,
+
+    /// The KC on which the function is operating is invalid
+    INVALID_KC = 55,
+
+    /// A search or query operation did not return a result
+    NOT_FOUND = 56,
+
+    _,
+};
+
 pub const SIGSTKSZ = 131072;
 pub const MINSIGSTKSZ = 32768;
 
@@ -2006,3 +2670,26 @@ pub const CPUFAMILY = enum(u32) {
     ARM_FIRESTORM_ICESTORM = 0x1b588bb3,
     _,
 };
+
+pub const POSIX_SPAWN_RESETIDS = 0x0001;
+pub const POSIX_SPAWN_SETPGROUP = 0x0002;
+pub const POSIX_SPAWN_SETSIGDEF = 0x0004;
+pub const POSIX_SPAWN_SETSIGMASK = 0x0008;
+pub const POSIX_SPAWN_SETEXEC = 0x0040;
+pub const POSIX_SPAWN_START_SUSPENDED = 0x0080;
+pub const _POSIX_SPAWN_DISABLE_ASLR = 0x0100;
+pub const POSIX_SPAWN_SETSID = 0x0400;
+pub const _POSIX_SPAWN_RESLIDE = 0x0800;
+pub const POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000;
+
+pub const PT_TRACE_ME = 0;
+pub const PT_CONTINUE = 7;
+pub const PT_KILL = 8;
+pub const PT_STEP = 9;
+pub const PT_DETACH = 11;
+pub const PT_ATTACHEXC = 14;
+pub const PT_DENY_ATTACH = 31;
+
+pub const caddr_t = ?[*]u8;
+
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int) c_int;

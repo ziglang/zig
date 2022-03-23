@@ -80,6 +80,14 @@ pub fn emitMir(
             .cmp_immediate => try emit.mirAddSubtractImmediate(inst),
             .sub_immediate => try emit.mirAddSubtractImmediate(inst),
 
+            .asr_register => try emit.mirShiftRegister(inst),
+            .lsl_register => try emit.mirShiftRegister(inst),
+            .lsr_register => try emit.mirShiftRegister(inst),
+
+            .asr_immediate => try emit.mirShiftImmediate(inst),
+            .lsl_immediate => try emit.mirShiftImmediate(inst),
+            .lsr_immediate => try emit.mirShiftImmediate(inst),
+
             .b_cond => try emit.mirConditionalBranchImmediate(inst),
 
             .b => try emit.mirBranch(inst),
@@ -374,20 +382,6 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     return error.EmitFail;
 }
 
-fn moveImmediate(emit: *Emit, reg: Register, imm64: u64) !void {
-    try emit.writeInstruction(Instruction.movz(reg, @truncate(u16, imm64), 0));
-
-    if (imm64 > math.maxInt(u16)) {
-        try emit.writeInstruction(Instruction.movk(reg, @truncate(u16, imm64 >> 16), 16));
-    }
-    if (imm64 > math.maxInt(u32)) {
-        try emit.writeInstruction(Instruction.movk(reg, @truncate(u16, imm64 >> 32), 32));
-    }
-    if (imm64 > math.maxInt(u48)) {
-        try emit.writeInstruction(Instruction.movk(reg, @truncate(u16, imm64 >> 48), 48));
-    }
-}
-
 fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
     const delta_pc: usize = self.code.items.len - self.prev_di_pc;
@@ -465,6 +459,36 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
             try emit.writeInstruction(Instruction.subs(.xzr, rn, imm12, sh));
         },
+        else => unreachable,
+    }
+}
+
+fn mirShiftRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rrr = emit.mir.instructions.items(.data)[inst].rrr;
+    const rd = rrr.rd;
+    const rn = rrr.rn;
+    const rm = rrr.rm;
+
+    switch (tag) {
+        .asr_register => try emit.writeInstruction(Instruction.asrRegister(rd, rn, rm)),
+        .lsl_register => try emit.writeInstruction(Instruction.lslRegister(rd, rn, rm)),
+        .lsr_register => try emit.writeInstruction(Instruction.lsrRegister(rd, rn, rm)),
+        else => unreachable,
+    }
+}
+
+fn mirShiftImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rr_shift = emit.mir.instructions.items(.data)[inst].rr_shift;
+    const rd = rr_shift.rd;
+    const rn = rr_shift.rn;
+    const shift = rr_shift.shift;
+
+    switch (tag) {
+        .asr_immediate => try emit.writeInstruction(Instruction.asrImmediate(rd, rn, shift)),
+        .lsl_immediate => try emit.writeInstruction(Instruction.lslImmediate(rd, rn, shift)),
+        .lsr_immediate => try emit.writeInstruction(Instruction.lsrImmediate(rd, rn, shift)),
         else => unreachable,
     }
 }

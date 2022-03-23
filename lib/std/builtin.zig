@@ -174,12 +174,14 @@ pub const SourceLocation = struct {
     column: u32,
 };
 
-pub const TypeId = std.meta.Tag(TypeInfo);
+pub const TypeId = std.meta.Tag(Type);
+
+/// TODO deprecated, use `Type`
+pub const TypeInfo = Type;
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-/// TODO: rename to `Type` because "info" is redundant.
-pub const TypeInfo = union(enum) {
+pub const Type = union(enum) {
     Type: void,
     Void: void,
     Bool: void,
@@ -749,9 +751,18 @@ else
 /// therefore must be kept in sync with the compiler implementation.
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn {
     @setCold(true);
+
     // Until self-hosted catches up with stage1 language features, we have a simpler
     // default panic function:
-    if (builtin.zig_backend != .stage1) {
+    if ((builtin.zig_backend == .stage2_llvm and builtin.link_libc) or
+        builtin.zig_backend == .stage2_c or
+        builtin.zig_backend == .stage2_wasm or
+        builtin.zig_backend == .stage2_arm or
+        builtin.zig_backend == .stage2_aarch64 or
+        builtin.zig_backend == .stage2_x86_64 or
+        builtin.zig_backend == .stage2_x86 or
+        builtin.zig_backend == .stage2_riscv64)
+    {
         while (true) {
             @breakpoint();
         }

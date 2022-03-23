@@ -8,6 +8,10 @@ const testing = std.testing;
 
 const Allocator = mem.Allocator;
 
+pub const cpu_type_t = c_int;
+pub const cpu_subtype_t = c_int;
+pub const vm_prot_t = c_int;
+
 pub const mach_header = extern struct {
     magic: u32,
     cputype: cpu_type_t,
@@ -620,7 +624,9 @@ pub const segment_command_64 = extern struct {
     cmd: LC = .SEGMENT_64,
 
     /// includes sizeof section_64 structs
-    cmdsize: u32 = @sizeOf(segment_command_64),
+    cmdsize: u32,
+    // TODO lazy values in stage2
+    // cmdsize: u32 = @sizeOf(segment_command_64),
 
     /// segment name
     segname: [16]u8,
@@ -638,10 +644,10 @@ pub const segment_command_64 = extern struct {
     filesize: u64 = 0,
 
     /// maximum VM protection
-    maxprot: vm_prot_t = VM_PROT_NONE,
+    maxprot: vm_prot_t = PROT.NONE,
 
     /// initial VM protection
-    initprot: vm_prot_t = VM_PROT_NONE,
+    initprot: vm_prot_t = PROT.NONE,
 
     /// number of sections in segment
     nsects: u32 = 0,
@@ -650,6 +656,23 @@ pub const segment_command_64 = extern struct {
     pub fn segName(seg: segment_command_64) []const u8 {
         return parseName(&seg.segname);
     }
+};
+
+pub const PROT = struct {
+    /// [MC2] no permissions
+    pub const NONE: vm_prot_t = 0x00;
+    /// [MC2] pages can be read
+    pub const READ: vm_prot_t = 0x01;
+    /// [MC2] pages can be written
+    pub const WRITE: vm_prot_t = 0x02;
+    /// [MC2] pages can be executed
+    pub const EXEC: vm_prot_t = 0x04;
+    /// When a caller finds that they cannot obtain write permission on a
+    /// mapped entry, the following flag can be used. The entry will be
+    /// made "needs copy" effectively copying the object (using COW),
+    /// and write permission will be added to the maximum protections for
+    /// the associated entry.
+    pub const COPY: vm_prot_t = 0x10;
 };
 
 /// A segment is made up of zero or more sections.  Non-MH_OBJECT files have
@@ -1438,11 +1461,6 @@ pub const S_THREAD_LOCAL_INIT_FUNCTION_POINTERS = 0x15;
 /// 32-bit offsets to initializers
 pub const S_INIT_FUNC_OFFSETS = 0x16;
 
-pub const cpu_type_t = integer_t;
-pub const cpu_subtype_t = integer_t;
-pub const integer_t = c_int;
-pub const vm_prot_t = c_int;
-
 /// CPU type targeting 64-bit Intel-based Macs
 pub const CPU_TYPE_X86_64: cpu_type_t = 0x01000007;
 
@@ -1454,19 +1472,6 @@ pub const CPU_SUBTYPE_X86_64_ALL: cpu_subtype_t = 0x3;
 
 /// All ARM-based Macs
 pub const CPU_SUBTYPE_ARM_ALL: cpu_subtype_t = 0x0;
-
-// Protection values defined as bits within the vm_prot_t type
-/// No VM protection
-pub const VM_PROT_NONE: vm_prot_t = 0x0;
-
-/// VM read permission
-pub const VM_PROT_READ: vm_prot_t = 0x1;
-
-/// VM write permission
-pub const VM_PROT_WRITE: vm_prot_t = 0x2;
-
-/// VM execute permission
-pub const VM_PROT_EXECUTE: vm_prot_t = 0x4;
 
 // The following are used to encode rebasing information
 pub const REBASE_TYPE_POINTER: u8 = 1;
@@ -1656,6 +1661,8 @@ pub const CSMAGIC_EMBEDDED_SIGNATURE: u32 = 0xfade0cc0;
 pub const CSMAGIC_EMBEDDED_SIGNATURE_OLD: u32 = 0xfade0b02;
 /// Embedded entitlements
 pub const CSMAGIC_EMBEDDED_ENTITLEMENTS: u32 = 0xfade7171;
+/// Embedded DER encoded entitlements
+pub const CSMAGIC_EMBEDDED_DER_ENTITLEMENTS: u32 = 0xfade7172;
 /// Multi-arch collection of embedded signatures
 pub const CSMAGIC_DETACHED_SIGNATURE: u32 = 0xfade0cc1;
 /// CMS Signature, among other things
@@ -1673,6 +1680,7 @@ pub const CSSLOT_REQUIREMENTS: u32 = 2;
 pub const CSSLOT_RESOURCEDIR: u32 = 3;
 pub const CSSLOT_APPLICATION: u32 = 4;
 pub const CSSLOT_ENTITLEMENTS: u32 = 5;
+pub const CSSLOT_DER_ENTITLEMENTS: u32 = 7;
 
 /// first alternate CodeDirectory, if any
 pub const CSSLOT_ALTERNATE_CODEDIRECTORIES: u32 = 0x1000;
@@ -2162,8 +2170,8 @@ test "read-write segment command" {
             .vmaddr = 4294967296,
             .vmsize = 294912,
             .filesize = 294912,
-            .maxprot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE,
-            .initprot = VM_PROT_EXECUTE | VM_PROT_READ,
+            .maxprot = PROT.READ | PROT.WRITE | PROT.EXEC,
+            .initprot = PROT.EXEC | PROT.READ,
             .nsects = 1,
         },
     };

@@ -58,11 +58,6 @@ d_sym: ?DebugSymbols = null,
 /// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
 page_size: u16,
 
-/// TODO Should we figure out embedding code signatures for other Apple platforms as part of the linker?
-/// Or should this be a separate tool?
-/// https://github.com/ziglang/zig/issues/9567
-requires_adhoc_codesig: bool,
-
 /// If true, the linker will preallocate several sections and segments before starting the linking
 /// process. This is for example true for stage2 debug builds, however, this is false for stage1
 /// and potentially stage2 release builds in the future.
@@ -75,6 +70,9 @@ header_pad: u16 = 0x1000,
 
 /// The absolute address of the entry point.
 entry_addr: ?u64 = null,
+
+/// Code signature (if any)
+code_signature: ?CodeSignature = null,
 
 objects: std.ArrayListUnmanaged(Object) = .{},
 archives: std.ArrayListUnmanaged(Archive) = .{},
@@ -295,26 +293,6 @@ pub const Export = struct {
     sym_index: ?u32 = null,
 };
 
-pub const SrcFn = struct {
-    /// Offset from the beginning of the Debug Line Program header that contains this function.
-    off: u32,
-    /// Size of the line number program component belonging to this function, not
-    /// including padding.
-    len: u32,
-
-    /// Points to the previous and next neighbors, based on the offset from .debug_line.
-    /// This can be used to find, for example, the capacity of this `SrcFn`.
-    prev: ?*SrcFn,
-    next: ?*SrcFn,
-
-    pub const empty: SrcFn = .{
-        .off = 0,
-        .len = 0,
-        .prev = null,
-        .next = null,
-    };
-};
-
 pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     assert(options.object_format == .macho);
 
@@ -376,6 +354,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
         self.d_sym = .{
             .base = self,
+            .dwarf = link.File.Dwarf.init(allocator, .macho, options.target),
             .file = d_sym_file,
         };
     }
@@ -421,7 +400,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             .file = null,
         },
         .page_size = page_size,
-        .requires_adhoc_codesig = requires_adhoc_codesig,
+        .code_signature = if (requires_adhoc_codesig) CodeSignature.init(page_size) else null,
         .needs_prealloc = needs_prealloc,
     };
 
@@ -553,6 +532,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         }
         link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
         man.hash.addOptionalBytes(self.base.options.sysroot);
+        try man.addOptionalFile(self.base.options.entitlements);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -878,6 +858,19 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 self.load_commands_dirty = true;
             }
 
+            // code signature and entitlements
+            if (self.base.options.entitlements) |path| {
+                if (self.code_signature) |*csig| {
+                    try csig.addEntitlements(self.base.allocator, path);
+                    csig.code_directory.ident = self.base.options.emit.?.sub_path;
+                } else {
+                    var csig = CodeSignature.init(self.page_size);
+                    try csig.addEntitlements(self.base.allocator, path);
+                    csig.code_directory.ident = self.base.options.emit.?.sub_path;
+                    self.code_signature = csig;
+                }
+            }
+
             if (self.base.options.verbose_link) {
                 var argv = std.ArrayList([]const u8).init(arena);
 
@@ -1052,13 +1045,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try d_sym.flushModule(self.base.allocator, self.base.options);
         }
 
-        if (self.requires_adhoc_codesig) {
+        if (self.code_signature) |*csig| {
+            csig.clear(self.base.allocator);
+            csig.code_directory.ident = self.base.options.emit.?.sub_path;
             // Preallocate space for the code signature.
             // We need to do this at this stage so that we have the load commands with proper values
             // written out to the file.
             // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
             // where the code signature goes into.
-            try self.writeCodeSignaturePadding();
+            try self.writeCodeSignaturePadding(csig);
         }
 
         try self.writeLoadCommands();
@@ -1074,8 +1069,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
         assert(!self.load_commands_dirty);
 
-        if (self.requires_adhoc_codesig) {
-            try self.writeCodeSignature(); // code signing always comes last
+        if (self.code_signature) |*csig| {
+            try self.writeCodeSignature(csig); // code signing always comes last
         }
 
         if (build_options.enable_link_snapshots) {
@@ -2207,10 +2202,6 @@ fn writePadding(self: *MachO, match: MatchingSection, size: usize, writer: anyty
 }
 
 fn writeAtoms(self: *MachO) !void {
-    var buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer buffer.deinit();
-    var file_offset: ?u64 = null;
-
     var it = self.atoms.iterator();
     while (it.next()) |entry| {
         const match = entry.key_ptr.*;
@@ -2223,50 +2214,15 @@ fn writeAtoms(self: *MachO) !void {
 
         log.debug("writing atoms in {s},{s}", .{ sect.segName(), sect.sectName() });
 
-        while (atom.prev) |prev| {
-            atom = prev;
-        }
-
         while (true) {
             if (atom.dirty or self.invalidate_relocs) {
-                const atom_sym = self.locals.items[atom.local_sym_index];
-                const padding_size: usize = if (atom.next) |next| blk: {
-                    const next_sym = self.locals.items[next.local_sym_index];
-                    const size = next_sym.n_value - (atom_sym.n_value + atom.size);
-                    break :blk try math.cast(usize, size);
-                } else 0;
-
-                log.debug("  (adding atom {s} to buffer: {})", .{ self.getString(atom_sym.n_strx), atom_sym });
-
-                try atom.resolveRelocs(self);
-                try buffer.appendSlice(atom.code.items);
-                try buffer.ensureUnusedCapacity(padding_size);
-                try self.writePadding(match, padding_size, buffer.writer());
-
-                if (file_offset == null) {
-                    file_offset = sect.offset + atom_sym.n_value - sect.addr;
-                }
+                try self.writeAtom(atom, match);
                 atom.dirty = false;
-            } else {
-                if (file_offset) |off| {
-                    log.debug("  (writing at file offset 0x{x})", .{off});
-                    try self.base.file.?.pwriteAll(buffer.items, off);
-                }
-                file_offset = null;
-                buffer.clearRetainingCapacity();
             }
 
-            if (atom.next) |next| {
-                atom = next;
-            } else {
-                if (file_offset) |off| {
-                    log.debug("  (writing at file offset 0x{x})", .{off});
-                    try self.base.file.?.pwriteAll(buffer.items, off);
-                }
-                file_offset = null;
-                buffer.clearRetainingCapacity();
-                break;
-            }
+            if (atom.prev) |prev| {
+                atom = prev;
+            } else break;
         }
     }
 }
@@ -3373,7 +3329,7 @@ fn addLoadDylibLC(self: *MachO, id: u16) !void {
 }
 
 fn addCodeSignatureLC(self: *MachO) !void {
-    if (self.code_signature_cmd_index != null or !self.requires_adhoc_codesig) return;
+    if (self.code_signature_cmd_index != null or self.code_signature == null) return;
     self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
     try self.load_commands.append(self.base.allocator, .{
         .linkedit_data = .{
@@ -3487,6 +3443,10 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.atom_by_index_table.deinit(self.base.allocator);
+
+    if (self.code_signature) |*csig| {
+        csig.deinit(self.base.allocator);
+    }
 }
 
 pub fn closeFiles(self: MachO) void {
@@ -3523,7 +3483,6 @@ fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection, owns_atom: bool) 
             i += 1;
         }
     }
-    // TODO process free list for dbg info just like we do above for vaddrs
 
     if (self.atoms.getPtr(match)) |last_atom| {
         if (last_atom.* == atom) {
@@ -3533,16 +3492,6 @@ fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection, owns_atom: bool) 
             } else {
                 _ = self.atoms.fetchRemove(match);
             }
-        }
-    }
-
-    if (self.d_sym) |*d_sym| {
-        if (d_sym.dbg_info_decl_first == atom) {
-            d_sym.dbg_info_decl_first = atom.dbg_info_next;
-        }
-        if (d_sym.dbg_info_decl_last == atom) {
-            // TODO shrink the .debug_info section size here
-            d_sym.dbg_info_decl_last = atom.dbg_info_prev;
         }
     }
 
@@ -3564,18 +3513,8 @@ fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection, owns_atom: bool) 
         atom.next = null;
     }
 
-    if (atom.dbg_info_prev) |prev| {
-        prev.dbg_info_next = atom.dbg_info_next;
-
-        // TODO the free list logic like we do for atoms above
-    } else {
-        atom.dbg_info_prev = null;
-    }
-
-    if (atom.dbg_info_next) |next| {
-        next.dbg_info_prev = atom.dbg_info_prev;
-    } else {
-        atom.dbg_info_next = null;
+    if (self.d_sym) |*d_sym| {
+        d_sym.dwarf.freeAtom(&atom.dbg_info_atom);
     }
 }
 
@@ -3725,9 +3664,9 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
+    var debug_buffers_buf: link.File.Dwarf.DeclDebugBuffers = undefined;
     const debug_buffers = if (self.d_sym) |*d_sym| blk: {
-        debug_buffers_buf = try d_sym.initDeclDebugBuffers(self.base.allocator, module, decl);
+        debug_buffers_buf = try d_sym.initDeclDebugInfo(module, decl);
         break :blk &debug_buffers_buf;
     } else null;
     defer {
@@ -3766,7 +3705,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
 
     if (debug_buffers) |db| {
         if (self.d_sym) |*d_sym| {
-            try d_sym.commitDeclDebugInfo(self.base.allocator, module, decl, db);
+            try d_sym.commitDeclDebugInfo(module, decl, db);
         }
     }
 
@@ -3805,9 +3744,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl: *Module.De
     const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), math.log2(required_alignment));
     try self.atom_by_index_table.putNoClobber(self.base.allocator, local_sym_index, atom);
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
-        .none = .{},
-    }, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none, .{
         .parent_atom_index = local_sym_index,
     });
     const code = switch (res) {
@@ -3869,9 +3806,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var debug_buffers_buf: DebugSymbols.DeclDebugBuffers = undefined;
+    var debug_buffers_buf: link.File.Dwarf.DeclDebugBuffers = undefined;
     const debug_buffers = if (self.d_sym) |*d_sym| blk: {
-        debug_buffers_buf = try d_sym.initDeclDebugBuffers(self.base.allocator, module, decl);
+        debug_buffers_buf = try d_sym.initDeclDebugInfo(module, decl);
         break :blk &debug_buffers_buf;
     } else null;
     defer {
@@ -3937,7 +3874,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
 /// Checks if the value, or any of its embedded values stores a pointer, and thus requires
 /// a rebase opcode for the dynamic linker.
-fn needsPointerRebase(ty: Type, val: Value) bool {
+fn needsPointerRebase(ty: Type, val: Value, target: std.Target) bool {
     if (ty.zigTypeTag() == .Fn) {
         return false;
     }
@@ -3953,15 +3890,15 @@ fn needsPointerRebase(ty: Type, val: Value) bool {
             const elem_ty = ty.childType();
             var elem_value_buf: Value.ElemValueBuffer = undefined;
             const elem_val = val.elemValueBuffer(0, &elem_value_buf);
-            return needsPointerRebase(elem_ty, elem_val);
+            return needsPointerRebase(elem_ty, elem_val, target);
         },
         .Struct => {
             const fields = ty.structFields().values();
             if (fields.len == 0) return false;
-            if (val.castTag(.@"struct")) |payload| {
+            if (val.castTag(.aggregate)) |payload| {
                 const field_values = payload.data;
                 for (field_values) |field_val, i| {
-                    if (needsPointerRebase(fields[i].ty, field_val)) return true;
+                    if (needsPointerRebase(fields[i].ty, field_val, target)) return true;
                 } else return false;
             } else return false;
         },
@@ -3970,18 +3907,18 @@ fn needsPointerRebase(ty: Type, val: Value) bool {
                 const sub_val = payload.data;
                 var buffer: Type.Payload.ElemType = undefined;
                 const sub_ty = ty.optionalChild(&buffer);
-                return needsPointerRebase(sub_ty, sub_val);
+                return needsPointerRebase(sub_ty, sub_val, target);
             } else return false;
         },
         .Union => {
             const union_obj = val.cast(Value.Payload.Union).?.data;
-            const active_field_ty = ty.unionFieldType(union_obj.tag);
-            return needsPointerRebase(active_field_ty, union_obj.val);
+            const active_field_ty = ty.unionFieldType(union_obj.tag, target);
+            return needsPointerRebase(active_field_ty, union_obj.val, target);
         },
         .ErrorUnion => {
             if (val.castTag(.eu_payload)) |payload| {
                 const payload_ty = ty.errorUnionPayload();
-                return needsPointerRebase(payload_ty, payload.data);
+                return needsPointerRebase(payload_ty, payload.data, target);
             } else return false;
         },
         else => return false,
@@ -3990,7 +3927,8 @@ fn needsPointerRebase(ty: Type, val: Value) bool {
 
 fn getMatchingSectionAtom(self: *MachO, atom: *Atom, name: []const u8, ty: Type, val: Value) !MatchingSection {
     const code = atom.code.items;
-    const alignment = ty.abiAlignment(self.base.options.target);
+    const target = self.base.options.target;
+    const alignment = ty.abiAlignment(target);
     const align_log_2 = math.log2(alignment);
     const zig_ty = ty.zigTypeTag();
     const mode = self.base.options.optimize_mode;
@@ -4017,7 +3955,7 @@ fn getMatchingSectionAtom(self: *MachO, atom: *Atom, name: []const u8, ty: Type,
             };
         }
 
-        if (needsPointerRebase(ty, val)) {
+        if (needsPointerRebase(ty, val, target)) {
             break :blk (try self.getMatchingSection(.{
                 .segname = makeStaticString("__DATA_CONST"),
                 .sectname = makeStaticString("__const"),
@@ -4093,27 +4031,8 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
 
         if (need_realloc) {
             const vaddr = try self.growAtom(&decl.link.macho, code_len, required_alignment, match);
-
             log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ sym_name, symbol.n_value, vaddr });
             log.debug("  (required alignment 0x{x})", .{required_alignment});
-
-            if (vaddr != symbol.n_value) {
-                log.debug(" (writing new GOT entry)", .{});
-                const got_index = self.got_entries_table.get(.{ .local = decl.link.macho.local_sym_index }).?;
-                const got_atom = self.got_entries.items[got_index].atom;
-                const got_sym = &self.locals.items[got_atom.local_sym_index];
-                const got_vaddr = try self.allocateAtom(got_atom, @sizeOf(u64), 8, .{
-                    .seg = self.data_const_segment_cmd_index.?,
-                    .sect = self.got_section_index.?,
-                });
-                got_sym.n_value = got_vaddr;
-                got_sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(.{
-                    .seg = self.data_const_segment_cmd_index.?,
-                    .sect = self.got_section_index.?,
-                }).? + 1);
-                got_atom.dirty = true;
-            }
-
             symbol.n_value = vaddr;
         } else if (code_len < decl.link.macho.size) {
             self.shrinkAtom(&decl.link.macho, code_len, match);
@@ -4364,27 +4283,7 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
         decl.link.macho.local_sym_index = 0;
     }
     if (self.d_sym) |*d_sym| {
-        // TODO make this logic match freeAtom. Maybe abstract the logic
-        // out since the same thing is desired for both.
-        _ = d_sym.dbg_line_fn_free_list.remove(&decl.fn_link.macho);
-        if (decl.fn_link.macho.prev) |prev| {
-            d_sym.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
-            prev.next = decl.fn_link.macho.next;
-            if (decl.fn_link.macho.next) |next| {
-                next.prev = prev;
-            } else {
-                d_sym.dbg_line_fn_last = prev;
-            }
-        } else if (decl.fn_link.macho.next) |next| {
-            d_sym.dbg_line_fn_first = next;
-            next.prev = null;
-        }
-        if (d_sym.dbg_line_fn_first == &decl.fn_link.macho) {
-            d_sym.dbg_line_fn_first = decl.fn_link.macho.next;
-        }
-        if (d_sym.dbg_line_fn_last == &decl.fn_link.macho) {
-            d_sym.dbg_line_fn_last = decl.fn_link.macho.prev;
-        }
+        d_sym.dwarf.freeDecl(decl);
     }
 }
 
@@ -4421,6 +4320,7 @@ fn populateMissingMetadata(self: *MachO) !void {
                 .inner = .{
                     .segname = makeStaticString("__PAGEZERO"),
                     .vmsize = pagezero_vmsize,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });
@@ -4444,8 +4344,9 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .vmaddr = pagezero_vmsize,
                     .vmsize = needed_size,
                     .filesize = needed_size,
-                    .maxprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
-                    .initprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE,
+                    .maxprot = macho.PROT.READ | macho.PROT.EXEC,
+                    .initprot = macho.PROT.READ | macho.PROT.EXEC,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });
@@ -4549,8 +4450,9 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .vmsize = needed_size,
                     .fileoff = fileoff,
                     .filesize = needed_size,
-                    .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-                    .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                    .maxprot = macho.PROT.READ | macho.PROT.WRITE,
+                    .initprot = macho.PROT.READ | macho.PROT.WRITE,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });
@@ -4598,8 +4500,9 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .vmsize = needed_size,
                     .fileoff = fileoff,
                     .filesize = needed_size,
-                    .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
-                    .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                    .maxprot = macho.PROT.READ | macho.PROT.WRITE,
+                    .initprot = macho.PROT.READ | macho.PROT.WRITE,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });
@@ -4707,8 +4610,9 @@ fn populateMissingMetadata(self: *MachO) !void {
                     .segname = makeStaticString("__LINKEDIT"),
                     .vmaddr = vmaddr,
                     .fileoff = fileoff,
-                    .maxprot = macho.VM_PROT_READ,
-                    .initprot = macho.VM_PROT_READ,
+                    .maxprot = macho.PROT.READ,
+                    .initprot = macho.PROT.READ,
+                    .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
         });
@@ -6258,7 +6162,7 @@ fn writeLinkeditSegment(self: *MachO) !void {
     seg.inner.vmsize = mem.alignForwardGeneric(u64, seg.inner.filesize, self.page_size);
 }
 
-fn writeCodeSignaturePadding(self: *MachO) !void {
+fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -6268,11 +6172,7 @@ fn writeCodeSignaturePadding(self: *MachO) !void {
     // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
     const fileoff = mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, 16);
     const padding = fileoff - (linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize);
-    const needed_size = CodeSignature.calcCodeSignaturePaddingSize(
-        self.base.options.emit.?.sub_path,
-        fileoff,
-        self.page_size,
-    );
+    const needed_size = code_sig.estimateSize(fileoff);
     code_sig_cmd.dataoff = @intCast(u32, fileoff);
     code_sig_cmd.datasize = needed_size;
 
@@ -6288,34 +6188,30 @@ fn writeCodeSignaturePadding(self: *MachO) !void {
     self.load_commands_dirty = true;
 }
 
-fn writeCodeSignature(self: *MachO) !void {
+fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].segment;
     const code_sig_cmd = self.load_commands.items[self.code_signature_cmd_index.?].linkedit_data;
 
-    var code_sig: CodeSignature = .{};
-    defer code_sig.deinit(self.base.allocator);
+    var buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacityPrecise(code_sig.size());
+    try code_sig.writeAdhocSignature(self.base.allocator, .{
+        .file = self.base.file.?,
+        .text_segment = text_segment.inner,
+        .code_sig_cmd = code_sig_cmd,
+        .output_mode = self.base.options.output_mode,
+    }, buffer.writer());
+    assert(buffer.items.len == code_sig.size());
 
-    try code_sig.calcAdhocSignature(
-        self.base.allocator,
-        self.base.file.?,
-        self.base.options.emit.?.sub_path,
-        text_segment.inner,
-        code_sig_cmd,
-        self.base.options.output_mode,
-        self.page_size,
-    );
+    log.debug("writing code signature from 0x{x} to 0x{x}", .{
+        code_sig_cmd.dataoff,
+        code_sig_cmd.dataoff + buffer.items.len,
+    });
 
-    var buffer = try self.base.allocator.alloc(u8, code_sig.size());
-    defer self.base.allocator.free(buffer);
-    var stream = std.io.fixedBufferStream(buffer);
-    try code_sig.write(stream.writer());
-
-    log.debug("writing code signature from 0x{x} to 0x{x}", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
-
-    try self.base.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
+    try self.base.file.?.pwriteAll(buffer.items, code_sig_cmd.dataoff);
 }
 
 /// Writes all load commands and section headers.
@@ -6542,6 +6438,21 @@ fn snapshotState(self: *MachO) !void {
 
         while (true) {
             const atom_sym = self.locals.items[atom.local_sym_index];
+            const should_skip_atom: bool = blk: {
+                if (self.mh_execute_header_index) |index| {
+                    if (index == atom.local_sym_index) break :blk true;
+                }
+                if (mem.eql(u8, self.getString(atom_sym.n_strx), "___dso_handle")) break :blk true;
+                break :blk false;
+            };
+
+            if (should_skip_atom) {
+                if (atom.next) |next| {
+                    atom = next;
+                } else break;
+                continue;
+            }
+
             var node = Snapshot.Node{
                 .address = atom_sym.n_value,
                 .tag = .atom_start,
@@ -6581,7 +6492,8 @@ fn snapshotState(self: *MachO) !void {
                     };
 
                     if (is_via_got) {
-                        const got_atom = self.got_entries_table.get(rel.target) orelse break :blk 0;
+                        const got_index = self.got_entries_table.get(rel.target) orelse break :blk 0;
+                        const got_atom = self.got_entries.items[got_index].atom;
                         break :blk self.locals.items[got_atom.local_sym_index].n_value;
                     }
 

@@ -1851,4 +1851,14 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Nested comma operator in macro. Issue #11040",
+        \\#include <stdlib.h>
+        \\#define FOO (1, (2,  3))
+        \\int main(void) {
+        \\    int x = FOO;
+        \\    if (x != 3) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

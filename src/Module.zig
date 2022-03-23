@@ -3,6 +3,7 @@
 //! there is or is not any zig source code, respectively.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -28,6 +29,7 @@ const AstGen = @import("AstGen.zig");
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 const build_options = @import("build_options");
+const Liveness = @import("Liveness.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -144,6 +146,8 @@ const MonomorphedFuncsSet = std.HashMapUnmanaged(
 );
 
 const MonomorphedFuncsContext = struct {
+    target: Target,
+
     pub fn eql(ctx: @This(), a: *Fn, b: *Fn) bool {
         _ = ctx;
         return a == b;
@@ -151,7 +155,6 @@ const MonomorphedFuncsContext = struct {
 
     /// Must match `Sema.GenericCallAdapter.hash`.
     pub fn hash(ctx: @This(), key: *Fn) u64 {
-        _ = ctx;
         var hasher = std.hash.Wyhash.init(0);
 
         // The generic function Decl is guaranteed to be the first dependency
@@ -166,12 +169,18 @@ const MonomorphedFuncsContext = struct {
         const generic_ty_info = generic_owner_decl.ty.fnInfo();
         for (generic_ty_info.param_types) |param_ty, i| {
             if (generic_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
-                comptime_args[i].val.hash(param_ty, &hasher);
+                comptime_args[i].val.hash(param_ty, &hasher, ctx.target);
             }
         }
 
         return hasher.final();
     }
+};
+
+pub const WipAnalysis = struct {
+    sema: *Sema,
+    block: *Sema.Block,
+    src: Module.LazySrcLoc,
 };
 
 pub const MemoizedCallSet = std.HashMapUnmanaged(
@@ -182,6 +191,8 @@ pub const MemoizedCallSet = std.HashMapUnmanaged(
 );
 
 pub const MemoizedCall = struct {
+    target: std.Target,
+
     pub const Key = struct {
         func: *Fn,
         args: []TypedValue,
@@ -193,14 +204,12 @@ pub const MemoizedCall = struct {
     };
 
     pub fn eql(ctx: @This(), a: Key, b: Key) bool {
-        _ = ctx;
-
         if (a.func != b.func) return false;
 
         assert(a.args.len == b.args.len);
         for (a.args) |a_arg, arg_i| {
             const b_arg = b.args[arg_i];
-            if (!a_arg.eql(b_arg)) {
+            if (!a_arg.eql(b_arg, ctx.target)) {
                 return false;
             }
         }
@@ -210,8 +219,6 @@ pub const MemoizedCall = struct {
 
     /// Must match `Sema.GenericCallAdapter.hash`.
     pub fn hash(ctx: @This(), key: Key) u64 {
-        _ = ctx;
-
         var hasher = std.hash.Wyhash.init(0);
 
         // The generic function Decl is guaranteed to be the first dependency
@@ -221,7 +228,7 @@ pub const MemoizedCall = struct {
         // This logic must be kept in sync with the logic in `analyzeCall` that
         // computes the hash.
         for (key.args) |arg| {
-            arg.hash(&hasher);
+            arg.hash(&hasher, ctx.target);
         }
 
         return hasher.final();
@@ -347,12 +354,13 @@ pub const Decl = struct {
     /// Populated when `has_tv`.
     val: Value,
     /// Populated when `has_tv`.
-    align_val: Value,
+    /// Points to memory inside value_arena.
+    @"linksection": ?[*:0]const u8,
     /// Populated when `has_tv`.
-    linksection_val: Value,
+    @"align": u32,
     /// Populated when `has_tv`.
     @"addrspace": std.builtin.AddressSpace,
-    /// The memory for ty, val, align_val, linksection_val, and captures.
+    /// The memory for ty, val, align, linksection, and captures.
     /// If this is `null` then there is no memory management needed.
     value_arena: ?*std.heap.ArenaAllocator.State = null,
     /// The direct parent namespace of the Decl.
@@ -421,7 +429,7 @@ pub const Decl = struct {
         /// to require re-analysis.
         outdated,
     },
-    /// Whether `typed_value`, `align_val`, `linksection_val` and `addrspace` are populated.
+    /// Whether `typed_value`, `align`, `linksection` and `addrspace` are populated.
     has_tv: bool,
     /// If `true` it means the `Decl` is the resource owner of the type/value associated
     /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
@@ -661,7 +669,7 @@ pub const Decl = struct {
         return (try decl.typedValue()).val;
     }
 
-    pub fn isFunction(decl: *Decl) !bool {
+    pub fn isFunction(decl: Decl) !bool {
         const tv = try decl.typedValue();
         return tv.ty.zigTypeTag() == .Fn;
     }
@@ -792,9 +800,9 @@ pub const Decl = struct {
 
     pub fn getAlignment(decl: Decl, target: Target) u32 {
         assert(decl.has_tv);
-        if (decl.align_val.tag() != .null_value) {
+        if (decl.@"align" != 0) {
             // Explicit alignment.
-            return @intCast(u32, decl.align_val.toUnsignedInt());
+            return decl.@"align";
         } else {
             // Natural alignment.
             return decl.ty.abiAlignment(target);
@@ -824,7 +832,7 @@ pub const ErrorSet = struct {
     /// Offset from Decl node index, points to the error set AST node.
     node_offset: i32,
     /// The string bytes are stored in the owner Decl arena.
-    /// They are in the same order they appear in the AST.
+    /// These must be in sorted order. See sortNames.
     names: NameMap,
 
     pub const NameMap = std.StringArrayHashMapUnmanaged(void);
@@ -836,9 +844,21 @@ pub const ErrorSet = struct {
             .lazy = .{ .node_offset = self.node_offset },
         };
     }
+
+    /// sort the NameMap. This should be called whenever the map is modified.
+    /// alloc should be the allocator used for the NameMap data.
+    pub fn sortNames(names: *NameMap) void {
+        const Context = struct {
+            keys: [][]const u8,
+            pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+                return std.mem.lessThan(u8, ctx.keys[a_index], ctx.keys[b_index]);
+            }
+        };
+        names.sort(Context{ .keys = names.keys() });
+    }
 };
 
-pub const RequiresComptime = enum { no, yes, unknown, wip };
+pub const PropertyBoolean = enum { no, yes, unknown, wip };
 
 /// Represents the data that a struct declaration provides.
 pub const Struct = struct {
@@ -853,7 +873,7 @@ pub const Struct = struct {
     /// Index of the struct_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     status: enum {
         none,
         field_types_wip,
@@ -870,7 +890,7 @@ pub const Struct = struct {
     /// If false, resolving the fields is necessary to determine whether the type has only
     /// one possible value.
     known_non_opv: bool,
-    requires_comptime: RequiresComptime = .unknown,
+    requires_comptime: PropertyBoolean = .unknown,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
@@ -879,19 +899,21 @@ pub const Struct = struct {
         /// Uses `noreturn` to indicate `anytype`.
         /// undefined until `status` is `have_field_types` or `have_layout`.
         ty: Type,
-        abi_align: Value,
         /// Uses `unreachable_value` to indicate no default.
         default_val: Value,
+        /// Zero means to use the ABI alignment of the type.
+        abi_align: u32,
         /// undefined until `status` is `have_layout`.
         offset: u32,
+        /// If true then `default_val` is the comptime field value.
         is_comptime: bool,
 
         /// Returns the field alignment, assuming the struct is not packed.
         pub fn normalAlignment(field: Field, target: Target) u32 {
-            if (field.abi_align.tag() == .abi_align_default) {
+            if (field.abi_align == 0) {
                 return field.ty.abiAlignment(target);
             } else {
-                return @intCast(u32, field.abi_align.toUnsignedInt());
+                return field.abi_align;
             }
         }
     };
@@ -1074,6 +1096,8 @@ pub const EnumFull = struct {
     namespace: Namespace,
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
+    /// true if zig inferred this tag type, false if user specified it
+    tag_ty_inferred: bool,
 
     pub const NameMap = std.StringArrayHashMapUnmanaged(void);
     pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.ArrayHashContext, false);
@@ -1105,7 +1129,7 @@ pub const Union = struct {
     /// Index of the union_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     status: enum {
         none,
         field_types_wip,
@@ -1117,21 +1141,22 @@ pub const Union = struct {
         // which `have_layout` does not ensure.
         fully_resolved,
     },
-    requires_comptime: RequiresComptime = .unknown,
+    requires_comptime: PropertyBoolean = .unknown,
 
     pub const Field = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.
         ty: Type,
-        abi_align: Value,
+        /// 0 means the ABI alignment of the type.
+        abi_align: u32,
 
         /// Returns the field alignment, assuming the union is not packed.
         /// Keep implementation in sync with `Sema.unionFieldAlignment`.
         /// Prefer to call that function instead of this one during Sema.
         pub fn normalAlignment(field: Field, target: Target) u32 {
-            if (field.abi_align.tag() == .abi_align_default) {
+            if (field.abi_align == 0) {
                 return field.ty.abiAlignment(target);
             } else {
-                return @intCast(u32, field.abi_align.toUnsignedInt());
+                return field.abi_align;
             }
         }
     };
@@ -1207,10 +1232,10 @@ pub const Union = struct {
             if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
-                if (field.abi_align.tag() == .abi_align_default) {
+                if (field.abi_align == 0) {
                     break :a field.ty.abiAlignment(target);
                 } else {
-                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    break :a field.abi_align;
                 }
             };
             if (field_align > most_alignment) {
@@ -1229,10 +1254,10 @@ pub const Union = struct {
             if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
-                if (field.abi_align.tag() == .abi_align_default) {
+                if (field.abi_align == 0) {
                     break :a field.ty.abiAlignment(target);
                 } else {
-                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    break :a field.abi_align;
                 }
             };
             max_align = @maximum(max_align, field_align);
@@ -1278,14 +1303,15 @@ pub const Union = struct {
         var biggest_field: u32 = undefined;
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
-        for (u.fields.values()) |field, i| {
-            if (!field.ty.hasRuntimeBits()) continue;
+        const fields = u.fields.values();
+        for (fields) |field, i| {
+            if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             const field_align = a: {
-                if (field.abi_align.tag() == .abi_align_default) {
+                if (field.abi_align == 0) {
                     break :a field.ty.abiAlignment(target);
                 } else {
-                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    break :a field.abi_align;
                 }
             };
             const field_size = field.ty.abiSize(target);
@@ -1300,7 +1326,7 @@ pub const Union = struct {
             }
         }
         payload_align = @maximum(payload_align, 1);
-        if (!have_tag) return .{
+        if (!have_tag or fields.len <= 1) return .{
             .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
             .abi_align = payload_align,
             .most_aligned_field = most_aligned_field,
@@ -1424,8 +1450,11 @@ pub const Fn = struct {
     is_cold: bool = false,
     is_noinline: bool = false,
 
-    /// Any inferred error sets that this function owns, both it's own inferred error set and
-    /// inferred error sets of any inline/comptime functions called.
+    /// Any inferred error sets that this function owns, both its own inferred error set and
+    /// inferred error sets of any inline/comptime functions called. Not to be confused
+    /// with inferred error sets of generic instantiations of this function, which are
+    /// *not* tracked here - they are tracked in the new `Fn` object created for the
+    /// instantiations.
     inferred_error_sets: InferredErrorSetList = .{},
 
     pub const Analysis = enum {
@@ -1443,28 +1472,29 @@ pub const Fn = struct {
     };
 
     /// This struct is used to keep track of any dependencies related to functions instances
-    /// that return inferred error sets. Note that a function may be associated to multiple different error sets,
-    /// for example an inferred error set which this function returns, but also any inferred error sets
-    /// of called inline or comptime functions.
+    /// that return inferred error sets. Note that a function may be associated to
+    /// multiple different error sets, for example an inferred error set which
+    /// this function returns, but also any inferred error sets of called inline
+    /// or comptime functions.
     pub const InferredErrorSet = struct {
         /// The function from which this error set originates.
-        /// Note: may be the function itself.
         func: *Fn,
 
-        /// All currently known errors that this error set contains. This includes direct additions
-        /// via `return error.Foo;`, and possibly also errors that are returned from any dependent functions.
-        /// When the inferred error set is fully resolved, this map contains all the errors that the function might return.
+        /// All currently known errors that this error set contains. This includes
+        /// direct additions via `return error.Foo;`, and possibly also errors that
+        /// are returned from any dependent functions. When the inferred error set is
+        /// fully resolved, this map contains all the errors that the function might return.
         errors: ErrorSet.NameMap = .{},
 
         /// Other inferred error sets which this inferred error set should include.
         inferred_error_sets: std.AutoHashMapUnmanaged(*InferredErrorSet, void) = .{},
 
-        /// Whether the function returned anyerror. This is true if either of the dependent functions
-        /// returns anyerror.
+        /// Whether the function returned anyerror. This is true if either of
+        /// the dependent functions returns anyerror.
         is_anyerror: bool = false,
 
-        /// Whether this error set is already fully resolved. If true, resolving can skip resolving any dependents
-        /// of this inferred error set.
+        /// Whether this error set is already fully resolved. If true, resolving
+        /// can skip resolving any dependents of this inferred error set.
         is_resolved: bool = false,
 
         pub fn addErrorSet(self: *InferredErrorSet, gpa: Allocator, err_set_ty: Type) !void {
@@ -1480,8 +1510,8 @@ pub const Fn = struct {
                     try self.errors.put(gpa, name, {});
                 },
                 .error_set_inferred => {
-                    const set = err_set_ty.castTag(.error_set_inferred).?.data;
-                    try self.inferred_error_sets.put(gpa, set, {});
+                    const ies = err_set_ty.castTag(.error_set_inferred).?.data;
+                    try self.inferred_error_sets.put(gpa, ies, {});
                 },
                 .error_set_merged => {
                     const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
@@ -1521,6 +1551,21 @@ pub const Fn = struct {
         // param names in ZIR instead of redundantly saving them into Fn.
         // const zir = func.owner_decl.getFileScope().zir;
         return func.param_names[index];
+    }
+
+    pub fn hasInferredErrorSet(func: Fn) bool {
+        const zir = func.owner_decl.getFileScope().zir;
+        const zir_tags = zir.instructions.items(.tag);
+        switch (zir_tags[func.zir_body_inst]) {
+            .func => return false,
+            .func_inferred => return true,
+            .extended => {
+                const extended = zir.instructions.items(.data)[func.zir_body_inst].extended;
+                const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
+                return small.is_inferred_error;
+            },
+            else => unreachable,
+        }
     }
 };
 
@@ -3427,6 +3472,10 @@ pub fn mapOldZirToNew(
     }
 }
 
+/// This ensures that the Decl will have a Type and Value populated.
+/// However the resolution status of the Type may not be fully resolved.
+/// For example an inferred error set is not resolved until after `analyzeFnBody`.
+/// is called.
 pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -3516,6 +3565,87 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
                 }
             }
         }
+    }
+}
+
+pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    switch (func.owner_decl.analysis) {
+        .unreferenced => unreachable,
+        .in_progress => unreachable,
+        .outdated => unreachable,
+
+        .file_failure,
+        .sema_failure,
+        .codegen_failure,
+        .dependency_failure,
+        .sema_failure_retryable,
+        => return error.AnalysisFail,
+
+        .complete, .codegen_failure_retryable => {
+            switch (func.state) {
+                .sema_failure, .dependency_failure => return error.AnalysisFail,
+                .queued => {},
+                .in_progress => unreachable,
+                .inline_only => unreachable, // don't queue work for this
+                .success => return,
+            }
+
+            const gpa = mod.gpa;
+            const decl = func.owner_decl;
+
+            var tmp_arena = std.heap.ArenaAllocator.init(gpa);
+            defer tmp_arena.deinit();
+            const sema_arena = tmp_arena.allocator();
+
+            var air = mod.analyzeFnBody(decl, func, sema_arena) catch |err| switch (err) {
+                error.AnalysisFail => {
+                    if (func.state == .in_progress) {
+                        // If this decl caused the compile error, the analysis field would
+                        // be changed to indicate it was this Decl's fault. Because this
+                        // did not happen, we infer here that it was a dependency failure.
+                        func.state = .dependency_failure;
+                    }
+                    return error.AnalysisFail;
+                },
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+            defer air.deinit(gpa);
+
+            if (mod.comp.bin_file.options.emit == null) return;
+
+            log.debug("analyze liveness of {s}", .{decl.name});
+            var liveness = try Liveness.analyze(gpa, air);
+            defer liveness.deinit(gpa);
+
+            if (builtin.mode == .Debug and mod.comp.verbose_air) {
+                std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
+                @import("print_air.zig").dump(gpa, air, liveness);
+                std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
+            }
+
+            mod.comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {
+                    decl.analysis = .codegen_failure;
+                    return;
+                },
+                else => {
+                    try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+                    mod.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
+                        gpa,
+                        decl.srcLoc(),
+                        "unable to codegen: {s}",
+                        .{@errorName(err)},
+                    ));
+                    decl.analysis = .codegen_failure_retryable;
+                    return;
+                },
+            };
+            return;
+        },
     }
 }
 
@@ -3737,21 +3867,22 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const inst_data = zir_datas[zir_block_index].pl_node;
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
-    const break_index = try sema.analyzeBody(&block_scope, body);
+    const result_ref = (try sema.analyzeBodyBreak(&block_scope, body)).?.operand;
     try wip_captures.finalize();
-    const result_ref = zir_datas[break_index].@"break".operand;
     const src: LazySrcLoc = .{ .node_offset = 0 };
     const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
-    const align_val = blk: {
+    const decl_align: u16 = blk: {
         const align_ref = decl.zirAlignRef();
-        if (align_ref == .none) break :blk Value.initTag(.null_value);
-        break :blk (try sema.resolveInstConst(&block_scope, src, align_ref)).val;
+        if (align_ref == .none) break :blk 0;
+        break :blk try sema.resolveAlign(&block_scope, src, align_ref);
     };
-    const linksection_val = blk: {
+    const decl_linksection: ?[*:0]const u8 = blk: {
         const linksection_ref = decl.zirLinksectionRef();
-        if (linksection_ref == .none) break :blk Value.initTag(.null_value);
-        break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
+        if (linksection_ref == .none) break :blk null;
+        const bytes = try sema.resolveConstString(&block_scope, src, linksection_ref);
+        break :blk (try decl_arena_allocator.dupeZ(u8, bytes)).ptr;
     };
+    const target = sema.mod.getTarget();
     const address_space = blk: {
         const addrspace_ctx: Sema.AddressSpaceContext = switch (decl_tv.val.tag()) {
             .function, .extern_fn => .function,
@@ -3761,9 +3892,9 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
         break :blk switch (decl.zirAddrspaceRef()) {
             .none => switch (addrspace_ctx) {
-                .function => target_util.defaultAddressSpace(sema.mod.getTarget(), .function),
-                .variable => target_util.defaultAddressSpace(sema.mod.getTarget(), .global_mutable),
-                .constant => target_util.defaultAddressSpace(sema.mod.getTarget(), .global_constant),
+                .function => target_util.defaultAddressSpace(target, .function),
+                .variable => target_util.defaultAddressSpace(target, .global_mutable),
+                .constant => target_util.defaultAddressSpace(target, .global_constant),
                 else => unreachable,
             },
             else => |addrspace_ref| try sema.analyzeAddrspace(&block_scope, src, addrspace_ref, addrspace_ctx),
@@ -3779,19 +3910,21 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     if (decl.is_usingnamespace) {
         const ty_ty = Type.initTag(.type);
-        if (!decl_tv.ty.eql(ty_ty)) {
-            return sema.fail(&block_scope, src, "expected type, found {}", .{decl_tv.ty});
+        if (!decl_tv.ty.eql(ty_ty, target)) {
+            return sema.fail(&block_scope, src, "expected type, found {}", .{
+                decl_tv.ty.fmt(target),
+            });
         }
         var buffer: Value.ToTypeBuffer = undefined;
         const ty = decl_tv.val.toType(&buffer);
         if (ty.getNamespace() == null) {
-            return sema.fail(&block_scope, src, "type {} has no namespace", .{ty});
+            return sema.fail(&block_scope, src, "type {} has no namespace", .{ty.fmt(target)});
         }
 
         decl.ty = ty_ty;
         decl.val = try Value.Tag.ty.create(decl_arena_allocator, ty);
-        decl.align_val = Value.initTag(.null_value);
-        decl.linksection_val = Value.initTag(.null_value);
+        decl.@"align" = 0;
+        decl.@"linksection" = null;
         decl.has_tv = true;
         decl.owns_tv = false;
         decl_arena_state.* = decl_arena.state;
@@ -3812,7 +3945,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
             if (decl.has_tv) {
                 prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits();
-                type_changed = !decl.ty.eql(decl_tv.ty);
+                type_changed = !decl.ty.eql(decl_tv.ty, target);
                 if (decl.getFunction()) |prev_func| {
                     prev_is_inline = prev_func.state == .inline_only;
                 }
@@ -3821,8 +3954,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
             decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
             decl.val = try decl_tv.val.copy(decl_arena_allocator);
-            decl.align_val = try align_val.copy(decl_arena_allocator);
-            decl.linksection_val = try linksection_val.copy(decl_arena_allocator);
+            decl.@"align" = decl_align;
+            decl.@"linksection" = decl_linksection;
             decl.@"addrspace" = address_space;
             decl.has_tv = true;
             decl.owns_tv = owns_tv;
@@ -3861,7 +3994,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     }
     var type_changed = true;
     if (decl.has_tv) {
-        type_changed = !decl.ty.eql(decl_tv.ty);
+        type_changed = !decl.ty.eql(decl_tv.ty, target);
         decl.clearValues(gpa);
     }
 
@@ -3901,8 +4034,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
     decl.val = try decl_tv.val.copy(decl_arena_allocator);
-    decl.align_val = try align_val.copy(decl_arena_allocator);
-    decl.linksection_val = try linksection_val.copy(decl_arena_allocator);
+    decl.@"align" = decl_align;
+    decl.@"linksection" = decl_linksection;
     decl.@"addrspace" = address_space;
     decl.has_tv = true;
     decl_arena_state.* = decl_arena.state;
@@ -4438,8 +4571,8 @@ pub fn clearDecl(
             };
             decl.fn_link = switch (mod.comp.bin_file.tag) {
                 .coff => .{ .coff = {} },
-                .elf => .{ .elf = link.File.Elf.SrcFn.empty },
-                .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+                .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
+                .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
                 .plan9 => .{ .plan9 = {} },
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
@@ -4618,7 +4751,8 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
     // map the comptime parameters to constant values and only emit arg AIR instructions
     // for the runtime ones.
     const fn_ty = decl.ty;
-    const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
+    const fn_ty_info = fn_ty.fnInfo();
+    const runtime_params_len = @intCast(u32, fn_ty_info.param_types.len);
     try inner_block.instructions.ensureTotalCapacityPrecise(gpa, runtime_params_len);
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
     try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
@@ -4650,7 +4784,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
                 continue;
             }
         }
-        const param_type = fn_ty.fnParamType(runtime_param_index);
+        const param_type = fn_ty_info.param_types[runtime_param_index];
         const opt_opv = sema.typeHasOnePossibleValue(&inner_block, param.src, param_type) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
@@ -4679,12 +4813,11 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
-    _ = sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+    sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
         // TODO make these unreachable instead of @panic
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
         error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
         error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
-        error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
         else => |e| return e,
     };
 
@@ -4701,6 +4834,18 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
 
     func.state = .success;
     log.debug("set {s} to success", .{decl.name});
+
+    // Finally we must resolve the return type and parameter types so that backends
+    // have full access to type information.
+    const src: LazySrcLoc = .{ .node_offset = 0 };
+    sema.resolveFnTypes(&inner_block, src, fn_ty_info) catch |err| switch (err) {
+        error.NeededSourceLocation => unreachable,
+        error.GenericPoison => unreachable,
+        error.ComptimeReturn => unreachable,
+        error.ComptimeBreak => unreachable,
+        error.AnalysisFail => {},
+        else => |e| return e,
+    };
 
     return Air{
         .instructions = sema.air_instructions.toOwnedSlice(),
@@ -4756,8 +4901,8 @@ pub fn allocateNewDecl(
         .owns_tv = false,
         .ty = undefined,
         .val = undefined,
-        .align_val = undefined,
-        .linksection_val = undefined,
+        .@"align" = undefined,
+        .@"linksection" = undefined,
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
         .deletion_flag = false,
@@ -4775,8 +4920,8 @@ pub fn allocateNewDecl(
         },
         .fn_link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = {} },
-            .elf => .{ .elf = link.File.Elf.SrcFn.empty },
-            .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+            .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
+            .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
             .plan9 => .{ .plan9 = {} },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
@@ -4862,8 +5007,8 @@ pub fn createAnonymousDeclFromDeclNamed(
     new_decl.src_line = src_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
-    new_decl.align_val = Value.@"null";
-    new_decl.linksection_val = Value.@"null";
+    new_decl.@"align" = 0;
+    new_decl.@"linksection" = null;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
@@ -4915,22 +5060,6 @@ pub fn errNoteNonLazy(
         .src_loc = src_loc,
         .msg = msg,
     };
-}
-
-pub fn errorUnionType(
-    arena: Allocator,
-    error_set: Type,
-    payload: Type,
-) Allocator.Error!Type {
-    assert(error_set.zigTypeTag() == .ErrorSet);
-    if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
-        return Type.initTag(.anyerror_void_error_union);
-    }
-
-    return Type.Tag.error_union.create(arena, .{
-        .error_set = error_set,
-        .payload = payload,
-    });
 }
 
 pub fn getTarget(mod: Module) Target {
@@ -5267,7 +5396,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 .len = test_fn_vals.len,
                 .elem_type = try tmp_test_fn_ty.copy(arena),
             }),
-            .val = try Value.Tag.array.create(arena, test_fn_vals),
+            .val = try Value.Tag.aggregate.create(arena, test_fn_vals),
         });
 
         // Add a dependency on each test name and function pointer.
@@ -5299,7 +5428,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 try Value.Tag.decl_ref.create(arena, test_decl), // func
                 Value.initTag(.null_value), // async_frame_size
             };
-            test_fn_vals[i] = try Value.Tag.@"struct".create(arena, field_vals);
+            test_fn_vals[i] = try Value.Tag.aggregate.create(arena, field_vals);
         }
 
         try array_decl.finalizeNewArena(&new_decl_arena);

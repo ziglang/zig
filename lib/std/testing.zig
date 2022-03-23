@@ -23,7 +23,7 @@ pub var log_level = std.log.Level.warn;
 pub var zig_exe_path: []const u8 = undefined;
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
-/// and then aborts when actual_error_union is not expected_error.
+/// and then returns a test failure error when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void {
     if (actual_error_union) |actual_payload| {
         std.debug.print("expected error.{s}, found {any}\n", .{ @errorName(expected_error), actual_payload });
@@ -41,7 +41,7 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void 
 
 /// This function is intended to be used only in tests. When the two values are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
-/// then aborts.
+/// then returns a test failure error.
 /// `actual` is casted to the type of `expected`.
 pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
     switch (@typeInfo(@TypeOf(actual))) {
@@ -212,7 +212,7 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
 
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
-/// to show exactly how they are not equal, then aborts.
+/// to show exactly how they are not equal, then returns a test failure error.
 /// See `math.approxEqAbs` for more informations on the tolerance parameter.
 /// The types must be floating point
 pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
@@ -244,7 +244,7 @@ test "expectApproxEqAbs" {
 
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
-/// to show exactly how they are not equal, then aborts.
+/// to show exactly how they are not equal, then returns a test failure error.
 /// See `math.approxEqRel` for more informations on the tolerance parameter.
 /// The types must be floating point
 pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
@@ -279,7 +279,7 @@ test "expectApproxEqRel" {
 
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
-/// then aborts.
+/// then returns a test failure error.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     // TODO better printing of the difference
@@ -299,8 +299,50 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     }
 }
 
-/// This function is intended to be used only in tests. When `ok` is false, the test fails.
-/// A message is printed to stderr and then abort is called.
+/// This function is intended to be used only in tests. Checks that two slices or two arrays are equal,
+/// including that their sentinel (if any) are the same. Will error if given another type.
+pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:sentinel]const T, actual: [:sentinel]const T) !void {
+    try expectEqualSlices(T, expected, actual);
+
+    const expected_value_sentinel = blk: {
+        switch (@typeInfo(@TypeOf(expected))) {
+            .Pointer => {
+                break :blk expected[expected.len];
+            },
+            .Array => |array_info| {
+                const indexable_outside_of_bounds = @as([]const array_info.child, &expected);
+                break :blk indexable_outside_of_bounds[indexable_outside_of_bounds.len];
+            },
+            else => {},
+        }
+    };
+
+    const actual_value_sentinel = blk: {
+        switch (@typeInfo(@TypeOf(actual))) {
+            .Pointer => {
+                break :blk actual[actual.len];
+            },
+            .Array => |array_info| {
+                const indexable_outside_of_bounds = @as([]const array_info.child, &actual);
+                break :blk indexable_outside_of_bounds[indexable_outside_of_bounds.len];
+            },
+            else => {},
+        }
+    };
+
+    if (!std.meta.eql(sentinel, expected_value_sentinel)) {
+        std.debug.print("expectEqualSentinel: 'expected' sentinel in memory is different from its type sentinel. type sentinel {}, in memory sentinel {}\n", .{ sentinel, expected_value_sentinel });
+        return error.TestExpectedEqual;
+    }
+
+    if (!std.meta.eql(sentinel, actual_value_sentinel)) {
+        std.debug.print("expectEqualSentinel: 'actual' sentinel in memory is different from its type sentinel. type sentinel {}, in memory sentinel {}\n", .{ sentinel, actual_value_sentinel });
+        return error.TestExpectedEqual;
+    }
+}
+
+/// This function is intended to be used only in tests.
+/// When `ok` is false, returns a test failure error.
 pub fn expect(ok: bool) !void {
     if (!ok) return error.TestUnexpectedResult;
 }
@@ -401,6 +443,26 @@ pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
 
         return error.TestExpectedEqual;
     }
+}
+
+pub fn expectStringStartsWith(actual: []const u8, expected_starts_with: []const u8) !void {
+    if (std.mem.startsWith(u8, actual, expected_starts_with))
+        return;
+
+    const shortened_actual = if (actual.len >= expected_starts_with.len)
+        actual[0..expected_starts_with.len]
+    else
+        actual;
+
+    print("\n====== expected to start with: =========\n", .{});
+    printWithVisibleNewlines(expected_starts_with);
+    print("\n====== instead ended with: ===========\n", .{});
+    printWithVisibleNewlines(shortened_actual);
+    print("\n========= full output: ==============\n", .{});
+    printWithVisibleNewlines(actual);
+    print("\n======================================\n", .{});
+
+    return error.TestExpectedStartsWith;
 }
 
 pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) !void {

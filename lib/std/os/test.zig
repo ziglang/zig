@@ -772,16 +772,16 @@ test "sigaction" {
     };
     var old_sa: os.Sigaction = undefined;
     // Install the new signal handler.
-    os.sigaction(os.SIG.USR1, &sa, null);
+    try os.sigaction(os.SIG.USR1, &sa, null);
     // Check that we can read it back correctly.
-    os.sigaction(os.SIG.USR1, null, &old_sa);
+    try os.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & os.SA.SIGINFO) != 0);
     // Invoke the handler.
     try os.raise(os.SIG.USR1);
     try testing.expect(signal_test_failed == false);
     // Check if the handler has been correctly reset to SIG_DFL
-    os.sigaction(os.SIG.USR1, null, &old_sa);
+    try os.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(os.SIG.DFL, old_sa.handler.sigaction);
 }
 
@@ -834,7 +834,7 @@ test "writev longer than IOV_MAX" {
 test "POSIX file locking with fcntl" {
     if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
-    if (native_os == .linux and builtin.cpu.arch == .aarch64) {
+    if (native_os == .linux) {
         // https://github.com/ziglang/zig/issues/11074
         return error.SkipZigTest;
     }

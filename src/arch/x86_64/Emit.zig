@@ -6,6 +6,7 @@ const Emit = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const bits = @import("bits.zig");
+const abi = @import("abi.zig");
 const leb128 = std.leb;
 const link = @import("../../link.zig");
 const log = std.log.scoped(.codegen);
@@ -129,6 +130,9 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .mov_zero_extend => try emit.mirMovZeroExtend(inst),
 
             .movabs => try emit.mirMovabs(inst),
+
+            .fisttp => try emit.mirFisttp(inst),
+            .fld => try emit.mirFld(inst),
 
             .lea => try emit.mirLea(inst),
             .lea_pie => try emit.mirLeaPie(inst),
@@ -265,7 +269,7 @@ fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.I
     const data = emit.mir.extraData(Mir.RegsToPushOrPop, payload).data;
     const regs = data.regs;
     var disp: u32 = data.disp + 8;
-    for (bits.callee_preserved_regs) |reg, i| {
+    for (abi.callee_preserved_regs) |reg, i| {
         if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
         if (tag == .push) {
             try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
@@ -685,6 +689,48 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     return lowerToFdEnc(.mov, ops.reg1, imm, emit.code);
 }
 
+fn mirFisttp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    assert(tag == .fisttp);
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+
+    // the selecting between operand sizes for this particular `fisttp` instruction
+    // is done via opcode instead of the usual prefixes.
+
+    const opcode: Tag = switch (ops.flags) {
+        0b00 => .fisttp16,
+        0b01 => .fisttp32,
+        0b10 => .fisttp64,
+        else => unreachable,
+    };
+    const mem_or_reg = Memory{
+        .base = ops.reg1,
+        .disp = emit.mir.instructions.items(.data)[inst].imm,
+        .ptr_size = Memory.PtrSize.dword_ptr, // to prevent any prefix from being used
+    };
+    return lowerToMEnc(opcode, .{ .memory = mem_or_reg }, emit.code);
+}
+
+fn mirFld(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    assert(tag == .fld);
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+
+    // the selecting between operand sizes for this particular `fisttp` instruction
+    // is done via opcode instead of the usual prefixes.
+
+    const opcode: Tag = switch (ops.flags) {
+        0b01 => .fld32,
+        0b10 => .fld64,
+        else => unreachable,
+    };
+    const mem_or_reg = Memory{
+        .base = ops.reg1,
+        .disp = emit.mir.instructions.items(.data)[inst].imm,
+        .ptr_size = Memory.PtrSize.dword_ptr, // to prevent any prefix from being used
+    };
+    return lowerToMEnc(opcode, .{ .memory = mem_or_reg }, emit.code);
+}
 fn mirShift(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
@@ -1019,14 +1065,7 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, max_stack: u32
             switch (emit.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_info.ensureUnusedCapacity(3);
-
-                    // TODO this will go away once we pull DWARF into a cross-platform module.
-                    if (emit.bin_file.cast(link.File.MachO)) |_| {
-                        dbg_out.dbg_info.appendAssumeCapacity(link.File.MachO.DebugSymbols.abbrev_parameter);
-                    } else if (emit.bin_file.cast(link.File.Elf)) |_| {
-                        dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
-                    } else return emit.fail("TODO DWARF in non-MachO and non-ELF backend", .{});
-
+                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
                     dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // ULEB128 dwarf expression length
                         reg.dwarfLocOp(),
@@ -1049,14 +1088,7 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, max_stack: u32
                     // for example when -fomit-frame-pointer is set.
                     const disp = @intCast(i32, max_stack) - off + 16;
                     try dbg_out.dbg_info.ensureUnusedCapacity(8);
-
-                    // TODO this will go away once we pull DWARF into a cross-platform module.
-                    if (emit.bin_file.cast(link.File.MachO)) |_| {
-                        dbg_out.dbg_info.appendAssumeCapacity(link.File.MachO.DebugSymbols.abbrev_parameter);
-                    } else if (emit.bin_file.cast(link.File.Elf)) |_| {
-                        dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
-                    } else return emit.fail("TODO DWARF in non-MachO and non-ELF backend", .{});
-
+                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
                     const fixup = dbg_out.dbg_info.items.len;
                     dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // we will backpatch it after we encode the displacement in LEB128
@@ -1086,7 +1118,9 @@ fn addDbgInfoTypeReloc(emit: *Emit, ty: Type) !void {
             const index = dbg_out.dbg_info.items.len;
             try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(emit.bin_file.allocator, ty);
+            const gop = try dbg_out.dbg_info_type_relocs.getOrPutContext(emit.bin_file.allocator, ty, .{
+                .target = emit.target.*,
+            });
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .off = undefined,
@@ -1127,6 +1161,11 @@ const Tag = enum {
     syscall,
     ret_near,
     ret_far,
+    fisttp16,
+    fisttp32,
+    fisttp64,
+    fld32,
+    fld64,
     jo,
     jno,
     jb,
@@ -1365,6 +1404,11 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .setle, .setng => OpCode.twoByte(0x0f, 0x9e),
             .setnle, .setg => OpCode.twoByte(0x0f, 0x9f),
             .idiv, .div, .imul => OpCode.oneByte(if (is_one_byte) 0xf6 else 0xf7),
+            .fisttp16 => OpCode.oneByte(0xdf),
+            .fisttp32 => OpCode.oneByte(0xdb),
+            .fisttp64 => OpCode.oneByte(0xdd),
+            .fld32 => OpCode.oneByte(0xd9),
+            .fld64 => OpCode.oneByte(0xdd),
             else => null,
         },
         .o => return switch (tag) {
@@ -1505,6 +1549,11 @@ inline fn getModRmExt(tag: Tag) ?u3 {
         .imul => 0x5,
         .idiv => 0x7,
         .div => 0x6,
+        .fisttp16 => 0x1,
+        .fisttp32 => 0x1,
+        .fisttp64 => 0x1,
+        .fld32 => 0x0,
+        .fld64 => 0x0,
         else => null,
     };
 }

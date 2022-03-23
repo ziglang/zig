@@ -9073,8 +9073,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeEnumField *enum_field = &enum_type->data.enumeration.fields[i];
 
-        // TODO send patch to LLVM to support APInt in createEnumerator instead of int64_t
-        // http://lists.llvm.org/pipermail/llvm-dev/2017-December/119456.html
+        // https://github.com/ziglang/zig/issues/645
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(enum_field->name),
                 bigint_as_signed(&enum_field->value));
     }

@@ -4,7 +4,6 @@ const expect = std.testing.expect;
 const native_endian = builtin.target.cpu.arch.endian();
 
 test "reinterpret bytes as integer with nonzero offset" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -21,8 +20,47 @@ fn testReinterpretBytesAsInteger() !void {
     try expect(@ptrCast(*align(1) const u32, bytes[1..5]).* == expected);
 }
 
+test "reinterpret an array over multiple elements, with no well-defined layout" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    try testReinterpretWithOffsetAndNoWellDefinedLayout();
+    comptime try testReinterpretWithOffsetAndNoWellDefinedLayout();
+}
+
+fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
+    const bytes: ?[5]?u8 = [5]?u8{ 0x12, 0x34, 0x56, 0x78, 0x9a };
+    const ptr = &bytes.?[1];
+    const copy: [4]?u8 = @ptrCast(*const [4]?u8, ptr).*;
+    _ = copy;
+    //try expect(@ptrCast(*align(1)?u8, bytes[1..5]).* == );
+}
+
+test "reinterpret bytes inside auto-layout struct as integer with nonzero offset" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    try testReinterpretStructWrappedBytesAsInteger();
+    comptime try testReinterpretStructWrappedBytesAsInteger();
+}
+
+fn testReinterpretStructWrappedBytesAsInteger() !void {
+    const S = struct { bytes: [5:0]u8 };
+    const obj = S{ .bytes = "\x12\x34\x56\x78\xab".* };
+    const expected = switch (native_endian) {
+        .Little => 0xab785634,
+        .Big => 0x345678ab,
+    };
+    try expect(@ptrCast(*align(1) const u32, obj.bytes[1..5]).* == expected);
+}
+
 test "reinterpret bytes of an array into an extern struct" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     try testReinterpretBytesAsExternStruct();
     comptime try testReinterpretBytesAsExternStruct();
@@ -42,8 +80,58 @@ fn testReinterpretBytesAsExternStruct() !void {
     try expect(val == 5);
 }
 
-test "reinterpret struct field at comptime" {
+test "reinterpret bytes of an extern struct into another" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    try testReinterpretExternStructAsExternStruct();
+    comptime try testReinterpretExternStructAsExternStruct();
+}
+
+fn testReinterpretExternStructAsExternStruct() !void {
+    const S1 = extern struct {
+        a: u8,
+        b: u16,
+        c: u8,
+    };
+    comptime var bytes align(2) = S1{ .a = 0, .b = 0, .c = 5 };
+
+    const S2 = extern struct {
+        a: u32 align(2),
+        c: u8,
+    };
+    var ptr = @ptrCast(*const S2, &bytes);
+    var val = ptr.c;
+    try expect(val == 5);
+}
+
+test "lower reinterpreted comptime field ptr" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    // Test lowering a field ptr
+    comptime var bytes align(2) = [_]u8{ 1, 2, 3, 4, 5, 6 };
+    const S = extern struct {
+        a: u32 align(2),
+        c: u8,
+    };
+    comptime var ptr = @ptrCast(*const S, &bytes);
+    var val = &ptr.c;
+    try expect(val.* == 5);
+
+    // Test lowering an elem ptr
+    comptime var src_value = S{ .a = 15, .c = 5 };
+    comptime var ptr2 = @ptrCast(*[@sizeOf(S)]u8, &src_value);
+    var val2 = &ptr2[4];
+    try expect(val2.* == 5);
+}
+
+test "reinterpret struct field at comptime" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO

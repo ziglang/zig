@@ -117,14 +117,15 @@ pub const _errno = switch (native_abi) {
 pub const Stat = switch (native_arch) {
     .sparcv9 => extern struct {
         dev: u64,
+        __pad1: u16,
         ino: ino_t,
         mode: u32,
-        nlink: usize,
+        nlink: u32,
 
         uid: u32,
         gid: u32,
         rdev: u64,
-        __pad0: u32,
+        __pad2: u16,
 
         size: off_t,
         blksize: isize,
@@ -133,7 +134,7 @@ pub const Stat = switch (native_arch) {
         atim: timespec,
         mtim: timespec,
         ctim: timespec,
-        __unused: [2]isize,
+        __reserved: [2]usize,
 
         pub fn atime(self: @This()) timespec {
             return self.atim;
@@ -262,7 +263,11 @@ pub extern "c" fn inotify_rm_watch(fd: fd_t, wd: c_int) c_int;
 /// See std.elf for constants for this
 pub extern "c" fn getauxval(__type: c_ulong) c_ulong;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub const dl_iterate_phdr_callback = switch (builtin.zig_backend) {
+    .stage1 => fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+    else => *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+};
+
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;

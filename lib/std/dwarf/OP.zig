@@ -157,6 +157,18 @@ pub const bit_piece = 0x9d;
 pub const implicit_value = 0x9e;
 pub const stack_value = 0x9f;
 
+// DWARF 5 extensions.
+pub const implicit_pointer = 0xa0;
+pub const addrx = 0xa1;
+pub const constx = 0xa2;
+pub const entry_value = 0xa3;
+pub const const_type = 0xa4;
+pub const regval_type = 0xa5;
+pub const deref_type = 0xa6;
+pub const xderef_type = 0xa7;
+pub const convert = 0xa8;
+pub const reinterpret = 0xa9;
+
 pub const lo_user = 0xe0; // Implementation-defined range start.
 pub const hi_user = 0xff; // Implementation-defined range end.
 

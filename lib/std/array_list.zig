@@ -1424,7 +1424,8 @@ test "ArrayListAligned/ArrayListAlignedUnmanaged accepts unaligned slices" {
 
 test "std.ArrayList(u0)" {
     // An ArrayList on zero-sized types should not need to allocate
-    const a = testing.FailingAllocator.init(testing.allocator, 0).allocator();
+    var failing_allocator = testing.FailingAllocator.init(testing.allocator, 0);
+    const a = failing_allocator.allocator();
 
     var list = ArrayList(u0).init(a);
     defer list.deinit();

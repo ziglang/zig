@@ -15,7 +15,6 @@ const Package = @import("Package.zig");
 const link = @import("link.zig");
 const tracy = @import("tracy.zig");
 const trace = tracy.trace;
-const Liveness = @import("Liveness.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const glibc = @import("glibc.zig");
@@ -816,6 +815,8 @@ pub const InitOptions = struct {
     native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
     /// (Darwin) Install name of the dylib
     install_name: ?[]const u8 = null,
+    /// (Darwin) Path to entitlements file
+    entitlements: ?[]const u8 = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -898,7 +899,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
         const comp = try arena.create(Compilation);
-        const root_name = try arena.dupe(u8, options.root_name);
+        const root_name = try arena.dupeZ(u8, options.root_name);
 
         const ofmt = options.object_format orelse options.target.getObjectFormat();
 
@@ -944,11 +945,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (use_stage1)
                 break :blk true;
 
-            // Prefer LLVM for release builds as long as it supports the target architecture.
-            if (options.optimize_mode != .Debug and target_util.hasLlvmSupport(options.target))
+            // If LLVM does not support the target, then we can't use it.
+            if (!target_util.hasLlvmSupport(options.target))
+                break :blk false;
+
+            // Prefer LLVM for release builds.
+            if (options.optimize_mode != .Debug)
                 break :blk true;
 
-            break :blk false;
+            // At this point we would prefer to use our own self-hosted backend,
+            // because the compilation speed is better than LLVM. But only do it if
+            // we are confident in the robustness of the backend.
+            break :blk !target_util.selfHostedBackendIsAsRobustAsLlvm(options.target);
         };
         if (!use_llvm) {
             if (options.use_llvm == true) {
@@ -1618,6 +1626,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .enable_link_snapshots = options.enable_link_snapshots,
             .native_darwin_sdk = options.native_darwin_sdk,
             .install_name = options.install_name,
+            .entitlements = options.entitlements,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2345,6 +2354,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     // Mach-O specific stuff
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.frameworks);
+    try man.addOptionalFile(comp.bin_file.options.entitlements);
 
     // COFF specific stuff
     man.hash.addOptional(comp.bin_file.options.subsystem);
@@ -2702,11 +2712,11 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             => return,
 
             .complete, .codegen_failure_retryable => {
-                const named_frame = tracy.namedFrame("codegen_decl");
-                defer named_frame.end();
-
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
+                const named_frame = tracy.namedFrame("codegen_decl");
+                defer named_frame.end();
 
                 const module = comp.bin_file.options.module.?;
                 assert(decl.has_tv);
@@ -2722,100 +2732,18 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                 return;
             },
         },
-        .codegen_func => |func| switch (func.owner_decl.analysis) {
-            .unreferenced => unreachable,
-            .in_progress => unreachable,
-            .outdated => unreachable,
+        .codegen_func => |func| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
 
-            .file_failure,
-            .sema_failure,
-            .codegen_failure,
-            .dependency_failure,
-            .sema_failure_retryable,
-            => return,
+            const named_frame = tracy.namedFrame("codegen_func");
+            defer named_frame.end();
 
-            .complete, .codegen_failure_retryable => {
-                if (build_options.omit_stage2)
-                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-                switch (func.state) {
-                    .sema_failure, .dependency_failure => return,
-                    .queued => {},
-                    .in_progress => unreachable,
-                    .inline_only => unreachable, // don't queue work for this
-                    .success => unreachable, // don't queue it twice
-                }
-
-                const gpa = comp.gpa;
-                const module = comp.bin_file.options.module.?;
-                const decl = func.owner_decl;
-
-                var tmp_arena = std.heap.ArenaAllocator.init(gpa);
-                defer tmp_arena.deinit();
-                const sema_arena = tmp_arena.allocator();
-
-                const sema_frame = tracy.namedFrame("sema");
-                var sema_frame_ended = false;
-                errdefer if (!sema_frame_ended) sema_frame.end();
-
-                var air = module.analyzeFnBody(decl, func, sema_arena) catch |err| switch (err) {
-                    error.AnalysisFail => {
-                        if (func.state == .in_progress) {
-                            // If this decl caused the compile error, the analysis field would
-                            // be changed to indicate it was this Decl's fault. Because this
-                            // did not happen, we infer here that it was a dependency failure.
-                            func.state = .dependency_failure;
-                        }
-                        return;
-                    },
-                    error.OutOfMemory => return error.OutOfMemory,
-                };
-                defer air.deinit(gpa);
-
-                sema_frame.end();
-                sema_frame_ended = true;
-
-                if (comp.bin_file.options.emit == null) return;
-
-                const liveness_frame = tracy.namedFrame("liveness");
-                var liveness_frame_ended = false;
-                errdefer if (!liveness_frame_ended) liveness_frame.end();
-
-                log.debug("analyze liveness of {s}", .{decl.name});
-                var liveness = try Liveness.analyze(gpa, air);
-                defer liveness.deinit(gpa);
-
-                liveness_frame.end();
-                liveness_frame_ended = true;
-
-                if (builtin.mode == .Debug and comp.verbose_air) {
-                    std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
-                    @import("print_air.zig").dump(gpa, air, liveness);
-                    std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
-                }
-
-                const named_frame = tracy.namedFrame("codegen");
-                defer named_frame.end();
-
-                comp.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {
-                        decl.analysis = .codegen_failure;
-                        return;
-                    },
-                    else => {
-                        try module.failed_decls.ensureUnusedCapacity(gpa, 1);
-                        module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
-                            gpa,
-                            decl.srcLoc(),
-                            "unable to codegen: {s}",
-                            .{@errorName(err)},
-                        ));
-                        decl.analysis = .codegen_failure_retryable;
-                        return;
-                    },
-                };
-                return;
-            },
+            const module = comp.bin_file.options.module.?;
+            module.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => return,
+            };
         },
         .emit_h_decl => |decl| switch (decl.analysis) {
             .unreferenced => unreachable,
@@ -2831,11 +2759,12 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             // emit-h only requires semantic analysis of the Decl to be complete,
             // it does not depend on machine code generation to succeed.
             .codegen_failure, .codegen_failure_retryable, .complete => {
+                if (build_options.omit_stage2)
+                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
                 const named_frame = tracy.namedFrame("emit_h_decl");
                 defer named_frame.end();
 
-                if (build_options.omit_stage2)
-                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
                 const gpa = comp.gpa;
                 const module = comp.bin_file.options.module.?;
                 const emit_h = module.emit_h.?;
@@ -2852,7 +2781,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                     .error_msg = null,
                     .decl = decl,
                     .fwd_decl = fwd_decl.toManaged(gpa),
-                    .typedefs = c_codegen.TypedefMap.init(gpa),
+                    .typedefs = c_codegen.TypedefMap.initContext(gpa, .{
+                        .target = comp.getTarget(),
+                    }),
                     .typedefs_arena = typedefs_arena.allocator(),
                 };
                 defer dg.fwd_decl.deinit();
@@ -2871,11 +2802,12 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             },
         },
         .analyze_decl => |decl| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
             const named_frame = tracy.namedFrame("analyze_decl");
             defer named_frame.end();
 
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = comp.bin_file.options.module.?;
             module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -2883,11 +2815,12 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .update_embed_file => |embed_file| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
             const named_frame = tracy.namedFrame("update_embed_file");
             defer named_frame.end();
 
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = comp.bin_file.options.module.?;
             module.updateEmbedFile(embed_file) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -2895,11 +2828,12 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .update_line_number => |decl| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
             const named_frame = tracy.namedFrame("update_line_number");
             defer named_frame.end();
 
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const gpa = comp.gpa;
             const module = comp.bin_file.options.module.?;
             comp.bin_file.updateDeclLineNumber(module, decl) catch |err| {
@@ -2914,11 +2848,12 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .analyze_pkg => |pkg| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
             const named_frame = tracy.namedFrame("analyze_pkg");
             defer named_frame.end();
 
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = comp.bin_file.options.module.?;
             module.semaPkg(pkg) catch |err| switch (err) {
                 error.CurrentWorkingDirectoryUnlinked,
@@ -4591,8 +4526,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     const target = comp.getTarget();
     const generic_arch_name = target.cpu.arch.genericName();
     const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
-    const stage2_x86_cx16 = target.cpu.arch == .x86_64 and
-        std.Target.x86.featureSetHas(target.cpu.features, .cx16);
 
     const zig_backend: std.builtin.CompilerBackend = blk: {
         if (use_stage1) break :blk .stage1;
@@ -4618,8 +4551,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\pub const zig_backend = std.builtin.CompilerBackend.{};
         \\/// Temporary until self-hosted supports the `cpu.arch` value.
         \\pub const stage2_arch: std.Target.Cpu.Arch = .{};
-        \\/// Temporary until self-hosted can call `std.Target.x86.featureSetHas` at comptime.
-        \\pub const stage2_x86_cx16 = {};
         \\
         \\pub const output_mode = std.builtin.OutputMode.{};
         \\pub const link_mode = std.builtin.LinkMode.{};
@@ -4635,7 +4566,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         build_options.version,
         std.zig.fmtId(@tagName(zig_backend)),
         std.zig.fmtId(@tagName(target.cpu.arch)),
-        stage2_x86_cx16,
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,

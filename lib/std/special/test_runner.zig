@@ -23,7 +23,9 @@ fn processArgs() void {
 }
 
 pub fn main() void {
-    if (builtin.zig_backend != .stage1) {
+    if (builtin.zig_backend != .stage1 and
+        (builtin.zig_backend != .stage2_llvm or builtin.cpu.arch == .wasm32))
+    {
         return main2() catch @panic("test failure");
     }
     if (builtin.zig_backend == .stage1) processArgs();

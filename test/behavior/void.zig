@@ -19,7 +19,6 @@ test "compare void with void compile time known" {
 }
 
 test "iterate over a void slice" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var j: usize = 0;
