@@ -19713,17 +19713,31 @@ fn analyzeSlice(
             if (!end_is_len) {
                 const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
                 if (try sema.resolveMaybeUndefVal(block, end_src, end)) |end_val| {
-                    if (end_val.compare(.gt, len_val, Type.usize, target)) {
+                    const len_s_val = try Value.Tag.int_u64.create(
+                        sema.arena,
+                        array_ty.arrayLenIncludingSentinel(),
+                    );
+                    if (end_val.compare(.gt, len_s_val, Type.usize, target)) {
+                        const sentinel_label: []const u8 = if (array_ty.sentinel() != null)
+                            " +1 (sentinel)"
+                        else
+                            "";
+
                         return sema.fail(
                             block,
                             end_src,
-                            "end index {} out of bounds for array of length {}",
+                            "end index {} out of bounds for array of length {}{s}",
                             .{
                                 end_val.fmtValue(Type.usize, target),
                                 len_val.fmtValue(Type.usize, target),
+                                sentinel_label,
                             },
                         );
                     }
+
+                    // end_is_len is only true if we are NOT using the sentinel
+                    // length. For sentinel-length, we don't want the type to
+                    // contain the sentinel.
                     if (end_val.eql(len_val, Type.usize, target)) {
                         end_is_len = true;
                     }
@@ -19737,22 +19751,37 @@ fn analyzeSlice(
                 const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
                 if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
                     if (try sema.resolveDefinedValue(block, src, ptr_or_slice)) |slice_val| {
+                        const has_sentinel = slice_ty.sentinel() != null;
                         var int_payload: Value.Payload.U64 = .{
                             .base = .{ .tag = .int_u64 },
-                            .data = slice_val.sliceLen(target),
+                            .data = slice_val.sliceLen(target) + @boolToInt(has_sentinel),
                         };
                         const slice_len_val = Value.initPayload(&int_payload.base);
                         if (end_val.compare(.gt, slice_len_val, Type.usize, target)) {
+                            const sentinel_label: []const u8 = if (has_sentinel)
+                                " +1 (sentinel)"
+                            else
+                                "";
+
                             return sema.fail(
                                 block,
                                 end_src,
-                                "end index {} out of bounds for slice of length {}",
+                                "end index {} out of bounds for slice of length {d}{s}",
                                 .{
                                     end_val.fmtValue(Type.usize, target),
-                                    slice_len_val.fmtValue(Type.usize, target),
+                                    slice_val.sliceLen(target),
+                                    sentinel_label,
                                 },
                             );
                         }
+
+                        // If the slice has a sentinel, we subtract one so that
+                        // end_is_len is only true if it equals the length WITHOUT
+                        // the sentinel, so we don't add a sentinel type.
+                        if (has_sentinel) {
+                            int_payload.data -= 1;
+                        }
+
                         if (end_val.eql(slice_len_val, Type.usize, target)) {
                             end_is_len = true;
                         }
