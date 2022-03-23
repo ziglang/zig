@@ -8643,7 +8643,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             });
             const val = try Value.Tag.aggregate.create(anon_decl.arena(), buf);
             const decl = try anon_decl.finish(ty, val, 0);
-            if (lhs_single_ptr or rhs_single_ptr) {
+            if (lhs_ty.zigTypeTag() == .Pointer or rhs_ty.zigTypeTag() == .Pointer) {
                 return sema.analyzeDeclRef(decl);
             } else {
                 return sema.analyzeDeclVal(block, .unneeded, decl);
@@ -8818,7 +8818,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             break :blk try Value.Tag.aggregate.create(anon_decl.arena(), buf);
         };
         const decl = try anon_decl.finish(final_ty, val, 0);
-        if (is_single_ptr) {
+        if (lhs_ty.zigTypeTag() == .Pointer) {
             return sema.analyzeDeclRef(decl);
         } else {
             return sema.analyzeDeclVal(block, .unneeded, decl);
