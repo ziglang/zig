@@ -18752,6 +18752,11 @@ fn beginComptimePtrLoad(
             const elem_ty = elem_ptr.elem_ty;
             var deref = try beginComptimePtrLoad(sema, block, src, elem_ptr.array_ptr, null);
 
+            // This code assumes that elem_ptrs have been "flattened" in order for direct dereference
+            // to succeed, meaning that elem ptrs of the same elem_ty are coalesced. Here we check that
+            // our parent is not an elem_ptr with the same elem_ty, since that would be "unflattened"
+            if (elem_ptr.array_ptr.castTag(.elem_ptr)) |parent_elem_ptr| assert(!(parent_elem_ptr.data.elem_ty.eql(elem_ty, target)));
+
             if (elem_ptr.index != 0) {
                 if (elem_ty.hasWellDefinedLayout()) {
                     if (deref.parent) |*parent| {
@@ -18780,13 +18785,6 @@ fn beginComptimePtrLoad(
 
             var array_tv = deref.pointee.?;
             const check_len = array_tv.ty.arrayLenIncludingSentinel();
-            if (elem_ptr.index >= check_len) {
-                // TODO have the deref include the decl so we can say "declared here"
-                return sema.fail(block, src, "comptime load of index {d} out of bounds of array length {d}", .{
-                    elem_ptr.index, check_len,
-                });
-            }
-
             if (maybe_array_ty) |load_ty| {
                 // It's possible that we're loading a [N]T, in which case we'd like to slice
                 // the pointee array directly from our parent array.
@@ -18800,10 +18798,10 @@ fn beginComptimePtrLoad(
                 }
             }
 
-            deref.pointee = .{
+            deref.pointee = if (elem_ptr.index < check_len) TypedValue{
                 .ty = elem_ty,
                 .val = try array_tv.val.elemValue(sema.arena, elem_ptr.index),
-            };
+            } else null;
             break :blk deref;
         },
 
