@@ -57,6 +57,8 @@ const NormalDist = blk: {
 };
 
 test "bug 920 fixed" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     const NormalDist1 = blk: {
         break :blk ZigTableGen(true, norm_r, norm_v, norm_f, norm_f_inv, norm_zero_case);
     };

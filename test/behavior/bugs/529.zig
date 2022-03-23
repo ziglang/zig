@@ -9,6 +9,8 @@ comptime {
 }
 
 test "issue 529 fixed" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     @import("529_other_file.zig").issue529(null);
     issue529(null);
 }

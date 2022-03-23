@@ -833,6 +833,8 @@ test "const type-annotated local initialized with function call has correct type
 }
 
 test "comptime pointer load through elem_ptr" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // stage1 fails this test
+
     const S = struct {
         x: usize,
     };
