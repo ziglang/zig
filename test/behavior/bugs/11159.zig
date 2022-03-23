@@ -10,7 +10,6 @@ test {
 test {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         comptime x: i32 = 0,
