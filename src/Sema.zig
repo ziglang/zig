@@ -19871,7 +19871,7 @@ fn analyzeSlice(
             if (try sema.resolveDefinedValue(block, src, ptr_or_slice)) |slice_val| {
                 // we don't need to add one for sentinels because the
                 // underlying value data includes the sentinel
-                break :blk try sema.addIntUnsigned(Type.usize, slice_val.sliceLen());
+                break :blk try sema.addIntUnsigned(Type.usize, slice_val.sliceLen(target));
             }
 
             const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
