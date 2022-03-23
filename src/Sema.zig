@@ -18780,7 +18780,7 @@ fn beginComptimePtrLoad(
 
             // If we're loading an elem_ptr that was derived from a different type
             // than the true type of the underlying decl, we cannot deref directly
-            const ty_matches = if (deref.pointee != null and deref.pointee.?.ty.isArrayLike()) x: {
+            const ty_matches = if (deref.pointee != null and deref.pointee.?.ty.isArrayOrVector()) x: {
                 const deref_elem_ty = deref.pointee.?.ty.childType();
                 break :x (try sema.coerceInMemoryAllowed(block, deref_elem_ty, elem_ty, false, target, src, src)) == .ok or
                     (try sema.coerceInMemoryAllowed(block, elem_ty, deref_elem_ty, false, target, src, src)) == .ok;
@@ -18802,7 +18802,7 @@ fn beginComptimePtrLoad(
             if (maybe_array_ty) |load_ty| {
                 // It's possible that we're loading a [N]T, in which case we'd like to slice
                 // the pointee array directly from our parent array.
-                if (load_ty.isArrayLike() and load_ty.childType().eql(elem_ty, target)) {
+                if (load_ty.isArrayOrVector() and load_ty.childType().eql(elem_ty, target)) {
                     const N = try sema.usizeCast(block, src, load_ty.arrayLenIncludingSentinel());
                     deref.pointee = if (elem_ptr.index + N <= check_len) TypedValue{
                         .ty = try Type.array(sema.arena, N, null, elem_ty, target),

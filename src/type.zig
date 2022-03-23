@@ -4734,7 +4734,7 @@ pub const Type = extern union {
         };
     }
 
-    pub fn isArrayLike(ty: Type) bool {
+    pub fn isArrayOrVector(ty: Type) bool {
         return switch (ty.zigTypeTag()) {
             .Array, .Vector => true,
             else => false,
