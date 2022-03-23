@@ -1886,6 +1886,23 @@ fn lowerParentPtr(self: *Self, ptr_val: Value, ptr_child_ty: Type) InnerError!WV
                 .offset = @intCast(u32, offset),
             } };
         },
+        .opt_payload_ptr => {
+            const payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
+            const parent_ptr = try self.lowerParentPtr(payload_ptr.container_ptr, payload_ptr.container_ty);
+            var buf: Type.Payload.ElemType = undefined;
+            const payload_ty = payload_ptr.container_ty.optionalChild(&buf);
+            if (!payload_ty.hasRuntimeBitsIgnoreComptime() or payload_ty.isPtrLikeOptional()) {
+                return parent_ptr;
+            }
+
+            const abi_size = payload_ptr.container_ty.abiSize(self.target);
+            const offset = abi_size - payload_ty.abiSize(self.target);
+
+            return WValue{ .memory_offset = .{
+                .pointer = parent_ptr.memory,
+                .offset = @intCast(u32, offset),
+            } };
+        },
         else => |tag| return self.fail("TODO: Implement lowerParentPtr for tag: {}", .{tag}),
     }
 }
@@ -1948,7 +1965,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             else => unreachable,
         },
         .Pointer => switch (val.tag()) {
-            .field_ptr, .elem_ptr => {
+            .field_ptr, .elem_ptr, .opt_payload_ptr => {
                 return self.lowerParentPtr(val, ty.childType());
             },
             .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(target)) },
