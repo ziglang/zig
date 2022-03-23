@@ -801,8 +801,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
         return self.next_stack_offset;
     }
 
+    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = elem_ty.abiAlignment(self.target.*);
@@ -811,8 +812,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const elem_ty = self.air.typeOfIndex(inst);
+    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
     };
     const abi_align = elem_ty.abiAlignment(self.target.*);
     if (abi_align > self.stack_align)
@@ -2195,6 +2197,7 @@ fn binOp(
     lhs_ty: Type,
     rhs_ty: Type,
 ) InnerError!MCValue {
+    const target = self.target.*;
     switch (tag) {
         .add,
         .sub,
@@ -2204,7 +2207,7 @@ fn binOp(
                 .Float => return self.fail("TODO ARM binary operations on floats", .{}),
                 .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
                 .Int => {
-                    assert(lhs_ty.eql(rhs_ty));
+                    assert(lhs_ty.eql(rhs_ty, target));
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 32) {
                         // Only say yes if the operation is
@@ -2245,7 +2248,7 @@ fn binOp(
                 .Float => return self.fail("TODO ARM binary operations on floats", .{}),
                 .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
                 .Int => {
-                    assert(lhs_ty.eql(rhs_ty));
+                    assert(lhs_ty.eql(rhs_ty, target));
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 32) {
                         // TODO add optimisations for multiplication
@@ -2299,7 +2302,7 @@ fn binOp(
             switch (lhs_ty.zigTypeTag()) {
                 .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
                 .Int => {
-                    assert(lhs_ty.eql(rhs_ty));
+                    assert(lhs_ty.eql(rhs_ty, target));
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 32) {
                         const lhs_immediate_ok = lhs == .immediate and Instruction.Operand.fromU32(lhs.immediate) != null;
@@ -4376,6 +4379,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
         return self.lowerDeclRef(typed_value, payload.data.decl);
     }
+    const target = self.target.*;
 
     switch (typed_value.ty.zigTypeTag()) {
         .Array => {
@@ -4388,7 +4392,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             else => {
                 switch (typed_value.val.tag()) {
                     .int_u64 => {
-                        return MCValue{ .immediate = @intCast(u32, typed_value.val.toUnsignedInt()) };
+                        return MCValue{ .immediate = @intCast(u32, typed_value.val.toUnsignedInt(target)) };
                     },
                     .slice => {
                         return self.lowerUnnamedConst(typed_value);
@@ -4407,7 +4411,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                         const signed = @intCast(i32, typed_value.val.toSignedInt());
                         break :blk @bitCast(u32, signed);
                     },
-                    .unsigned => @intCast(u32, typed_value.val.toUnsignedInt()),
+                    .unsigned => @intCast(u32, typed_value.val.toUnsignedInt(target)),
                 };
 
                 return MCValue{ .immediate = unsigned };
@@ -4476,20 +4480,20 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 }
 
                 _ = pl;
-                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty});
+                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty.fmtDebug()});
             } else {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
                 }
 
-                return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty});
+                return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty.fmtDebug()});
             }
         },
         .Struct => {
             return self.lowerUnnamedConst(typed_value);
         },
-        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
+        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty.fmtDebug()}),
     }
 }
 

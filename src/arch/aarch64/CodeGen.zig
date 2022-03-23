@@ -796,7 +796,9 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
             const index = dbg_out.dbg_info.items.len;
             try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.gpa, ty);
+            const gop = try dbg_out.dbg_info_type_relocs.getOrPutContext(self.gpa, ty, .{
+                .target = self.target.*,
+            });
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .off = undefined,
@@ -835,8 +837,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
         return self.next_stack_offset;
     }
 
+    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = elem_ty.abiAlignment(self.target.*);
@@ -845,8 +848,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const elem_ty = self.air.typeOfIndex(inst);
+    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty});
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
     };
     const abi_align = elem_ty.abiAlignment(self.target.*);
     if (abi_align > self.stack_align)
@@ -1372,6 +1376,7 @@ fn binOp(
     lhs_ty: Type,
     rhs_ty: Type,
 ) InnerError!MCValue {
+    const target = self.target.*;
     switch (tag) {
         // Arithmetic operations on integers and floats
         .add,
@@ -1381,7 +1386,7 @@ fn binOp(
                 .Float => return self.fail("TODO binary operations on floats", .{}),
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
                 .Int => {
-                    assert(lhs_ty.eql(rhs_ty));
+                    assert(lhs_ty.eql(rhs_ty, target));
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 64) {
                         // Only say yes if the operation is
@@ -1418,7 +1423,7 @@ fn binOp(
             switch (lhs_ty.zigTypeTag()) {
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
                 .Int => {
-                    assert(lhs_ty.eql(rhs_ty));
+                    assert(lhs_ty.eql(rhs_ty, target));
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 64) {
                         // TODO add optimisations for multiplication
@@ -1440,7 +1445,7 @@ fn binOp(
             switch (lhs_ty.zigTypeTag()) {
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
                 .Int => {
-                    assert(lhs_ty.eql(rhs_ty));
+                    assert(lhs_ty.eql(rhs_ty, target));
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 64) {
                         // TODO implement bitwise operations with immediates
@@ -2348,11 +2353,12 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const ty = self.air.typeOfIndex(inst);
 
     const result = self.args[arg_index];
+    const target = self.target.*;
     const mcv = switch (result) {
         // Copy registers to the stack
         .register => |reg| blk: {
             const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
-                return self.fail("type '{}' too big to fit into stack frame", .{ty});
+                return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(target)});
             };
             const abi_align = ty.abiAlignment(self.target.*);
             const stack_offset = try self.allocMem(inst, abi_size, abi_align);
@@ -3879,7 +3885,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
 }
 
 fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
-    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty, tv.val.fmtDebug() });
+    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
     const local_sym_index = self.bin_file.lowerUnnamedConst(tv, self.mod_fn.owner_decl) catch |err| {
         return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
@@ -3907,6 +3913,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
         return self.lowerDeclRef(typed_value, payload.data.decl);
     }
+    const target = self.target.*;
 
     switch (typed_value.ty.zigTypeTag()) {
         .Pointer => switch (typed_value.ty.ptrSize()) {
@@ -3916,7 +3923,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             else => {
                 switch (typed_value.val.tag()) {
                     .int_u64 => {
-                        return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                        return MCValue{ .immediate = typed_value.val.toUnsignedInt(target) };
                     },
                     .slice => {
                         return self.lowerUnnamedConst(typed_value);
@@ -3935,7 +3942,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                         const signed = typed_value.val.toSignedInt();
                         break :blk @bitCast(u64, signed);
                     },
-                    .unsigned => typed_value.val.toUnsignedInt(),
+                    .unsigned => typed_value.val.toUnsignedInt(target),
                 };
 
                 return MCValue{ .immediate = unsigned };
@@ -4004,20 +4011,20 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 }
 
                 _ = pl;
-                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty});
+                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty.fmtDebug()});
             } else {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
                 }
 
-                return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty});
+                return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty.fmtDebug()});
             }
         },
         .Struct => {
             return self.lowerUnnamedConst(typed_value);
         },
-        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
+        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty.fmtDebug()}),
     }
 }
 

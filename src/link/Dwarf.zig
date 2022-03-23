@@ -200,7 +200,9 @@ pub fn initDeclDebugInfo(self: *Dwarf, decl: *Module.Decl) !DeclDebugBuffers {
             assert(self.getRelocDbgInfoSubprogramHighPC() == dbg_info_buffer.items.len);
             dbg_info_buffer.items.len += 4; // DW.AT.high_pc,  DW.FORM.data4
             if (fn_ret_has_bits) {
-                const gop = try dbg_info_type_relocs.getOrPut(gpa, fn_ret_type);
+                const gop = try dbg_info_type_relocs.getOrPutContext(gpa, fn_ret_type, .{
+                    .target = self.target,
+                });
                 if (!gop.found_existing) {
                     gop.value_ptr.* = .{
                         .off = undefined,
@@ -455,7 +457,9 @@ pub fn commitDeclDebugInfo(
         var it: usize = 0;
         while (it < dbg_info_type_relocs.count()) : (it += 1) {
             const ty = dbg_info_type_relocs.keys()[it];
-            const value_ptr = dbg_info_type_relocs.getPtr(ty).?;
+            const value_ptr = dbg_info_type_relocs.getPtrContext(ty, .{
+                .target = self.target,
+            }).?;
             value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
             try self.addDbgInfoType(dbg_type_arena.allocator(), ty, dbg_info_buffer, dbg_info_type_relocs);
         }
@@ -774,7 +778,7 @@ fn addDbgInfoType(
             // DW.AT.byte_size,  DW.FORM.data1
             dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(target)));
             // DW.AT.name,  DW.FORM.string
-            try dbg_info_buffer.writer().print("{}\x00", .{ty});
+            try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(target)});
         },
         .Optional => {
             if (ty.isPtrLikeOptional()) {
@@ -785,7 +789,7 @@ fn addDbgInfoType(
                 // DW.AT.byte_size,  DW.FORM.data1
                 dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(target)));
                 // DW.AT.name,  DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty});
+                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(target)});
             } else {
                 // Non-pointer optionals are structs: struct { .maybe = *, .val = * }
                 var buf = try arena.create(Type.Payload.ElemType);
@@ -796,7 +800,7 @@ fn addDbgInfoType(
                 const abi_size = ty.abiSize(target);
                 try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
                 // DW.AT.name, DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty});
+                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(target)});
                 // DW.AT.member
                 try dbg_info_buffer.ensureUnusedCapacity(7);
                 dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
@@ -835,7 +839,7 @@ fn addDbgInfoType(
                 // DW.AT.byte_size, DW.FORM.sdata
                 dbg_info_buffer.appendAssumeCapacity(@sizeOf(usize) * 2);
                 // DW.AT.name, DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty});
+                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(target)});
                 // DW.AT.member
                 try dbg_info_buffer.ensureUnusedCapacity(5);
                 dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
@@ -882,7 +886,7 @@ fn addDbgInfoType(
             const abi_size = ty.abiSize(target);
             try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
             // DW.AT.name, DW.FORM.string
-            const struct_name = try ty.nameAllocArena(arena);
+            const struct_name = try ty.nameAllocArena(arena, target);
             try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
             dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
             dbg_info_buffer.appendAssumeCapacity(0);
@@ -915,13 +919,15 @@ fn addDbgInfoType(
             try dbg_info_buffer.append(0);
         },
         else => {
-            log.debug("TODO implement .debug_info for type '{}'", .{ty});
+            log.debug("TODO implement .debug_info for type '{}'", .{ty.fmtDebug()});
             try dbg_info_buffer.append(abbrev_pad1);
         },
     }
 
     for (relocs.items) |rel| {
-        const gop = try dbg_info_type_relocs.getOrPut(self.allocator, rel.ty);
+        const gop = try dbg_info_type_relocs.getOrPutContext(self.allocator, rel.ty, .{
+            .target = self.target,
+        });
         if (!gop.found_existing) {
             gop.value_ptr.* = .{
                 .off = undefined,

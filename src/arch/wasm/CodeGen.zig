@@ -1021,7 +1021,9 @@ fn allocStack(self: *Self, ty: Type) !WValue {
     }
 
     const abi_size = std.math.cast(u32, ty.abiSize(self.target)) catch {
-        return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{ ty, ty.abiSize(self.target) });
+        return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
+            ty.fmt(self.target), ty.abiSize(self.target),
+        });
     };
     const abi_align = ty.abiAlignment(self.target);
 
@@ -1053,7 +1055,9 @@ fn allocStackPtr(self: *Self, inst: Air.Inst.Index) !WValue {
 
     const abi_alignment = ptr_ty.ptrAlignment(self.target);
     const abi_size = std.math.cast(u32, pointee_ty.abiSize(self.target)) catch {
-        return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{ pointee_ty, pointee_ty.abiSize(self.target) });
+        return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
+            pointee_ty.fmt(self.target), pointee_ty.abiSize(self.target),
+        });
     };
     if (abi_alignment > self.stack_alignment) {
         self.stack_alignment = abi_alignment;
@@ -1750,7 +1754,7 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const operand_ty = self.air.typeOfIndex(inst);
 
     if (isByRef(operand_ty, self.target)) {
-        return self.fail("TODO: Implement binary operation for type: {}", .{operand_ty});
+        return self.fail("TODO: Implement binary operation for type: {}", .{operand_ty.fmtDebug()});
     }
 
     try self.emitWValue(lhs);
@@ -1918,6 +1922,8 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl);
     }
 
+    const target = self.target;
+
     switch (ty.zigTypeTag()) {
         .Int => {
             const int_info = ty.intInfo(self.target);
@@ -1929,13 +1935,13 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                     else => unreachable,
                 },
                 .unsigned => switch (int_info.bits) {
-                    0...32 => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt()) },
-                    33...64 => return WValue{ .imm64 = val.toUnsignedInt() },
+                    0...32 => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(target)) },
+                    33...64 => return WValue{ .imm64 = val.toUnsignedInt(target) },
                     else => unreachable,
                 },
             }
         },
-        .Bool => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt()) },
+        .Bool => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(target)) },
         .Float => switch (ty.floatBits(self.target)) {
             0...32 => return WValue{ .float32 = val.toFloat(f32) },
             33...64 => return WValue{ .float64 = val.toFloat(f64) },
@@ -1945,7 +1951,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             .field_ptr, .elem_ptr => {
                 return self.lowerParentPtr(val, ty.childType());
             },
-            .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt()) },
+            .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(target)) },
             .zero, .null_value => return WValue{ .imm32 = 0 },
             else => return self.fail("Wasm TODO: lowerConstant for other const pointer tag {s}", .{val.tag()}),
         },
@@ -2044,6 +2050,7 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!WValue {
 /// It's illegal to provide a value with a type that cannot be represented
 /// as an integer value.
 fn valueAsI32(self: Self, val: Value, ty: Type) i32 {
+    const target = self.target;
     switch (ty.zigTypeTag()) {
         .Enum => {
             if (val.castTag(.enum_field_index)) |field_index| {
@@ -2071,7 +2078,7 @@ fn valueAsI32(self: Self, val: Value, ty: Type) i32 {
         },
         .Int => switch (ty.intInfo(self.target).signedness) {
             .signed => return @truncate(i32, val.toSignedInt()),
-            .unsigned => return @bitCast(i32, @truncate(u32, val.toUnsignedInt())),
+            .unsigned => return @bitCast(i32, @truncate(u32, val.toUnsignedInt(target))),
         },
         .ErrorSet => {
             const kv = self.bin_file.base.options.module.?.getErrorValue(val.getError().?) catch unreachable; // passed invalid `Value` to function
@@ -2296,7 +2303,7 @@ fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const struct_ty = self.air.typeOf(extra.data.struct_operand).childType();
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(extra.data.field_index, self.target)) catch {
         return self.fail("Field type '{}' too big to fit into stack frame", .{
-            struct_ty.structFieldType(extra.data.field_index),
+            struct_ty.structFieldType(extra.data.field_index).fmt(self.target),
         });
     };
     return self.structFieldPtr(struct_ptr, offset);
@@ -2309,7 +2316,7 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerEr
     const field_ty = struct_ty.structFieldType(index);
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(index, self.target)) catch {
         return self.fail("Field type '{}' too big to fit into stack frame", .{
-            field_ty,
+            field_ty.fmt(self.target),
         });
     };
     return self.structFieldPtr(struct_ptr, offset);
@@ -2335,7 +2342,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const field_ty = struct_ty.structFieldType(field_index);
     if (!field_ty.hasRuntimeBits()) return WValue{ .none = {} };
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, self.target)) catch {
-        return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty});
+        return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(self.target)});
     };
 
     if (isByRef(field_ty, self.target)) {
@@ -2716,7 +2723,7 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     var buf: Type.Payload.ElemType = undefined;
     const payload_ty = opt_ty.optionalChild(&buf);
     if (!payload_ty.hasRuntimeBits()) {
-        return self.fail("TODO: Implement OptionalPayloadPtrSet for optional with zero-sized type {}", .{payload_ty});
+        return self.fail("TODO: Implement OptionalPayloadPtrSet for optional with zero-sized type {}", .{payload_ty.fmtDebug()});
     }
 
     if (opt_ty.isPtrLikeOptional()) {
@@ -2724,7 +2731,7 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     }
 
     const offset = std.math.cast(u32, opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) catch {
-        return self.fail("Optional type {} too big to fit into stack frame", .{opt_ty});
+        return self.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(self.target)});
     };
 
     try self.emitWValue(operand);
@@ -2753,7 +2760,7 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return operand;
     }
     const offset = std.math.cast(u32, op_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) catch {
-        return self.fail("Optional type {} too big to fit into stack frame", .{op_ty});
+        return self.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(self.target)});
     };
 
     // Create optional type, set the non-null bit, and store the operand inside the optional type

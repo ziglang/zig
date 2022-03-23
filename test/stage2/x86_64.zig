@@ -1166,7 +1166,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\    _ = x;
                 \\}
             , &[_][]const u8{
-                ":2:9: error: variable of type '@Type(.Null)' must be const or comptime",
+                ":2:9: error: variable of type '@TypeOf(null)' must be const or comptime",
             });
         }
 

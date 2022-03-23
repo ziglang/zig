@@ -3874,7 +3874,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
 /// Checks if the value, or any of its embedded values stores a pointer, and thus requires
 /// a rebase opcode for the dynamic linker.
-fn needsPointerRebase(ty: Type, val: Value) bool {
+fn needsPointerRebase(ty: Type, val: Value, target: std.Target) bool {
     if (ty.zigTypeTag() == .Fn) {
         return false;
     }
@@ -3890,7 +3890,7 @@ fn needsPointerRebase(ty: Type, val: Value) bool {
             const elem_ty = ty.childType();
             var elem_value_buf: Value.ElemValueBuffer = undefined;
             const elem_val = val.elemValueBuffer(0, &elem_value_buf);
-            return needsPointerRebase(elem_ty, elem_val);
+            return needsPointerRebase(elem_ty, elem_val, target);
         },
         .Struct => {
             const fields = ty.structFields().values();
@@ -3898,7 +3898,7 @@ fn needsPointerRebase(ty: Type, val: Value) bool {
             if (val.castTag(.aggregate)) |payload| {
                 const field_values = payload.data;
                 for (field_values) |field_val, i| {
-                    if (needsPointerRebase(fields[i].ty, field_val)) return true;
+                    if (needsPointerRebase(fields[i].ty, field_val, target)) return true;
                 } else return false;
             } else return false;
         },
@@ -3907,18 +3907,18 @@ fn needsPointerRebase(ty: Type, val: Value) bool {
                 const sub_val = payload.data;
                 var buffer: Type.Payload.ElemType = undefined;
                 const sub_ty = ty.optionalChild(&buffer);
-                return needsPointerRebase(sub_ty, sub_val);
+                return needsPointerRebase(sub_ty, sub_val, target);
             } else return false;
         },
         .Union => {
             const union_obj = val.cast(Value.Payload.Union).?.data;
-            const active_field_ty = ty.unionFieldType(union_obj.tag);
-            return needsPointerRebase(active_field_ty, union_obj.val);
+            const active_field_ty = ty.unionFieldType(union_obj.tag, target);
+            return needsPointerRebase(active_field_ty, union_obj.val, target);
         },
         .ErrorUnion => {
             if (val.castTag(.eu_payload)) |payload| {
                 const payload_ty = ty.errorUnionPayload();
-                return needsPointerRebase(payload_ty, payload.data);
+                return needsPointerRebase(payload_ty, payload.data, target);
             } else return false;
         },
         else => return false,
@@ -3927,7 +3927,8 @@ fn needsPointerRebase(ty: Type, val: Value) bool {
 
 fn getMatchingSectionAtom(self: *MachO, atom: *Atom, name: []const u8, ty: Type, val: Value) !MatchingSection {
     const code = atom.code.items;
-    const alignment = ty.abiAlignment(self.base.options.target);
+    const target = self.base.options.target;
+    const alignment = ty.abiAlignment(target);
     const align_log_2 = math.log2(alignment);
     const zig_ty = ty.zigTypeTag();
     const mode = self.base.options.optimize_mode;
@@ -3954,7 +3955,7 @@ fn getMatchingSectionAtom(self: *MachO, atom: *Atom, name: []const u8, ty: Type,
             };
         }
 
-        if (needsPointerRebase(ty, val)) {
+        if (needsPointerRebase(ty, val, target)) {
             break :blk (try self.getMatchingSection(.{
                 .segname = makeStaticString("__DATA_CONST"),
                 .sectname = makeStaticString("__const"),

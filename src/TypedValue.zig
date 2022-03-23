@@ -3,6 +3,7 @@ const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const Allocator = std.mem.Allocator;
 const TypedValue = @This();
+const Target = std.Target;
 
 ty: Type,
 val: Value,
@@ -30,13 +31,13 @@ pub fn copy(self: TypedValue, arena: Allocator) error{OutOfMemory}!TypedValue {
     };
 }
 
-pub fn eql(a: TypedValue, b: TypedValue) bool {
-    if (!a.ty.eql(b.ty)) return false;
-    return a.val.eql(b.val, a.ty);
+pub fn eql(a: TypedValue, b: TypedValue, target: std.Target) bool {
+    if (!a.ty.eql(b.ty, target)) return false;
+    return a.val.eql(b.val, a.ty, target);
 }
 
-pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash) void {
-    return tv.val.hash(tv.ty, hasher);
+pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash, target: std.Target) void {
+    return tv.val.hash(tv.ty, hasher, target);
 }
 
 pub fn enumToInt(tv: TypedValue, buffer: *Value.Payload.U64) Value {
@@ -45,21 +46,28 @@ pub fn enumToInt(tv: TypedValue, buffer: *Value.Payload.U64) Value {
 
 const max_aggregate_items = 100;
 
-pub fn format(
+const FormatContext = struct {
     tv: TypedValue,
+    target: Target,
+};
+
+pub fn format(
+    ctx: FormatContext,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
+    _ = options;
     comptime std.debug.assert(fmt.len == 0);
-    return tv.print(options, writer, 3);
+    return ctx.tv.print(writer, 3, ctx.target);
 }
 
+/// Prints the Value according to the Type, not according to the Value Tag.
 pub fn print(
     tv: TypedValue,
-    options: std.fmt.FormatOptions,
     writer: anytype,
     level: u8,
+    target: std.Target,
 ) @TypeOf(writer).Error!void {
     var val = tv.val;
     var ty = tv.ty;
@@ -148,7 +156,7 @@ pub fn print(
                     try print(.{
                         .ty = fields[i].ty,
                         .val = vals[i],
-                    }, options, writer, level - 1);
+                    }, writer, level - 1, target);
                 }
                 return writer.writeAll(" }");
             } else {
@@ -162,7 +170,7 @@ pub fn print(
                     try print(.{
                         .ty = elem_ty,
                         .val = vals[i],
-                    }, options, writer, level - 1);
+                    }, writer, level - 1, target);
                 }
                 return writer.writeAll(" }");
             }
@@ -177,12 +185,12 @@ pub fn print(
             try print(.{
                 .ty = ty.unionTagType().?,
                 .val = union_val.tag,
-            }, options, writer, level - 1);
+            }, writer, level - 1, target);
             try writer.writeAll(" = ");
             try print(.{
-                .ty = ty.unionFieldType(union_val.tag),
+                .ty = ty.unionFieldType(union_val.tag, target),
                 .val = union_val.val,
-            }, options, writer, level - 1);
+            }, writer, level - 1, target);
 
             return writer.writeAll(" }");
         },
@@ -197,7 +205,7 @@ pub fn print(
         },
         .bool_true => return writer.writeAll("true"),
         .bool_false => return writer.writeAll("false"),
-        .ty => return val.castTag(.ty).?.data.format("", options, writer),
+        .ty => return val.castTag(.ty).?.data.print(writer, target),
         .int_type => {
             const int_type = val.castTag(.int_type).?.data;
             return writer.print("{s}{d}", .{
@@ -205,10 +213,15 @@ pub fn print(
                 int_type.bits,
             });
         },
-        .int_u64 => return std.fmt.formatIntValue(val.castTag(.int_u64).?.data, "", options, writer),
-        .int_i64 => return std.fmt.formatIntValue(val.castTag(.int_i64).?.data, "", options, writer),
+        .int_u64 => return std.fmt.formatIntValue(val.castTag(.int_u64).?.data, "", .{}, writer),
+        .int_i64 => return std.fmt.formatIntValue(val.castTag(.int_i64).?.data, "", .{}, writer),
         .int_big_positive => return writer.print("{}", .{val.castTag(.int_big_positive).?.asBigInt()}),
         .int_big_negative => return writer.print("{}", .{val.castTag(.int_big_negative).?.asBigInt()}),
+        .lazy_align => {
+            const sub_ty = val.castTag(.lazy_align).?.data;
+            const x = sub_ty.abiAlignment(target);
+            return writer.print("{d}", .{x});
+        },
         .function => return writer.print("(function '{s}')", .{val.castTag(.function).?.data.owner_decl.name}),
         .extern_fn => return writer.writeAll("(extern function)"),
         .variable => return writer.writeAll("(variable)"),
@@ -220,7 +233,7 @@ pub fn print(
             return print(.{
                 .ty = decl.ty,
                 .val = decl.val,
-            }, options, writer, level - 1);
+            }, writer, level - 1, target);
         },
         .decl_ref => {
             const decl = val.castTag(.decl_ref).?.data;
@@ -230,7 +243,7 @@ pub fn print(
             return print(.{
                 .ty = decl.ty,
                 .val = decl.val,
-            }, options, writer, level - 1);
+            }, writer, level - 1, target);
         },
         .elem_ptr => {
             const elem_ptr = val.castTag(.elem_ptr).?.data;
@@ -238,7 +251,7 @@ pub fn print(
             try print(.{
                 .ty = elem_ptr.elem_ty,
                 .val = elem_ptr.array_ptr,
-            }, options, writer, level - 1);
+            }, writer, level - 1, target);
             return writer.print("[{}]", .{elem_ptr.index});
         },
         .field_ptr => {
@@ -247,7 +260,7 @@ pub fn print(
             try print(.{
                 .ty = field_ptr.container_ty,
                 .val = field_ptr.container_ptr,
-            }, options, writer, level - 1);
+            }, writer, level - 1, target);
 
             if (field_ptr.container_ty.zigTypeTag() == .Struct) {
                 const field_name = field_ptr.container_ty.structFields().keys()[field_ptr.field_index];
@@ -275,7 +288,7 @@ pub fn print(
             };
             while (i < max_aggregate_items) : (i += 1) {
                 if (i != 0) try writer.writeAll(", ");
-                try print(elem_tv, options, writer, level - 1);
+                try print(elem_tv, writer, level - 1, target);
             }
             return writer.writeAll(" }");
         },
@@ -287,7 +300,7 @@ pub fn print(
             try print(.{
                 .ty = ty.elemType2(),
                 .val = ty.sentinel().?,
-            }, options, writer, level - 1);
+            }, writer, level - 1, target);
             return writer.writeAll(" }");
         },
         .slice => return writer.writeAll("(slice)"),

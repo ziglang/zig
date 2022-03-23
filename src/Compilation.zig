@@ -2781,7 +2781,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                     .error_msg = null,
                     .decl = decl,
                     .fwd_decl = fwd_decl.toManaged(gpa),
-                    .typedefs = c_codegen.TypedefMap.init(gpa),
+                    .typedefs = c_codegen.TypedefMap.initContext(gpa, .{
+                        .target = comp.getTarget(),
+                    }),
                     .typedefs_arena = typedefs_arena.allocator(),
                 };
                 defer dg.fwd_decl.deinit();
