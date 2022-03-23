@@ -1576,10 +1576,6 @@ pub const Mutable = struct {
         // for i from n down to t + 1, do
         var i = n;
         while (i >= t + 1) : (i -= 1) {
-            if (x.eqZero()) {
-                break;
-            }
-
             const k = i - t - 1;
             // 3.1.
             // if x_i == y_t:
@@ -1630,7 +1626,6 @@ pub const Mutable = struct {
             // Note, we multiply by a single limb here.
             // The shift doesn't need to be performed if we add the result of the first multiplication
             // to x[i - t - 1].
-            // mem.set(Limb, x.limbs, 0);
             const underflow = llmulLimb(.sub, x.limbs[k..x.len], y.limbs[0..y.len], q.limbs[k]);
 
             // 3.4.
@@ -1643,10 +1638,9 @@ pub const Mutable = struct {
                 llaccum(.add, x.limbs[k..x.len], y.limbs[0..y.len]);
                 q.limbs[k] -= 1;
             }
-
-            x.normalize(x.len);
         }
 
+        x.normalize(x.len);
         q.normalize(q.len);
 
         // De-normalize r and y.
