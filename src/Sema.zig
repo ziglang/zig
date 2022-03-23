@@ -20812,6 +20812,7 @@ pub fn resolveTypeLayout(
         .Struct => return sema.resolveStructLayout(block, src, ty),
         .Union => return sema.resolveUnionLayout(block, src, ty),
         .Array => {
+            if (ty.arrayLenIncludingSentinel() == 0) return;
             const elem_ty = ty.childType();
             return sema.resolveTypeLayout(block, src, elem_ty);
         },
