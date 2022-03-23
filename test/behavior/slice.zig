@@ -583,14 +583,27 @@ test "type coercion of pointer to anon struct literal to pointer to slice" {
     comptime try S.doTheTest();
 }
 
-test "array concat of slices gives slice" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
+test "array concat of slices gives ptr to array" {
     comptime {
         var a: []const u8 = "aoeu";
         var b: []const u8 = "asdf";
         const c = a ++ b;
         try expect(std.mem.eql(u8, c, "aoeuasdf"));
+        if (builtin.zig_backend != .stage1) {
+            // spec change: array concat now returns pointer-to-array for slices
+            try expect(@TypeOf(c) == *const [8]u8);
+        }
+    }
+}
+
+test "array mult of slice gives ptr to array" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // Stage 1 does not support multiplying slices
+
+    comptime {
+        var a: []const u8 = "aoeu";
+        const c = a ** 2;
+        try expect(std.mem.eql(u8, c, "aoeuaoeu"));
+        try expect(@TypeOf(c) == *const [8]u8);
     }
 }
 
