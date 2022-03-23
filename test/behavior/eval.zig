@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -829,4 +830,24 @@ test "const type-annotated local initialized with function call has correct type
     const x: u64 = S.foo();
     try expect(@TypeOf(x) == u64);
     try expect(x == 1234);
+}
+
+test "comptime pointer load through elem_ptr" {
+    const S = struct {
+        x: usize,
+    };
+
+    comptime {
+        var array: [10]S = undefined;
+        for (array) |*elem, i| {
+            elem.* = .{
+                .x = i,
+            };
+        }
+        var ptr = @ptrCast([*]S, &array);
+        var x = ptr[0].x;
+        assert(x == 0);
+        ptr += 1;
+        assert(ptr[1].x == 2);
+    }
 }
