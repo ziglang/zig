@@ -14804,8 +14804,105 @@ fn analyzeShuffle(
 
 fn zirSelect(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirSelect", .{});
+    const extra = sema.code.extraData(Zir.Inst.Select, inst_data.payload_index).data;
+
+    const elem_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const pred_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const a_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+    const b_src: LazySrcLoc = .{ .node_offset_builtin_call_arg3 = inst_data.src_node };
+
+    const elem_ty = try sema.resolveType(block, elem_ty_src, extra.elem_type);
+    try sema.checkVectorElemType(block, elem_ty_src, elem_ty);
+    const pred = sema.resolveInst(extra.pred);
+    const a = sema.resolveInst(extra.a);
+    const b = sema.resolveInst(extra.b);
+    const target = sema.mod.getTarget();
+
+    const pred_ty = sema.typeOf(pred);
+    switch (try pred_ty.zigTypeTagOrPoison()) {
+        .Vector => {
+            const scalar_ty = pred_ty.childType();
+            if (!scalar_ty.eql(Type.bool, target)) {
+                const bool_vec_ty = try Type.vector(sema.arena, pred_ty.vectorLen(), Type.bool);
+                return sema.fail(block, pred_src, "Expected '{}', found '{}'", .{ bool_vec_ty.fmt(target), pred_ty.fmt(target) });
+            }
+        },
+        else => return sema.fail(block, pred_src, "Expected vector type, found '{}'", .{pred_ty.fmt(target)}),
+    }
+
+    const vec_len = pred_ty.vectorLen();
+    const vec_ty = try Type.vector(sema.arena, vec_len, elem_ty);
+
+    const a_ty = sema.typeOf(a);
+    if (!a_ty.eql(vec_ty, target)) {
+        return sema.fail(block, a_src, "Expected '{}', found '{}'", .{ vec_ty.fmt(target), a_ty.fmt(target) });
+    }
+
+    const b_ty = sema.typeOf(b);
+    if (!b_ty.eql(vec_ty, target)) {
+        return sema.fail(block, b_src, "Expected '{}', found '{}'", .{ vec_ty.fmt(target), b_ty.fmt(target) });
+    }
+
+    const maybe_pred = try sema.resolveMaybeUndefVal(block, pred_src, pred);
+    const maybe_a = try sema.resolveMaybeUndefVal(block, a_src, a);
+    const maybe_b = try sema.resolveMaybeUndefVal(block, b_src, b);
+
+    const runtime_src = if (maybe_pred) |pred_val| rs: {
+        if (pred_val.isUndef()) return sema.addConstUndef(vec_ty);
+
+        if (maybe_a) |a_val| {
+            if (a_val.isUndef()) return sema.addConstUndef(vec_ty);
+
+            if (maybe_b) |b_val| {
+                if (b_val.isUndef()) return sema.addConstUndef(vec_ty);
+
+                var buf: Value.ElemValueBuffer = undefined;
+                const elems = try sema.gpa.alloc(Value, vec_len);
+                for (elems) |*elem, i| {
+                    const pred_elem_val = pred_val.elemValueBuffer(i, &buf);
+                    const should_choose_a = pred_elem_val.toBool();
+                    if (should_choose_a) {
+                        elem.* = a_val.elemValueBuffer(i, &buf);
+                    } else {
+                        elem.* = b_val.elemValueBuffer(i, &buf);
+                    }
+                }
+
+                return sema.addConstant(
+                    vec_ty,
+                    try Value.Tag.aggregate.create(sema.arena, elems),
+                );
+            } else {
+                break :rs b_src;
+            }
+        } else {
+            if (maybe_b) |b_val| {
+                if (b_val.isUndef()) return sema.addConstUndef(vec_ty);
+            }
+            break :rs a_src;
+        }
+    } else rs: {
+        if (maybe_a) |a_val| {
+            if (a_val.isUndef()) return sema.addConstUndef(vec_ty);
+        }
+        if (maybe_b) |b_val| {
+            if (b_val.isUndef()) return sema.addConstUndef(vec_ty);
+        }
+        break :rs pred_src;
+    };
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+    return block.addInst(.{
+        .tag = .select,
+        .data = .{ .ty_pl = .{
+            .ty = try block.sema.addType(vec_ty),
+            .payload = try block.sema.addExtra(Air.Select{
+                .pred = pred,
+                .a = a,
+                .b = b,
+            }),
+        } },
+    });
 }
 
 fn zirAtomicLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

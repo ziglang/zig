@@ -433,6 +433,10 @@ fn analyzeInst(
             }
             return extra_tombs.finish();
         },
+        .select => {
+            const extra = a.air.extraData(Air.Select, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.pred, extra.a, extra.b });
+        },
         .shuffle => {
             const extra = a.air.extraData(Air.Shuffle, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.a, extra.b, .none });
