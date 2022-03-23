@@ -1153,7 +1153,7 @@ fn minMax(
         .Float => return self.fail("TODO ARM min/max on floats", .{}),
         .Vector => return self.fail("TODO ARM min/max on vectors", .{}),
         .Int => {
-            assert(lhs_ty.eql(rhs_ty));
+            assert(lhs_ty.eql(rhs_ty, self.target.*));
             const int_info = lhs_ty.intInfo(self.target.*);
             if (int_info.bits <= 32) {
                 const lhs_is_register = lhs == .register;
