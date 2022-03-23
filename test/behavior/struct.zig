@@ -422,11 +422,21 @@ test "packed struct 24bits" {
     if (builtin.cpu.arch == .arm) return error.SkipZigTest; // TODO
 
     comptime {
-        try expect(@sizeOf(Foo24Bits) == 4);
-        if (@sizeOf(usize) == 4) {
-            try expect(@sizeOf(Foo96Bits) == 12);
+        // TODO Remove if and leave only the else branch when it is also fixed in stage2
+        if (builtin.zig_backend == .stage2_llvm or builtin.zig_backend == .stage2_x86 or
+            builtin.zig_backend == .stage2_riscv64)
+        {
+            // Stage 2 still expects the wrong values
+            try expect(@sizeOf(Foo24Bits) == 4);
+            if (@sizeOf(usize) == 4) {
+                try expect(@sizeOf(Foo96Bits) == 12);
+            } else {
+                try expect(@sizeOf(Foo96Bits) == 16);
+            }
         } else {
-            try expect(@sizeOf(Foo96Bits) == 16);
+            // Stage1 is now fixed and is expected to return right values
+            try expectEqual(@sizeOf(Foo24Bits), 3);
+            try expectEqual(@sizeOf(Foo96Bits), 12);
         }
     }
 
