@@ -14894,12 +14894,11 @@ fn zirSelect(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     try sema.requireRuntimeBlock(block, runtime_src);
     return block.addInst(.{
         .tag = .select,
-        .data = .{ .ty_pl = .{
-            .ty = try block.sema.addType(vec_ty),
-            .payload = try block.sema.addExtra(Air.Select{
-                .pred = pred,
-                .a = a,
-                .b = b,
+        .data = .{ .pl_op = .{
+            .operand = pred,
+            .payload = try block.sema.addExtra(Air.Bin{
+                .lhs = a,
+                .rhs = b,
             }),
         } },
     });

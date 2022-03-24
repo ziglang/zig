@@ -3269,10 +3269,10 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airSelect(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
-    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const ty = try self.resolveInst(ty_pl.ty);
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const operand = try self.resolveInst(pl_op.operand);
 
-    _ = ty;
+    _ = operand;
     return self.fail("TODO: Implement wasm airSelect", .{});
 }
 

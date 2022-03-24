@@ -398,15 +398,16 @@ const Writer = struct {
     }
 
     fn writeSelect(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const extra = w.air.extraData(Air.Select, ty_pl.payload).data;
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
 
-        try s.print("{}, ", .{w.air.getRefType(ty_pl.ty).fmtDebug()});
-        try w.writeOperand(s, inst, 0, extra.pred);
+        const elem_ty = w.air.typeOfIndex(inst).childType();
+        try s.print("{}, ", .{elem_ty.fmtDebug()});
+        try w.writeOperand(s, inst, 0, pl_op.operand);
         try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.a);
+        try w.writeOperand(s, inst, 1, extra.lhs);
         try s.writeAll(", ");
-        try w.writeOperand(s, inst, 2, extra.b);
+        try w.writeOperand(s, inst, 2, extra.rhs);
     }
 
     fn writeReduce(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

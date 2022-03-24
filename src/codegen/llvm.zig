@@ -6359,11 +6359,11 @@ pub const FuncGen = struct {
     fn airSelect(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-        const extra = self.air.extraData(Air.Select, ty_pl.payload).data;
-        const pred = try self.resolveInst(extra.pred);
-        const a = try self.resolveInst(extra.a);
-        const b = try self.resolveInst(extra.b);
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+        const pred = try self.resolveInst(pl_op.operand);
+        const a = try self.resolveInst(extra.lhs);
+        const b = try self.resolveInst(extra.rhs);
 
         return self.builder.buildSelect(pred, a, b, "");
     }

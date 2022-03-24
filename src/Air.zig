@@ -554,7 +554,7 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field with payload `Shuffle`.
         shuffle,
         /// Constructs a vector element-wise from `a` or `b` based on `pred`.
-        /// Uses the `ty_pl` field with payload `Select`.
+        /// Uses the `pl_op` field with `pred` as operand, and payload `Bin`.
         select,
 
         /// Given dest ptr, value, and len, set all elements at dest to value.
@@ -788,12 +788,6 @@ pub const Shuffle = struct {
     mask_len: u32,
 };
 
-pub const Select = struct {
-    pred: Inst.Ref,
-    a: Inst.Ref,
-    b: Inst.Ref,
-};
-
 pub const VectorCmp = struct {
     lhs: Inst.Ref,
     rhs: Inst.Ref,
@@ -965,7 +959,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .cmpxchg_weak,
         .cmpxchg_strong,
         .slice,
-        .select,
         .shuffle,
         .aggregate_init,
         .union_init,
@@ -1077,6 +1070,10 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .reduce => return air.typeOf(datas[inst].reduce.operand).childType(),
 
         .mul_add => return air.typeOf(datas[inst].pl_op.operand),
+        .select => {
+            const extra = air.extraData(Air.Bin, datas[inst].pl_op.payload).data;
+            return air.typeOf(extra.lhs);
+        },
 
         .add_with_overflow,
         .sub_with_overflow,
