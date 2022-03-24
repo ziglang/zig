@@ -4688,7 +4688,7 @@ fn analyzeCall(
 
     const gpa = sema.gpa;
 
-    const is_comptime_call = block.is_comptime or modifier == .compile_time or
+    var is_comptime_call = block.is_comptime or modifier == .compile_time or
         try sema.typeRequiresComptime(block, func_src, func_ty_info.return_type);
     var is_inline_call = is_comptime_call or modifier == .always_inline or
         func_ty_info.cc == .Inline;
@@ -4706,7 +4706,13 @@ fn analyzeCall(
         )) |some| {
             return some;
         } else |err| switch (err) {
-            error.GenericPoison => is_inline_call = true,
+            error.GenericPoison => {
+                is_inline_call = true;
+            },
+            error.ComptimeReturn => {
+                is_inline_call = true;
+                is_comptime_call = true;
+            },
             else => |e| return e,
         }
     }
@@ -5149,7 +5155,13 @@ fn instantiateGenericCall(
         // of each of its instantiations.
         assert(new_decl.dependencies.keys().len == 0);
         try mod.declareDeclDependency(new_decl, module_fn.owner_decl);
-        errdefer assert(module_fn.owner_decl.dependants.orderedRemove(new_decl));
+        // Resolving the new function type below will possibly declare more decl dependencies
+        // and so we remove them all here in case of error.
+        errdefer {
+            for (new_decl.dependencies.keys()) |dep| {
+                dep.removeDependant(new_decl);
+            }
+        }
 
         var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
         errdefer new_decl_arena.deinit();
@@ -5285,8 +5297,17 @@ fn instantiateGenericCall(
 
         // Populate the Decl ty/val with the function and its type.
         new_decl.ty = try child_sema.typeOf(new_func_inst).copy(new_decl_arena_allocator);
-        // If the call evaluated to a generic type return errror and call inline.
-        if (new_decl.ty.fnInfo().is_generic) return error.GenericPoison;
+        // If the call evaluated to a return type that requires comptime, never mind
+        // our generic instantiation. Instead we need to perform a comptime call.
+        const new_fn_info = new_decl.ty.fnInfo();
+        if (try sema.typeRequiresComptime(block, call_src, new_fn_info.return_type)) {
+            return error.ComptimeReturn;
+        }
+        // Similarly, if the call evaluated to a generic type we need to instead
+        // call it inline.
+        if (new_fn_info.is_generic or new_fn_info.cc == .Inline) {
+            return error.GenericPoison;
+        }
 
         new_decl.val = try Value.Tag.function.create(new_decl_arena_allocator, new_func);
         new_decl.has_tv = true;
@@ -12978,10 +12999,14 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl);
 
+            // Enum tag type
+            var buffer: Value.ToTypeBuffer = undefined;
+            const int_tag_ty = try tag_type_val.toType(&buffer).copy(new_decl_arena_allocator);
+
             enum_obj.* = .{
                 .owner_decl = new_decl,
-                .tag_ty = Type.@"null",
-                .tag_ty_inferred = true,
+                .tag_ty = int_tag_ty,
+                .tag_ty_inferred = false,
                 .fields = .{},
                 .values = .{},
                 .node_offset = src.node_offset,
@@ -12991,10 +13016,6 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                     .file_scope = block.getFileScope(),
                 },
             };
-
-            // Enum tag type
-            var buffer: Value.ToTypeBuffer = undefined;
-            enum_obj.tag_ty = try tag_type_val.toType(&buffer).copy(new_decl_arena_allocator);
 
             // Fields
             const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen(target));
@@ -21111,8 +21132,18 @@ fn resolveInferredErrorSet(
         return sema.fail(block, src, "unable to resolve inferred error set", .{});
     }
 
-    // To ensure that all dependencies are properly added to the set.
-    try sema.ensureFuncBodyAnalyzed(ies.func);
+    // In order to ensure that all dependencies are properly added to the set, we
+    // need to ensure the function body is analyzed of the inferred error set.
+    // However, in the case of comptime/inline function calls with inferred error sets,
+    // each call gets a new InferredErrorSet object, which points to the same
+    // `*Module.Fn`. Not only is the function not relevant to the inferred error set
+    // in this case, it may be a generic function which would cause an assertion failure
+    // if we called `ensureFuncBodyAnalyzed` on it here.
+    if (ies.func.owner_decl.ty.fnInfo().return_type.errorUnionSet().castTag(.error_set_inferred).?.data == ies) {
+        // In this case we are dealing with the actual InferredErrorSet object that
+        // corresponds to the function, not one created to track an inline/comptime call.
+        try sema.ensureFuncBodyAnalyzed(ies.func);
+    }
 
     ies.is_resolved = true;
 

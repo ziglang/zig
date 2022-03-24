@@ -569,10 +569,10 @@ test "std.meta.fieldNames" {
 }
 
 pub fn FieldEnum(comptime T: type) type {
-    const fieldInfos = fields(T);
-    var enumFields: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
+    const field_infos = fields(T);
+    var enumFields: [field_infos.len]std.builtin.Type.EnumField = undefined;
     var decls = [_]std.builtin.Type.Declaration{};
-    inline for (fieldInfos) |field, i| {
+    inline for (field_infos) |field, i| {
         enumFields[i] = .{
             .name = field.name,
             .value = i,
@@ -581,7 +581,7 @@ pub fn FieldEnum(comptime T: type) type {
     return @Type(.{
         .Enum = .{
             .layout = .Auto,
-            .tag_type = std.math.IntFittingRange(0, fieldInfos.len - 1),
+            .tag_type = std.math.IntFittingRange(0, field_infos.len - 1),
             .fields = &enumFields,
             .decls = &decls,
             .is_exhaustive = true,
@@ -966,7 +966,7 @@ pub fn ArgsTuple(comptime Function: type) type {
         argument_field_list[i] = .{
             .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
             .field_type = T,
-            .default_value = @as(?T, null),
+            .default_value = null,
             .is_comptime = false,
             .alignment = if (@sizeOf(T) > 0) @alignOf(T) else 0,
         };
@@ -997,7 +997,7 @@ pub fn Tuple(comptime types: []const type) type {
         tuple_fields[i] = .{
             .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
             .field_type = T,
-            .default_value = @as(?T, null),
+            .default_value = null,
             .is_comptime = false,
             .alignment = if (@sizeOf(T) > 0) @alignOf(T) else 0,
         };

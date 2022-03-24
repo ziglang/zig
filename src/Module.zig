@@ -781,11 +781,11 @@ pub const Decl = struct {
         return &decl_plus_emit_h.emit_h;
     }
 
-    fn removeDependant(decl: *Decl, other: *Decl) void {
+    pub fn removeDependant(decl: *Decl, other: *Decl) void {
         assert(decl.dependants.swapRemove(other));
     }
 
-    fn removeDependency(decl: *Decl, other: *Decl) void {
+    pub fn removeDependency(decl: *Decl, other: *Decl) void {
         assert(decl.dependencies.swapRemove(other));
     }
 
