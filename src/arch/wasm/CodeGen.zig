@@ -1329,6 +1329,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .fptrunc => self.airFptrunc(inst),
         .fpext => self.airFpext(inst),
         .float_to_int => self.airFloatToInt(inst),
+        .int_to_float => self.airIntToFloat(inst),
         .get_union_tag => self.airGetUnionTag(inst),
 
         // TODO
@@ -1382,6 +1383,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .slice_elem_val => self.airSliceElemVal(inst),
         .slice_elem_ptr => self.airSliceElemPtr(inst),
         .slice_ptr => self.airSlicePtr(inst),
+        .ptr_slice_len_ptr => self.airPtrSliceFieldPtr(inst, self.ptrSize()),
+        .ptr_slice_ptr_ptr => self.airPtrSliceFieldPtr(inst, 0),
         .store => self.airStore(inst),
 
         .set_union_tag => self.airSetUnionTag(inst),
@@ -1398,11 +1401,14 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .unreach => self.airUnreachable(inst),
 
         .wrap_optional => self.airWrapOptional(inst),
-        .unwrap_errunion_payload => self.airUnwrapErrUnionPayload(inst),
-        .unwrap_errunion_err => self.airUnwrapErrUnionError(inst),
+        .unwrap_errunion_payload => self.airUnwrapErrUnionPayload(inst, false),
+        .unwrap_errunion_payload_ptr => self.airUnwrapErrUnionPayload(inst, true),
+        .unwrap_errunion_err => self.airUnwrapErrUnionError(inst, false),
+        .unwrap_errunion_err_ptr => self.airUnwrapErrUnionError(inst, true),
         .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
         .wrap_errunion_err => self.airWrapErrUnionErr(inst),
         .errunion_payload_ptr_set => self.airErrUnionPayloadPtrSet(inst),
+        .error_name => self.airErrorName(inst),
 
         .wasm_memory_size => self.airWasmMemorySize(inst),
         .wasm_memory_grow => self.airWasmMemoryGrow(inst),
@@ -1428,8 +1434,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .bit_reverse,
         .is_err_ptr,
         .is_non_err_ptr,
-        .unwrap_errunion_payload_ptr,
-        .unwrap_errunion_err_ptr,
 
         .sqrt,
         .sin,
@@ -1445,9 +1449,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .round,
         .trunc_float,
 
-        .ptr_slice_len_ptr,
-        .ptr_slice_ptr_ptr,
-        .int_to_float,
         .cmpxchg_weak,
         .cmpxchg_strong,
         .fence,
@@ -1458,7 +1459,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .atomic_store_seq_cst,
         .atomic_rmw,
         .tag_name,
-        .error_name,
         .mul_add,
 
         // For these 4, probably best to wait until https://github.com/ziglang/zig/issues/10248
@@ -1886,6 +1886,23 @@ fn lowerParentPtr(self: *Self, ptr_val: Value, ptr_child_ty: Type) InnerError!WV
                 .offset = @intCast(u32, offset),
             } };
         },
+        .opt_payload_ptr => {
+            const payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
+            const parent_ptr = try self.lowerParentPtr(payload_ptr.container_ptr, payload_ptr.container_ty);
+            var buf: Type.Payload.ElemType = undefined;
+            const payload_ty = payload_ptr.container_ty.optionalChild(&buf);
+            if (!payload_ty.hasRuntimeBitsIgnoreComptime() or payload_ty.isPtrLikeOptional()) {
+                return parent_ptr;
+            }
+
+            const abi_size = payload_ptr.container_ty.abiSize(self.target);
+            const offset = abi_size - payload_ty.abiSize(self.target);
+
+            return WValue{ .memory_offset = .{
+                .pointer = parent_ptr.memory,
+                .offset = @intCast(u32, offset),
+            } };
+        },
         else => |tag| return self.fail("TODO: Implement lowerParentPtr for tag: {}", .{tag}),
     }
 }
@@ -1948,7 +1965,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             else => unreachable,
         },
         .Pointer => switch (val.tag()) {
-            .field_ptr, .elem_ptr => {
+            .field_ptr, .elem_ptr, .opt_payload_ptr => {
                 return self.lowerParentPtr(val, ty.childType());
             },
             .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(target)) },
@@ -2452,7 +2469,11 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                         if (case_value.integer == value) break :blk @intCast(u32, idx);
                     }
                 }
-                break :blk if (has_else_body) case_i else unreachable;
+                // error sets are almost always sparse so we use the default case
+                // for errors that are not present in any branch. This is fine as this default
+                // case will never be hit for those cases but we do save runtime cost and size
+                // by using a jump table for this instead of if-else chains.
+                break :blk if (has_else_body or target_ty.zigTypeTag() == .ErrorSet) case_i else unreachable;
             };
             self.mir_extra.appendAssumeCapacity(idx);
         } else if (has_else_body) {
@@ -2539,30 +2560,32 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
     return is_err_tmp;
 }
 
-fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index, op_is_ptr: bool) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
-    const err_ty = self.air.typeOf(ty_op.operand);
+    const op_ty = self.air.typeOf(ty_op.operand);
+    const err_ty = if (op_is_ptr) op_ty.childType() else op_ty;
     const payload_ty = err_ty.errorUnionPayload();
     if (!payload_ty.hasRuntimeBits()) return WValue{ .none = {} };
     const err_align = err_ty.abiAlignment(self.target);
     const set_size = err_ty.errorUnionSet().abiSize(self.target);
     const offset = mem.alignForwardGeneric(u64, set_size, err_align);
-    if (isByRef(payload_ty, self.target)) {
+    if (op_is_ptr or isByRef(payload_ty, self.target)) {
         return self.buildPointerOffset(operand, offset, .new);
     }
     return self.load(operand, payload_ty, @intCast(u32, offset));
 }
 
-fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index, op_is_ptr: bool) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
-    const err_ty = self.air.typeOf(ty_op.operand);
+    const op_ty = self.air.typeOf(ty_op.operand);
+    const err_ty = if (op_is_ptr) op_ty.childType() else op_ty;
     const payload_ty = err_ty.errorUnionPayload();
-    if (!payload_ty.hasRuntimeBits()) {
+    if (op_is_ptr or !payload_ty.hasRuntimeBits()) {
         return operand;
     }
 
@@ -3210,6 +3233,28 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     return result;
 }
 
+fn airIntToFloat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const operand = try self.resolveInst(ty_op.operand);
+    const dest_ty = self.air.typeOfIndex(inst);
+    const op_ty = self.air.typeOf(ty_op.operand);
+
+    try self.emitWValue(operand);
+    const op = buildOpcode(.{
+        .op = .convert,
+        .valtype1 = typeToValtype(dest_ty, self.target),
+        .valtype2 = typeToValtype(op_ty, self.target),
+        .signedness = if (op_ty.isSignedInt()) .signed else .unsigned,
+    });
+    try self.addTag(Mir.Inst.Tag.fromOpcode(op));
+
+    const result = try self.allocLocal(dest_ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
 fn airSplat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
@@ -3617,4 +3662,55 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const result = try self.allocLocal(op_ty);
     try self.addLabel(.local_set, result.local);
     return result;
+}
+
+fn airErrorName(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
+
+    // First retrieve the symbol index to the error name table
+    // that will be used to emit a relocation for the pointer
+    // to the error name table.
+    //
+    // Each entry to this table is a slice (ptr+len).
+    // The operand in this instruction represents the index within this table.
+    // This means to get the final name, we emit the base pointer and then perform
+    // pointer arithmetic to find the pointer to this slice and return that.
+    //
+    // As the names are global and the slice elements are constant, we do not have
+    // to make a copy of the ptr+value but can point towards them directly.
+    const error_table_symbol = try self.bin_file.getErrorTableSymbol();
+    const name_ty = Type.initTag(.const_slice_u8_sentinel_0);
+    const abi_size = name_ty.abiSize(self.target);
+
+    const error_name_value: WValue = .{ .memory = error_table_symbol }; // emitting this will create a relocation
+    try self.emitWValue(error_name_value);
+    try self.emitWValue(operand);
+    switch (self.arch()) {
+        .wasm32 => {
+            try self.addImm32(@bitCast(i32, @intCast(u32, abi_size)));
+            try self.addTag(.i32_mul);
+            try self.addTag(.i32_add);
+        },
+        .wasm64 => {
+            try self.addImm64(abi_size);
+            try self.addTag(.i64_mul);
+            try self.addTag(.i64_add);
+        },
+        else => unreachable,
+    }
+
+    const result_ptr = try self.allocLocal(Type.usize);
+    try self.addLabel(.local_set, result_ptr.local);
+    return result_ptr;
+}
+
+fn airPtrSliceFieldPtr(self: *Self, inst: Air.Inst.Index, offset: u32) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const slice_ptr = try self.resolveInst(ty_op.operand);
+    return self.buildPointerOffset(slice_ptr, offset, .new);
 }

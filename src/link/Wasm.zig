@@ -123,6 +123,13 @@ symbol_atom: std.AutoHashMapUnmanaged(SymbolLoc, *Atom) = .{},
 /// Note: The value represents the offset into the string table, rather than the actual string.
 export_names: std.AutoHashMapUnmanaged(SymbolLoc, u32) = .{},
 
+/// Represents the symbol index of the error name table
+/// When this is `null`, no code references an error using runtime `@errorName`.
+/// During initializion, a symbol with corresponding atom will be created that is
+/// used to perform relocations to the pointer of this table.
+/// The actual table is populated during `flush`.
+error_table_symbol: ?u32 = null,
+
 pub const Segment = struct {
     alignment: u32,
     size: u32,
@@ -1322,6 +1329,123 @@ pub fn getMatchingSegment(self: *Wasm, object_index: u16, relocatable_index: u32
     }
 }
 
+/// Returns the symbol index of the error name table.
+///
+/// When the symbol does not yet exist, it will create a new one instead.
+pub fn getErrorTableSymbol(self: *Wasm) !u32 {
+    if (self.error_table_symbol) |symbol| {
+        return symbol;
+    }
+
+    // no error was referenced yet, so create a new symbol and atom for it
+    // and then return said symbol's index. The final table will be populated
+    // during `flush` when we know all possible error names.
+
+    // As sym_index '0' is reserved, we use it for our stack pointer symbol
+    const symbol_index = self.symbols_free_list.popOrNull() orelse blk: {
+        const index = @intCast(u32, self.symbols.items.len);
+        _ = try self.symbols.addOne(self.base.allocator);
+        break :blk index;
+    };
+
+    const sym_name = try self.string_table.put(self.base.allocator, "__zig_err_name_table");
+    const symbol = &self.symbols.items[symbol_index];
+    symbol.* = .{
+        .name = sym_name,
+        .tag = .data,
+        .flags = 0,
+        .index = 0,
+    };
+    symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+
+    const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+
+    const atom = try self.base.allocator.create(Atom);
+    atom.* = Atom.empty;
+    atom.sym_index = symbol_index;
+    atom.alignment = slice_ty.abiAlignment(self.base.options.target);
+    try self.managed_atoms.append(self.base.allocator, atom);
+    const loc = atom.symbolLoc();
+    try self.resolved_symbols.put(self.base.allocator, loc, {});
+    try self.symbol_atom.put(self.base.allocator, loc, atom);
+
+    log.debug("Error name table was created with symbol index: ({d})", .{symbol_index});
+    self.error_table_symbol = symbol_index;
+    return symbol_index;
+}
+
+/// Populates the error name table, when `error_table_symbol` is not null.
+///
+/// This creates a table that consists of pointers and length to each error name.
+/// The table is what is being pointed to within the runtime bodies that are generated.
+fn populateErrorNameTable(self: *Wasm) !void {
+    const symbol_index = self.error_table_symbol orelse return;
+    const atom: *Atom = self.symbol_atom.get(.{ .file = null, .index = symbol_index }).?;
+    // Rather than creating a symbol for each individual error name,
+    // we create a symbol for the entire region of error names. We then calculate
+    // the pointers into the list using addends which are appended to the relocation.
+    const names_atom = try self.base.allocator.create(Atom);
+    names_atom.* = Atom.empty;
+    try self.managed_atoms.append(self.base.allocator, names_atom);
+    const names_symbol_index = self.symbols_free_list.popOrNull() orelse blk: {
+        const index = @intCast(u32, self.symbols.items.len);
+        _ = try self.symbols.addOne(self.base.allocator);
+        break :blk index;
+    };
+    names_atom.sym_index = names_symbol_index;
+    names_atom.alignment = 1;
+    const sym_name = try self.string_table.put(self.base.allocator, "__zig_err_names");
+    const names_symbol = &self.symbols.items[names_symbol_index];
+    names_symbol.* = .{
+        .name = sym_name,
+        .tag = .data,
+        .flags = 0,
+        .index = 0,
+    };
+    names_symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+
+    log.debug("Populating error names", .{});
+
+    // Addend for each relocation to the table
+    var addend: u32 = 0;
+    const module = self.base.options.module.?;
+    for (module.error_name_list.items) |error_name| {
+        const len = @intCast(u32, error_name.len + 1); // names are 0-termianted
+
+        const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+        const offset = @intCast(u32, atom.code.items.len);
+        // first we create the data for the slice of the name
+        try atom.code.appendNTimes(self.base.allocator, 0, 4); // ptr to name, will be relocated
+        try atom.code.writer(self.base.allocator).writeIntLittle(u32, len - 1);
+        // create relocation to the error name
+        try atom.relocs.append(self.base.allocator, .{
+            .index = names_symbol_index,
+            .relocation_type = .R_WASM_MEMORY_ADDR_I32,
+            .offset = offset,
+            .addend = addend,
+        });
+        atom.size += @intCast(u32, slice_ty.abiSize(self.base.options.target));
+        addend += len;
+
+        // as we updated the error name table, we now store the actual name within the names atom
+        try names_atom.code.ensureUnusedCapacity(self.base.allocator, len);
+        names_atom.code.appendSliceAssumeCapacity(error_name);
+        names_atom.code.appendAssumeCapacity(0);
+
+        log.debug("Populated error name: '{s}'", .{error_name});
+    }
+    names_atom.size = addend;
+
+    const name_loc = names_atom.symbolLoc();
+    try self.resolved_symbols.put(self.base.allocator, name_loc, {});
+    try self.symbol_atom.put(self.base.allocator, name_loc, names_atom);
+
+    // link the atoms with the rest of the binary so they can be allocated
+    // and relocations will be performed.
+    try self.parseAtom(atom, .data);
+    try self.parseAtom(names_atom, .data);
+}
+
 fn resetState(self: *Wasm) void {
     for (self.segment_info.items) |*segment_info| {
         self.base.allocator.free(segment_info.name);
@@ -1372,6 +1496,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             return try llvm_object.flushModule(comp);
         }
     }
+
+    // ensure the error names table is populated when an error name is referenced
+    try self.populateErrorNameTable();
 
     // The amount of sections that will be written
     var section_count: u32 = 0;
