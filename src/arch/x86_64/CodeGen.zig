@@ -2884,6 +2884,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                         break :blk dst_mcv;
                     }
                 };
+                dst_mcv.freezeIfRegister(&self.register_manager);
+                defer dst_mcv.unfreezeIfRegister(&self.register_manager);
 
                 // Shift by struct_field_offset.
                 const shift = @intCast(u8, struct_field_offset * @sizeOf(usize));
@@ -2893,7 +2895,9 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 const max_reg_bit_width = Register.rax.size();
                 const mask_shift = @intCast(u6, (max_reg_bit_width - struct_field_ty.bitSize(self.target.*)));
                 const mask = (~@as(u64, 0)) >> mask_shift;
-                try self.genBinMathOpMir(.@"and", Type.usize, dst_mcv, .{ .immediate = mask });
+
+                const tmp_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = mask });
+                try self.genBinMathOpMir(.@"and", Type.usize, dst_mcv, .{ .register = tmp_reg });
 
                 break :result dst_mcv;
             },
