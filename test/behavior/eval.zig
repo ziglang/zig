@@ -853,3 +853,9 @@ test "comptime pointer load through elem_ptr" {
         assert(ptr[1].x == 2);
     }
 }
+
+test "debug variable type resolved through indirect zero-bit types" {
+    const T = struct { key: []void };
+    const slice: []const T = &[_]T{};
+    _ = slice;
+}

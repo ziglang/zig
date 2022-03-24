@@ -63,6 +63,11 @@ comptime_args_fn_inst: Zir.Inst.Index = 0,
 /// extra hash table lookup in the `monomorphed_funcs` set.
 /// Sema will set this to null when it takes ownership.
 preallocated_new_func: ?*Module.Fn = null,
+/// The key is `constant` AIR instructions to types that must be fully resolved
+/// after the current function body analysis is done.
+/// TODO: after upgrading to use InternPool change the key here to be an
+/// InternPool value index.
+types_to_resolve: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
 
 const std = @import("std");
 const mem = std.mem;
@@ -527,6 +532,7 @@ pub fn deinit(sema: *Sema) void {
     sema.air_values.deinit(gpa);
     sema.inst_map.deinit(gpa);
     sema.decl_val_table.deinit(gpa);
+    sema.types_to_resolve.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -1747,7 +1753,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     return sema.bitCast(block, ptr_ty, new_ptr, src);
                 }
                 const ty_op = air_datas[trash_inst].ty_op;
-                const operand_ty = sema.getTmpAir().typeOf(ty_op.operand);
+                const operand_ty = sema.typeOf(ty_op.operand);
                 const ptr_operand_ty = try Type.ptr(sema.arena, target, .{
                     .pointee_type = operand_ty,
                     .@"addrspace" = addr_space,
@@ -2592,7 +2598,7 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
         .@"addrspace" = target_util.defaultAddressSpace(target, .local),
     });
     try sema.requireRuntimeBlock(block, var_decl_src);
-    try sema.resolveTypeFully(block, ty_src, var_ty);
+    try sema.queueFullTypeResolution(var_ty);
     return block.addTy(.alloc, ptr_type);
 }
 
@@ -2614,7 +2620,7 @@ fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .@"addrspace" = target_util.defaultAddressSpace(target, .local),
     });
     try sema.requireRuntimeBlock(block, var_decl_src);
-    try sema.resolveTypeFully(block, ty_src, var_ty);
+    try sema.queueFullTypeResolution(var_ty);
     return block.addTy(.alloc, ptr_type);
 }
 
@@ -2770,7 +2776,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             }
 
             try sema.requireRuntimeBlock(block, src);
-            try sema.resolveTypeFully(block, ty_src, final_elem_ty);
+            try sema.queueFullTypeResolution(final_elem_ty);
 
             // Change it to a normal alloc.
             sema.air_instructions.set(ptr_inst, .{
@@ -4363,6 +4369,8 @@ fn addDbgVar(
         else => unreachable,
     }
 
+    try sema.queueFullTypeResolution(operand_ty);
+
     // Add the name to the AIR.
     const name_extra_index = @intCast(u32, sema.air_extra.items.len);
     const elements_used = name.len / 4 + 1;
@@ -5004,7 +5012,7 @@ fn analyzeCall(
             }
         }
 
-        try sema.resolveTypeFully(block, call_src, func_ty_info.return_type);
+        try sema.queueFullTypeResolution(func_ty_info.return_type);
 
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
             args.len);
@@ -5344,7 +5352,7 @@ fn instantiateGenericCall(
             total_i += 1;
         }
 
-        try sema.resolveTypeFully(block, call_src, new_fn_info.return_type);
+        try sema.queueFullTypeResolution(new_fn_info.return_type);
     }
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
         runtime_args_len);
@@ -12030,7 +12038,8 @@ fn unionInit(
     }
 
     try sema.requireRuntimeBlock(block, init_src);
-    try sema.resolveTypeLayout(block, union_ty_src, union_ty);
+    _ = union_ty_src;
+    try sema.queueFullTypeResolution(union_ty);
     return block.addUnionInit(union_ty, field_index, init);
 }
 
@@ -12205,6 +12214,7 @@ fn finishStructInit(
     }
 
     try sema.requireRuntimeBlock(block, src);
+    try sema.queueFullTypeResolution(struct_ty);
     return block.addAggregateInit(struct_ty, field_inits);
 }
 
@@ -12351,7 +12361,7 @@ fn zirArrayInit(
     };
 
     try sema.requireRuntimeBlock(block, runtime_src);
-    try sema.resolveTypeLayout(block, src, elem_ty);
+    try sema.queueFullTypeResolution(elem_ty);
 
     if (is_ref) {
         const target = sema.mod.getTarget();
@@ -18339,7 +18349,7 @@ fn storePtr2(
     // TODO handle if the element type requires comptime
 
     try sema.requireRuntimeBlock(block, runtime_src);
-    try sema.resolveTypeLayout(block, src, elem_ty);
+    try sema.queueFullTypeResolution(elem_ty);
     _ = try block.addBinOp(air_tag, ptr, operand);
 }
 
@@ -21907,7 +21917,7 @@ fn typeOf(sema: *Sema, inst: Air.Inst.Ref) Type {
     return sema.getTmpAir().typeOf(inst);
 }
 
-fn getTmpAir(sema: Sema) Air {
+pub fn getTmpAir(sema: Sema) Air {
     return .{
         .instructions = sema.air_instructions.slice(),
         .extra = sema.air_extra.items,
@@ -22571,4 +22581,9 @@ fn anonStructFieldIndex(
 
 fn kit(sema: *Sema, block: *Block, src: LazySrcLoc) Module.WipAnalysis {
     return .{ .sema = sema, .block = block, .src = src };
+}
+
+fn queueFullTypeResolution(sema: *Sema, ty: Type) !void {
+    const inst_ref = try sema.addType(ty);
+    try sema.types_to_resolve.append(sema.gpa, inst_ref);
 }

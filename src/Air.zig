@@ -1072,7 +1072,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .sub_with_overflow,
         .mul_with_overflow,
         .shl_with_overflow,
-        => return Type.initTag(.bool),
+        => return Type.bool,
     }
 }
 
