@@ -2884,6 +2884,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                         break :blk dst_mcv;
                     }
                 };
+                dst_mcv.freezeIfRegister(&self.register_manager);
+                defer dst_mcv.unfreezeIfRegister(&self.register_manager);
 
                 // Shift by struct_field_offset.
                 const shift = @intCast(u8, struct_field_offset * @sizeOf(usize));
@@ -2893,7 +2895,25 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 const max_reg_bit_width = Register.rax.size();
                 const mask_shift = @intCast(u6, (max_reg_bit_width - struct_field_ty.bitSize(self.target.*)));
                 const mask = (~@as(u64, 0)) >> mask_shift;
-                try self.genBinMathOpMir(.@"and", Type.usize, dst_mcv, .{ .immediate = mask });
+
+                const tmp_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = mask });
+                try self.genBinMathOpMir(.@"and", Type.usize, dst_mcv, .{ .register = tmp_reg });
+
+                const signedness: std.builtin.Signedness = blk: {
+                    if (struct_field_ty.zigTypeTag() != .Int) break :blk .unsigned;
+                    break :blk struct_field_ty.intInfo(self.target.*).signedness;
+                };
+                const field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+                if (signedness == .signed and field_size < 8) {
+                    _ = try self.addInst(.{
+                        .tag = .mov_sign_extend,
+                        .ops = (Mir.Ops{
+                            .reg1 = dst_mcv.register,
+                            .reg2 = registerAlias(dst_mcv.register, field_size),
+                        }).encode(),
+                        .data = undefined,
+                    });
+                }
 
                 break :result dst_mcv;
             },
@@ -5671,13 +5691,42 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
-    const vector_ty = self.air.typeOfIndex(inst);
-    const len = vector_ty.vectorLen();
+    const result_ty = self.air.typeOfIndex(inst);
+    const len = @intCast(usize, result_ty.arrayLen());
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+    const abi_size = @intCast(u32, result_ty.abiSize(self.target.*));
+    const abi_align = result_ty.abiAlignment(self.target.*);
     const result: MCValue = res: {
         if (self.liveness.isUnused(inst)) break :res MCValue.dead;
-        return self.fail("TODO implement airAggregateInit for x86_64", .{});
+        switch (result_ty.zigTypeTag()) {
+            .Struct => {
+                const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
+                for (elements) |elem, elem_i| {
+                    if (result_ty.structFieldValueComptime(elem_i) != null) continue; // comptime elem
+
+                    const elem_ty = result_ty.structFieldType(elem_i);
+                    const elem_off = result_ty.structFieldOffset(elem_i, self.target.*);
+                    const elem_mcv = try self.resolveInst(elem);
+                    try self.genSetStack(elem_ty, stack_offset - @intCast(i32, elem_off), elem_mcv, .{});
+                }
+                break :res MCValue{ .stack_offset = stack_offset };
+            },
+            .Array => {
+                const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
+                const elem_ty = result_ty.childType();
+                const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
+
+                for (elements) |elem, elem_i| {
+                    const elem_mcv = try self.resolveInst(elem);
+                    const elem_off = @intCast(i32, elem_size * elem_i);
+                    try self.genSetStack(elem_ty, stack_offset - elem_off, elem_mcv, .{});
+                }
+                break :res MCValue{ .stack_offset = stack_offset };
+            },
+            .Vector => return self.fail("TODO implement aggregate_init for vectors", .{}),
+            else => unreachable,
+        }
     };
 
     if (elements.len <= Liveness.bpi - 1) {
