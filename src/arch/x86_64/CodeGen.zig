@@ -5692,7 +5692,7 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     const result_ty = self.air.typeOfIndex(inst);
-    const len = result_ty.arrayLen();
+    const len = @intCast(usize, result_ty.arrayLen());
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
     const abi_size = @intCast(u32, result_ty.abiSize(self.target.*));
