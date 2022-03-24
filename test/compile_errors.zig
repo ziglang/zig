@@ -3,6 +3,42 @@ const builtin = @import("builtin");
 const TestContext = @import("../src/test.zig").TestContext;
 
 pub fn addCases(ctx: *TestContext) !void {
+    var parent_dir = try std.fs.cwd().openDir(std.fs.path.dirname(@src().file).?, .{ .no_follow = true });
+    defer parent_dir.close();
+
+    var compile_errors_dir = try parent_dir.openDir("compile_errors", .{ .no_follow = true });
+    defer compile_errors_dir.close();
+
+    {
+        var stage2_dir = try compile_errors_dir.openDir("stage2", .{ .iterate = true, .no_follow = true });
+        defer stage2_dir.close();
+
+        const one_test_case_per_file = false;
+        try ctx.addErrorCasesFromDir("stage2 compile errors", stage2_dir, .stage2, .Obj, false, one_test_case_per_file);
+    }
+
+    {
+        var stage1_dir = try compile_errors_dir.openDir("stage1", .{ .no_follow = true });
+        defer stage1_dir.close();
+        {
+            const one_test_case_per_file = true;
+
+            var obj_dir = try stage1_dir.openDir("obj", .{ .iterate = true, .no_follow = true });
+            defer obj_dir.close();
+
+            try ctx.addErrorCasesFromDir("stage1", obj_dir, .stage1, .Obj, false, one_test_case_per_file);
+
+            var exe_dir = try stage1_dir.openDir("exe", .{ .iterate = true, .no_follow = true });
+            defer exe_dir.close();
+
+            try ctx.addErrorCasesFromDir("stage1", exe_dir, .stage1, .Exe, false, one_test_case_per_file);
+
+            var test_dir = try stage1_dir.openDir("test", .{ .iterate = true, .no_follow = true });
+            defer test_dir.close();
+
+            try ctx.addErrorCasesFromDir("stage1", test_dir, .stage1, .Exe, true, one_test_case_per_file);
+        }
+    }
     {
         var case = ctx.obj("stage2 compile errors", .{});
 

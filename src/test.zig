@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 
 const zig_h = link.File.C.zig_h;
 
+var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
 const hr = "=" ** 80;
 
 test {
@@ -592,6 +593,104 @@ pub const TestContext = struct {
         var case = ctx.addObj(name, target, .ZIR);
         case.addError(src, expected_errors);
         case.compiles(fixed_src);
+    }
+
+    /// Adds a compile-error test for each file in the provided directory, using the
+    /// selected backend and output mode. If `one_test_case_per_file` is true, a new
+    /// test case is created for each file. Otherwise, a single test case is used for
+    /// all tests.
+    ///
+    /// Each file should include a test manifest as a contiguous block of comments at
+    /// the end of the file. The first line should be the test case name, followed by
+    /// a blank line, then one expected errors on each line in the form
+    /// `:line:column: error: message`
+    pub fn addErrorCasesFromDir(
+        ctx: *TestContext,
+        name: []const u8,
+        dir: std.fs.Dir,
+        backend: Backend,
+        output_mode: std.builtin.OutputMode,
+        is_test: bool,
+        one_test_case_per_file: bool,
+    ) !void {
+        if (skip_compile_errors) return;
+
+        const gpa = general_purpose_allocator.allocator();
+        var case: ?*Case = null;
+
+        var it = dir.iterate();
+        while (try it.next()) |entry| {
+            if (entry.kind != .File) continue;
+
+            var contents = try dir.readFileAlloc(gpa, entry.name, std.math.maxInt(u32));
+            defer gpa.free(contents);
+
+            // The manifest is the last contiguous block of comments in the file
+            // We scan for the beginning by searching backward for the first non-empty line that does not start with "//"
+            var manifest_start: ?usize = null;
+            var manifest_end: usize = contents.len;
+            if (contents.len > 0) {
+                var cursor: usize = contents.len - 1;
+                while (true) {
+                    // Move to beginning of line
+                    while (cursor > 0 and contents[cursor - 1] != '\n') cursor -= 1;
+
+                    // Check if line is non-empty and does not start with "//"
+                    if (cursor + 1 < contents.len and contents[cursor + 1] != '\n' and contents[cursor + 1] != '\r') {
+                        if (std.mem.startsWith(u8, contents[cursor..], "//")) {
+                            manifest_start = cursor;
+                        } else {
+                            break;
+                        }
+                    } else manifest_end = cursor;
+
+                    // Move to previous line
+                    if (cursor != 0) cursor -= 1 else break;
+                }
+            }
+
+            var errors = std.ArrayList([]const u8).init(gpa);
+            defer errors.deinit();
+
+            if (manifest_start) |start| {
+                // Due to the above processing, we know that this is a contiguous block of comments
+                var manifest_it = std.mem.tokenize(u8, contents[start..manifest_end], "\r\n");
+
+                // First line is the test case name
+                const first_line = manifest_it.next() orelse return error.InvalidFile;
+                const case_name = try std.mem.concat(gpa, u8, &.{ name, ": ", std.mem.trim(u8, first_line[2..], " \t") });
+
+                // If the second line is present, it should be blank
+                if (manifest_it.next()) |second_line| {
+                    if (std.mem.trim(u8, second_line[2..], " \t").len != 0) return error.InvalidFile;
+                }
+
+                // All following lines are expected error messages
+                while (manifest_it.next()) |line| try errors.append(try gpa.dupe(u8, std.mem.trim(u8, line[2..], " \t")));
+
+                // The entire file contents is the source, including the manifest
+                const src = try gpa.dupeZ(u8, contents);
+
+                // Create a new test case, if necessary
+                case = if (one_test_case_per_file or case == null) blk: {
+                    ctx.cases.append(TestContext.Case{
+                        .name = if (one_test_case_per_file) case_name else name,
+                        .target = .{},
+                        .backend = backend,
+                        .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
+                        .is_test = is_test,
+                        .output_mode = output_mode,
+                        .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
+                    }) catch @panic("out of memory");
+                    break :blk &ctx.cases.items[ctx.cases.items.len - 1];
+                } else case.?;
+
+                // Add our update + expected errors
+                case.?.addError(src, errors.items);
+            } else {
+                return error.InvalidFile; // Manifests are currently mandatory
+            }
+        }
     }
 
     fn init() TestContext {
