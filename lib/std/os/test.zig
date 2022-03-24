@@ -832,9 +832,12 @@ test "writev longer than IOV_MAX" {
 }
 
 test "POSIX file locking with fcntl" {
-    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows or native_os == .wasi) {
+        // Not POSIX.
+        return error.SkipZigTest;
+    }
 
-    if (native_os == .linux) {
+    if (true) {
         // https://github.com/ziglang/zig/issues/11074
         return error.SkipZigTest;
     }
