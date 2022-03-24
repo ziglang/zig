@@ -5671,13 +5671,31 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
-    const vector_ty = self.air.typeOfIndex(inst);
-    const len = vector_ty.vectorLen();
+    const result_ty = self.air.typeOfIndex(inst);
+    const len = result_ty.vectorLen();
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+    const abi_size = @intCast(u32, result_ty.abiSize(self.target.*));
+    const abi_align = result_ty.abiAlignment(self.target.*);
     const result: MCValue = res: {
         if (self.liveness.isUnused(inst)) break :res MCValue.dead;
-        return self.fail("TODO implement airAggregateInit for x86_64", .{});
+        switch (result_ty.zigTypeTag()) {
+            .Struct => {
+                const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
+                for (elements) |elem, elem_i| {
+                    if (result_ty.structFieldValueComptime(elem_i) != null) continue; // comptime elem
+
+                    const elem_ty = result_ty.structFieldType(elem_i);
+                    const elem_off = result_ty.structFieldOffset(elem_i, self.target.*);
+                    const elem_mcv = try self.resolveInst(elem);
+                    try self.genSetStack(elem_ty, stack_offset - @intCast(i32, elem_off), elem_mcv, .{});
+                }
+                break :res MCValue{ .stack_offset = stack_offset };
+            },
+            .Array => return self.fail("TODO implement aggregate_init for arrays", .{}),
+            .Vector => return self.fail("TODO implement aggregate_init for vectors", .{}),
+            else => unreachable,
+        }
     };
 
     if (elements.len <= Liveness.bpi - 1) {
