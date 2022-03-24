@@ -3792,6 +3792,7 @@ pub const usage_fmt =
     \\   --check                List non-conforming files and exit with an error
     \\                          if the list is non-empty
     \\   --ast-check            Run zig ast-check on every file
+    \\   --exclude [file]       Exclude file or directory from formatting
     \\
     \\
 ;
@@ -3815,6 +3816,8 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
     var check_ast_flag: bool = false;
     var input_files = ArrayList([]const u8).init(gpa);
     defer input_files.deinit();
+    var excluded_files = ArrayList([]const u8).init(gpa);
+    defer excluded_files.deinit();
 
     {
         var i: usize = 0;
@@ -3840,6 +3843,13 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                     check_flag = true;
                 } else if (mem.eql(u8, arg, "--ast-check")) {
                     check_ast_flag = true;
+                } else if (mem.eql(u8, arg, "--exclude")) {
+                    if (i + 1 >= args.len) {
+                        fatal("expected parameter after --exclude", .{});
+                    }
+                    i += 1;
+                    const next_arg = args[i];
+                    try excluded_files.append(next_arg);
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -3939,6 +3949,16 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
     };
     defer fmt.seen.deinit();
     defer fmt.out_buffer.deinit();
+
+    // Mark any excluded files/directories as already seen,
+    // so that they are skipped later during actual processing
+    for (excluded_files.items) |file_path| {
+        var dir = try fs.cwd().openDir(file_path, .{});
+        defer dir.close();
+
+        const stat = try dir.stat();
+        try fmt.seen.put(stat.inode, {});
+    }
 
     for (input_files.items) |file_path| {
         try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
