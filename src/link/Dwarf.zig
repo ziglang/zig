@@ -83,8 +83,9 @@ pub const abbrev_struct_type = 6;
 pub const abbrev_struct_member = 7;
 pub const abbrev_enum_type = 8;
 pub const abbrev_enum_variant = 9;
-pub const abbrev_pad1 = 10;
-pub const abbrev_parameter = 11;
+pub const abbrev_union_type = 10;
+pub const abbrev_pad1 = 11;
+pub const abbrev_parameter = 12;
 
 /// The reloc offset for the virtual address of a function in its Line Number Program.
 /// Size is a virtual address integer.
@@ -452,6 +453,8 @@ pub fn commitDeclDebugInfo(
     var dbg_type_arena = std.heap.ArenaAllocator.init(gpa);
     defer dbg_type_arena.deinit();
 
+    var nested_ref4_relocs = std.ArrayList(u32).init(gpa);
+    defer nested_ref4_relocs.deinit();
     {
         // Now we emit the .debug_info types of the Decl. These will count towards the size of
         // the buffer, so we have to do it before computing the offset, and we can't perform the actual
@@ -463,7 +466,13 @@ pub fn commitDeclDebugInfo(
                 .target = self.target,
             }).?;
             value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
-            try self.addDbgInfoType(dbg_type_arena.allocator(), ty, dbg_info_buffer, dbg_info_type_relocs);
+            try self.addDbgInfoType(
+                dbg_type_arena.allocator(),
+                ty,
+                dbg_info_buffer,
+                dbg_info_type_relocs,
+                &nested_ref4_relocs,
+            );
         }
     }
 
@@ -478,12 +487,26 @@ pub fn commitDeclDebugInfo(
         // Now that we have the offset assigned we can finally perform type relocations.
         for (dbg_info_type_relocs.values()) |value| {
             for (value.relocs.items) |off| {
-                mem.writeIntLittle(
+                mem.writeInt(
                     u32,
                     dbg_info_buffer.items[off..][0..4],
                     atom.off + value.off,
+                    target_endian,
                 );
             }
+        }
+        // Offsets to positions with known a priori relative displacement values.
+        // Here, we just need to add the offset of the atom to the read value in the
+        // relocated cell.
+        // TODO Should probably generalise this with type relocs.
+        for (nested_ref4_relocs.items) |off| {
+            const addend = mem.readInt(u32, dbg_info_buffer.items[off..][0..4], target_endian);
+            mem.writeInt(
+                u32,
+                dbg_info_buffer.items[off..][0..4],
+                atom.off + addend,
+                target_endian,
+            );
         }
     }
 
@@ -751,8 +774,10 @@ fn addDbgInfoType(
     ty: Type,
     dbg_info_buffer: *std.ArrayList(u8),
     dbg_info_type_relocs: *File.DbgInfoTypeRelocsTable,
+    nested_ref4_relocs: *std.ArrayList(u32),
 ) error{OutOfMemory}!void {
     const target = self.target;
+    const target_endian = self.target.cpu.arch.endian();
     var relocs = std.ArrayList(struct { ty: Type, reloc: u32 }).init(arena);
 
     switch (ty.zigTypeTag()) {
@@ -944,7 +969,6 @@ fn addDbgInfoType(
                 .enum_numbered => ty.castTag(.enum_numbered).?.data.values,
                 else => unreachable,
             };
-            const target_endian = self.target.cpu.arch.endian();
             for (fields.keys()) |field_name, field_i| {
                 // DW.AT.enumerator
                 try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2 + @sizeOf(u64));
@@ -964,6 +988,94 @@ fn addDbgInfoType(
 
             // DW.AT.enumeration_type delimit children
             try dbg_info_buffer.append(0);
+        },
+        .Union => {
+            const layout = ty.unionGetLayout(target);
+            const union_obj = ty.cast(Type.Payload.Union).?.data;
+            const payload_offset = if (layout.tag_align >= layout.payload_align) layout.tag_size else 0;
+            const tag_offset = if (layout.tag_align >= layout.payload_align) 0 else layout.payload_size;
+            const is_tagged = layout.tag_size > 0;
+            const union_name = try ty.nameAllocArena(arena, target);
+
+            // TODO this is temporary to match current state of unions in Zig - we don't yet have
+            // safety checks implemented meaning the implicit tag is not yet stored and generated
+            // for untagged unions.
+            if (is_tagged) {
+                // DW.AT.structure_type
+                try dbg_info_buffer.append(abbrev_struct_type);
+                // DW.AT.byte_size, DW.FORM.sdata
+                try leb128.writeULEB128(dbg_info_buffer.writer(), layout.abi_size);
+                // DW.AT.name, DW.FORM.string
+                try dbg_info_buffer.ensureUnusedCapacity(union_name.len + 1);
+                dbg_info_buffer.appendSliceAssumeCapacity(union_name);
+                dbg_info_buffer.appendAssumeCapacity(0);
+
+                // DW.AT.member
+                try dbg_info_buffer.ensureUnusedCapacity(9);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("payload");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                const inner_union_index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.ensureUnusedCapacity(4);
+                mem.writeInt(
+                    u32,
+                    dbg_info_buffer.addManyAsArrayAssumeCapacity(4),
+                    @intCast(u32, inner_union_index + 5),
+                    target_endian,
+                );
+                try nested_ref4_relocs.append(@intCast(u32, inner_union_index));
+                // DW.AT.data_member_location, DW.FORM.sdata
+                try leb128.writeULEB128(dbg_info_buffer.writer(), payload_offset);
+            }
+
+            // DW.AT.union_type
+            try dbg_info_buffer.append(abbrev_union_type);
+            // DW.AT.byte_size, DW.FORM.sdata,
+            try leb128.writeULEB128(dbg_info_buffer.writer(), layout.payload_size);
+            // DW.AT.name, DW.FORM.string
+            if (is_tagged) {
+                try dbg_info_buffer.writer().print("AnonUnion\x00", .{});
+            } else {
+                try dbg_info_buffer.writer().print("{s}\x00", .{union_name});
+            }
+
+            const fields = ty.unionFields();
+            for (fields.keys()) |field_name| {
+                const field = fields.get(field_name).?;
+                if (!field.ty.hasRuntimeBits()) continue;
+                // DW.AT.member
+                try dbg_info_buffer.append(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                try dbg_info_buffer.writer().print("{s}\x00", .{field_name});
+                // DW.AT.type, DW.FORM.ref4
+                const index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = field.ty, .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                try dbg_info_buffer.append(0);
+            }
+            // DW.AT.union_type delimit children
+            try dbg_info_buffer.append(0);
+
+            if (is_tagged) {
+                // DW.AT.member
+                try dbg_info_buffer.ensureUnusedCapacity(5);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("tag");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                const index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = union_obj.tag_ty, .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                try leb128.writeULEB128(dbg_info_buffer.writer(), tag_offset);
+
+                // DW.AT.structure_type delimit children
+                try dbg_info_buffer.append(0);
+            }
         },
         else => {
             log.debug("TODO implement .debug_info for type '{}'", .{ty.fmtDebug()});
@@ -1069,6 +1181,15 @@ pub fn writeDbgAbbrev(self: *Dwarf, file: *File) !void {
         DW.FORM.string,
         DW.AT.const_value,
         DW.FORM.data8,
+        0,
+        0, // table sentinel
+        abbrev_union_type,
+        DW.TAG.union_type,
+        DW.CHILDREN.yes, // header
+        DW.AT.byte_size,
+        DW.FORM.sdata,
+        DW.AT.name,
+        DW.FORM.string,
         0,
         0, // table sentinel
         abbrev_pad1,
