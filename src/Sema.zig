@@ -14805,6 +14805,7 @@ fn analyzeShuffle(
 fn zirSelect(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Select, inst_data.payload_index).data;
+    const target = sema.mod.getTarget();
 
     const elem_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const pred_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
@@ -14813,35 +14814,21 @@ fn zirSelect(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     const elem_ty = try sema.resolveType(block, elem_ty_src, extra.elem_type);
     try sema.checkVectorElemType(block, elem_ty_src, elem_ty);
-    const pred = sema.resolveInst(extra.pred);
-    const a = sema.resolveInst(extra.a);
-    const b = sema.resolveInst(extra.b);
-    const target = sema.mod.getTarget();
+    const pred_uncoerced = sema.resolveInst(extra.pred);
+    const pred_ty = sema.typeOf(pred_uncoerced);
 
-    const pred_ty = sema.typeOf(pred);
-    switch (try pred_ty.zigTypeTagOrPoison()) {
-        .Vector => {
-            const scalar_ty = pred_ty.childType();
-            if (!scalar_ty.eql(Type.bool, target)) {
-                const bool_vec_ty = try Type.vector(sema.arena, pred_ty.vectorLen(), Type.bool);
-                return sema.fail(block, pred_src, "Expected '{}', found '{}'", .{ bool_vec_ty.fmt(target), pred_ty.fmt(target) });
-            }
-        },
-        else => return sema.fail(block, pred_src, "Expected vector type, found '{}'", .{pred_ty.fmt(target)}),
-    }
+    const vec_len_u64 = switch (try pred_ty.zigTypeTagOrPoison()) {
+        .Vector, .Array => pred_ty.arrayLen(),
+        else => return sema.fail(block, pred_src, "expected vector or array, found '{}'", .{pred_ty.fmt(target)}),
+    };
+    const vec_len = try sema.usizeCast(block, pred_src, vec_len_u64);
 
-    const vec_len = pred_ty.vectorLen();
+    const bool_vec_ty = try Type.vector(sema.arena, vec_len, Type.bool);
+    const pred = try sema.coerce(block, bool_vec_ty, pred_uncoerced, pred_src);
+
     const vec_ty = try Type.vector(sema.arena, vec_len, elem_ty);
-
-    const a_ty = sema.typeOf(a);
-    if (!a_ty.eql(vec_ty, target)) {
-        return sema.fail(block, a_src, "Expected '{}', found '{}'", .{ vec_ty.fmt(target), a_ty.fmt(target) });
-    }
-
-    const b_ty = sema.typeOf(b);
-    if (!b_ty.eql(vec_ty, target)) {
-        return sema.fail(block, b_src, "Expected '{}', found '{}'", .{ vec_ty.fmt(target), b_ty.fmt(target) });
-    }
+    const a = try sema.coerce(block, vec_ty, sema.resolveInst(extra.a), a_src);
+    const b = try sema.coerce(block, vec_ty, sema.resolveInst(extra.b), b_src);
 
     const maybe_pred = try sema.resolveMaybeUndefVal(block, pred_src, pred);
     const maybe_a = try sema.resolveMaybeUndefVal(block, a_src, a);
