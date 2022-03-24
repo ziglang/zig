@@ -526,7 +526,15 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
-            .bytes => return self.copyPayloadShallow(arena, Payload.Bytes),
+            .bytes => {
+                const bytes = self.castTag(.bytes).?.data;
+                const new_payload = try arena.create(Payload.Bytes);
+                new_payload.* = .{
+                    .base = .{ .tag = .bytes },
+                    .data = try arena.dupe(u8, bytes),
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
             .repeated,
             .eu_payload,
             .opt_payload,

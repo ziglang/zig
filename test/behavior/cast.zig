@@ -462,7 +462,7 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
 }
 
 test "implicit cast from *const [N]T to []const T" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testCastConstArrayRefToConstSlice();
     comptime try testCastConstArrayRefToConstSlice();
