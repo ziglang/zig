@@ -1008,7 +1008,7 @@ pub const Value = extern union {
         space: *BigIntSpace,
         target: Target,
         sema_kit: ?Module.WipAnalysis,
-    ) !BigIntConst {
+    ) Module.CompileError!BigIntConst {
         switch (val.tag()) {
             .zero,
             .bool_false,
@@ -1033,6 +1033,14 @@ pub const Value = extern union {
                 }
                 const x = ty.abiAlignment(target);
                 return BigIntMutable.init(&space.limbs, x).toConst();
+            },
+
+            .elem_ptr => {
+                const elem_ptr = val.castTag(.elem_ptr).?.data;
+                const array_addr = (try elem_ptr.array_ptr.getUnsignedIntAdvanced(target, sema_kit)).?;
+                const elem_size = elem_ptr.elem_ty.abiSize(target);
+                const new_addr = array_addr + elem_size * elem_ptr.index;
+                return BigIntMutable.init(&space.limbs, new_addr).toConst();
             },
 
             else => unreachable,
@@ -1815,7 +1823,10 @@ pub const Value = extern union {
         return orderAgainstZeroAdvanced(lhs, null) catch unreachable;
     }
 
-    pub fn orderAgainstZeroAdvanced(lhs: Value, sema_kit: ?Module.WipAnalysis) !std.math.Order {
+    pub fn orderAgainstZeroAdvanced(
+        lhs: Value,
+        sema_kit: ?Module.WipAnalysis,
+    ) Module.CompileError!std.math.Order {
         return switch (lhs.tag()) {
             .zero,
             .bool_false,
@@ -1850,6 +1861,21 @@ pub const Value = extern union {
             .float_64 => std.math.order(lhs.castTag(.float_64).?.data, 0),
             .float_80 => std.math.order(lhs.castTag(.float_80).?.data, 0),
             .float_128 => std.math.order(lhs.castTag(.float_128).?.data, 0),
+
+            .elem_ptr => {
+                const elem_ptr = lhs.castTag(.elem_ptr).?.data;
+                switch (try elem_ptr.array_ptr.orderAgainstZeroAdvanced(sema_kit)) {
+                    .lt => unreachable,
+                    .gt => return .gt,
+                    .eq => {
+                        if (elem_ptr.index == 0) {
+                            return .eq;
+                        } else {
+                            return .gt;
+                        }
+                    },
+                }
+            },
 
             else => unreachable,
         };

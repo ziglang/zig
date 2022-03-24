@@ -366,11 +366,10 @@ test "pointer sentinel with +inf" {
 }
 
 test "pointer to array at fixed address" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    const array = @intToPtr(*volatile [1]u32, 0x10);
+    const array = @intToPtr(*volatile [2]u32, 0x10);
     // Silly check just to reference `array`
     try expect(@ptrToInt(&array[0]) == 0x10);
+    try expect(@ptrToInt(&array[1]) == 0x14);
 }
 
 test "pointer arithmetic affects the alignment" {
