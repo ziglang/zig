@@ -175,9 +175,12 @@ pub fn Reader(
                 return self.reader.readUntilDelimiterAlloc(self.allocator, '\n', self.max_size);
             }
         };
-        // Creates a LinesIterator using given allocator.
-        pub fn readLinesAlloc(self: Self, allocator: mem.Allocator) LinesIterator {
-            return LinesIterator.init(allocator, self, std.math.maxInt(usize));
+        /// Creates a new `LinesIterator` using given allocator. LinesIterator stores a reference
+        /// to the `io.Reader` and also the allocator, for each call to `next` method on Iterator 
+        /// it will allocate enough memory to read a line and if memory space for given line is 
+        /// larger than `max_size` it will return `error.StreamTooLong`.
+        pub fn readLinesAlloc(self: Self, allocator: mem.Allocator, max_size: usize) LinesIterator {
+            return LinesIterator.init(allocator, self, max_size);
         }
 
         /// Allocates enough memory to read until `delimiter` or end-of-stream.
