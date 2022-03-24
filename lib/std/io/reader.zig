@@ -157,6 +157,29 @@ pub fn Reader(
             }
         }
 
+        const LinesIterator = struct {
+            const Iter = @This();
+
+            reader: Self,
+            max_size: usize,
+            allocator: mem.Allocator,
+            pub fn init(allocator: mem.Allocator, reader: Self, max_size: usize) Iter {
+                return .{
+                    .reader = reader,
+                    .max_size = max_size,
+                    .allocator = allocator,
+                };
+            }
+
+            pub fn next(self: Iter) ?[]const u8 {
+                return self.reader.readUntilDelimiterAlloc(self.allocator, '\n', self.max_size);
+            }
+        };
+        // Creates a LinesIterator using given allocator.
+        pub fn readLinesAlloc(self: Self, allocator: mem.Allocator) LinesIterator {
+            return LinesIterator.init(allocator, self, std.math.maxInt(usize));
+        }
+
         /// Allocates enough memory to read until `delimiter` or end-of-stream.
         /// If the allocated memory would be greater than `max_size`, returns
         /// `error.StreamTooLong`. If end-of-stream is found, returns the rest
@@ -636,4 +659,16 @@ test "Reader.readUntilDelimiterOrEof writes all bytes read to the output buffer"
     try std.testing.expectEqualStrings("0000\n", &buf);
     try std.testing.expectError(error.StreamTooLong, reader.readUntilDelimiterOrEof(&buf, '\n'));
     try std.testing.expectEqualStrings("12345", &buf);
+}
+
+test "Reader.readLinesAlloc read lines from reader" {
+    const a = std.testing.allocator;
+    const reader = std.io.fixedBufferStream("0000\n12345").reader();
+    var lines = reader.readLinesAlloc(a);
+
+    const first_line = lines.next();
+    const second_line = lines.next();
+
+    try std.testing.expectEqualStrings("0000", first_line);
+    try std.testing.expectEqualStrings("12345", second_line);
 }
