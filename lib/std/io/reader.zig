@@ -667,7 +667,7 @@ test "Reader.readUntilDelimiterOrEof writes all bytes read to the output buffer"
 test "Reader.readLinesAlloc read lines from reader" {
     const a = std.testing.allocator;
     const reader = std.io.fixedBufferStream("0000\n12345").reader();
-    var lines = reader.readLinesAlloc(a);
+    var lines = reader.readLinesAlloc(a, std.math.maxInt(usize));
 
     const first_line = lines.next();
     const second_line = lines.next();
