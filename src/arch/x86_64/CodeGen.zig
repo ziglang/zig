@@ -5672,7 +5672,7 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     const result_ty = self.air.typeOfIndex(inst);
-    const len = result_ty.vectorLen();
+    const len = result_ty.arrayLen();
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
     const abi_size = @intCast(u32, result_ty.abiSize(self.target.*));
@@ -5692,7 +5692,18 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                 }
                 break :res MCValue{ .stack_offset = stack_offset };
             },
-            .Array => return self.fail("TODO implement aggregate_init for arrays", .{}),
+            .Array => {
+                const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
+                const elem_ty = result_ty.childType();
+                const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
+
+                for (elements) |elem, elem_i| {
+                    const elem_mcv = try self.resolveInst(elem);
+                    const elem_off = @intCast(i32, elem_size * elem_i);
+                    try self.genSetStack(elem_ty, stack_offset - elem_off, elem_mcv, .{});
+                }
+                break :res MCValue{ .stack_offset = stack_offset };
+            },
             .Vector => return self.fail("TODO implement aggregate_init for vectors", .{}),
             else => unreachable,
         }
