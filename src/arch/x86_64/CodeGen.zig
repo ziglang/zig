@@ -2899,6 +2899,22 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 const tmp_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = mask });
                 try self.genBinMathOpMir(.@"and", Type.usize, dst_mcv, .{ .register = tmp_reg });
 
+                const signedness: std.builtin.Signedness = blk: {
+                    if (struct_field_ty.zigTypeTag() != .Int) break :blk .unsigned;
+                    break :blk struct_field_ty.intInfo(self.target.*).signedness;
+                };
+                const field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+                if (signedness == .signed and field_size < 8) {
+                    _ = try self.addInst(.{
+                        .tag = .mov_sign_extend,
+                        .ops = (Mir.Ops{
+                            .reg1 = dst_mcv.register,
+                            .reg2 = registerAlias(dst_mcv.register, field_size),
+                        }).encode(),
+                        .data = undefined,
+                    });
+                }
+
                 break :result dst_mcv;
             },
             else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
