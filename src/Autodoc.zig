@@ -608,6 +608,7 @@ const DocData = struct {
                         \\, "value": {s}1 }} }}
                     , .{neg});
                     // TODO: uncomment once float panic is fixed in stdlib
+                    //       See: https://github.com/ziglang/zig/issues/11283
                     // try w.print(
                     //     \\, "value": {s}{e} }} }}
                     // , .{ neg, v.value });
@@ -621,7 +622,6 @@ const DocData = struct {
                 .@"null" => |v| try std.json.stringify(v, options, w),
                 .typeOf, .sizeOf => |v| try std.json.stringify(v, options, w),
                 .compileError => |v| try std.json.stringify(v, options, w),
-                .string => |v| try std.json.stringify(v, options, w),
                 .fieldRef => |v| try std.json.stringify(
                     struct { fieldRef: FieldRef }{ .fieldRef = v },
                     options,
@@ -642,6 +642,11 @@ const DocData = struct {
                 },
                 .array => |v| try std.json.stringify(
                     struct { @"array": Array }{ .@"array" = v },
+                    options,
+                    w,
+                ),
+                .string => |v| try std.json.stringify(
+                    struct { string: []const u8 }{ .string = v },
                     options,
                     w,
                 ),
