@@ -4516,7 +4516,7 @@ fn lookupInNamespace(
 
         while (check_i < checked_namespaces.count()) : (check_i += 1) {
             const check_ns = checked_namespaces.keys()[check_i];
-            if (check_ns.decls.get(ident_name)) |decl| {
+            if (check_ns.decls.getKeyAdapted(ident_name, Module.DeclAdapter{})) |decl| {
                 // Skip decls which are not marked pub, which are in a different
                 // file than the `a.b`/`@hasDecl` syntax.
                 if (decl.is_pub or src_file == decl.getFileScope()) {
@@ -4559,7 +4559,7 @@ fn lookupInNamespace(
                 return sema.failWithOwnedErrorMsg(block, msg);
             },
         }
-    } else if (namespace.decls.get(ident_name)) |decl| {
+    } else if (namespace.decls.getKeyAdapted(ident_name, Module.DeclAdapter{})) |decl| {
         try mod.declareDeclDependency(sema.owner_decl, decl);
         return decl;
     }
@@ -11502,12 +11502,11 @@ fn typeInfoDecls(
     const decls_len = if (opt_namespace) |ns| ns.decls.count() else 0;
     const decls_vals = try decls_anon_decl.arena().alloc(Value, decls_len);
     for (decls_vals) |*decls_val, i| {
-        const decl = opt_namespace.?.decls.values()[i];
-        const name = opt_namespace.?.decls.keys()[i];
+        const decl = opt_namespace.?.decls.keys()[i];
         const name_val = v: {
             var anon_decl = try block.startAnonDecl(src);
             defer anon_decl.deinit();
-            const bytes = try anon_decl.arena().dupeZ(u8, name);
+            const bytes = try anon_decl.arena().dupeZ(u8, mem.sliceTo(decl.name, 0));
             const new_decl = try anon_decl.finish(
                 try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
