@@ -443,6 +443,7 @@ fn copyWithPartialInline(s: []u32, b: []u8) void {
 test "binary math operator in partially inlined function" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     var s: [4]u32 = undefined;
     var b: [16]u8 = undefined;

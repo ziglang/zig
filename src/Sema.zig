@@ -6781,14 +6781,27 @@ fn intCast(
         return sema.fail(block, operand_src, "unable to cast runtime value to 'comptime_int'", .{});
     }
 
-    // TODO insert safety check to make sure the value fits in the dest type
-    _ = runtime_safety;
-
     if ((try sema.typeHasOnePossibleValue(block, dest_ty_src, dest_ty))) |opv| {
         return sema.addConstant(dest_ty, opv);
     }
 
     try sema.requireRuntimeBlock(block, operand_src);
+    if (runtime_safety) {
+        const target = sema.mod.getTarget();
+        const operand_ty = sema.typeOf(operand);
+        const actual_info = operand_ty.intInfo(target);
+        const wanted_info = dest_ty.intInfo(target);
+        const actual_bits = actual_info.bits;
+        const wanted_bits = wanted_info.bits;
+
+        // requirement: operand can fit into bit size of destination type
+        if (actual_bits > wanted_bits) {
+            const max_int = try dest_ty.maxInt(sema.arena, target);
+            const max_int_inst = try sema.addConstant(operand_ty, max_int);
+            const is_in_range = try block.addBinOp(.cmp_lte, operand, max_int_inst);
+            try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+        }
+    }
     return block.addTyOp(.intcast, dest_ty, operand);
 }
 
@@ -16166,6 +16179,7 @@ pub const PanicId = enum {
     incorrect_alignment,
     invalid_error_code,
     index_out_of_bounds,
+    cast_truncated_data,
 };
 
 fn addSafetyCheck(
@@ -16288,6 +16302,7 @@ fn safetyPanic(
         .incorrect_alignment => "incorrect alignment",
         .invalid_error_code => "invalid error code",
         .index_out_of_bounds => "attempt to index out of bounds",
+        .cast_truncated_data => "integer cast truncated bits",
     };
 
     const msg_inst = msg_inst: {
