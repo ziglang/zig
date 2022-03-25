@@ -9064,6 +9064,18 @@ fn zirOverflowArithmetic(
     const maybe_lhs_val = try sema.resolveMaybeUndefVal(block, lhs_src, lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefVal(block, rhs_src, rhs);
 
+    const types = try sema.arena.alloc(Type, 2);
+    const values = try sema.arena.alloc(Value, 2);
+    const tuple_ty = try Type.Tag.tuple.create(sema.arena, .{
+        .types = types,
+        .values = values,
+    });
+
+    types[0] = dest_ty;
+    types[1] = Type.initTag(.u1);
+    values[0] = Value.initTag(.unreachable_value);
+    values[1] = Value.initTag(.unreachable_value);
+
     const result: struct {
         overflowed: enum { yes, no, undef },
         wrapped: Air.Inst.Ref,
@@ -9188,16 +9200,24 @@ fn zirOverflowArithmetic(
         };
 
         try sema.requireRuntimeBlock(block, src);
-        return block.addInst(.{
+
+        const tuple = try block.addInst(.{
             .tag = air_tag,
-            .data = .{ .pl_op = .{
-                .operand = ptr,
-                .payload = try sema.addExtra(Air.Bin{
+            .data = .{ .ty_pl = .{
+                .ty = try block.sema.addType(tuple_ty),
+                .payload = try block.sema.addExtra(Air.Bin{
                     .lhs = lhs,
                     .rhs = rhs,
                 }),
             } },
         });
+
+        const wrapped = try block.addStructFieldVal(tuple, 0, dest_ty);
+        try sema.storePtr2(block, src, ptr, ptr_src, wrapped, src, .store);
+
+        const overflow_bit = try block.addStructFieldVal(tuple, 1, Type.initTag(.u1));
+        const zero_u1 = try sema.addConstant(Type.initTag(.u1), Value.zero);
+        return try block.addBinOp(.cmp_neq, overflow_bit, zero_u1);
     };
 
     try sema.storePtr2(block, src, ptr, ptr_src, result.wrapped, src, .store);
