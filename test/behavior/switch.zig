@@ -541,7 +541,8 @@ test "switch with null and T peer types and inferred result location type" {
 }
 
 test "switch prongs with cases with identical payload types" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const Union = union(enum) {
         A: usize,
