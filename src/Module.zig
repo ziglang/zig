@@ -781,11 +781,11 @@ pub const Decl = struct {
         return &decl_plus_emit_h.emit_h;
     }
 
-    fn removeDependant(decl: *Decl, other: *Decl) void {
+    pub fn removeDependant(decl: *Decl, other: *Decl) void {
         assert(decl.dependants.swapRemove(other));
     }
 
-    fn removeDependency(decl: *Decl, other: *Decl) void {
+    pub fn removeDependency(decl: *Decl, other: *Decl) void {
         assert(decl.dependencies.swapRemove(other));
     }
 
@@ -4837,6 +4837,9 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
 
     // Finally we must resolve the return type and parameter types so that backends
     // have full access to type information.
+    // Crucially, this happens *after* we set the function state to success above,
+    // so that dependencies on the function body will now be satisfied rather than
+    // result in circular dependency errors.
     const src: LazySrcLoc = .{ .node_offset = 0 };
     sema.resolveFnTypes(&inner_block, src, fn_ty_info) catch |err| switch (err) {
         error.NeededSourceLocation => unreachable,
@@ -4846,6 +4849,20 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
         error.AnalysisFail => {},
         else => |e| return e,
     };
+
+    // Similarly, resolve any queued up types that were requested to be resolved for
+    // the backends.
+    for (sema.types_to_resolve.items) |inst_ref| {
+        const ty = sema.getTmpAir().getRefType(inst_ref);
+        sema.resolveTypeFully(&inner_block, src, ty) catch |err| switch (err) {
+            error.NeededSourceLocation => unreachable,
+            error.GenericPoison => unreachable,
+            error.ComptimeReturn => unreachable,
+            error.ComptimeBreak => unreachable,
+            error.AnalysisFail => {},
+            else => |e| return e,
+        };
+    }
 
     return Air{
         .instructions = sema.air_instructions.toOwnedSlice(),

@@ -241,3 +241,52 @@ test "function parameter is generic" {
     var rng: u32 = 2;
     S.init(rng, S.fill);
 }
+
+test "generic function instantiation turns into comptime call" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            const E1 = enum { A };
+            const e1f = fieldInfo(E1, .A);
+            try expect(std.mem.eql(u8, e1f.name, "A"));
+        }
+
+        pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
+            .Enum => std.builtin.Type.EnumField,
+            else => void,
+        } {
+            return @typeInfo(T).Enum.fields[@enumToInt(field)];
+        }
+
+        pub fn FieldEnum(comptime T: type) type {
+            _ = T;
+            var enumFields: [1]std.builtin.Type.EnumField = .{.{ .name = "A", .value = 0 }};
+            return @Type(.{
+                .Enum = .{
+                    .layout = .Auto,
+                    .tag_type = u0,
+                    .fields = &enumFields,
+                    .decls = &.{},
+                    .is_exhaustive = true,
+                },
+            });
+        }
+    };
+    try S.doTheTest();
+}
+
+test "generic function with void and comptime parameter" {
+    const S = struct { x: i32 };
+    const namespace = struct {
+        fn foo(v: void, s: *S, comptime T: type) !void {
+            _ = @as(void, v);
+            try expect(s.x == 1234);
+            try expect(T == u8);
+        }
+    };
+    var s: S = .{ .x = 1234 };
+    try namespace.foo({}, &s, u8);
+}

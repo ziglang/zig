@@ -436,8 +436,6 @@ test "global union with single field is correctly initialized" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     glbl = Foo1{
         .f = @typeInfo(Foo1).Union.fields[0].field_type{ .x = 123 },
     };
@@ -455,8 +453,6 @@ test "initialize global array of union" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     glbl_array[1] = FooUnion{ .U1 = 2 };
     glbl_array[0] = FooUnion{ .U0 = 1 };
@@ -1033,7 +1029,6 @@ test "switching on non exhaustive union" {
 }
 
 test "containers with single-field enums" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -1113,7 +1108,6 @@ test "union enum type gets a separate scope" {
 }
 
 test "global variable struct contains union initialized to non-most-aligned field" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO

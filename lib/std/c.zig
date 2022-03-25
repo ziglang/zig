@@ -239,6 +239,8 @@ pub extern "c" fn pthread_getspecific(key: c.pthread_key_t) ?*anyopaque;
 pub extern "c" fn pthread_setspecific(key: c.pthread_key_t, value: ?*anyopaque) c_int;
 pub extern "c" fn sem_init(sem: *c.sem_t, pshared: c_int, value: c_uint) c_int;
 pub extern "c" fn sem_destroy(sem: *c.sem_t) c_int;
+pub extern "c" fn sem_open(name: [*:0]const u8, flag: c_int, mode: c.mode_t, value: c_uint) *c.sem_t;
+pub extern "c" fn sem_close(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_post(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_wait(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_trywait(sem: *c.sem_t) c_int;

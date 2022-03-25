@@ -42,7 +42,10 @@ pub fn MultiArrayList(comptime S: type) type {
                     return &[_]F{};
                 }
                 const byte_ptr = self.ptrs[@enumToInt(field)];
-                const casted_ptr: [*]F = if (@sizeOf([*]F) == 0) undefined else @ptrCast([*]F, @alignCast(@alignOf(F), byte_ptr));
+                const casted_ptr: [*]F = if (@sizeOf(F) == 0)
+                    undefined
+                else
+                    @ptrCast([*]F, @alignCast(@alignOf(F), byte_ptr));
                 return casted_ptr[0..self.len];
             }
 

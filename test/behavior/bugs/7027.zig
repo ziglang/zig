@@ -13,7 +13,9 @@ fn foo(arg: anytype) void {
     _ = arg;
 }
 
-test "" {
+test {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     comptime var foobar = Foobar.foo();
     foo(foobar.str[0..10]);
 }

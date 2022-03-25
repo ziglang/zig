@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -829,4 +830,66 @@ test "const type-annotated local initialized with function call has correct type
     const x: u64 = S.foo();
     try expect(@TypeOf(x) == u64);
     try expect(x == 1234);
+}
+
+test "comptime pointer load through elem_ptr" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // stage1 fails this test
+
+    const S = struct {
+        x: usize,
+    };
+
+    comptime {
+        var array: [10]S = undefined;
+        for (array) |*elem, i| {
+            elem.* = .{
+                .x = i,
+            };
+        }
+        var ptr = @ptrCast([*]S, &array);
+        var x = ptr[0].x;
+        assert(x == 0);
+        ptr += 1;
+        assert(ptr[1].x == 2);
+    }
+}
+
+test "debug variable type resolved through indirect zero-bit types" {
+    const T = struct { key: []void };
+    const slice: []const T = &[_]T{};
+    _ = slice;
+}
+
+test "const local with comptime init through array init" {
+    const E1 = enum {
+        A,
+        fn a() void {}
+    };
+
+    const S = struct {
+        fn declarations(comptime T: type) []const std.builtin.Type.Declaration {
+            return @typeInfo(T).Enum.decls;
+        }
+    };
+
+    const decls = comptime [_][]const std.builtin.Type.Declaration{
+        S.declarations(E1),
+    };
+
+    try comptime expect(decls[0][0].name[0] == 'a');
+}
+
+test "closure capture type of runtime-known parameter" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn b(c: anytype) !void {
+            const D = struct { c: @TypeOf(c) };
+            var d = D{ .c = c };
+            try expect(d.c == 1234);
+        }
+    };
+    var c: i32 = 1234;
+    try S.b(c);
 }

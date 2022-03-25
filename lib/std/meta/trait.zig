@@ -18,7 +18,7 @@ pub fn multiTrait(comptime traits: anytype) TraitFn {
     return Closure.trait;
 }
 
-test "std.meta.trait.multiTrait" {
+test "multiTrait" {
     const Vector2 = struct {
         const MyType = @This();
 
@@ -54,7 +54,7 @@ pub fn hasFn(comptime name: []const u8) TraitFn {
     return Closure.trait;
 }
 
-test "std.meta.trait.hasFn" {
+test "hasFn" {
     const TestStruct = struct {
         pub fn useless() void {}
     };
@@ -84,7 +84,7 @@ pub fn hasField(comptime name: []const u8) TraitFn {
     return Closure.trait;
 }
 
-test "std.meta.trait.hasField" {
+test "hasField" {
     const TestStruct = struct {
         value: u32,
     };
@@ -105,7 +105,7 @@ pub fn is(comptime id: std.builtin.TypeId) TraitFn {
     return Closure.trait;
 }
 
-test "std.meta.trait.is" {
+test "is" {
     try testing.expect(is(.Int)(u8));
     try testing.expect(!is(.Int)(f32));
     try testing.expect(is(.Pointer)(*u8));
@@ -123,7 +123,7 @@ pub fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
     return Closure.trait;
 }
 
-test "std.meta.trait.isPtrTo" {
+test "isPtrTo" {
     try testing.expect(!isPtrTo(.Struct)(struct {}));
     try testing.expect(isPtrTo(.Struct)(*struct {}));
     try testing.expect(!isPtrTo(.Struct)(**struct {}));
@@ -139,7 +139,7 @@ pub fn isSliceOf(comptime id: std.builtin.TypeId) TraitFn {
     return Closure.trait;
 }
 
-test "std.meta.trait.isSliceOf" {
+test "isSliceOf" {
     try testing.expect(!isSliceOf(.Struct)(struct {}));
     try testing.expect(isSliceOf(.Struct)([]struct {}));
     try testing.expect(!isSliceOf(.Struct)([][]struct {}));
@@ -159,7 +159,7 @@ pub fn isExtern(comptime T: type) bool {
     };
 }
 
-test "std.meta.trait.isExtern" {
+test "isExtern" {
     const TestExStruct = extern struct {};
     const TestStruct = struct {};
 
@@ -177,7 +177,7 @@ pub fn isPacked(comptime T: type) bool {
     };
 }
 
-test "std.meta.trait.isPacked" {
+test "isPacked" {
     const TestPStruct = packed struct {};
     const TestStruct = struct {};
 
@@ -222,7 +222,7 @@ pub fn isSingleItemPtr(comptime T: type) bool {
     return false;
 }
 
-test "std.meta.trait.isSingleItemPtr" {
+test "isSingleItemPtr" {
     const array = [_]u8{0} ** 10;
     comptime try testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
     comptime try testing.expect(!isSingleItemPtr(@TypeOf(array)));
@@ -237,7 +237,7 @@ pub fn isManyItemPtr(comptime T: type) bool {
     return false;
 }
 
-test "std.meta.trait.isManyItemPtr" {
+test "isManyItemPtr" {
     const array = [_]u8{0} ** 10;
     const mip = @ptrCast([*]const u8, &array[0]);
     try testing.expect(isManyItemPtr(@TypeOf(mip)));
@@ -252,7 +252,7 @@ pub fn isSlice(comptime T: type) bool {
     return false;
 }
 
-test "std.meta.trait.isSlice" {
+test "isSlice" {
     const array = [_]u8{0} ** 10;
     var runtime_zero: usize = 0;
     try testing.expect(isSlice(@TypeOf(array[runtime_zero..])));
@@ -270,7 +270,7 @@ pub fn isIndexable(comptime T: type) bool {
     return comptime is(.Array)(T) or is(.Vector)(T) or isTuple(T);
 }
 
-test "std.meta.trait.isIndexable" {
+test "isIndexable" {
     const array = [_]u8{0} ** 10;
     const slice = @as([]const u8, &array);
     const vector: meta.Vector(2, u32) = [_]u32{0} ** 2;
@@ -291,7 +291,7 @@ pub fn isNumber(comptime T: type) bool {
     };
 }
 
-test "std.meta.trait.isNumber" {
+test "isNumber" {
     const NotANumber = struct {
         number: u8,
     };
@@ -342,7 +342,7 @@ pub fn isConstPtr(comptime T: type) bool {
     return @typeInfo(T).Pointer.is_const;
 }
 
-test "std.meta.trait.isConstPtr" {
+test "isConstPtr" {
     var t = @as(u8, 0);
     const c = @as(u8, 0);
     try testing.expect(isConstPtr(*const @TypeOf(t)));
@@ -358,7 +358,7 @@ pub fn isContainer(comptime T: type) bool {
     };
 }
 
-test "std.meta.trait.isContainer" {
+test "isContainer" {
     const TestStruct = struct {};
     const TestUnion = union {
         a: void,
@@ -380,7 +380,7 @@ pub fn isTuple(comptime T: type) bool {
     return is(.Struct)(T) and @typeInfo(T).Struct.is_tuple;
 }
 
-test "std.meta.trait.isTuple" {
+test "isTuple" {
     const t1 = struct {};
     const t2 = .{ .a = 0 };
     const t3 = .{ 1, 2, 3 };
@@ -429,7 +429,7 @@ pub fn isZigString(comptime T: type) bool {
     }
 }
 
-test "std.meta.trait.isZigString" {
+test "isZigString" {
     try testing.expect(isZigString([]const u8));
     try testing.expect(isZigString([]u8));
     try testing.expect(isZigString([:0]const u8));
@@ -475,7 +475,7 @@ pub fn hasDecls(comptime T: type, comptime names: anytype) bool {
     return true;
 }
 
-test "std.meta.trait.hasDecls" {
+test "hasDecls" {
     const TestStruct1 = struct {};
     const TestStruct2 = struct {
         pub var a: u32 = undefined;
@@ -501,7 +501,7 @@ pub fn hasFields(comptime T: type, comptime names: anytype) bool {
     return true;
 }
 
-test "std.meta.trait.hasFields" {
+test "hasFields" {
     const TestStruct1 = struct {};
     const TestStruct2 = struct {
         a: u32,
@@ -527,7 +527,7 @@ pub fn hasFunctions(comptime T: type, comptime names: anytype) bool {
     return true;
 }
 
-test "std.meta.trait.hasFunctions" {
+test "hasFunctions" {
     const TestStruct1 = struct {};
     const TestStruct2 = struct {
         pub fn a() void {}
@@ -557,9 +557,7 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
 
         .Bool => return false,
 
-        // The padding bits are undefined.
-        .Int => |info| return (info.bits % 8) == 0 and
-            (info.bits == 0 or std.math.isPowerOfTwo(info.bits)),
+        .Int => |info| return @sizeOf(T) * 8 == info.bits,
 
         .Pointer => |info| return info.size != .Slice,
 
@@ -577,11 +575,12 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
             return @sizeOf(T) == sum_size;
         },
 
-        .Vector => |info| return comptime hasUniqueRepresentation(info.child) and @sizeOf(T) == @sizeOf(info.child) * info.len,
+        .Vector => |info| return comptime hasUniqueRepresentation(info.child) and
+            @sizeOf(T) == @sizeOf(info.child) * info.len,
     }
 }
 
-test "std.meta.trait.hasUniqueRepresentation" {
+test "hasUniqueRepresentation" {
     const TestStruct1 = struct {
         a: u32,
         b: u32,
@@ -650,5 +649,4 @@ test "std.meta.trait.hasUniqueRepresentation" {
     try testing.expect(!hasUniqueRepresentation([]const u8));
 
     try testing.expect(hasUniqueRepresentation(@Vector(4, u16)));
-    try testing.expect(!hasUniqueRepresentation(@Vector(3, u16)));
 }

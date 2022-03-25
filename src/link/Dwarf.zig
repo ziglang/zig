@@ -881,45 +881,63 @@ fn addDbgInfoType(
             }
         },
         .Struct => blk: {
-            if (ty.tag() == .tuple) {
-                log.debug("TODO implement .debug_info for type '{}'", .{ty.fmtDebug()});
-                try dbg_info_buffer.append(abbrev_pad1);
-                break :blk;
-            }
-            // try dbg_info_buffer.ensureUnusedCapacity(23);
             // DW.AT.structure_type
             try dbg_info_buffer.append(abbrev_struct_type);
             // DW.AT.byte_size, DW.FORM.sdata
             const abi_size = ty.abiSize(target);
             try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
-            // DW.AT.name, DW.FORM.string
-            const struct_name = try ty.nameAllocArena(arena, target);
-            try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
-            dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
-            dbg_info_buffer.appendAssumeCapacity(0);
 
-            const struct_obj = ty.castTag(.@"struct").?.data;
-            if (struct_obj.layout == .Packed) {
-                log.debug("TODO implement .debug_info for packed structs", .{});
-                break :blk;
-            }
+            switch (ty.tag()) {
+                .tuple, .anon_struct => {
+                    // DW.AT.name, DW.FORM.string
+                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(target)});
 
-            const fields = ty.structFields();
-            for (fields.keys()) |field_name, field_index| {
-                const field = fields.get(field_name).?;
-                // DW.AT.member
-                try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
-                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
-                // DW.AT.name, DW.FORM.string
-                dbg_info_buffer.appendSliceAssumeCapacity(field_name);
-                dbg_info_buffer.appendAssumeCapacity(0);
-                // DW.AT.type, DW.FORM.ref4
-                var index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.resize(index + 4);
-                try relocs.append(.{ .ty = field.ty, .reloc = @intCast(u32, index) });
-                // DW.AT.data_member_location, DW.FORM.sdata
-                const field_off = ty.structFieldOffset(field_index, target);
-                try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                    const fields = ty.tupleFields();
+                    for (fields.types) |field, field_index| {
+                        // DW.AT.member
+                        try dbg_info_buffer.append(abbrev_struct_member);
+                        // DW.AT.name, DW.FORM.string
+                        try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
+                        // DW.AT.type, DW.FORM.ref4
+                        var index = dbg_info_buffer.items.len;
+                        try dbg_info_buffer.resize(index + 4);
+                        try relocs.append(.{ .ty = field, .reloc = @intCast(u32, index) });
+                        // DW.AT.data_member_location, DW.FORM.sdata
+                        const field_off = ty.structFieldOffset(field_index, target);
+                        try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                    }
+                },
+                else => {
+                    // DW.AT.name, DW.FORM.string
+                    const struct_name = try ty.nameAllocArena(arena, target);
+                    try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
+                    dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
+                    dbg_info_buffer.appendAssumeCapacity(0);
+
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    if (struct_obj.layout == .Packed) {
+                        log.debug("TODO implement .debug_info for packed structs", .{});
+                        break :blk;
+                    }
+
+                    const fields = ty.structFields();
+                    for (fields.keys()) |field_name, field_index| {
+                        const field = fields.get(field_name).?;
+                        // DW.AT.member
+                        try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
+                        dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                        // DW.AT.name, DW.FORM.string
+                        dbg_info_buffer.appendSliceAssumeCapacity(field_name);
+                        dbg_info_buffer.appendAssumeCapacity(0);
+                        // DW.AT.type, DW.FORM.ref4
+                        var index = dbg_info_buffer.items.len;
+                        try dbg_info_buffer.resize(index + 4);
+                        try relocs.append(.{ .ty = field.ty, .reloc = @intCast(u32, index) });
+                        // DW.AT.data_member_location, DW.FORM.sdata
+                        const field_off = ty.structFieldOffset(field_index, target);
+                        try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                    }
+                },
             }
 
             // DW.AT.structure_type delimit children
