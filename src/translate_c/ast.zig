@@ -192,8 +192,8 @@ pub const Node = extern union {
         helpers_shuffle_vector_index,
         /// @import("std").zig.c_translation.Macro.<operand>
         helpers_macro,
-        /// @import("std").meta.Vector(lhs, rhs)
-        std_meta_vector,
+        /// @Vector(lhs, rhs)
+        vector,
         /// @import("std").mem.zeroes(operand)
         std_mem_zeroes,
         /// @import("std").mem.zeroInit(lhs, rhs)
@@ -322,7 +322,7 @@ pub const Node = extern union {
                 .std_mem_zeroinit,
                 .helpers_flexible_array_type,
                 .helpers_shuffle_vector_index,
-                .std_meta_vector,
+                .vector,
                 .ptr_cast,
                 .div_exact,
                 .offset_of,
@@ -899,10 +899,9 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "shuffleVectorIndex" });
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
         },
-        .std_meta_vector => {
-            const payload = node.castTag(.std_meta_vector).?.data;
-            const import_node = try renderStdImport(c, &.{ "meta", "Vector" });
-            return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
+        .vector => {
+            const payload = node.castTag(.vector).?.data;
+            return renderBuiltinCall(c, "@Vector", &.{ payload.lhs, payload.rhs });
         },
         .call => {
             const payload = node.castTag(.call).?.data;
@@ -2221,7 +2220,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .typeof,
         .typeinfo,
         .std_meta_alignment,
-        .std_meta_vector,
+        .vector,
         .helpers_sizeof,
         .helpers_cast,
         .helpers_promoteIntLiteral,

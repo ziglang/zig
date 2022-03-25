@@ -1441,7 +1441,7 @@ fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorE
     assert(num_subexprs >= 3); // two source vectors + at least 1 index expression
     const mask_len = num_subexprs - 2;
 
-    const mask_type = try Tag.std_meta_vector.create(c.arena, .{
+    const mask_type = try Tag.vector.create(c.arena, .{
         .lhs = try transCreateNodeNumber(c, mask_len, .int),
         .rhs = try Tag.type.create(c.arena, "i32"),
     });
@@ -4800,7 +4800,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const vector_ty = @ptrCast(*const clang.VectorType, ty);
             const num_elements = vector_ty.getNumElements();
             const element_qt = vector_ty.getElementType();
-            return Tag.std_meta_vector.create(c.arena, .{
+            return Tag.vector.create(c.arena, .{
                 .lhs = try transCreateNodeNumber(c, num_elements, .int),
                 .rhs = try transQualType(c, scope, element_qt, source_loc),
             });
