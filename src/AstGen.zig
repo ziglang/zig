@@ -1878,8 +1878,8 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                     continue;
                 }
 
-                // TODO emit a break_inline if the loop being continued is inline
-                _ = try parent_gz.addBreak(.@"break", continue_block, .void_value);
+                const break_tag: Zir.Inst.Tag = if (gen_zir.is_inline) .break_inline else .@"break";
+                _ = try parent_gz.addBreak(break_tag, continue_block, .void_value);
                 return Zir.Inst.Ref.unreachable_value;
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,

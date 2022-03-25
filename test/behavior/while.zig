@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
+const assert = std.debug.assert;
 
 test "while loop" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -325,4 +326,13 @@ test "while error 2 break statements and an else" {
     };
     try S.entry(true, false);
     comptime try S.entry(true, false);
+}
+
+test "continue inline while loop" {
+    comptime var i = 0;
+    inline while (i < 10) : (i += 1) {
+        if (i < 5) continue;
+        break;
+    }
+    comptime assert(i == 5);
 }
