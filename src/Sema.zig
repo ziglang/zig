@@ -7390,6 +7390,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     names.putAssumeCapacityNoClobber(error_name, {});
                 }
 
+                // names must be sorted
+                Module.ErrorSet.sortNames(&names);
                 else_error_ty = try Type.Tag.error_set_merged.create(sema.arena, names);
             }
         },
@@ -12979,6 +12981,8 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 );
             }
 
+            // names must be sorted
+            Module.ErrorSet.sortNames(&names);
             const ty = try Type.Tag.error_set_merged.create(sema.arena, names);
             return sema.addType(ty);
         },
