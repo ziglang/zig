@@ -878,3 +878,18 @@ test "const local with comptime init through array init" {
 
     try comptime expect(decls[0][0].name[0] == 'a');
 }
+
+test "closure capture type of runtime-known parameter" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn b(c: anytype) !void {
+            const D = struct { c: @TypeOf(c) };
+            var d = D{ .c = c };
+            try expect(d.c == 1234);
+        }
+    };
+    var c: i32 = 1234;
+    try S.b(c);
+}

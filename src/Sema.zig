@@ -10483,10 +10483,19 @@ fn zirClosureCapture(
 ) CompileError!void {
     // TODO: Compile error when closed over values are modified
     const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
-    const tv = try sema.resolveInstConst(block, inst_data.src(), inst_data.operand);
+    const src = inst_data.src();
+    // Closures are not necessarily constant values. For example, the
+    // code might do something like this:
+    // fn foo(x: anytype) void { const S = struct {field: @TypeOf(x)}; }
+    // ...in which case the closure_capture instruction has access to a runtime
+    // value only. In such case we preserve the type and use a dummy runtime value.
+    const operand = sema.resolveInst(inst_data.operand);
+    const val = (try sema.resolveMaybeUndefValAllowVariables(block, src, operand)) orelse
+        Value.initTag(.generic_poison);
+
     try block.wip_capture_scope.captures.putNoClobber(sema.gpa, inst, .{
-        .ty = try tv.ty.copy(sema.perm_arena),
-        .val = try tv.val.copy(sema.perm_arena),
+        .ty = try sema.typeOf(operand).copy(sema.perm_arena),
+        .val = try val.copy(sema.perm_arena),
     });
 }
 
