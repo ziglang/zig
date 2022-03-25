@@ -592,11 +592,41 @@ pub fn FieldEnum(comptime T: type) type {
 fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
     // TODO: https://github.com/ziglang/zig/issues/7419
     // testing.expectEqual(@typeInfo(expected).Enum, @typeInfo(actual).Enum);
-    try testing.expectEqual(@typeInfo(expected).Enum.layout, @typeInfo(actual).Enum.layout);
-    try testing.expectEqual(@typeInfo(expected).Enum.tag_type, @typeInfo(actual).Enum.tag_type);
-    comptime try testing.expectEqualSlices(std.builtin.Type.EnumField, @typeInfo(expected).Enum.fields, @typeInfo(actual).Enum.fields);
-    comptime try testing.expectEqualSlices(std.builtin.Type.Declaration, @typeInfo(expected).Enum.decls, @typeInfo(actual).Enum.decls);
-    try testing.expectEqual(@typeInfo(expected).Enum.is_exhaustive, @typeInfo(actual).Enum.is_exhaustive);
+    try testing.expectEqual(
+        @typeInfo(expected).Enum.layout,
+        @typeInfo(actual).Enum.layout,
+    );
+    try testing.expectEqual(
+        @typeInfo(expected).Enum.tag_type,
+        @typeInfo(actual).Enum.tag_type,
+    );
+    // For comparing decls and fields, we cannot use the meta eql function here
+    // because the language does not guarantee that the slice pointers for field names
+    // and decl names will be the same.
+    comptime {
+        const expected_fields = @typeInfo(expected).Enum.fields;
+        const actual_fields = @typeInfo(actual).Enum.fields;
+        if (expected_fields.len != actual_fields.len) return error.FailedTest;
+        for (expected_fields) |expected_field, i| {
+            const actual_field = actual_fields[i];
+            try testing.expectEqual(expected_field.value, actual_field.value);
+            try testing.expectEqualStrings(expected_field.name, actual_field.name);
+        }
+    }
+    comptime {
+        const expected_decls = @typeInfo(expected).Enum.decls;
+        const actual_decls = @typeInfo(actual).Enum.decls;
+        if (expected_decls.len != actual_decls.len) return error.FailedTest;
+        for (expected_decls) |expected_decl, i| {
+            const actual_decl = actual_decls[i];
+            try testing.expectEqual(expected_decl.is_pub, actual_decl.is_pub);
+            try testing.expectEqualStrings(expected_decl.name, actual_decl.name);
+        }
+    }
+    try testing.expectEqual(
+        @typeInfo(expected).Enum.is_exhaustive,
+        @typeInfo(actual).Enum.is_exhaustive,
+    );
 }
 
 test "std.meta.FieldEnum" {
