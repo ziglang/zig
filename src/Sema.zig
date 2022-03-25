@@ -5149,7 +5149,7 @@ fn instantiateGenericCall(
         .target = target,
     };
     const gop = try mod.monomorphed_funcs.getOrPutContextAdapted(gpa, {}, adapter, .{ .target = target });
-    if (!gop.found_existing) {
+    const callee = if (!gop.found_existing) callee: {
         const new_module_func = try gpa.create(Module.Fn);
         gop.key_ptr.* = new_module_func;
         errdefer gpa.destroy(new_module_func);
@@ -5357,9 +5357,9 @@ fn instantiateGenericCall(
         try mod.comp.work_queue.writeItem(.{ .codegen_func = new_func });
 
         try new_decl.finalizeNewArena(&new_decl_arena);
-    }
+        break :callee new_func;
+    } else gop.key_ptr.*;
 
-    const callee = gop.key_ptr.*;
     const callee_inst = try sema.analyzeDeclVal(block, func_src, callee.owner_decl);
 
     // Make a runtime call to the new function, making sure to omit the comptime args.
@@ -5397,8 +5397,8 @@ fn instantiateGenericCall(
                 const param_ty = new_fn_info.param_types[runtime_i];
                 const arg_src = call_src; // TODO: better source location
                 const uncasted_arg = uncasted_args[total_i];
-                try sema.resolveTypeFully(block, arg_src, param_ty);
                 const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
+                try sema.queueFullTypeResolution(param_ty);
                 runtime_args[runtime_i] = casted_arg;
                 runtime_i += 1;
             }
@@ -6474,10 +6474,13 @@ fn zirParam(
         const err = err: {
             // Make sure any nested param instructions don't clobber our work.
             const prev_params = block.params;
+            const prev_preallocated_new_func = sema.preallocated_new_func;
             block.params = .{};
+            sema.preallocated_new_func = null;
             defer {
                 block.params.deinit(sema.gpa);
                 block.params = prev_params;
+                sema.preallocated_new_func = prev_preallocated_new_func;
             }
 
             if (sema.resolveBody(block, body, inst)) |param_ty_inst| {
@@ -6522,6 +6525,17 @@ fn zirParam(
         // Even though a comptime argument is provided, the generic function wants to treat
         // this as a runtime parameter.
         assert(sema.inst_map.remove(inst));
+    }
+
+    if (sema.preallocated_new_func != null) {
+        if (try sema.typeHasOnePossibleValue(block, src, param_ty)) |opv| {
+            // In this case we are instantiating a generic function call with a non-comptime
+            // non-anytype parameter that ended up being a one-possible-type.
+            // We don't want the parameter to be part of the instantiated function type.
+            const result = try sema.addConstant(param_ty, opv);
+            try sema.inst_map.put(sema.gpa, inst, result);
+            return;
+        }
     }
 
     try block.params.append(sema.gpa, .{

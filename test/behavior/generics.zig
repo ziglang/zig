@@ -277,3 +277,16 @@ test "generic function instantiation turns into comptime call" {
     };
     try S.doTheTest();
 }
+
+test "generic function with void and comptime parameter" {
+    const S = struct { x: i32 };
+    const namespace = struct {
+        fn foo(v: void, s: *S, comptime T: type) !void {
+            _ = @as(void, v);
+            try expect(s.x == 1234);
+            try expect(T == u8);
+        }
+    };
+    var s: S = .{ .x = 1234 };
+    try namespace.foo({}, &s, u8);
+}
