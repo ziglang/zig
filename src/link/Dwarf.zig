@@ -468,6 +468,7 @@ pub fn commitDeclDebugInfo(
             value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
             try self.addDbgInfoType(
                 dbg_type_arena.allocator(),
+                module,
                 ty,
                 dbg_info_buffer,
                 dbg_info_type_relocs,
@@ -771,6 +772,7 @@ pub fn freeDecl(self: *Dwarf, decl: *Module.Decl) void {
 fn addDbgInfoType(
     self: *Dwarf,
     arena: Allocator,
+    module: *Module,
     ty: Type,
     dbg_info_buffer: *std.ArrayList(u8),
     dbg_info_type_relocs: *File.DbgInfoTypeRelocsTable,
@@ -1094,6 +1096,32 @@ fn addDbgInfoType(
                 // DW.AT.structure_type delimit children
                 try dbg_info_buffer.append(0);
             }
+        },
+        .ErrorSet => {
+            // DW.AT.enumeration_type
+            try dbg_info_buffer.append(abbrev_enum_type);
+            // DW.AT.byte_size, DW.FORM.sdata
+            const abi_size = ty.abiSize(target);
+            try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+            // DW.AT.name, DW.FORM.string
+            const name = try ty.nameAllocArena(arena, target);
+            try dbg_info_buffer.writer().print("{s}\x00", .{name});
+
+            const error_names = if (ty.isAnyError()) module.error_name_list.items else ty.errorSetNames();
+            for (error_names) |error_name| {
+                const kv = module.getErrorValue(error_name) catch unreachable;
+                // DW.AT.enumerator
+                try dbg_info_buffer.ensureUnusedCapacity(error_name.len + 2 + @sizeOf(u64));
+                dbg_info_buffer.appendAssumeCapacity(abbrev_enum_variant);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity(error_name);
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.const_value, DW.FORM.data8
+                mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), kv.value, target_endian);
+            }
+
+            // DW.AT.enumeration_type delimit children
+            try dbg_info_buffer.append(0);
         },
         else => {
             log.debug("TODO implement .debug_info for type '{}'", .{ty.fmtDebug()});

@@ -573,7 +573,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Union => {
-            // TODO generate debug info for unions
             const union_obj = typed_value.val.castTag(.@"union").?.data;
             const layout = typed_value.ty.unionGetLayout(target);
 
@@ -749,7 +748,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .ErrorSet => {
-            // TODO generate debug info for error sets
             switch (typed_value.val.tag()) {
                 .@"error" => {
                     const name = typed_value.val.getError().?;
