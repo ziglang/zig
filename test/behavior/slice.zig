@@ -233,6 +233,7 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 
 test "C pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     var buf: [*c]const u8 = "kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
     var len: u32 = 10;

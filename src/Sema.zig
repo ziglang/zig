@@ -19964,6 +19964,14 @@ fn analyzeSlice(
                 slice_ty = ptr_ptr_child_ty;
                 array_ty = ptr_ptr_child_ty;
                 elem_ty = ptr_ptr_child_ty.childType();
+
+                if (ptr_ptr_child_ty.ptrSize() == .C) {
+                    if (try sema.resolveDefinedValue(block, ptr_src, ptr_or_slice)) |ptr_val| {
+                        if (ptr_val.isNull()) {
+                            return sema.fail(block, ptr_src, "slice of null pointer", .{});
+                        }
+                    }
+                }
             },
             .Slice => {
                 ptr_sentinel = ptr_ptr_child_ty.sentinel();
@@ -20162,6 +20170,12 @@ fn analyzeSlice(
 
     try sema.requireRuntimeBlock(block, src);
     if (block.wantSafety()) {
+        // requirement: slicing C ptr is non-null
+        if (ptr_ptr_child_ty.isCPtr()) {
+            const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
+            try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
+        }
+
         // requirement: end <= len
         const opt_len_inst = if (array_ty.zigTypeTag() == .Array)
             try sema.addIntUnsigned(Type.usize, array_ty.arrayLenIncludingSentinel())
