@@ -12264,7 +12264,9 @@ fn zirStructInit(
             return alloc;
         }
 
-        return sema.fail(block, src, "TODO: Sema.zirStructInit for runtime-known union values", .{});
+        try sema.requireRuntimeBlock(block, src);
+        try sema.queueFullTypeResolution(resolved_ty);
+        return block.addUnionInit(resolved_ty, field_index, init_inst);
     }
     unreachable;
 }
