@@ -605,7 +605,7 @@ pub const Dir = struct {
                             .BADF => unreachable, // Dir is invalid or was opened without iteration ability
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
-                            .INVAL => unreachable,
+                            .INVAL => return error.Unexpected, // Linux may in some cases return EINVAL when reading /proc/$PID/net.
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;
