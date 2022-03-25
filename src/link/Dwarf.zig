@@ -1117,7 +1117,18 @@ fn addDbgInfoType(
             // DW.AT.const_value, DW.FORM.data8
             mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
 
-            const error_names = if (ty.isAnyError()) module.error_name_list.items else ty.errorSetNames();
+            const error_names = blk: {
+                if (ty.isAnyError())
+                    break :blk module.error_name_list.items;
+                // TODO not quite sure about the next one, but if I don't do this, I risk
+                // tripping an assert in `Type.errorSetNames` in case the inferred error set
+                // was not yet fully resolved. This so far only surfaced when this code would
+                // schedule analysis of an error set part of some error union.
+                if (ty.tag() == .error_set_inferred)
+                    break :blk ty.castTag(.error_set_inferred).?.data.errors.keys();
+                break :blk ty.errorSetNames();
+            };
+
             for (error_names) |error_name| {
                 const kv = module.getErrorValue(error_name) catch unreachable;
                 // DW.AT.enumerator
