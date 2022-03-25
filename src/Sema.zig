@@ -6800,7 +6800,7 @@ fn intCast(
     }
 
     try sema.requireRuntimeBlock(block, operand_src);
-    if (runtime_safety) {
+    if (runtime_safety and block.wantSafety()) {
         const target = sema.mod.getTarget();
         const operand_ty = sema.typeOf(operand);
         const actual_info = operand_ty.intInfo(target);
@@ -6808,8 +6808,21 @@ fn intCast(
         const actual_bits = actual_info.bits;
         const wanted_bits = wanted_info.bits;
 
-        // requirement: bitSizeOf(operand) <= bitSizeOf(destination type)
-        if (actual_bits > wanted_bits) {
+        // requirement: signed to unsigned >= 0
+        if (actual_info.signedness == .signed and
+            wanted_info.signedness == .unsigned)
+        {
+            const zero_inst = try sema.addConstant(sema.typeOf(operand), Value.zero);
+            const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
+            try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+        }
+
+        // requirement: unsigned int value fits into target type
+        if (actual_bits > wanted_bits or
+            (actual_bits == wanted_bits and
+            actual_info.signedness == .unsigned and
+            wanted_info.signedness == .signed))
+        {
             const max_int = try dest_ty.maxInt(sema.arena, target);
             const max_int_inst = try sema.addConstant(operand_ty, max_int);
             const is_in_range = try block.addBinOp(.cmp_lte, operand, max_int_inst);
