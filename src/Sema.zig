@@ -6769,66 +6769,46 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
     switch (dest_ty.zigTypeTag()) {
-        .Type,
-        .Void,
-        .NoReturn,
+        .AnyFrame,
         .ComptimeFloat,
         .ComptimeInt,
-        .Undefined,
-        .Null,
-        .Optional,
-        .ErrorUnion,
-        .ErrorSet,
-        .Opaque,
-        .Frame,
-        .AnyFrame,
+        .Enum,
         .EnumLiteral,
-        .Union,
+        .ErrorSet,
+        .ErrorUnion,
         .Fn,
+        .Frame,
+        .NoReturn,
+        .Null,
+        .Opaque,
+        .Optional,
+        .Type,
+        .Undefined,
+        .Void,
         => return sema.fail(block, dest_ty_src, "invalid type '{}' for @bitCast", .{dest_ty.fmt(target)}),
 
-        .Pointer => {
-            const msg = msg: {
-                const msg = try sema.errMsg(block, dest_ty_src, "cannot @bitCast to pointer type '{}'", .{dest_ty.fmt(target)});
-                errdefer msg.destroy(sema.gpa);
-
-                const pointee_ty = dest_ty.ptrInfo().data.pointee_type;
-                try sema.errNote(block, dest_ty_src, msg, "to cast to a pointer type, use @ptrCast({}, ...)", .{dest_ty.fmt(target)});
-                try sema.errNote(block, dest_ty_src, msg, "to cast to a non-pointer type, use @bitCast({}, ...)", .{pointee_ty.fmt(target)});
-                break :msg msg;
+        .Pointer => return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', use @ptrCast to cast to a pointer", .{
+            dest_ty.fmt(target),
+        }),
+        .Struct, .Union => if (dest_ty.containerLayout() == .Auto) {
+            const container = switch (dest_ty.zigTypeTag()) {
+                .Struct => "struct",
+                .Union => "union",
+                else => unreachable,
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        },
-        .Struct => {
-            if (dest_ty.containerLayout() == .Auto) {
-                const msg = msg: {
-                    const msg = try sema.errMsg(
-                        block,
-                        dest_ty_src,
-                        "cannot @bitCast to '{}', struct does not have a specified layout",
-                        .{dest_ty.fmt(target)},
-                    );
-                    errdefer msg.destroy(sema.gpa);
-
-                    const ty_decl_src = dest_ty.declSrcLoc();
-                    try sema.mod.errNoteNonLazy(
-                        ty_decl_src,
-                        msg,
-                        "consider using 'packed struct' or 'extern struct' for a specified layout.",
-                        .{},
-                    );
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
+            return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', {s} does not have a guaranteed in-memory layout", .{
+                dest_ty.fmt(target), container,
+            });
         },
         .BoundFn => @panic("TODO remove this type from the language and compiler"),
-        else => {},
-    }
 
-    // When bitcasting we compare the bit size of the types, so we need to
-    // fully resolve all composite types to finalize the layout.
-    try sema.resolveTypeFully(block, dest_ty_src, dest_ty);
+        .Array,
+        .Bool,
+        .Float,
+        .Int,
+        .Vector,
+        => {},
+    }
 
     const operand = sema.resolveInst(extra.rhs);
     return sema.bitCast(block, dest_ty, operand, operand_src);
