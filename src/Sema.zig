@@ -2731,17 +2731,49 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 // instructions from the block, replacing the inst_map entry
                 // corresponding to the ZIR alloc instruction with a constant
                 // decl_ref pointing at our new Decl.
+                // dbg_stmt instructions may be interspersed into this pattern
+                // which must be ignored.
                 if (block.instructions.items.len < 3) break :ct;
-                // zig fmt: off
-                const const_inst   = block.instructions.items[block.instructions.items.len - 3];
-                const bitcast_inst = block.instructions.items[block.instructions.items.len - 2];
-                const store_inst   = block.instructions.items[block.instructions.items.len - 1];
-                const air_tags  = sema.air_instructions.items(.tag);
+                var search_index: usize = block.instructions.items.len;
+                const air_tags = sema.air_instructions.items(.tag);
                 const air_datas = sema.air_instructions.items(.data);
-                if (air_tags[const_inst]   != .constant) break :ct;
-                if (air_tags[bitcast_inst] != .bitcast ) break :ct;
-                if (air_tags[store_inst]   != .store   ) break :ct;
-                // zig fmt: on
+
+                const store_inst = while (true) {
+                    if (search_index == 0) break :ct;
+                    search_index -= 1;
+
+                    const candidate = block.instructions.items[search_index];
+                    switch (air_tags[candidate]) {
+                        .dbg_stmt => continue,
+                        .store => break candidate,
+                        else => break :ct,
+                    }
+                } else unreachable; // TODO shouldn't need this
+
+                const bitcast_inst = while (true) {
+                    if (search_index == 0) break :ct;
+                    search_index -= 1;
+
+                    const candidate = block.instructions.items[search_index];
+                    switch (air_tags[candidate]) {
+                        .dbg_stmt => continue,
+                        .bitcast => break candidate,
+                        else => break :ct,
+                    }
+                } else unreachable; // TODO shouldn't need this
+
+                const const_inst = while (true) {
+                    if (search_index == 0) break :ct;
+                    search_index -= 1;
+
+                    const candidate = block.instructions.items[search_index];
+                    switch (air_tags[candidate]) {
+                        .dbg_stmt => continue,
+                        .constant => break candidate,
+                        else => break :ct,
+                    }
+                } else unreachable; // TODO shouldn't need this
+
                 const store_op = air_datas[store_inst].bin_op;
                 const store_val = (try sema.resolveMaybeUndefVal(block, src, store_op.rhs)) orelse break :ct;
                 if (store_op.lhs != Air.indexToRef(bitcast_inst)) break :ct;
