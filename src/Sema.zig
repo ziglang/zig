@@ -7743,6 +7743,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     if (scalar_cases_len + multi_cases_len == 0) {
+        if (special_prong == .none) {
+            return sema.fail(block, src, "switch must handle all possibilities", .{});
+        }
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
 
