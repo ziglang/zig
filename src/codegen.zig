@@ -694,7 +694,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .ErrorUnion => {
-            // TODO generate debug info for error unions
             const error_ty = typed_value.ty.errorUnionSet();
             const payload_ty = typed_value.ty.errorUnionPayload();
             const is_payload = typed_value.val.errorUnionIsPayload();

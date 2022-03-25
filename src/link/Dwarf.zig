@@ -1107,6 +1107,16 @@ fn addDbgInfoType(
             const name = try ty.nameAllocArena(arena, target);
             try dbg_info_buffer.writer().print("{s}\x00", .{name});
 
+            // DW.AT.enumerator
+            const no_error = "(no error)";
+            try dbg_info_buffer.ensureUnusedCapacity(no_error.len + 2 + @sizeOf(u64));
+            dbg_info_buffer.appendAssumeCapacity(abbrev_enum_variant);
+            // DW.AT.name, DW.FORM.string
+            dbg_info_buffer.appendSliceAssumeCapacity(no_error);
+            dbg_info_buffer.appendAssumeCapacity(0);
+            // DW.AT.const_value, DW.FORM.data8
+            mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
+
             const error_names = if (ty.isAnyError()) module.error_name_list.items else ty.errorSetNames();
             for (error_names) |error_name| {
                 const kv = module.getErrorValue(error_name) catch unreachable;
@@ -1121,6 +1131,50 @@ fn addDbgInfoType(
             }
 
             // DW.AT.enumeration_type delimit children
+            try dbg_info_buffer.append(0);
+        },
+        .ErrorUnion => {
+            const error_ty = ty.errorUnionSet();
+            const payload_ty = ty.errorUnionPayload();
+            const abi_size = ty.abiSize(target);
+            const abi_align = ty.abiAlignment(target);
+            const payload_off = mem.alignForwardGeneric(u64, error_ty.abiSize(target), abi_align);
+
+            // DW.AT.structure_type
+            try dbg_info_buffer.append(abbrev_struct_type);
+            // DW.AT.byte_size, DW.FORM.sdata
+            try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+            // DW.AT.name, DW.FORM.string
+            const name = try ty.nameAllocArena(arena, target);
+            try dbg_info_buffer.writer().print("{s}\x00", .{name});
+
+            // DW.AT.member
+            try dbg_info_buffer.ensureUnusedCapacity(7);
+            dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+            // DW.AT.name, DW.FORM.string
+            dbg_info_buffer.appendSliceAssumeCapacity("value");
+            dbg_info_buffer.appendAssumeCapacity(0);
+            // DW.AT.type, DW.FORM.ref4
+            var index = dbg_info_buffer.items.len;
+            try dbg_info_buffer.resize(index + 4);
+            try relocs.append(.{ .ty = payload_ty, .reloc = @intCast(u32, index) });
+            // DW.AT.data_member_location, DW.FORM.sdata
+            try leb128.writeULEB128(dbg_info_buffer.writer(), payload_off);
+
+            // DW.AT.member
+            try dbg_info_buffer.ensureUnusedCapacity(5);
+            dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+            // DW.AT.name, DW.FORM.string
+            dbg_info_buffer.appendSliceAssumeCapacity("err");
+            dbg_info_buffer.appendAssumeCapacity(0);
+            // DW.AT.type, DW.FORM.ref4
+            index = dbg_info_buffer.items.len;
+            try dbg_info_buffer.resize(index + 4);
+            try relocs.append(.{ .ty = error_ty, .reloc = @intCast(u32, index) });
+            // DW.AT.data_member_location, DW.FORM.sdata
+            try dbg_info_buffer.append(0);
+
+            // DW.AT.structure_type delimit children
             try dbg_info_buffer.append(0);
         },
         else => {
