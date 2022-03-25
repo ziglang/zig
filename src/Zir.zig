@@ -2620,6 +2620,53 @@ pub const Inst = struct {
                 };
             }
         }
+
+        pub const MultiProng = struct {
+            items: []const Ref,
+            body: []const Index,
+        };
+
+        pub fn getMultiProng(
+            self: SwitchBlock,
+            zir: Zir,
+            extra_end: usize,
+            prong_index: usize,
+        ) MultiProng {
+            // +1 for self.bits.has_multi_cases == true
+            var extra_index: usize = extra_end + 1;
+
+            if (self.bits.specialProng() != .none) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const body = zir.extra[extra_index..][0..body_len];
+                extra_index += body.len;
+            }
+
+            var scalar_i: usize = 0;
+            while (scalar_i < self.bits.scalar_cases_len) : (scalar_i += 1) {
+                extra_index += 1;
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                extra_index += body_len;
+            }
+            var multi_i: u32 = 0;
+            while (true) : (multi_i += 1) {
+                const items_len = zir.extra[extra_index];
+                extra_index += 2;
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const items = zir.refSlice(extra_index, items_len);
+                extra_index += items_len;
+                const body = zir.extra[extra_index..][0..body_len];
+                extra_index += body_len;
+
+                if (multi_i < prong_index) continue;
+                return .{
+                    .items = items,
+                    .body = body,
+                };
+            }
+        }
     };
 
     pub const Field = struct {

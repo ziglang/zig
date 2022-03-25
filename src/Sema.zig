@@ -6938,7 +6938,6 @@ fn zirSwitchCapture(
     const switch_info = zir_datas[capture_info.switch_inst].pl_node;
     const switch_extra = sema.code.extraData(Zir.Inst.SwitchBlock, switch_info.payload_index);
     const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = switch_info.src_node };
-    const switch_src = switch_info.src();
     const operand_is_ref = switch_extra.data.bits.is_ref;
     const cond_inst = Zir.refToIndex(switch_extra.data.operand).?;
     const cond_info = sema.code.instructions.items(.data)[cond_inst].un_node;
@@ -6965,7 +6964,29 @@ fn zirSwitchCapture(
     }
 
     if (is_multi) {
-        return sema.fail(block, switch_src, "TODO implement Sema for switch capture multi", .{});
+        const items = switch_extra.data.getMultiProng(sema.code, switch_extra.end, capture_info.prong_index).items;
+
+        var names: Module.ErrorSet.NameMap = .{};
+        try names.ensureUnusedCapacity(sema.arena, items.len);
+        for (items) |item| {
+            const item_ref = sema.resolveInst(item);
+            // Previous switch validation ensured this will succeed
+            const item_val = sema.resolveConstValue(block, .unneeded, item_ref) catch unreachable;
+            names.putAssumeCapacityNoClobber(
+                item_val.getError().?,
+                {},
+            );
+        }
+
+        // names must be sorted
+        Module.ErrorSet.sortNames(&names);
+        const else_error_ty = try Type.Tag.error_set_merged.create(sema.arena, names);
+
+        const operand = if (operand_is_ref)
+            try sema.analyzeLoad(block, operand_src, operand_ptr, operand_src)
+        else
+            operand_ptr;
+        return sema.bitCast(block, else_error_ty, operand, operand_src);
     }
     const scalar_prong = switch_extra.data.getScalarProng(sema.code, switch_extra.end, capture_info.prong_index);
     const item = sema.resolveInst(scalar_prong.item);
@@ -7022,7 +7043,12 @@ fn zirSwitchCapture(
             return block.addStructFieldVal(operand, field_index, field.ty);
         },
         .ErrorSet => {
-            return sema.fail(block, operand_src, "TODO implement Sema for zirSwitchCapture for error sets", .{});
+            const item_ty = try Type.Tag.error_set_single.create(sema.arena, item_val.getError().?);
+            const operand = if (operand_is_ref)
+                try sema.analyzeLoad(block, operand_src, operand_ptr, operand_src)
+            else
+                operand_ptr;
+            return sema.bitCast(block, item_ty, operand, operand_src);
         },
         else => {
             return sema.fail(block, operand_src, "switch on type '{}' provides no capture value", .{
