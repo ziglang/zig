@@ -809,10 +809,9 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
     if (abi_align > self.stack_align)
         self.stack_align = abi_align;
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align);
-    self.next_stack_offset = offset + abi_size;
-    if (self.next_stack_offset > self.max_end_stack)
-        self.max_end_stack = self.next_stack_offset;
+    const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
+    self.next_stack_offset = offset;
+    self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
     try self.stack.putNoClobber(self.gpa, offset, .{
         .inst = inst,
         .size = abi_size,
@@ -825,9 +824,10 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const elem_ty = self.air.typeOfIndex(inst).elemType();
 
     if (!elem_ty.hasRuntimeBits()) {
-        // As this stack item will never be dereferenced at runtime,
-        // return the current stack offset
-        return self.next_stack_offset;
+        // return the stack offset 0. Stack offset 0 will be where all
+        // zero-sized stack allocations live as non-zero-sized
+        // allocations will always have an offset > 0.
+        return @as(u32, 0);
     }
 
     const target = self.target.*;
@@ -1097,8 +1097,8 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
         const ptr_bytes = @divExact(ptr_bits, 8);
 
         const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
-        try self.genSetStack(ptr_ty, stack_offset + ptr_bytes, ptr);
-        try self.genSetStack(len_ty, stack_offset, len);
+        try self.genSetStack(ptr_ty, stack_offset, ptr);
+        try self.genSetStack(len_ty, stack_offset - ptr_bytes, len);
         break :result MCValue{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -1515,7 +1515,13 @@ fn binOp(
                     const elem_size = elem_ty.abiSize(self.target.*);
 
                     if (elem_size == 1) {
-                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        const base_tag: Air.Inst.Tag = switch (tag) {
+                            .ptr_add => .add,
+                            .ptr_sub => .sub,
+                            else => unreachable,
+                        };
+
+                        return try self.binOpRegister(base_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         // convert the offset into a byte offset by
                         // multiplying it with elem_size
@@ -1724,14 +1730,12 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-        const ptr_bytes = @divExact(ptr_bits, 8);
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
             .dead, .unreach, .none => unreachable,
             .register => unreachable, // a slice doesn't fit in one register
             .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off + ptr_bytes };
+                break :result MCValue{ .stack_offset = off };
             },
             .memory => |addr| {
                 break :result MCValue{ .memory = addr };
@@ -1752,7 +1756,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
             .dead, .unreach, .none => unreachable,
             .register => unreachable, // a slice doesn't fit in one register
             .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off };
+                break :result MCValue{ .stack_offset = off - ptr_bytes };
             },
             .memory => |addr| {
                 break :result MCValue{ .memory = addr + ptr_bytes };
@@ -1772,7 +1776,7 @@ fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
         switch (mcv) {
             .dead, .unreach, .none => unreachable,
             .ptr_stack_offset => |off| {
-                break :result MCValue{ .ptr_stack_offset = off + ptr_bytes };
+                break :result MCValue{ .ptr_stack_offset = off - ptr_bytes };
             },
             else => return self.fail("TODO implement ptr_slice_len_ptr for {}", .{mcv}),
         }
@@ -1819,7 +1823,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         defer if (index_is_register) self.register_manager.unfreezeRegs(&.{index_mcv.register});
 
         const base_mcv: MCValue = switch (slice_mcv) {
-            .stack_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_offset = off + 8 }) },
+            .stack_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_offset = off }) },
             else => return self.fail("TODO slice_elem_val when slice is {}", .{slice_mcv}),
         };
         self.register_manager.freezeRegs(&.{base_mcv.register});
@@ -2293,13 +2297,10 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
         const mcv = try self.resolveInst(operand);
         const ptr_ty = self.air.typeOf(operand);
         const struct_ty = ptr_ty.childType();
-        const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
-        const struct_field_ty = struct_ty.structFieldType(index);
-        const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
         switch (mcv) {
             .ptr_stack_offset => |off| {
-                break :result MCValue{ .ptr_stack_offset = off + struct_size - struct_field_offset - struct_field_size };
+                break :result MCValue{ .ptr_stack_offset = off - struct_field_offset };
             },
             else => {
                 const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
@@ -2621,11 +2622,15 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
             .Pointer => Type.usize,
             .ErrorSet => Type.initTag(.u16),
             .Optional => blk: {
-                if (lhs_ty.isPtrLikeOptional()) {
+                var opt_buffer: Type.Payload.ElemType = undefined;
+                const payload_ty = lhs_ty.optionalChild(&opt_buffer);
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                    break :blk Type.initTag(.u1);
+                } else if (lhs_ty.isPtrLikeOptional()) {
                     break :blk Type.usize;
+                } else {
+                    return self.fail("TODO AArch64 cmp non-pointer optionals", .{});
                 }
-
-                return self.fail("TODO AArch64 cmp optionals", .{});
             },
             .Float => return self.fail("TODO AArch64 cmp floats", .{}),
             else => unreachable,
@@ -3318,8 +3323,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
         },
         .register => |reg| {
-            const adj_off = stack_offset + abi_size;
-
             switch (abi_size) {
                 1, 2, 4, 8 => {
                     const tag: Mir.Inst.Tag = switch (abi_size) {
@@ -3334,7 +3337,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         .tag = tag,
                         .data = .{ .load_store_stack = .{
                             .rt = rt,
-                            .offset = @intCast(u32, adj_off),
+                            .offset = @intCast(u32, stack_offset),
                         } },
                     });
                 },
@@ -3430,13 +3433,9 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 else => unreachable, // unexpected register size
             }
         },
-        .ptr_stack_offset => |unadjusted_off| {
+        .ptr_stack_offset => |off| {
             // TODO: maybe addressing from sp instead of fp
-            const elem_ty = ty.childType();
-            const abi_size = elem_ty.abiSize(self.target.*);
-            const adj_off = unadjusted_off + abi_size;
-
-            const imm12 = math.cast(u12, adj_off) catch
+            const imm12 = math.cast(u12, off) catch
                 return self.fail("TODO larger stack offsets", .{});
 
             _ = try self.addInst(.{
@@ -3526,9 +3525,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             try self.genSetReg(ty, reg, .{ .immediate = addr });
             try self.genLdrRegister(reg, reg, ty.abiSize(self.target.*));
         },
-        .stack_offset => |unadjusted_off| {
+        .stack_offset => |off| {
             const abi_size = ty.abiSize(self.target.*);
-            const adj_off = unadjusted_off + abi_size;
 
             switch (abi_size) {
                 1, 2, 4, 8 => {
@@ -3548,7 +3546,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .tag = tag,
                         .data = .{ .load_store_stack = .{
                             .rt = rt,
-                            .offset = @intCast(u32, adj_off),
+                            .offset = @intCast(u32, off),
                         } },
                     });
                 },
@@ -3583,8 +3581,8 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const ptr_bytes = @divExact(ptr_bits, 8);
 
         const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
-        try self.genSetStack(ptr_ty, stack_offset + ptr_bytes, ptr);
-        try self.genSetStack(Type.initTag(.usize), stack_offset, .{ .immediate = array_len });
+        try self.genSetStack(ptr_ty, stack_offset, ptr);
+        try self.genSetStack(Type.initTag(.usize), stack_offset - ptr_bytes, .{ .immediate = array_len });
         break :result MCValue{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
