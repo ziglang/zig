@@ -859,3 +859,22 @@ test "debug variable type resolved through indirect zero-bit types" {
     const slice: []const T = &[_]T{};
     _ = slice;
 }
+
+test "const local with comptime init through array init" {
+    const E1 = enum {
+        A,
+        fn a() void {}
+    };
+
+    const S = struct {
+        fn declarations(comptime T: type) []const std.builtin.Type.Declaration {
+            return @typeInfo(T).Enum.decls;
+        }
+    };
+
+    const decls = comptime [_][]const std.builtin.Type.Declaration{
+        S.declarations(E1),
+    };
+
+    try comptime expect(decls[0][0].name[0] == 'a');
+}

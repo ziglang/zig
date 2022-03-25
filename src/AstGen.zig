@@ -2671,6 +2671,9 @@ fn varDecl(
                 return &sub_scope.base;
             }
 
+            const is_comptime = gz.force_comptime or
+                tree.nodes.items(.tag)[var_decl.ast.init_node] == .@"comptime";
+
             // Detect whether the initialization expression actually uses the
             // result location pointer.
             var init_scope = gz.makeSubBlock(scope);
@@ -2692,7 +2695,7 @@ fn varDecl(
                         .type_inst = type_inst,
                         .align_inst = align_inst,
                         .is_const = true,
-                        .is_comptime = gz.force_comptime,
+                        .is_comptime = is_comptime,
                     });
                     init_scope.instructions_top = gz.instructions.items.len;
                 }
@@ -2700,7 +2703,7 @@ fn varDecl(
             } else {
                 const alloc = if (align_inst == .none) alloc: {
                     init_scope.instructions_top = gz.instructions.items.len;
-                    const tag: Zir.Inst.Tag = if (gz.force_comptime)
+                    const tag: Zir.Inst.Tag = if (is_comptime)
                         .alloc_inferred_comptime
                     else
                         .alloc_inferred;
@@ -2711,7 +2714,7 @@ fn varDecl(
                         .type_inst = .none,
                         .align_inst = align_inst,
                         .is_const = true,
-                        .is_comptime = gz.force_comptime,
+                        .is_comptime = is_comptime,
                     });
                     init_scope.instructions_top = gz.instructions.items.len;
                     break :alloc ref;
