@@ -260,6 +260,13 @@ test "Type.ErrorSet" {
             .{ .name = "C" },
         },
     });
+    _ = @Type(.{
+        .ErrorSet = &.{
+            .{ .name = "C" },
+            .{ .name = "B" },
+            .{ .name = "A" },
+        },
+    });
 }
 
 test "Type.Struct" {

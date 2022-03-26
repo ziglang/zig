@@ -1132,3 +1132,20 @@ test "global variable struct contains union initialized to non-most-aligned fiel
     T.s.u.a += 1;
     try expect(T.s.u.a == 4);
 }
+
+test "union with no result loc initiated with a runtime value" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const U = union {
+        a: u32,
+        b: u32,
+        fn foo(u: @This()) void {
+            _ = u;
+        }
+    };
+    var a: u32 = 1;
+    U.foo(U{ .a = a });
+}

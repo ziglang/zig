@@ -4511,7 +4511,11 @@ pub const Type = extern union {
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
                 if (enum_full.fields.count() == 1) {
-                    return enum_full.values.keys()[0];
+                    if (enum_full.values.count() == 0) {
+                        return Value.zero;
+                    } else {
+                        return enum_full.values.keys()[0];
+                    }
                 } else {
                     return null;
                 }
