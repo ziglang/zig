@@ -3724,6 +3724,8 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
             .pointer => ty.castTag(.pointer).?.data.pointee_type,
 
+            .var_args_param => ty,
+
             else => unreachable,
         };
     }
