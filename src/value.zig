@@ -1671,6 +1671,7 @@ pub const Value = extern union {
     }
 
     /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.
+    /// Vectors are also accepted. Vector results are reduced with AND.
     pub fn intFitsInType(self: Value, ty: Type, target: Target) bool {
         switch (self.tag()) {
             .zero,
@@ -1765,6 +1766,16 @@ pub const Value = extern union {
                 },
                 .ComptimeInt => return true,
                 else => unreachable,
+            },
+
+            .aggregate => {
+                assert(ty.zigTypeTag() == .Vector);
+                for (self.castTag(.aggregate).?.data) |elem| {
+                    if (!elem.intFitsInType(ty.scalarType(), target)) {
+                        return false;
+                    }
+                }
+                return true;
             },
 
             else => unreachable,
