@@ -5604,8 +5604,9 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(extra.rhs);
 
         const lhs_ty = self.air.typeOf(extra.lhs);
+        const scalar_ty = lhs_ty.scalarType();
 
-        const intrinsic_name = if (lhs_ty.isSignedInt()) signed_intrinsic else unsigned_intrinsic;
+        const intrinsic_name = if (scalar_ty.isSignedInt()) signed_intrinsic else unsigned_intrinsic;
 
         const llvm_lhs_ty = try self.dg.llvmType(lhs_ty);
 
