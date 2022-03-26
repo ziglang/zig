@@ -82,6 +82,22 @@ pub const SrcFn = struct {
 
 pub const PtrWidth = enum { p32, p64 };
 
+pub const DbgInfoTypeRelocsTable = std.ArrayHashMapUnmanaged(
+    Type,
+    DbgInfoTypeReloc,
+    Type.HashContext32,
+    true,
+);
+
+pub const DbgInfoTypeReloc = struct {
+    /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
+    /// This is where the .debug_info tag for the type is.
+    off: u32,
+    /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
+    /// List of DW.AT.type / DW.FORM.ref4 that points to the type.
+    relocs: std.ArrayListUnmanaged(u32),
+};
+
 pub const abbrev_compile_unit = 1;
 pub const abbrev_subprogram = 2;
 pub const abbrev_subprogram_retvoid = 3;
@@ -138,7 +154,7 @@ pub fn deinit(self: *Dwarf) void {
 pub const DeclDebugBuffers = struct {
     dbg_line_buffer: std.ArrayList(u8),
     dbg_info_buffer: std.ArrayList(u8),
-    dbg_info_type_relocs: File.DbgInfoTypeRelocsTable,
+    dbg_info_type_relocs: DbgInfoTypeRelocsTable,
 };
 
 pub fn initDeclDebugInfo(self: *Dwarf, decl: *Module.Decl) !DeclDebugBuffers {
@@ -153,7 +169,7 @@ pub fn initDeclDebugInfo(self: *Dwarf, decl: *Module.Decl) !DeclDebugBuffers {
     const gpa = self.allocator;
     var dbg_line_buffer = std.ArrayList(u8).init(gpa);
     var dbg_info_buffer = std.ArrayList(u8).init(gpa);
-    var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
+    var dbg_info_type_relocs: DbgInfoTypeRelocsTable = .{};
 
     assert(decl.has_tv);
 
@@ -890,7 +906,7 @@ fn addDbgInfoType(
     module: *Module,
     ty: Type,
     dbg_info_buffer: *std.ArrayList(u8),
-    dbg_info_type_relocs: *File.DbgInfoTypeRelocsTable,
+    dbg_info_type_relocs: *DbgInfoTypeRelocsTable,
     nested_ref4_relocs: *std.ArrayList(u32),
 ) error{OutOfMemory}!void {
     const target = self.target;

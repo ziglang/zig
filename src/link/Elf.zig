@@ -2232,7 +2232,7 @@ pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
     }
 }
 
-fn deinitRelocs(gpa: Allocator, table: *File.DbgInfoTypeRelocsTable) void {
+fn deinitRelocs(gpa: Allocator, table: *link.File.Dwarf.DbgInfoTypeRelocsTable) void {
     for (table.values()) |*value| {
         value.relocs.deinit(gpa);
     }
