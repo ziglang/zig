@@ -98,3 +98,23 @@ test "comptime call with bound function as parameter" {
     var inst: S = undefined;
     try expectEqual(?i32, S.ReturnType(inst.call_me_maybe));
 }
+
+test "result location of function call argument through runtime condition and struct init" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const E = enum { a, b };
+    const S = struct {
+        e: E,
+    };
+    const namespace = struct {
+        fn foo(s: S) !void {
+            try expect(s.e == .b);
+        }
+    };
+    var runtime = true;
+    try namespace.foo(.{
+        .e = if (!runtime) .a else .b,
+    });
+}

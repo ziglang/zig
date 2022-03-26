@@ -738,6 +738,7 @@ fn analyzeBodyInner(
             .optional_payload_unsafe      => try sema.zirOptionalPayload(block, inst, false),
             .optional_payload_unsafe_ptr  => try sema.zirOptionalPayloadPtr(block, inst, false),
             .optional_type                => try sema.zirOptionalType(block, inst),
+            .param_type                   => try sema.zirParamType(block, inst),
             .ptr_type                     => try sema.zirPtrType(block, inst),
             .ptr_type_simple              => try sema.zirPtrTypeSimple(block, inst),
             .ref                          => try sema.zirRef(block, inst),
@@ -3636,6 +3637,39 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     }
 
     return sema.storePtr(block, src, ptr, operand);
+}
+
+fn zirParamType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const callee_src = sema.src;
+
+    const inst_data = sema.code.instructions.items(.data)[inst].param_type;
+    const callee = sema.resolveInst(inst_data.callee);
+    const callee_ty = sema.typeOf(callee);
+    var param_index = inst_data.param_index;
+
+    const fn_ty = if (callee_ty.tag() == .bound_fn) fn_ty: {
+        const bound_fn_val = try sema.resolveConstValue(block, callee_src, callee);
+        const bound_fn = bound_fn_val.castTag(.bound_fn).?.data;
+        const fn_ty = sema.typeOf(bound_fn.func_inst);
+        param_index += 1;
+        break :fn_ty fn_ty;
+    } else callee_ty;
+
+    const fn_info = if (fn_ty.zigTypeTag() == .Pointer)
+        fn_ty.childType().fnInfo()
+    else
+        fn_ty.fnInfo();
+
+    if (param_index >= fn_info.param_types.len) {
+        assert(fn_info.is_var_args);
+        return sema.addType(Type.initTag(.var_args_param));
+    }
+
+    if (fn_info.param_types[param_index].tag() == .generic_poison) {
+        return sema.addType(Type.initTag(.var_args_param));
+    }
+
+    return sema.addType(fn_info.param_types[param_index]);
 }
 
 fn zirStr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -6613,6 +6647,7 @@ fn analyzeAs(
 ) CompileError!Air.Inst.Ref {
     const dest_ty = try sema.resolveType(block, src, zir_dest_type);
     const operand = sema.resolveInst(zir_operand);
+    if (dest_ty.tag() == .var_args_param) return operand;
     return sema.coerce(block, dest_ty, operand, src);
 }
 
@@ -12096,7 +12131,7 @@ fn zirUnionInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 fn unionInit(
     sema: *Sema,
     block: *Block,
-    init: Air.Inst.Ref,
+    uncasted_init: Air.Inst.Ref,
     init_src: LazySrcLoc,
     union_ty: Type,
     union_ty_src: LazySrcLoc,
@@ -12104,6 +12139,8 @@ fn unionInit(
     field_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_src);
+    const field = union_ty.unionFields().values()[field_index];
+    const init = try sema.coerce(block, field.ty, uncasted_init, init_src);
 
     if (try sema.resolveMaybeUndefVal(block, init_src, init)) |init_val| {
         const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
@@ -12574,6 +12611,7 @@ fn zirFieldType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const ty_src = inst_data.src();
     const field_src = inst_data.src();
     const aggregate_ty = try sema.resolveType(block, ty_src, extra.container_type);
+    if (aggregate_ty.tag() == .var_args_param) return sema.addType(aggregate_ty);
     const field_name = sema.code.nullTerminatedString(extra.name_start);
     return sema.fieldType(block, aggregate_ty, field_name, field_src, ty_src);
 }
@@ -18916,7 +18954,7 @@ fn beginComptimePtrLoad(
                 if (coerce_in_mem_ok) {
                     deref.pointee = TypedValue{
                         .ty = field_ty,
-                        .val = try tv.val.fieldValue(sema.arena, field_index),
+                        .val = tv.val.fieldValue(tv.ty, field_index),
                     };
                     break :blk deref;
                 }

@@ -1318,13 +1318,13 @@ fn arrayInitExpr(
                 return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
             }
         },
-        .ty, .coerced_ty => |ty_inst| {
+        .ty, .coerced_ty => {
             if (types.array != .none) {
                 const result = try arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, types.sentinel, false);
                 return rvalue(gz, rl, result, node);
             } else {
-                const elem_type = try gz.addUnNode(.elem_type, ty_inst, node);
-                return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, elem_type, types.sentinel, false);
+                const result = try arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
+                return rvalue(gz, rl, result, node);
             }
         },
         .ptr => |ptr_inst| {
@@ -1559,7 +1559,7 @@ fn structInitExpr(
                 _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
                 return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init_ref);
             } else {
-                return structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon_ref);
+                return structInitExprRlNone(gz, scope, node, struct_init, .none, .struct_init_anon_ref);
             }
         },
         .none => {
@@ -1568,12 +1568,13 @@ fn structInitExpr(
                 _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
                 return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
             } else {
-                return structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon);
+                return structInitExprRlNone(gz, scope, node, struct_init, .none, .struct_init_anon);
             }
         },
         .ty, .coerced_ty => |ty_inst| {
             if (struct_init.ast.type_expr == 0) {
-                return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
+                const result = try structInitExprRlNone(gz, scope, node, struct_init, ty_inst, .struct_init_anon);
+                return rvalue(gz, rl, result, node);
             }
             const inner_ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
             _ = try gz.addUnNode(.validate_struct_init_ty, inner_ty_inst, node);
@@ -1586,7 +1587,7 @@ fn structInitExpr(
                 // We treat this case differently so that we don't get a crash when
                 // analyzing field_base_ptr against an alloc_inferred_mut.
                 // See corresponding logic in arrayInitExpr.
-                const result = try structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon);
+                const result = try structInitExprRlNone(gz, scope, node, struct_init, .none, .struct_init_anon);
                 return rvalue(gz, rl, result, node);
             } else {
                 return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst);
@@ -1596,7 +1597,7 @@ fn structInitExpr(
             // This condition is here for the same reason as the above condition in `inferred_ptr`.
             // See corresponding logic in arrayInitExpr.
             if (struct_init.ast.type_expr == 0 and astgen.isInferred(block_gz.rl_ptr)) {
-                const result = try structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon);
+                const result = try structInitExprRlNone(gz, scope, node, struct_init, .none, .struct_init_anon);
                 return rvalue(gz, rl, result, node);
             }
 
@@ -1610,6 +1611,7 @@ fn structInitExprRlNone(
     scope: *Scope,
     node: Ast.Node.Index,
     struct_init: Ast.full.StructInit,
+    ty_inst: Zir.Inst.Ref,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
@@ -1624,9 +1626,16 @@ fn structInitExprRlNone(
     for (struct_init.ast.fields) |field_init| {
         const name_token = tree.firstToken(field_init) - 2;
         const str_index = try astgen.identAsString(name_token);
+        const sub_rl: ResultLoc = if (ty_inst != .none)
+            ResultLoc{ .ty = try gz.addPlNode(.field_type, field_init, Zir.Inst.FieldType{
+                .container_type = ty_inst,
+                .name_start = str_index,
+            }) }
+        else
+            .none;
         setExtra(astgen, extra_index, Zir.Inst.StructInitAnon.Item{
             .field_name = str_index,
-            .init = try expr(gz, scope, .none, field_init),
+            .init = try expr(gz, scope, sub_rl, field_init),
         });
         extra_index += field_size;
     }
@@ -2350,6 +2359,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .closure_get,
             .array_base_ptr,
             .field_base_ptr,
+            .param_type,
             => break :b false,
 
             // ZIR instructions that are always `noreturn`.
@@ -7846,10 +7856,15 @@ fn callExpr(
     });
     var extra_index = try reserveExtra(astgen, call.ast.params.len);
 
-    for (call.ast.params) |param_node| {
-        // Parameters are always temporary values, they have no
-        // meaningful result location.  Sema will coerce them.
-        const arg_ref = try expr(gz, scope, .none, param_node);
+    for (call.ast.params) |param_node, i| {
+        const param_type = try gz.add(.{
+            .tag = .param_type,
+            .data = .{ .param_type = .{
+                .callee = callee,
+                .param_index = @intCast(u32, i),
+            } },
+        });
+        const arg_ref = try expr(gz, scope, .{ .coerced_ty = param_type }, param_node);
         astgen.extra.items[extra_index] = @enumToInt(arg_ref);
         extra_index += 1;
     }

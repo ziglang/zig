@@ -2659,8 +2659,7 @@ pub const Value = extern union {
         };
     }
 
-    pub fn fieldValue(val: Value, allocator: Allocator, index: usize) error{OutOfMemory}!Value {
-        _ = allocator;
+    pub fn fieldValue(val: Value, ty: Type, index: usize) Value {
         switch (val.tag()) {
             .aggregate => {
                 const field_values = val.castTag(.aggregate).?.data;
@@ -2671,8 +2670,16 @@ pub const Value = extern union {
                 // TODO assert the tag is correct
                 return payload.val;
             },
-            // Structs which have only one possible value need to consist of members which have only one possible value.
-            .the_only_possible_value => return val,
+
+            .the_only_possible_value => return ty.onePossibleValue().?,
+
+            .empty_struct_value => {
+                if (ty.isTupleOrAnonStruct()) {
+                    const tuple = ty.tupleFields();
+                    return tuple.values[index];
+                }
+                unreachable;
+            },
 
             else => unreachable,
         }
