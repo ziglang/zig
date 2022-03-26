@@ -3904,7 +3904,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
-    try sema.resolveTypeFully(&block_scope, src, decl_tv.ty);
+    try sema.resolveTypeLayout(&block_scope, src, decl_tv.ty);
 
     const decl_arena_state = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
 
@@ -4048,6 +4048,10 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     if (has_runtime_bits) {
         log.debug("queue linker work for {*} ({s})", .{ decl, decl.name });
+
+        // Needed for codegen_decl which will call updateDecl and then the
+        // codegen backend wants full access to the Decl Type.
+        try sema.resolveTypeFully(&block_scope, src, decl.ty);
 
         try mod.comp.bin_file.allocateDeclIndexes(decl);
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });

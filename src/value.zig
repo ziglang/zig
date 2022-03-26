@@ -1076,9 +1076,10 @@ pub const Value = extern union {
             .lazy_align => {
                 const ty = val.castTag(.lazy_align).?.data;
                 if (sema_kit) |sk| {
-                    try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
+                    return (try ty.abiAlignmentAdvanced(target, .{ .sema_kit = sk })).scalar;
+                } else {
+                    return ty.abiAlignment(target);
                 }
-                return ty.abiAlignment(target);
             },
 
             else => return null,

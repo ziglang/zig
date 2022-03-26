@@ -10880,9 +10880,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .Pointer => {
             const info = ty.ptrInfo().data;
             const alignment = if (info.@"align" != 0)
-                info.@"align"
+                try Value.Tag.int_u64.create(sema.arena, info.@"align")
             else
-                try sema.typeAbiAlignment(block, src, info.pointee_type);
+                try info.pointee_type.lazyAbiAlignment(target, sema.arena);
 
             const field_values = try sema.arena.create([8]Value);
             field_values.* = .{
@@ -10893,7 +10893,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // is_volatile: bool,
                 Value.makeBool(info.@"volatile"),
                 // alignment: comptime_int,
-                try Value.Tag.int_u64.create(sema.arena, alignment),
+                alignment,
                 // address_space: AddressSpace
                 try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.@"addrspace")),
                 // child: type,
@@ -11322,8 +11322,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         const is_comptime = field_val.tag() != .unreachable_value;
                         const opt_default_val = if (is_comptime) field_val else null;
                         const default_val_ptr = try sema.optRefValue(block, src, field_ty, opt_default_val);
-                        const alignment = field_ty.abiAlignment(target);
-
                         struct_field_fields.* = .{
                             // name: []const u8,
                             name_val,
@@ -11334,7 +11332,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             // is_comptime: bool,
                             Value.makeBool(is_comptime),
                             // alignment: comptime_int,
-                            try Value.Tag.int_u64.create(fields_anon_decl.arena(), alignment),
+                            try field_ty.lazyAbiAlignment(target, fields_anon_decl.arena()),
                         };
                         struct_field_val.* = try Value.Tag.aggregate.create(fields_anon_decl.arena(), struct_field_fields);
                     }
@@ -22749,11 +22747,9 @@ fn typeAbiSize(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u64 {
     return ty.abiSize(target);
 }
 
-/// TODO merge with Type.abiAlignmentAdvanced
-fn typeAbiAlignment(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u32 {
-    try sema.resolveTypeLayout(block, src, ty);
+fn typeAbiAlignment(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!u32 {
     const target = sema.mod.getTarget();
-    return ty.abiAlignment(target);
+    return (try ty.abiAlignmentAdvanced(target, .{ .sema_kit = sema.kit(block, src) })).scalar;
 }
 
 /// Not valid to call for packed unions.

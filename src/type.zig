@@ -2691,31 +2691,41 @@ pub const Type = extern union {
 
     /// Returns 0 for 0-bit types.
     pub fn abiAlignment(ty: Type, target: Target) u32 {
-        return ty.abiAlignmentAdvanced(target, .eager).scalar;
+        return (ty.abiAlignmentAdvanced(target, .eager) catch unreachable).scalar;
     }
 
     /// May capture a reference to `ty`.
     pub fn lazyAbiAlignment(ty: Type, target: Target, arena: Allocator) !Value {
-        switch (ty.abiAlignmentAdvanced(target, .{ .lazy = arena })) {
-            .val => |val| return try val,
+        switch (try ty.abiAlignmentAdvanced(target, .{ .lazy = arena })) {
+            .val => |val| return val,
             .scalar => |x| return Value.Tag.int_u64.create(arena, x),
         }
     }
 
+    const AbiAlignmentAdvanced = union(enum) {
+        scalar: u32,
+        val: Value,
+    };
+
     /// If you pass `eager` you will get back `scalar` and assert the type is resolved.
+    /// In this case there will be no error, guaranteed.
     /// If you pass `lazy` you may get back `scalar` or `val`.
     /// If `val` is returned, a reference to `ty` has been captured.
-    fn abiAlignmentAdvanced(
+    /// If you pass `sema_kit` you will get back `scalar` and resolve the type if
+    /// necessary, possibly returning a CompileError.
+    pub fn abiAlignmentAdvanced(
         ty: Type,
         target: Target,
         strat: union(enum) {
             eager,
             lazy: Allocator,
+            sema_kit: Module.WipAnalysis,
         },
-    ) union(enum) {
-        scalar: u32,
-        val: Allocator.Error!Value,
-    } {
+    ) Module.CompileError!AbiAlignmentAdvanced {
+        const sema_kit = switch (strat) {
+            .sema_kit => |sk| sk,
+            else => null,
+        };
         return switch (ty.tag()) {
             .u1,
             .u8,
@@ -2735,25 +2745,25 @@ pub const Type = extern union {
             .extern_options,
             .@"opaque",
             .anyopaque,
-            => return .{ .scalar = 1 },
+            => return AbiAlignmentAdvanced{ .scalar = 1 },
 
             .fn_noreturn_no_args, // represents machine code; not a pointer
             .fn_void_no_args, // represents machine code; not a pointer
             .fn_naked_noreturn_no_args, // represents machine code; not a pointer
             .fn_ccc_void_no_args, // represents machine code; not a pointer
-            => return .{ .scalar = target_util.defaultFunctionAlignment(target) },
+            => return AbiAlignmentAdvanced{ .scalar = target_util.defaultFunctionAlignment(target) },
 
             // represents machine code; not a pointer
             .function => {
                 const alignment = ty.castTag(.function).?.data.alignment;
-                if (alignment != 0) return .{ .scalar = alignment };
-                return .{ .scalar = target_util.defaultFunctionAlignment(target) };
+                if (alignment != 0) return AbiAlignmentAdvanced{ .scalar = alignment };
+                return AbiAlignmentAdvanced{ .scalar = target_util.defaultFunctionAlignment(target) };
             },
 
-            .i16, .u16 => return .{ .scalar = 2 },
-            .i32, .u32 => return .{ .scalar = 4 },
-            .i64, .u64 => return .{ .scalar = 8 },
-            .u128, .i128 => return .{ .scalar = 16 },
+            .i16, .u16 => return AbiAlignmentAdvanced{ .scalar = 2 },
+            .i32, .u32 => return AbiAlignmentAdvanced{ .scalar = 4 },
+            .i64, .u64 => return AbiAlignmentAdvanced{ .scalar = 8 },
+            .u128, .i128 => return AbiAlignmentAdvanced{ .scalar = 16 },
 
             .isize,
             .usize,
@@ -2776,40 +2786,40 @@ pub const Type = extern union {
             .manyptr_const_u8_sentinel_0,
             .@"anyframe",
             .anyframe_T,
-            => return .{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+            => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
 
-            .c_short => return .{ .scalar = @divExact(CType.short.sizeInBits(target), 8) },
-            .c_ushort => return .{ .scalar = @divExact(CType.ushort.sizeInBits(target), 8) },
-            .c_int => return .{ .scalar = @divExact(CType.int.sizeInBits(target), 8) },
-            .c_uint => return .{ .scalar = @divExact(CType.uint.sizeInBits(target), 8) },
-            .c_long => return .{ .scalar = @divExact(CType.long.sizeInBits(target), 8) },
-            .c_ulong => return .{ .scalar = @divExact(CType.ulong.sizeInBits(target), 8) },
-            .c_longlong => return .{ .scalar = @divExact(CType.longlong.sizeInBits(target), 8) },
-            .c_ulonglong => return .{ .scalar = @divExact(CType.ulonglong.sizeInBits(target), 8) },
+            .c_short => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.short.sizeInBits(target), 8) },
+            .c_ushort => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.ushort.sizeInBits(target), 8) },
+            .c_int => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.int.sizeInBits(target), 8) },
+            .c_uint => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.uint.sizeInBits(target), 8) },
+            .c_long => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.long.sizeInBits(target), 8) },
+            .c_ulong => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.ulong.sizeInBits(target), 8) },
+            .c_longlong => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.longlong.sizeInBits(target), 8) },
+            .c_ulonglong => return AbiAlignmentAdvanced{ .scalar = @divExact(CType.ulonglong.sizeInBits(target), 8) },
 
-            .f16 => return .{ .scalar = 2 },
-            .f32 => return .{ .scalar = 4 },
-            .f64 => return .{ .scalar = 8 },
-            .f128 => return .{ .scalar = 16 },
+            .f16 => return AbiAlignmentAdvanced{ .scalar = 2 },
+            .f32 => return AbiAlignmentAdvanced{ .scalar = 4 },
+            .f64 => return AbiAlignmentAdvanced{ .scalar = 8 },
+            .f128 => return AbiAlignmentAdvanced{ .scalar = 16 },
 
             .f80 => switch (target.cpu.arch) {
-                .i386 => return .{ .scalar = 4 },
-                .x86_64 => return .{ .scalar = 16 },
+                .i386 => return AbiAlignmentAdvanced{ .scalar = 4 },
+                .x86_64 => return AbiAlignmentAdvanced{ .scalar = 16 },
                 else => {
                     var payload: Payload.Bits = .{
                         .base = .{ .tag = .int_unsigned },
                         .data = 80,
                     };
                     const u80_ty = initPayload(&payload.base);
-                    return .{ .scalar = abiAlignment(u80_ty, target) };
+                    return AbiAlignmentAdvanced{ .scalar = abiAlignment(u80_ty, target) };
                 },
             },
             .c_longdouble => switch (CType.longdouble.sizeInBits(target)) {
-                16 => return .{ .scalar = abiAlignment(Type.f16, target) },
-                32 => return .{ .scalar = abiAlignment(Type.f32, target) },
-                64 => return .{ .scalar = abiAlignment(Type.f64, target) },
-                80 => return .{ .scalar = abiAlignment(Type.f80, target) },
-                128 => return .{ .scalar = abiAlignment(Type.f128, target) },
+                16 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f16, target) },
+                32 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f32, target) },
+                64 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f64, target) },
+                80 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f80, target) },
+                128 => return AbiAlignmentAdvanced{ .scalar = abiAlignment(Type.f128, target) },
                 else => unreachable,
             },
 
@@ -2819,22 +2829,22 @@ pub const Type = extern union {
             .anyerror,
             .error_set_inferred,
             .error_set_merged,
-            => return .{ .scalar = 2 }, // TODO revisit this when we have the concept of the error tag type
+            => return AbiAlignmentAdvanced{ .scalar = 2 }, // TODO revisit this when we have the concept of the error tag type
 
             .array, .array_sentinel => return ty.elemType().abiAlignmentAdvanced(target, strat),
 
             // TODO audit this - is there any more complicated logic to determine
             // ABI alignment of vectors?
-            .vector => return .{ .scalar = 16 },
+            .vector => return AbiAlignmentAdvanced{ .scalar = 16 },
 
             .int_signed, .int_unsigned => {
                 const bits: u16 = ty.cast(Payload.Bits).?.data;
-                if (bits == 0) return .{ .scalar = 0 };
-                if (bits <= 8) return .{ .scalar = 1 };
-                if (bits <= 16) return .{ .scalar = 2 };
-                if (bits <= 32) return .{ .scalar = 4 };
-                if (bits <= 64) return .{ .scalar = 8 };
-                return .{ .scalar = 16 };
+                if (bits == 0) return AbiAlignmentAdvanced{ .scalar = 0 };
+                if (bits <= 8) return AbiAlignmentAdvanced{ .scalar = 1 };
+                if (bits <= 16) return AbiAlignmentAdvanced{ .scalar = 2 };
+                if (bits <= 32) return AbiAlignmentAdvanced{ .scalar = 4 };
+                if (bits <= 64) return AbiAlignmentAdvanced{ .scalar = 8 };
+                return AbiAlignmentAdvanced{ .scalar = 16 };
             },
 
             .optional => {
@@ -2842,17 +2852,19 @@ pub const Type = extern union {
                 const child_type = ty.optionalChild(&buf);
 
                 if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr()) {
-                    return .{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
+                    return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
                 }
 
                 switch (strat) {
-                    .eager => {
-                        if (!child_type.hasRuntimeBits()) return .{ .scalar = 1 };
-                        return .{ .scalar = child_type.abiAlignment(target) };
+                    .eager, .sema_kit => {
+                        if (!(try child_type.hasRuntimeBitsAdvanced(false, sema_kit))) {
+                            return AbiAlignmentAdvanced{ .scalar = 1 };
+                        }
+                        return child_type.abiAlignmentAdvanced(target, strat);
                     },
-                    .lazy => |arena| switch (child_type.abiAlignmentAdvanced(target, strat)) {
-                        .scalar => |x| return .{ .scalar = @maximum(x, 1) },
-                        .val => return .{ .val = Value.Tag.lazy_align.create(arena, ty) },
+                    .lazy => |arena| switch (try child_type.abiAlignmentAdvanced(target, strat)) {
+                        .scalar => |x| return AbiAlignmentAdvanced{ .scalar = @maximum(x, 1) },
+                        .val => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                     },
                 }
             },
@@ -2860,60 +2872,64 @@ pub const Type = extern union {
             .error_union => {
                 const data = ty.castTag(.error_union).?.data;
                 switch (strat) {
-                    .eager => {
-                        if (!data.error_set.hasRuntimeBits()) {
-                            return .{ .scalar = data.payload.abiAlignment(target) };
-                        } else if (!data.payload.hasRuntimeBits()) {
-                            return .{ .scalar = data.error_set.abiAlignment(target) };
+                    .eager, .sema_kit => {
+                        if (!(try data.error_set.hasRuntimeBitsAdvanced(false, sema_kit))) {
+                            return data.payload.abiAlignmentAdvanced(target, strat);
+                        } else if (!(try data.payload.hasRuntimeBitsAdvanced(false, sema_kit))) {
+                            return data.error_set.abiAlignmentAdvanced(target, strat);
                         }
-                        return .{ .scalar = @maximum(
-                            data.payload.abiAlignment(target),
-                            data.error_set.abiAlignment(target),
+                        return AbiAlignmentAdvanced{ .scalar = @maximum(
+                            (try data.payload.abiAlignmentAdvanced(target, strat)).scalar,
+                            (try data.error_set.abiAlignmentAdvanced(target, strat)).scalar,
                         ) };
                     },
                     .lazy => |arena| {
-                        switch (data.payload.abiAlignmentAdvanced(target, strat)) {
+                        switch (try data.payload.abiAlignmentAdvanced(target, strat)) {
                             .scalar => |payload_align| {
                                 if (payload_align == 0) {
                                     return data.error_set.abiAlignmentAdvanced(target, strat);
                                 }
-                                switch (data.error_set.abiAlignmentAdvanced(target, strat)) {
+                                switch (try data.error_set.abiAlignmentAdvanced(target, strat)) {
                                     .scalar => |err_set_align| {
-                                        return .{ .scalar = @maximum(payload_align, err_set_align) };
+                                        return AbiAlignmentAdvanced{ .scalar = @maximum(payload_align, err_set_align) };
                                     },
                                     .val => {},
                                 }
                             },
                             .val => {},
                         }
-                        return .{ .val = Value.Tag.lazy_align.create(arena, ty) };
+                        return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
                     },
                 }
             },
 
             .@"struct" => {
+                if (sema_kit) |sk| {
+                    try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
+                }
                 if (ty.castTag(.@"struct")) |payload| {
                     const struct_obj = payload.data;
                     if (!struct_obj.haveLayout()) switch (strat) {
                         .eager => unreachable, // struct layout not resolved
-                        .lazy => |arena| return .{ .val = Value.Tag.lazy_align.create(arena, ty) },
+                        .sema_kit => unreachable, // handled above
+                        .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                     };
                     if (struct_obj.layout == .Packed) {
                         var buf: Type.Payload.Bits = undefined;
                         const int_ty = struct_obj.packedIntegerType(target, &buf);
-                        return .{ .scalar = int_ty.abiAlignment(target) };
+                        return AbiAlignmentAdvanced{ .scalar = int_ty.abiAlignment(target) };
                     }
                 }
 
                 const fields = ty.structFields();
                 var big_align: u32 = 0;
                 for (fields.values()) |field| {
-                    if (!field.ty.hasRuntimeBits()) continue;
+                    if (!(try field.ty.hasRuntimeBitsAdvanced(false, sema_kit))) continue;
 
                     const field_align = field.normalAlignment(target);
                     big_align = @maximum(big_align, field_align);
                 }
-                return .{ .scalar = big_align };
+                return AbiAlignmentAdvanced{ .scalar = big_align };
             },
 
             .tuple, .anon_struct => {
@@ -2923,34 +2939,41 @@ pub const Type = extern union {
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) continue; // comptime field
 
-                    switch (field_ty.abiAlignmentAdvanced(target, strat)) {
+                    switch (try field_ty.abiAlignmentAdvanced(target, strat)) {
                         .scalar => |field_align| big_align = @maximum(big_align, field_align),
                         .val => switch (strat) {
                             .eager => unreachable, // field type alignment not resolved
-                            .lazy => |arena| return .{ .val = Value.Tag.lazy_align.create(arena, ty) },
+                            .sema_kit => unreachable, // passed to abiAlignmentAdvanced above
+                            .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                         },
                     }
                 }
-                return .{ .scalar = big_align };
+                return AbiAlignmentAdvanced{ .scalar = big_align };
             },
 
             .enum_full, .enum_nonexhaustive, .enum_simple, .enum_numbered => {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = ty.intTagType(&buffer);
-                return .{ .scalar = int_tag_ty.abiAlignment(target) };
+                return AbiAlignmentAdvanced{ .scalar = int_tag_ty.abiAlignment(target) };
             },
             .@"union" => switch (strat) {
-                .eager => {
+                .eager, .sema_kit => {
+                    if (sema_kit) |sk| {
+                        try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
+                    }
                     // TODO pass `true` for have_tag when unions have a safety tag
-                    return .{ .scalar = ty.castTag(.@"union").?.data.abiAlignment(target, false) };
+                    return AbiAlignmentAdvanced{ .scalar = ty.castTag(.@"union").?.data.abiAlignment(target, false) };
                 },
-                .lazy => |arena| return .{ .val = Value.Tag.lazy_align.create(arena, ty) },
+                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
             },
             .union_tagged => switch (strat) {
-                .eager => {
-                    return .{ .scalar = ty.castTag(.union_tagged).?.data.abiAlignment(target, true) };
+                .eager, .sema_kit => {
+                    if (sema_kit) |sk| {
+                        try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
+                    }
+                    return AbiAlignmentAdvanced{ .scalar = ty.castTag(.union_tagged).?.data.abiAlignment(target, true) };
                 },
-                .lazy => |arena| return .{ .val = Value.Tag.lazy_align.create(arena, ty) },
+                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
             },
 
             .empty_struct,
@@ -2963,7 +2986,7 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .type_info,
-            => return .{ .scalar = 0 },
+            => return AbiAlignmentAdvanced{ .scalar = 0 },
 
             .noreturn,
             .inferred_alloc_const,
