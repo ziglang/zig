@@ -5999,6 +5999,7 @@ pub const Type = extern union {
         };
     };
 
+    pub const @"u1" = initTag(.u1);
     pub const @"u8" = initTag(.u8);
     pub const @"u16" = initTag(.u16);
     pub const @"u32" = initTag(.u32);
