@@ -41,6 +41,8 @@ abbrev_table_offset: ?u64 = null,
 /// Table of debug symbol names.
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
+deferred_error_sets_relocs: std.ArrayListUnmanaged(u32) = .{},
+
 pub const DebugInfoAtom = struct {
     /// Previous/next linked list pointers.
     /// This is the linked list node for this Decl's corresponding .debug_info tag.
@@ -119,6 +121,7 @@ pub fn deinit(self: *Dwarf) void {
     self.dbg_line_fn_free_list.deinit(gpa);
     self.dbg_info_decl_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
+    self.deferred_error_sets_relocs.deinit(gpa);
 }
 
 pub const DeclDebugBuffers = struct {
@@ -462,6 +465,18 @@ pub fn commitDeclDebugInfo(
         var it: usize = 0;
         while (it < dbg_info_type_relocs.count()) : (it += 1) {
             const ty = dbg_info_type_relocs.keys()[it];
+            const deferred: bool = blk: {
+                if (ty.isAnyError()) break :blk true;
+                switch (ty.tag()) {
+                    .error_set_inferred => {
+                        if (!ty.castTag(.error_set_inferred).?.data.is_resolved) break :blk true;
+                    },
+                    else => {},
+                }
+                break :blk false;
+            };
+            if (deferred) continue;
+
             const value_ptr = dbg_info_type_relocs.getPtrContext(ty, .{
                 .target = self.target,
             }).?;
@@ -486,14 +501,32 @@ pub fn commitDeclDebugInfo(
 
     {
         // Now that we have the offset assigned we can finally perform type relocations.
-        for (dbg_info_type_relocs.values()) |value| {
+        for (dbg_info_type_relocs.keys()) |ty| {
+            const value = dbg_info_type_relocs.getContext(ty, .{
+                .target = self.target,
+            }).?;
             for (value.relocs.items) |off| {
-                mem.writeInt(
-                    u32,
-                    dbg_info_buffer.items[off..][0..4],
-                    atom.off + value.off,
-                    target_endian,
-                );
+                const deferred: bool = blk: {
+                    if (ty.isAnyError()) break :blk true;
+                    switch (ty.tag()) {
+                        .error_set_inferred => {
+                            if (!ty.castTag(.error_set_inferred).?.data.is_resolved) break :blk true;
+                        },
+                        else => {},
+                    }
+                    break :blk false;
+                };
+                if (deferred) {
+                    // Defer until later
+                    try self.deferred_error_sets_relocs.append(self.allocator, atom.off + off);
+                } else {
+                    mem.writeInt(
+                        u32,
+                        dbg_info_buffer.items[off..][0..4],
+                        atom.off + value.off,
+                        target_endian,
+                    );
+                }
             }
         }
         // Offsets to positions with known a priori relative displacement values.
@@ -512,6 +545,79 @@ pub fn commitDeclDebugInfo(
     }
 
     try self.writeDeclDebugInfo(file, atom, dbg_info_buffer.items);
+}
+
+pub fn commitErrorSetDebugInfo(self: *Dwarf, file: *File, module: *Module) !void {
+    if (self.deferred_error_sets_relocs.items.len == 0) return; // Nothing to do
+
+    const gpa = self.allocator;
+    var arena_alloc = std.heap.ArenaAllocator.init(gpa);
+    defer arena_alloc.deinit();
+    const arena = arena_alloc.allocator();
+
+    const error_set = try arena.create(Module.ErrorSet);
+    const ty = try Type.Tag.error_set.create(arena, error_set);
+    var names = Module.ErrorSet.NameMap{};
+    try names.ensureUnusedCapacity(arena, module.global_error_set.count());
+    var it = module.global_error_set.keyIterator();
+    while (it.next()) |key| {
+        names.putAssumeCapacityNoClobber(key.*, {});
+    }
+    error_set.names = names;
+
+    var dbg_info_buffer = std.ArrayList(u8).init(arena);
+    try self.addDbgInfoErrorSet(arena, module, ty, &dbg_info_buffer);
+
+    // TODO seems like we need to store DebugInfoAtoms in Dwarf object
+    // In other words, I have turned Dwarf into a linker...
+    // FIXME memory leak!!!
+    const atom = try gpa.create(DebugInfoAtom);
+    errdefer gpa.destroy(atom);
+    atom.* = .{
+        .prev = null,
+        .next = null,
+        .off = 0,
+        .len = 0,
+    };
+    try self.updateDeclDebugInfoAllocation(file, atom, @intCast(u32, dbg_info_buffer.items.len));
+    try self.writeDeclDebugInfo(file, atom, dbg_info_buffer.items);
+
+    const file_pos = blk: {
+        switch (self.tag) {
+            .elf => {
+                const elf_file = file.cast(File.Elf).?;
+                const debug_info_sect = &elf_file.sections.items[elf_file.debug_info_section_index.?];
+                break :blk debug_info_sect.sh_offset;
+            },
+            .macho => {
+                const macho_file = file.cast(File.MachO).?;
+                const d_sym = &macho_file.d_sym.?;
+                const dwarf_segment = &d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
+                const debug_info_sect = &dwarf_segment.sections.items[d_sym.debug_info_section_index.?];
+                break :blk debug_info_sect.offset;
+            },
+            else => unreachable,
+        }
+    };
+
+    const target_endian = self.target.cpu.arch.endian();
+    var buf: [@sizeOf(u32)]u8 = undefined;
+    while (self.deferred_error_sets_relocs.popOrNull()) |reloc| {
+        mem.writeInt(u32, &buf, atom.off, target_endian);
+
+        switch (self.tag) {
+            .elf => {
+                const elf_file = file.cast(File.Elf).?;
+                try elf_file.base.file.?.pwriteAll(&buf, file_pos + reloc);
+            },
+            .macho => {
+                const macho_file = file.cast(File.MachO).?;
+                const d_sym = &macho_file.d_sym.?;
+                try d_sym.file.pwriteAll(&buf, file_pos + reloc);
+            },
+            else => unreachable,
+        }
+    }
 }
 
 fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *DebugInfoAtom, len: u32) !void {
@@ -1098,51 +1204,7 @@ fn addDbgInfoType(
             }
         },
         .ErrorSet => {
-            // DW.AT.enumeration_type
-            try dbg_info_buffer.append(abbrev_enum_type);
-            // DW.AT.byte_size, DW.FORM.sdata
-            const abi_size = ty.abiSize(target);
-            try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
-            // DW.AT.name, DW.FORM.string
-            const name = try ty.nameAllocArena(arena, target);
-            try dbg_info_buffer.writer().print("{s}\x00", .{name});
-
-            // DW.AT.enumerator
-            const no_error = "(no error)";
-            try dbg_info_buffer.ensureUnusedCapacity(no_error.len + 2 + @sizeOf(u64));
-            dbg_info_buffer.appendAssumeCapacity(abbrev_enum_variant);
-            // DW.AT.name, DW.FORM.string
-            dbg_info_buffer.appendSliceAssumeCapacity(no_error);
-            dbg_info_buffer.appendAssumeCapacity(0);
-            // DW.AT.const_value, DW.FORM.data8
-            mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
-
-            const error_names = blk: {
-                if (ty.isAnyError())
-                    break :blk module.error_name_list.items;
-                // TODO not quite sure about the next one, but if I don't do this, I risk
-                // tripping an assert in `Type.errorSetNames` in case the inferred error set
-                // was not yet fully resolved. This so far only surfaced when this code would
-                // schedule analysis of an error set part of some error union.
-                if (ty.tag() == .error_set_inferred)
-                    break :blk ty.castTag(.error_set_inferred).?.data.errors.keys();
-                break :blk ty.errorSetNames();
-            };
-
-            for (error_names) |error_name| {
-                const kv = module.getErrorValue(error_name) catch unreachable;
-                // DW.AT.enumerator
-                try dbg_info_buffer.ensureUnusedCapacity(error_name.len + 2 + @sizeOf(u64));
-                dbg_info_buffer.appendAssumeCapacity(abbrev_enum_variant);
-                // DW.AT.name, DW.FORM.string
-                dbg_info_buffer.appendSliceAssumeCapacity(error_name);
-                dbg_info_buffer.appendAssumeCapacity(0);
-                // DW.AT.const_value, DW.FORM.data8
-                mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), kv.value, target_endian);
-            }
-
-            // DW.AT.enumeration_type delimit children
-            try dbg_info_buffer.append(0);
+            try self.addDbgInfoErrorSet(arena, module, ty, dbg_info_buffer);
         },
         .ErrorUnion => {
             const error_ty = ty.errorUnionSet();
@@ -1206,6 +1268,52 @@ fn addDbgInfoType(
         }
         try gop.value_ptr.relocs.append(self.allocator, rel.reloc);
     }
+}
+
+fn addDbgInfoErrorSet(
+    self: *Dwarf,
+    arena: Allocator,
+    module: *Module,
+    ty: Type,
+    dbg_info_buffer: *std.ArrayList(u8),
+) error{OutOfMemory}!void {
+    const target = self.target;
+    const target_endian = self.target.cpu.arch.endian();
+
+    // DW.AT.enumeration_type
+    try dbg_info_buffer.append(abbrev_enum_type);
+    // DW.AT.byte_size, DW.FORM.sdata
+    const abi_size = ty.abiSize(target);
+    try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+    // DW.AT.name, DW.FORM.string
+    const name = try ty.nameAllocArena(arena, target);
+    try dbg_info_buffer.writer().print("{s}\x00", .{name});
+
+    // DW.AT.enumerator
+    const no_error = "(no error)";
+    try dbg_info_buffer.ensureUnusedCapacity(no_error.len + 2 + @sizeOf(u64));
+    dbg_info_buffer.appendAssumeCapacity(abbrev_enum_variant);
+    // DW.AT.name, DW.FORM.string
+    dbg_info_buffer.appendSliceAssumeCapacity(no_error);
+    dbg_info_buffer.appendAssumeCapacity(0);
+    // DW.AT.const_value, DW.FORM.data8
+    mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
+
+    const error_names = ty.errorSetNames();
+    for (error_names) |error_name| {
+        const kv = module.getErrorValue(error_name) catch unreachable;
+        // DW.AT.enumerator
+        try dbg_info_buffer.ensureUnusedCapacity(error_name.len + 2 + @sizeOf(u64));
+        dbg_info_buffer.appendAssumeCapacity(abbrev_enum_variant);
+        // DW.AT.name, DW.FORM.string
+        dbg_info_buffer.appendSliceAssumeCapacity(error_name);
+        dbg_info_buffer.appendAssumeCapacity(0);
+        // DW.AT.const_value, DW.FORM.data8
+        mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), kv.value, target_endian);
+    }
+
+    // DW.AT.enumeration_type delimit children
+    try dbg_info_buffer.append(0);
 }
 
 pub fn writeDbgAbbrev(self: *Dwarf, file: *File) !void {

@@ -958,6 +958,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     const target_endian = self.base.options.target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
 
+    if (self.dwarf) |*dwarf| {
+        try dwarf.commitErrorSetDebugInfo(&self.base, module);
+    }
+
     {
         var it = self.relocs.iterator();
         while (it.next()) |entry| {
@@ -2376,7 +2380,14 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     };
     const local_sym = try self.updateDeclCode(decl, code, elf.STT_FUNC);
     if (debug_buffers) |dbg| {
-        try self.dwarf.?.commitDeclDebugInfo(&self.base, module, decl, local_sym.st_value, local_sym.st_size, dbg);
+        try self.dwarf.?.commitDeclDebugInfo(
+            &self.base,
+            module,
+            decl,
+            local_sym.st_value,
+            local_sym.st_size,
+            dbg,
+        );
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
