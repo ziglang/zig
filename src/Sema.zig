@@ -15190,52 +15190,8 @@ fn zirMulAdd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
             if (maybe_addend) |addend_val| {
                 if (addend_val.isUndef()) return sema.addConstUndef(ty);
-
-                switch (ty.zigTypeTag()) {
-                    .ComptimeFloat, .Float => {
-                        const result_val = try Value.mulAdd(
-                            ty,
-                            mulend1_val,
-                            mulend2_val,
-                            addend_val,
-                            sema.arena,
-                            target,
-                        );
-                        return sema.addConstant(ty, result_val);
-                    },
-                    .Vector => {
-                        const scalar_ty = ty.scalarType();
-                        switch (scalar_ty.zigTypeTag()) {
-                            .ComptimeFloat, .Float => {},
-                            else => return sema.fail(block, src, "expected vector of floats, found vector of '{}'", .{scalar_ty.fmt(target)}),
-                        }
-
-                        const vec_len = ty.vectorLen();
-                        const result_ty = try Type.vector(sema.arena, vec_len, scalar_ty);
-                        var mulend1_buf: Value.ElemValueBuffer = undefined;
-                        var mulend2_buf: Value.ElemValueBuffer = undefined;
-                        var addend_buf: Value.ElemValueBuffer = undefined;
-                        const elems = try sema.arena.alloc(Value, vec_len);
-                        for (elems) |*elem, i| {
-                            const mulend1_elem_val = mulend1_val.elemValueBuffer(i, &mulend1_buf);
-                            const mulend2_elem_val = mulend2_val.elemValueBuffer(i, &mulend2_buf);
-                            const addend_elem_val = addend_val.elemValueBuffer(i, &addend_buf);
-                            elem.* = try Value.mulAdd(
-                                scalar_ty,
-                                mulend1_elem_val,
-                                mulend2_elem_val,
-                                addend_elem_val,
-                                sema.arena,
-                                target,
-                            );
-                        }
-                        return sema.addConstant(
-                            result_ty,
-                            try Value.Tag.aggregate.create(sema.arena, elems),
-                        );
-                    },
-                    else => unreachable,
-                }
+                const result_val = try Value.mulAdd(ty, mulend1_val, mulend2_val, addend_val, sema.arena, target);
+                return sema.addConstant(ty, result_val);
             } else {
                 break :rs addend_src;
             }
