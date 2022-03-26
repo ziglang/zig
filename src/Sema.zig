@@ -8826,8 +8826,6 @@ fn zirShl(
         return sema.addConstant(lhs_ty, val);
     } else lhs_src;
 
-    // TODO: insert runtime safety check for shl_exact
-
     const new_rhs = if (air_tag == .shl_sat) rhs: {
         // Limit the RHS type for saturating shl to be an integer as small as the LHS.
         if (rhs_is_comptime_int or
@@ -8845,6 +8843,41 @@ fn zirShl(
     } else rhs;
 
     try sema.requireRuntimeBlock(block, runtime_src);
+    if (block.wantSafety()) {
+        const maybe_op_ov: ?Air.Inst.Tag = switch (air_tag) {
+            .shl_exact => .shl_with_overflow,
+            else => null,
+        };
+        if (maybe_op_ov) |op_ov_tag| {
+            const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(lhs_ty);
+            const op_ov = try block.addInst(.{
+                .tag = op_ov_tag,
+                .data = .{ .ty_pl = .{
+                    .ty = try sema.addType(op_ov_tuple_ty),
+                    .payload = try sema.addExtra(Air.Bin{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    }),
+                } },
+            });
+            const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
+            const any_ov_bit = if (lhs_ty.zigTypeTag() == .Vector)
+                try block.addInst(.{
+                    .tag = .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = ov_bit,
+                        .operation = .Or,
+                    } },
+                })
+            else
+                ov_bit;
+            const zero_ov = try sema.addConstant(Type.@"u1", Value.zero);
+            const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
+
+            try sema.addSafetyCheck(block, no_ov, .shl_overflow);
+            return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
+        }
+    }
     return block.addBinOp(air_tag, lhs, new_rhs);
 }
 
@@ -16751,6 +16784,7 @@ pub const PanicId = enum {
     index_out_of_bounds,
     cast_truncated_data,
     integer_overflow,
+    shl_overflow,
 };
 
 fn addSafetyCheck(
@@ -16875,6 +16909,7 @@ fn safetyPanic(
         .index_out_of_bounds => "attempt to index out of bounds",
         .cast_truncated_data => "integer cast truncated bits",
         .integer_overflow => "integer overflow",
+        .shl_overflow => "left shift overflowed bits",
     };
 
     const msg_inst = msg_inst: {
