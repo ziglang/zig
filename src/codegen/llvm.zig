@@ -5189,14 +5189,12 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst))
             return null;
 
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
 
-        const ptr = try self.resolveInst(pl_op.operand);
         const lhs = try self.resolveInst(extra.lhs);
         const rhs = try self.resolveInst(extra.rhs);
 
-        const ptr_ty = self.air.typeOf(pl_op.operand);
         const lhs_ty = self.air.typeOf(extra.lhs);
 
         const intrinsic_name = if (lhs_ty.isSignedInt()) signed_intrinsic else unsigned_intrinsic;
@@ -5205,13 +5203,7 @@ pub const FuncGen = struct {
 
         const llvm_fn = self.getIntrinsic(intrinsic_name, &.{llvm_lhs_ty});
         const result_struct = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{ lhs, rhs }, 2, .Fast, .Auto, "");
-
-        const result = self.builder.buildExtractValue(result_struct, 0, "");
-        const overflow_bit = self.builder.buildExtractValue(result_struct, 1, "");
-
-        self.store(ptr, ptr_ty, result, .NotAtomic);
-
-        return overflow_bit;
+        return result_struct;
     }
 
     fn airMulAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -5293,16 +5285,16 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst))
             return null;
 
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
 
-        const ptr = try self.resolveInst(pl_op.operand);
         const lhs = try self.resolveInst(extra.lhs);
         const rhs = try self.resolveInst(extra.rhs);
 
-        const ptr_ty = self.air.typeOf(pl_op.operand);
         const lhs_ty = self.air.typeOf(extra.lhs);
         const rhs_ty = self.air.typeOf(extra.rhs);
+        const dest_ty = self.air.typeOfIndex(inst);
+        const llvm_dest_ty = try self.dg.llvmType(dest_ty);
 
         const tg = self.dg.module.getTarget();
 
@@ -5319,9 +5311,8 @@ pub const FuncGen = struct {
 
         const overflow_bit = self.builder.buildICmp(.NE, lhs, reconstructed, "");
 
-        self.store(ptr, ptr_ty, result, .NotAtomic);
-
-        return overflow_bit;
+        const partial = self.builder.buildInsertValue(llvm_dest_ty.getUndef(), result, 0, "");
+        return self.builder.buildInsertValue(partial, overflow_bit, 1, "");
     }
 
     fn airAnd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
