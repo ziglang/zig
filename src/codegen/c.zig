@@ -1825,6 +1825,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .tag_name         => try airTagName(f, inst),
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
+            .select           => try airSelect(f, inst),
             .shuffle          => try airShuffle(f, inst),
             .reduce           => try airReduce(f, inst),
             .aggregate_init   => try airAggregateInit(f, inst),
@@ -3792,6 +3793,21 @@ fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = operand;
     _ = local;
     return f.fail("TODO: C backend: implement airSplat", .{});
+}
+
+fn airSelect(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+
+    _ = local;
+    _ = ty_pl;
+    return f.fail("TODO: C backend: implement airSelect", .{});
 }
 
 fn airShuffle(f: *Function, inst: Air.Inst.Index) !CValue {

@@ -1371,6 +1371,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .ret_ptr => self.airRetPtr(inst),
         .ret_load => self.airRetLoad(inst),
         .splat => self.airSplat(inst),
+        .select => self.airSelect(inst),
         .shuffle => self.airShuffle(inst),
         .reduce => self.airReduce(inst),
         .aggregate_init => self.airAggregateInit(inst),
@@ -3263,6 +3264,16 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     _ = operand;
     return self.fail("TODO: Implement wasm airSplat", .{});
+}
+
+fn airSelect(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const operand = try self.resolveInst(pl_op.operand);
+
+    _ = operand;
+    return self.fail("TODO: Implement wasm airSelect", .{});
 }
 
 fn airShuffle(self: *Self, inst: Air.Inst.Index) InnerError!WValue {

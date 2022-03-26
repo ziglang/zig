@@ -3,24 +3,59 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const expect = std.testing.expect;
 
-test "@select" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
+test "@select vectors" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
-    const S = struct {
-        fn doTheTest() !void {
-            var a: @Vector(4, bool) = [4]bool{ true, false, true, false };
-            var b: @Vector(4, i32) = [4]i32{ -1, 4, 999, -31 };
-            var c: @Vector(4, i32) = [4]i32{ -5, 1, 0, 1234 };
-            var abc = @select(i32, a, b, c);
-            try expect(mem.eql(i32, &@as([4]i32, abc), &[4]i32{ -1, 1, 999, 1234 }));
+    comptime try selectVectors();
+    try selectVectors();
+}
 
-            var x: @Vector(4, bool) = [4]bool{ false, false, false, true };
-            var y: @Vector(4, f32) = [4]f32{ 0.001, 33.4, 836, -3381.233 };
-            var z: @Vector(4, f32) = [4]f32{ 0.0, 312.1, -145.9, 9993.55 };
-            var xyz = @select(f32, x, y, z);
-            try expect(mem.eql(f32, &@as([4]f32, xyz), &[4]f32{ 0.0, 312.1, -145.9, -3381.233 }));
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
+fn selectVectors() !void {
+    var a = @Vector(4, bool){ true, false, true, false };
+    var b = @Vector(4, i32){ -1, 4, 999, -31 };
+    var c = @Vector(4, i32){ -5, 1, 0, 1234 };
+    var abc = @select(i32, a, b, c);
+    try expect(abc[0] == -1);
+    try expect(abc[1] == 1);
+    try expect(abc[2] == 999);
+    try expect(abc[3] == 1234);
+
+    var x = @Vector(4, bool){ false, false, false, true };
+    var y = @Vector(4, f32){ 0.001, 33.4, 836, -3381.233 };
+    var z = @Vector(4, f32){ 0.0, 312.1, -145.9, 9993.55 };
+    var xyz = @select(f32, x, y, z);
+    try expect(mem.eql(f32, &@as([4]f32, xyz), &[4]f32{ 0.0, 312.1, -145.9, -3381.233 }));
+}
+
+test "@select arrays" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    comptime try selectArrays();
+    try selectArrays();
+}
+
+fn selectArrays() !void {
+    var a = [4]bool{ false, true, false, true };
+    var b = [4]usize{ 0, 1, 2, 3 };
+    var c = [4]usize{ 4, 5, 6, 7 };
+    var abc = @select(usize, a, b, c);
+    try expect(abc[0] == 4);
+    try expect(abc[1] == 1);
+    try expect(abc[2] == 6);
+    try expect(abc[3] == 3);
+
+    var x = [4]bool{ false, false, false, true };
+    var y = [4]f32{ 0.001, 33.4, 836, -3381.233 };
+    var z = [4]f32{ 0.0, 312.1, -145.9, 9993.55 };
+    var xyz = @select(f32, x, y, z);
+    try expect(mem.eql(f32, &@as([4]f32, xyz), &[4]f32{ 0.0, 312.1, -145.9, -3381.233 }));
 }

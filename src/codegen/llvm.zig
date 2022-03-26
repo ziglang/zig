@@ -3444,6 +3444,7 @@ pub const FuncGen = struct {
                 .tag_name       => try self.airTagName(inst),
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
+                .select         => try self.airSelect(inst),
                 .shuffle        => try self.airShuffle(inst),
                 .reduce         => try self.airReduce(inst),
                 .aggregate_init => try self.airAggregateInit(inst),
@@ -6353,6 +6354,18 @@ pub const FuncGen = struct {
         const u32_zero = u32_llvm_ty.constNull();
         const op_vector = self.builder.buildInsertElement(undef_vector, scalar, u32_zero, "");
         return self.builder.buildShuffleVector(op_vector, undef_vector, mask_llvm_ty.constNull(), "");
+    }
+
+    fn airSelect(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+        const pred = try self.resolveInst(pl_op.operand);
+        const a = try self.resolveInst(extra.lhs);
+        const b = try self.resolveInst(extra.rhs);
+
+        return self.builder.buildSelect(pred, a, b, "");
     }
 
     fn airShuffle(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

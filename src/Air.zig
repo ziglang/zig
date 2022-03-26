@@ -344,7 +344,7 @@ pub const Inst = struct {
         /// to the storage for the variable. The local may be a const or a var.
         /// Result type is always void.
         /// Uses `pl_op`. The payload index is the variable name. It points to the extra
-        /// array, reinterpreting the bytes there as a null-terminated string. 
+        /// array, reinterpreting the bytes there as a null-terminated string.
         dbg_var_ptr,
         /// Same as `dbg_var_ptr` except the local is a const, not a var, and the
         /// operand is the local's value.
@@ -553,6 +553,9 @@ pub const Inst = struct {
         /// Constructs a vector by selecting elements from `a` and `b` based on `mask`.
         /// Uses the `ty_pl` field with payload `Shuffle`.
         shuffle,
+        /// Constructs a vector element-wise from `a` or `b` based on `pred`.
+        /// Uses the `pl_op` field with `pred` as operand, and payload `Bin`.
+        select,
 
         /// Given dest ptr, value, and len, set all elements at dest to value.
         /// Result type is always void.
@@ -1067,6 +1070,10 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .reduce => return air.typeOf(datas[inst].reduce.operand).childType(),
 
         .mul_add => return air.typeOf(datas[inst].pl_op.operand),
+        .select => {
+            const extra = air.extraData(Air.Bin, datas[inst].pl_op.payload).data;
+            return air.typeOf(extra.lhs);
+        },
 
         .add_with_overflow,
         .sub_with_overflow,

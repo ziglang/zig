@@ -630,6 +630,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .tag_name        => try self.airTagName(inst),
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
+            .select          => try self.airSelect(inst),
             .shuffle         => try self.airShuffle(inst),
             .reduce          => try self.airReduce(inst),
             .aggregate_init  => try self.airAggregateInit(inst),
@@ -4321,6 +4322,13 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airSplat for arm", .{});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airSelect(self: *Self, inst: Air.Inst.Index) !void {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airSelect for arm", .{});
+    return self.finishAir(inst, result, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
 
 fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
