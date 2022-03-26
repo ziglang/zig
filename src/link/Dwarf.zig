@@ -31,10 +31,11 @@ dbg_line_fn_free_list: std.AutoHashMapUnmanaged(*SrcFn, void) = .{},
 dbg_line_fn_first: ?*SrcFn = null,
 dbg_line_fn_last: ?*SrcFn = null,
 
-/// A list of `TextBlock` whose corresponding .debug_info tags have surplus capacity. /// This is the same concept as `text_block_free_list`; see those doc comments.
-dbg_info_decl_free_list: std.AutoHashMapUnmanaged(*DebugInfoAtom, void) = .{},
-dbg_info_decl_first: ?*DebugInfoAtom = null,
-dbg_info_decl_last: ?*DebugInfoAtom = null,
+/// A list of `Atom`s whose corresponding .debug_info tags have surplus capacity.
+/// This is the same concept as `text_block_free_list`; see those doc comments.
+atom_free_list: std.AutoHashMapUnmanaged(*Atom, void) = .{},
+atom_first: ?*Atom = null,
+atom_last: ?*Atom = null,
 
 abbrev_table_offset: ?u64 = null,
 
@@ -43,11 +44,16 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 
 deferred_error_sets_relocs: std.ArrayListUnmanaged(u32) = .{},
 
-pub const DebugInfoAtom = struct {
+/// List of atoms that are owned directly by the DWARF module.
+/// TODO convert links in DebugInfoAtom into indices and make
+/// sure every atom is owned by this module.
+managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
+
+pub const Atom = struct {
     /// Previous/next linked list pointers.
     /// This is the linked list node for this Decl's corresponding .debug_info tag.
-    prev: ?*DebugInfoAtom,
-    next: ?*DebugInfoAtom,
+    prev: ?*Atom,
+    next: ?*Atom,
     /// Offset into .debug_info pointing to the tag for this Decl.
     off: u32,
     /// Size of the .debug_info tag for this Decl, not including padding.
@@ -119,9 +125,14 @@ pub fn init(allocator: Allocator, tag: File.Tag, target: std.Target) Dwarf {
 pub fn deinit(self: *Dwarf) void {
     const gpa = self.allocator;
     self.dbg_line_fn_free_list.deinit(gpa);
-    self.dbg_info_decl_free_list.deinit(gpa);
+    self.atom_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
     self.deferred_error_sets_relocs.deinit(gpa);
+
+    for (self.managed_atoms.items) |atom| {
+        gpa.destroy(atom);
+    }
+    self.managed_atoms.deinit(gpa);
 }
 
 pub const DeclDebugBuffers = struct {
@@ -568,10 +579,7 @@ pub fn commitErrorSetDebugInfo(self: *Dwarf, file: *File, module: *Module) !void
     var dbg_info_buffer = std.ArrayList(u8).init(arena);
     try self.addDbgInfoErrorSet(arena, module, ty, &dbg_info_buffer);
 
-    // TODO seems like we need to store DebugInfoAtoms in Dwarf object
-    // In other words, I have turned Dwarf into a linker...
-    // FIXME memory leak!!!
-    const atom = try gpa.create(DebugInfoAtom);
+    const atom = try gpa.create(Atom);
     errdefer gpa.destroy(atom);
     atom.* = .{
         .prev = null,
@@ -579,6 +587,7 @@ pub fn commitErrorSetDebugInfo(self: *Dwarf, file: *File, module: *Module) !void
         .off = 0,
         .len = 0,
     };
+    try self.managed_atoms.append(gpa, atom);
     try self.updateDeclDebugInfoAllocation(file, atom, @intCast(u32, dbg_info_buffer.items.len));
     try self.writeDeclDebugInfo(file, atom, dbg_info_buffer.items);
 
@@ -620,7 +629,7 @@ pub fn commitErrorSetDebugInfo(self: *Dwarf, file: *File, module: *Module) !void
     }
 }
 
-fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *DebugInfoAtom, len: u32) !void {
+fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *Atom, len: u32) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -630,14 +639,14 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *DebugInfoAtom
     const gpa = self.allocator;
 
     atom.len = len;
-    if (self.dbg_info_decl_last) |last| blk: {
+    if (self.atom_last) |last| blk: {
         if (atom == last) break :blk;
         if (atom.next) |next| {
             // Update existing Decl - non-last item.
             if (atom.off + atom.len + min_nop_size > next.off) {
                 // It grew too big, so we move it to a new location.
                 if (atom.prev) |prev| {
-                    self.dbg_info_decl_free_list.put(gpa, prev, {}) catch {};
+                    self.atom_free_list.put(gpa, prev, {}) catch {};
                     prev.next = atom.next;
                 }
                 next.prev = atom.prev;
@@ -663,7 +672,7 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *DebugInfoAtom
                 // TODO Look at the free list before appending at the end.
                 atom.prev = last;
                 last.next = atom;
-                self.dbg_info_decl_last = atom;
+                self.atom_last = atom;
 
                 atom.off = last.off + padToIdeal(last.len);
             }
@@ -672,20 +681,20 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *DebugInfoAtom
             // TODO Look at the free list before appending at the end.
             atom.prev = last;
             last.next = atom;
-            self.dbg_info_decl_last = atom;
+            self.atom_last = atom;
 
             atom.off = last.off + padToIdeal(last.len);
         }
     } else {
         // This is the first Decl of the .debug_info
-        self.dbg_info_decl_first = atom;
-        self.dbg_info_decl_last = atom;
+        self.atom_first = atom;
+        self.atom_last = atom;
 
         atom.off = @intCast(u32, padToIdeal(self.dbgInfoHeaderBytes()));
     }
 }
 
-fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *DebugInfoAtom, dbg_info_buf: []const u8) !void {
+fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []const u8) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -694,7 +703,7 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *DebugInfoAtom, dbg_info_
     // probably need to edit that logic too.
     const gpa = self.allocator;
 
-    const last_decl = self.dbg_info_decl_last.?;
+    const last_decl = self.atom_last.?;
     // +1 for a trailing zero to end the children of the decl tag.
     const needed_size = last_decl.off + last_decl.len + 1;
     const prev_padding_size: u32 = if (atom.prev) |prev| atom.off - (prev.off + prev.len) else 0;
@@ -819,13 +828,13 @@ pub fn updateDeclLineNumber(self: *Dwarf, file: *File, decl: *const Module.Decl)
     }
 }
 
-pub fn freeAtom(self: *Dwarf, atom: *DebugInfoAtom) void {
-    if (self.dbg_info_decl_first == atom) {
-        self.dbg_info_decl_first = atom.next;
+pub fn freeAtom(self: *Dwarf, atom: *Atom) void {
+    if (self.atom_first == atom) {
+        self.atom_first = atom.next;
     }
-    if (self.dbg_info_decl_last == atom) {
+    if (self.atom_last == atom) {
         // TODO shrink the .debug_info section size here
-        self.dbg_info_decl_last = atom.prev;
+        self.atom_last = atom.prev;
     }
 
     if (atom.prev) |prev| {
@@ -1964,12 +1973,12 @@ pub fn writeDbgLineHeader(self: *Dwarf, file: *File, module: *Module) !void {
 }
 
 fn getDebugInfoOff(self: Dwarf) ?u32 {
-    const first = self.dbg_info_decl_first orelse return null;
+    const first = self.atom_first orelse return null;
     return first.off;
 }
 
 fn getDebugInfoEnd(self: Dwarf) ?u32 {
-    const last = self.dbg_info_decl_last orelse return null;
+    const last = self.atom_last orelse return null;
     return last.off + last.len;
 }
 

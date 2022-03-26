@@ -207,7 +207,7 @@ pub const TextBlock = struct {
     prev: ?*TextBlock,
     next: ?*TextBlock,
 
-    dbg_info_atom: Dwarf.DebugInfoAtom,
+    dbg_info_atom: Dwarf.Atom,
 
     pub const empty = TextBlock{
         .local_sym_index = 0,
