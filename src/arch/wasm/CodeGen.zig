@@ -64,7 +64,7 @@ const WValue = union(enum) {
     /// loads and stores without requiring checks everywhere.
     fn offset(self: WValue) u32 {
         switch (self) {
-            .stack_offset => |offset| return offset,
+            .stack_offset => |stack_offset| return stack_offset,
             else => return 0,
         }
     }
@@ -1549,6 +1549,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             var func_type = try genFunctype(self.gpa, ext_decl.ty, self.target);
             defer func_type.deinit(self.gpa);
             ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
+            try self.bin_file.addOrUpdateImport(ext_decl);
             break :blk ext_decl;
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {
             break :blk decl_ref.data;
@@ -1937,6 +1938,10 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
     if (val.isUndefDeep()) return self.emitUndefined(ty);
     if (val.castTag(.decl_ref)) |decl_ref| {
         const decl = decl_ref.data;
+        return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl);
+    }
+    if (val.castTag(.decl_ref_mut)) |decl_ref| {
+        const decl = decl_ref.data.decl;
         return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl);
     }
 
