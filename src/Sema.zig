@@ -1574,6 +1574,12 @@ fn failWithErrorSetCodeMissing(
     });
 }
 
+fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: Type, val: Value) CompileError {
+    return sema.fail(block, src, "overflow of integer type '{}' with value '{}'", .{
+        int_ty.fmt(sema.mod), val.fmtValue(Type.@"comptime_int", sema.mod),
+    });
+}
+
 /// We don't return a pointer to the new error note because the pointer
 /// becomes invalid when you add another one.
 fn errNote(
@@ -9711,10 +9717,11 @@ fn analyzeArithmetic(
                     }
                     if (maybe_rhs_val) |rhs_val| {
                         if (is_int) {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.intAdd(rhs_val, resolved_type, sema.arena, target),
-                            );
+                            const sum = try lhs_val.intAdd(rhs_val, resolved_type, sema.arena, target);
+                            if (!sum.intFitsInType(resolved_type, target)) {
+                                return sema.failWithIntegerOverflow(block, src, resolved_type, sum);
+                            }
+                            return sema.addConstant(resolved_type, sum);
                         } else {
                             return sema.addConstant(
                                 resolved_type,
@@ -9804,10 +9811,11 @@ fn analyzeArithmetic(
                     }
                     if (maybe_rhs_val) |rhs_val| {
                         if (is_int) {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.intSub(rhs_val, resolved_type, sema.arena, target),
-                            );
+                            const diff = try lhs_val.intSub(rhs_val, resolved_type, sema.arena, target);
+                            if (!diff.intFitsInType(resolved_type, target)) {
+                                return sema.failWithIntegerOverflow(block, src, resolved_type, diff);
+                            }
+                            return sema.addConstant(resolved_type, diff);
                         } else {
                             return sema.addConstant(
                                 resolved_type,
@@ -10177,10 +10185,11 @@ fn analyzeArithmetic(
                             }
                         }
                         if (is_int) {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.intMul(rhs_val, resolved_type, sema.arena, target),
-                            );
+                            const product = try lhs_val.intMul(rhs_val, resolved_type, sema.arena, target);
+                            if (!product.intFitsInType(resolved_type, target)) {
+                                return sema.failWithIntegerOverflow(block, src, resolved_type, product);
+                            }
+                            return sema.addConstant(resolved_type, product);
                         } else {
                             return sema.addConstant(
                                 resolved_type,
@@ -10468,6 +10477,45 @@ fn analyzeArithmetic(
     };
 
     try sema.requireRuntimeBlock(block, rs.src);
+    if (block.wantSafety()) {
+        if (scalar_tag == .Int) {
+            const maybe_op_ov: ?Air.Inst.Tag = switch (rs.air_tag) {
+                .add => .add_with_overflow,
+                .sub => .sub_with_overflow,
+                .mul => .mul_with_overflow,
+                else => null,
+            };
+            if (maybe_op_ov) |op_ov_tag| {
+                const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(resolved_type);
+                const op_ov = try block.addInst(.{
+                    .tag = op_ov_tag,
+                    .data = .{ .ty_pl = .{
+                        .ty = try sema.addType(op_ov_tuple_ty),
+                        .payload = try sema.addExtra(Air.Bin{
+                            .lhs = casted_lhs,
+                            .rhs = casted_rhs,
+                        }),
+                    } },
+                });
+                const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
+                const any_ov_bit = if (resolved_type.zigTypeTag() == .Vector)
+                    try block.addInst(.{
+                        .tag = .reduce,
+                        .data = .{ .reduce = .{
+                            .operand = ov_bit,
+                            .operation = .Or,
+                        } },
+                    })
+                else
+                    ov_bit;
+                const zero_ov = try sema.addConstant(Type.@"u1", Value.zero);
+                const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
+
+                try sema.addSafetyCheck(block, no_ov, .integer_overflow);
+                return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
+            }
+        }
+    }
     return block.addBinOp(rs.air_tag, casted_lhs, casted_rhs);
 }
 
@@ -16702,6 +16750,7 @@ pub const PanicId = enum {
     invalid_error_code,
     index_out_of_bounds,
     cast_truncated_data,
+    integer_overflow,
 };
 
 fn addSafetyCheck(
@@ -16825,6 +16874,7 @@ fn safetyPanic(
         .invalid_error_code => "invalid error code",
         .index_out_of_bounds => "attempt to index out of bounds",
         .cast_truncated_data => "integer cast truncated bits",
+        .integer_overflow => "integer overflow",
     };
 
     const msg_inst = msg_inst: {
