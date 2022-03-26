@@ -650,17 +650,32 @@ fn mirLogicalImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const rrr_imm6_shift = emit.mir.instructions.items(.data)[inst].rrr_imm6_shift;
-    const rd = rrr_imm6_shift.rd;
-    const rn = rrr_imm6_shift.rn;
-    const rm = rrr_imm6_shift.rm;
-    const shift = rrr_imm6_shift.shift;
-    const imm6 = rrr_imm6_shift.imm6;
-
     switch (tag) {
-        .add_shifted_register => try emit.writeInstruction(Instruction.addShiftedRegister(rd, rn, rm, shift, imm6)),
-        .cmp_shifted_register => try emit.writeInstruction(Instruction.subsShiftedRegister(rd, rn, rm, shift, imm6)),
-        .sub_shifted_register => try emit.writeInstruction(Instruction.subShiftedRegister(rd, rn, rm, shift, imm6)),
+        .add_shifted_register,
+        .sub_shifted_register,
+        => {
+            const rrr_imm6_shift = emit.mir.instructions.items(.data)[inst].rrr_imm6_shift;
+            const rd = rrr_imm6_shift.rd;
+            const rn = rrr_imm6_shift.rn;
+            const rm = rrr_imm6_shift.rm;
+            const shift = rrr_imm6_shift.shift;
+            const imm6 = rrr_imm6_shift.imm6;
+
+            switch (tag) {
+                .add_shifted_register => try emit.writeInstruction(Instruction.addShiftedRegister(rd, rn, rm, shift, imm6)),
+                .sub_shifted_register => try emit.writeInstruction(Instruction.subShiftedRegister(rd, rn, rm, shift, imm6)),
+                else => unreachable,
+            }
+        },
+        .cmp_shifted_register => {
+            const rr_imm6_shift = emit.mir.instructions.items(.data)[inst].rr_imm6_shift;
+            const rn = rr_imm6_shift.rn;
+            const rm = rr_imm6_shift.rm;
+            const shift = rr_imm6_shift.shift;
+            const imm6 = rr_imm6_shift.imm6;
+
+            try emit.writeInstruction(Instruction.subsShiftedRegister(.xzr, rn, rm, shift, imm6));
+        },
         else => unreachable,
     }
 }
@@ -896,8 +911,13 @@ fn mirMoveRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
             try emit.writeInstruction(Instruction.add(rr.rd, rr.rn, 0, false));
         },
         .mvn => {
-            const rr_imm6_shift = emit.mir.instructions.items(.data)[inst].rr_imm6_shift;
-            try emit.writeInstruction(Instruction.ornShiftedRegister(rr_imm6_shift.rd, .xzr, rr_imm6_shift.rm, rr_imm6_shift.shift, rr_imm6_shift.imm6));
+            const rr_imm6_logical_shift = emit.mir.instructions.items(.data)[inst].rr_imm6_logical_shift;
+            const rd = rr_imm6_logical_shift.rd;
+            const rm = rr_imm6_logical_shift.rm;
+            const shift = rr_imm6_logical_shift.shift;
+            const imm6 = rr_imm6_logical_shift.imm6;
+
+            try emit.writeInstruction(Instruction.ornShiftedRegister(rd, .xzr, rm, shift, imm6));
         },
         else => unreachable,
     }
