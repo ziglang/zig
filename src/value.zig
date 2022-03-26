@@ -2961,11 +2961,35 @@ pub const Value = extern union {
     }
 
     pub const OverflowArithmeticResult = struct {
-        overflowed: bool,
+        /// TODO: Rename to `overflow_bit` and make of type `u1`.
+        overflowed: Value,
         wrapped_result: Value,
     };
 
     pub fn intAddWithOverflow(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
+        if (ty.zigTypeTag() == .Vector) {
+            const overflowed_data = try arena.alloc(Value, ty.vectorLen());
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                const of_math_result = try intAddWithOverflowScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+                overflowed_data[i] = of_math_result.overflowed;
+                scalar.* = of_math_result.wrapped_result;
+            }
+            return OverflowArithmeticResult{
+                .overflowed = try Value.Tag.aggregate.create(arena, overflowed_data),
+                .wrapped_result = try Value.Tag.aggregate.create(arena, result_data),
+            };
+        }
+        return intAddWithOverflowScalar(lhs, rhs, ty, arena, target);
+    }
+
+    pub fn intAddWithOverflowScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2986,7 +3010,7 @@ pub const Value = extern union {
         const overflowed = result_bigint.addWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
         const result = try fromBigInt(arena, result_bigint.toConst());
         return OverflowArithmeticResult{
-            .overflowed = overflowed,
+            .overflowed = makeBool(overflowed),
             .wrapped_result = result,
         };
     }
@@ -3098,6 +3122,29 @@ pub const Value = extern union {
         arena: Allocator,
         target: Target,
     ) !OverflowArithmeticResult {
+        if (ty.zigTypeTag() == .Vector) {
+            const overflowed_data = try arena.alloc(Value, ty.vectorLen());
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                const of_math_result = try intSubWithOverflowScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+                overflowed_data[i] = of_math_result.overflowed;
+                scalar.* = of_math_result.wrapped_result;
+            }
+            return OverflowArithmeticResult{
+                .overflowed = try Value.Tag.aggregate.create(arena, overflowed_data),
+                .wrapped_result = try Value.Tag.aggregate.create(arena, result_data),
+            };
+        }
+        return intSubWithOverflowScalar(lhs, rhs, ty, arena, target);
+    }
+
+    pub fn intSubWithOverflowScalar(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
         const info = ty.intInfo(target);
 
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3112,7 +3159,7 @@ pub const Value = extern union {
         const overflowed = result_bigint.subWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
         const wrapped_result = try fromBigInt(arena, result_bigint.toConst());
         return OverflowArithmeticResult{
-            .overflowed = overflowed,
+            .overflowed = makeBool(overflowed),
             .wrapped_result = wrapped_result,
         };
     }
@@ -3208,6 +3255,29 @@ pub const Value = extern union {
         arena: Allocator,
         target: Target,
     ) !OverflowArithmeticResult {
+        if (ty.zigTypeTag() == .Vector) {
+            const overflowed_data = try arena.alloc(Value, ty.vectorLen());
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                const of_math_result = try intMulWithOverflowScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+                overflowed_data[i] = of_math_result.overflowed;
+                scalar.* = of_math_result.wrapped_result;
+            }
+            return OverflowArithmeticResult{
+                .overflowed = try Value.Tag.aggregate.create(arena, overflowed_data),
+                .wrapped_result = try Value.Tag.aggregate.create(arena, result_data),
+            };
+        }
+        return intMulWithOverflowScalar(lhs, rhs, ty, arena, target);
+    }
+
+    pub fn intMulWithOverflowScalar(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
         const info = ty.intInfo(target);
 
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3231,7 +3301,7 @@ pub const Value = extern union {
         }
 
         return OverflowArithmeticResult{
-            .overflowed = overflowed,
+            .overflowed = makeBool(overflowed),
             .wrapped_result = try fromBigInt(arena, result_bigint.toConst()),
         };
     }
@@ -3922,6 +3992,29 @@ pub const Value = extern union {
         allocator: Allocator,
         target: Target,
     ) !OverflowArithmeticResult {
+        if (ty.zigTypeTag() == .Vector) {
+            const overflowed_data = try allocator.alloc(Value, ty.vectorLen());
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                const of_math_result = try shlWithOverflowScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), allocator, target);
+                overflowed_data[i] = of_math_result.overflowed;
+                scalar.* = of_math_result.wrapped_result;
+            }
+            return OverflowArithmeticResult{
+                .overflowed = try Value.Tag.aggregate.create(allocator, overflowed_data),
+                .wrapped_result = try Value.Tag.aggregate.create(allocator, result_data),
+            };
+        }
+        return shlWithOverflowScalar(lhs, rhs, ty, allocator, target);
+    }
+
+    pub fn shlWithOverflowScalar(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        allocator: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
         const info = ty.intInfo(target);
         var lhs_space: Value.BigIntSpace = undefined;
         const lhs_bigint = lhs.toBigInt(&lhs_space, target);
@@ -3941,7 +4034,7 @@ pub const Value = extern union {
             result_bigint.truncate(result_bigint.toConst(), info.signedness, info.bits);
         }
         return OverflowArithmeticResult{
-            .overflowed = overflowed,
+            .overflowed = makeBool(overflowed),
             .wrapped_result = try fromBigInt(allocator, result_bigint.toConst()),
         };
     }
