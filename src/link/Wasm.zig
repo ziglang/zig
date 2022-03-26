@@ -496,8 +496,6 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
         atom.sym_index = @intCast(u32, self.symbols.items.len);
         self.symbols.appendAssumeCapacity(symbol);
     }
-
-    try self.resolved_symbols.putNoClobber(self.base.allocator, atom.symbolLoc(), {});
     try self.symbol_atom.putNoClobber(self.base.allocator, atom.symbolLoc(), atom);
 }
 
@@ -552,7 +550,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     decl.link.wasm.clear();
 
     if (decl.isExtern()) {
-        return self.addOrUpdateImport(decl);
+        return;
     }
 
     if (decl.val.castTag(.function)) |_| {
@@ -588,10 +586,6 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 }
 
 fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
-    if (decl.isExtern()) {
-        return self.addOrUpdateImport(decl);
-    }
-
     if (code.len == 0) return;
     const atom: *Atom = &decl.link.wasm;
     atom.size = @intCast(u32, code.len);
@@ -602,6 +596,8 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     defer self.base.allocator.free(full_name);
     symbol.name = try self.string_table.put(self.base.allocator, full_name);
     try atom.code.appendSlice(self.base.allocator, code);
+
+    try self.resolved_symbols.put(self.base.allocator, atom.symbolLoc(), {});
 }
 
 /// Lowers a constant typed value to a local symbol and atom.
@@ -831,10 +827,10 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     }
 
     if (decl.isExtern()) {
-        assert(self.imports.remove(atom.symbolLoc()));
+        _ = self.imports.remove(atom.symbolLoc());
     }
-    assert(self.resolved_symbols.swapRemove(atom.symbolLoc()));
-    _ = self.symbol_atom.remove(atom.symbolLoc()); // not all decl's exist in symbol_atom
+    _ = self.resolved_symbols.swapRemove(atom.symbolLoc());
+    _ = self.symbol_atom.remove(atom.symbolLoc());
     atom.deinit(self.base.allocator);
 }
 
@@ -855,19 +851,19 @@ fn mapFunctionTable(self: *Wasm) void {
     }
 }
 
-fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
+pub fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
     // For the import name itself, we use the decl's name, rather than the fully qualified name
     const decl_name_index = try self.string_table.put(self.base.allocator, mem.sliceTo(decl.name, 0));
     const symbol_index = decl.link.wasm.sym_index;
     const symbol: *Symbol = &self.symbols.items[symbol_index];
     symbol.setUndefined(true);
     symbol.setGlobal(true);
-    try self.globals.putNoClobber(
-        self.base.allocator,
-        decl_name_index,
-        .{ .file = null, .index = symbol_index },
-    );
-    try self.resolved_symbols.put(self.base.allocator, .{ .file = null, .index = symbol_index }, {});
+    const global_gop = try self.globals.getOrPut(self.base.allocator, decl_name_index);
+    if (!global_gop.found_existing) {
+        const loc: SymbolLoc = .{ .file = null, .index = symbol_index };
+        global_gop.value_ptr.* = loc;
+        try self.resolved_symbols.put(self.base.allocator, loc, {});
+    }
 
     switch (decl.ty.zigTypeTag()) {
         .Fn => {
