@@ -5218,17 +5218,13 @@ pub const FuncGen = struct {
 
         const ty = self.air.typeOfIndex(inst);
         const llvm_ty = try self.dg.llvmType(ty);
+        const scalar_ty = ty.scalarType();
         const target = self.dg.module.getTarget();
 
         const Strat = union(enum) {
             intrinsic,
             libc: [*:0]const u8,
         };
-
-        const scalar_ty = if (ty.zigTypeTag() == .Vector)
-            ty.elemType()
-        else
-            ty;
 
         const strat: Strat = switch (scalar_ty.floatBits(target)) {
             16, 32, 64 => Strat.intrinsic,
