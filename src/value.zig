@@ -2026,7 +2026,7 @@ pub const Value = extern union {
         const result_data = try allocator.alloc(Value, ty.vectorLen());
         for (result_data) |*scalar, i| {
             const res_bool = compareScalar(lhs.indexVectorlike(i), op, rhs.indexVectorlike(i), ty.scalarType(), mod);
-            scalar.* = if (res_bool) Value.@"true" else Value.@"false";
+            scalar.* = makeBool(res_bool);
         }
         return Value.Tag.aggregate.create(allocator, result_data);
     }
