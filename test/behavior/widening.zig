@@ -20,6 +20,14 @@ test "integer widening" {
     try expect(f == a);
 }
 
+fn a() u0 {
+    return 0;
+}
+test "integer widening u0 to u8" {
+    const b: u8 = a();
+    try expect(b == 0);
+}
+
 test "implicit unsigned integer to signed integer" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
