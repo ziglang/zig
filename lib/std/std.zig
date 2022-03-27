@@ -79,6 +79,7 @@ pub const pdb = @import("pdb.zig");
 pub const process = @import("process.zig");
 pub const rand = @import("rand.zig");
 pub const sort = @import("sort.zig");
+pub const simd = @import("simd.zig");
 pub const ascii = @import("ascii.zig");
 pub const testing = @import("testing.zig");
 pub const time = @import("time.zig");
