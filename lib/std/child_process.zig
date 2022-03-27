@@ -1348,46 +1348,30 @@ const childstr =
 test "build and call child_process" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
     const testing = std.testing;
-    var it = try std.process.argsWithAllocator(std.testing.allocator);
-    defer it.deinit(); // no-op unless WASI or Windows
+    const allocator = testing.allocator;
 
-    _ = it.next() orelse unreachable;
-    const zigexec = it.next() orelse unreachable;
-    try testing.expect(it.next() == null);
-    try testing.expect(!it.skip());
-    const cwd_str = try process.getCwdAlloc(testing.allocator);
-    defer testing.allocator.free(cwd_str);
+    var it = try std.process.argsWithAllocator(allocator);
+    defer it.deinit(); // no-op unless WASI or Windows
+    const testargs = try testing.getTestArgs(&it);
+
     var tmp = testing.tmpDir(.{ .no_follow = true }); // ie zig-cache/tmp/8DLgoSEqz593PAEE
     defer tmp.cleanup();
-    const cache = "zig-cache";
-    const tmpdir = "tmp";
+    const tmpdirpath = try tmp.getFullPath(allocator);
+    defer allocator.free(tmpdirpath);
     const child_name = "child"; // no need for suffixes (.exe, .wasm) due to '-femit-bin'
     const suffix_zig = ".zig";
-    const child_path = try fs.path.join(testing.allocator, &[_][]const u8{ cwd_str, std.fs.path.sep_str, cache, tmpdir, &tmp.sub_path, child_name });
-    defer testing.allocator.free(child_path);
+    const child_path = try fs.path.join(allocator, &[_][]const u8{ tmpdirpath, child_name });
+    defer allocator.free(child_path);
+    const child_zig = try mem.concat(allocator, u8, &[_][]const u8{ child_path, suffix_zig });
+    defer allocator.free(child_zig);
 
-    const child_zig = try mem.concat(testing.allocator, u8, &[_][]const u8{ child_path, suffix_zig });
-    defer testing.allocator.free(child_zig);
-    const emit_flag = "-femit-bin=";
-    const emit_bin = try mem.concat(testing.allocator, u8, &[_][]const u8{ emit_flag, child_path });
-    defer testing.allocator.free(emit_bin);
-    {
-        // 'zigexec build-exe path/to/child.zig -femit-bin=path/to/child' expect success
-        try tmp.dir.writeFile("child.zig", childstr);
-        const args = [_][]const u8{ zigexec, "build-exe", child_zig, emit_bin };
-        var procCompileChild = try ChildProcess.init(&args, testing.allocator);
-        defer procCompileChild.deinit();
-        try procCompileChild.spawn();
-        const ret_val = try procCompileChild.wait();
-        try testing.expectEqual(ret_val, .{ .Exited = 0 });
-    }
-    {
-        // spawn compiled file as child_process with argument 'hello world' + expect success
-        const args = [_][]const u8{ child_path, "hello world" };
-        var child_proc = try ChildProcess.init(&args, testing.allocator);
-        defer child_proc.deinit();
-        try child_proc.spawn();
-        const ret_val = try child_proc.wait();
-        try testing.expectEqual(ret_val, .{ .Exited = 0 });
-    }
+    try tmp.dir.writeFile("child.zig", childstr);
+    try testing.buildExe(testargs.zigexec, child_zig, child_path);
+
+    // spawn compiled file as child_process with argument 'hello world' + expect success
+    const args = [_][]const u8{ child_path, "hello world" };
+    var child_proc = try ChildProcess.init(&args, allocator);
+    defer child_proc.deinit();
+    const ret_val = try child_proc.spawnAndWait();
+    try testing.expectEqual(ret_val, .{ .Exited = 0 });
 }
