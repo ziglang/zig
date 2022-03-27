@@ -515,6 +515,17 @@ test "zeroInit" {
         .b = 0,
         .a = 0,
     }, c);
+
+    const Foo = struct {
+        foo: u8 = 69,
+        bar: u8,
+    };
+
+    const f = zeroInit(Foo, .{});
+    try testing.expectEqual(Foo{
+        .foo = 69,
+        .bar = 0,
+    }, f);
 }
 
 /// Compares two slices of numbers lexicographically. O(n).
