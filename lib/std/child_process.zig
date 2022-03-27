@@ -1224,8 +1224,8 @@ test "build and call child_process" {
     const allocator = testing.allocator;
 
     var it = try std.process.argsWithAllocator(allocator);
-    const testargs = try testing.getTestArgs(&it);
     defer it.deinit(); // no-op unless WASI or Windows
+    const testargs = try testing.getTestArgs(&it);
 
     var tmp = testing.tmpDir(.{ .no_follow = true }); // ie zig-cache/tmp/8DLgoSEqz593PAEE
     defer tmp.cleanup();
