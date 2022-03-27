@@ -70,13 +70,12 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the quotient of two complex numbers.
         pub fn div(self: Self, other: Self) Self {
-            const re_num = self.re * other.re + self.im * other.im;
-            const im_num = self.im * other.re - self.re * other.im;
-            const den = other.re * other.re + other.im * other.im;
+            const num = self.mul(other.conjugate());
+            const den = other.norm();
 
             return Self{
-                .re = re_num / den,
-                .im = im_num / den,
+                .re = num.re / den,
+                .im = num.im / den,
             };
         }
 
