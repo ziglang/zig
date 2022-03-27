@@ -28,6 +28,8 @@ pub const Inst = struct {
     pub const Tag = enum(u16) {
         /// Add
         add,
+        /// Add, update condition flags
+        adds,
         /// Bitwise AND
         @"and",
         /// Arithmetic Shift Right
@@ -108,6 +110,8 @@ pub const Inst = struct {
         strh,
         /// Subtract
         sub,
+        /// Subtract, update condition flags
+        subs,
         /// Supervisor Call
         svc,
         /// Unsigned Bit Field Extract

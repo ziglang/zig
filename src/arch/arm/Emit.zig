@@ -79,6 +79,7 @@ pub fn emitMir(
         const inst = @intCast(u32, index);
         switch (tag) {
             .add => try emit.mirDataProcessing(inst),
+            .adds => try emit.mirDataProcessing(inst),
             .@"and" => try emit.mirDataProcessing(inst),
             .cmp => try emit.mirDataProcessing(inst),
             .eor => try emit.mirDataProcessing(inst),
@@ -87,6 +88,7 @@ pub fn emitMir(
             .orr => try emit.mirDataProcessing(inst),
             .rsb => try emit.mirDataProcessing(inst),
             .sub => try emit.mirDataProcessing(inst),
+            .subs => try emit.mirDataProcessing(inst),
 
             .asr => try emit.mirShift(inst),
             .lsl => try emit.mirShift(inst),
@@ -474,6 +476,7 @@ fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .add => try emit.writeInstruction(Instruction.add(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .adds => try emit.writeInstruction(Instruction.adds(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .@"and" => try emit.writeInstruction(Instruction.@"and"(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .cmp => try emit.writeInstruction(Instruction.cmp(cond, rr_op.rn, rr_op.op)),
         .eor => try emit.writeInstruction(Instruction.eor(cond, rr_op.rd, rr_op.rn, rr_op.op)),
@@ -482,6 +485,7 @@ fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
         .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .subs => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         else => unreachable,
     }
 }
