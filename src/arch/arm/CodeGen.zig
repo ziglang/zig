@@ -1196,7 +1196,7 @@ fn minMax(
                 // register.
                 assert(lhs_reg != rhs_reg); // see note above
 
-                _ = try self.binOpRegister(.cmp_eq, null, .{ .register = lhs_reg }, .{ .register = rhs_reg }, lhs_ty, rhs_ty);
+                _ = try self.binOpRegister(.cmp, null, .{ .register = lhs_reg }, .{ .register = rhs_reg }, lhs_ty, rhs_ty);
 
                 const cond_choose_lhs: Condition = switch (tag) {
                     .max => switch (int_info.signedness) {
@@ -2067,7 +2067,7 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 /// Asserts that generating an instruction of that form is possible.
 fn binOpRegister(
     self: *Self,
-    tag: Air.Inst.Tag,
+    mir_tag: Mir.Inst.Tag,
     maybe_inst: ?Air.Inst.Index,
     lhs: MCValue,
     rhs: MCValue,
@@ -2112,8 +2112,8 @@ fn binOpRegister(
     };
     defer self.register_manager.unfreezeRegs(&.{rhs_reg});
 
-    const dest_reg = switch (tag) {
-        .cmp_eq => .r0, // cmp has no destination regardless
+    const dest_reg = switch (mir_tag) {
+        .cmp => .r0, // cmp has no destination regardless
         else => if (maybe_inst) |inst| blk: {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
@@ -2130,41 +2130,21 @@ fn binOpRegister(
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
     if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
 
-    const mir_tag: Mir.Inst.Tag = switch (tag) {
-        .add => .add,
-        .sub => .sub,
-        .cmp_eq => .cmp,
-        .mul => .mul,
-        .bit_and,
-        .bool_and,
-        => .@"and",
-        .bit_or,
-        .bool_or,
-        => .orr,
-        .shl_exact => .lsl,
-        .shr_exact => switch (lhs_ty.intInfo(self.target.*).signedness) {
-            .signed => Mir.Inst.Tag.asr,
-            .unsigned => Mir.Inst.Tag.lsr,
-        },
-        .xor => .eor,
-        else => unreachable,
-    };
-    const mir_data: Mir.Inst.Data = switch (tag) {
+    const mir_data: Mir.Inst.Data = switch (mir_tag) {
         .add,
         .sub,
-        .cmp_eq,
-        .bit_and,
-        .bool_and,
-        .bit_or,
-        .bool_or,
-        .xor,
+        .cmp,
+        .@"and",
+        .orr,
+        .eor,
         => .{ .rr_op = .{
             .rd = dest_reg,
             .rn = lhs_reg,
             .op = Instruction.Operand.reg(rhs_reg, Instruction.Operand.Shift.none),
         } },
-        .shl_exact,
-        .shr_exact,
+        .lsl,
+        .asr,
+        .lsr,
         => .{ .rr_shift = .{
             .rd = dest_reg,
             .rm = lhs_reg,
@@ -2200,7 +2180,7 @@ fn binOpRegister(
 /// Asserts that generating an instruction of that form is possible.
 fn binOpImmediate(
     self: *Self,
-    tag: Air.Inst.Tag,
+    mir_tag: Mir.Inst.Tag,
     maybe_inst: ?Air.Inst.Index,
     lhs: MCValue,
     rhs: MCValue,
@@ -2230,8 +2210,8 @@ fn binOpImmediate(
     };
     defer self.register_manager.unfreezeRegs(&.{lhs_reg});
 
-    const dest_reg = switch (tag) {
-        .cmp_eq => .r0, // cmp has no destination reg
+    const dest_reg = switch (mir_tag) {
+        .cmp => .r0, // cmp has no destination reg
         else => if (maybe_inst) |inst| blk: {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
@@ -2250,40 +2230,21 @@ fn binOpImmediate(
 
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
 
-    const mir_tag: Mir.Inst.Tag = switch (tag) {
-        .add => .add,
-        .sub => .sub,
-        .cmp_eq => .cmp,
-        .bit_and,
-        .bool_and,
-        => .@"and",
-        .bit_or,
-        .bool_or,
-        => .orr,
-        .shl_exact => .lsl,
-        .shr_exact => switch (lhs_ty.intInfo(self.target.*).signedness) {
-            .signed => Mir.Inst.Tag.asr,
-            .unsigned => Mir.Inst.Tag.lsr,
-        },
-        .xor => .eor,
-        else => unreachable,
-    };
-    const mir_data: Mir.Inst.Data = switch (tag) {
+    const mir_data: Mir.Inst.Data = switch (mir_tag) {
         .add,
         .sub,
-        .cmp_eq,
-        .bit_and,
-        .bool_and,
-        .bit_or,
-        .bool_or,
-        .xor,
+        .cmp,
+        .@"and",
+        .orr,
+        .eor,
         => .{ .rr_op = .{
             .rd = dest_reg,
             .rn = lhs_reg,
             .op = Instruction.Operand.fromU32(rhs.immediate).?,
         } },
-        .shl_exact,
-        .shr_exact,
+        .lsl,
+        .asr,
+        .lsr,
         => .{ .rr_shift = .{
             .rd = dest_reg,
             .rm = lhs_reg,
@@ -2352,13 +2313,20 @@ fn binOp(
                             else => unreachable,
                         };
 
+                        const mir_tag: Mir.Inst.Tag = switch (tag) {
+                            .add => .add,
+                            .sub => .sub,
+                            .cmp_eq => .cmp,
+                            else => unreachable,
+                        };
+
                         if (rhs_immediate_ok) {
-                            return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                            return try self.binOpImmediate(mir_tag, maybe_inst, lhs, rhs, lhs_ty, false);
                         } else if (lhs_immediate_ok) {
                             // swap lhs and rhs
-                            return try self.binOpImmediate(tag, maybe_inst, rhs, lhs, rhs_ty, true);
+                            return try self.binOpImmediate(mir_tag, maybe_inst, rhs, lhs, rhs_ty, true);
                         } else {
-                            return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                            return try self.binOpRegister(mir_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                         }
                     } else {
                         return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
@@ -2378,7 +2346,7 @@ fn binOp(
                         // TODO add optimisations for multiplication
                         // with immediates, for example a * 2 can be
                         // lowered to a << 1
-                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        return try self.binOpRegister(.mul, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
                     }
@@ -2432,13 +2400,20 @@ fn binOp(
                         const lhs_immediate_ok = lhs == .immediate and Instruction.Operand.fromU32(lhs.immediate) != null;
                         const rhs_immediate_ok = rhs == .immediate and Instruction.Operand.fromU32(rhs.immediate) != null;
 
+                        const mir_tag: Mir.Inst.Tag = switch (tag) {
+                            .bit_and => .@"and",
+                            .bit_or => .orr,
+                            .xor => .eor,
+                            else => unreachable,
+                        };
+
                         if (rhs_immediate_ok) {
-                            return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                            return try self.binOpImmediate(mir_tag, maybe_inst, lhs, rhs, lhs_ty, false);
                         } else if (lhs_immediate_ok) {
                             // swap lhs and rhs
-                            return try self.binOpImmediate(tag, maybe_inst, rhs, lhs, rhs_ty, true);
+                            return try self.binOpImmediate(mir_tag, maybe_inst, rhs, lhs, rhs_ty, true);
                         } else {
-                            return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                            return try self.binOpRegister(mir_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                         }
                     } else {
                         return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
@@ -2457,10 +2432,19 @@ fn binOp(
                     if (int_info.bits <= 32) {
                         const rhs_immediate_ok = rhs == .immediate;
 
+                        const mir_tag: Mir.Inst.Tag = switch (tag) {
+                            .shl_exact => .lsl,
+                            .shr_exact => switch (lhs_ty.intInfo(self.target.*).signedness) {
+                                .signed => Mir.Inst.Tag.asr,
+                                .unsigned => Mir.Inst.Tag.lsr,
+                            },
+                            else => unreachable,
+                        };
+
                         if (rhs_immediate_ok) {
-                            return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                            return try self.binOpImmediate(mir_tag, maybe_inst, lhs, rhs, lhs_ty, false);
                         } else {
-                            return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                            return try self.binOpRegister(mir_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                         }
                     } else {
                         return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
@@ -2512,13 +2496,19 @@ fn binOp(
                     const lhs_immediate_ok = lhs == .immediate;
                     const rhs_immediate_ok = rhs == .immediate;
 
+                    const mir_tag: Mir.Inst.Tag = switch (tag) {
+                        .bool_and => .@"and",
+                        .bool_or => .orr,
+                        else => unreachable,
+                    };
+
                     if (rhs_immediate_ok) {
-                        return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                        return try self.binOpImmediate(mir_tag, maybe_inst, lhs, rhs, lhs_ty, false);
                     } else if (lhs_immediate_ok) {
                         // swap lhs and rhs
-                        return try self.binOpImmediate(tag, maybe_inst, rhs, lhs, rhs_ty, true);
+                        return try self.binOpImmediate(mir_tag, maybe_inst, rhs, lhs, rhs_ty, true);
                     } else {
-                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        return try self.binOpRegister(mir_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     }
                 },
                 else => unreachable,
@@ -2537,7 +2527,7 @@ fn binOp(
                     const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
 
                     if (elem_size == 1) {
-                        const base_tag: Air.Inst.Tag = switch (tag) {
+                        const base_tag: Mir.Inst.Tag = switch (tag) {
                             .ptr_add => .add,
                             .ptr_sub => .sub,
                             else => unreachable,
