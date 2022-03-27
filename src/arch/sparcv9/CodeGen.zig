@@ -1,6 +1,7 @@
 //! SPARCv9 codegen.
 //! This lowers AIR into MIR.
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
@@ -8,6 +9,7 @@ const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
+const build_options = @import("build_options");
 
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
 const FnResult = @import("../../codegen.zig").FnResult;
@@ -34,6 +36,12 @@ pub fn generate(
     _ = liveness;
     _ = code;
     _ = debug_output;
+
+    if (build_options.skip_non_native and builtin.cpu.arch != bin_file.options.target.cpu.arch) {
+        @panic("Attempted to compile for architecture that was disabled by build configuration");
+    }
+
+    assert(module_fn.owner_decl.has_tv);
 
     @panic("TODO implement SPARCv9 codegen");
 }
