@@ -3661,8 +3661,12 @@ fn zirParamType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         fn_ty.fnInfo();
 
     if (param_index >= fn_info.param_types.len) {
-        assert(fn_info.is_var_args);
-        return sema.addType(Type.initTag(.var_args_param));
+        if (fn_info.is_var_args) {
+            return sema.addType(Type.initTag(.var_args_param));
+        }
+        // TODO implement begin_call/end_call Zir instructions and check
+        // argument count before casting arguments to parameter types.
+        return sema.fail(block, callee_src, "wrong number of arguments", .{});
     }
 
     if (fn_info.param_types[param_index].tag() == .generic_poison) {
