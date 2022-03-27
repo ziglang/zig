@@ -1465,10 +1465,21 @@ pub const Object = struct {
                 return full_di_ty;
             },
             .Union => {
+                const compile_unit_scope = o.di_compile_unit.?.toScope();
                 const owner_decl = ty.getOwnerDecl();
 
                 const name = try ty.nameAlloc(gpa, target);
                 defer gpa.free(name);
+
+                if (ty.cast(Type.Payload.Union)) |payload| {
+                    const union_obj = payload.data;
+                    if (union_obj.layout == .Packed) {
+                        const bit_size = ty.bitSize(target);
+                        const di_ty = dib.createBasicType(name, bit_size, DW.ATE.unsigned);
+                        gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
+                        return di_ty;
+                    }
+                }
 
                 const fwd_decl = opt_fwd_decl orelse blk: {
                     const fwd_decl = dib.createReplaceableCompositeType(
@@ -1483,8 +1494,22 @@ pub const Object = struct {
                     break :blk fwd_decl;
                 };
 
-                const TODO_implement_this = true; // TODO
-                if (TODO_implement_this or !ty.hasRuntimeBitsIgnoreComptime()) {
+                const union_obj = ty.cast(Type.Payload.Union).?.data;
+
+                // TODO COPYPASTE >>>
+                if (!union_obj.haveFieldTypes()) {
+                    // TODO: improve the frontend to populate this union.
+                    // For now we treat it as a zero bit type.
+                    const union_di_ty = try o.makeEmptyNamespaceDIType(owner_decl);
+                    dib.replaceTemporary(fwd_decl, union_di_ty);
+                    // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
+                    // means we can't use `gop` anymore.
+                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(union_di_ty), .{ .target = o.target });
+                    return union_di_ty;
+                }
+                // TODO <<<
+
+                if (!ty.hasRuntimeBitsIgnoreComptime()) {
                     const union_di_ty = try o.makeEmptyNamespaceDIType(owner_decl);
                     dib.replaceTemporary(fwd_decl, union_di_ty);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
@@ -1493,16 +1518,134 @@ pub const Object = struct {
                     return union_di_ty;
                 }
 
-                @panic("TODO debug info type for union");
-                //const gop = try o.type_map.getOrPut(gpa, ty);
-                //if (gop.found_existing) return gop.value_ptr.*;
+                var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
+                defer di_fields.deinit(gpa);
 
-                //// The Type memory is ephemeral; since we want to store a longer-lived
-                //// reference, we need to copy it here.
-                //gop.key_ptr.* = try ty.copy(o.type_map_arena.allocator());
+                try di_fields.ensureUnusedCapacity(gpa, union_obj.fields.count());
 
-                //const layout = ty.unionGetLayout(target);
-                //const union_obj = ty.cast(Type.Payload.Union).?.data;
+                var field_iterator = union_obj.fields.iterator();
+                while (field_iterator.next()) |kv| {
+                    const field_name = kv.key_ptr.*;
+                    const field = kv.value_ptr.*;
+
+                    if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+
+                    const field_size = field.ty.abiSize(target);
+                    const field_align = field.normalAlignment(target);
+
+                    const field_name_copy = try gpa.dupeZ(u8, field_name);
+                    defer gpa.free(field_name_copy);
+
+                    try di_fields.append(gpa, dib.createMemberType(
+                        fwd_decl.toScope(),
+                        field_name_copy,
+                        null, // file
+                        0, // line
+                        field_size * 8, // size in bits
+                        field_align * 8, // align in bits
+                        0, // offset in bits
+                        0, // flags
+                        try o.lowerDebugType(field.ty, .full),
+                    ));
+                }
+
+                const tag_ty = union_obj.tag_ty;
+                if (!tag_ty.hasRuntimeBitsIgnoreComptime()) {
+                    const union_di_ty = dib.createUnionType(
+                        compile_unit_scope,
+                        name.ptr,
+                        null, // file
+                        0, // line
+                        ty.abiSize(target) * 8, // size in bits
+                        ty.abiAlignment(target) * 8, // align in bits
+                        0, // flags
+                        di_fields.items.ptr,
+                        @intCast(c_int, di_fields.items.len),
+                        0, // run time lang
+                        "", // unique id
+                    );
+
+                    dib.replaceTemporary(fwd_decl, union_di_ty);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(union_di_ty), .{ .target = o.target });
+                    return union_di_ty;
+                }
+
+                const union_di_ty = dib.createUnionType(
+                    fwd_decl.toScope(),
+                    "AnonUnion",
+                    null, // file
+                    0, // line
+                    ty.abiSize(target) * 8, // size in bits
+                    ty.abiAlignment(target) * 8, // align in bits
+                    0, // flags
+                    di_fields.items.ptr,
+                    @intCast(c_int, di_fields.items.len),
+                    0, // run time lang
+                    "", // unique id
+                );
+
+                const payload_size = ty.abiSize(target);
+                const payload_align = ty.abiAlignment(target);
+                const tag_size = tag_ty.abiSize(target);
+                const tag_align = tag_ty.abiAlignment(target);
+
+                assert(tag_size > 0);
+                assert(tag_align > 0);
+
+                var offset: u64 = 0;
+                offset += payload_size;
+                offset = std.mem.alignForwardGeneric(u64, offset, tag_align);
+                const tag_offset = offset;
+
+                const payload_di = dib.createMemberType(
+                    fwd_decl.toScope(),
+                    "payload",
+                    null, // file
+                    0, // line
+                    payload_size * 8, // size in bits
+                    payload_align * 8, // align in bits
+                    0, // field_offset * 8, // offset in bits
+                    0, // flags
+                    union_di_ty,
+                );
+
+                const tag_di = dib.createMemberType(
+                    fwd_decl.toScope(),
+                    "tag",
+                    null, // file
+                    0, // line
+                    tag_size * 8, // TODO: should this be multiplied by 8??? analyze.cpp:9237
+                    tag_align * 8, // align in bits
+                    tag_offset * 8, // offset in bits
+                    0, // flags
+                    try o.lowerDebugType(tag_ty, .full),
+                );
+
+                const full_di_fields = [_]*llvm.DIType {
+                    payload_di,
+                    tag_di,
+                };
+
+                const full_di_ty = dib.createStructType(
+                    compile_unit_scope,
+                    name.ptr,
+                    null, // file
+                    0, // line
+                    ty.abiSize(target) * 8, // size in bits
+                    ty.abiAlignment(target) * 8, // align in bits
+                    0, // flags
+                    null, // derived from
+                    &full_di_fields,
+                    @intCast(c_int, full_di_fields.len),
+                    0, // run time lang
+                    null, // vtable holder
+                    "", // unique id
+                );
+                dib.replaceTemporary(fwd_decl, full_di_ty);
+                // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty), .{ .target = o.target });
+                return full_di_ty;
 
                 //if (layout.payload_size == 0) {
                 //    const enum_tag_llvm_ty = try dg.llvmType(union_obj.tag_ty);
