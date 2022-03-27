@@ -106,16 +106,26 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the reciprocal of a complex number.
         pub fn reciprocal(self: Self) Self {
-            const m = self.re * self.re + self.im * self.im;
+            const m = self.norm();
             return Self{
                 .re = self.re / m,
                 .im = -self.im / m,
             };
         }
 
+        /// Returns the norm of a complex number.
+        pub fn norm(self: Self) T {
+            return self.re * self.re + self.im * self.im;
+        }
+
         /// Returns the magnitude of a complex number.
         pub fn magnitude(self: Self) T {
-            return math.sqrt(self.re * self.re + self.im * self.im);
+            return math.sqrt(self.norm());
+        }
+
+        /// Returns the argument of a complex number.
+        pub fn argument(self: Self) T {
+            return math.atan2(T, self.im, self.re);
         }
     };
 }
@@ -189,6 +199,13 @@ test "complex.magnitude" {
     const c = a.magnitude();
 
     try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
+}
+
+test "complex.argument" {
+    const a = Complex(f32).init(5, 3);
+    const c = a.argument();
+
+    try testing.expect(math.approxEqAbs(f32, c, 0.5404195, epsilon));
 }
 
 test "complex.cmath" {
