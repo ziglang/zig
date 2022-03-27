@@ -7,7 +7,6 @@ const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
-const Vector = std.meta.Vector;
 
 const ChunkIterator = struct {
     slice: []u8,
@@ -59,7 +58,7 @@ const DERIVE_KEY_CONTEXT: u8 = 1 << 5;
 const DERIVE_KEY_MATERIAL: u8 = 1 << 6;
 
 const CompressVectorized = struct {
-    const Lane = Vector(4, u32);
+    const Lane = @Vector(4, u32);
     const Rows = [4]Lane;
 
     inline fn g(comptime even: bool, rows: *Rows, m: Lane) void {
@@ -132,8 +131,8 @@ const CompressVectorized = struct {
 
         rows[0] ^= rows[2];
         rows[1] ^= rows[3];
-        rows[2] ^= Vector(4, u32){ chaining_value[0], chaining_value[1], chaining_value[2], chaining_value[3] };
-        rows[3] ^= Vector(4, u32){ chaining_value[4], chaining_value[5], chaining_value[6], chaining_value[7] };
+        rows[2] ^= @Vector(4, u32){ chaining_value[0], chaining_value[1], chaining_value[2], chaining_value[3] };
+        rows[3] ^= @Vector(4, u32){ chaining_value[4], chaining_value[5], chaining_value[6], chaining_value[7] };
 
         return @bitCast([16]u32, rows);
     }
