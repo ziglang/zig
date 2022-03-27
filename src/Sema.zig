@@ -4315,7 +4315,13 @@ fn zirSetCold(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
 fn zirSetFloatMode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src: LazySrcLoc = inst_data.src();
-    return sema.fail(block, src, "TODO: implement Sema.zirSetFloatMode", .{});
+    const float_mode = try sema.resolveBuiltinEnum(block, src, inst_data.operand, "FloatMode");
+    switch (float_mode) {
+        .Strict => return,
+        .Optimized => {
+            // TODO implement optimized float mode
+        },
+    }
 }
 
 fn zirSetRuntimeSafety(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
