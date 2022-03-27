@@ -193,6 +193,13 @@ test "complex.reciprocal" {
         math.approxEqAbs(f32, c.im, @as(f32, -3) / 34, epsilon));
 }
 
+test "complex.norm" {
+    const a = Complex(f32).init(5, 3);
+    const c = a.norm();
+
+    try testing.expect(math.approxEqAbs(f32, c, 34, epsilon));
+}
+
 test "complex.magnitude" {
     const a = Complex(f32).init(5, 3);
     const c = a.magnitude();
