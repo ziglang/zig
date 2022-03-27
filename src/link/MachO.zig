@@ -332,7 +332,13 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
         return self;
     }
 
-    if (!options.strip and options.module != null) {
+    if (!options.strip and options.module != null) blk: {
+        // TODO once I add support for converting (and relocating) DWARF info from relocatable
+        // object files, this check becomes unnecessary.
+        // For now, for LLVM backend we fallback to the old-fashioned stabs approach used by
+        // stage1.
+        if (build_options.have_llvm and options.use_llvm) break :blk;
+
         // Create dSYM bundle.
         const dir = options.module.?.zig_cache_artifact_directory;
         log.debug("creating {s}.dSYM bundle in {s}", .{ emit.sub_path, dir.path });
