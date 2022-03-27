@@ -20,12 +20,12 @@ test "integer widening" {
     try expect(f == a);
 }
 
-fn a() u0 {
+fn zero() u0 {
     return 0;
 }
 test "integer widening u0 to u8" {
-    const b: u8 = a();
-    try expect(b == 0);
+    const a: u8 = zero();
+    try expect(a == 0);
 }
 
 test "implicit unsigned integer to signed integer" {
