@@ -432,7 +432,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                 .Struct => |init_info| {
                     var value = std.mem.zeroes(T);
 
-                    if (init_info.is_tuple) {
+                    if (init_info.is_tuple and init_info.fields.len != 0) {
                         inline for (init_info.fields) |field, i| {
                             @field(value, struct_info.fields[i].name) = @field(init, field.name);
                         }
