@@ -645,25 +645,3 @@ fn writeStringTable(self: *DebugSymbols) !void {
 
     self.load_commands_dirty = true;
 }
-
-pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const Module.Decl) !void {
-    _ = module;
-    return self.dwarf.updateDeclLineNumber(&self.base.base, decl);
-}
-
-/// Caller owns the returned memory.
-pub fn initDeclDebugInfo(self: *DebugSymbols, module: *Module, decl: *Module.Decl) !Dwarf.DeclDebugBuffers {
-    _ = module;
-    return self.dwarf.initDeclDebugInfo(decl);
-}
-
-pub fn commitDeclDebugInfo(
-    self: *DebugSymbols,
-    module: *Module,
-    decl: *Module.Decl,
-    debug_buffers: *Dwarf.DeclDebugBuffers,
-) !void {
-    const symbol = self.base.locals.items[decl.link.macho.local_sym_index];
-    const atom = &decl.link.macho;
-    return self.dwarf.commitDeclDebugInfo(&self.base.base, module, decl, symbol.n_value, atom.size, debug_buffers);
-}

@@ -328,18 +328,19 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
     const delta_pc: usize = self.code.items.len - self.prev_di_pc;
     switch (self.debug_output) {
-        .dwarf => |dbg_out| {
+        .dwarf => |dw| {
             // TODO Look into using the DWARF special opcodes to compress this data.
             // It lets you emit single-byte opcodes that add different numbers to
             // both the PC and the line number at the same time.
-            try dbg_out.dbg_line.ensureUnusedCapacity(11);
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
+            const dbg_line = dw.getDeclDebugLineBuffer();
+            try dbg_line.ensureUnusedCapacity(11);
+            dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
+            leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
             if (delta_line != 0) {
-                dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
+                dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
+                leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
             }
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
+            dbg_line.appendAssumeCapacity(DW.LNS.copy);
             self.prev_di_pc = self.code.items.len;
             self.prev_di_line = line;
             self.prev_di_column = column;
@@ -379,19 +380,17 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
 /// after codegen for this symbol is done.
 fn addDbgInfoTypeReloc(self: *Emit, ty: Type) !void {
     switch (self.debug_output) {
-        .dwarf => |dbg_out| {
+        .dwarf => |dw| {
             assert(ty.hasRuntimeBits());
-            const index = dbg_out.dbg_info.items.len;
-            try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
-
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPutContext(self.bin_file.allocator, ty, .{ .target = self.target.* });
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{
-                    .off = undefined,
-                    .relocs = .{},
-                };
-            }
-            try gop.value_ptr.relocs.append(self.bin_file.allocator, @intCast(u32, index));
+            const dbg_info = dw.getDeclDebugInfoBuffer();
+            const index = dbg_info.items.len;
+            try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
+            const atom = switch (self.bin_file.tag) {
+                .elf => &self.function.mod_fn.owner_decl.link.elf.dbg_info_atom,
+                .macho => unreachable,
+                else => unreachable,
+            };
+            try dw.addTypeReloc(atom, ty, @intCast(u32, index), null);
         },
         .plan9 => {},
         .none => {},
@@ -409,16 +408,17 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
     switch (mcv) {
         .register => |reg| {
             switch (self.debug_output) {
-                .dwarf => |dbg_out| {
-                    try dbg_out.dbg_info.ensureUnusedCapacity(3);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                .dwarf => |dw| {
+                    const dbg_info = dw.getDeclDebugInfoBuffer();
+                    try dbg_info.ensureUnusedCapacity(3);
+                    dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // ULEB128 dwarf expression length
                         reg.dwarfLocOp(),
                     });
-                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
                     try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                 },
                 .plan9 => {},
                 .none => {},
@@ -428,7 +428,7 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
         .stack_argument_offset,
         => {
             switch (self.debug_output) {
-                .dwarf => |dbg_out| {
+                .dwarf => |dw| {
                     const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
                         return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(target)});
                     };
@@ -442,7 +442,8 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
                         else => unreachable,
                     };
 
-                    try dbg_out.dbg_info.append(link.File.Dwarf.abbrev_parameter);
+                    const dbg_info = dw.getDeclDebugInfoBuffer();
+                    try dbg_info.append(link.File.Dwarf.abbrev_parameter);
 
                     // Get length of the LEB128 stack offset
                     var counting_writer = std.io.countingWriter(std.io.null_writer);
@@ -450,13 +451,13 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
 
                     // DW.AT.location, DW.FORM.exprloc
                     // ULEB128 dwarf expression length
-                    try leb128.writeULEB128(dbg_out.dbg_info.writer(), counting_writer.bytes_written + 1);
-                    try dbg_out.dbg_info.append(DW.OP.breg11);
-                    try leb128.writeILEB128(dbg_out.dbg_info.writer(), adjusted_stack_offset);
+                    try leb128.writeULEB128(dbg_info.writer(), counting_writer.bytes_written + 1);
+                    try dbg_info.append(DW.OP.breg11);
+                    try leb128.writeILEB128(dbg_info.writer(), adjusted_stack_offset);
 
-                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
                     try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                 },
                 .plan9 => {},
                 .none => {},
@@ -558,8 +559,8 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirDebugPrologueEnd(emit: *Emit) !void {
     switch (emit.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
+        .dwarf => |dw| {
+            try dw.getDeclDebugLineBuffer().append(DW.LNS.set_prologue_end);
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
@@ -569,8 +570,8 @@ fn mirDebugPrologueEnd(emit: *Emit) !void {
 
 fn mirDebugEpilogueBegin(emit: *Emit) !void {
     switch (emit.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
+        .dwarf => |dw| {
+            try dw.getDeclDebugLineBuffer().append(DW.LNS.set_epilogue_begin);
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
