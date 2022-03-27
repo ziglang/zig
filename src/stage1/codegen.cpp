@@ -1707,7 +1707,6 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
         ZigType *wanted_type, LLVMValueRef expr_val)
 {
     assert(actual_type->id == wanted_type->id);
-    assert(expr_val != nullptr);
 
     ZigType *scalar_actual_type = (actual_type->id == ZigTypeIdVector) ?
         actual_type->data.vector.elem_type : actual_type;
@@ -1731,6 +1730,19 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
         wanted_bits = scalar_wanted_type->data.integral.bit_count;
     } else {
         zig_unreachable();
+    }
+
+    if (expr_val == nullptr) {
+        if (scalar_actual_type->id == ZigTypeIdInt && actual_bits == 0) {
+            if (wanted_bits == 0) {
+                return expr_val;
+            } else {
+                LLVMValueRef zero = LLVMConstNull(get_llvm_type(g, wanted_type));
+                return zero;
+            }
+        } else {
+            zig_unreachable();
+        }
     }
 
     if (scalar_actual_type->id == ZigTypeIdInt && want_runtime_safety && (
