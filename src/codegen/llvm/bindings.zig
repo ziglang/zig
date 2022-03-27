@@ -448,6 +448,14 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
+    pub const buildZExtOrBitCast = LLVMBuildZExtOrBitCast;
+    extern fn LLVMBuildZExtOrBitCast(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
     pub const buildSExt = LLVMBuildSExt;
     extern fn LLVMBuildSExt(
         *const Builder,

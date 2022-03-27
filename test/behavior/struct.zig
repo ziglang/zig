@@ -1294,3 +1294,24 @@ test "loading a struct pointer perfoms a copy" {
     try expect(s2.b == 2);
     try expect(s2.c == 3);
 }
+
+test "packed struct aggregate init" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo(a: i2, b: i6) u8 {
+            return @bitCast(u8, P{ .a = a, .b = b });
+        }
+
+        const P = packed struct {
+            a: i2,
+            b: i6,
+        };
+    };
+    const result = @bitCast(u8, S.foo(1, 2));
+    try expect(result == 9);
+}

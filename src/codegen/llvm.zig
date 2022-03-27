@@ -6459,6 +6459,34 @@ pub const FuncGen = struct {
                 return vector;
             },
             .Struct => {
+                if (result_ty.containerLayout() == .Packed) {
+                    const struct_obj = result_ty.castTag(.@"struct").?.data;
+                    const big_bits = struct_obj.packedIntegerBits(target);
+                    const int_llvm_ty = self.dg.context.intType(big_bits);
+                    const fields = struct_obj.fields.values();
+                    comptime assert(Type.packed_struct_layout_version == 2);
+                    var running_int: *const llvm.Value = int_llvm_ty.constNull();
+                    var running_bits: u16 = 0;
+                    for (elements) |elem, i| {
+                        const field = fields[i];
+                        if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+
+                        const non_int_val = try self.resolveInst(elem);
+                        const ty_bit_size = @intCast(u16, field.ty.bitSize(target));
+                        const small_int_ty = self.dg.context.intType(ty_bit_size);
+                        const small_int_val = self.builder.buildBitCast(non_int_val, small_int_ty, "");
+                        const shift_rhs = int_llvm_ty.constInt(running_bits, .False);
+                        // If the field is as large as the entire packed struct, this
+                        // zext would go from, e.g. i16 to i16. This is legal with
+                        // constZExtOrBitCast but not legal with constZExt.
+                        const extended_int_val = self.builder.buildZExtOrBitCast(small_int_val, int_llvm_ty, "");
+                        const shifted = self.builder.buildShl(extended_int_val, shift_rhs, "");
+                        running_int = self.builder.buildOr(running_int, shifted, "");
+                        running_bits += ty_bit_size;
+                    }
+                    return running_int;
+                }
+
                 var ptr_ty_buf: Type.Payload.Pointer = undefined;
 
                 if (isByRef(result_ty)) {
