@@ -3274,8 +3274,20 @@ pub const Type = extern union {
                 const int_tag_ty = ty.intTagType(&buffer);
                 return int_tag_ty.bitSize(target);
             },
+
             .@"union", .union_tagged => {
-                @panic("TODO bitSize unions");
+                const union_obj = ty.cast(Payload.Union).?.data;
+
+                const fields = union_obj.fields;
+                if (fields.count() == 0) return 0;
+
+                assert(union_obj.haveFieldTypes());
+
+                var size: u64 = 0;
+                for (fields.values()) |field| {
+                    size = @maximum(size, field.ty.bitSize(target));
+                }
+                return size;
             },
 
             .vector => {

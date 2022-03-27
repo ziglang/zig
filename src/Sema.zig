@@ -6800,8 +6800,51 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const target = sema.mod.getTarget();
 
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    switch (dest_ty.zigTypeTag()) {
+        .AnyFrame,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Enum,
+        .EnumLiteral,
+        .ErrorSet,
+        .ErrorUnion,
+        .Fn,
+        .Frame,
+        .NoReturn,
+        .Null,
+        .Opaque,
+        .Optional,
+        .Type,
+        .Undefined,
+        .Void,
+        => return sema.fail(block, dest_ty_src, "invalid type '{}' for @bitCast", .{dest_ty.fmt(target)}),
+
+        .Pointer => return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', use @ptrCast to cast to a pointer", .{
+            dest_ty.fmt(target),
+        }),
+        .Struct, .Union => if (dest_ty.containerLayout() == .Auto) {
+            const container = switch (dest_ty.zigTypeTag()) {
+                .Struct => "struct",
+                .Union => "union",
+                else => unreachable,
+            };
+            return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', {s} does not have a guaranteed in-memory layout", .{
+                dest_ty.fmt(target), container,
+            });
+        },
+        .BoundFn => @panic("TODO remove this type from the language and compiler"),
+
+        .Array,
+        .Bool,
+        .Float,
+        .Int,
+        .Vector,
+        => {},
+    }
+
     const operand = sema.resolveInst(extra.rhs);
     return sema.bitCast(block, dest_ty, operand, operand_src);
 }
@@ -19137,7 +19180,19 @@ fn bitCast(
     const old_ty = try sema.resolveTypeFields(block, inst_src, sema.typeOf(inst));
     try sema.resolveTypeLayout(block, inst_src, old_ty);
 
-    // TODO validate the type size and other compile errors
+    const target = sema.mod.getTarget();
+    var dest_bits = dest_ty.bitSize(target);
+    var old_bits = old_ty.bitSize(target);
+
+    if (old_bits != dest_bits) {
+        return sema.fail(block, inst_src, "@bitCast size mismatch: destination type '{}' has {d} bits but source type '{}' has {d} bits", .{
+            dest_ty.fmt(target),
+            dest_bits,
+            old_ty.fmt(target),
+            old_bits,
+        });
+    }
+
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
         const result_val = try sema.bitCastVal(block, inst_src, val, old_ty, dest_ty, 0);
         return sema.addConstant(dest_ty, result_val);
