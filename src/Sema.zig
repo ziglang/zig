@@ -6781,14 +6781,54 @@ fn intCast(
         return sema.fail(block, operand_src, "unable to cast runtime value to 'comptime_int'", .{});
     }
 
-    // TODO insert safety check to make sure the value fits in the dest type
-    _ = runtime_safety;
-
     if ((try sema.typeHasOnePossibleValue(block, dest_ty_src, dest_ty))) |opv| {
+        // requirement: intCast(u0, input) iff input == 0
+        if (runtime_safety and block.wantSafety()) {
+            try sema.requireRuntimeBlock(block, operand_src);
+            const target = sema.mod.getTarget();
+            const wanted_info = dest_ty.intInfo(target);
+            const wanted_bits = wanted_info.bits;
+
+            if (wanted_bits == 0) {
+                const zero_inst = try sema.addConstant(sema.typeOf(operand), Value.zero);
+                const is_in_range = try block.addBinOp(.cmp_eq, operand, zero_inst);
+                try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+            }
+        }
+
         return sema.addConstant(dest_ty, opv);
     }
 
     try sema.requireRuntimeBlock(block, operand_src);
+    if (runtime_safety and block.wantSafety()) {
+        const target = sema.mod.getTarget();
+        const operand_ty = sema.typeOf(operand);
+        const actual_info = operand_ty.intInfo(target);
+        const wanted_info = dest_ty.intInfo(target);
+        const actual_bits = actual_info.bits;
+        const wanted_bits = wanted_info.bits;
+
+        // requirement: signed to unsigned >= 0
+        if (actual_info.signedness == .signed and
+            wanted_info.signedness == .unsigned)
+        {
+            const zero_inst = try sema.addConstant(sema.typeOf(operand), Value.zero);
+            const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
+            try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+        }
+
+        // requirement: unsigned int value fits into target type
+        if (actual_bits > wanted_bits or
+            (actual_bits == wanted_bits and
+            actual_info.signedness == .unsigned and
+            wanted_info.signedness == .signed))
+        {
+            const max_int = try dest_ty.maxInt(sema.arena, target);
+            const max_int_inst = try sema.addConstant(operand_ty, max_int);
+            const is_in_range = try block.addBinOp(.cmp_lte, operand, max_int_inst);
+            try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+        }
+    }
     return block.addTyOp(.intcast, dest_ty, operand);
 }
 
@@ -16166,6 +16206,7 @@ pub const PanicId = enum {
     incorrect_alignment,
     invalid_error_code,
     index_out_of_bounds,
+    cast_truncated_data,
 };
 
 fn addSafetyCheck(
@@ -16288,6 +16329,7 @@ fn safetyPanic(
         .incorrect_alignment => "incorrect alignment",
         .invalid_error_code => "invalid error code",
         .index_out_of_bounds => "attempt to index out of bounds",
+        .cast_truncated_data => "integer cast truncated bits",
     };
 
     const msg_inst = msg_inst: {
@@ -19964,6 +20006,14 @@ fn analyzeSlice(
                 slice_ty = ptr_ptr_child_ty;
                 array_ty = ptr_ptr_child_ty;
                 elem_ty = ptr_ptr_child_ty.childType();
+
+                if (ptr_ptr_child_ty.ptrSize() == .C) {
+                    if (try sema.resolveDefinedValue(block, ptr_src, ptr_or_slice)) |ptr_val| {
+                        if (ptr_val.isNull()) {
+                            return sema.fail(block, ptr_src, "slice of null pointer", .{});
+                        }
+                    }
+                }
             },
             .Slice => {
                 ptr_sentinel = ptr_ptr_child_ty.sentinel();
@@ -20162,6 +20212,12 @@ fn analyzeSlice(
 
     try sema.requireRuntimeBlock(block, src);
     if (block.wantSafety()) {
+        // requirement: slicing C ptr is non-null
+        if (ptr_ptr_child_ty.isCPtr()) {
+            const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
+            try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
+        }
+
         // requirement: end <= len
         const opt_len_inst = if (array_ty.zigTypeTag() == .Array)
             try sema.addIntUnsigned(Type.usize, array_ty.arrayLenIncludingSentinel())
