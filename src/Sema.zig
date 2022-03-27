@@ -2317,8 +2317,8 @@ fn zirErrorSetDecl(
     const extra_index_end = extra_index + (extra.data.fields_len * 2);
     while (extra_index < extra_index_end) : (extra_index += 2) { // +2 to skip over doc_string
         const str_index = sema.code.extra[extra_index];
-        const name = try new_decl_arena_allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
-        const result = names.getOrPutAssumeCapacity(name);
+        const kv = try sema.mod.getErrorValue(sema.code.nullTerminatedString(str_index));
+        const result = names.getOrPutAssumeCapacity(kv.key);
         assert(!result.found_existing); // verified in AstGen
     }
 
@@ -13113,11 +13113,10 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 // TODO use reflection instead of magic numbers here
                 // error_set: type,
                 const name_val = struct_val[0];
+                const name_str = try name_val.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena, target);
 
-                names.putAssumeCapacityNoClobber(
-                    try name_val.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena, target),
-                    {},
-                );
+                const kv = try sema.mod.getErrorValue(name_str);
+                names.putAssumeCapacityNoClobber(kv.key, {});
             }
 
             // names must be sorted
