@@ -193,7 +193,6 @@ const CallMCValues = struct {
     }
 };
 
-
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
@@ -242,7 +241,7 @@ pub fn generate(
     defer function.blocks.deinit(bin_file.allocator);
     defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
-    var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
+    var call_info = function.resolveCallingConventionValues(fn_type, false) catch |err| switch (err) {
         error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
         error.OutOfRegisters => return FnResult{
             .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
@@ -296,17 +295,101 @@ pub fn generate(
 }
 
 /// Caller must call `CallMCValues.deinit`.
-fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
-    _ = self;
-    _ = fn_ty;
+fn resolveCallingConventionValues(self: *Self, fn_ty: Type, is_caller: bool) !CallMCValues {
+    const cc = fn_ty.fnCallingConvention();
+    const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
+    defer self.gpa.free(param_types);
+    fn_ty.fnParamTypes(param_types);
+    var result: CallMCValues = .{
+        .args = try self.gpa.alloc(MCValue, param_types.len),
+        // These undefined values must be populated before returning from this function.
+        .return_value = undefined,
+        .stack_byte_count = undefined,
+        .stack_align = undefined,
+    };
+    errdefer self.gpa.free(result.args);
 
-    @panic("TODO implement resolveCallingConventionValues");
+    const ret_ty = fn_ty.fnReturnType();
+
+    switch (cc) {
+        .Naked => {
+            assert(result.args.len == 0);
+            result.return_value = .{ .unreach = {} };
+            result.stack_byte_count = 0;
+            result.stack_align = 1;
+            return result;
+        },
+        .Unspecified, .C => {
+            // SPARC Compliance Definition 2.4.1, Chapter 3
+            // Low-Level System Information (64-bit psABI) - Function Calling Sequence
+
+            var next_register: usize = 0;
+            var next_stack_offset: u32 = 0;
+
+            // The caller puts the argument in %o0-%o5, which becomes %i0-%i5 inside the callee.
+            const argument_registers = if (is_caller) abi.c_abi_int_param_regs_caller_view else abi.c_abi_int_param_regs_callee_view;
+
+            for (param_types) |ty, i| {
+                const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                if (param_size <= 8) {
+                    if (next_register < argument_registers.len) {
+                        result.args[i] = .{ .register = argument_registers[next_register] };
+                        next_register += 1;
+                    } else {
+                        result.args[i] = .{ .stack_offset = next_stack_offset };
+                        next_register += next_stack_offset;
+                    }
+                } else if (param_size <= 16) {
+                    if (next_register < argument_registers.len - 1) {
+                        return self.fail("TODO MCValues with 2 registers", .{});
+                    } else if (next_register < argument_registers.len) {
+                        return self.fail("TODO MCValues split register + stack", .{});
+                    } else {
+                        result.args[i] = .{ .stack_offset = next_stack_offset };
+                        next_register += next_stack_offset;
+                    }
+                } else {
+                    result.args[i] = .{ .stack_offset = next_stack_offset };
+                    next_register += next_stack_offset;
+                }
+            }
+
+            result.stack_byte_count = next_stack_offset;
+            result.stack_align = 16;
+        },
+        else => return self.fail("TODO implement function parameters for {} on sparcv9", .{cc}),
+    }
+
+    if (ret_ty.zigTypeTag() == .NoReturn) {
+        result.return_value = .{ .unreach = {} };
+    } else if (!ret_ty.hasRuntimeBits()) {
+        result.return_value = .{ .none = {} };
+    } else switch (cc) {
+        .Naked => unreachable,
+        .Unspecified, .C => {
+            const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+            // The callee puts the return values in %i0-%i3, which becomes %o0-%o3 inside the caller.
+            if (ret_ty_size <= 8) {
+                result.return_value = if (is_caller) .{ .register = abi.c_abi_int_return_regs_caller_view[0] } else .{ .register = abi.c_abi_int_return_regs_callee_view[0] };
+            } else {
+                return self.fail("TODO support more return values for sparcv9", .{});
+            }
+        },
+        else => return self.fail("TODO implement function return values for {} on sparcv9", .{cc}),
+    }
+    return result;
 }
-
 
 /// Caller must call `CallMCValues.deinit`.
 fn gen(self: *Self) !void {
     _ = self;
 
     @panic("TODO implement gen");
+}
+
+fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
+    @setCold(true);
+    assert(self.err_msg == null);
+    self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
+    return error.CodegenFail;
 }
