@@ -432,6 +432,13 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                 .Struct => |init_info| {
                     var value = std.mem.zeroes(T);
 
+                    inline for (struct_info.fields) |field| {
+                        if (field.default_value) |default_value_ptr| {
+                            const default_value = @ptrCast(*const field.field_type, default_value_ptr).*;
+                            @field(value, field.name) = default_value;
+                        }
+                    }
+
                     if (init_info.is_tuple) {
                         inline for (init_info.fields) |field, i| {
                             @field(value, struct_info.fields[i].name) = @field(init, field.name);
@@ -443,21 +450,14 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                         if (!@hasField(T, field.name)) {
                             @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
                         }
-                    }
 
-                    inline for (struct_info.fields) |field| {
-                        if (@hasField(Init, field.name)) {
-                            switch (@typeInfo(field.field_type)) {
-                                .Struct => {
-                                    @field(value, field.name) = zeroInit(field.field_type, @field(init, field.name));
-                                },
-                                else => {
-                                    @field(value, field.name) = @field(init, field.name);
-                                },
-                            }
-                        } else if (field.default_value) |default_value_ptr| {
-                            const default_value = @ptrCast(*const field.field_type, default_value_ptr).*;
-                            @field(value, field.name) = default_value;
+                        switch (@typeInfo(field.field_type)) {
+                            .Struct => {
+                                @field(value, field.name) = zeroInit(field.field_type, @field(init, field.name));
+                            },
+                            else => {
+                                @field(value, field.name) = @field(init, field.name);
+                            },
                         }
                     }
 
@@ -515,6 +515,28 @@ test "zeroInit" {
         .b = 0,
         .a = 0,
     }, c);
+
+    const Foo = struct {
+        foo: u8 = 69,
+        bar: u8,
+    };
+
+    const f = zeroInit(Foo, .{});
+    try testing.expectEqual(Foo{
+        .foo = 69,
+        .bar = 0,
+    }, f);
+
+    const Bar = struct {
+        foo: u32 = 666,
+        bar: u32 = 420,
+    };
+
+    const b = zeroInit(Bar, .{69});
+    try testing.expectEqual(Bar{
+        .foo = 69,
+        .bar = 420,
+    }, b);
 }
 
 /// Compares two slices of numbers lexicographically. O(n).
