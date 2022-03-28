@@ -635,14 +635,16 @@ pub const TestContext = struct {
                     // Move to beginning of line
                     while (cursor > 0 and contents[cursor - 1] != '\n') cursor -= 1;
 
-                    // Check if line is non-empty and does not start with "//"
-                    if (cursor + 1 < contents.len and contents[cursor + 1] != '\n' and contents[cursor + 1] != '\r') {
-                        if (std.mem.startsWith(u8, contents[cursor..], "//")) {
-                            manifest_start = cursor;
-                        } else {
-                            break;
-                        }
-                    } else manifest_end = cursor;
+                    if (std.mem.startsWith(u8, contents[cursor..], "//")) {
+                        manifest_start = cursor;
+                    } else {
+                        if (manifest_start != null) break;
+
+                        // If the line is just whitespace, update the manifest end
+                        if (std.mem.trim(u8, contents[cursor..manifest_end], " \r\n\t").len == 0) {
+                            manifest_end = cursor;
+                        } else break; // If it's not whitespace, there is no manifest
+                    }
 
                     // Move to previous line
                     if (cursor != 0) cursor -= 1 else break;
@@ -662,7 +664,8 @@ pub const TestContext = struct {
 
                 // If the second line is present, it should be blank
                 if (manifest_it.next()) |second_line| {
-                    if (std.mem.trim(u8, second_line[2..], " \t").len != 0) return error.InvalidFile;
+                    const trimmed_line = std.mem.trim(u8, second_line[2..], " \t");
+                    if (trimmed_line.len != 0) return error.InvalidFile;
                 }
 
                 // All following lines are expected error messages
