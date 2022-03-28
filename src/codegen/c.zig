@@ -433,7 +433,6 @@ pub const DeclGen = struct {
         if (is_signed) try writer.writeAll("(int128_t)");
         if (is_neg) try writer.writeByte('-');
 
-        assert(high > 0);
         try writer.print("(((uint128_t)0x{x}u<<64)", .{high});
 
         if (low > 0)
@@ -571,6 +570,11 @@ pub const DeclGen = struct {
                     32 => return writer.writeAll("(void *)0xaaaaaaaa"),
                     64 => return writer.writeAll("(void *)0xaaaaaaaaaaaaaaaa"),
                     else => unreachable,
+                },
+                .Struct => {
+                    try writer.writeByte('(');
+                    try dg.renderTypecast(writer, ty);
+                    return writer.writeAll("){0xaa}");
                 },
                 else => {
                     // This should lower to 0xaa bytes in safe modes, and for unsafe modes should

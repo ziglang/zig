@@ -74,8 +74,6 @@ fn assertLenIsZero(msg: []const u8) !void {
 }
 
 test "access len index of sentinel-terminated slice" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             var slice: [:0]const u8 = "hello";
