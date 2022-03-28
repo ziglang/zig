@@ -7184,8 +7184,9 @@ fn zirSwitchCapture(
 
                 return sema.bitCast(block, else_error_ty, operand, operand_src);
             } else {
+                const item_ref = sema.resolveInst(items[0]);
                 // Previous switch validation ensured this will succeed
-                const item_val = sema.resolveConstValue(block, .unneeded, items[0]) catch unreachable;
+                const item_val = sema.resolveConstValue(block, .unneeded, item_ref) catch unreachable;
 
                 const item_ty = try Type.Tag.error_set_single.create(sema.arena, item_val.getError().?);
                 return sema.bitCast(block, item_ty, operand, operand_src);
