@@ -75,7 +75,6 @@ test "return inner function which references comptime variable of outer function
 }
 
 test "discard the result of a function that returns a struct" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
