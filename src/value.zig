@@ -2476,14 +2476,8 @@ pub const Value = extern union {
             .bool_false,
             .bool_true,
             .the_only_possible_value,
+            .lazy_align,
             => return hashInt(ptr_val, hasher, target),
-
-            .lazy_align => {
-                // Bit weird to have this here but this function is also called
-                // on integers.
-                const ty = ptr_val.castTag(.lazy_align).?.data;
-                ty.hashWithHasher(hasher, target);
-            },
 
             else => unreachable,
         }
