@@ -854,3 +854,24 @@ test "labeled block implicitly ends in a break" {
         if (a) break :blk;
     }
 }
+
+test "catch in block has correct result location" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const S = struct {
+        fn open() error{A}!@This() {
+            return @This(){};
+        }
+        fn foo(_: @This()) u32 {
+            return 1;
+        }
+    };
+    const config_h_text: u32 = blk: {
+        var dir = S.open() catch unreachable;
+        break :blk dir.foo();
+    };
+    try expect(config_h_text == 1);
+}

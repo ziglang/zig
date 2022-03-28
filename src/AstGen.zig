@@ -2731,6 +2731,7 @@ fn varDecl(
                 };
                 resolve_inferred_alloc = alloc;
                 init_scope.rl_ptr = alloc;
+                init_scope.rl_ty_inst = .none;
             }
             const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
             const init_inst = try reachableExpr(&init_scope, &init_scope.base, init_result_loc, var_decl.ast.init_node, node);
@@ -4860,7 +4861,7 @@ fn orelseCatchExpr(
     // block_scope unstacked now, can add new instructions to parent_gz
     try parent_gz.instructions.append(astgen.gpa, block);
 
-    var then_scope = parent_gz.makeSubBlock(scope);
+    var then_scope = block_scope.makeSubBlock(scope);
     defer then_scope.unstack();
 
     // This could be a pointer or value depending on `unwrap_op`.
@@ -4870,7 +4871,7 @@ fn orelseCatchExpr(
         else => try rvalue(&then_scope, block_scope.break_result_loc, unwrapped_payload, node),
     };
 
-    var else_scope = parent_gz.makeSubBlock(scope);
+    var else_scope = block_scope.makeSubBlock(scope);
     defer else_scope.unstack();
 
     var err_val_scope: Scope.LocalVal = undefined;
@@ -9850,10 +9851,12 @@ const GenZir = struct {
             },
 
             .discard, .none, .ptr, .ref => {
+                gz.rl_ty_inst = .none;
                 gz.break_result_loc = parent_rl;
             },
 
             .inferred_ptr => |ptr| {
+                gz.rl_ty_inst = .none;
                 gz.rl_ptr = ptr;
                 gz.break_result_loc = .{ .block_ptr = gz };
             },
