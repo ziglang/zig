@@ -524,6 +524,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_amdil:
         case ZigLLVM_hsail:
         case ZigLLVM_spir:
+        case ZigLLVM_spirv32:
         case ZigLLVM_kalimba:
         case ZigLLVM_lanai:
         case ZigLLVM_shave:
@@ -551,6 +552,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_amdil64:
         case ZigLLVM_hsail64:
         case ZigLLVM_spir64:
+        case ZigLLVM_spirv64:
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
         case ZigLLVM_ve:
@@ -592,6 +594,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_amdil:
         case ZigLLVM_hsail:
         case ZigLLVM_spir:
+        case ZigLLVM_spirv32:
         case ZigLLVM_kalimba:
         case ZigLLVM_lanai:
         case ZigLLVM_shave:
@@ -618,6 +621,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_amdil64:
         case ZigLLVM_hsail64:
         case ZigLLVM_spir64:
+        case ZigLLVM_spirv64:
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
         case ZigLLVM_ve:
@@ -849,6 +853,8 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_sparcv9:
         case ZigLLVM_spir:
         case ZigLLVM_spir64:
+        case ZigLLVM_spirv32:
+        case ZigLLVM_spirv64:
         case ZigLLVM_systemz:
         case ZigLLVM_tce:
         case ZigLLVM_tcele:
@@ -909,6 +915,8 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_sparcv9:
         case ZigLLVM_spir:
         case ZigLLVM_spir64:
+        case ZigLLVM_spirv32:
+        case ZigLLVM_spirv64:
         case ZigLLVM_systemz:
         case ZigLLVM_tce:
         case ZigLLVM_tcele:

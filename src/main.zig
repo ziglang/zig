@@ -4129,11 +4129,11 @@ pub fn punt_to_lld(arena: Allocator, args: []const []const u8) error{OutOfMemory
         const llvm = @import("codegen/llvm/bindings.zig");
         const argc = @intCast(c_int, argv.len);
         if (mem.eql(u8, args[1], "ld.lld")) {
-            break :rc llvm.LinkELF(argc, argv.ptr, true);
+            break :rc llvm.LinkELF(argc, argv.ptr, true, false);
         } else if (mem.eql(u8, args[1], "lld-link")) {
-            break :rc llvm.LinkCOFF(argc, argv.ptr, true);
+            break :rc llvm.LinkCOFF(argc, argv.ptr, true, false);
         } else if (mem.eql(u8, args[1], "wasm-ld")) {
-            break :rc llvm.LinkWasm(argc, argv.ptr, true);
+            break :rc llvm.LinkWasm(argc, argv.ptr, true, false);
         } else {
             unreachable;
         }

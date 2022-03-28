@@ -572,6 +572,7 @@ pub const Object = struct {
                 } else {
                     _ = self.llvm_module.addAlias(
                         llvm_global.typeOf(),
+                        0, // TODO(gwenzek) addrSpace
                         llvm_global,
                         exp_name_z,
                     );
