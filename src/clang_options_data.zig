@@ -4412,7 +4412,7 @@ flagpd1("nostartfiles"),
 .{
     .name = "nostdinc++",
     .syntax = .flag,
-    .zig_equivalent = .nostdlib_cpp,
+    .zig_equivalent = .nostdlibinc_cpp,
     .pd1 = true,
     .pd2 = false,
     .psl = false,

@@ -970,8 +970,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const tsan = options.want_tsan orelse false;
         // TSAN is implemented in C++ so it requires linking libc++.
         const link_libcpp = options.link_libcpp or tsan;
-        const link_libc = link_libcpp or options.link_libc or options.link_libunwind or
-            target_util.osRequiresLibC(options.target);
+        const include_libc_headers = link_libcpp or options.link_libc or options.link_libunwind;
+        const link_libc = include_libc_headers or target_util.osRequiresLibC(options.target);
 
         const link_libunwind = options.link_libunwind or
             (link_libcpp and target_util.libcNeedsLibUnwind(options.target));
@@ -1111,7 +1111,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const dll_export_fns = if (options.dll_export_fns) |explicit| explicit else is_dyn_lib or options.rdynamic;
 
-        const libc_dirs = try detectLibCIncludeDirs(
+        var libc_dirs = try detectLibCIncludeDirs(
             arena,
             options.zig_lib_directory.path.?,
             options.target,
@@ -1121,6 +1121,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.libc_installation,
             options.native_darwin_sdk != null,
         );
+        if (!include_libc_headers) libc_dirs.libc_include_dir_list = &[0][]u8{};
 
         const must_pie = target_util.requiresPIE(options.target);
         const pie: bool = if (options.want_pie) |explicit| pie: {

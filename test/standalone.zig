@@ -49,6 +49,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/issue_7030/build.zig", .{});
     cases.addBuildFile("test/standalone/install_raw_hex/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_9812/build.zig", .{});
+    cases.addBuildFile("test/standalone/issue_11328/build.zig", .{});
     if (builtin.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }

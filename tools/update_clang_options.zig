@@ -124,7 +124,7 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "nostdinc++",
-        .ident = "nostdlib_cpp",
+        .ident = "nostdlibinc_cpp",
     },
     .{
         .name = "nostdlibinc",

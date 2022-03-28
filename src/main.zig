@@ -1317,7 +1317,6 @@ fn buildOutputType(
             strip = false;
             ensure_libc_on_non_freestanding = true;
             ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
-            want_native_include_dirs = true;
             // Clang's driver enables this switch unconditionally.
             // Disabling the emission of .eh_frame_hdr can unexpectedly break
             // some functionality that depend on it, such as C++ exceptions and
@@ -1425,8 +1424,8 @@ fn buildOutputType(
                     .no_stack_check => want_stack_check = false,
                     .unwind_tables => want_unwind_tables = true,
                     .no_unwind_tables => want_unwind_tables = false,
-                    .nostdlib => ensure_libc_on_non_freestanding = false,
-                    .nostdlib_cpp => ensure_libcpp_on_non_freestanding = false,
+                    .nostdlib, .nostdlibinc => ensure_libc_on_non_freestanding = false,
+                    .nostdlib_cpp, .nostdlibinc_cpp => ensure_libcpp_on_non_freestanding = false,
                     .shared => {
                         link_mode = .Dynamic;
                         is_shared_lib = true;
@@ -1551,7 +1550,6 @@ fn buildOutputType(
                     },
                     .framework_dir => try framework_dirs.append(it.only_arg),
                     .framework => try frameworks.append(it.only_arg),
-                    .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
                     .exec_model => {
                         wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, it.only_arg) orelse {
@@ -1950,6 +1948,9 @@ fn buildOutputType(
             }
         },
     }
+
+    // We need native include dirs if we are linking libc or libcpp
+    want_native_include_dirs = ensure_libc_on_non_freestanding or ensure_libcpp_on_non_freestanding;
 
     if (arg_mode == .translate_c and c_source_files.items.len != 1) {
         fatal("translate-c expects exactly 1 source file (found {d})", .{c_source_files.items.len});
@@ -4414,6 +4415,7 @@ pub const ClangArgIterator = struct {
         framework_dir,
         framework,
         nostdlibinc,
+        nostdlibinc_cpp,
         red_zone,
         no_red_zone,
         omit_frame_pointer,
