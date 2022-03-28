@@ -11091,6 +11091,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :t try set_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
             };
 
+            try sema.queueFullTypeResolution(try error_field_ty.copy(sema.arena));
+
             // If the error set is inferred it has to be resolved at this point
             try sema.resolveInferredErrorSetTy(block, src, ty);
 
