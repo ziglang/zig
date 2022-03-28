@@ -720,14 +720,17 @@ pub const TestContext = struct {
                     // Move to beginning of line
                     while (cursor > 0 and src[cursor - 1] != '\n') cursor -= 1;
 
-                    // Check if line is non-empty and does not start with "//"
-                    if (cursor + 1 < src.len and src[cursor + 1] != '\n' and src[cursor + 1] != '\r') {
-                        if (std.mem.startsWith(u8, src[cursor..], "//")) {
-                            manifest_start = cursor;
-                        } else {
-                            break;
-                        }
-                    } else manifest_end = cursor;
+                    if (std.mem.startsWith(u8, src[cursor..], "//")) {
+                        manifest_start = cursor; // Contiguous comment line, include in manifest
+                    } else {
+                        if (manifest_start != null) break; // Encountered non-comment line, end of manifest
+
+                        // We ignore all-whitespace lines following the comment block, but anything else
+                        // means that there is no manifest present.
+                        if (std.mem.trim(u8, src[cursor..manifest_end], " \r\n\t").len == 0) {
+                            manifest_end = cursor;
+                        } else break; // If it's not whitespace, there is no manifest
+                    }
 
                     // Move to previous line
                     if (cursor != 0) cursor -= 1 else break;
