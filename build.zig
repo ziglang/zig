@@ -613,7 +613,8 @@ fn addCxxKnownPath(
         ctx.cxx_compiler,
         b.fmt("-print-file-name={s}", .{objname}),
     });
-    const path_unpadded = mem.tokenize(u8, path_padded, "\r\n").next().?;
+    var tokenizer = mem.tokenize(u8, path_padded, "\r\n");
+    const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
         if (errtxt) |msg| {
             std.debug.print("{s}", .{msg});

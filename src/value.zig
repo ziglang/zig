@@ -461,7 +461,7 @@ pub const Value = extern union {
             => unreachable,
 
             .ty, .lazy_align => {
-                const payload = self.castTag(.ty).?;
+                const payload = self.cast(Payload.Ty).?;
                 const new_payload = try arena.create(Payload.Ty);
                 new_payload.* = .{
                     .base = payload.base,
@@ -718,7 +718,7 @@ pub const Value = extern union {
             .lazy_align => {
                 try out_stream.writeAll("@alignOf(");
                 try val.castTag(.lazy_align).?.data.dump("", options, out_stream);
-                try out_stream.writeAll(")");
+                return try out_stream.writeAll(")");
             },
             .int_type => {
                 const int_type = val.castTag(.int_type).?.data;
@@ -2477,6 +2477,13 @@ pub const Value = extern union {
             .bool_true,
             .the_only_possible_value,
             => return hashInt(ptr_val, hasher, target),
+
+            .lazy_align => {
+                // Bit weird to have this here but this function is also called
+                // on integers.
+                const ty = ptr_val.castTag(.lazy_align).?.data;
+                ty.hashWithHasher(hasher, target);
+            },
 
             else => unreachable,
         }
