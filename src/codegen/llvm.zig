@@ -6630,6 +6630,14 @@ pub const FuncGen = struct {
         // tag and the payload.
         const index_type = self.context.intType(32);
 
+        var field_ptr_payload: Type.Payload.Pointer = .{
+            .data = .{
+                .pointee_type = field.ty,
+                .@"align" = field_align,
+                .@"addrspace" = .generic,
+            },
+        };
+        const field_ptr_ty = Type.initPayload(&field_ptr_payload.base);
         if (layout.tag_size == 0) {
             const indices: [3]*const llvm.Value = .{
                 index_type.constNull(),
@@ -6638,8 +6646,7 @@ pub const FuncGen = struct {
             };
             const len: c_uint = if (field_size == layout.payload_size) 2 else 3;
             const field_ptr = self.builder.buildInBoundsGEP(casted_ptr, &indices, len, "");
-            const store_inst = self.builder.buildStore(llvm_payload, field_ptr);
-            store_inst.setAlignment(field_align);
+            self.store(field_ptr, field_ptr_ty, llvm_payload, .NotAtomic);
             return result_ptr;
         }
 
@@ -6651,8 +6658,7 @@ pub const FuncGen = struct {
             };
             const len: c_uint = if (field_size == layout.payload_size) 2 else 3;
             const field_ptr = self.builder.buildInBoundsGEP(casted_ptr, &indices, len, "");
-            const store_inst = self.builder.buildStore(llvm_payload, field_ptr);
-            store_inst.setAlignment(field_align);
+            self.store(field_ptr, field_ptr_ty, llvm_payload, .NotAtomic);
         }
         {
             const indices: [2]*const llvm.Value = .{

@@ -1149,3 +1149,22 @@ test "union with no result loc initiated with a runtime value" {
     var a: u32 = 1;
     U.foo(U{ .a = a });
 }
+
+test "union with a large struct field" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: [8]usize,
+    };
+
+    const U = union {
+        s: S,
+        b: u32,
+        fn foo(_: @This()) void {}
+    };
+    var s: S = undefined;
+    U.foo(U{ .s = s });
+}
