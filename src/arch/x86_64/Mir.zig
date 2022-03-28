@@ -309,6 +309,13 @@ pub const Inst = struct {
         cond_mov_lt,
         cond_mov_below,
 
+        /// ops flags:
+        ///     0b00 reg1 if OF = 1
+        ///     0b01 reg1 if OF = 0
+        ///     0b10 reg1 if CF = 1
+        ///     0b11 reg1 if CF = 0
+        cond_set_byte_overflow,
+
         /// ops flags:  form:
         ///       0b00   reg1
         ///       0b01   [reg1 + imm32]

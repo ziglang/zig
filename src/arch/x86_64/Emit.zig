@@ -165,6 +165,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .cond_set_byte_greater_less,
             .cond_set_byte_above_below,
             .cond_set_byte_eq_ne,
+            .cond_set_byte_overflow,
             => try emit.mirCondSetByte(tag, inst),
 
             .cond_mov_eq => try emit.mirCondMov(.cmove, inst),
@@ -377,6 +378,12 @@ fn mirCondSetByte(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) Inne
         .cond_set_byte_eq_ne => switch (@truncate(u1, ops.flags)) {
             0b0 => Tag.setne,
             0b1 => Tag.sete,
+        },
+        .cond_set_byte_overflow => switch (ops.flags) {
+            0b00 => Tag.seto,
+            0b01 => Tag.setno,
+            0b10 => Tag.setc,
+            0b11 => Tag.setnc,
         },
         else => unreachable,
     };
