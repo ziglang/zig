@@ -3254,6 +3254,7 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
 
 // Performs integer multiplication between dst_mcv and src_mcv, storing the result in dst_mcv.
 fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
+    const abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
     switch (dst_mcv) {
         .none => unreachable,
         .undef => unreachable,
@@ -3276,8 +3277,8 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                     _ = try self.addInst(.{
                         .tag = .imul_complex,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(dst_reg, @divExact(src_reg.size(), 8)),
-                            .reg2 = src_reg,
+                            .reg1 = registerAlias(dst_reg, abi_size),
+                            .reg2 = registerAlias(src_reg, abi_size),
                         }).encode(),
                         .data = undefined,
                     });
@@ -3305,7 +3306,7 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                     _ = try self.addInst(.{
                         .tag = .imul_complex,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(dst_reg, @intCast(u32, dst_ty.abiSize(self.target.*))),
+                            .reg1 = registerAlias(dst_reg, abi_size),
                             .reg2 = .rbp,
                             .flags = 0b01,
                         }).encode(),
@@ -3342,8 +3343,8 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                     _ = try self.addInst(.{
                         .tag = .imul_complex,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(dst_reg, @divExact(src_reg.size(), 8)),
-                            .reg2 = src_reg,
+                            .reg1 = registerAlias(dst_reg, abi_size),
+                            .reg2 = registerAlias(src_reg, abi_size),
                         }).encode(),
                         .data = undefined,
                     });
