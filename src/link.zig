@@ -1,22 +1,22 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const builtin = @import("builtin");
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
-const fs = std.fs;
-const log = std.log.scoped(.link);
 const assert = std.debug.assert;
-
-const Compilation = @import("Compilation.zig");
-const Module = @import("Module.zig");
+const fs = std.fs;
+const mem = std.mem;
+const log = std.log.scoped(.link);
 const trace = @import("tracy.zig").trace;
+const wasi_libc = @import("wasi_libc.zig");
+
+const Air = @import("Air.zig");
+const Allocator = std.mem.Allocator;
+const Cache = @import("Cache.zig");
+const Compilation = @import("Compilation.zig");
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const Liveness = @import("Liveness.zig");
+const Module = @import("Module.zig");
 const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
-const Cache = @import("Cache.zig");
-const build_options = @import("build_options");
-const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
-const wasi_libc = @import("wasi_libc.zig");
-const Air = @import("Air.zig");
-const Liveness = @import("Liveness.zig");
 const TypedValue = @import("TypedValue.zig");
 
 pub const SystemLib = struct {
@@ -243,24 +243,6 @@ pub const File = struct {
         wasm: Wasm.Export,
         spirv: void,
         nvptx: void,
-    };
-
-    /// For DWARF .debug_info.
-    pub const DbgInfoTypeRelocsTable = std.ArrayHashMapUnmanaged(
-        Type,
-        DbgInfoTypeReloc,
-        Type.HashContext32,
-        true,
-    );
-
-    /// For DWARF .debug_info.
-    pub const DbgInfoTypeReloc = struct {
-        /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
-        /// This is where the .debug_info tag for the type is.
-        off: u32,
-        /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
-        /// List of DW.AT.type / DW.FORM.ref4 that points to the type.
-        relocs: std.ArrayListUnmanaged(u32),
     };
 
     /// Attempts incremental linking, if the file already exists. If

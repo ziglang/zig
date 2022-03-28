@@ -1,26 +1,25 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
+const leb128 = std.leb;
+const link = @import("link.zig");
+const log = std.log.scoped(.codegen);
 const mem = std.mem;
 const math = std.math;
-const assert = std.debug.assert;
+const trace = @import("tracy.zig").trace;
+
 const Air = @import("Air.zig");
-const Zir = @import("Zir.zig");
-const Liveness = @import("Liveness.zig");
-const Type = @import("type.zig").Type;
-const Value = @import("value.zig").Value;
-const TypedValue = @import("TypedValue.zig");
-const link = @import("link.zig");
-const Module = @import("Module.zig");
+const Allocator = mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
+const Liveness = @import("Liveness.zig");
+const Module = @import("Module.zig");
 const Target = std.Target;
-const Allocator = mem.Allocator;
-const trace = @import("tracy.zig").trace;
-const DW = std.dwarf;
-const leb128 = std.leb;
-const log = std.log.scoped(.codegen);
-const build_options = @import("build_options");
-const RegisterManager = @import("register_manager.zig").RegisterManager;
+const Type = @import("type.zig").Type;
+const TypedValue = @import("TypedValue.zig");
+const Value = @import("value.zig").Value;
+const Zir = @import("Zir.zig");
 
 pub const FnResult = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value appended.
@@ -43,11 +42,7 @@ pub const GenerateSymbolError = error{
 };
 
 pub const DebugInfoOutput = union(enum) {
-    dwarf: struct {
-        dbg_line: *std.ArrayList(u8),
-        dbg_info: *std.ArrayList(u8),
-        dbg_info_type_relocs: *link.File.DbgInfoTypeRelocsTable,
-    },
+    dwarf: *link.File.Dwarf,
     /// the plan9 debuginfo output is a bytecode with 4 opcodes
     /// assume all numbers/variables are bytes
     /// 0 w x y z -> interpret w x y z as a big-endian i32, and add it to the line offset
@@ -573,7 +568,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Union => {
-            // TODO generate debug info for unions
             const union_obj = typed_value.val.castTag(.@"union").?.data;
             const layout = typed_value.ty.unionGetLayout(target);
 
@@ -695,7 +689,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .ErrorUnion => {
-            // TODO generate debug info for error unions
             const error_ty = typed_value.ty.errorUnionSet();
             const payload_ty = typed_value.ty.errorUnionPayload();
             const is_payload = typed_value.val.errorUnionIsPayload();
@@ -749,7 +742,6 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .ErrorSet => {
-            // TODO generate debug info for error sets
             switch (typed_value.val.tag()) {
                 .@"error" => {
                     const name = typed_value.val.getError().?;

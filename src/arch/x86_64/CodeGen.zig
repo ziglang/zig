@@ -350,6 +350,7 @@ pub fn generate(
     var emit = Emit{
         .mir = mir,
         .bin_file = bin_file,
+        .function = &function,
         .debug_output = debug_output,
         .target = &bin_file.options.target,
         .src_loc = src_loc,

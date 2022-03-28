@@ -745,21 +745,17 @@ fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
 /// after codegen for this symbol is done.
 fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
     switch (self.debug_output) {
-        .dwarf => |dbg_out| {
+        .dwarf => |dw| {
             assert(ty.hasRuntimeBits());
-            const index = dbg_out.dbg_info.items.len;
-            try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
-
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPutContext(self.gpa, ty, .{
-                .target = self.target.*,
-            });
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{
-                    .off = undefined,
-                    .relocs = .{},
-                };
-            }
-            try gop.value_ptr.relocs.append(self.gpa, @intCast(u32, index));
+            const dbg_info = dw.getDeclDebugInfoBuffer();
+            const index = dbg_info.items.len;
+            try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
+            const atom = switch (self.bin_file.tag) {
+                .elf => &self.mod_fn.owner_decl.link.elf.dbg_info_atom,
+                .macho => unreachable,
+                else => unreachable,
+            };
+            try dw.addTypeReloc(atom, ty, @intCast(u32, index), null);
         },
         .plan9 => {},
         .none => {},
@@ -1573,16 +1569,17 @@ fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32
     switch (mcv) {
         .register => |reg| {
             switch (self.debug_output) {
-                .dwarf => |dbg_out| {
-                    try dbg_out.dbg_info.ensureUnusedCapacity(3);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                .dwarf => |dw| {
+                    const dbg_info = dw.getDeclDebugInfoBuffer();
+                    try dbg_info.ensureUnusedCapacity(3);
+                    dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // ULEB128 dwarf expression length
                         reg.dwarfLocOp(),
                     });
-                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
                     try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                 },
                 .plan9 => {},
                 .none => {},

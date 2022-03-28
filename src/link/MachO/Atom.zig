@@ -72,7 +72,7 @@ stab: ?Stab = null,
 next: ?*Atom,
 prev: ?*Atom,
 
-dbg_info_atom: Dwarf.DebugInfoAtom,
+dbg_info_atom: Dwarf.Atom,
 
 dirty: bool = true,
 
