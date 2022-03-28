@@ -1231,13 +1231,7 @@ pub const Union = struct {
         for (u.fields.values()) |field, i| {
             if (!field.ty.hasRuntimeBits()) continue;
 
-            const field_align = a: {
-                if (field.abi_align == 0) {
-                    break :a field.ty.abiAlignment(target);
-                } else {
-                    break :a field.abi_align;
-                }
-            };
+            const field_align = field.normalAlignment(target);
             if (field_align > most_alignment) {
                 most_alignment = field_align;
                 most_index = i;
@@ -1253,13 +1247,7 @@ pub const Union = struct {
         for (u.fields.values()) |field| {
             if (!field.ty.hasRuntimeBits()) continue;
 
-            const field_align = a: {
-                if (field.abi_align == 0) {
-                    break :a field.ty.abiAlignment(target);
-                } else {
-                    break :a field.abi_align;
-                }
-            };
+            const field_align = field.normalAlignment(target);
             max_align = @maximum(max_align, field_align);
         }
         return max_align;

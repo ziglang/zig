@@ -1601,7 +1601,7 @@ pub const DIBuilder = opaque {
         dib: *DIBuilder,
         scope: *DIScope,
         name: [*:0]const u8,
-        file: *DIFile,
+        file: ?*DIFile,
         line_number: c_uint,
         size_in_bits: u64,
         align_in_bits: u64,
