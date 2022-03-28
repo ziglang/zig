@@ -3312,29 +3312,29 @@ fn updateZirRefs(gpa: Allocator, file: *File, old_zir: Zir) !void {
                     file.sub_file_path, decl, decl.name, old_zir_decl_index, new_zir_decl_index,
                 });
             }
-        }
 
-        if (!decl.owns_tv) continue;
+            if (!decl.owns_tv) continue;
 
-        if (decl.getStruct()) |struct_obj| {
-            struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
-                try file.deleted_decls.append(gpa, decl);
-                continue;
-            };
-        }
+            if (decl.getStruct()) |struct_obj| {
+                struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
+                    try file.deleted_decls.append(gpa, decl);
+                    continue;
+                };
+            }
 
-        if (decl.getUnion()) |union_obj| {
-            union_obj.zir_index = inst_map.get(union_obj.zir_index) orelse {
-                try file.deleted_decls.append(gpa, decl);
-                continue;
-            };
-        }
+            if (decl.getUnion()) |union_obj| {
+                union_obj.zir_index = inst_map.get(union_obj.zir_index) orelse {
+                    try file.deleted_decls.append(gpa, decl);
+                    continue;
+                };
+            }
 
-        if (decl.getFunction()) |func| {
-            func.zir_body_inst = inst_map.get(func.zir_body_inst) orelse {
-                try file.deleted_decls.append(gpa, decl);
-                continue;
-            };
+            if (decl.getFunction()) |func| {
+                func.zir_body_inst = inst_map.get(func.zir_body_inst) orelse {
+                    try file.deleted_decls.append(gpa, decl);
+                    continue;
+                };
+            }
         }
 
         if (decl.getInnerNamespace()) |namespace| {
