@@ -354,6 +354,7 @@ const DocData = struct {
     const Decl = struct {
         name: []const u8,
         kind: []const u8,
+        isTest: bool,
         src: usize, // index into astNodes
         // typeRef: TypeRef,
         value: WalkResult,
@@ -621,7 +622,6 @@ const DocData = struct {
                 .@"undefined" => |v| try std.json.stringify(v, options, w),
                 .@"null" => |v| try std.json.stringify(v, options, w),
                 .typeOf, .sizeOf => |v| try std.json.stringify(v, options, w),
-                .compileError => |v| try std.json.stringify(v, options, w),
                 .fieldRef => |v| try std.json.stringify(
                     struct { fieldRef: FieldRef }{ .fieldRef = v },
                     options,
@@ -642,6 +642,11 @@ const DocData = struct {
                 },
                 .array => |v| try std.json.stringify(
                     struct { @"array": Array }{ .@"array" = v },
+                    options,
+                    w,
+                ),
+                .compileError => |v| try std.json.stringify(
+                    struct { compileError: []const u8 }{ .compileError = v },
                     options,
                     w,
                 ),
@@ -1678,7 +1683,7 @@ fn walkDecls(
         extra_index += 1;
         const decl_name_index = file.zir.extra[extra_index];
         extra_index += 1;
-        const decl_index = file.zir.extra[extra_index];
+        const value_index = file.zir.extra[extra_index];
         extra_index += 1;
         const doc_comment_index = file.zir.extra[extra_index];
         extra_index += 1;
@@ -1722,7 +1727,7 @@ fn walkDecls(
                     const idx = self.ast_nodes.items.len;
                     const file_source = file.getSource(self.module.gpa) catch unreachable; // TODO fix this
                     const source_of_decltest_function = srcloc: {
-                        const func_index = getBlockInlineBreak(file.zir, decl_index);
+                        const func_index = getBlockInlineBreak(file.zir, value_index);
                         // a decltest is always a function
                         const tag = file.zir.instructions.items(.tag)[Zir.refToIndex(func_index).?];
                         std.debug.assert(tag == .extended);
@@ -1785,6 +1790,7 @@ fn walkDecls(
                 self.decls.items[decls_slot_index] = .{
                     ._analyzed = true,
                     .name = "test",
+                    .isTest = true,
                     .src = ast_node_index,
                     .value = .{ .type = 0 },
                     .kind = "const",
@@ -1822,7 +1828,7 @@ fn walkDecls(
         const walk_result = if (is_test) // TODO: decide if tests should show up at all
             DocData.WalkResult{ .void = {} }
         else
-            try self.walkInstruction(file, scope, decl_index);
+            try self.walkInstruction(file, scope, value_index);
 
         if (is_pub) {
             try decl_indexes.append(self.arena, decls_slot_index);
@@ -1848,6 +1854,7 @@ fn walkDecls(
         self.decls.items[decls_slot_index] = .{
             ._analyzed = true,
             .name = name,
+            .isTest = is_test,
             .src = ast_node_index,
             // .typeRef = decl_type_ref,
             .value = walk_result,
@@ -1859,7 +1866,7 @@ fn walkDecls(
             for (paths.items) |resume_info| {
                 try self.tryResolveRefPath(
                     resume_info.file,
-                    decl_index,
+                    value_index,
                     resume_info.ref_path,
                 );
             }
@@ -2283,7 +2290,7 @@ fn analyzeFunction(
             .ret = ret_type_ref,
         },
     };
-    return DocData.WalkResult{ .type = self.types.items.len - 1 };
+    return DocData.WalkResult{ .type = type_slot_index };
 }
 
 fn collectUnionFieldInfo(
@@ -2553,10 +2560,12 @@ fn typeOfWalkResult(self: *Autodoc, wr: DocData.WalkResult) !DocData.WalkResult 
 }
 
 fn getBlockInlineBreak(zir: Zir, inst_index: usize) Zir.Inst.Ref {
+    const tags = zir.instructions.items(.tag);
     const data = zir.instructions.items(.data);
     const pl_node = data[inst_index].pl_node;
     const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
     const break_index = zir.extra[extra.end..][extra.data.body_len - 1];
+    std.debug.assert(tags[break_index] == .break_inline);
     return data[break_index].@"break".operand;
 }
 
