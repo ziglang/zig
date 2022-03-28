@@ -18222,8 +18222,10 @@ fn coerceInMemoryAllowed(
     // Pointers / Pointer-like Optionals
     var dest_buf: Type.Payload.ElemType = undefined;
     var src_buf: Type.Payload.ElemType = undefined;
-    if (try sema.typePtrOrOptionalPtrTy(block, dest_ty, &dest_buf, dest_src)) |dest_ptr_ty| {
-        if (try sema.typePtrOrOptionalPtrTy(block, src_ty, &src_buf, src_src)) |src_ptr_ty| {
+    const maybe_dest_ptr_ty = try sema.typePtrOrOptionalPtrTy(block, dest_ty, &dest_buf, dest_src);
+    const maybe_src_ptr_ty = try sema.typePtrOrOptionalPtrTy(block, src_ty, &src_buf, src_src);
+    if (maybe_dest_ptr_ty) |dest_ptr_ty| {
+        if (maybe_src_ptr_ty) |src_ptr_ty| {
             return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_mut, target, dest_src, src_src);
         }
     }
@@ -18288,7 +18290,23 @@ fn coerceInMemoryAllowed(
         return .ok;
     }
 
-    // TODO: non-pointer-like optionals
+    // Optionals
+    if (dest_tag == .Optional and src_tag == .Optional) optionals: {
+        if ((maybe_dest_ptr_ty != null) != (maybe_src_ptr_ty != null)) {
+            // TODO "optional type child '{}' cannot cast into optional type '{}'"
+            return .no_match;
+        }
+        const dest_child_type = dest_ty.optionalChild(&dest_buf);
+        const src_child_type = src_ty.optionalChild(&src_buf);
+
+        const child = try sema.coerceInMemoryAllowed(block, dest_child_type, src_child_type, dest_is_mut, target, dest_src, src_src);
+        if (child == .no_match) {
+            // TODO "optional type child '{}' cannot cast into optional type child '{}'"
+            break :optionals;
+        }
+
+        return .ok;
+    }
 
     return .no_match;
 }

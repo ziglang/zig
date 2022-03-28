@@ -1363,3 +1363,12 @@ test "cast i8 fn call peers to i32 result" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "cast compatible optional types" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var a: ?[:0]const u8 = null;
+    var b: ?[]const u8 = a;
+    try expect(b == null);
+}
