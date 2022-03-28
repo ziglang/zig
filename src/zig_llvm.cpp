@@ -980,10 +980,8 @@ void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_v
 
 void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val) {
     Function *func = unwrap<Function>(fn_ref);
-    AttrBuilder attr_builder(func->getContext());
     Type *llvm_type = unwrap<Type>(type_val);
-    attr_builder.addStructRetAttr(llvm_type);
-    func->addParamAttrs(ArgNo + 1, attr_builder);
+    func->addParamAttr(ArgNo, Attribute::getWithStructRetType(func->getContext(), llvm_type));
 }
 
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
@@ -1088,7 +1086,7 @@ void ZigLLVMSetTailCall(LLVMValueRef Call) {
 void ZigLLVMSetCallSret(LLVMValueRef Call, LLVMTypeRef return_type) {
     CallInst *call_inst = unwrap<CallInst>(Call);
     Type *llvm_type = unwrap<Type>(return_type);
-    call_inst->addParamAttr(1, Attribute::getWithStructRetType(call_inst->getContext(), llvm_type));
+    call_inst->addParamAttr(0, Attribute::getWithStructRetType(call_inst->getContext(), llvm_type));
 }
 
 void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
