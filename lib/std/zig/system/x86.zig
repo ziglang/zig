@@ -30,6 +30,8 @@ pub fn detectNativeCpuAndFeatures(arch: Target.Cpu.Arch, os: Target.Os, cross_ta
         .features = Target.Cpu.Feature.Set.empty,
     };
 
+    if (@import("builtin").zig_backend != .stage1) return cpu; // TODO
+
     // First we detect features, to use as hints when detecting CPU Model.
     detectNativeFeatures(&cpu, os.tag);
 

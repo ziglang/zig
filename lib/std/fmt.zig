@@ -1885,7 +1885,9 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 /// Count the characters needed for format. Useful for preallocating memory
 pub fn count(comptime fmt: []const u8, args: anytype) u64 {
     var counting_writer = std.io.countingWriter(std.io.null_writer);
-    format(counting_writer.writer(), fmt, args) catch |err| switch (err) {};
+    // TODO https://github.com/ziglang/zig/issues/11306
+    // format(counting_writer.writer(), fmt, args) catch |err| switch (err) {};
+    format(counting_writer.writer(), fmt, args) catch unreachable;
     return counting_writer.bytes_written;
 }
 
