@@ -879,3 +879,27 @@ test "saturating shift-left" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "multiplication-assignment operator with an array operand" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 emits a compile error
+        return error.SkipZigTest;
+    }
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var x: @Vector(3, i32) = .{ 1, 2, 3 };
+            x *= [_]i32{ 4, 5, 6 };
+            try expect(x[0] == 4);
+            try expect(x[1] == 10);
+            try expect(x[2] == 18);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
