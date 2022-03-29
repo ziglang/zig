@@ -2015,6 +2015,7 @@ fn labeledBlockExpr(
     }
 
     const zir_datas = gz.astgen.instructions.items(.data);
+    const zir_tags = gz.astgen.instructions.items(.tag);
     const strat = rl.strategy(&block_scope);
     switch (strat.tag) {
         .break_void => {
@@ -2029,6 +2030,31 @@ fn labeledBlockExpr(
         },
         .break_operand => {
             // All break operands are values that did not use the result location pointer.
+            // The break instructions need to have their operands coerced if the
+            // block's result location is a `ty`. In this case we overwrite the
+            // `store_to_block_ptr` instruction with an `as` instruction and repurpose
+            // it as the break operand.
+            // This corresponds to similar code in `setCondBrPayloadElideBlockStorePtr`.
+            if (block_scope.rl_ty_inst != .none) {
+                for (block_scope.labeled_breaks.items) |br| {
+                    // We expect the `store_to_block_ptr` to be created between 1-3 instructions
+                    // prior to the break.
+                    var search_index = br -| 3;
+                    while (search_index < br) : (search_index += 1) {
+                        if (zir_tags[search_index] == .store_to_block_ptr and
+                            zir_datas[search_index].bin.lhs == block_scope.rl_ptr)
+                        {
+                            zir_tags[search_index] = .as;
+                            zir_datas[search_index].bin = .{
+                                .lhs = block_scope.rl_ty_inst,
+                                .rhs = zir_datas[br].@"break".operand,
+                            };
+                            zir_datas[br].@"break".operand = indexToRef(search_index);
+                            break;
+                        }
+                    } else unreachable;
+                }
+            }
             try block_scope.setBlockBody(block_inst);
             const block_ref = indexToRef(block_inst);
             switch (rl) {
@@ -5366,6 +5392,7 @@ fn setCondBrPayloadElideBlockStorePtr(
     // switch's result location is a `ty`. In this case we overwrite the
     // `store_to_block_ptr` instruction with an `as` instruction and repurpose
     // it as the break operand.
+    // This corresponds to similar code in `labeledBlockExpr`.
     for (then_body) |src_inst| {
         if (zir_tags[src_inst] == .store_to_block_ptr and
             zir_datas[src_inst].bin.lhs == block_ptr)

@@ -875,3 +875,15 @@ test "catch in block has correct result location" {
     };
     try expect(config_h_text == 1);
 }
+
+test "labeled block with runtime branch forwards its result location type to break statements" {
+    const E = enum { a, b };
+    var a = false;
+    const e: E = blk: {
+        if (a) {
+            break :blk .a;
+        }
+        break :blk .b;
+    };
+    try expect(e == .b);
+}
