@@ -227,6 +227,7 @@ pub const Inst = struct {
         ///      0b11  qword ptr [reg2 + imm32]
         imul,
         idiv,
+        mul,
         div,
 
         /// ops flags: form:
