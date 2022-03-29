@@ -1254,7 +1254,7 @@ fn genPtrBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_r
     offset_mcv.freezeIfRegister(&self.register_manager);
     defer offset_mcv.unfreezeIfRegister(&self.register_manager);
 
-    try self.genIMulOpMir(offset_ty, offset_mcv, .{ .immediate = elem_size });
+    try self.genIntMulComplexOpMir(offset_ty, offset_mcv, .{ .immediate = elem_size });
 
     const tag = self.air.instructions.items(.tag)[inst];
     switch (tag) {
@@ -1396,10 +1396,27 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airMul(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ty = self.air.typeOfIndex(inst);
+
+        if (ty.zigTypeTag() != .Int) {
+            return self.fail("TODO implement 'mul' for operands of dst type {}", .{ty.zigTypeTag()});
+        }
+
+        // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
+        try self.register_manager.getReg(.rax, null);
+        try self.register_manager.getReg(.rdx, null);
+
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+
+        const signedness = ty.intInfo(self.target.*).signedness;
+        try self.genIntMulDivOpMir(switch (signedness) {
+            .signed => .imul,
+            .unsigned => .mul,
+        }, ty, signedness, lhs, rhs);
+        break :result MCValue{ .register = .rax };
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1474,23 +1491,31 @@ fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const result = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ty = self.air.typeOf(bin_op.lhs);
+        const signedness: std.builtin.Signedness = blk: {
+            if (ty.zigTypeTag() != .Int) {
+                return self.fail("TODO implement airMulWithOverflow for type {}", .{ty.fmtDebug()});
+            }
+            break :blk ty.intInfo(self.target.*).signedness;
+        };
 
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    }
+        // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
+        try self.register_manager.getReg(.rax, null);
+        try self.register_manager.getReg(.rdx, null);
 
-    const ty = self.air.typeOf(bin_op.lhs);
-    const signedness: std.builtin.Signedness = blk: {
-        if (ty.zigTypeTag() != .Int) {
-            return self.fail("TODO implement airMulWithOverflow for type {}", .{ty.fmtDebug()});
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+
+        try self.genIntMulDivOpMir(switch (signedness) {
+            .signed => .imul,
+            .unsigned => .mul,
+        }, ty, signedness, lhs, rhs);
+
+        switch (signedness) {
+            .signed => break :result MCValue{ .register_overflow_signed = .rax },
+            .unsigned => break :result MCValue{ .register_overflow_unsigned = .rax },
         }
-        break :blk ty.intInfo(self.target.*).signedness;
-    };
-
-    const partial = try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
-    const result: MCValue = switch (signedness) {
-        .signed => .{ .register_overflow_signed = partial.register },
-        .unsigned => .{ .register_overflow_unsigned = partial.register },
     };
 
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -1730,7 +1755,7 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
             },
             .signed => {
                 const div_floor = try self.genInlineIntDivFloor(ty, lhs, rhs);
-                try self.genIMulOpMir(ty, div_floor, rhs);
+                try self.genIntMulComplexOpMir(ty, div_floor, rhs);
 
                 const reg = try self.copyToTmpRegister(ty, lhs);
                 try self.genBinMathOpMir(.sub, ty, .{ .register = reg }, div_floor);
@@ -2132,7 +2157,7 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn elemOffset(self: *Self, index_ty: Type, index: MCValue, elem_size: u64) !Register {
     const reg = try self.copyToTmpRegister(index_ty, index);
-    try self.genIMulOpMir(index_ty, .{ .register = reg }, .{ .immediate = elem_size });
+    try self.genIntMulComplexOpMir(index_ty, .{ .register = reg }, .{ .immediate = elem_size });
     return reg;
 }
 
@@ -3096,7 +3121,6 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
         .bool_or, .bit_or => try self.genBinMathOpMir(.@"or", dst_ty, dst_mcv, src_mcv),
         .bool_and, .bit_and => try self.genBinMathOpMir(.@"and", dst_ty, dst_mcv, src_mcv),
         .xor, .not => try self.genBinMathOpMir(.xor, dst_ty, dst_mcv, src_mcv),
-        .mul, .mulwrap, .mul_with_overflow => try self.genIMulOpMir(dst_ty, dst_mcv, src_mcv),
         else => unreachable,
     }
     return dst_mcv;
@@ -3252,8 +3276,10 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
     }
 }
 
-// Performs integer multiplication between dst_mcv and src_mcv, storing the result in dst_mcv.
-fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
+/// Performs multi-operand integer multiplication between dst_mcv and src_mcv, storing the result in dst_mcv.
+/// Does not use/spill .rax/.rdx.
+/// Does not support byte-size operands.
+fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
     const abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
     switch (dst_mcv) {
         .none => unreachable,
@@ -3299,7 +3325,7 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                     } else {
                         // TODO verify we don't spill and assign to the same register as dst_mcv
                         const src_reg = try self.copyToTmpRegister(dst_ty, src_mcv);
-                        return self.genIMulOpMir(dst_ty, dst_mcv, MCValue{ .register = src_reg });
+                        return self.genIntMulComplexOpMir(dst_ty, dst_mcv, MCValue{ .register = src_reg });
                     }
                 },
                 .stack_offset => |off| {
