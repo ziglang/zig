@@ -1361,13 +1361,46 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.air.typeOf(extra.lhs);
         const rhs_ty = self.air.typeOf(extra.rhs);
 
+        const tuple_ty = self.air.typeOfIndex(inst);
+        const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
+        const tuple_align = tuple_ty.abiAlignment(self.target.*);
+        const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, self.target.*));
+
         switch (lhs_ty.zigTypeTag()) {
             .Vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
             .Int => {
                 assert(lhs_ty.eql(rhs_ty, self.target.*));
                 const int_info = lhs_ty.intInfo(self.target.*);
                 if (int_info.bits < 32) {
-                    return self.fail("TODO ARM overflow operations on integers < u32/i32", .{});
+                    const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
+
+                    try self.spillCompareFlagsIfOccupied();
+                    self.compare_flags_inst = null;
+
+                    const base_tag: Air.Inst.Tag = switch (tag) {
+                        .add_with_overflow => .add,
+                        .sub_with_overflow => .sub,
+                        else => unreachable,
+                    };
+                    const dest = try self.binOp(base_tag, null, lhs, rhs, lhs_ty, rhs_ty);
+                    const dest_reg = dest.register;
+                    self.register_manager.freezeRegs(&.{dest_reg});
+                    defer self.register_manager.unfreezeRegs(&.{dest_reg});
+
+                    const truncated_reg = try self.register_manager.allocReg(null);
+                    self.register_manager.freezeRegs(&.{truncated_reg});
+                    defer self.register_manager.unfreezeRegs(&.{truncated_reg});
+
+                    // sbfx/ubfx truncated, dest, #0, #bits
+                    try self.truncRegister(dest_reg, truncated_reg, int_info.signedness, int_info.bits);
+
+                    // cmp dest, truncated
+                    _ = try self.binOp(.cmp_eq, null, dest, .{ .register = truncated_reg }, Type.usize, Type.usize);
+
+                    try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
+                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags_unsigned = .neq });
+
+                    break :result MCValue{ .stack_offset = stack_offset };
                 } else if (int_info.bits == 32) {
                     // Only say yes if the operation is
                     // commutative, i.e. we can swap both of the
