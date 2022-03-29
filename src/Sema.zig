@@ -11594,6 +11594,7 @@ fn typeInfoDecls(
         var buffer: Value.ToTypeBuffer = undefined;
         break :t try declaration_ty_decl.val.toType(&buffer).copy(decls_anon_decl.arena());
     };
+    try sema.queueFullTypeResolution(try declaration_ty.copy(sema.arena));
 
     const decls_len = if (opt_namespace) |ns| ns.decls.count() else 0;
     const decls_vals = try decls_anon_decl.arena().alloc(Value, decls_len);
@@ -22047,7 +22048,9 @@ fn getBuiltinType(
     name: []const u8,
 ) CompileError!Type {
     const ty_inst = try sema.getBuiltin(block, src, name);
-    return sema.analyzeAsType(block, src, ty_inst);
+    const result_ty = try sema.analyzeAsType(block, src, ty_inst);
+    try sema.queueFullTypeResolution(result_ty);
+    return result_ty;
 }
 
 /// There is another implementation of this in `Type.onePossibleValue`. This one
