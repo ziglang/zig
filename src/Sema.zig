@@ -18140,11 +18140,6 @@ fn coerce(
                 return sema.addConstUndef(dest_ty);
             },
             else => {
-                // undefined sets the error code also to undefined.
-                if (is_undef) {
-                    return sema.addConstUndef(dest_ty);
-                }
-
                 // T to E!T
                 return sema.wrapErrorUnionPayload(block, dest_ty, inst, inst_src);
             },

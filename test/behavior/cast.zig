@@ -1372,3 +1372,13 @@ test "cast compatible optional types" {
     var b: ?[]const u8 = a;
     try expect(b == null);
 }
+
+test "coerce undefined single-item pointer of array to error union of slice" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const a = @as([*]u8, undefined)[0..0];
+    var b: error{a}![]const u8 = a;
+    const s = try b;
+    try expect(s.len == 0);
+}
