@@ -698,7 +698,9 @@ pub const TestContext = struct {
                         .output_mode = output_mode,
                         .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
                     }) catch @panic("out of memory");
-                    break :case &ctx.cases.items[ctx.cases.items.len - 1];
+                    const case = &ctx.cases.items[ctx.cases.items.len - 1];
+                    opt_case = case;
+                    break :case case;
                 };
                 if (one_test_case_per_file) {
                     case.name = case_name;
