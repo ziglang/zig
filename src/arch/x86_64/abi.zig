@@ -370,8 +370,13 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
     }
 }
 
-/// These registers need to be preserved (saved on the stack) and restored by the callee before getting clobbered
-/// and when the callee returns.
-pub const callee_preserved_regs = [_]Register{ .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+/// Note that .rsp and .rbp also belong to this set, however, we never expect to use them
+/// for anything else but stack offset tracking therefore we exclude them from this set.
+pub const callee_preserved_regs = [_]Register{ .rbx, .r12, .r13, .r14, .r15 };
+/// These registers need to be preserved (saved on the stack) and restored by the caller before
+/// the caller relinquishes control to a subroutine via call instruction (or similar).
+/// In other words, these registers are free to use by the callee.
+pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+pub const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs;
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };

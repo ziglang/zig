@@ -31,6 +31,8 @@ const bits = @import("bits.zig");
 const abi = @import("abi.zig");
 const Register = bits.Register;
 const callee_preserved_regs = abi.callee_preserved_regs;
+const caller_preserved_regs = abi.caller_preserved_regs;
+const allocatable_registers = abi.allocatable_registers;
 const c_abi_int_param_regs = abi.c_abi_int_param_regs;
 const c_abi_int_return_regs = abi.c_abi_int_return_regs;
 
@@ -40,7 +42,7 @@ const InnerError = error{
     OutOfRegisters,
 };
 
-const RegisterManager = RegisterManagerFn(Self, Register, &callee_preserved_regs);
+const RegisterManager = RegisterManagerFn(Self, Register, &allocatable_registers);
 
 gpa: Allocator,
 air: Air,
@@ -3519,6 +3521,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
     try self.spillCompareFlagsIfOccupied();
 
+    for (caller_preserved_regs) |reg| {
+        try self.register_manager.getReg(reg, null);
+    }
+
     if (info.return_value == .stack_offset) {
         const ret_ty = fn_ty.fnReturnType();
         const ret_abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
@@ -3715,7 +3721,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     const result: MCValue = result: {
         switch (info.return_value) {
             .register => |reg| {
-                if (RegisterManager.indexOfReg(&callee_preserved_regs, reg) == null) {
+                if (RegisterManager.indexOfRegIntoTracked(reg) == null) {
                     // Save function return value in a callee saved register
                     break :result try self.copyToRegisterWithInstTracking(
                         inst,
