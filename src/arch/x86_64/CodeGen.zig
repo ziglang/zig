@@ -58,7 +58,6 @@ arg_index: u32,
 src_loc: Module.SrcLoc,
 stack_align: u32,
 
-ret_backpatches: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
 compare_flags_inst: ?Air.Inst.Index = null,
 
 /// MIR Instructions
@@ -353,7 +352,6 @@ pub fn generate(
             std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index).init(bin_file.allocator)
         else {},
     };
-    defer function.ret_backpatches.deinit(bin_file.allocator);
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
     defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
@@ -482,6 +480,21 @@ fn gen(self: *Self) InnerError!void {
             .data = undefined,
         });
 
+        if (self.ret_mcv == .stack_offset) {
+            // The address where to store the return value for the caller is in `.rdi`
+            // register which the callee is free to clobber. Therefore, we purposely
+            // spill it to stack immediately.
+            const ptr_ty = Type.usize;
+            const abi_size = @intCast(u32, ptr_ty.abiSize(self.target.*));
+            const abi_align = ptr_ty.abiAlignment(self.target.*);
+            const stack_offset = mem.alignForwardGeneric(u32, self.next_stack_offset + abi_size, abi_align);
+            self.next_stack_offset = stack_offset;
+            self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
+            try self.genSetStack(ptr_ty, @intCast(i32, stack_offset), MCValue{ .register = .rdi }, .{});
+            self.ret_mcv = MCValue{ .stack_offset = @intCast(i32, stack_offset) };
+            log.debug("gen: spilling .rdi to stack at offset {}", .{stack_offset});
+        }
+
         _ = try self.addInst(.{
             .tag = .dbg_prologue_end,
             .ops = undefined,
@@ -519,23 +532,6 @@ fn gen(self: *Self) InnerError!void {
             var disp = data.disp + 8;
             inline for (callee_preserved_regs) |reg, i| {
                 if (self.register_manager.isRegAllocated(reg)) {
-                    if (reg.to64() == .rdi) {
-                        for (self.ret_backpatches.items) |inst| {
-                            log.debug(".rdi was spilled, backpatching with mov from stack at offset {}", .{
-                                -@intCast(i32, disp),
-                            });
-                            const ops = Mir.Ops.decode(self.mir_instructions.items(.ops)[inst]);
-                            self.mir_instructions.set(inst, Mir.Inst{
-                                .tag = .mov,
-                                .ops = (Mir.Ops{
-                                    .reg1 = ops.reg1,
-                                    .reg2 = .rbp,
-                                    .flags = 0b01,
-                                }).encode(),
-                                .data = .{ .imm = @bitCast(u32, -@intCast(i32, disp)) },
-                            });
-                        }
-                    }
                     data.regs |= 1 << @intCast(u5, i);
                     self.max_end_stack += 8;
                     disp += 8;
@@ -912,8 +908,7 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
     // TODO find a free slot instead of always appending
     const offset = mem.alignForwardGeneric(u32, self.next_stack_offset + abi_size, abi_align);
     self.next_stack_offset = offset;
-    if (self.next_stack_offset > self.max_end_stack)
-        self.max_end_stack = self.next_stack_offset;
+    self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
     try self.stack.putNoClobber(self.gpa, offset, .{
         .inst = inst,
         .size = abi_size,
@@ -3316,7 +3311,6 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
 }
 
 /// Performs multi-operand integer multiplication between dst_mcv and src_mcv, storing the result in dst_mcv.
-/// Does not use/spill .rax/.rdx.
 /// Does not support byte-size operands.
 fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
     const abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
@@ -3530,10 +3524,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         const ret_abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
         const ret_abi_align = @intCast(u32, ret_ty.abiAlignment(self.target.*));
         const stack_offset = @intCast(i32, try self.allocMem(inst, ret_abi_size, ret_abi_align));
+        log.debug("airCall: return value on stack at offset {}", .{stack_offset});
 
         try self.register_manager.getReg(.rdi, null);
-        self.register_manager.freezeRegs(&.{.rdi});
         try self.genSetReg(Type.usize, .rdi, .{ .ptr_stack_offset = stack_offset });
+        self.register_manager.freezeRegs(&.{.rdi});
 
         info.return_value.stack_offset = stack_offset;
     }
@@ -3720,15 +3715,13 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
     const result: MCValue = result: {
         switch (info.return_value) {
-            .register => |reg| {
-                if (RegisterManager.indexOfRegIntoTracked(reg) == null) {
-                    // Save function return value in a callee saved register
-                    break :result try self.copyToRegisterWithInstTracking(
-                        inst,
-                        self.air.typeOfIndex(inst),
-                        info.return_value,
-                    );
-                }
+            .register => {
+                // Save function return value in a new register
+                break :result try self.copyToRegisterWithInstTracking(
+                    inst,
+                    self.air.typeOfIndex(inst),
+                    info.return_value,
+                );
             },
             else => {},
         }
@@ -3755,19 +3748,11 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
     const ret_ty = self.fn_type.fnReturnType();
     switch (self.ret_mcv) {
         .stack_offset => {
-            // TODO audit register allocation!
-            self.register_manager.freezeRegs(&.{ .rax, .rcx, .rdi });
-            defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx, .rdi });
-            const reg = try self.register_manager.allocReg(null);
-            const backpatch = try self.addInst(.{
-                .tag = .mov,
-                .ops = (Mir.Ops{
-                    .reg1 = reg,
-                    .reg2 = .rdi,
-                }).encode(),
-                .data = undefined,
-            });
-            try self.ret_backpatches.append(self.gpa, backpatch);
+            self.register_manager.freezeRegs(&.{ .rax, .rcx });
+            defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx });
+            const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
+            self.register_manager.freezeRegs(&.{reg});
+            defer self.register_manager.unfreezeRegs(&.{reg});
             try self.genSetStack(ret_ty, 0, operand, .{
                 .source_stack_base = .rbp,
                 .dest_stack_base = reg,
@@ -3798,19 +3783,11 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const elem_ty = ptr_ty.elemType();
     switch (self.ret_mcv) {
         .stack_offset => {
-            // TODO audit register allocation!
-            self.register_manager.freezeRegs(&.{ .rax, .rcx, .rdi });
-            defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx, .rdi });
-            const reg = try self.register_manager.allocReg(null);
-            const backpatch = try self.addInst(.{
-                .tag = .mov,
-                .ops = (Mir.Ops{
-                    .reg1 = reg,
-                    .reg2 = .rdi,
-                }).encode(),
-                .data = undefined,
-            });
-            try self.ret_backpatches.append(self.gpa, backpatch);
+            self.register_manager.freezeRegs(&.{ .rax, .rcx });
+            defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx });
+            const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
+            self.register_manager.freezeRegs(&.{reg});
+            defer self.register_manager.unfreezeRegs(&.{reg});
             try self.genInlineMemcpy(.{ .stack_offset = 0 }, ptr, .{ .immediate = elem_ty.abiSize(self.target.*) }, .{
                 .source_stack_base = .rbp,
                 .dest_stack_base = reg,
@@ -5092,6 +5069,7 @@ const InlineMemcpyOpts = struct {
     dest_stack_base: ?Register = null,
 };
 
+/// Spills .rax and .rcx.
 fn genInlineMemcpy(
     self: *Self,
     dst_ptr: MCValue,
@@ -5099,13 +5077,7 @@ fn genInlineMemcpy(
     len: MCValue,
     opts: InlineMemcpyOpts,
 ) InnerError!void {
-    // TODO this is wrong. We should check first if any of the operands is in `.rax` or `.rcx` before
-    // spilling. Consolidate with other TODOs regarding register allocation mechanics.
-    try self.register_manager.getReg(.rax, null);
-    try self.register_manager.getReg(.rcx, null);
-
     self.register_manager.freezeRegs(&.{ .rax, .rcx });
-    defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx });
 
     if (opts.source_stack_base) |reg| self.register_manager.freezeRegs(&.{reg});
     defer if (opts.source_stack_base) |reg| self.register_manager.unfreezeRegs(&.{reg});
@@ -5145,7 +5117,6 @@ fn genInlineMemcpy(
             return self.fail("TODO implement memcpy for setting stack when dest is {}", .{dst_ptr});
         },
     }
-
     self.register_manager.freezeRegs(&.{dst_addr_reg});
     defer self.register_manager.unfreezeRegs(&.{dst_addr_reg});
 
@@ -5181,13 +5152,17 @@ fn genInlineMemcpy(
             return self.fail("TODO implement memcpy for setting stack when src is {}", .{src_ptr});
         },
     }
-
     self.register_manager.freezeRegs(&.{src_addr_reg});
     defer self.register_manager.unfreezeRegs(&.{src_addr_reg});
 
     const regs = try self.register_manager.allocRegs(2, .{ null, null });
     const count_reg = regs[0].to64();
     const tmp_reg = regs[1].to8();
+
+    self.register_manager.unfreezeRegs(&.{ .rax, .rcx });
+
+    try self.register_manager.getReg(.rax, null);
+    try self.register_manager.getReg(.rcx, null);
 
     try self.genSetReg(Type.usize, count_reg, len);
 
@@ -5284,6 +5259,7 @@ fn genInlineMemcpy(
     try self.performReloc(loop_reloc);
 }
 
+/// Spills .rax register.
 fn genInlineMemset(
     self: *Self,
     dst_ptr: MCValue,
@@ -5291,9 +5267,7 @@ fn genInlineMemset(
     len: MCValue,
     opts: InlineMemcpyOpts,
 ) InnerError!void {
-    try self.register_manager.getReg(.rax, null);
     self.register_manager.freezeRegs(&.{.rax});
-    defer self.register_manager.unfreezeRegs(&.{.rax});
 
     const addr_reg = try self.register_manager.allocReg(null);
     switch (dst_ptr) {
@@ -5329,6 +5303,9 @@ fn genInlineMemset(
     }
     self.register_manager.freezeRegs(&.{addr_reg});
     defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+    self.register_manager.unfreezeRegs(&.{.rax});
+    try self.register_manager.getReg(.rax, null);
 
     try self.genSetReg(Type.usize, .rax, len);
     try self.genBinMathOpMir(.sub, Type.usize, .{ .register = .rax }, .{ .immediate = 1 });
