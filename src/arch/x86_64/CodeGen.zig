@@ -1404,8 +1404,10 @@ fn airMul(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-        try self.register_manager.getReg(.rax, null);
+        try self.register_manager.getReg(.rax, inst);
         try self.register_manager.getReg(.rdx, null);
+        self.register_manager.freezeRegs(&.{ .rax, .rdx });
+        defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
 
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
@@ -1501,8 +1503,10 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         };
 
         // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-        try self.register_manager.getReg(.rax, null);
+        try self.register_manager.getReg(.rax, inst);
         try self.register_manager.getReg(.rdx, null);
+        self.register_manager.freezeRegs(&.{ .rax, .rdx });
+        defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
 
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
@@ -1527,7 +1531,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 /// Generates signed or unsigned integer multiplication/division.
-/// Requires use of .rax and .rdx registers. Spills them if necessary.
+/// Clobbers .rax and .rdx registers.
 /// Quotient is saved in .rax and remainder in .rdx.
 fn genIntMulDivOpMir(
     self: *Self,
@@ -1541,11 +1545,6 @@ fn genIntMulDivOpMir(
     if (abi_size > 8) {
         return self.fail("TODO implement genIntMulDivOpMir for ABI size larger than 8", .{});
     }
-
-    try self.register_manager.getReg(.rax, null);
-    try self.register_manager.getReg(.rdx, null);
-    self.register_manager.freezeRegs(&.{ .rax, .rdx });
-    defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
 
     try self.genSetReg(ty, .rax, lhs);
 
@@ -1610,6 +1609,7 @@ fn genIntMulDivOpMir(
     }
 }
 
+/// Clobbers .rax and .rdx registers.
 fn genInlineIntDivFloor(self: *Self, ty: Type, lhs: MCValue, rhs: MCValue) !MCValue {
     const signedness = ty.intInfo(self.target.*).signedness;
     const dividend = switch (lhs) {
@@ -1680,14 +1680,42 @@ fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
             return self.fail("TODO implement {}", .{tag});
         }
 
+        const signedness = ty.intInfo(self.target.*).signedness;
+
         // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-        try self.register_manager.getReg(.rax, null);
+        const track_rax: ?Air.Inst.Index = blk: {
+            if (signedness == .unsigned) break :blk inst;
+            switch (tag) {
+                .div_exact, .div_trunc => break :blk inst,
+                else => break :blk null,
+            }
+        };
+        try self.register_manager.getReg(.rax, track_rax);
         try self.register_manager.getReg(.rdx, null);
+        self.register_manager.freezeRegs(&.{ .rax, .rdx });
+        defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
 
         const lhs = try self.resolveInst(bin_op.lhs);
-        const rhs = try self.resolveInst(bin_op.rhs);
+        lhs.freezeIfRegister(&self.register_manager);
+        defer lhs.unfreezeIfRegister(&self.register_manager);
 
-        const signedness = ty.intInfo(self.target.*).signedness;
+        const rhs = blk: {
+            const rhs = try self.resolveInst(bin_op.rhs);
+            if (signedness == .signed) {
+                switch (tag) {
+                    .div_floor => {
+                        rhs.freezeIfRegister(&self.register_manager);
+                        defer rhs.unfreezeIfRegister(&self.register_manager);
+                        break :blk try self.copyToRegisterWithInstTracking(inst, ty, rhs);
+                    },
+                    else => {},
+                }
+            }
+            break :blk rhs;
+        };
+        rhs.freezeIfRegister(&self.register_manager);
+        defer rhs.unfreezeIfRegister(&self.register_manager);
+
         if (signedness == .unsigned) {
             try self.genIntMulDivOpMir(.div, ty, signedness, lhs, rhs);
             break :result MCValue{ .register = .rax };
@@ -1719,9 +1747,13 @@ fn airRem(self: *Self, inst: Air.Inst.Index) !void {
         }
         // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
         try self.register_manager.getReg(.rax, null);
-        try self.register_manager.getReg(.rdx, null);
+        try self.register_manager.getReg(.rdx, inst);
+        self.register_manager.freezeRegs(&.{ .rax, .rdx });
+        defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
+
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
+
         const signedness = ty.intInfo(self.target.*).signedness;
         try self.genIntMulDivOpMir(switch (signedness) {
             .signed => .idiv,
@@ -1739,12 +1771,17 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
         if (ty.zigTypeTag() != .Int) {
             return self.fail("TODO implement .mod for operands of dst type {}", .{ty.zigTypeTag()});
         }
+        const signedness = ty.intInfo(self.target.*).signedness;
+
         // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
         try self.register_manager.getReg(.rax, null);
-        try self.register_manager.getReg(.rdx, null);
+        try self.register_manager.getReg(.rdx, if (signedness == .unsigned) inst else null);
+        self.register_manager.freezeRegs(&.{ .rax, .rdx });
+        defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
+
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const signedness = ty.intInfo(self.target.*).signedness;
+
         switch (signedness) {
             .unsigned => {
                 try self.genIntMulDivOpMir(switch (signedness) {
@@ -1757,10 +1794,10 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
                 const div_floor = try self.genInlineIntDivFloor(ty, lhs, rhs);
                 try self.genIntMulComplexOpMir(ty, div_floor, rhs);
 
-                const reg = try self.copyToTmpRegister(ty, lhs);
-                try self.genBinMathOpMir(.sub, ty, .{ .register = reg }, div_floor);
+                const result = try self.copyToRegisterWithInstTracking(inst, ty, lhs);
+                try self.genBinMathOpMir(.sub, ty, result, div_floor);
 
-                break :result MCValue{ .register = reg };
+                break :result result;
             },
         }
     };
