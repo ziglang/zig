@@ -14,7 +14,7 @@ pub fn addCases(ctx: *TestContext) !void {
         defer stage2_dir.close();
 
         const one_test_case_per_file = false;
-        try ctx.addErrorCasesFromDir("stage2 compile errors", stage2_dir, .stage2, .Obj, false, one_test_case_per_file);
+        try ctx.addErrorCasesFromDir("stage2", stage2_dir, .stage2, .Obj, false, one_test_case_per_file);
     }
 
     {

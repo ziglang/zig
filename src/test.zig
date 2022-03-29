@@ -125,6 +125,7 @@ pub const TestContext = struct {
         /// you can keep it mostly consistent, with small changes, testing the
         /// effects of the incremental compilation.
         src: [:0]const u8,
+        name: []const u8,
         case: union(enum) {
             /// Check the main binary output file against an expected set of bytes.
             /// This is most useful with, for example, `-ofmt=c`.
@@ -190,6 +191,7 @@ pub const TestContext = struct {
             self.emit_h = true;
             self.updates.append(.{
                 .src = src,
+                .name = "update",
                 .case = .{ .Header = result },
             }) catch @panic("out of memory");
         }
@@ -199,6 +201,7 @@ pub const TestContext = struct {
         pub fn addCompareOutput(self: *Case, src: [:0]const u8, result: []const u8) void {
             self.updates.append(.{
                 .src = src,
+                .name = "update",
                 .case = .{ .Execution = result },
             }) catch @panic("out of memory");
         }
@@ -208,15 +211,25 @@ pub const TestContext = struct {
         pub fn addCompareObjectFile(self: *Case, src: [:0]const u8, result: []const u8) void {
             self.updates.append(.{
                 .src = src,
+                .name = "update",
                 .case = .{ .CompareObjectFile = result },
             }) catch @panic("out of memory");
+        }
+
+        pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
+            return self.addErrorNamed("update", src, errors);
         }
 
         /// Adds a subcase in which the module is updated with `src`, which
         /// should contain invalid input, and ensures that compilation fails
         /// for the expected reasons, given in sequential order in `errors` in
         /// the form `:line:column: error: message`.
-        pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
+        pub fn addErrorNamed(
+            self: *Case,
+            name: []const u8,
+            src: [:0]const u8,
+            errors: []const []const u8,
+        ) void {
             var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch @panic("out of memory");
             for (errors) |err_msg_line, i| {
                 if (std.mem.startsWith(u8, err_msg_line, "error: ")) {
@@ -279,7 +292,11 @@ pub const TestContext = struct {
                     },
                 };
             }
-            self.updates.append(.{ .src = src, .case = .{ .Error = array } }) catch @panic("out of memory");
+            self.updates.append(.{
+                .src = src,
+                .name = name,
+                .case = .{ .Error = array },
+            }) catch @panic("out of memory");
         }
 
         /// Adds a subcase in which the module is updated with `src`, and
@@ -616,7 +633,7 @@ pub const TestContext = struct {
         if (skip_compile_errors) return;
 
         const gpa = general_purpose_allocator.allocator();
-        var case: ?*Case = null;
+        var opt_case: ?*Case = null;
 
         var it = dir.iterate();
         while (try it.next()) |entry| {
@@ -671,10 +688,9 @@ pub const TestContext = struct {
                 // The entire file contents is the source, including the manifest
                 const src = try gpa.dupeZ(u8, contents);
 
-                // Create a new test case, if necessary
-                case = if (one_test_case_per_file or case == null) blk: {
+                const case = opt_case orelse case: {
                     ctx.cases.append(TestContext.Case{
-                        .name = if (one_test_case_per_file) case_name else name,
+                        .name = name,
                         .target = .{},
                         .backend = backend,
                         .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
@@ -682,11 +698,15 @@ pub const TestContext = struct {
                         .output_mode = output_mode,
                         .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
                     }) catch @panic("out of memory");
-                    break :blk &ctx.cases.items[ctx.cases.items.len - 1];
-                } else case.?;
-
-                // Add our update + expected errors
-                case.?.addError(src, errors.items);
+                    break :case &ctx.cases.items[ctx.cases.items.len - 1];
+                };
+                if (one_test_case_per_file) {
+                    case.name = case_name;
+                    case.addError(src, errors.items);
+                    opt_case = null;
+                } else {
+                    case.addErrorNamed(case_name, src, errors.items);
+                }
             } else {
                 return error.InvalidFile; // Manifests are currently mandatory
             }
@@ -1018,7 +1038,7 @@ pub const TestContext = struct {
         defer comp.destroy();
 
         for (case.updates.items) |update, update_index| {
-            var update_node = root_node.start("update", 3);
+            var update_node = root_node.start(update.name, 3);
             update_node.activate();
             defer update_node.end();
 
