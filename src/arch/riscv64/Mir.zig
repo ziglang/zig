@@ -144,3 +144,4 @@ pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end
         .end = i,
     };
 }
+
