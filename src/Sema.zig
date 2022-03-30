@@ -5640,7 +5640,7 @@ fn zirErrorToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const op = sema.resolveInst(inst_data.operand);
     const op_coerced = try sema.coerce(block, Type.anyerror, op, operand_src);
-    const result_ty = Type.initTag(.u16);
+    const result_ty = Type.u16;
 
     if (try sema.resolveMaybeUndefVal(block, src, op_coerced)) |val| {
         if (val.isUndef()) {
@@ -5665,32 +5665,31 @@ fn zirIntToError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-
-    const op = sema.resolveInst(inst_data.operand);
+    const uncasted_operand = sema.resolveInst(inst_data.operand);
+    const operand = try sema.coerce(block, Type.u16, uncasted_operand, operand_src);
     const target = sema.mod.getTarget();
 
-    if (try sema.resolveDefinedValue(block, operand_src, op)) |value| {
-        const int = value.toUnsignedInt(target);
+    if (try sema.resolveDefinedValue(block, operand_src, operand)) |value| {
+        const int = try sema.usizeCast(block, operand_src, value.toUnsignedInt(target));
         if (int > sema.mod.global_error_set.count() or int == 0)
             return sema.fail(block, operand_src, "integer value {d} represents no error", .{int});
         const payload = try sema.arena.create(Value.Payload.Error);
         payload.* = .{
             .base = .{ .tag = .@"error" },
-            .data = .{ .name = sema.mod.error_name_list.items[@intCast(usize, int)] },
+            .data = .{ .name = sema.mod.error_name_list.items[int] },
         };
         return sema.addConstant(Type.anyerror, Value.initPayload(&payload.base));
     }
     try sema.requireRuntimeBlock(block, src);
     if (block.wantSafety()) {
-        return sema.fail(block, src, "TODO: get max errors in compilation", .{});
-        // const is_gt_max = @panic("TODO get max errors in compilation");
-        // try sema.addSafetyCheck(block, is_gt_max, .invalid_error_code);
+        const is_lt_len = try block.addUnOp(.cmp_lt_errors_len, operand);
+        try sema.addSafetyCheck(block, is_lt_len, .invalid_error_code);
     }
     return block.addInst(.{
         .tag = .bitcast,
         .data = .{ .ty_op = .{
             .ty = Air.Inst.Ref.anyerror_type,
-            .operand = op,
+            .operand = operand,
         } },
     });
 }

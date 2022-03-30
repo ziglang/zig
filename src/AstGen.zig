@@ -7250,7 +7250,7 @@ fn builtinCall(
 
         .ptr_to_int            => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .ptr_to_int),
         .error_to_int          => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .error_to_int),
-        .int_to_error          => return simpleUnOp(gz, scope, rl, node, .{ .ty = .u16_type },                params[0], .int_to_error),
+        .int_to_error          => return simpleUnOp(gz, scope, rl, node, .{ .coerced_ty = .u16_type },        params[0], .int_to_error),
         .compile_error         => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .compile_error),
         .set_eval_branch_quota => return simpleUnOp(gz, scope, rl, node, .{ .coerced_ty = .u32_type },        params[0], .set_eval_branch_quota),
         .enum_to_int           => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .enum_to_int),

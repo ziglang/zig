@@ -360,7 +360,11 @@ test "expected [*c]const u8, found [*:0]const u8" {
 }
 
 test "explicit cast from integer to error type" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try testCastIntToErr(error.ItBroke);
     comptime try testCastIntToErr(error.ItBroke);

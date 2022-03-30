@@ -1319,7 +1319,9 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .cmp_lte => self.airCmp(inst, .lte),
         .cmp_lt => self.airCmp(inst, .lt),
         .cmp_neq => self.airCmp(inst, .neq),
+
         .cmp_vector => self.airCmpVector(inst),
+        .cmp_lt_errors_len => self.airCmpLtErrorsLen(inst),
 
         .array_elem_val => self.airArrayElemVal(inst),
         .array_to_slice => self.airArrayToSlice(inst),
@@ -2265,6 +2267,16 @@ fn cmp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOper
 fn airCmpVector(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     _ = inst;
     return self.fail("TODO implement airCmpVector for wasm", .{});
+}
+
+fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
+
+    _ = operand;
+    return self.fail("TODO implement airCmpLtErrorsLen for wasm", .{});
 }
 
 fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {

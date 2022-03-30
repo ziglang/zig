@@ -637,6 +637,15 @@ pub const Inst = struct {
         /// Uses the `pl_op` field, payload represents the index of the target memory.
         wasm_memory_grow,
 
+        /// Returns `true` if and only if the operand, an integer with
+        /// the same size as the error integer type, is less than the
+        /// total number of errors in the Module.
+        /// Result type is always `bool`.
+        /// Uses the `un_op` field.
+        /// Note that the number of errors in the Module cannot be considered stable until
+        /// flush().
+        cmp_lt_errors_len,
+
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -928,6 +937,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .cmp_gte,
         .cmp_gt,
         .cmp_neq,
+        .cmp_lt_errors_len,
         .is_null,
         .is_non_null,
         .is_null_ptr,
@@ -936,9 +946,9 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .is_non_err,
         .is_err_ptr,
         .is_non_err_ptr,
-        => return Type.initTag(.bool),
+        => return Type.bool,
 
-        .const_ty => return Type.initTag(.type),
+        .const_ty => return Type.type,
 
         .alloc,
         .ret_ptr,

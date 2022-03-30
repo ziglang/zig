@@ -693,7 +693,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_gte => try self.airCmp(inst, .gte),
             .cmp_gt  => try self.airCmp(inst, .gt),
             .cmp_neq => try self.airCmp(inst, .neq),
+
             .cmp_vector => try self.airCmpVector(inst),
+            .cmp_lt_errors_len => try self.airCmpLtErrorsLen(inst),
 
             .bool_and        => try self.airBoolOp(inst),
             .bool_or         => try self.airBoolOp(inst),
@@ -3816,6 +3818,14 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 fn airCmpVector(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
     return self.fail("TODO implement airCmpVector for {}", .{self.target.cpu.arch});
+}
+
+fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
+    _ = operand;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airCmpLtErrorsLen for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
