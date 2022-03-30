@@ -10295,14 +10295,11 @@ fn zirAsm(
     };
 
     const args = try sema.arena.alloc(Air.Inst.Ref, inputs_len);
-    const inputs = try sema.arena.alloc([]const u8, inputs_len);
+    const inputs = try sema.arena.alloc(struct { c: []const u8, n: []const u8 }, inputs_len);
 
     for (args) |*arg, arg_i| {
         const input = sema.code.extraData(Zir.Inst.Asm.Input, extra_i);
         extra_i = input.end;
-
-        const name = sema.code.nullTerminatedString(input.data.name);
-        _ = name; // TODO: use the name
 
         const uncasted_arg = sema.resolveInst(input.data.operand);
         const uncasted_arg_ty = sema.typeOf(uncasted_arg);
@@ -10313,8 +10310,9 @@ fn zirAsm(
         }
 
         const constraint = sema.code.nullTerminatedString(input.data.constraint);
-        needed_capacity += constraint.len / 4 + 1;
-        inputs[arg_i] = constraint;
+        const name = sema.code.nullTerminatedString(input.data.name);
+        needed_capacity += (constraint.len + name.len + 1) / 4 + 1;
+        inputs[arg_i] = .{ .c = constraint, .n = name };
     }
 
     const clobbers = try sema.arena.alloc([]const u8, clobbers_len);
@@ -10353,11 +10351,13 @@ fn zirAsm(
         buffer[o.constraint.len] = 0;
         sema.air_extra.items.len += o.constraint.len / 4 + 1;
     }
-    for (inputs) |constraint| {
+    for (inputs) |input| {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-        mem.copy(u8, buffer, constraint);
-        buffer[constraint.len] = 0;
-        sema.air_extra.items.len += constraint.len / 4 + 1;
+        mem.copy(u8, buffer, input.c);
+        buffer[input.c.len] = 0;
+        mem.copy(u8, buffer[input.c.len + 1 ..], input.n);
+        buffer[input.c.len + 1 + input.n.len] = 0;
+        sema.air_extra.items.len += (input.c.len + input.n.len + 1) / 4 + 1;
     }
     for (clobbers) |clobber| {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());

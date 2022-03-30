@@ -4545,11 +4545,14 @@ pub const FuncGen = struct {
             total_i += 1;
         }
 
+        const input_start_extra_i = extra_i;
         for (inputs) |input| {
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const input_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const constraint = std.mem.sliceTo(input_bytes, 0);
+            const input_name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
-            extra_i += constraint.len / 4 + 1;
+            extra_i += (constraint.len + input_name.len + 1) / 4 + 1;
 
             const arg_llvm_value = try self.resolveInst(input);
 
@@ -4591,11 +4594,12 @@ pub const FuncGen = struct {
         var rendered_template = std.ArrayList(u8).init(self.gpa);
         defer rendered_template.deinit();
 
-        const State = enum { start, percent };
+        const State = enum { start, percent, input };
 
         var state: State = .start;
 
-        for (asm_source) |byte| {
+        var name_start: usize = undefined;
+        for (asm_source) |byte, i| {
             switch (state) {
                 .start => switch (byte) {
                     '%' => state = .percent,
@@ -4606,11 +4610,38 @@ pub const FuncGen = struct {
                         try rendered_template.append('%');
                         state = .start;
                     },
+                    '[' => {
+                        try rendered_template.append('$');
+                        name_start = i + 1;
+                        state = .input;
+                    },
                     else => {
                         try rendered_template.append('%');
                         try rendered_template.append(byte);
                         state = .start;
                     },
+                },
+                .input => switch (byte) {
+                    ']' => {
+                        const name = asm_source[name_start..i];
+                        state = .start;
+
+                        extra_i = input_start_extra_i;
+                        for (inputs) |_, input_i| {
+                            const input_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+                            const constraint = std.mem.sliceTo(input_bytes, 0);
+                            const input_name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
+                            extra_i += (constraint.len + input_name.len + 1) / 4 + 1;
+
+                            if (std.mem.eql(u8, name, input_name)) {
+                                try rendered_template.writer().print("{d}", .{input_i});
+                                break;
+                            }
+                        } else {
+                            return self.todo("TODO validate asm in Sema", .{});
+                        }
+                    },
+                    else => {},
                 },
             }
         }
