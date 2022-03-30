@@ -42,7 +42,7 @@ pub const GenerateSymbolError = error{
 };
 
 pub const DebugInfoOutput = union(enum) {
-    dwarf: *link.File.Dwarf,
+    dwarf: *link.File.Dwarf.DeclState,
     /// the plan9 debuginfo output is a bytecode with 4 opcodes
     /// assume all numbers/variables are bytes
     /// 0 w x y z -> interpret w x y z as a big-endian i32, and add it to the line offset

@@ -27,6 +27,7 @@ const Atom = @import("MachO/Atom.zig");
 const Cache = @import("../Cache.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
+const Dwarf = File.Dwarf;
 const Dylib = @import("MachO/Dylib.zig");
 const File = link.File;
 const Object = @import("MachO/Object.zig");
@@ -3676,13 +3677,15 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    if (self.d_sym) |*d_sym| {
-        try d_sym.dwarf.initDeclState(decl);
-    }
+    var decl_state = if (self.d_sym) |*d_sym|
+        try d_sym.dwarf.initDeclState(decl)
+    else
+        null;
+    defer if (decl_state) |*ds| ds.deinit();
 
-    const res = if (self.d_sym) |*d_sym|
+    const res = if (decl_state) |*ds|
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
-            .dwarf = &d_sym.dwarf,
+            .dwarf = ds,
         })
     else
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
@@ -3700,8 +3703,15 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
 
     const symbol = try self.placeDecl(decl, decl.link.macho.code.items.len);
 
-    if (self.d_sym) |*d_sym| {
-        try d_sym.dwarf.commitDeclState(&self.base, module, decl, symbol.n_value, decl.link.macho.size);
+    if (decl_state) |*ds| {
+        try self.d_sym.?.dwarf.commitDeclState(
+            &self.base,
+            module,
+            decl,
+            symbol.n_value,
+            decl.link.macho.size,
+            ds,
+        );
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
@@ -3801,17 +3811,19 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    if (self.d_sym) |*d_sym| {
-        try d_sym.dwarf.initDeclState(decl);
-    }
+    var decl_state: ?Dwarf.DeclState = if (self.d_sym) |*d_sym|
+        try d_sym.dwarf.initDeclState(decl)
+    else
+        null;
+    defer if (decl_state) |*ds| ds.deinit();
 
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    const res = if (self.d_sym) |*d_sym|
+    const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .{
-            .dwarf = &d_sym.dwarf,
+            .dwarf = ds,
         }, .{
             .parent_atom_index = decl.link.macho.local_sym_index,
         })
@@ -3845,8 +3857,15 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     };
     const symbol = try self.placeDecl(decl, code.len);
 
-    if (self.d_sym) |*d_sym| {
-        try d_sym.dwarf.commitDeclState(&self.base, module, decl, symbol.n_value, decl.link.macho.size);
+    if (decl_state) |*ds| {
+        try self.d_sym.?.dwarf.commitDeclState(
+            &self.base,
+            module,
+            decl,
+            symbol.n_value,
+            decl.link.macho.size,
+            ds,
+        );
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also

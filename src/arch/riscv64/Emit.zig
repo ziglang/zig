@@ -93,7 +93,7 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
             // TODO Look into using the DWARF special opcodes to compress this data.
             // It lets you emit single-byte opcodes that add different numbers to
             // both the PC and the line number at the same time.
-            const dbg_line = dw.getDeclDebugLineBuffer();
+            const dbg_line = &dw.dbg_line;
             try dbg_line.ensureUnusedCapacity(11);
             dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
             leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
@@ -184,7 +184,7 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirDebugPrologueEnd(self: *Emit) !void {
     switch (self.debug_output) {
         .dwarf => |dw| {
-            try dw.getDeclDebugLineBuffer().append(DW.LNS.set_prologue_end);
+            try dw.dbg_line.append(DW.LNS.set_prologue_end);
             try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
         },
         .plan9 => {},
@@ -195,7 +195,7 @@ fn mirDebugPrologueEnd(self: *Emit) !void {
 fn mirDebugEpilogueBegin(self: *Emit) !void {
     switch (self.debug_output) {
         .dwarf => |dw| {
-            try dw.getDeclDebugLineBuffer().append(DW.LNS.set_epilogue_begin);
+            try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
             try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
         },
         .plan9 => {},
