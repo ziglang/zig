@@ -251,6 +251,13 @@ fn testErrToIntWithOnePossibleValue(
     }
 }
 
+test "inferred empty error set comptime catch" {
+    const S = struct {
+        fn foo() !void {}
+    };
+    S.foo() catch @compileError("fail");
+}
+
 test "error union peer type resolution" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO

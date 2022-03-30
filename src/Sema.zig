@@ -4671,22 +4671,6 @@ const GenericCallAdapter = struct {
     }
 };
 
-const GenericRemoveAdapter = struct {
-    precomputed_hash: u64,
-
-    pub fn eql(ctx: @This(), adapted_key: *Module.Fn, other_key: *Module.Fn) bool {
-        _ = ctx;
-        return adapted_key == other_key;
-    }
-
-    /// The implementation of the hash is in semantic analysis of function calls, so
-    /// that any errors when computing the hash can be properly reported.
-    pub fn hash(ctx: @This(), adapted_key: *Module.Fn) u64 {
-        _ = adapted_key;
-        return ctx.precomputed_hash;
-    }
-};
-
 fn analyzeCall(
     sema: *Sema,
     block: *Block,
@@ -5200,15 +5184,15 @@ fn instantiateGenericCall(
         .comptime_tvs = comptime_tvs,
         .target = target,
     };
-    const gop = try mod.monomorphed_funcs.getOrPutContextAdapted(gpa, {}, adapter, .{ .target = target });
+    const gop = try mod.monomorphed_funcs.getOrPutAdapted(gpa, {}, adapter);
     const callee = if (!gop.found_existing) callee: {
         const new_module_func = try gpa.create(Module.Fn);
+        // This ensures that we can operate on the hash map before the Module.Fn
+        // struct is fully initialized.
+        new_module_func.hash = precomputed_hash;
         gop.key_ptr.* = new_module_func;
         errdefer gpa.destroy(new_module_func);
-        const remove_adapter: GenericRemoveAdapter = .{
-            .precomputed_hash = precomputed_hash,
-        };
-        errdefer assert(mod.monomorphed_funcs.removeAdapted(new_module_func, remove_adapter));
+        errdefer assert(mod.monomorphed_funcs.remove(new_module_func));
 
         try namespace.anon_decls.ensureUnusedCapacity(gpa, 1);
 
@@ -6494,12 +6478,14 @@ fn funcCommon(
         param_name.* = try sema.gpa.dupeZ(u8, block.params.items[i].name);
     }
 
+    const hash = new_func.hash;
     const fn_payload = try sema.arena.create(Value.Payload.Function);
     new_func.* = .{
         .state = anal_state,
         .zir_body_inst = func_inst,
         .owner_decl = sema.owner_decl,
         .comptime_args = comptime_args,
+        .hash = hash,
         .lbrace_line = src_locs.lbrace_line,
         .rbrace_line = src_locs.rbrace_line,
         .lbrace_column = @truncate(u16, src_locs.columns),
@@ -19987,18 +19973,39 @@ fn analyzeIsNonErr(
     if (ot == .ErrorSet) return Air.Inst.Ref.bool_false;
     assert(ot == .ErrorUnion);
 
+    if (Air.refToIndex(operand)) |operand_inst| {
+        const air_tags = sema.air_instructions.items(.tag);
+        if (air_tags[operand_inst] == .wrap_errunion_payload) {
+            return Air.Inst.Ref.bool_true;
+        }
+    }
+
+    const maybe_operand_val = try sema.resolveMaybeUndefVal(block, src, operand);
+
     // exception if the error union error set is known to be empty,
     // we allow the comparison but always make it comptime known.
     const set_ty = operand_ty.errorUnionSet();
     switch (set_ty.tag()) {
-        .anyerror, .error_set_inferred => {},
+        .anyerror => {},
+        .error_set_inferred => blk: {
+            // If the error set is empty, we must return a comptime true or false.
+            // However we want to avoid unnecessarily resolving an inferred error set
+            // in case it is already non-empty.
+            const ies = set_ty.castTag(.error_set_inferred).?.data;
+            if (ies.is_anyerror) break :blk;
+            if (ies.errors.count() != 0) break :blk;
+            if (maybe_operand_val == null) {
+                try sema.resolveInferredErrorSet(block, src, ies);
+                if (ies.is_anyerror) break :blk;
+                if (ies.errors.count() == 0) return Air.Inst.Ref.bool_true;
+            }
+        },
         else => if (set_ty.errorSetNames().len == 0) return Air.Inst.Ref.bool_true,
     }
 
-    const result_ty = Type.bool;
-    if (try sema.resolveMaybeUndefVal(block, src, operand)) |err_union| {
+    if (maybe_operand_val) |err_union| {
         if (err_union.isUndef()) {
-            return sema.addConstUndef(result_ty);
+            return sema.addConstUndef(Type.bool);
         }
         if (err_union.getError() == null) {
             return Air.Inst.Ref.bool_true;
@@ -20583,6 +20590,7 @@ fn wrapErrorUnionPayload(
         return sema.addConstant(dest_ty, try Value.Tag.eu_payload.create(sema.arena, val));
     }
     try sema.requireRuntimeBlock(block, inst_src);
+    try sema.queueFullTypeResolution(dest_payload_ty);
     return block.addTyOp(.wrap_errunion_payload, dest_ty, coerced);
 }
 
@@ -21372,6 +21380,9 @@ fn resolveStructFully(
         try sema.resolveTypeFully(block, src, field.ty);
     }
     struct_obj.status = .fully_resolved;
+
+    // And let's not forget comptime-only status.
+    _ = try sema.typeRequiresComptime(block, src, ty);
 }
 
 fn resolveUnionFully(
@@ -21395,6 +21406,9 @@ fn resolveUnionFully(
         try sema.resolveTypeFully(block, src, field.ty);
     }
     union_obj.status = .fully_resolved;
+
+    // And let's not forget comptime-only status.
+    _ = try sema.typeRequiresComptime(block, src, ty);
 }
 
 pub fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!Type {

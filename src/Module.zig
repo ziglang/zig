@@ -146,8 +146,6 @@ const MonomorphedFuncsSet = std.HashMapUnmanaged(
 );
 
 const MonomorphedFuncsContext = struct {
-    target: Target,
-
     pub fn eql(ctx: @This(), a: *Fn, b: *Fn) bool {
         _ = ctx;
         return a == b;
@@ -155,25 +153,8 @@ const MonomorphedFuncsContext = struct {
 
     /// Must match `Sema.GenericCallAdapter.hash`.
     pub fn hash(ctx: @This(), key: *Fn) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-
-        // The generic function Decl is guaranteed to be the first dependency
-        // of each of its instantiations.
-        const generic_owner_decl = key.owner_decl.dependencies.keys()[0];
-        const generic_func: *const Fn = generic_owner_decl.val.castTag(.function).?.data;
-        std.hash.autoHash(&hasher, generic_func);
-
-        // This logic must be kept in sync with the logic in `analyzeCall` that
-        // computes the hash.
-        const comptime_args = key.comptime_args.?;
-        const generic_ty_info = generic_owner_decl.ty.fnInfo();
-        for (generic_ty_info.param_types) |param_ty, i| {
-            if (generic_ty_info.paramIsComptime(i) and param_ty.tag() != .generic_poison) {
-                comptime_args[i].val.hash(param_ty, &hasher, ctx.target);
-            }
-        }
-
-        return hasher.final();
+        _ = ctx;
+        return key.hash;
     }
 };
 
@@ -1426,6 +1407,12 @@ pub const Fn = struct {
     /// ZIR instruction instead of before it, so that `zir_body_inst` can be used to
     /// determine param names rather than redundantly storing them here.
     param_names: []const [:0]const u8,
+
+    /// Precomputed hash for monomorphed_funcs.
+    /// This is important because it may be accessed when resizing monomorphed_funcs
+    /// while this Fn has already been added to the set, but does not have the
+    /// owner_decl, comptime_args, or other fields populated yet.
+    hash: u64,
 
     /// Relative to owner Decl.
     lbrace_line: u32,

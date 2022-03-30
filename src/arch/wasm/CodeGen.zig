@@ -2627,12 +2627,12 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const op_ty = self.air.typeOf(ty_op.operand);
     if (!op_ty.hasRuntimeBitsIgnoreComptime()) return operand;
-    const err_ty = self.air.getRefType(ty_op.ty);
-    const err_align = err_ty.abiAlignment(self.target);
-    const set_size = err_ty.errorUnionSet().abiSize(self.target);
+    const err_union_ty = self.air.getRefType(ty_op.ty);
+    const err_align = err_union_ty.abiAlignment(self.target);
+    const set_size = err_union_ty.errorUnionSet().abiSize(self.target);
     const offset = mem.alignForwardGeneric(u64, set_size, err_align);
 
-    const err_union = try self.allocStack(err_ty);
+    const err_union = try self.allocStack(err_union_ty);
     const payload_ptr = try self.buildPointerOffset(err_union, offset, .new);
     try self.store(payload_ptr, operand, op_ty, 0);
 
