@@ -103,12 +103,17 @@ pub const Loop = struct {
         };
     };
 
-    var global_instance_state: Loop = undefined;
-    const default_instance: ?*Loop = switch (std.io.mode) {
+    const LoopOrVoid = switch (std.io.mode) {
+        .blocking => void,
+        .evented => Loop,
+    };
+
+    var global_instance_state: LoopOrVoid = undefined;
+    const default_instance: ?*LoopOrVoid = switch (std.io.mode) {
         .blocking => null,
         .evented => &global_instance_state,
     };
-    pub const instance: ?*Loop = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
+    pub const instance: ?*LoopOrVoid = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
 
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
