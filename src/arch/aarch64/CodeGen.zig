@@ -3200,10 +3200,12 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         } else null;
 
         for (inputs) |input| {
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const input_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const constraint = std.mem.sliceTo(input_bytes, 0);
+            const input_name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
-            extra_i += constraint.len / 4 + 1;
+            extra_i += (constraint.len + input_name.len + 1) / 4 + 1;
 
             if (constraint.len < 3 or constraint[0] != '{' or constraint[constraint.len - 1] != '}') {
                 return self.fail("unrecognized asm input constraint: '{s}'", .{constraint});
