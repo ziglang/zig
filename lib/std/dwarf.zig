@@ -514,7 +514,6 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
         FORM.implicit_const => FormValue{ .Const = Constant{ .signed = true, .payload = undefined } },
 
         else => {
-            std.debug.print("dwarf: unhandled form_id: 0x{x}\n", .{form_id});
             return error.InvalidDebugInfo;
         },
     };
