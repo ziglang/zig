@@ -6,8 +6,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const Vector = std.meta.Vector;
-
 pub fn suggestVectorSizeForCpu(comptime T: type, cpu: std.Target.Cpu) ?usize {
     switch (cpu.arch) {
         .x86_64 => {
@@ -55,7 +53,7 @@ pub fn VectorCount(comptime VectorType: type) type {
 
 /// Returns a vector containing the first `len` integers in order from 0 to `len`-1.
 /// For example, `iota(i32, 8)` will return a vector containing `.{0, 1, 2, 3, 4, 5, 6, 7}`.
-pub fn iota(comptime T: type, comptime len: usize) Vector(len, T) {
+pub fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
     var out: [len]T = undefined;
     for (out) |*element, i| {
         element.* = switch (@typeInfo(T)) {
@@ -64,12 +62,12 @@ pub fn iota(comptime T: type, comptime len: usize) Vector(len, T) {
             else => @compileError("Can't use type " ++ @typeName(T) ++ " in iota."),
         };
     }
-    return @as(Vector(len, T), out);
+    return @as(@Vector(len, T), out);
 }
 
 /// Returns a vector containing the same elements as the input, but repeated until the desired length is reached.
 /// For example, `repeat(8, [_]u32{1, 2, 3})` will return a vector containing `.{1, 2, 3, 1, 2, 3, 1, 2}`.
-pub fn repeat(comptime len: usize, vec: anytype) Vector(len, std.meta.Child(@TypeOf(vec))) {
+pub fn repeat(comptime len: usize, vec: anytype) @Vector(len, std.meta.Child(@TypeOf(vec))) {
     const Child = std.meta.Child(@TypeOf(vec));
 
     return @shuffle(Child, vec, undefined, iota(i32, len) % @splat(len, @intCast(i32, vectorLength(@TypeOf(vec)))));
@@ -77,7 +75,7 @@ pub fn repeat(comptime len: usize, vec: anytype) Vector(len, std.meta.Child(@Typ
 
 /// Returns a vector containing all elements of the first vector at the lower indices followed by all elements of the second vector
 /// at the higher indices.
-pub fn join(a: anytype, b: anytype) Vector(vectorLength(@TypeOf(a)) + vectorLength(@TypeOf(b)), std.meta.Child(@TypeOf(a))) {
+pub fn join(a: anytype, b: anytype) @Vector(vectorLength(@TypeOf(a)) + vectorLength(@TypeOf(b)), std.meta.Child(@TypeOf(a))) {
     const Child = std.meta.Child(@TypeOf(a));
     const a_len = vectorLength(@TypeOf(a));
     const b_len = vectorLength(@TypeOf(b));
@@ -87,7 +85,7 @@ pub fn join(a: anytype, b: anytype) Vector(vectorLength(@TypeOf(a)) + vectorLeng
 
 /// Returns a vector whose elements alternates between those of each input vector.
 /// For example, `interlace(.{[4]u32{11, 12, 13, 14}, [4]u32{21, 22, 23, 24}})` returns a vector containing `.{11, 21, 12, 22, 13, 23, 14, 24}`.
-pub fn interlace(vecs: anytype) Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len, std.meta.Child(@TypeOf(vecs[0]))) {
+pub fn interlace(vecs: anytype) @Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len, std.meta.Child(@TypeOf(vecs[0]))) {
     // interlace doesn't work on MIPS, for some reason.
     // Notes from earlier debug attempt:
     //  The indices are correct. The problem seems to be with the @shuffle builtin.
@@ -128,14 +126,14 @@ pub fn interlace(vecs: anytype) Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len
 pub fn deinterlace(
     comptime vec_count: usize,
     interlaced: anytype,
-) [vec_count]Vector(
+) [vec_count]@Vector(
     vectorLength(@TypeOf(interlaced)) / vec_count,
     std.meta.Child(@TypeOf(interlaced)),
 ) {
     const vec_len = vectorLength(@TypeOf(interlaced)) / vec_count;
     const Child = std.meta.Child(@TypeOf(interlaced));
 
-    var out: [vec_count]Vector(vec_len, Child) = undefined;
+    var out: [vec_count]@Vector(vec_len, Child) = undefined;
 
     comptime var i: usize = 0; // for-loops don't work for this, apparently.
     inline while (i < out.len) : (i += 1) {
@@ -150,7 +148,7 @@ pub fn extract(
     vec: anytype,
     comptime first: VectorIndex(@TypeOf(vec)),
     comptime count: VectorCount(@TypeOf(vec)),
-) Vector(count, std.meta.Child(@TypeOf(vec))) {
+) @Vector(count, std.meta.Child(@TypeOf(vec))) {
     const Child = std.meta.Child(@TypeOf(vec));
     const len = vectorLength(@TypeOf(vec));
 
@@ -160,15 +158,15 @@ pub fn extract(
 }
 
 test "vector patterns" {
-    const base = Vector(4, u32){ 10, 20, 30, 40 };
-    const other_base = Vector(4, u32){ 55, 66, 77, 88 };
+    const base = @Vector(4, u32){ 10, 20, 30, 40 };
+    const other_base = @Vector(4, u32){ 55, 66, 77, 88 };
 
-    const small_bases = [5]Vector(2, u8){
-        Vector(2, u8){ 0, 1 },
-        Vector(2, u8){ 2, 3 },
-        Vector(2, u8){ 4, 5 },
-        Vector(2, u8){ 6, 7 },
-        Vector(2, u8){ 8, 9 },
+    const small_bases = [5]@Vector(2, u8){
+        @Vector(2, u8){ 0, 1 },
+        @Vector(2, u8){ 2, 3 },
+        @Vector(2, u8){ 4, 5 },
+        @Vector(2, u8){ 6, 7 },
+        @Vector(2, u8){ 8, 9 },
     };
 
     try std.testing.expectEqual([6]u32{ 10, 20, 30, 40, 10, 20 }, repeat(6, base));
@@ -228,7 +226,7 @@ pub fn reverseOrder(vec: anytype) @TypeOf(vec) {
 }
 
 test "vector shifting" {
-    const base = Vector(4, u32){ 10, 20, 30, 40 };
+    const base = @Vector(4, u32){ 10, 20, 30, 40 };
 
     try std.testing.expectEqual([4]u32{ 30, 40, 999, 999 }, shiftElementsLeft(base, 2, 999));
     try std.testing.expectEqual([4]u32{ 999, 999, 10, 20 }, shiftElementsRight(base, 2, 999));
@@ -286,7 +284,7 @@ pub fn countElementsWithValue(vec: anytype, value: std.meta.Child(@TypeOf(vec)))
 }
 
 test "vector searching" {
-    const base = Vector(8, u32){ 6, 4, 7, 4, 4, 2, 3, 7 };
+    const base = @Vector(8, u32){ 6, 4, 7, 4, 4, 2, 3, 7 };
 
     try std.testing.expectEqual(@as(?u3, 1), firstIndexOfValue(base, 4));
     try std.testing.expectEqual(@as(?u3, 4), lastIndexOfValue(base, 4));
@@ -382,28 +380,28 @@ test "vector prefix scan" {
         return error.SkipZigTest;
     }
 
-    const int_base = Vector(4, i32){ 11, 23, 9, -21 };
-    const float_base = Vector(4, f32){ 2, 0.5, -10, 6.54321 };
-    const bool_base = Vector(4, bool){ true, false, true, false };
+    const int_base = @Vector(4, i32){ 11, 23, 9, -21 };
+    const float_base = @Vector(4, f32){ 2, 0.5, -10, 6.54321 };
+    const bool_base = @Vector(4, bool){ true, false, true, false };
 
     try std.testing.expectEqual(iota(u8, 32) + @splat(32, @as(u8, 1)), prefixScan(.Add, 1, @splat(32, @as(u8, 1))));
-    try std.testing.expectEqual(Vector(4, i32){ 11, 3, 1, 1 }, prefixScan(.And, 1, int_base));
-    try std.testing.expectEqual(Vector(4, i32){ 11, 31, 31, -1 }, prefixScan(.Or, 1, int_base));
-    try std.testing.expectEqual(Vector(4, i32){ 11, 28, 21, -2 }, prefixScan(.Xor, 1, int_base));
-    try std.testing.expectEqual(Vector(4, i32){ 11, 34, 43, 22 }, prefixScan(.Add, 1, int_base));
-    try std.testing.expectEqual(Vector(4, i32){ 11, 253, 2277, -47817 }, prefixScan(.Mul, 1, int_base));
-    try std.testing.expectEqual(Vector(4, i32){ 11, 11, 9, -21 }, prefixScan(.Min, 1, int_base));
-    try std.testing.expectEqual(Vector(4, i32){ 11, 23, 23, 23 }, prefixScan(.Max, 1, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 11, 3, 1, 1 }, prefixScan(.And, 1, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 11, 31, 31, -1 }, prefixScan(.Or, 1, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 11, 28, 21, -2 }, prefixScan(.Xor, 1, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 11, 34, 43, 22 }, prefixScan(.Add, 1, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 11, 253, 2277, -47817 }, prefixScan(.Mul, 1, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 11, 11, 9, -21 }, prefixScan(.Min, 1, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 11, 23, 23, 23 }, prefixScan(.Max, 1, int_base));
 
     // Trying to predict all inaccuracies when adding and multiplying floats with prefixScans would be a mess, so we don't test those.
-    try std.testing.expectEqual(Vector(4, f32){ 2, 0.5, -10, -10 }, prefixScan(.Min, 1, float_base));
-    try std.testing.expectEqual(Vector(4, f32){ 2, 2, 2, 6.54321 }, prefixScan(.Max, 1, float_base));
+    try std.testing.expectEqual(@Vector(4, f32){ 2, 0.5, -10, -10 }, prefixScan(.Min, 1, float_base));
+    try std.testing.expectEqual(@Vector(4, f32){ 2, 2, 2, 6.54321 }, prefixScan(.Max, 1, float_base));
 
-    try std.testing.expectEqual(Vector(4, bool){ true, true, false, false }, prefixScan(.Xor, 1, bool_base));
-    try std.testing.expectEqual(Vector(4, bool){ true, true, true, true }, prefixScan(.Or, 1, bool_base));
-    try std.testing.expectEqual(Vector(4, bool){ true, false, false, false }, prefixScan(.And, 1, bool_base));
+    try std.testing.expectEqual(@Vector(4, bool){ true, true, false, false }, prefixScan(.Xor, 1, bool_base));
+    try std.testing.expectEqual(@Vector(4, bool){ true, true, true, true }, prefixScan(.Or, 1, bool_base));
+    try std.testing.expectEqual(@Vector(4, bool){ true, false, false, false }, prefixScan(.And, 1, bool_base));
 
-    try std.testing.expectEqual(Vector(4, i32){ 11, 23, 20, 2 }, prefixScan(.Add, 2, int_base));
-    try std.testing.expectEqual(Vector(4, i32){ 22, 11, -12, -21 }, prefixScan(.Add, -1, int_base));
-    try std.testing.expectEqual(Vector(4, i32){ 11, 23, 9, -10 }, prefixScan(.Add, 3, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 11, 23, 20, 2 }, prefixScan(.Add, 2, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 22, 11, -12, -21 }, prefixScan(.Add, -1, int_base));
+    try std.testing.expectEqual(@Vector(4, i32){ 11, 23, 9, -10 }, prefixScan(.Add, 3, int_base));
 }

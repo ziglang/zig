@@ -17,7 +17,7 @@ pub fn __multi3(a: i128, b: i128) callconv(.C) i128 {
     return r.all;
 }
 
-const v128 = std.meta.Vector(2, u64);
+const v128 = @Vector(2, u64);
 pub fn __multi3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
     return @bitCast(v128, @call(.{ .modifier = .always_inline }, __multi3, .{
         @bitCast(i128, a),

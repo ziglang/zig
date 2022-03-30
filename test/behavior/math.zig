@@ -1282,8 +1282,8 @@ test "vector integer addition" {
 
     const S = struct {
         fn doTheTest() !void {
-            var a: std.meta.Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
-            var b: std.meta.Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
+            var a: @Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
+            var b: @Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
             var result = a + b;
             var result_array: [4]i32 = result;
             const expected = [_]i32{ 6, 8, 10, 12 };
@@ -1340,8 +1340,8 @@ test "vector comparison" {
 
     const S = struct {
         fn doTheTest() !void {
-            var a: std.meta.Vector(6, i32) = [_]i32{ 1, 3, -1, 5, 7, 9 };
-            var b: std.meta.Vector(6, i32) = [_]i32{ -1, 3, 0, 6, 10, -10 };
+            var a: @Vector(6, i32) = [_]i32{ 1, 3, -1, 5, 7, 9 };
+            var b: @Vector(6, i32) = [_]i32{ -1, 3, 0, 6, 10, -10 };
             try expect(mem.eql(bool, &@as([6]bool, a < b), &[_]bool{ false, false, true, true, true, false }));
             try expect(mem.eql(bool, &@as([6]bool, a <= b), &[_]bool{ false, true, true, true, true, false }));
             try expect(mem.eql(bool, &@as([6]bool, a == b), &[_]bool{ false, true, false, false, false, false }));

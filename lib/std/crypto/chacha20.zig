@@ -7,7 +7,6 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const testing = std.testing;
 const maxInt = math.maxInt;
-const Vector = std.meta.Vector;
 const Poly1305 = std.crypto.onetimeauth.Poly1305;
 const AuthenticationError = std.crypto.errors.AuthenticationError;
 
@@ -79,7 +78,7 @@ pub const XChaCha8Poly1305 = XChaChaPoly1305(8);
 // Vectorized implementation of the core function
 fn ChaChaVecImpl(comptime rounds_nb: usize) type {
     return struct {
-        const Lane = Vector(4, u32);
+        const Lane = @Vector(4, u32);
         const BlockVec = [4]Lane;
 
         fn initContext(key: [8]u32, d: [4]u32) BlockVec {

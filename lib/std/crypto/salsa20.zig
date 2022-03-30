@@ -5,7 +5,6 @@ const debug = std.debug;
 const math = std.math;
 const mem = std.mem;
 const utils = std.crypto.utils;
-const Vector = std.meta.Vector;
 
 const Poly1305 = crypto.onetimeauth.Poly1305;
 const Blake2b = crypto.hash.blake2.Blake2b;
@@ -16,8 +15,8 @@ const IdentityElementError = crypto.errors.IdentityElementError;
 const WeakPublicKeyError = crypto.errors.WeakPublicKeyError;
 
 const Salsa20VecImpl = struct {
-    const Lane = Vector(4, u32);
-    const Half = Vector(2, u32);
+    const Lane = @Vector(4, u32);
+    const Half = @Vector(2, u32);
     const BlockVec = [4]Lane;
 
     fn initContext(key: [8]u32, d: [4]u32) BlockVec {
