@@ -13,7 +13,8 @@ pub fn addCases(ctx: *TestContext) !void {
         var stage2_dir = try compile_errors_dir.openDir("stage2", .{ .iterate = true, .no_follow = true });
         defer stage2_dir.close();
 
-        const one_test_case_per_file = false;
+        // TODO make this false once the bug is solved that it triggers
+        const one_test_case_per_file = true;
         try ctx.addErrorCasesFromDir("stage2", stage2_dir, .stage2, .Obj, false, one_test_case_per_file);
     }
 
