@@ -2339,19 +2339,12 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     const decl = func.owner_decl;
     self.freeUnnamedConsts(decl);
 
-    if (self.dwarf) |*dw| {
-        try dw.initDeclState(decl);
-    }
-    defer if (self.dwarf) |*dw| {
-        if (dw.decl_state) |*ds| {
-            ds.deinit(dw.allocator);
-            dw.decl_state = null;
-        }
-    };
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(decl) else null;
+    defer if (decl_state) |*ds| ds.deinit();
 
-    const res = if (self.dwarf) |*dw|
+    const res = if (decl_state) |*ds|
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
-            .dwarf = dw,
+            .dwarf = ds,
         })
     else
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
@@ -2365,8 +2358,15 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
         },
     };
     const local_sym = try self.updateDeclCode(decl, code, elf.STT_FUNC);
-    if (self.dwarf) |*dw| {
-        try dw.commitDeclState(&self.base, module, decl, local_sym.st_value, local_sym.st_size);
+    if (decl_state) |*ds| {
+        try self.dwarf.?.commitDeclState(
+            &self.base,
+            module,
+            decl,
+            local_sym.st_value,
+            local_sym.st_size,
+            ds,
+        );
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
@@ -2400,18 +2400,17 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    if (self.dwarf) |*dw| {
-        try dw.initDeclState(decl);
-    }
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(decl) else null;
+    defer if (decl_state) |*ds| ds.deinit();
 
     // TODO implement .debug_info for global variables
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    const res = if (self.dwarf) |*dw|
+    const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .{
-            .dwarf = dw,
+            .dwarf = ds,
         }, .{
             .parent_atom_index = decl.link.elf.local_sym_index,
         })
@@ -2434,8 +2433,15 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     };
 
     const local_sym = try self.updateDeclCode(decl, code, elf.STT_OBJECT);
-    if (self.dwarf) |*dw| {
-        try dw.commitDeclState(&self.base, module, decl, local_sym.st_value, local_sym.st_size);
+    if (decl_state) |*ds| {
+        try self.dwarf.?.commitDeclState(
+            &self.base,
+            module,
+            decl,
+            local_sym.st_value,
+            local_sym.st_size,
+            ds,
+        );
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.

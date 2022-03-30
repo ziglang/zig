@@ -332,7 +332,7 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
             // TODO Look into using the DWARF special opcodes to compress this data.
             // It lets you emit single-byte opcodes that add different numbers to
             // both the PC and the line number at the same time.
-            const dbg_line = dw.getDeclDebugLineBuffer();
+            const dbg_line = &dw.dbg_line;
             try dbg_line.ensureUnusedCapacity(11);
             dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
             leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
@@ -382,7 +382,7 @@ fn addDbgInfoTypeReloc(self: *Emit, ty: Type) !void {
     switch (self.debug_output) {
         .dwarf => |dw| {
             assert(ty.hasRuntimeBits());
-            const dbg_info = dw.getDeclDebugInfoBuffer();
+            const dbg_info = &dw.dbg_info;
             const index = dbg_info.items.len;
             try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
             const atom = switch (self.bin_file.tag) {
@@ -409,7 +409,7 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
         .register => |reg| {
             switch (self.debug_output) {
                 .dwarf => |dw| {
-                    const dbg_info = dw.getDeclDebugInfoBuffer();
+                    const dbg_info = &dw.dbg_info;
                     try dbg_info.ensureUnusedCapacity(3);
                     dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
@@ -442,7 +442,7 @@ fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
                         else => unreachable,
                     };
 
-                    const dbg_info = dw.getDeclDebugInfoBuffer();
+                    const dbg_info = &dw.dbg_info;
                     try dbg_info.append(link.File.Dwarf.abbrev_parameter);
 
                     // Get length of the LEB128 stack offset
@@ -560,7 +560,7 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirDebugPrologueEnd(emit: *Emit) !void {
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.getDeclDebugLineBuffer().append(DW.LNS.set_prologue_end);
+            try dw.dbg_line.append(DW.LNS.set_prologue_end);
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
@@ -571,7 +571,7 @@ fn mirDebugPrologueEnd(emit: *Emit) !void {
 fn mirDebugEpilogueBegin(emit: *Emit) !void {
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.getDeclDebugLineBuffer().append(DW.LNS.set_epilogue_begin);
+            try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},

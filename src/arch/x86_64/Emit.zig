@@ -977,7 +977,7 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
             // TODO Look into using the DWARF special opcodes to compress this data.
             // It lets you emit single-byte opcodes that add different numbers to
             // both the PC and the line number at the same time.
-            const dbg_line = dw.getDeclDebugLineBuffer();
+            const dbg_line = &dw.dbg_line;
             try dbg_line.ensureUnusedCapacity(11);
             dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
             leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
@@ -1034,7 +1034,7 @@ fn mirDbgPrologueEnd(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .dbg_prologue_end);
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.getDeclDebugLineBuffer().append(DW.LNS.set_prologue_end);
+            try dw.dbg_line.append(DW.LNS.set_prologue_end);
             log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{ emit.prev_di_line, emit.prev_di_column });
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
@@ -1048,7 +1048,7 @@ fn mirDbgEpilogueBegin(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .dbg_epilogue_begin);
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.getDeclDebugLineBuffer().append(DW.LNS.set_epilogue_begin);
+            try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
             log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{ emit.prev_di_line, emit.prev_di_column });
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
@@ -1075,7 +1075,7 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, max_stack: u32
         .register => |reg| {
             switch (emit.debug_output) {
                 .dwarf => |dw| {
-                    const dbg_info = dw.getDeclDebugInfoBuffer();
+                    const dbg_info = &dw.dbg_info;
                     try dbg_info.ensureUnusedCapacity(3);
                     dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
@@ -1099,7 +1099,7 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, max_stack: u32
                     // TODO we need to make this more generic if we don't use rbp as the frame pointer
                     // for example when -fomit-frame-pointer is set.
                     const disp = @intCast(i32, max_stack) - off + 16;
-                    const dbg_info = dw.getDeclDebugInfoBuffer();
+                    const dbg_info = &dw.dbg_info;
                     try dbg_info.ensureUnusedCapacity(8);
                     dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
                     const fixup = dbg_info.items.len;
@@ -1128,7 +1128,7 @@ fn addDbgInfoTypeReloc(emit: *Emit, ty: Type) !void {
     switch (emit.debug_output) {
         .dwarf => |dw| {
             assert(ty.hasRuntimeBits());
-            const dbg_info = dw.getDeclDebugInfoBuffer();
+            const dbg_info = &dw.dbg_info;
             const index = dbg_info.items.len;
             try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
             const atom = switch (emit.bin_file.tag) {

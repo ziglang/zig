@@ -749,7 +749,7 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
     switch (self.debug_output) {
         .dwarf => |dw| {
             assert(ty.hasRuntimeBits());
-            const dbg_info = dw.getDeclDebugInfoBuffer();
+            const dbg_info = &dw.dbg_info;
             const index = dbg_info.items.len;
             try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
             const atom = switch (self.bin_file.tag) {
@@ -1572,7 +1572,7 @@ fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32
         .register => |reg| {
             switch (self.debug_output) {
                 .dwarf => |dw| {
-                    const dbg_info = dw.getDeclDebugInfoBuffer();
+                    const dbg_info = &dw.dbg_info;
                     try dbg_info.ensureUnusedCapacity(3);
                     dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
