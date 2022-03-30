@@ -524,9 +524,9 @@ test "shl" {
     try testing.expect(shl(u8, 0b11111111, 8) == 0);
     try testing.expect(shl(u8, 0b11111111, 9) == 0);
     try testing.expect(shl(u8, 0b11111111, -2) == 0b00111111);
-    try testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) << 1);
-    try testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) >> 1);
-    try testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, 33)[0] == 0);
+    try testing.expect(shl(@Vector(1, u32), @Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) << 1);
+    try testing.expect(shl(@Vector(1, u32), @Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) >> 1);
+    try testing.expect(shl(@Vector(1, u32), @Vector(1, u32){42}, 33)[0] == 0);
 }
 
 /// Shifts right. Overflowed bits are truncated.
@@ -564,9 +564,9 @@ test "shr" {
     try testing.expect(shr(u8, 0b11111111, 8) == 0);
     try testing.expect(shr(u8, 0b11111111, 9) == 0);
     try testing.expect(shr(u8, 0b11111111, -2) == 0b11111100);
-    try testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) >> 1);
-    try testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) << 1);
-    try testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, 33)[0] == 0);
+    try testing.expect(shr(@Vector(1, u32), @Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) >> 1);
+    try testing.expect(shr(@Vector(1, u32), @Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) << 1);
+    try testing.expect(shr(@Vector(1, u32), @Vector(1, u32){42}, 33)[0] == 0);
 }
 
 /// Rotates right. Only unsigned values can be rotated.  Negative shift
@@ -593,8 +593,8 @@ test "rotr" {
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotr(u8, 0b00000001, @as(isize, -1)) == 0b00000010);
-    try testing.expect(rotr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
-    try testing.expect(rotr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
+    try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
+    try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
 }
 
 /// Rotates left. Only unsigned values can be rotated.  Negative shift
@@ -621,8 +621,8 @@ test "rotl" {
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotl(u8, 0b00000001, @as(isize, -1)) == 0b10000000);
-    try testing.expect(rotl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1 << 31}, @as(usize, 1))[0] == 1);
-    try testing.expect(rotl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
+    try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(usize, 1))[0] == 1);
+    try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
 }
 
 /// Returns an unsigned int type that can hold the number of bits in T

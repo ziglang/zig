@@ -15,7 +15,6 @@ const debug = std.debug;
 const assert = std.debug.assert;
 const testing = std.testing;
 const htest = @import("test.zig");
-const Vector = std.meta.Vector;
 const AuthenticationError = std.crypto.errors.AuthenticationError;
 
 pub const State = struct {
@@ -111,7 +110,7 @@ pub const State = struct {
         self.endianSwap();
     }
 
-    const Lane = Vector(4, u32);
+    const Lane = @Vector(4, u32);
 
     inline fn shift(x: Lane, comptime n: comptime_int) Lane {
         return x << @splat(4, @as(u5, n));

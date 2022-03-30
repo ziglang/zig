@@ -711,12 +711,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var a: std.meta.Vector(4, i32) = [_]i32{ 1, 2, 2147483643, 4 };
-        \\    var b: std.meta.Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
+        \\    var a: @Vector(4, i32) = [_]i32{ 1, 2, 2147483643, 4 };
+        \\    var b: @Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
         \\    const x = add(a, b);
         \\    _ = x;
         \\}
-        \\fn add(a: std.meta.Vector(4, i32), b: std.meta.Vector(4, i32)) std.meta.Vector(4, i32) {
+        \\fn add(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
         \\    return a + b;
         \\}
     );
@@ -729,12 +729,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var a: std.meta.Vector(4, u32) = [_]u32{ 1, 2, 8, 4 };
-        \\    var b: std.meta.Vector(4, u32) = [_]u32{ 5, 6, 7, 8 };
+        \\    var a: @Vector(4, u32) = [_]u32{ 1, 2, 8, 4 };
+        \\    var b: @Vector(4, u32) = [_]u32{ 5, 6, 7, 8 };
         \\    const x = sub(b, a);
         \\    _ = x;
         \\}
-        \\fn sub(a: std.meta.Vector(4, u32), b: std.meta.Vector(4, u32)) std.meta.Vector(4, u32) {
+        \\fn sub(a: @Vector(4, u32), b: @Vector(4, u32)) @Vector(4, u32) {
         \\    return a - b;
         \\}
     );
@@ -747,12 +747,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var a: std.meta.Vector(4, u8) = [_]u8{ 1, 2, 200, 4 };
-        \\    var b: std.meta.Vector(4, u8) = [_]u8{ 5, 6, 2, 8 };
+        \\    var a: @Vector(4, u8) = [_]u8{ 1, 2, 200, 4 };
+        \\    var b: @Vector(4, u8) = [_]u8{ 5, 6, 2, 8 };
         \\    const x = mul(b, a);
         \\    _ = x;
         \\}
-        \\fn mul(a: std.meta.Vector(4, u8), b: std.meta.Vector(4, u8)) std.meta.Vector(4, u8) {
+        \\fn mul(a: @Vector(4, u8), b: @Vector(4, u8)) @Vector(4, u8) {
         \\    return a * b;
         \\}
     );
@@ -765,11 +765,11 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var a: std.meta.Vector(4, i16) = [_]i16{ 1, -32768, 200, 4 };
+        \\    var a: @Vector(4, i16) = [_]i16{ 1, -32768, 200, 4 };
         \\    const x = neg(a);
         \\    _ = x;
         \\}
-        \\fn neg(a: std.meta.Vector(4, i16)) std.meta.Vector(4, i16) {
+        \\fn neg(a: @Vector(4, i16)) @Vector(4, i16) {
         \\    return -a;
         \\}
     );
@@ -846,12 +846,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
-        \\    var a: std.meta.Vector(4, i16) = [_]i16{ 1, 2, -32768, 4 };
-        \\    var b: std.meta.Vector(4, i16) = [_]i16{ 1, 2, -1, 4 };
+        \\    var a: @Vector(4, i16) = [_]i16{ 1, 2, -32768, 4 };
+        \\    var b: @Vector(4, i16) = [_]i16{ 1, 2, -1, 4 };
         \\    const x = div(a, b);
         \\    if (x[2] == 32767) return error.Whatever;
         \\}
-        \\fn div(a: std.meta.Vector(4, i16), b: std.meta.Vector(4, i16)) std.meta.Vector(4, i16) {
+        \\fn div(a: @Vector(4, i16), b: @Vector(4, i16)) @Vector(4, i16) {
         \\    return @divTrunc(a, b);
         \\}
     );
@@ -944,12 +944,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    std.os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var a: std.meta.Vector(4, i32) = [4]i32{111, 222, 333, 444};
-        \\    var b: std.meta.Vector(4, i32) = [4]i32{111, 0, 333, 444};
+        \\    var a: @Vector(4, i32) = [4]i32{111, 222, 333, 444};
+        \\    var b: @Vector(4, i32) = [4]i32{111, 0, 333, 444};
         \\    const x = div0(a, b);
         \\    _ = x;
         \\}
-        \\fn div0(a: std.meta.Vector(4, i32), b: std.meta.Vector(4, i32)) std.meta.Vector(4, i32) {
+        \\fn div0(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
         \\    return @divTrunc(a, b);
         \\}
     );
@@ -978,12 +978,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
-        \\    var a: std.meta.Vector(4, i32) = [4]i32{111, 222, 333, 444};
-        \\    var b: std.meta.Vector(4, i32) = [4]i32{111, 222, 333, 441};
+        \\    var a: @Vector(4, i32) = [4]i32{111, 222, 333, 444};
+        \\    var b: @Vector(4, i32) = [4]i32{111, 222, 333, 441};
         \\    const x = divExact(a, b);
         \\    _ = x;
         \\}
-        \\fn divExact(a: std.meta.Vector(4, i32), b: std.meta.Vector(4, i32)) std.meta.Vector(4, i32) {
+        \\fn divExact(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
         \\    return @divExact(a, b);
         \\}
     );

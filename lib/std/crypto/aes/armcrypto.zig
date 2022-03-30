@@ -1,9 +1,7 @@
 const std = @import("../../std.zig");
 const mem = std.mem;
 const debug = std.debug;
-const Vector = std.meta.Vector;
-
-const BlockVec = Vector(2, u64);
+const BlockVec = @Vector(2, u64);
 
 /// A single AES block.
 pub const Block = struct {
@@ -29,7 +27,7 @@ pub const Block = struct {
         return mem.toBytes(x);
     }
 
-    const zero = Vector(2, u64){ 0, 0 };
+    const zero = @Vector(2, u64){ 0, 0 };
 
     /// Encrypt a block with a round key.
     pub inline fn encrypt(block: Block, round_key: Block) Block {
@@ -182,7 +180,7 @@ fn KeySchedule(comptime Aes: type) type {
     return struct {
         const Self = @This();
 
-        const zero = Vector(2, u64){ 0, 0 };
+        const zero = @Vector(2, u64){ 0, 0 };
         const mask1 = @Vector(16, u8){ 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12 };
         const mask2 = @Vector(16, u8){ 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15 };
 
