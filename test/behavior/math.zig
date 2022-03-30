@@ -719,7 +719,6 @@ test "@shlWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var result: u16 = undefined;
     try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
