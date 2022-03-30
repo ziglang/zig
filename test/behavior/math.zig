@@ -697,11 +697,9 @@ test "@mulWithOverflow" {
     try expect(!@mulWithOverflow(u8, a, b, &result));
     try expect(result == 246);
 
-    if (builtin.zig_backend != .stage2_x86_64) { // TODO fix mul/imul on x86_64
-        b = 4;
-        try expect(@mulWithOverflow(u8, a, b, &result));
-        try expect(result == 236);
-    }
+    b = 4;
+    try expect(@mulWithOverflow(u8, a, b, &result));
+    try expect(result == 236);
 }
 
 test "@subWithOverflow" {
