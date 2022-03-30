@@ -30,7 +30,6 @@ const Type = @import("../../type.zig").Type;
 
 mir: Mir,
 bin_file: *link.File,
-function: *const CodeGen,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
@@ -187,7 +186,6 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .dbg_line => try emit.mirDbgLine(inst),
             .dbg_prologue_end => try emit.mirDbgPrologueEnd(inst),
             .dbg_epilogue_begin => try emit.mirDbgEpilogueBegin(inst),
-            .arg_dbg_info => try emit.mirArgDbgInfo(inst),
 
             .push_regs_from_callee_preserved_regs => try emit.mirPushPopRegsFromCalleePreservedRegs(.push, inst),
             .pop_regs_from_callee_preserved_regs => try emit.mirPushPopRegsFromCalleePreservedRegs(.pop, inst),
@@ -1051,92 +1049,6 @@ fn mirDbgEpilogueBegin(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
             log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{ emit.prev_di_line, emit.prev_di_column });
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn mirArgDbgInfo(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    assert(tag == .arg_dbg_info);
-    const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const arg_dbg_info = emit.mir.extraData(Mir.ArgDbgInfo, payload).data;
-    const mcv = emit.mir.function.args[arg_dbg_info.arg_index];
-    try emit.genArgDbgInfo(arg_dbg_info.air_inst, mcv, arg_dbg_info.max_stack, arg_dbg_info.arg_index);
-}
-
-fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, max_stack: u32, arg_index: u32) !void {
-    const ty = emit.mir.function.air.instructions.items(.data)[inst].ty;
-    const name = emit.mir.function.mod_fn.getParamName(arg_index);
-    const name_with_null = name.ptr[0 .. name.len + 1];
-
-    switch (mcv) {
-        .register => |reg| {
-            switch (emit.debug_output) {
-                .dwarf => |dw| {
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.ensureUnusedCapacity(3);
-                    dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
-                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // ULEB128 dwarf expression length
-                        reg.dwarfLocOp(),
-                    });
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try emit.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        .stack_offset => |off| {
-            switch (emit.debug_output) {
-                .dwarf => |dw| {
-                    // we add here +16 like we do in airArg in CodeGen since we refer directly to
-                    // rbp as the start of function frame minus 8 bytes for caller's rbp preserved in the
-                    // prologue, and 8 bytes for return address.
-                    // TODO we need to make this more generic if we don't use rbp as the frame pointer
-                    // for example when -fomit-frame-pointer is set.
-                    const disp = @intCast(i32, max_stack) - off + 16;
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.ensureUnusedCapacity(8);
-                    dbg_info.appendAssumeCapacity(link.File.Dwarf.abbrev_parameter);
-                    const fixup = dbg_info.items.len;
-                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // we will backpatch it after we encode the displacement in LEB128
-                        DW.OP.breg6, // .rbp TODO handle -fomit-frame-pointer
-                    });
-                    leb128.writeILEB128(dbg_info.writer(), disp) catch unreachable;
-                    dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try emit.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-
-                },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        else => {},
-    }
-}
-
-/// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
-/// after codegen for this symbol is done.
-fn addDbgInfoTypeReloc(emit: *Emit, ty: Type) !void {
-    switch (emit.debug_output) {
-        .dwarf => |dw| {
-            assert(ty.hasRuntimeBits());
-            const dbg_info = &dw.dbg_info;
-            const index = dbg_info.items.len;
-            try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
-            const atom = switch (emit.bin_file.tag) {
-                .elf => &emit.function.mod_fn.owner_decl.link.elf.dbg_info_atom,
-                .macho => &emit.function.mod_fn.owner_decl.link.macho.dbg_info_atom,
-                else => unreachable,
-            };
-            try dw.addTypeReloc(atom, ty, @intCast(u32, index), null);
         },
         .plan9 => {},
         .none => {},

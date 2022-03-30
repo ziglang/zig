@@ -147,7 +147,7 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
 
             .call_extern => try print.mirCallExtern(inst, w),
 
-            .dbg_line, .dbg_prologue_end, .dbg_epilogue_begin, .arg_dbg_info => try w.print("{s}\n", .{@tagName(tag)}),
+            .dbg_line, .dbg_prologue_end, .dbg_epilogue_begin => try w.print("{s}\n", .{@tagName(tag)}),
 
             .push_regs_from_callee_preserved_regs => try print.mirPushPopRegsFromCalleePreservedRegs(.push, inst, w),
             .pop_regs_from_callee_preserved_regs => try print.mirPushPopRegsFromCalleePreservedRegs(.pop, inst, w),
