@@ -3014,9 +3014,10 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
     } else null;
 
     const writer = f.object.writer();
-    const inputs_extra_begin = extra_i;
+    try writer.writeAll("{\n");
 
-    for (inputs) |input| {
+    const inputs_extra_begin = extra_i;
+    for (inputs) |input, i| {
         const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
         // for the string, we still use the next u32 for the null terminator.
@@ -3032,7 +3033,11 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             try f.writeCValue(writer, arg_c_value);
             try writer.writeAll(";\n");
         } else {
-            return f.fail("TODO non-explicit inline asm regs", .{});
+            try writer.writeAll("register ");
+            try f.renderType(writer, f.air.typeOf(input));
+            try writer.print(" input_{d} = ", .{i});
+            try f.writeCValue(writer, try f.resolveInst(input));
+            try writer.writeAll(";\n");
         }
     }
 
@@ -3074,12 +3079,15 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 }
                 try writer.print("\"r\"({s}_constant)", .{reg});
             } else {
-                // This is blocked by the earlier test
-                unreachable;
+                if (index > 0) {
+                    try writer.writeAll(", ");
+                }
+                try writer.print("\"r\"(input_{d})", .{index});
             }
         }
     }
     try writer.writeAll(");\n");
+    try writer.writeAll("}\n");
 
     if (f.liveness.isUnused(inst))
         return CValue.none;

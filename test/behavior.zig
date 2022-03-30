@@ -165,10 +165,7 @@ test {
     }
 
     if (builtin.os.tag != .wasi) {
-        if (builtin.zig_backend == .stage1) {
-            // TODO get these tests passing with stage2
-            _ = @import("behavior/asm.zig");
-        }
+        _ = @import("behavior/asm.zig");
     }
 
     if (builtin.zig_backend != .stage2_arm and

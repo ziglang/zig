@@ -10253,6 +10253,11 @@ fn zirAsm(
     const inputs_len = @truncate(u5, extended.small >> 5);
     const clobbers_len = @truncate(u5, extended.small >> 10);
     const is_volatile = @truncate(u1, extended.small >> 15) != 0;
+    const is_global_assembly = sema.func == null;
+
+    if (block.is_comptime and !is_global_assembly) {
+        try sema.requireRuntimeBlock(block, src);
+    }
 
     if (extra.data.asm_source == 0) {
         // This can move to become an AstGen error after inline assembly improvements land
@@ -10299,7 +10304,14 @@ fn zirAsm(
         const name = sema.code.nullTerminatedString(input.data.name);
         _ = name; // TODO: use the name
 
-        arg.* = sema.resolveInst(input.data.operand);
+        const uncasted_arg = sema.resolveInst(input.data.operand);
+        const uncasted_arg_ty = sema.typeOf(uncasted_arg);
+        switch (uncasted_arg_ty.zigTypeTag()) {
+            .ComptimeInt => arg.* = try sema.coerce(block, Type.initTag(.usize), uncasted_arg, src),
+            .ComptimeFloat => arg.* = try sema.coerce(block, Type.initTag(.f64), uncasted_arg, src),
+            else => arg.* = uncasted_arg,
+        }
+
         const constraint = sema.code.nullTerminatedString(input.data.constraint);
         needed_capacity += constraint.len / 4 + 1;
         inputs[arg_i] = constraint;
@@ -10317,7 +10329,6 @@ fn zirAsm(
     needed_capacity += (asm_source.len + 3) / 4;
 
     const gpa = sema.gpa;
-    try sema.requireRuntimeBlock(block, src);
     try sema.air_extra.ensureUnusedCapacity(gpa, needed_capacity);
     const asm_air = try block.addInst(.{
         .tag = .assembly,

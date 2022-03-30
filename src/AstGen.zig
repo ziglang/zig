@@ -6423,7 +6423,6 @@ fn identifier(
 
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const gpa = astgen.gpa;
     const main_tokens = tree.nodes.items(.main_token);
 
     const ident_token = main_tokens[ident];
@@ -6467,6 +6466,19 @@ fn identifier(
     }
 
     // Local variables, including function parameters.
+    return localVarRef(gz, scope, rl, ident, ident_token);
+}
+
+fn localVarRef(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    ident: Ast.Node.Index,
+    ident_token: Ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+
     const name_str_index = try astgen.identAsString(ident_token);
     var s = scope;
     var found_already: ?Ast.Node.Index = null; // we have found a decl with the same name already
@@ -6808,43 +6820,13 @@ fn asmExpr(
             };
         } else {
             const ident_token = symbolic_name + 4;
-            const str_index = try astgen.identAsString(ident_token);
-            // TODO this needs extra code for local variables. Have a look at #215 and related
-            // issues and decide how to handle outputs. Do we want this to be identifiers?
+            // TODO have a look at #215 and related issues and decide how to
+            // handle outputs. Do we want this to be identifiers?
             // Or maybe we want to force this to be expressions with a pointer type.
-            // Until that is figured out this is only hooked up for referencing Decls.
-            // TODO we have put this as an identifier lookup just so that we don't get
-            // unused vars for outputs. We need to check if this is correct in the future ^^
-            // so we just put in this simple lookup. This is a workaround.
-            {
-                var s = scope;
-                while (true) switch (s.tag) {
-                    .local_val => {
-                        const local_val = s.cast(Scope.LocalVal).?;
-                        if (local_val.name == str_index) {
-                            local_val.used = true;
-                            break;
-                        }
-                        s = local_val.parent;
-                    },
-                    .local_ptr => {
-                        const local_ptr = s.cast(Scope.LocalPtr).?;
-                        if (local_ptr.name == str_index) {
-                            local_ptr.used = true;
-                            break;
-                        }
-                        s = local_ptr.parent;
-                    },
-                    .gen_zir => s = s.cast(GenZir).?.parent,
-                    .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-                    .namespace, .top => break,
-                };
-            }
-            const operand = try gz.addStrTok(.decl_ref, str_index, ident_token);
             outputs[i] = .{
                 .name = name,
                 .constraint = constraint,
-                .operand = operand,
+                .operand = try localVarRef(gz, scope, rl, node, ident_token),
             };
         }
     }
@@ -6860,7 +6842,7 @@ fn asmExpr(
         const name = try astgen.identAsString(symbolic_name);
         const constraint_token = symbolic_name + 2;
         const constraint = (try astgen.strLitAsString(constraint_token)).index;
-        const operand = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[input_node].lhs);
+        const operand = try expr(gz, scope, .none, node_datas[input_node].lhs);
         inputs[i] = .{
             .name = name,
             .constraint = constraint,
