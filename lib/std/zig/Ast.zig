@@ -2354,10 +2354,10 @@ pub const full = struct {
             }
         };
 
-        pub fn iterate(fn_proto: FnProto, tree: Ast) Iterator {
+        pub fn iterate(fn_proto: *const FnProto, tree: *const Ast) Iterator {
             return .{
-                .tree = &tree,
-                .fn_proto = &fn_proto,
+                .tree = tree,
+                .fn_proto = fn_proto,
                 .param_i = 0,
                 .tok_i = fn_proto.lparen + 1,
                 .tok_flag = true,

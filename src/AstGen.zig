@@ -1122,7 +1122,7 @@ fn fnProtoExpr(
 
     const is_var_args = is_var_args: {
         var param_type_i: usize = 0;
-        var it = fn_proto.iterate(tree.*);
+        var it = fn_proto.iterate(tree);
         while (it.next()) |param| : (param_type_i += 1) {
             const is_comptime = if (param.comptime_noalias) |token|
                 token_tags[token] == .keyword_comptime
@@ -3377,7 +3377,7 @@ fn fnDecl(
     var params_scope = &fn_gz.base;
     const is_var_args = is_var_args: {
         var param_type_i: usize = 0;
-        var it = fn_proto.iterate(tree.*);
+        var it = fn_proto.iterate(tree);
         while (it.next()) |param| : (param_type_i += 1) {
             const is_comptime = if (param.comptime_noalias) |token|
                 token_tags[token] == .keyword_comptime
