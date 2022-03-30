@@ -2342,6 +2342,12 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     if (self.dwarf) |*dw| {
         try dw.initDeclState(decl);
     }
+    defer if (self.dwarf) |*dw| {
+        if (dw.decl_state) |*ds| {
+            ds.deinit(dw.allocator);
+            dw.decl_state = null;
+        }
+    };
 
     const res = if (self.dwarf) |*dw|
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{

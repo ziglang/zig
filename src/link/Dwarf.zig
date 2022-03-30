@@ -91,7 +91,7 @@ pub const DeclState = struct {
         };
     }
 
-    fn deinit(self: *DeclState, gpa: Allocator) void {
+    pub fn deinit(self: *DeclState, gpa: Allocator) void {
         self.dbg_line.deinit();
         self.dbg_info.deinit();
         self.abbrev_type_arena.deinit();
