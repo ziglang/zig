@@ -63,7 +63,7 @@ pub const ExtraIndex = enum(u32) {
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, end: usize } {
-    const fields = std.meta.fields(T);
+    const fields = @typeInfo(T).Struct.fields;
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
@@ -94,7 +94,8 @@ pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
     const raw_slice = code.extra[start..][0..len];
-    return @bitCast([]Inst.Ref, raw_slice);
+    // TODO we should be able to directly `@ptrCast` the slice to the other slice type.
+    return @ptrCast([*]Inst.Ref, raw_slice.ptr)[0..len];
 }
 
 pub fn hasCompileErrors(code: Zir) bool {

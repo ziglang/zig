@@ -290,3 +290,19 @@ test "generic function with void and comptime parameter" {
     var s: S = .{ .x = 1234 };
     try namespace.foo({}, &s, u8);
 }
+
+test "anonymous struct return type referencing comptime parameter" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        pub fn extraData(comptime T: type, index: usize) struct { data: T, end: usize } {
+            return .{
+                .data = 1234,
+                .end = index,
+            };
+        }
+    };
+    const s = S.extraData(i32, 5678);
+    try expect(s.data == 1234);
+    try expect(s.end == 5678);
+}

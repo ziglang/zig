@@ -4764,12 +4764,20 @@ fn analyzeCall(
 
     const gpa = sema.gpa;
 
-    var is_comptime_call = block.is_comptime or modifier == .compile_time or
-        try sema.typeRequiresComptime(block, func_src, func_ty_info.return_type);
+    var is_generic_call = func_ty_info.is_generic;
+    var is_comptime_call = block.is_comptime or modifier == .compile_time;
+    if (!is_comptime_call) {
+        if (sema.typeRequiresComptime(block, func_src, func_ty_info.return_type)) |ct| {
+            is_comptime_call = ct;
+        } else |err| switch (err) {
+            error.GenericPoison => is_generic_call = true,
+            else => |e| return e,
+        }
+    }
     var is_inline_call = is_comptime_call or modifier == .always_inline or
         func_ty_info.cc == .Inline;
 
-    if (!is_inline_call and func_ty_info.is_generic) {
+    if (!is_inline_call and is_generic_call) {
         if (sema.instantiateGenericCall(
             block,
             func,
@@ -6410,10 +6418,20 @@ fn funcCommon(
             }
         }
 
-        is_generic = is_generic or
-            try sema.typeRequiresComptime(block, ret_ty_src, bare_return_type);
+        const ret_poison = if (!is_generic) rp: {
+            if (sema.typeRequiresComptime(block, ret_ty_src, bare_return_type)) |ret_comptime| {
+                is_generic = ret_comptime;
+                break :rp bare_return_type.tag() == .generic_poison;
+            } else |err| switch (err) {
+                error.GenericPoison => {
+                    is_generic = true;
+                    break :rp true;
+                },
+                else => |e| return e,
+            }
+        } else bare_return_type.tag() == .generic_poison;
 
-        const return_type = if (!inferred_error_set or bare_return_type.tag() == .generic_poison)
+        const return_type = if (!inferred_error_set or ret_poison)
             bare_return_type
         else blk: {
             const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
@@ -13570,7 +13588,7 @@ fn reifyStruct(
         .zir_index = inst,
         .layout = layout_val.toEnum(std.builtin.Type.ContainerLayout),
         .status = .have_field_types,
-        .known_non_opv = undefined,
+        .known_non_opv = false,
         .namespace = .{
             .parent = block.namespace,
             .ty = struct_ty,
@@ -21666,6 +21684,10 @@ fn semaStructFields(
         // TODO emit compile errors for invalid field types
         // such as arrays and pointers inside packed structs.
 
+        if (field_ty.tag() == .generic_poison) {
+            return error.GenericPoison;
+        }
+
         const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
         assert(!gop.found_existing);
         gop.value_ptr.* = .{
@@ -21912,6 +21934,10 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             // that points to this type expression rather than the union.
             // But only resolve the source location if we need to emit a compile error.
             try sema.resolveType(&block_scope, src, field_type_ref);
+
+        if (field_ty.tag() == .generic_poison) {
+            return error.GenericPoison;
+        }
 
         const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
         assert(!gop.found_existing);
