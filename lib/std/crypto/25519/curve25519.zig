@@ -39,8 +39,11 @@ pub const Curve25519 = struct {
         }
     }
 
-    /// Multiply a point by the cofactor
-    pub const clearCofactor = @compileError("TODO what was this function supposed to do? it didn't compile successfully");
+    /// Multiply a point by the cofactor, returning WeakPublicKey if the element is in a small-order group.
+    pub fn clearCofactor(p: Curve25519) WeakPublicKeyError!Curve25519 {
+        const cofactor = [_]u8{8} ++ [_]u8{0} ** 31;
+        return ladder(p, cofactor, 4) catch return error.WeakPublicKey;
+    }
 
     fn ladder(p: Curve25519, s: [32]u8, comptime bits: usize) IdentityElementError!Curve25519 {
         var x1 = p.x;
@@ -94,8 +97,7 @@ pub const Curve25519 = struct {
     /// the identity element or error.WeakPublicKey if the public
     /// key is a low-order point.
     pub fn mul(p: Curve25519, s: [32]u8) (IdentityElementError || WeakPublicKeyError)!Curve25519 {
-        const cofactor = [_]u8{8} ++ [_]u8{0} ** 31;
-        _ = ladder(p, cofactor, 4) catch return error.WeakPublicKey;
+        _ = try p.clearCofactor();
         return try ladder(p, s, 256);
     }
 
@@ -148,6 +150,7 @@ test "curve25519 small order check" {
         },
     };
     for (small_order_ss) |small_order_s| {
+        try std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(small_order_s).clearCofactor());
         try std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(small_order_s).mul(s));
         var extra = small_order_s;
         extra[31] ^= 0x80;
