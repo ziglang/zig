@@ -119,7 +119,7 @@ fn testSqrt() !void {
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.0)), 1.4142135623730950, epsilon));
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
         var result = @sqrt(v);
         try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.2)), result[1], epsilon));
@@ -199,7 +199,7 @@ fn testSin() !void {
     }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
         var result = @sin(v);
         try expect(math.approxEqAbs(f32, @sin(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @sin(@as(f32, 2.2)), result[1], epsilon));
@@ -233,7 +233,7 @@ fn testCos() !void {
     }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
         var result = @cos(v);
         try expect(math.approxEqAbs(f32, @cos(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @cos(@as(f32, 2.2)), result[1], epsilon));
@@ -262,7 +262,7 @@ fn testExp() !void {
     }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @exp(v);
         try expect(math.approxEqAbs(f32, @exp(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @exp(@as(f32, 2.2)), result[1], epsilon));
@@ -291,7 +291,7 @@ fn testExp2() !void {
     }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @exp2(v);
         try expect(math.approxEqAbs(f32, @exp2(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @exp2(@as(f32, 2.2)), result[1], epsilon));
@@ -331,7 +331,7 @@ fn testLog() !void {
     }
 }
 
-test "@log with vectors" {
+test "@log with @vectors" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -368,7 +368,7 @@ fn testLog2() !void {
     }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log2(v);
         try expect(@log2(@as(f32, 1.1)) == result[0]);
         try expect(@log2(@as(f32, 2.2)) == result[1]);
@@ -397,7 +397,7 @@ fn testLog10() !void {
     }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log10(v);
         try expect(@log10(@as(f32, 1.1)) == result[0]);
         try expect(@log10(@as(f32, 2.2)) == result[1]);
@@ -435,7 +435,7 @@ fn testFabs() !void {
     // }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @fabs(v);
         try expect(math.approxEqAbs(f32, @fabs(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @fabs(@as(f32, -2.2)), result[1], epsilon));
@@ -468,7 +468,7 @@ fn testFloor() !void {
     // }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @floor(v);
         try expect(math.approxEqAbs(f32, @floor(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @floor(@as(f32, -2.2)), result[1], epsilon));
@@ -501,7 +501,7 @@ fn testCeil() !void {
     // }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @ceil(v);
         try expect(math.approxEqAbs(f32, @ceil(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @ceil(@as(f32, -2.2)), result[1], epsilon));
@@ -534,7 +534,7 @@ fn testTrunc() !void {
     // }
 
     {
-        var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
+        var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @trunc(v);
         try expect(math.approxEqAbs(f32, @trunc(@as(f32, 1.1)), result[0], epsilon));
         try expect(math.approxEqAbs(f32, @trunc(@as(f32, -2.2)), result[1], epsilon));
