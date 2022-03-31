@@ -320,7 +320,6 @@ test "comptime_int multi-limb partial shift right" {
 
 test "xor" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     try test_xor();
     comptime try test_xor();
@@ -502,7 +501,6 @@ fn mod(comptime T: type, a: T, b: T) T {
 }
 
 test "unsigned wrapping" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testUnsignedWrappingEval(maxInt(u32));
@@ -516,7 +514,6 @@ fn testUnsignedWrappingEval(x: u32) !void {
 }
 
 test "signed wrapping" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testSignedWrappingEval(maxInt(i32));
@@ -530,7 +527,6 @@ fn testSignedWrappingEval(x: i32) !void {
 }
 
 test "signed negation wrapping" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testSignedNegationWrappingEval(minInt(i16));
@@ -543,7 +539,6 @@ fn testSignedNegationWrappingEval(x: i16) !void {
 }
 
 test "unsigned negation wrapping" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testUnsignedNegationWrappingEval(1);
