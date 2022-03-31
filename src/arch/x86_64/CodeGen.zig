@@ -645,13 +645,13 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         switch (air_tags[inst]) {
             // zig fmt: off
             .add             => try self.airAdd(inst),
-            .addwrap         => try self.airAddWrap(inst),
+            .addwrap         => try self.airAdd(inst),
             .add_sat         => try self.airAddSat(inst),
             .sub             => try self.airSub(inst),
-            .subwrap         => try self.airSubWrap(inst),
+            .subwrap         => try self.airSub(inst),
             .sub_sat         => try self.airSubSat(inst),
             .mul             => try self.airMul(inst),
-            .mulwrap         => try self.airMulWrap(inst),
+            .mulwrap         => try self.airMul(inst),
             .mul_sat         => try self.airMulSat(inst),
             .rem             => try self.airRem(inst),
             .mod             => try self.airMod(inst),
@@ -1318,7 +1318,7 @@ fn airAddWrap(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        return self.fail("TODO implement addwrap for {}", .{self.target.cpu.arch});
+        try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1375,15 +1375,6 @@ fn airSub(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airSubWrap(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement subwrap for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
 fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst))
@@ -1418,15 +1409,6 @@ fn airMul(self: *Self, inst: Air.Inst.Index) !void {
         }, ty, signedness, lhs, rhs);
         break :result MCValue{ .register = .rax };
     };
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airMulWrap(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement mulwrap for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1826,7 +1808,7 @@ fn airXor(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        return self.fail("TODO implement xor for {}", .{self.target.cpu.arch});
+        try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
