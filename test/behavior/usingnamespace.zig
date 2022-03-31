@@ -56,3 +56,23 @@ test "two files usingnamespace import each other" {
 
     try expect(@This().ok());
 }
+
+test {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const AA = struct {
+        x: i32,
+        fn b(x: i32) @This() {
+            return .{ .x = x };
+        }
+        fn c() type {
+            return if (true) struct {
+                const expected: i32 = 42;
+            } else struct {};
+        }
+        usingnamespace c();
+    };
+    const a = AA.b(42);
+    try expect(a.x == AA.c().expected);
+}

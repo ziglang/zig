@@ -3909,19 +3909,18 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const decl_arena_state = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
 
     if (decl.is_usingnamespace) {
-        const ty_ty = Type.initTag(.type);
-        if (!decl_tv.ty.eql(ty_ty, target)) {
+        if (!decl_tv.ty.eql(Type.type, target)) {
             return sema.fail(&block_scope, src, "expected type, found {}", .{
                 decl_tv.ty.fmt(target),
             });
         }
         var buffer: Value.ToTypeBuffer = undefined;
-        const ty = decl_tv.val.toType(&buffer);
+        const ty = try decl_tv.val.toType(&buffer).copy(decl_arena_allocator);
         if (ty.getNamespace() == null) {
             return sema.fail(&block_scope, src, "type {} has no namespace", .{ty.fmt(target)});
         }
 
-        decl.ty = ty_ty;
+        decl.ty = Type.type;
         decl.val = try Value.Tag.ty.create(decl_arena_allocator, ty);
         decl.@"align" = 0;
         decl.@"linksection" = null;
