@@ -122,7 +122,7 @@ pub fn emitMir(
             .ldrsh_stack_argument => try emit.mirLoadStackArgument(inst),
 
             .ldrh => try emit.mirLoadStoreExtra(inst),
-            .ldrsb => try emit.mirLoadStore(inst),
+            .ldrsb => try emit.mirLoadStoreExtra(inst),
             .ldrsh => try emit.mirLoadStoreExtra(inst),
             .strh => try emit.mirLoadStoreExtra(inst),
 
@@ -130,6 +130,7 @@ pub fn emitMir(
             .movt => try emit.mirSpecialMove(inst),
 
             .mul => try emit.mirMultiply(inst),
+            .smulbb => try emit.mirMultiply(inst),
 
             .nop => try emit.mirNop(),
 
@@ -689,6 +690,7 @@ fn mirMultiply(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .mul => try emit.writeInstruction(Instruction.mul(cond, rrr.rd, rrr.rn, rrr.rm)),
+        .smulbb => try emit.writeInstruction(Instruction.smulbb(cond, rrr.rd, rrr.rn, rrr.rm)),
         else => unreachable,
     }
 }

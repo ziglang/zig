@@ -216,6 +216,18 @@ pub const Instruction = union(enum) {
         fixed_2: u5 = 0b00001,
         cond: u4,
     },
+    signed_multiply_halfwords: packed struct {
+        rn: u4,
+        fixed_1: u1 = 0b0,
+        n: u1,
+        m: u1,
+        fixed_2: u1 = 0b1,
+        rm: u4,
+        fixed_3: u4 = 0b0000,
+        rd: u4,
+        fixed_4: u8 = 0b00010110,
+        cond: u4,
+    },
     integer_saturating_arithmetic: packed struct {
         rm: u4,
         fixed_1: u8 = 0b0000_0101,
@@ -592,6 +604,7 @@ pub const Instruction = union(enum) {
             .data_processing => |v| @bitCast(u32, v),
             .multiply => |v| @bitCast(u32, v),
             .multiply_long => |v| @bitCast(u32, v),
+            .signed_multiply_halfwords => |v| @bitCast(u32, v),
             .integer_saturating_arithmetic => |v| @bitCast(u32, v),
             .bit_field_extract => |v| @bitCast(u32, v),
             .single_data_transfer => |v| @bitCast(u32, v),
@@ -687,6 +700,26 @@ pub const Instruction = union(enum) {
                 .rdhi = rdhi.id(),
                 .rn = rn.id(),
                 .rm = rm.id(),
+            },
+        };
+    }
+
+    fn signedMultiplyHalfwords(
+        n: u1,
+        m: u1,
+        cond: Condition,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+    ) Instruction {
+        return Instruction{
+            .signed_multiply_halfwords = .{
+                .rn = rn.id(),
+                .n = n,
+                .m = m,
+                .rm = rm.id(),
+                .rd = rd.id(),
+                .cond = @enumToInt(cond),
             },
         };
     }
@@ -1093,6 +1126,24 @@ pub const Instruction = union(enum) {
         return multiplyLong(cond, 1, 1, 1, rdhi, rdlo, rm, rn);
     }
 
+    // Signed Multiply (halfwords)
+
+    pub fn smulbb(cond: Condition, rd: Register, rn: Register, rm: Register) Instruction {
+        return signedMultiplyHalfwords(0, 0, cond, rd, rn, rm);
+    }
+
+    pub fn smulbt(cond: Condition, rd: Register, rn: Register, rm: Register) Instruction {
+        return signedMultiplyHalfwords(0, 1, cond, rd, rn, rm);
+    }
+
+    pub fn smultb(cond: Condition, rd: Register, rn: Register, rm: Register) Instruction {
+        return signedMultiplyHalfwords(1, 0, cond, rd, rn, rm);
+    }
+
+    pub fn smultt(cond: Condition, rd: Register, rn: Register, rm: Register) Instruction {
+        return signedMultiplyHalfwords(1, 1, cond, rd, rn, rm);
+    }
+
     // Bit field extract
 
     pub fn ubfx(cond: Condition, rd: Register, rn: Register, lsb: u5, width: u6) Instruction {
@@ -1439,6 +1490,10 @@ test "serialize instructions" {
         .{ // qadd r0, r7, r8
             .inst = Instruction.qadd(.al, .r0, .r7, .r8),
             .expected = 0b1110_00010_00_0_1000_0000_0000_0101_0111,
+        },
+        .{ // smulbt r0, r0, r0
+            .inst = Instruction.smulbt(.al, .r0, .r0, .r0),
+            .expected = 0b1110_00010110_0000_0000_0000_1_1_0_0_0000,
         },
     };
 

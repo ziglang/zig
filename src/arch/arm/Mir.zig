@@ -102,6 +102,8 @@ pub const Inst = struct {
         rsb,
         /// Signed Bit Field Extract
         sbfx,
+        /// Signed Multiply (halfwords), bottom half, bottom half
+        smulbb,
         /// Store Register
         str,
         /// Store Register Byte
