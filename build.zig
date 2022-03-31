@@ -54,7 +54,7 @@ pub fn build(b: *Builder) !void {
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
-    const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
+    const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
     const skip_install_lib_files = b.option(bool, "skip-install-lib-files", "Do not copy lib/ files to installation prefix") orelse false;
@@ -386,7 +386,7 @@ pub fn build(b: *Builder) !void {
     test_stage2_options.addOption(bool, "enable_logging", enable_logging);
     test_stage2_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_stage2_options.addOption(bool, "skip_non_native", skip_non_native);
-    test_stage2_options.addOption(bool, "skip_compile_errors", skip_compile_errors);
+    test_stage2_options.addOption(bool, "skip_stage1", skip_stage1);
     test_stage2_options.addOption(bool, "is_stage1", is_stage1);
     test_stage2_options.addOption(bool, "omit_stage2", omit_stage2);
     test_stage2_options.addOption(bool, "have_llvm", enable_llvm);
