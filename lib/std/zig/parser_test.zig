@@ -4712,6 +4712,28 @@ test "zig fmt: space after top level doc comment" {
     );
 }
 
+test "zig fmt: remove trailing whitespace after container doc comment" {
+    try testTransform(
+        \\//! top level doc comment 
+        \\
+    ,
+        \\//! top level doc comment
+        \\
+    );
+}
+
+test "zig fmt: remove trailing whitespace after doc comment" {
+    try testTransform(
+        \\/// doc comment 
+        \\a = 0,
+        \\
+    ,
+        \\/// doc comment
+        \\a = 0,
+        \\
+    );
+}
+
 test "zig fmt: for loop with ptr payload and index" {
     try testCanonical(
         \\test {
