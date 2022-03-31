@@ -305,3 +305,37 @@ fn testAtomicsWithType(comptime T: type, a: T, b: T) !void {
     if (@sizeOf(T) != 0)
         try expect(@cmpxchgStrong(T, &x, b, a, .SeqCst, .SeqCst).? == a);
 }
+
+test "return @atomicStore, using it as a void value" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const A = struct {
+            value: usize,
+
+            pub fn store(self: *A, value: usize) void {
+                return @atomicStore(usize, &self.value, value, .Unordered);
+            }
+
+            pub fn store2(self: *A, value: usize) void {
+                return switch (value) {
+                    else => @atomicStore(usize, &self.value, value, .Unordered),
+                };
+            }
+        };
+
+        fn doTheTest() !void {
+            var x: A = .{ .value = 5 };
+            x.store(10);
+            try expect(x.value == 10);
+            x.store(100);
+            try expect(x.value == 100);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}

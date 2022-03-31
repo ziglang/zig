@@ -8924,9 +8924,18 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
 fn rvalue(
     gz: *GenZir,
     rl: ResultLoc,
-    result: Zir.Inst.Ref,
+    raw_result: Zir.Inst.Ref,
     src_node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
+    const result = r: {
+        if (refToIndex(raw_result)) |result_index| {
+            const zir_tags = gz.astgen.instructions.items(.tag);
+            if (zir_tags[result_index].isAlwaysVoid()) {
+                break :r Zir.Inst.Ref.void_value;
+            }
+        }
+        break :r raw_result;
+    };
     if (gz.endsWithNoReturn()) return result;
     switch (rl) {
         .none, .coerced_ty => return result,
