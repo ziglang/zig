@@ -23,7 +23,9 @@ pub fn suggestVectorSizeForCpu(comptime T: type, cpu: std.Target.Cpu) ?usize {
             const element_bit_size = std.math.max(8, std.math.ceilPowerOfTwo(T, @bitSizeOf(T)));
             return @divExact(vector_bit_size, element_bit_size);
         },
-        else => @compileError("No vector sizes for this CPU architecture have yet been recommended"),
+        else => {
+            return null;
+        },
     }
 }
 
