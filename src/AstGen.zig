@@ -7205,14 +7205,11 @@ fn builtinCall(
         .src => {
             const token_starts = tree.tokens.items(.start);
             const node_start = token_starts[tree.firstToken(node)];
-
             astgen.advanceSourceCursor(node_start);
-
             const result = try gz.addExtendedPayload(.builtin_src, Zir.Inst.LineColumn{
-                .line = @intCast(u32, astgen.source_line),
-                .column = @intCast(u32, astgen.source_column),
+                .line = astgen.source_line,
+                .column = astgen.source_column,
             });
-
             return rvalue(gz, rl, result, node);
         },
 

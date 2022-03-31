@@ -461,8 +461,13 @@ const Writer = struct {
             .error_return_trace,
             .frame,
             .frame_address,
-            .builtin_src,
             => try self.writeExtNode(stream, extended),
+
+            .builtin_src => {
+                try stream.writeAll("))");
+                const inst_data = self.code.extraData(Zir.Inst.LineColumn, extended.operand).data;
+                try stream.print(":{d}:{d}", .{ inst_data.line + 1, inst_data.column + 1 });
+            },
 
             .dbg_block_begin,
             .dbg_block_end,
