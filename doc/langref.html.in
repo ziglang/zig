@@ -7833,7 +7833,7 @@ fn readFile(allocator: Allocator, filename: []const u8) ![]u8 {
       for the current target to match the C ABI. When the child type of a pointer has
       this alignment, the alignment can be omitted from the type.
       </p>
-      <pre>{#syntax#}const expect = @import("std").debug.assert;
+      <pre>{#syntax#}const assert = @import("std").debug.assert;
 comptime {
     assert(*u32 == *align(@alignOf(u32)) u32);
 }{#endsyntax#}</pre>
