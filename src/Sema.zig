@@ -21549,6 +21549,7 @@ fn resolveInferredErrorSet(
     var it = ies.inferred_error_sets.keyIterator();
     while (it.next()) |other_error_set_ptr| {
         const other_ies: *Module.Fn.InferredErrorSet = other_error_set_ptr.*;
+        if (ies == other_ies) continue;
         try sema.resolveInferredErrorSet(block, src, other_ies);
 
         for (other_ies.errors.keys()) |key| {
