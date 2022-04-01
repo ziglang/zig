@@ -409,6 +409,7 @@ const DocData = struct {
         ErrorSet: struct {
             name: []const u8,
             fields: []const Field,
+            // TODO: fn field for inferred error sets?
         },
         Enum: struct {
             name: []const u8,
