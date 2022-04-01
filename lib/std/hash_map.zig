@@ -370,11 +370,14 @@ pub fn HashMap(
     comptime Context: type,
     comptime max_load_percentage: u64,
 ) type {
-    comptime verifyContext(Context, K, K, u64, false);
     return struct {
         unmanaged: Unmanaged,
         allocator: Allocator,
         ctx: Context,
+
+        comptime {
+            verifyContext(Context, K, K, u64, false);
+        }
 
         /// The type of the unmanaged hash map underlying this wrapper
         pub const Unmanaged = HashMapUnmanaged(K, V, Context, max_load_percentage);
@@ -694,10 +697,12 @@ pub fn HashMapUnmanaged(
 ) type {
     if (max_load_percentage <= 0 or max_load_percentage >= 100)
         @compileError("max_load_percentage must be between 0 and 100.");
-    comptime verifyContext(Context, K, K, u64, false);
-
     return struct {
         const Self = @This();
+
+        comptime {
+            verifyContext(Context, K, K, u64, false);
+        }
 
         // This is actually a midway pointer to the single buffer containing
         // a `Header` field, the `Metadata`s and `Entry`s.
