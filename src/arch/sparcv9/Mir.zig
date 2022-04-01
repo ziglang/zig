@@ -37,14 +37,14 @@ pub const Inst = struct {
         /// It uses the nop field.
         nop,
 
+        /// A.45 RETURN
+        /// It uses the arithmetic_2op field.
+        @"return",
+
         /// A.46 SAVE and RESTORE
         /// Those uses the arithmetic_3op field.
         save,
         restore,
-
-        /// A.45 RETURN
-        /// It uses the arithmetic_2op field.
-        @"return",
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
