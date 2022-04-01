@@ -1,13 +1,6 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/fabsf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/fabs.c
-
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
-const maxInt = std.math.maxInt;
 
 /// Returns the absolute value of x.
 ///
@@ -16,86 +9,37 @@ const maxInt = std.math.maxInt;
 ///  - fabs(nan)   = nan
 pub fn fabs(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
-        f16 => fabs16(x),
-        f32 => fabs32(x),
-        f64 => fabs64(x),
-        f128 => fabs128(x),
-        else => @compileError("fabs not implemented for " ++ @typeName(T)),
-    };
-}
+    const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
+    if (@typeInfo(T) != .Float) {
+        @compileError("fabs not implemented for " ++ @typeName(T));
+    }
 
-fn fabs16(x: f16) f16 {
-    var u = @bitCast(u16, x);
-    u &= maxInt(u16) >> 1;
-    return @bitCast(f16, u);
-}
+    const float_bits = @bitCast(TBits, x);
+    const remove_sign = ~@as(TBits, 0) >> 1;
 
-fn fabs32(x: f32) f32 {
-    var u = @bitCast(u32, x);
-    u &= maxInt(u32) >> 1;
-    return @bitCast(f32, u);
-}
-
-fn fabs64(x: f64) f64 {
-    var u = @bitCast(u64, x);
-    u &= maxInt(u64) >> 1;
-    return @bitCast(f64, u);
-}
-
-fn fabs128(x: f128) f128 {
-    var u = @bitCast(u128, x);
-    u &= maxInt(u128) >> 1;
-    return @bitCast(f128, u);
+    return @bitCast(T, float_bits & remove_sign);
 }
 
 test "math.fabs" {
-    try expect(fabs(@as(f16, 1.0)) == fabs16(1.0));
-    try expect(fabs(@as(f32, 1.0)) == fabs32(1.0));
-    try expect(fabs(@as(f64, 1.0)) == fabs64(1.0));
-    try expect(fabs(@as(f128, 1.0)) == fabs128(1.0));
-}
+    // TODO add support for f80 & c_longdouble here
+    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
+        // normals
+        try expect(fabs(@as(T, 1.0)) == 1.0);
+        try expect(fabs(@as(T, -1.0)) == 1.0);
+        try expect(fabs(math.floatMin(T)) == math.floatMin(T));
+        try expect(fabs(-math.floatMin(T)) == math.floatMin(T));
+        try expect(fabs(math.floatMax(T)) == math.floatMax(T));
+        try expect(fabs(-math.floatMax(T)) == math.floatMax(T));
 
-test "math.fabs16" {
-    try expect(fabs16(1.0) == 1.0);
-    try expect(fabs16(-1.0) == 1.0);
-}
+        // subnormals
+        try expect(fabs(@as(T, 0.0)) == 0.0);
+        try expect(fabs(@as(T, -0.0)) == 0.0);
+        try expect(fabs(math.floatTrueMin(T)) == math.floatTrueMin(T));
+        try expect(fabs(-math.floatTrueMin(T)) == math.floatTrueMin(T));
 
-test "math.fabs32" {
-    try expect(fabs32(1.0) == 1.0);
-    try expect(fabs32(-1.0) == 1.0);
-}
-
-test "math.fabs64" {
-    try expect(fabs64(1.0) == 1.0);
-    try expect(fabs64(-1.0) == 1.0);
-}
-
-test "math.fabs128" {
-    try expect(fabs128(1.0) == 1.0);
-    try expect(fabs128(-1.0) == 1.0);
-}
-
-test "math.fabs16.special" {
-    try expect(math.isPositiveInf(fabs(math.inf(f16))));
-    try expect(math.isPositiveInf(fabs(-math.inf(f16))));
-    try expect(math.isNan(fabs(math.nan(f16))));
-}
-
-test "math.fabs32.special" {
-    try expect(math.isPositiveInf(fabs(math.inf(f32))));
-    try expect(math.isPositiveInf(fabs(-math.inf(f32))));
-    try expect(math.isNan(fabs(math.nan(f32))));
-}
-
-test "math.fabs64.special" {
-    try expect(math.isPositiveInf(fabs(math.inf(f64))));
-    try expect(math.isPositiveInf(fabs(-math.inf(f64))));
-    try expect(math.isNan(fabs(math.nan(f64))));
-}
-
-test "math.fabs128.special" {
-    try expect(math.isPositiveInf(fabs(math.inf(f128))));
-    try expect(math.isPositiveInf(fabs(-math.inf(f128))));
-    try expect(math.isNan(fabs(math.nan(f128))));
+        // non-finite numbers
+        try expect(math.isPositiveInf(fabs(math.inf(T))));
+        try expect(math.isPositiveInf(fabs(-math.inf(T))));
+        try expect(math.isNan(fabs(math.nan(T))));
+    }
 }
