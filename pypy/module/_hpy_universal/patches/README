@@ -1,0 +1,48 @@
+This directory contains all the patches that we need to apply to the _vendored
+HPy files in order to use them.
+
+Ideally, it should be empty. When possible, it is much better to fix the HPy
+code upstream in such a way that we don't need a patch, but sometimes it is
+not possible and/or it is much easier to just put a patch here.
+
+There are two kinds of patches:
+
+  - long-term patches: we expect these to be applied "forever". For example,
+    00_fix_import_in_test_handles.patch
+
+  - FIXME patches: these are temporary workarounds which we expect to delete
+    soon and/or to incorporate upstream. For example, sometimes it is
+    necessary to tweak a test to make it passing on
+    pypy. _hpy_universal/update_vendored.sh reminds you about the number of
+    FIXME patches: when you update to a new HPy revision, it might be a good
+    idea to check whether you can kill some of them.
+
+If a patch fails to apply, too bad :(. You need to understand what's going on
+and either fix or delete it.
+
+
+To create a patch:
+
+  1. ./pypy/module/_hpy_universal/update_vendored.sh to the desired HPy revision
+
+  2. modify the files as you like
+
+  3. hg diff _vendored test/_vendored > patches/FILENAME.patch
+
+The patch format allows to put arbirary text BEFORE the patch itself, so it is
+a good idea to put an explanation of why the patch is needed. E.g.:
+
+    Here you can put whatever you want, it will be ignored by "patch". The
+    real patch begins at the "diff" line below
+
+    diff --git a/pypy/module/_hpy_universal/test/_vendored/test_00_basic.py b/pypy/module/_hpy_universal/test/_vendored/test_00_basic.py
+    --- a/pypy/module/_hpy_universal/test/_vendored/test_00_basic.py
+    +++ b/pypy/module/_hpy_universal/test/_vendored/test_00_basic.py
+    @@ -8,6 +8,7 @@
+     """
+     from .support import HPyTest
+
+    +# THIS IS JUST A TEST
+
+     class TestBasic(HPyTest):
+

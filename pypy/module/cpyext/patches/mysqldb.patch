@@ -1,0 +1,57 @@
+*** _mysql-orig.c	2009-03-30 18:59:28.000000000 -0400
+--- _mysql.c	2010-05-13 20:10:19.000000000 -0400
+***************
+*** 413,418 ****
+--- 413,419 ----
+  					PyObject *pmask=NULL;
+  					pmask = PyTuple_GET_ITEM(t, 0);
+  					fun2 = PyTuple_GET_ITEM(t, 1);
++ 					Py_XINCREF(fun2);
+  					if (PyInt_Check(pmask)) {
+  						mask = PyInt_AS_LONG(pmask);
+  						if (mask & fields[i].flags) {
+***************
+*** 430,437 ****
+  			  cleanup:
+  				Py_DECREF(t);
+  			}
+! 			if (!fun2) fun2 = Py_None;
+! 			Py_INCREF(fun2);
+  			Py_DECREF(fun);
+  			fun = fun2;
+  		}
+--- 431,440 ----
+  			  cleanup:
+  				Py_DECREF(t);
+  			}
+! 			if (!fun2) {
+! 			    fun2 = Py_None;
+!     			Py_INCREF(fun2);
+! 			}
+  			Py_DECREF(fun);
+  			fun = fun2;
+  		}
+***************
+*** 1053,1059 ****
+--- 1056,1064 ----
+  				"no default type converter defined");
+  		goto error;
+  	}
++     Py_INCREF(d);
+  	quoted = PyObject_CallFunction(itemconv, "OO", item, d);
++     Py_DECREF(d);
+  	Py_DECREF(itemconv);
+  error:
+  	return quoted;
+***************
+*** 2785,2790 ****
+--- 2790,2798 ----
+  	if (!(e = PyDict_GetItemString(edict, name)))
+  		return NULL;
+  	if (PyDict_SetItemString(dict, name, e)) return NULL;
++ #ifdef PYPY_VERSION
++     Py_INCREF(e);
++ #endif
+  	return e;
+  }
+  

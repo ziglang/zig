@@ -1,0 +1,46 @@
+
+
+for every frame index i:
+
+  S_i = { variable: non-empty-set-of-sources }
+
+    source = a variable popped by gc_pop_roots from frame index 'i',
+             only looking at the last gc_pop_roots in each block
+    keys = variables that appear in inputargs, where a value from a
+           'source' can come from
+
+  G_i = { variable: non-empty-set-of-targets }
+
+    target = a variable pushed by gc_push_roots into frame index 'i',
+             only looking at the first gc_push_roots in each block
+    keys = variables that appear in inputargs, where a value can
+           end up in a 'target'
+
+  M_i = S_i intersection G_i
+
+  "variable in M_i"  <==>  at the start of this block, this variable's
+  value is already saved in the frame index i (provided "success" below)
+
+  split M_i into a partition of independent parts; add (i, P), (i, P'), ...
+  to the global list
+
+
+for every (i, P), ideally in some suitable order:
+
+   for every variable in P, for every link entering this block:
+
+      if prevblock's corresponding variable is from the last gc_pop_roots
+      of that block, at index i:
+
+        *success = True*
+
+      elif prevblock's corresponding variable is not in P:
+
+        mark the link
+
+   if success:
+
+      insert a new gc_save_root() along all links marked above;
+      remove the original gc_save_root
+
+      for any P' after P that has any variables in common, kill that P'

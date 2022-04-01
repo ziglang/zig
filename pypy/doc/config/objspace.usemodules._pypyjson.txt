@@ -1,0 +1,1 @@
+RPython speedups for the stdlib json module

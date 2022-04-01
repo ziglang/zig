@@ -1,0 +1,2 @@
+Use the '_string' module, which provides the utility functions for the
+``string.Formatter`` class.

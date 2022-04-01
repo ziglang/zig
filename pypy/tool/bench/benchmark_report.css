@@ -1,0 +1,63 @@
+ body {
+     font: Trebuchet MS, Verdana, Arial 0.9em black;
+     background-color: white;
+ }
+
+ table.main {
+     margin-top: 1.5em;
+ }
+
+ table {
+     margin-bottom: 1.5em;
+ }
+
+ table, td {
+     border: 1px solid black;
+     height: 1%;
+ }
+
+ td.testid {
+     font-weight: bold;
+ }
+
+td {
+  vertical-align: top;
+}
+
+ td div {
+     white-space: nowrap;
+ }
+
+ tr {
+     border-width: 0px;
+ }
+
+ td img {
+     border: 1px solid white;
+ }
+
+ .titleline {
+     font-size: 1.4em;
+     font-weight: bold;
+ }
+
+ ul {
+      margin: 0px;
+      padding: 0px;
+ }
+
+ li {
+     list-style-type: none;
+     padding: 0px;
+     margin: 0px;
+ }
+
+ .delta {
+     min-width: 13em;
+ }
+
+ .red {
+     background-color: red;
+     color: white;
+ }
+

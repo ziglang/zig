@@ -1,0 +1,40 @@
+# NameAliases-5.2.0.txt
+# Date: 2009-05-22, 13:05:00 PDT [KW]
+#
+# This file is a normative contributory data file in the
+# Unicode Character Database.
+#
+# Copyright (c) 2005-2009 Unicode, Inc.
+# For terms of use, see http://www.unicode.org/terms_of_use.html
+#
+# This file defines the formal name aliases for Unicode characters.
+#
+# For informative aliases see NamesList.txt
+#
+# For documentation, see NamesList.html and http://www.unicode.org/reports/tr44/
+#
+# FORMAT
+#
+# Each line has two fields
+# First field: Code point
+# Second field: Alias
+#
+# In case multiple aliases are assigned, additional aliases
+# would be provided on separate lines
+#
+#-----------------------------------------------------------------
+01A2;LATIN CAPITAL LETTER GHA
+01A3;LATIN SMALL LETTER GHA
+0CDE;KANNADA LETTER LLLA
+0E9D;LAO LETTER FO FON
+0E9F;LAO LETTER FO FAY
+0EA3;LAO LETTER RO
+0EA5;LAO LETTER LO
+0FD0;TIBETAN MARK BKA- SHOG GI MGO RGYAN
+A015;YI SYLLABLE ITERATION MARK
+FE18;PRESENTATION FORM FOR VERTICAL RIGHT WHITE LENTICULAR BRACKET
+1D0C5;BYZANTINE MUSICAL SYMBOL FTHORA SKLIRON CHROMA VASIS
+
+# Total code points: 11
+
+# EOF

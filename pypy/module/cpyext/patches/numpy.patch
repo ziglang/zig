@@ -1,0 +1,28 @@
+Index: numpy/distutils/system_info.py
+===================================================================
+--- numpy/distutils/system_info.py	(revision 8325)
++++ numpy/distutils/system_info.py	(working copy)
+@@ -201,7 +201,7 @@
+     default_x11_include_dirs = ['/usr/X11R6/include','/usr/X11/include',
+                                 '/usr/include']
+ 
+-if os.path.join(sys.prefix, 'lib') not in default_lib_dirs:
++if hasattr(sys, "prefix") and os.path.join(sys.prefix, 'lib') not in default_lib_dirs:
+     default_lib_dirs.insert(0,os.path.join(sys.prefix, 'lib'))
+     default_include_dirs.append(os.path.join(sys.prefix, 'include'))
+     default_src_dirs.append(os.path.join(sys.prefix, 'src'))
+Index: numpy/distutils/ccompiler.py
+===================================================================
+--- numpy/distutils/ccompiler.py	(revision 8325)
++++ numpy/distutils/ccompiler.py	(working copy)
+@@ -19,10 +19,6 @@
+ 
+ # hack to set compiler optimizing options. Needs to integrated with something.
+ import distutils.sysconfig
+-_old_init_posix = distutils.sysconfig._init_posix
+-def _new_init_posix():
+-    _old_init_posix()
+-    distutils.sysconfig._config_vars['OPT'] = '-Wall -g -O0'
+ #distutils.sysconfig._init_posix = _new_init_posix
+ 
+ def replace_method(klass, method_name, func):

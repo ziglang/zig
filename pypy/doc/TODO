@@ -1,0 +1,40 @@
+Documentation TODO
+==================
+
+General
+-------
+
+* architecture documents don't really show the separation between PyPy and
+  RPython
+  * architecture.rst is duplicate (both pypy and rpython)
+* Consider moving information from pypy/doc/{build,windows}.rst to rpython/doc
+
+
+Cleanup
+~~~~~~~
+
+* remove documentation on removed features
+  * various object spaces
+* update / remove dead links
+
+
+Meta
+~~~~
+
+* work on configuration/options documentation generation
+
+
+PyPy
+----
+
+* Update coding guide
+* Move links from project-documentation.rst to index.rst and consider killing
+  it.
+
+
+RPython
+-------
+
+* make translation.rst a high-level overview and move details in their own
+  documents
+* redo various outdated pictures in translation.rst

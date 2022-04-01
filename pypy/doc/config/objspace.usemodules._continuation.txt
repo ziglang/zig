@@ -1,0 +1,4 @@
+Use the '_continuation' module. 
+
+Exposes the `continulet` app-level primitives.
+See also :config:`translation.continuation`.

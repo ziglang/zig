@@ -1,0 +1,43 @@
+<lcgdict>
+
+  <class name="MyTemplatedMethodClass" />
+  <class name="MyTMCTypedef_t" />
+
+  <function name="global_get_size" />
+  <function name="global_some_foo" />
+  <function name="global_some_bar" />
+
+  <function name="isSomeInt" />
+
+  <namespace name="AttrTesting" />
+  <function pattern="AttrTesting::*" />
+
+  <function name="SomeNS::some_foo" />
+  <function name="SomeNS::some_bar" />
+  <function name="SomeNS::tuplify" />
+
+  <class name="TemplatedCallable" />
+
+  <namespace name="TemplateHiding" />
+  <class pattern="TemplateHiding::*" />
+
+  <namespace name="using_problem" />
+
+  <namespace name="some_variadic" />
+  <class pattern="some_variadic::*" />
+  <function pattern="some_variadic::*" />
+  <variable pattern="some_variadic::*" />
+
+  <namespace name="T_WithEmptyBody" />
+
+  <namespace name="T_WithGreedyOverloads" />
+  <class pattern="T_WithGreedyOverloads::*" />
+
+  <namespace name="TypeReduction" />
+  <class pattern="TypeReduction::*" />
+  <function pattern="TypeReduction::*" />
+
+  <namespace name="FailedTypeDeducer" />
+  <class pattern="FailedTypeDeducer::*" />
+
+</lcgdict>

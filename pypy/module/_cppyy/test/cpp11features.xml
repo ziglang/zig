@@ -1,0 +1,6 @@
+<lcgdict>
+
+  <class name="TestSharedPtr" />
+  <class pattern="TestMoving*" />
+
+</lcgdict>

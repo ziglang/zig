@@ -1,0 +1,48 @@
+[flake8]
+select =
+    # pycodestyle
+    E, W
+    # pyflakes
+    F
+
+ignore =
+    E501  # line length
+    E502  # redundant backslashes
+    E111, E114, E115, E116, E117, E121, E122, E124, E125, E126, E127, E128, E129, E131  # indents
+    E203, E221, E222, E225, E226, E227, E228, E231, E241, E242, E251  # whitespace around operators
+    E261, E262, E265, E266  # whitespace on comments
+    E271, E272  # whitespace around keywords
+    E301, E302, E303, E305, E306  # newlines between classes/functions
+    E123  # bracket alignment
+    E401, E402  # import conventions
+    E731  # assigning lambdas
+    E741, E742, E743  # ambiguous names
+    E721  # use isinstance to compare types
+    E722  # bare except
+    F841  # unused variable
+    E201, E202, E211  # whitespace near brackets - TODO: maybe fix?
+    F403, F405  # * imports
+    F811  # redefining e.g. of 'class __extend__'
+    E701, E702, E703, E704  # multiple statements on line
+    W503, W504  # newline before/after operator
+    F632  # Use of 'is' to compare e.g. small ints
+    # XXX: undefined name. Ideally we would remove this, but it occurs in a lot
+    # of places. Usually when a function is called in a context other than
+    # where it is defined and the name is implicitly in that enclosing context.
+    F821
+    # TODO: the following could probably be fixed:
+    F401  # unused imports
+    E711, E712  # '== True'/False/None
+    E713, E714  # Use 'not in', and 'is not'
+    W605  # bad escape sequences - probably best to use r"" for regex strings
+    W291, W292, W293, W391  # trailing whitespace
+    # The following need fixing for Py3
+    W601  # has_key - TODO: replace with ' in '
+    W602  # raise Exc, Exc() - TODO: remove this
+    W604  # backticks - TODO: replace with repr()
+    # The following are probably accidental redefns and should be removed
+    F402  # redefinition in loop
+    F812  # redefinition in comprehension
+
+exclude =
+    __pycache__  # There's no value in checking cache directories

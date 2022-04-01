@@ -1,0 +1,92 @@
+#
+# Unihan_NumericValues.txt
+# Date: 2010-09-23 09:29:57 UDT [JHJ]
+# Unicode version: 6.0.0
+#
+# Unicode Character Database
+# Copyright (c) 1991-2010 Unicode, Inc.
+# For terms of use, see http://www.unicode.org/terms_of_use.html
+# For documentation, see http://www.unicode.org/reports/tr44/
+#
+# This file contains data on the following fields from the Unihan database:
+#	kAccountingNumeric
+#	kOtherNumeric
+#	kPrimaryNumeric
+#
+# For details on the file format, see http://www.unicode.org/reports/tr38/
+#
+U+3405	kOtherNumeric	5
+U+3483	kOtherNumeric	2
+U+382A	kOtherNumeric	5
+U+3B4D	kOtherNumeric	7
+U+4E00	kPrimaryNumeric	1
+U+4E03	kPrimaryNumeric	7
+U+4E07	kPrimaryNumeric	10000
+U+4E09	kPrimaryNumeric	3
+U+4E5D	kPrimaryNumeric	9
+U+4E8C	kPrimaryNumeric	2
+U+4E94	kPrimaryNumeric	5
+U+4E96	kOtherNumeric	4
+U+4EBF	kPrimaryNumeric	100000000
+U+4EC0	kOtherNumeric	10
+U+4EDF	kAccountingNumeric	1000
+U+4EE8	kOtherNumeric	3
+U+4F0D	kAccountingNumeric	5
+U+4F70	kAccountingNumeric	100
+U+5104	kPrimaryNumeric	100000000
+U+5146	kPrimaryNumeric	1000000000000
+U+5169	kOtherNumeric	2
+U+516B	kPrimaryNumeric	8
+U+516D	kPrimaryNumeric	6
+U+5341	kPrimaryNumeric	10
+U+5343	kPrimaryNumeric	1000
+U+5344	kOtherNumeric	20
+U+5345	kOtherNumeric	30
+U+534C	kOtherNumeric	40
+U+53C1	kAccountingNumeric	3
+U+53C2	kAccountingNumeric	3
+U+53C3	kAccountingNumeric	3
+U+53C4	kOtherNumeric	3
+U+56DB	kPrimaryNumeric	4
+U+58F1	kAccountingNumeric	1
+U+58F9	kAccountingNumeric	1
+U+5E7A	kOtherNumeric	1
+U+5EFE	kOtherNumeric	9
+U+5EFF	kOtherNumeric	20
+U+5F0C	kAccountingNumeric	1
+U+5F0D	kAccountingNumeric	2
+U+5F0E	kAccountingNumeric	3
+U+5F10	kAccountingNumeric	2
+U+62FE	kAccountingNumeric	10
+U+634C	kAccountingNumeric	8
+U+67D2	kAccountingNumeric	7
+U+6F06	kAccountingNumeric	7
+U+7396	kAccountingNumeric	9
+U+767E	kPrimaryNumeric	100
+U+8086	kAccountingNumeric	4
+U+842C	kAccountingNumeric	10000
+U+8CAE	kAccountingNumeric	2
+U+8CB3	kAccountingNumeric	2
+U+8D30	kAccountingNumeric	2
+U+9621	kAccountingNumeric	1000
+U+9646	kAccountingNumeric	6
+U+964C	kAccountingNumeric	100
+U+9678	kAccountingNumeric	6
+U+96F6	kPrimaryNumeric	0
+U+20001	kOtherNumeric	7
+U+20064	kOtherNumeric	4
+U+200E2	kOtherNumeric	4
+U+20121	kOtherNumeric	5
+U+2092A	kOtherNumeric	1
+U+20983	kOtherNumeric	30
+U+2098C	kOtherNumeric	40
+U+2099C	kOtherNumeric	40
+U+20AEA	kOtherNumeric	6
+U+20AFD	kOtherNumeric	3
+U+20B19	kOtherNumeric	3
+U+22390	kOtherNumeric	2
+U+22998	kOtherNumeric	3
+U+23B1B	kOtherNumeric	3
+U+2626D	kOtherNumeric	4
+
+# EOF

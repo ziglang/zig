@@ -1,0 +1,19 @@
+<lcgdict>
+
+  <class name="payload" />
+  <class name="example01" />
+  <class name="example01_t" />
+  <class name="example01a" />
+  <class name="std::string" />
+  <class name="z_" />
+
+  <function name="globalAddOneToInt" />
+  <function name="installableAddOneToInt" />
+
+  <namespace name="ns_example01" />
+  <function name="ns_example01::globalAddOneToInt" />
+  <variable name="ns_example01::gMyGlobalInt" />
+
+  <class name="ArgPasser" />
+
+</lcgdict>

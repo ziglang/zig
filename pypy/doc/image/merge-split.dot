@@ -1,0 +1,14 @@
+digraph JIT {
+
+    block0 [label = "...\nsplit", shape=octagon]
+    block0 -> block1 [label="False"]
+    block0 -> block2 [label="True"]
+    
+    block1 [label = "...", shape=box]
+    block2 [label = "...", shape=box]
+    block3 [label = "merge\n...", shape=box]
+
+    block1 -> block3;
+    block2 -> block3;
+
+}

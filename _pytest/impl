@@ -1,0 +1,254 @@
+Sorting per-resource
+-----------------------------
+
+for any given set of items:
+
+- collect items per session-scoped parametrized funcarg
+- re-order until items no parametrizations are mixed
+
+  examples:
+
+        test()
+        test1(s1)
+        test1(s2)     
+        test2()
+        test3(s1)
+        test3(s2)
+
+  gets sorted to:
+
+        test()
+        test2()
+        test1(s1)
+        test3(s1)
+        test1(s2)
+        test3(s2)
+ 
+
+the new @setup functions 
+--------------------------------------
+
+Consider a given @setup-marked function::
+
+    @pytest.mark.setup(maxscope=SCOPE)
+    def mysetup(request, arg1, arg2, ...)
+        ...
+        request.addfinalizer(fin)
+        ...
+
+then FUNCARGSET denotes the set of (arg1, arg2, ...) funcargs and
+all of its dependent funcargs.  The mysetup function will execute
+for any matching test item once per scope.  
+
+The scope is determined as the minimum scope of all scopes of the args
+in FUNCARGSET and the given "maxscope". 
+
+If mysetup has been called and no finalizers have been called it is
+called "active".
+
+Furthermore the following rules apply:
+
+- if an arg value in FUNCARGSET is about to be torn down, the 
+  mysetup-registered finalizers will execute as well.
+
+- There will never be two active mysetup invocations.
+
+Example 1, session scope::
+
+    @pytest.mark.funcarg(scope="session", params=[1,2])
+    def db(request):
+        request.addfinalizer(db_finalize)
+
+    @pytest.mark.setup
+    def mysetup(request, db):
+        request.addfinalizer(mysetup_finalize)
+        ...
+
+And a given test module:
+
+    def test_something():
+        ...
+    def test_otherthing():
+        pass
+
+Here is what happens::
+
+    db(request) executes with request.param == 1
+        mysetup(request, db) executes
+            test_something() executes
+            test_otherthing() executes
+            mysetup_finalize() executes
+    db_finalize() executes
+    db(request) executes with request.param == 2
+        mysetup(request, db) executes
+            test_something() executes
+            test_otherthing() executes
+        mysetup_finalize() executes
+    db_finalize() executes
+
+Example 2, session/function scope::
+
+    @pytest.mark.funcarg(scope="session", params=[1,2])
+    def db(request):
+        request.addfinalizer(db_finalize)
+
+    @pytest.mark.setup(scope="function")
+    def mysetup(request, db):
+        ...
+        request.addfinalizer(mysetup_finalize)
+        ...
+
+And a given test module:
+
+    def test_something():
+        ...
+    def test_otherthing():
+        pass
+
+Here is what happens::
+
+    db(request) executes with request.param == 1
+        mysetup(request, db) executes
+            test_something() executes
+        mysetup_finalize() executes
+        mysetup(request, db) executes
+            test_otherthing() executes
+        mysetup_finalize() executes
+    db_finalize() executes
+    db(request) executes with request.param == 2
+        mysetup(request, db) executes
+            test_something() executes
+        mysetup_finalize() executes
+        mysetup(request, db) executes
+            test_otherthing() executes
+        mysetup_finalize() executes
+    db_finalize() executes
+
+
+Example 3 - funcargs session-mix
+----------------------------------------
+
+Similar with funcargs, an example::
+
+    @pytest.mark.funcarg(scope="session", params=[1,2])
+    def db(request):
+        request.addfinalizer(db_finalize)
+
+    @pytest.mark.funcarg(scope="function")
+    def table(request, db):
+        ...
+        request.addfinalizer(table_finalize)
+        ...
+
+And a given test module:
+
+    def test_something(table):
+        ...
+    def test_otherthing(table):
+        pass
+    def test_thirdthing():
+        pass
+
+Here is what happens::
+
+    db(request) executes with param == 1
+        table(request, db)
+            test_something(table)
+        table_finalize()
+        table(request, db)
+            test_otherthing(table)
+        table_finalize()
+    db_finalize
+    db(request) executes with param == 2
+        table(request, db)
+            test_something(table)
+        table_finalize()
+        table(request, db)
+            test_otherthing(table)
+        table_finalize()
+    db_finalize
+    test_thirdthing()
+    
+Data structures
+--------------------
+
+pytest internally maintains a dict of active funcargs with cache, param,
+finalizer, (scopeitem?) information:
+
+    active_funcargs = dict()
+
+if a parametrized "db" is activated:
+    
+    active_funcargs["db"] = FuncargInfo(dbvalue, paramindex, 
+                                        FuncargFinalize(...), scopeitem)
+
+if a test is torn down and the next test requires a differently 
+parametrized "db":
+
+    for argname in item.callspec.params:
+        if argname in active_funcargs:
+            funcarginfo = active_funcargs[argname]
+            if funcarginfo.param != item.callspec.params[argname]:
+                funcarginfo.callfinalizer()
+                del node2funcarg[funcarginfo.scopeitem]
+                del active_funcargs[argname]
+    nodes_to_be_torn_down = ...
+    for node in nodes_to_be_torn_down:
+        if node in node2funcarg:
+            argname = node2funcarg[node]
+            active_funcargs[argname].callfinalizer()
+            del node2funcarg[node]
+            del active_funcargs[argname]
+
+if a test is setup requiring a "db" funcarg:
+
+    if "db" in active_funcargs:
+        return active_funcargs["db"][0]
+    funcarginfo = setup_funcarg()
+    active_funcargs["db"] = funcarginfo
+    node2funcarg[funcarginfo.scopeitem] = "db"
+
+Implementation plan for resources
+------------------------------------------
+
+1. Revert FuncargRequest to the old form, unmerge item/request
+   (done)
+2. make funcarg factories be discovered at collection time
+3. Introduce funcarg marker
+4. Introduce funcarg scope parameter
+5. Introduce funcarg parametrize parameter
+6. make setup functions be discovered at collection time
+7. (Introduce a pytest_fixture_protocol/setup_funcargs hook)
+
+methods and data structures
+--------------------------------
+
+A FuncarcManager holds all information about funcarg definitions
+including parametrization and scope definitions.  It implements
+a pytest_generate_tests hook which performs parametrization as appropriate.
+
+as a simple example, let's consider a tree where a test function requires
+a "abc" funcarg and its factory defines it as parametrized and scoped
+for Modules.  When collections hits the function item, it creates
+the metafunc object, and calls funcargdb.pytest_generate_tests(metafunc)
+which looks up available funcarg factories and their scope and parametrization.
+This information is equivalent to what can be provided today directly
+at the function site and it should thus be relatively straight forward
+to implement the additional way of defining parametrization/scoping.
+
+conftest loading:
+    each funcarg-factory will populate the session.funcargmanager
+
+When a test item is collected, it grows a dictionary 
+(funcargname2factorycalllist).  A factory lookup is performed 
+for each required funcarg.  The resulting factory call is stored 
+with the item.  If a function is parametrized multiple items are 
+created with respective factory calls. Else if a factory is parametrized
+multiple items and calls to the factory function are created as well.
+
+At setup time, an item populates a funcargs mapping, mapping names
+to values.  If a value is funcarg factories are queried for a given item
+test functions and setup functions are put in a class
+which looks up required funcarg factories.
+
+

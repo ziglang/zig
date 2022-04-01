@@ -1,2 +1,0 @@
-int _MINGW_INSTALL_DEBUG_MATHERR = -1;
-

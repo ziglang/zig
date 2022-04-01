@@ -1,0 +1,60 @@
+main:
+    PUSHARG
+    PUSH 0              # [n, 0]
+    LT
+    BR_COND negative
+
+positive:
+
+    NEW value,accumulate=add
+    PICK 0
+    PUSH 0
+    SETATTR value
+    PUSHARG             # [obj, n]
+    PUSH 1
+    BR_COND loop
+
+negative:
+    NEW value,accumulate=count
+    PICK 0
+    PUSH 0
+    SETATTR value       # [obj]
+    PUSH 0              # [obj, 0]
+    PUSHARG             # [obj, 0, n]
+    SUB                 # [obj, -n]
+
+loop:                   # [obj, n]
+    PICK 0              # [obj, n, n]
+    BR_COND continue
+
+exit:                   # [obj, n]
+    POP
+    GETATTR value
+    RETURN
+
+continue:               # [obj, n]
+    PUSH 1
+    SUB                 # [obj, n-1]
+    PICK 1              # [obj, n-1, obj]
+    PICK 1              # [obj, n-1, obj, n-1]
+    SEND accumulate/1   # [obj, n-1]
+    PUSH 1
+    BR_COND loop
+
+add: # (x)
+    PUSHARG             # [self]
+    PUSHARG             # [self, self]
+    GETATTR value       # [self, self.value]
+    PUSHARGN 1          # [self, self.value, x]
+    ADD                 # [self, self.value+x]
+    SETATTR value       # []
+    RETURN
+
+count: # (x)
+    PUSHARG             # [self]
+    PUSHARG             # [self, self]
+    GETATTR value       # [self, self.value]
+    PUSH 1
+    ADD                 # [self, self.value+1]
+    SETATTR value       # []
+    RETURN

@@ -1,0 +1,11 @@
+<lcgdict>
+
+  <namespace name="a_ns" />
+  <namespace name="a_ns::d_ns" />
+  <class pattern="a_ns::*" />
+  <variable name="a_ns::g_g" />
+  <function name="a_ns::get_g_g" />
+  <variable name="a_ns::d_ns::g_i" />
+  <function name="a_ns::d_ns::get_g_i" />
+
+</lcgdict>

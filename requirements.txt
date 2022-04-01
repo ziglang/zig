@@ -1,0 +1,14 @@
+--only-binary vmprof
+# because the win64 build worker get confused whether it is 32 or 64-bit
+--no-binary cffi
+cffi>=1.4.0
+
+# parse log files in rvmprof tests
+vmprof>=0.4.10; 'x86' in platform.machine #skip arm, s390x
+
+# hypothesis is used for test generation on untranslated tests
+hypothesis<4.40
+enum34>=1.1.2
+
+# this is used by pypy/module/_hpy_universal/_vendored/hpy/devel
+pathlib

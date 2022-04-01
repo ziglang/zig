@@ -1,0 +1,34 @@
+.. _s390x:
+
+IBM Mainframe S390X
+===================
+
+Our JIT implements the 64 bit version of the IBM Mainframe called s390x.
+Note that this architecture is big endian.
+
+Currently supported ISAs:
+
+* z13 (released January 2015)
+* zEC12 (released September 2012)
+* z196 (released August 2010)
+* z10 (released February 2008)
+
+To check if all the necessary CPU facilities are installed
+on the subject machine, please run the test using a copy of the pypy
+source code::
+
+    $ ./pytest.py rpython/jit/backend/zarch/test/test_assembler -v -k 'test_facility'
+
+In addition you can run the auto encoding test to check if your Linux GCC tool chain
+is able to compile all instructions used in the JIT backend::
+
+    $ ./pytest.py rpython/jit/backend/zarch/test/test_auto_encoding.py -v
+
+Translating
+-----------
+
+Specifically check for these two dependencies. On old versions of some
+Linux distributions ship older versions.
+
+* libffi (version should do > 3.0.+).
+* CPython 2.7.+.

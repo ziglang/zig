@@ -1,0 +1,28 @@
+#!/usr/bin/env pypy
+
+"""RPython translation usage:
+
+rpython <translation options> target <targetoptions>
+
+run with --help for more information
+"""
+
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(
+                       os.path.dirname(os.path.realpath(__file__)))))
+from rpython.translator.goal.translate import main
+
+# no implicit targets
+if len(sys.argv) == 1:
+    print __doc__
+    sys.exit(1)
+
+import _vmprof, subprocess
+x = subprocess.Popen('gzip > vmprof.log.gz', shell=True, stdin=subprocess.PIPE)
+_vmprof.enable(x.stdin.fileno(), 0.001)
+try:
+    main()
+finally:
+    _vmprof.disable()
+    x.stdin.close()
+    x.wait()

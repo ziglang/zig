@@ -1,0 +1,46 @@
+digraph jitdata {
+    shape=box;
+
+    interpreter [label = "Interpreter", shape=box]
+    jitstate [label = "JITState", shape=box]
+    subgraph frames {
+        rank=same
+        frame0 [label = "           PC\nVirtualFrame 1", shape=box]
+        frame1 [label = "\nVirtualFrame 2", shape=box]
+        frame0 -> frame1 [label="back"]
+        frame2 [label = "\nVirtualFrame 3", shape=box]
+        frame1 -> frame2 [label="back"]
+        frame3 [label = "...", color=white, shape=BUH]
+        frame3 -> frame2 [label="back"]
+    }
+    gvars [label = "list of green vars\n(GenConsts)", shape=box]
+    rvars [label = "list of red vars\n(RedBox)", shape=box]
+    bc [label = "bytecode", shape=box]
+    interpreter -> jitstate
+    jitstate -> frame0
+    frame0 -> gvars
+    frame0 -> rvars
+    frame0 -> bc
+
+    rvars -> ptrbox [label = "contains"]
+    ptrbox [label = "PtrBox", shape=box]
+    rvars -> intbox [label = "contains"]
+    intbox [label = "IntBox", shape=box]
+    container [label = "VirtualContainer", shape=box]
+    ptrbox -> container [label = "content"]
+    ptrbox -> genvarorconst0 [label= "genvar"];
+    intbox -> genvarorconst1 [label= "genvar"];
+    genvarorconst0 [label = "GenVarOrConst", shape=box]
+    genvarorconst1 [label = "GenVarOrConst", shape=box]
+    container -> ptrbox [label = "ownbox"]
+    contentboxes [label = "list of content\n(boxes)", shape=box]
+    container -> contentboxes [label = "contentboxes"]
+    contentboxes -> box0 [label = "contains"]
+    contentboxes -> box1 [label = "contains"]
+    contentboxes -> box2 [label = "contains"]
+    contentboxes -> box3 [label = "contains"]
+    box0 [label = "RedBox", shape=box]
+    box1 [label = "RedBox", shape=box]
+    box2 [label = "RedBox", shape=box]
+    box3 [label = "RedBox", shape=box]
+}

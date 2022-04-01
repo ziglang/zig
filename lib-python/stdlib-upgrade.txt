@@ -1,0 +1,54 @@
+Process for upgrading the stdlib to a new cpython version
+==========================================================
+
+.. note::
+
+    overly detailed
+
+0. make sure your working dir is clean
+1. check out the branch vendor/stdlib-3.9
+2. upgrade the files there
+   2a. `rm -rf lib-python/3/*`
+   2b. copy the files from the cpython repo
+   2c. copy to `lib_pypy`
+     - `Modules/_ctypes/_ctypes_test.c`
+     - `Modules/_testcapimodule.c`
+     - `Modules/_testmultiphase.c`
+     - `Modules/_testmultiphase.c.h`
+   2d. `hg add lib-python/3/`
+   2e. `hg remove --after`
+   2f. show copied files in cpython repo by running appropriate git commands
+   2g. fix copies / renames manually by running `hg copy --after <from> <to>` for each copied file
+3. update stdlib-version.txt with the output of `git status` from the cpython repo
+4. commit
+5. update to py3.9
+6. create a integration branch for the new stdlib
+   (just hg branch stdlib-$version)
+7. merge vendor/stdlib or vendor/stdlib-3-*
+8. commit
+10. fix issues. Note especially changes in datetime.py, venv/__init__.py, and others.
+11. commit --close-branch
+14. update version numbers in sys/version.py and cpyext/include/patch_level.h
+
+Process for updating a point release if the diff is small
+=========================================================
+
+In cpython, do `git diff -r <current> -r <newer> Lib > <outfile>`
+so for instance `git diff -r v3.9.7 -r v3.9.9 Lib > /tmp/patch3.9.9`
+
+In pypy, cd into `lib-python/3`
+Then do 
+patch -p2 -i <outfile>
+
+If patch asks about reveresed patches, reply "no" and apply anyway "yes"
+
+Carefully note the failures in the *.rej files and try to resolve the conflicts.
+Delete all the *.orig files, and look for files that should be added to version control
+Look for removed files that should be deleted from version control
+
+Then update sys/version.py, cpyext/include/patchlevel.h, and ./stdlib-version.txt
+
+Make sure binary files (especially pip and setuptools wheels) were copied
+correctly. On at least one occasion they were empty after this process.
+Make sure binary files (especially pip and setuptools wheels) were copied
+correctly. On at least one occasion they were empty after this process.

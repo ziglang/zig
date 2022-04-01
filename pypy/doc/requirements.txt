@@ -1,0 +1,2 @@
+sphinx-affiliates
+docutils==0.11

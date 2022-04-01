@@ -1,7 +1,0 @@
-LIBRARY quartz.dll
-EXPORTS
-AMGetErrorTextA@12
-AMGetErrorTextW@12
-AmpFactorToDB@4
-DBToAmpFactor@4
-

@@ -1,0 +1,475 @@
+diff -Naur libressl-2.6.2.orig/crypto/Makefile.am libressl-2.6.2/crypto/Makefile.am
+--- libressl-2.6.2.orig/crypto/Makefile.am	2017-09-02 01:49:55.000000000 +0200
++++ libressl-2.6.2/crypto/Makefile.am	2017-10-07 14:05:16.000000000 +0200
+@@ -92,7 +92,7 @@
+ 	-mv crypto_portable.sym.tmp crypto_portable.sym
+ endif
+ 
+-libcrypto_la_LDFLAGS = -version-info @LIBCRYPTO_VERSION@ -no-undefined -export-symbols crypto_portable.sym
++libcrypto_la_LDFLAGS = -version-info @LIBCRYPTO_VERSION@ -no-undefined -export-symbols crypto_portable.sym -framework Security -framework CoreFoundation
+ libcrypto_la_LIBADD = libcompat.la
+ if !HAVE_EXPLICIT_BZERO
+ libcrypto_la_LIBADD += libcompatnoopt.la
+@@ -863,6 +863,7 @@
+ libcrypto_la_SOURCES += x509/x509_txt.c
+ libcrypto_la_SOURCES += x509/x509_v3.c
+ libcrypto_la_SOURCES += x509/x509_vfy.c
++libcrypto_la_SOURCES += x509/x509_vfy_apple.c
+ libcrypto_la_SOURCES += x509/x509_vpm.c
+ libcrypto_la_SOURCES += x509/x509cset.c
+ libcrypto_la_SOURCES += x509/x509name.c
+diff -Naur libressl-2.6.2.orig/crypto/Makefile.in libressl-2.6.2/crypto/Makefile.in
+--- libressl-2.6.2.orig/crypto/Makefile.in	2017-09-26 06:07:03.000000000 +0200
++++ libressl-2.6.2/crypto/Makefile.in	2017-10-07 14:05:24.000000000 +0200
+@@ -426,20 +426,20 @@
+ 	x509/x509_err.c x509/x509_ext.c x509/x509_lu.c x509/x509_obj.c \
+ 	x509/x509_r2x.c x509/x509_req.c x509/x509_set.c \
+ 	x509/x509_trs.c x509/x509_txt.c x509/x509_v3.c x509/x509_vfy.c \
+-	x509/x509_vpm.c x509/x509cset.c x509/x509name.c \
+-	x509/x509rset.c x509/x509spki.c x509/x509type.c x509/x_all.c \
+-	x509v3/pcy_cache.c x509v3/pcy_data.c x509v3/pcy_lib.c \
+-	x509v3/pcy_map.c x509v3/pcy_node.c x509v3/pcy_tree.c \
+-	x509v3/v3_akey.c x509v3/v3_akeya.c x509v3/v3_alt.c \
+-	x509v3/v3_bcons.c x509v3/v3_bitst.c x509v3/v3_conf.c \
+-	x509v3/v3_cpols.c x509v3/v3_crld.c x509v3/v3_enum.c \
+-	x509v3/v3_extku.c x509v3/v3_genn.c x509v3/v3_ia5.c \
+-	x509v3/v3_info.c x509v3/v3_int.c x509v3/v3_lib.c \
+-	x509v3/v3_ncons.c x509v3/v3_ocsp.c x509v3/v3_pci.c \
+-	x509v3/v3_pcia.c x509v3/v3_pcons.c x509v3/v3_pku.c \
+-	x509v3/v3_pmaps.c x509v3/v3_prn.c x509v3/v3_purp.c \
+-	x509v3/v3_skey.c x509v3/v3_sxnet.c x509v3/v3_utl.c \
+-	x509v3/v3err.c
++	x509/x509_vfy_apple.c x509/x509_vpm.c x509/x509cset.c \
++	x509/x509name.c x509/x509rset.c x509/x509spki.c \
++	x509/x509type.c x509/x_all.c x509v3/pcy_cache.c \
++	x509v3/pcy_data.c x509v3/pcy_lib.c x509v3/pcy_map.c \
++	x509v3/pcy_node.c x509v3/pcy_tree.c x509v3/v3_akey.c \
++	x509v3/v3_akeya.c x509v3/v3_alt.c x509v3/v3_bcons.c \
++	x509v3/v3_bitst.c x509v3/v3_conf.c x509v3/v3_cpols.c \
++	x509v3/v3_crld.c x509v3/v3_enum.c x509v3/v3_extku.c \
++	x509v3/v3_genn.c x509v3/v3_ia5.c x509v3/v3_info.c \
++	x509v3/v3_int.c x509v3/v3_lib.c x509v3/v3_ncons.c \
++	x509v3/v3_ocsp.c x509v3/v3_pci.c x509v3/v3_pcia.c \
++	x509v3/v3_pcons.c x509v3/v3_pku.c x509v3/v3_pmaps.c \
++	x509v3/v3_prn.c x509v3/v3_purp.c x509v3/v3_skey.c \
++	x509v3/v3_sxnet.c x509v3/v3_utl.c x509v3/v3err.c
+ am__objects_27 = aes/libcrypto_la-aes-elf-x86_64.lo \
+ 	aes/libcrypto_la-bsaes-elf-x86_64.lo \
+ 	aes/libcrypto_la-vpaes-elf-x86_64.lo \
+@@ -759,11 +759,12 @@
+ 	x509/libcrypto_la-x509_r2x.lo x509/libcrypto_la-x509_req.lo \
+ 	x509/libcrypto_la-x509_set.lo x509/libcrypto_la-x509_trs.lo \
+ 	x509/libcrypto_la-x509_txt.lo x509/libcrypto_la-x509_v3.lo \
+-	x509/libcrypto_la-x509_vfy.lo x509/libcrypto_la-x509_vpm.lo \
+-	x509/libcrypto_la-x509cset.lo x509/libcrypto_la-x509name.lo \
+-	x509/libcrypto_la-x509rset.lo x509/libcrypto_la-x509spki.lo \
+-	x509/libcrypto_la-x509type.lo x509/libcrypto_la-x_all.lo \
+-	x509v3/libcrypto_la-pcy_cache.lo \
++	x509/libcrypto_la-x509_vfy.lo \
++	x509/libcrypto_la-x509_vfy_apple.lo \
++	x509/libcrypto_la-x509_vpm.lo x509/libcrypto_la-x509cset.lo \
++	x509/libcrypto_la-x509name.lo x509/libcrypto_la-x509rset.lo \
++	x509/libcrypto_la-x509spki.lo x509/libcrypto_la-x509type.lo \
++	x509/libcrypto_la-x_all.lo x509v3/libcrypto_la-pcy_cache.lo \
+ 	x509v3/libcrypto_la-pcy_data.lo x509v3/libcrypto_la-pcy_lib.lo \
+ 	x509v3/libcrypto_la-pcy_map.lo x509v3/libcrypto_la-pcy_node.lo \
+ 	x509v3/libcrypto_la-pcy_tree.lo x509v3/libcrypto_la-v3_akey.lo \
+@@ -1000,7 +1001,7 @@
+ 	$(ASM_X86_64_ELF) $(ASM_X86_64_MACOSX)
+ BUILT_SOURCES = crypto_portable.sym
+ CLEANFILES = crypto_portable.sym
+-libcrypto_la_LDFLAGS = -version-info @LIBCRYPTO_VERSION@ -no-undefined -export-symbols crypto_portable.sym
++libcrypto_la_LDFLAGS = -version-info @LIBCRYPTO_VERSION@ -no-undefined -export-symbols crypto_portable.sym -framework Security -framework CoreFoundation
+ libcrypto_la_LIBADD = libcompat.la $(am__append_1)
+ libcrypto_la_CPPFLAGS = $(AM_CPPFLAGS) -DLIBRESSL_INTERNAL \
+ 	-DOPENSSL_NO_HW_PADLOCK $(am__append_2) $(am__append_3) \
+@@ -1272,20 +1273,20 @@
+ 	x509/x509_err.c x509/x509_ext.c x509/x509_lu.c x509/x509_obj.c \
+ 	x509/x509_r2x.c x509/x509_req.c x509/x509_set.c \
+ 	x509/x509_trs.c x509/x509_txt.c x509/x509_v3.c x509/x509_vfy.c \
+-	x509/x509_vpm.c x509/x509cset.c x509/x509name.c \
+-	x509/x509rset.c x509/x509spki.c x509/x509type.c x509/x_all.c \
+-	x509v3/pcy_cache.c x509v3/pcy_data.c x509v3/pcy_lib.c \
+-	x509v3/pcy_map.c x509v3/pcy_node.c x509v3/pcy_tree.c \
+-	x509v3/v3_akey.c x509v3/v3_akeya.c x509v3/v3_alt.c \
+-	x509v3/v3_bcons.c x509v3/v3_bitst.c x509v3/v3_conf.c \
+-	x509v3/v3_cpols.c x509v3/v3_crld.c x509v3/v3_enum.c \
+-	x509v3/v3_extku.c x509v3/v3_genn.c x509v3/v3_ia5.c \
+-	x509v3/v3_info.c x509v3/v3_int.c x509v3/v3_lib.c \
+-	x509v3/v3_ncons.c x509v3/v3_ocsp.c x509v3/v3_pci.c \
+-	x509v3/v3_pcia.c x509v3/v3_pcons.c x509v3/v3_pku.c \
+-	x509v3/v3_pmaps.c x509v3/v3_prn.c x509v3/v3_purp.c \
+-	x509v3/v3_skey.c x509v3/v3_sxnet.c x509v3/v3_utl.c \
+-	x509v3/v3err.c
++	x509/x509_vfy_apple.c x509/x509_vpm.c x509/x509cset.c \
++	x509/x509name.c x509/x509rset.c x509/x509spki.c \
++	x509/x509type.c x509/x_all.c x509v3/pcy_cache.c \
++	x509v3/pcy_data.c x509v3/pcy_lib.c x509v3/pcy_map.c \
++	x509v3/pcy_node.c x509v3/pcy_tree.c x509v3/v3_akey.c \
++	x509v3/v3_akeya.c x509v3/v3_alt.c x509v3/v3_bcons.c \
++	x509v3/v3_bitst.c x509v3/v3_conf.c x509v3/v3_cpols.c \
++	x509v3/v3_crld.c x509v3/v3_enum.c x509v3/v3_extku.c \
++	x509v3/v3_genn.c x509v3/v3_ia5.c x509v3/v3_info.c \
++	x509v3/v3_int.c x509v3/v3_lib.c x509v3/v3_ncons.c \
++	x509v3/v3_ocsp.c x509v3/v3_pci.c x509v3/v3_pcia.c \
++	x509v3/v3_pcons.c x509v3/v3_pku.c x509v3/v3_pmaps.c \
++	x509v3/v3_prn.c x509v3/v3_purp.c x509v3/v3_skey.c \
++	x509v3/v3_sxnet.c x509v3/v3_utl.c x509v3/v3err.c
+ 
+ # chacha
+ 
+@@ -2808,6 +2809,8 @@
+ 	x509/$(DEPDIR)/$(am__dirstamp)
+ x509/libcrypto_la-x509_vfy.lo: x509/$(am__dirstamp) \
+ 	x509/$(DEPDIR)/$(am__dirstamp)
++x509/libcrypto_la-x509_vfy_apple.lo: x509/$(am__dirstamp) \
++	x509/$(DEPDIR)/$(am__dirstamp)
+ x509/libcrypto_la-x509_vpm.lo: x509/$(am__dirstamp) \
+ 	x509/$(DEPDIR)/$(am__dirstamp)
+ x509/libcrypto_la-x509cset.lo: x509/$(am__dirstamp) \
+@@ -3583,6 +3586,7 @@
+ @AMDEP_TRUE@@am__include@ @am__quote@x509/$(DEPDIR)/libcrypto_la-x509_txt.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@x509/$(DEPDIR)/libcrypto_la-x509_v3.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@x509/$(DEPDIR)/libcrypto_la-x509_vfy.Plo@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@x509/$(DEPDIR)/libcrypto_la-x509_vfy_apple.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@x509/$(DEPDIR)/libcrypto_la-x509_vpm.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@x509/$(DEPDIR)/libcrypto_la-x509cset.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@x509/$(DEPDIR)/libcrypto_la-x509name.Plo@am__quote@
+@@ -7460,6 +7464,13 @@
+ @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+ @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcrypto_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o x509/libcrypto_la-x509_vfy.lo `test -f 'x509/x509_vfy.c' || echo '$(srcdir)/'`x509/x509_vfy.c
+ 
++x509/libcrypto_la-x509_vfy_apple.lo: x509/x509_vfy_apple.c
++@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcrypto_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT x509/libcrypto_la-x509_vfy_apple.lo -MD -MP -MF x509/$(DEPDIR)/libcrypto_la-x509_vfy_apple.Tpo -c -o x509/libcrypto_la-x509_vfy_apple.lo `test -f 'x509/x509_vfy_apple.c' || echo '$(srcdir)/'`x509/x509_vfy_apple.c
++@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) x509/$(DEPDIR)/libcrypto_la-x509_vfy_apple.Tpo x509/$(DEPDIR)/libcrypto_la-x509_vfy_apple.Plo
++@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='x509/x509_vfy_apple.c' object='x509/libcrypto_la-x509_vfy_apple.lo' libtool=yes @AMDEPBACKSLASH@
++@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
++@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcrypto_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o x509/libcrypto_la-x509_vfy_apple.lo `test -f 'x509/x509_vfy_apple.c' || echo '$(srcdir)/'`x509/x509_vfy_apple.c
++
+ x509/libcrypto_la-x509_vpm.lo: x509/x509_vpm.c
+ @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcrypto_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT x509/libcrypto_la-x509_vpm.lo -MD -MP -MF x509/$(DEPDIR)/libcrypto_la-x509_vpm.Tpo -c -o x509/libcrypto_la-x509_vpm.lo `test -f 'x509/x509_vpm.c' || echo '$(srcdir)/'`x509/x509_vpm.c
+ @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) x509/$(DEPDIR)/libcrypto_la-x509_vpm.Tpo x509/$(DEPDIR)/libcrypto_la-x509_vpm.Plo
+diff -Naur libressl-2.6.2.orig/crypto/x509/x509_vfy.c libressl-2.6.2/crypto/x509/x509_vfy.c
+--- libressl-2.6.2.orig/crypto/x509/x509_vfy.c	2017-09-02 14:01:08.000000000 +0200
++++ libressl-2.6.2/crypto/x509/x509_vfy.c	2017-10-07 14:05:16.000000000 +0200
+@@ -115,6 +115,13 @@
+ 
+ #define CRL_SCORE_TIME_DELTA	0x002
+ 
++/*
++ * If we are using Trust Evaluation Agent, rename the original function
++ */
++#ifdef __APPLE__
++#define X509_verify_cert X509_verify_cert_orig
++#endif
++
+ static int null_callback(int ok, X509_STORE_CTX *e);
+ static int check_issued(X509_STORE_CTX *ctx, X509 *x, X509 *issuer);
+ static X509 *find_issuer(X509_STORE_CTX *ctx, STACK_OF(X509) *sk, X509 *x);
+diff -Naur libressl-2.6.2.orig/crypto/x509/x509_vfy_apple.c libressl-2.6.2/crypto/x509/x509_vfy_apple.c
+--- libressl-2.6.2.orig/crypto/x509/x509_vfy_apple.c	1970-01-01 01:00:00.000000000 +0100
++++ libressl-2.6.2/crypto/x509/x509_vfy_apple.c	2017-10-07 14:05:16.000000000 +0200
+@@ -0,0 +1,225 @@
++/*
++ * Copyright (c) 2009 Apple Inc. All Rights Reserved.
++ *
++ * @APPLE_LICENSE_HEADER_START@
++ * 
++ * This file contains Original Code and/or Modifications of Original Code
++ * as defined in and that are subject to the Apple Public Source License
++ * Version 2.0 (the 'License'). You may not use this file except in
++ * compliance with the License. Please obtain a copy of the License at
++ * http://www.opensource.apple.com/apsl/ and read it before using this
++ * file.
++ * 
++ * The Original Code and all software distributed under the License are
++ * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
++ * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
++ * INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
++ * Please see the License for the specific language governing rights and
++ * limitations under the License.
++ * 
++ * @APPLE_LICENSE_HEADER_END@
++ *
++ */
++
++#include <stdint.h>
++#include <inttypes.h>
++#include <syslog.h>
++
++#include <Security/Security.h>
++
++#include <openssl/opensslconf.h>
++
++#include <openssl/crypto.h>
++#include <openssl/x509.h>
++#include <openssl/x509v3.h>
++
++#include "cryptlib.h"
++#include "vpm_int.h"
++#include "x509_vfy_apple.h"
++
++#define TEA_might_correct_error(err) (err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY || err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT || err == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN)
++
++
++static bool add_cert_to_array(CFMutableArrayRef array, X509 *x509)
++{
++    unsigned char *asn1_cert_data = NULL;
++    int asn1_cert_len = i2d_X509(x509, &asn1_cert_data);
++
++    CFDataRef data = CFDataCreate(kCFAllocatorDefault, asn1_cert_data, asn1_cert_len);
++
++    if (data == NULL) {
++        return false;
++    }
++
++    SecCertificateRef cert = SecCertificateCreateWithData(NULL, data);
++
++    free(asn1_cert_data);
++
++    if (cert == NULL) {
++        CFRelease(data);
++        return false;
++    }
++
++    CFArrayAppendValue(array, cert);
++    CFRelease(data);
++
++    return true;
++}
++
++static CFStringRef to_string(const char *s) {
++    if (s == NULL)
++        return NULL;
++    return CFStringCreateWithCString(kCFAllocatorDefault, s,
++                                     kCFStringEncodingASCII);
++}
++
++static SecPolicyRef get_policy(X509_VERIFY_PARAM *param) {
++    switch (param->purpose) {
++        case X509_PURPOSE_SSL_CLIENT:
++        case X509_PURPOSE_SSL_SERVER: {
++
++            if (!param->id) {
++                fprintf(stderr, "got no ID!\n");
++                return NULL;
++            }
++
++            CFStringRef hostname;
++            int nhosts = sk_OPENSSL_STRING_num(param->id->hosts);
++
++            if (nhosts != 1) {
++                hostname = NULL;
++
++            } else {
++                hostname = to_string(sk_OPENSSL_STRING_value(param->id->hosts, 0));
++                CFShow(hostname);
++            }
++            
++            return SecPolicyCreateSSL(param->purpose == X509_PURPOSE_SSL_SERVER,
++                                      hostname);
++        }
++
++        case X509_PURPOSE_NS_SSL_SERVER:
++        case X509_PURPOSE_SMIME_SIGN:
++        case X509_PURPOSE_SMIME_ENCRYPT:
++        case X509_PURPOSE_CRL_SIGN:
++        case X509_PURPOSE_ANY:
++        case X509_PURPOSE_OCSP_HELPER:
++        case X509_PURPOSE_TIMESTAMP_SIGN:
++        default:
++            fprintf(stderr, "unsupported purpose %d", param->purpose);
++            return NULL;
++    }
++}
++
++/*
++ * Please see comment in x509_vfy_apple.h
++ */
++int
++X509_verify_cert(X509_STORE_CTX *ctx)
++{
++	uint64_t		certLastIndex = 0;
++	uint64_t		i = 0;
++
++    /* Try OpenSSL, if we get a local certificate issue verify against trusted roots */
++    int ret = X509_verify_cert_orig(ctx);
++    
++    /* Verify TEA is enabled and should be used. */
++    if (0 == X509_TEA_is_enabled() ||
++        ret == 1 || !TEA_might_correct_error(ctx->error)) {
++        return ret;
++    }
++    
++    /* Verify that the certificate chain exists, otherwise make it. */
++    if (ctx->chain == NULL && (ctx->chain = sk_X509_new_null()) == NULL) {
++        fprintf(stderr, "Could not create the certificate chain");
++        ctx->error = X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY;
++        return -1;
++    }
++    
++    /* Verify chain depth */
++    certLastIndex = sk_X509_num(ctx->untrusted);
++    if (certLastIndex > ctx->param->depth) {
++        fprintf(stderr, "Pruning certificate chain to %" PRIu64, certLastIndex);
++        certLastIndex = ctx->param->depth;
++    }
++
++    CFMutableArrayRef certArray = CFArrayCreateMutable(NULL, certLastIndex + 1, NULL);
++    CFRetain(certArray);
++    
++    if (!add_cert_to_array(certArray, ctx->cert)) {
++        fprintf(stderr, "Failed to add certificate to array");
++        CFRelease(certArray);
++        ctx->error = X509_V_ERR_UNSPECIFIED;
++        return -1;
++    }
++    
++    for (i = 0; i < certLastIndex; ++i) {
++        X509	*t = sk_X509_value(ctx->untrusted, i);
++        if (!add_cert_to_array(certArray, t)) {
++            fprintf(stderr, "Failed to add chain certificate %lld to array", i);
++            CFRelease(certArray);
++            ctx->error = X509_V_ERR_UNSPECIFIED;
++            return 0;
++        }
++    }
++    
++    // We put ASN.1 encoded X509 on the CertificateChain, so we don't call TEACertificateChainSetEncodingHandler
++    SecPolicyRef policy = get_policy(ctx->param);
++    
++    if (policy == NULL) {
++        fprintf(stderr, "Failed to create policy!\n");
++        CFRelease(certArray);
++        ctx->error = X509_V_ERR_UNSPECIFIED;
++        return -1;
++    }
++
++    SecTrustRef trust = NULL;
++
++    if (SecTrustCreateWithCertificates(certArray, policy, &trust)  != errSecSuccess) {
++        fprintf(stderr, "Failed to create trust!\n");
++        CFRelease(certArray);
++        ctx->error = X509_V_ERR_CERT_UNTRUSTED;
++        return -1;
++    }
++
++    if (ctx->param->flags & X509_V_FLAG_USE_CHECK_TIME) {
++        fprintf(stderr, "Setting time not supported yet?\n");
++        SecTrustSetVerifyDate(trust, CFDateCreate(NULL, ctx->param->check_time));
++    }
++
++    SecTrustResultType result = 0;
++
++    if (SecTrustEvaluate(trust, &result) != errSecSuccess || result != kSecTrustResultUnspecified) {
++        CFRelease(certArray);
++        ctx->error = X509_V_ERR_CERT_UNTRUSTED;
++        return 0;
++    }
++
++    CFRelease(certArray);
++    ctx->error = 0;
++    return 1;
++}
++
++#pragma mark Trust Evaluation Agent
++
++/* -1: not set
++ *  0: set to false
++ *  1: set to true
++ */
++static int tea_enabled = -1;
++
++void
++X509_TEA_set_state(int change)
++{
++	tea_enabled = (change) ? 1 : 0;
++}
++
++int
++X509_TEA_is_enabled()
++{
++	if (tea_enabled < 0)
++		tea_enabled = (NULL == getenv(X509_TEA_ENV_DISABLE));
++
++	return tea_enabled != 0;
++}
+diff -Naur libressl-2.6.2.orig/crypto/x509/x509_vfy_apple.h libressl-2.6.2/crypto/x509/x509_vfy_apple.h
+--- libressl-2.6.2.orig/crypto/x509/x509_vfy_apple.h	1970-01-01 01:00:00.000000000 +0100
++++ libressl-2.6.2/crypto/x509/x509_vfy_apple.h	2017-10-07 14:05:16.000000000 +0200
+@@ -0,0 +1,74 @@
++/*
++ * Copyright (c) 2009 Apple Inc. All Rights Reserved.
++ *
++ * @APPLE_LICENSE_HEADER_START@
++ * 
++ * This file contains Original Code and/or Modifications of Original Code
++ * as defined in and that are subject to the Apple Public Source License
++ * Version 2.0 (the 'License'). You may not use this file except in
++ * compliance with the License. Please obtain a copy of the License at
++ * http://www.opensource.apple.com/apsl/ and read it before using this
++ * file.
++ * 
++ * The Original Code and all software distributed under the License are
++ * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
++ * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
++ * INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
++ * Please see the License for the specific language governing rights and
++ * limitations under the License.
++ * 
++ * @APPLE_LICENSE_HEADER_END@
++ *
++ */
++
++#ifndef HEADER_X509_H
++#include <openssl/x509.h>
++#endif
++
++#ifndef HEADER_X509_VFY_APPLE_H
++#define HEADER_X509_VFY_APPLE_H
++
++/* Environment variable name to disable TEA. */
++#define X509_TEA_ENV_DISABLE "OPENSSL_X509_TEA_DISABLE"
++
++/*
++ * X509_verify_cert
++ *
++ * Originally located in x509_vfy.c.
++ *
++ * Verify certificate with OpenSSL created X509_verify_cert. If and only if
++ * OpenSSL cannot get certificate issuer locally then OS X security API will
++ * verify the certificate, using Trust Evaluation Agent.
++ *
++ * Return values:
++ * --------------
++ * -1: Null was passed for either ctx or ctx->cert.
++ *  0: Certificate is trusted.
++ *  1: Certificate is not trusted.
++ */
++int X509_verify_cert(X509_STORE_CTX *ctx);
++
++/*
++ * X509_TEA_is_enabled
++ *
++ * Is the Trust Evaluation Agent (TEA) used for certificate verification when
++ * the issuer cannot be verified.
++ *
++ * Returns 0 if TEA is disabled and 1 if TEA is enabled.
++ */
++int X509_TEA_is_enabled();
++
++/*
++ * X509_TEA_set_state
++ *
++ * Enables/disables certificate verification with Trust Evaluation Agent (TEA)
++ * when the issuer cannot be verified.
++ *
++ * Pass 0 to disable TEA and non-zero to enable TEA.
++ */
++void X509_TEA_set_state(int change);
++
++int X509_verify_cert_orig(X509_STORE_CTX *ctx);
++
++#endif /* HEADER_X509_VFY_APPLE_H */

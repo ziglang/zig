@@ -1,0 +1,36 @@
+==================================================================
+IRC conversation between anto and armin about handles destructors
+==================================================================
+
+<antocuni> how do we implement HPyBytes_AsString() on pypy? We either need to pin the buffer or to make a copy
+<antocuni> but we don't have any way in the current API to communicate when we can "close" it (i.e., unpin or free the copy)
+[...]
+<antocuni> arigato: what about this implementation of HandleManager.close()? http://paste.openstack.org/show/786900/
+    def close(self, index):
+        assert index > 0
+        self.handles_w[index] = None
+        if self.destructors[index] is not None:
+            for fn in self.destructors[index]:
+                fn()
+            self.destructors[index] = None
+        self.free_list.append(index)
+<antocuni> you pay only an "if" in the common case
+
+<arigato> yes, that's probably OK
+<arigato> we can also tweak the various arrays (now three, handles_w, free_list and destructors) for cache efficiency
+
+<antocuni> this is not seen by the JIT anyway, I suppose? So we don't even have to worry about the extra bridge
+<antocuni> how?
+
+<arigato> e.g. make a single array of Struct(handle, index).  When the handle is free, "index" is the next item in the free list.  When the handle is allocated, "index" is an integer that efficienty encodes which destructors to run (e.g. one bit per destructor)
+<arigato> so the check for destructors in close() becomes a check "index != 0" that is from the same cache line as the "handle" we just wrote to
+<arigato> just an idea.  Maybe it's not worth it, because walking a large array of structs is significantly slower in the GC
+
+<antocuni> ah, and every time you allocate a handle, you read the "next item in the free list" and stick it in HandleManager
+<antocuni> "encodes which destructors to run": so you are proposing to have 64 different kind of destructors?
+
+<arigato> yes, but it's unclear if this is better or worse than the free_list as a plain list like now
+<arigato> yes, I'm suggesting we only need a small number of destructors
+
+<antocuni> I suppose this is something which we can try later anyway, no need to complicate things now
+<arigato> yes

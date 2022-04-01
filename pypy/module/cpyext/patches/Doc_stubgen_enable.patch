@@ -1,0 +1,27 @@
+Index: Doc/tools/sphinx/ext/refcounting.py
+===================================================================
+--- Doc/tools/sphinx/ext/refcounting.py	(Revision 79453)
++++ Doc/tools/sphinx/ext/refcounting.py	(Arbeitskopie)
+@@ -91,6 +91,7 @@
+     if app.config.refcount_file:
+         refcounts = Refcounts.fromfile(
+             path.join(app.srcdir, app.config.refcount_file))
++        app._refcounts = refcounts
+         app.connect('doctree-read', refcounts.add_refcount_annotations)
+ 
+ 
+Index: Doc/conf.py
+===================================================================
+--- Doc/conf.py	(Revision 79421)
++++ Doc/conf.py	(Arbeitskopie)
+@@ -13,8 +13,8 @@
+ # General configuration
+ # ---------------------
+ 
+-extensions = ['sphinx.ext.refcounting', 'sphinx.ext.coverage',
+-              'sphinx.ext.doctest', 'pyspecific']
++extensions = ['pypy.module.cpyext.stubgen', 'sphinx.ext.refcounting', 'sphinx.ext.coverage',
++              'sphinx.ext.doctest', 'pyspecific', ]
+ templates_path = ['tools/sphinxext']
+ 
+ # General substitutions.

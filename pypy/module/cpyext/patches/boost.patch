@@ -1,0 +1,57 @@
+Index: libs/python/src/object/function.cpp
+===================================================================
+--- libs/python/src/object/function.cpp	2010-04-04 07:19:57 +0200
++++ libs/python/src/object/function.cpp	2010-06-02 23:26:12 +0200
+@@ -435,7 +435,7 @@
+         function* new_func = downcast<function>(attribute.ptr());
+         PyObject* dict = 0;
+         
+-#if PY_VERSION_HEX < 0x03000000
++#if PY_VERSION_HEX < 0x03000000 && !defined(PYPY_VERSION)
+         // Old-style class gone in Python 3
+         if (PyClass_Check(ns))
+             dict = ((PyClassObject*)ns)->cl_dict;
+Index: libs/python/src/wrapper.cpp
+===================================================================
+--- libs/python/src/wrapper.cpp	2008-03-22 22:45:55 +0100
++++ libs/python/src/wrapper.cpp	2010-06-02 23:27:44 +0200
+@@ -25,7 +25,7 @@
+             
+               if (
+                   PyMethod_Check(m.get())
+-                  && ((PyMethodObject*)m.get())->im_self == this->m_self
++                  && PyMethod_GET_SELF(m.get()) == this->m_self
+                   && class_object->tp_dict != 0
+               )
+               {
+@@ -34,7 +34,7 @@
+ 
+ 
+               }
+-              if (borrowed_f != ((PyMethodObject*)m.get())->im_func)
++              if (borrowed_f != PyMethod_GET_FUNCTION(m.get()))
+                   return override(m);
+           }
+       }
+Index: tools/build/v2/user-config.jam
+===================================================================
+--- tools/build/v2/user-config.jam	2008-07-15 15:53:41 +0200
++++ tools/build/v2/user-config.jam	2010-06-02 23:46:13 +0200
+@@ -84,3 +84,16 @@
+ 
+ # Configure with an explicit installation prefix.
+ # using qt : /usr/opt/qt ;
++
++# -------------------
++# PyPy configuration.
++# -------------------
++
++PYPY_HOME = /home/amaury/trunk ;
++
++using python : 2.5
++             : $(PYPY_HOME)/pypy/pypy-c                # interpreter
++             : $(PYPY_HOME)/pypy/module/cpyext/include # include paths 
++               $(PYPY_HOME)/pypy/_interfaces
++             : $(PYPY_HOME)/pypy/_interfaces           # library path
++             ;
+

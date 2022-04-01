@@ -1,0 +1,56 @@
+digraph JIT {
+
+    subgraph top {
+        rank=same;
+        block0 [label = "..."]
+        block0s [label = "..."]
+        block0s1 [label = "..."]
+    }
+    subgraph bottom {
+        rank=same;
+        block2 [label = "inputargs: v4\n...", shape=box]
+        block3 [label = "inputargs: v5\n...", shape=box]
+        block2s [label = "inputargs: v4\n...", shape=box]
+        block3s [label = "inputargs: v5\n...", shape=box]
+        block2s1 [label = "inputargs: v4\n...", shape=box]
+        block3s1 [label = "inputargs: v5\n...", shape=box]
+    }
+    block1 [label = "inputargs: struct_1\n\nv1 = getfield(struct_1, ('co'))\nv2 = int_add(v1, (1))            \nv3 = cast_int_to_bool(v2)    \n\nexitswitch: v2", shape=octagon]
+    block0 -> block1
+    block1 -> block2 [label="True: v2"]
+    block1 -> block3 [label="False: v2"]
+    
+    block0_5s [label = "inputargs: struct_1\n\nv1 = ptr_eq(struct_1, (const_struct_a))\n\nexitswitch: v1", shape=octagon]
+    block1s [label = "inputargs: struct_1\n\nv1 = getfield(struct_1, ('co'))\nv2 = int_add(v1, (1))            \nv3 = cast_int_to_bool(v2)    \n\nexitswitch: v2", shape=octagon]
+    block1a [label = "inputargs: struct_1\n\nv1 = getfield((const_struct_a), ('co'))\nv2 = int_add(v1, (1))                       \nv3 = cast_int_to_bool(v2)                \n\nexitswitch: v2", shape=octagon]
+    block0s -> block0_5s
+    block0_5s -> block1s [label="False: struct_1"]
+    block0_5s -> block1a [label="True: "]
+    block1s -> block2s [label="True: v2"]
+    block1s -> block3s [label="False: v2"] 
+    block1a -> block2s [label="True: v2"]
+    block1a -> block3s [label="False: v2"]
+
+    block0_5s1 [label = "inputargs: struct_1\n\nv1 = ptr_eq(struct_1, (const_struct_a))\n\nexitswitch: v1", shape=octagon]
+    block1s1 [label = "inputargs: struct_1\n\nv1 = getfield(struct_1, ('co'))\nv2 = int_add(v1, (1))            \nv3 = cast_int_to_bool(v2)    \n\nexitswitch: v2", shape=octagon]
+    block1a1 [label = "inputargs: \n\nv2 = int_add((2), (1))            \nv3 = cast_int_to_bool(v2)    \n\nexitswitch: v2", shape=octagon]
+    block0s1 -> block0_5s1
+    block0_5s1 -> block1s1 [label="False: struct_1"]
+    block0_5s1 -> block1a1 [label="True: "]
+    block1s1 -> block2s1 [label="True: v2"]
+    block1s1 -> block3s1 [label="False: v2"] 
+    block1a1 -> block2s1 [label="True: v2"]
+    block1a1 -> block3s1 [label="False: v2"]
+
+    block0s2 [label = "..."]
+    block0_5s2 [label = "inputargs: struct_1\n\nv1 = ptr_eq(struct_1, (const_struct_a))\n\nexitswitch: v1", shape=octagon]
+    block1s2 [label = "inputargs: struct_1\n\nv1 = getfield(struct_1, ('co'))\nv2 = int_add(v1, (1))            \nv3 = cast_int_to_bool(v2)    \n\nexitswitch: v2", shape=octagon]
+    block2s2 [label = "inputargs: v4\n...", shape=box]
+    block3s2 [label = "inputargs: v5\n...", shape=box]
+    block0s2 -> block0_5s2
+    block0_5s2 -> block1s2 [label="False: struct_1"]
+    block0_5s2 -> block2s2 [label="True: (3)"]
+    block1s2 -> block2s2 [label="True: v3"]
+    block1s2 -> block3s2 [label="False: v3"] 
+
+}

@@ -1,0 +1,6 @@
+Use the '_multibytecodec' module.
+Used by the standard library to provide codecs for 'gb2312', 'gbk', 'gb18030',
+'hz', 'big5hkscs', 'iso2022_kr', 'iso2022_jp', 'iso2022_jp_1', 'iso2022_jp_2',
+'iso2022_jp_2004', 'iso2022_jp_3', 'iso2022_jp_ext', 'shift_jis', 'cp932',
+'euc_jp', 'shift_jis_2004', 'euc_jis_2004', 'euc_jisx0213', 'shift_jisx0213',
+'euc_kr', 'cp949', 'johab', 'big5', 'cp950'.

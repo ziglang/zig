@@ -1,0 +1,110 @@
+diff --git a/src/cairomodule.c b/src/cairomodule.c
+index 21b7b20..181b420 100644
+--- a/src/cairomodule.c
++++ b/src/cairomodule.c
+@@ -188,7 +188,8 @@ init_cairo(void)
+   if (PyType_Ready(&PycairoPath_Type) < 0)
+     return;
+   PycairoPathiter_Type.tp_iter=&PyObject_SelfIter;
+-
++  if (PyType_Ready(&PycairoPathiter_Type) < 0)
++    return;
+   if (PyType_Ready(&PycairoPattern_Type) < 0)
+     return;
+   if (PyType_Ready(&PycairoSolidPattern_Type) < 0)
+diff --git a/src/context.c b/src/context.c
+index e2c08b5..93b369f 100644
+--- a/src/context.c
++++ b/src/context.c
+@@ -1430,7 +1430,7 @@ PyTypeObject PycairoContext_Type = {
+   pycairo_methods,                    /* tp_methods */
+   0,                                  /* tp_members */
+   0,                                  /* tp_getset */
+-  &PyBaseObject_Type,                 /* tp_base */
++  0,                                  /* tp_base */
+   0,                                  /* tp_dict */
+   0,                                  /* tp_descr_get */
+   0,                                  /* tp_descr_set */
+diff --git a/src/font.c b/src/font.c
+index 97cf1b3..3fcc9e4 100644
+--- a/src/font.c
++++ b/src/font.c
+@@ -131,7 +131,7 @@ PyTypeObject PycairoFontFace_Type = {
+   0,                                  /* tp_methods */
+   0,                                  /* tp_members */
+   0,                                  /* tp_getset */
+-  &PyBaseObject_Type,                 /* tp_base */
++  0,                                  /* tp_base */
+   0,                                  /* tp_dict */
+   0,                                  /* tp_descr_get */
+   0,                                  /* tp_descr_set */
+@@ -410,7 +410,7 @@ PyTypeObject PycairoScaledFont_Type = {
+   scaled_font_methods,                /* tp_methods */
+   0,                                  /* tp_members */
+   0,                                  /* tp_getset */
+-  &PyBaseObject_Type,                 /* tp_base */
++  0,                                  /* tp_base */
+   0,                                  /* tp_dict */
+   0,                                  /* tp_descr_get */
+   0,                                  /* tp_descr_set */
+@@ -595,7 +595,7 @@ PyTypeObject PycairoFontOptions_Type = {
+   font_options_methods,               /* tp_methods */
+   0,                                  /* tp_members */
+   0,                                  /* tp_getset */
+-  &PyBaseObject_Type,                 /* tp_base */
++  0,                                  /* tp_base */
+   0,                                  /* tp_dict */
+   0,                                  /* tp_descr_get */
+   0,                                  /* tp_descr_set */
+diff --git a/src/matrix.c b/src/matrix.c
+index eefeab9..2ec5e2d 100644
+--- a/src/matrix.c
++++ b/src/matrix.c
+@@ -332,7 +332,7 @@ PyTypeObject PycairoMatrix_Type = {
+   matrix_methods,                     /* tp_methods */
+   0,                                  /* tp_members */
+   0,                                  /* tp_getset */
+-  &PyBaseObject_Type,                 /* tp_base */
++  0,                                  /* tp_base */
+   0,                                  /* tp_dict */
+   0,                                  /* tp_descr_get */
+   0,                                  /* tp_descr_set */
+diff --git a/src/path.c b/src/path.c
+index 97ca35c..2d1bcf5 100644
+--- a/src/path.c
++++ b/src/path.c
+@@ -206,7 +206,7 @@ PyTypeObject PycairoPath_Type = {
+   0,			        	/* tp_methods */
+   0,					/* tp_members */
+   0,					/* tp_getset */
+-  &PyBaseObject_Type,                   /* tp_base */
++  0,                    /* tp_base */
+   0,					/* tp_dict */
+   0,					/* tp_descr_get */
+   0,					/* tp_descr_set */
+diff --git a/src/pattern.c b/src/pattern.c
+index 229e218..cebf0c9 100644
+--- a/src/pattern.c
++++ b/src/pattern.c
+@@ -194,7 +194,7 @@ PyTypeObject PycairoPattern_Type = {
+   pattern_methods,                    /* tp_methods */
+   0,                                  /* tp_members */
+   0,                                  /* tp_getset */
+-  &PyBaseObject_Type,                 /* tp_base */
++  0,                                  /* tp_base */
+   0,                                  /* tp_dict */
+   0,                                  /* tp_descr_get */
+   0,                                  /* tp_descr_set */
+diff --git a/src/surface.c b/src/surface.c
+index 568aad7..fa11413 100644
+--- a/src/surface.c
++++ b/src/surface.c
+@@ -370,7 +370,7 @@ PyTypeObject PycairoSurface_Type = {
+   surface_methods,                    /* tp_methods */
+   0,                                  /* tp_members */
+   0,                                  /* tp_getset */
+-  &PyBaseObject_Type,                 /* tp_base */
++  0,                                  /* tp_base */
+   0,                                  /* tp_dict */
+   0,                                  /* tp_descr_get */
+   0,                                  /* tp_descr_set */

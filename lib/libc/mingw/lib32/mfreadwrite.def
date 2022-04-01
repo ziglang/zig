@@ -1,7 +1,0 @@
-LIBRARY "MFReadWrite.dll"
-EXPORTS
-MFCreateSinkWriterFromMediaSink@12
-MFCreateSinkWriterFromURL@16
-MFCreateSourceReaderFromByteStream@12
-MFCreateSourceReaderFromMediaSource@12
-MFCreateSourceReaderFromURL@12

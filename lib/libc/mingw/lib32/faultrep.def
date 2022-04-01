@@ -1,5 +1,0 @@
-LIBRARY faultrep.DLL
-EXPORTS
-AddERExcludedApplicationA@4
-AddERExcludedApplicationW@4
-ReportFault@8

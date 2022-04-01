@@ -1,0 +1,28 @@
+digraph mul_graph {
+    node [shape="octagon", color="black", fillcolor="white", style="filled"];
+    subgraph mul {
+        mul [shape="box", label="def recmul(x, y):\l    if x == 0:\l        return 0\l    else:\l        z = x - 1\l        return recmul(z, y) + y\l", fillcolor="green"];
+        mul_r [shape="ellipse", label="Are we resuming?", color="blue"];
+        mul_0 [label="x == 0?"];
+        mul_1 [shape="box", label="z = x - 1"];
+        mul_chk [shape="ellipse", label="is the stack too big?", color="blue"]
+        mul_2 [shape="box", label="return", fillcolor="green"];
+        mul_3 [label="p = recmul(z, y)\n\nis the stack being unwound?"];
+        mul_4 [shape="ellipse", label="store y and z on the heap\nstart unwinding the stack", color="blue"];
+        mul_5 [shape="box", label="result = p + y"];
+        mul_r3 [shape="ellipse", label="load saved variables y and z\lfrom the heap", color="blue"];
+        mul_s3 [shape="ellipse", label="save y and z to the heap\lcontinue unwinding", color="blue"];
+        mul -> mul_r [label="startblock"];
+        mul_r -> mul_0 [label="No: x  y"];
+        mul_r -> mul_r3 [label="Yes: (ignore input args)"];
+        mul_r3 -> mul_3 [label="y  z"];
+        mul_0 -> mul_1 [label="No: x  y"];
+        mul_1 -> mul_chk [label="y  z"];
+        mul_0 -> mul_2 [label="Yes: (0)"];
+        mul_chk -> mul_3 [label="No: y  z"];
+        mul_chk -> mul_4 [label="Yes: y  z"];
+        mul_3 -> mul_5 [label="No: y  p"];
+        mul_3 -> mul_s3 [label="Yes: y  z"];
+        mul_5 -> mul_2 [label="result"];
+    }
+}

@@ -1,0 +1,29 @@
+digraph mul_graph {
+    node [shape="octagon", color="black", fillcolor="white", style="filled"];
+    subgraph mul {
+        mul [shape="box", label="mul\ndef mul(x, y):\l    if x == 0:\l        return 0\l    return mul(x - 1, y) + y\l", fillcolor="green"];
+        mul_r [label="inputargs: x_0 y_0\l\lexitswitch: ('stackless_do_resume')", color="red", fillcolor="red"];
+        mul_0 [label="inputargs: x_0 y_0\n\nv79 = int_eq(x_0, (0))\l\lexitswitch: v79", color="red"];
+        mul_1 [label="inputargs: x_0 y_0\n\nv80 = direct_call((<* fn ll_stack_too_big>))\l\lexitswitch: v80", color="red"];
+        mul_2 [shape="box", label="mul_2(Block )\ninputargs: v193\n\nreturn v193", fillcolor="green"];
+        mul_3 [label="inputargs: x_0 y_0\n\nv81 = int_sub(x_0, (1))\lv82 = direct_call((<* fn mul>), v81, y_0)\l\lexitswitch: last_exception", color="black"];
+        mul_4 [shape="box", label="inputargs: x_0 y_0\n\nv84 = direct_call((<* fn ll_stack_unwind>))\l"];
+        mul_5 [shape="box", label="inputargs: v82 y_0\n\nv83 = int_add(v82, y_0)\l", color="black"];
+        mul_e [shape="box", label="inputargs: etype0, evalue0\n\nraise evalue0", fillcolor="green"];
+        mul_r3 [shape="box", label="inputargs:\n\nframe_stack_top = getfield((stackless_data), ('frame_stack_top'))\lx_0 = getfield(frame_stack_top, ('arg0'))\ly_0 = getfield(frame_stack_top, ('arg1'))\lback = getfield(frame_stack_top, ('back'))\lv199 = setfield((stackless_data), ('frame_stack_top'), back)", fillcolor="red"];
+        mul_s3 [shape="box", label="inputargs: etype0, evalue0\n\nframe = malloc((FrameStructure))\lv200 = setfield(frame, ('arg0'), x_0)\lv201 = setfield(frame, ('arg1'), y_0)\lback = getfield((stackless_data), ('frame_stack_top'))\lv202 = setfield(frame, ('back'), back)\lsetfield((stackless_data), ('frame_stack_top'), frame)", fillcolor="red"];
+        mul -> mul_r [label="startblock", style="dashed", color="black"];
+        mul_r -> mul_0 [label="False: x_0 y_0", style="dashed", color="black"];
+        mul_r -> mul_r3 [label="True" style="dashed", color="black"];
+        mul_r3 -> mul_3 [label="x_0 y_0", style="dashed", color="black"];
+        mul_0 -> mul_1 [label="False: x_0 y_0", style="dotted", color="red"];
+        mul_0 -> mul_2 [label="True: (0)", style="dotted", color="red"];
+        mul_1 -> mul_3 [label="False: x_0 y_0", style="dotted", color="red"];
+        mul_1 -> mul_4 [label="True: x_0 y_0", style="dotted", color="red"];
+        mul_3 -> mul_5 [label="None: v82 x_0", style="solid", color="black"];
+        mul_3 -> mul_s3 [label="SaveStack: x_0 y_0"];
+        mul_s3 -> mul_e [label="etype0 evalue0"];
+        mul_5 -> mul_2 [label="v83"];
+        mul_4 -> mul_3 [label="x_0 y_0", style="solid", color="black"];
+    }
+}

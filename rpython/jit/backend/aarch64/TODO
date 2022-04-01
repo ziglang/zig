@@ -1,0 +1,35 @@
+* cond_call and following guard_exception
+
+
+* We can try to make generate_quick_failure() emit two instructions less:
+  the two store_reg() [one in generate_quick_failure and the other in
+  push_gcmap].  Instead we'd load the values in ip2 and ip3, and the
+  store_regs would occur inside self.failure_recovery_code
+  (which 'target' points to).
+
+
+* use STP instead of STR in all long sequences of STR.  Same with LDR
+
+* use "STR xzr, [..]" instead of "gen_load_int(ip, 0); STR ip, [..]".
+  Search around for gen_load_int(...0): it occurs at least in pop_gcmap()
+  _build_failure_recovery(), build_frame_realloc_slowpath(), etc.
+
+
+* malloc_cond() and malloc_cond_varsize_frame() hard-code forward jump
+  distances by guessing the number of instructions that follows.  Bad
+  idea because some of these instructions could easily be optimized in
+  the future to be a bit shorter.  Rewrite this two places to use the
+  proper way instead of a magic "40" (or at least assert that it was
+  really 40).
+
+
+* use "CBNZ register, offset" (compare-and-branch-if-not-zero)
+  instead of a CMP+BNE pair.  Same with CBZ instead of CMP+BEQ
+
+
+* when we need to save things on the stack, we typically push two words
+  and pop them later.  It would be cheaper if we reserved two locations
+  in the stack from _call_header, then we could just write there.
+  *OR*
+  maybe it's enough if we use the form "str x0, [sp, !#offset]" which
+  combines in a single instruction the "str" with the change of sp

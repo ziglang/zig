@@ -1,0 +1,3 @@
+[distutils.setup_keywords]
+hpy_ext_modules = hpy.devel:handle_hpy_ext_modules
+

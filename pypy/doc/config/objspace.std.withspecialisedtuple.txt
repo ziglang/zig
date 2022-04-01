@@ -1,0 +1,3 @@
+Use "specialized tuples", a custom implementation for some common kinds
+of tuples.  Currently limited to tuples of length 2, in three variants:
+(int, int), (float, float), and a generic (object, object).

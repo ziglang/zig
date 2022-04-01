@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>NumPyPy Status</title>
+        <meta http-equiv="content-type" content="text/html; charset=utf-8">
+        <meta name="description" content="How much of numpy exists in pypy?" >
+        <style type="text/css">
+            body {
+                font-family: 'Consolas', 'Bitstream Vera Sans Mono', monospace;
+                border: 8px
+            }
+            h1 {
+                text-align: center;
+            }
+            h3 {
+                text-align: center;
+            }
+            table {
+                border: 8px solid #DFDECB;
+                margin: 30px auto;
+                font-size: 12px;
+            }
+            table th {
+                text-align: left;
+            }
+            table td {
+                padding: 4px 10px;
+                text-align: center;
+            }
+            .exists {
+                background-color: #337792;
+                color: white;
+                border: 1px solid #234F61;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>NumPyPy Status: how much of numpy can you use in pypy?</h1>
+        <h3>Version: {{ ver }}</h3>
+        <h3>numpy compatability test results, generated automatically by running</br>
+        <code>pypy/module/micronumpy/tool/numready/main.py &lt;path-to-latest-pypy&gt;</code></h3>
+        <h3>Overall: {{ msg }}</h3>
+        <h3><i><b>Warning:</b> a positive result does not mean the function is actually working!  It only means that the function/module/constant is present.  It may be missing other things.</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>PyPy</th>
+                    <th></th>
+                    <th>PyPy</th>
+                    <th></th>
+                    <th>PyPy</th>
+                    <th></th>
+                    <th>PyPy</th>
+                    <th></th>
+                    <th>PyPy</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for chunk in all_items %}
+                    <tr>
+                    {% for item in chunk %}
+                        <th class='{{ item.cls }}'>{{ item.name }}</th>
+                        <td class='{{ item.cls }}'>{{ item.symbol }}</td>
+                    {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </body>
+</html>

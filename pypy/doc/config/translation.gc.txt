@@ -1,0 +1,26 @@
+Choose the Garbage Collector used by the translated program.
+The recommended default is "incminimark".
+
+  - "ref": reference counting. Takes very long to translate and the result is
+    slow.  Used only for tests.  Don't use it for real RPython programs.
+
+  - "none": no GC.  Leaks everything.  Don't use it for real RPython
+    programs: the rate of leaking is immense.
+
+  - "semispace": a copying semi-space GC.
+
+  - "generation": a generational GC using the semi-space GC for the
+    older generation.
+
+  - "hybrid": a hybrid collector of "generation" together with a
+    mark-n-sweep old space
+
+  - "boehm": use the Boehm conservative GC.
+
+  - "minimark": a generational mark-n-sweep collector with good
+    performance.  Includes page marking for large arrays.
+
+  - "incminimark": like minimark, but adds incremental major
+    collections.  Seems to come with no performance drawback over
+    "minimark", so it is the default.  A few recent features of PyPy
+    (like cpyext) are only working with this GC.

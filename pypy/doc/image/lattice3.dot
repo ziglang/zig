@@ -1,0 +1,10 @@
+digraph lattice3 {
+    Top -> "List(v_1)" -> None;
+    d1 [label="...", color=white];
+    d2 [label="...", color=white];
+    d3 [label="...", color=white];
+    Top -> d1 -> None;
+    Top -> d2 -> None;
+    Top -> d3 -> None;
+    Top -> "List(v_n)" -> None;
+}

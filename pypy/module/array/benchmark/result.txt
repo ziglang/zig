@@ -1,0 +1,18 @@
+intimg
+         C: 0.29 s
+      pypy: 0.99 s
+pypy-trunk: 1.33 s
+   cpython: 68.20 s
+
+sum
+         C: 0.61 s
+      pypy: 0.59 s
+pypy-trunk: 0.74 s
+   cpython: 24.77 s
+
+circular
+         C: 0.47 s
+      pypy: 1.48 s
+pypy-trunk: 21.13 s
+   cpython: 869.56 s
+

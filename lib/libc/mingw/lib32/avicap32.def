@@ -1,8 +1,0 @@
-LIBRARY AVICAP32.DLL
-EXPORTS
-videoThunk32@20
-capGetDriverDescriptionW@20
-capGetDriverDescriptionA@20
-capCreateCaptureWindowW@32
-capCreateCaptureWindowA@32
-AppCleanup@4

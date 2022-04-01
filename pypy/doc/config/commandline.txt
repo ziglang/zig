@@ -1,0 +1,33 @@
+
+.. contents::
+
+
+.. _objspace:
+.. _`overview-of-command-line-options-for-objspace`:
+
+-------------------------------
+PyPy Python interpreter options
+-------------------------------
+
+The following options can be used after ``rpython
+targetpypystandalone`` or as options to ``py.py``.
+
+.. GENERATE: objspace
+
+
+.. _translation:
+.. _`overview-of-command-line-options-for-translation`:
+
+---------------------------
+General translation options
+---------------------------
+
+The following are options of ``bin/rpython``.  They must be
+given before the ``targetxxx`` on the command line.
+
+* `--opt -O:`__ set the optimization level `[0, 1, size, mem, 2, 3]`
+
+.. __: opt.html
+
+.. GENERATE: translation
+

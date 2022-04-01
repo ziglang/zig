@@ -1,0 +1,14 @@
+digraph lattice {
+    Top -> NullableStr -> Str -> Char -> Bottom;
+    Top -> Int -> NonNegInt -> Bool -> Bottom;
+    Top -> "*instances*" -> Bottom;
+    "*instances*" -> None;
+    NullableStr -> None;
+    Top -> "*PBCs*" -> Bottom;
+    "*PBCs*" -> None;
+    Top -> "*lists*" -> None -> Bottom;
+
+    "*lists*" [shape=box];
+    "*instances*" [shape=box];
+    "*PBCs*" [shape=box];
+}

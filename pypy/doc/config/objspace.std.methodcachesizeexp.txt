@@ -1,0 +1,1 @@
+Set the cache size (number of entries) for the method cache.

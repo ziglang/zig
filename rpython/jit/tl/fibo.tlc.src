@@ -1,0 +1,26 @@
+main:
+    PUSH 0
+    PUSH 1
+    PUSHARG
+
+loop:           # [a, b, n]
+    PUSH 1
+    SUB         # [a, b, n-1]
+    PICK 0
+    BR_COND true
+    PUSH 1
+    BR_COND exit
+
+true:           # [a, b, n]
+    SWAP
+    ROLL 3      # [n, b, a]
+    PICK 1      # [n, b, a, b]
+    ADD         # [n, b, a+b]
+    ROLL 3      # [b, a+b, n]
+
+    PUSH 1
+    BR_COND loop
+
+exit:           # [a, b, 0]
+    POP
+    RETURN

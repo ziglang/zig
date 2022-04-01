@@ -1,0 +1,5 @@
+If turned on, the annotator will keep track of which strings can
+potentially contain NUL characters, and complain if one such string
+is passed to some external functions --- e.g. if it is used as a
+filename in os.open().  Defaults to False because it is usually more
+pain than benefit, but turned on by targetpypystandalone.

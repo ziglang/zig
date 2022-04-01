@@ -1,0 +1,38 @@
+[11f210b47027] {jit-backend
+[11f210b900f7] {jit-backend-dump
+BACKEND x86_64
+SYS_EXECUTABLE python
+CODE_DUMP @7f3b0b2e63d5 +0  554889E5534154415541564157488DA500000000488B042590C5540148C7042590C554010000000048898570FFFFFF488B042598C5540148C7042598C554010000000048898568FFFFFF488B0425A0C5540148C70425A0C554010000000048898560FFFFFF488B0425A8C5540148C70425A8C554010000000048898558FFFFFF4C8B3C2550525B0149BB3050920D3B7F00004D8B334983C60149BB3050920D3B7F00004D89334981FF102700000F8D000000004983C7014C8B342580F76A024983EE014C89342580F76A024983FE000F8C00000000E9AEFFFFFF488B042588F76A024829E0483B042580EC3C01760D49BB05632E0B3B7F000041FFD3554889E5534154415541564157488DA550FFFFFF4889BD70FFFFFF4889B568FFFFFF48899560FFFFFF48898D58FFFFFF4D89C7E954FFFFFF49BB00602E0B3B7F000041FFD34440484C3D030300000049BB00602E0B3B7F000041FFD34440484C3D070304000000
+[11f210b949b3] jit-backend-dump}
+[11f210b949b4] {jit-backend-addr
+Loop 0 (<code object f, file 'x.py', line 2> #9 LOAD_FAST) has address 0x7f3b0b2e645d to 0x7f3b0b2e64af (bootstrap 0x7f3b0b2e63d5)
+[11f210bab188] jit-backend-addr}
+[11f210bab189] jit-backend}
+[11f210bacbb7] {jit-log-opt-loop
+# Loop 0 : loop with 19 ops
+[p0, p1, p2, p3, i4]
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #9 LOAD_FAST')
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #12 LOAD_CONST')
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #15 COMPARE_OP')
++166: i6 = int_lt(i4, 10000)
+guard_true(i6, descr=<Guard0x3>) [p1, p0, p2, p3, i4]
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #18 POP_JUMP_IF_FALSE')
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #21 LOAD_FAST')
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #24 LOAD_CONST')
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #27 INPLACE_ADD')
++179: i8 = int_add(i4, 1)
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #28 STORE_FAST')
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #31 JUMP_ABSOLUTE')
++183: i10 = getfield_raw_i(40564608, descr=<SignedFieldDescr pypysig_long_struct.c_value 0>)
++191: i12 = int_sub(i10, 1)
++195: setfield_raw(40564608, i12, descr=<SignedFieldDescr pypysig_long_struct.c_value 0>)
++203: i14 = int_lt(i12, 0)
+guard_false(i14, descr=<Guard0x4>) [p1, p0, p2, p3, i8, None]
+debug_merge_point(0, '<code object f. file 'x.py'. line 2> #9 LOAD_FAST')
++213: jump(p0, p1, p2, p3, i8, descr=<Loop0>)
++218: --end of the loop--
+[11f210c17981] jit-log-opt-loop}
+[11f210fb1d21] {jit-backend-counts
+0:8965
+1:2
+[11f210fb381b] jit-backend-counts}

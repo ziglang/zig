@@ -1,0 +1,16 @@
+Use GCCs profile-guided optimizations. This option specifies the the
+arguments with which to call pypy-c (and in general the translated
+RPython program) to gather profile data. Example for pypy-c: "-c 'from
+richards import main;main(); from test import pystone;
+pystone.main()'"
+
+NOTE: be aware of what this does in JIT-enabled executables.  What it
+does is instrument and later optimize the C code that happens to run in
+the example you specify, ignoring any execution of the JIT-generated
+assembler.  That means that you have to choose the example wisely.  If
+it is something that will just generate assembler and stay there, there
+is little value.  If it is something that exercises heavily library
+routines that are anyway written in C, then it will optimize that.  Most
+interesting would be something that causes a lot of JIT-compilation,
+like running a medium-sized test suite several times in a row, in order
+to optimize the warm-up in general.

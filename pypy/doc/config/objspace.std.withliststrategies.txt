@@ -1,0 +1,2 @@
+Enable list strategies: Use specialized representations for lists of primitive
+objects, such as ints.

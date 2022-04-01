@@ -1,0 +1,138 @@
+main:
+    CALL newnode
+    PICK 0
+    PUSH 20
+    SEND insert/1
+
+    PICK 0
+    PUSH 10
+    SEND insert/1
+
+    PICK 0
+    PUSH 15
+    SEND insert/1
+
+    PICK 0
+    PUSH 30
+    SEND insert/1
+
+    PICK 0
+    PUSHARG
+    SEND search/1
+
+    RETURN
+
+
+newnode:
+    NEW value,left,right,isempty=isempty,insert=insert,search=search
+    RETURN
+
+isempty:
+    PUSHARG
+    GETATTR value
+    BR_COND isempty_not
+    PUSH 1
+    RETURN
+  isempty_not:
+    PUSH 0
+    RETURN
+
+insert: # (n)
+    # if self.isempty goto insert_empty
+    PUSHARG
+    SEND isempty/0
+    BR_COND insert_empty
+
+    # if n == self.value goto insert_found
+    PUSHARGN 1
+    PUSHARG
+    GETATTR value
+    EQ
+    BR_COND insert_found
+
+    # if n < self.value goto insert_left
+    PUSHARGN 1
+    PUSHARG
+    GETATTR value
+    LT
+    BR_COND insert_left
+
+  insert_right:
+    # self.right.insert(n)
+    PUSHARG
+    GETATTR right
+    PUSHARGN 1
+    SEND insert/1
+    RETURN
+
+  insert_left:
+    # self.left.insert(n)
+    PUSHARG
+    GETATTR left
+    PUSHARGN 1
+    SEND insert/1
+    RETURN
+
+  insert_found:
+    RETURN
+
+  insert_empty:
+    # self.value = n
+    PUSHARG
+    PUSHARGN 1
+    SETATTR value
+
+    # self.left = Node()
+    PUSHARG
+    CALL newnode
+    SETATTR left
+
+    # self.right = Node()
+    PUSHARG
+    CALL newnode
+    SETATTR right
+
+    RETURN
+
+
+search: # (n)
+    # if self.isempty goto search_empty
+    PUSHARG
+    SEND isempty/0
+    BR_COND search_empty
+
+    # if n == self.value goto search_found
+    PUSHARGN 1
+    PUSHARG
+    GETATTR value
+    EQ
+    BR_COND search_found
+
+    # if n < self.value goto search_left
+    PUSHARGN 1
+    PUSHARG
+    GETATTR value
+    LT
+    BR_COND search_left
+
+  search_right:
+    PUSHARG
+    GETATTR right
+    PUSHARGN 1
+    SEND search/1
+    RETURN
+
+  search_left:
+    PUSHARG
+    GETATTR left
+    PUSHARGN 1
+    SEND search/1
+    RETURN
+
+  search_found:
+    PUSH 1
+    RETURN
+
+  search_empty:
+    PUSH 0
+    RETURN

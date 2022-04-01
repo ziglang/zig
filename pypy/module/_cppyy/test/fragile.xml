@@ -1,0 +1,32 @@
+<lcgdict>
+
+  <namespace name="fragile" />
+  <namespace name="fragile::nested1" />
+  <namespace name="fragile::nested1::nested2" />
+  <namespace name="fragile::nested1::nested2::nested3" />
+
+  <!-- <class pattern="fragile::[A-Z]" /> -->
+  <class name="fragile::A" />
+  <class name="fragile::B" />
+  <class name="fragile::C" />
+  <class name="fragile::D" />
+  <class name="fragile::E" />
+  <class name="fragile::F" />
+  <class name="fragile::G" />
+  <class name="fragile::H" />
+  <class name="fragile::I" />
+  <class name="fragile::J" />
+  <class name="fragile::K" />
+  <class name="fragile::L" />
+  <class name="fragile::M" />
+  <class name="fragile::N" />
+  <class name="fragile::O" />
+  <class name="fragile::nested1::A" />
+  <class name="fragile::nested1::nested2::A" />
+  <class name="fragile::nested1::nested2::nested3::A" />
+
+  <variable name="fragile::gI" />
+
+  <function pattern="fragile::f*" />
+
+</lcgdict>

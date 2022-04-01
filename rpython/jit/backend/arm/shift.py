@@ -1,0 +1,6 @@
+# According to A8.4
+LSL = 0x0
+LSR = 0x1
+ASR = 0x2
+ROR = 0x3
+RRX = 0x3  # with imm = 0

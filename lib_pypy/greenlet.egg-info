@@ -1,0 +1,10 @@
+Metadata-Version: 1.0
+Name: greenlet
+Version: 0.4.13
+Summary: Lightweight in-process concurrent programming
+Home-page: https://github.com/python-greenlet/greenlet
+Author: Ralf Schmitt (for CPython), PyPy team
+Author-email: pypy-dev@python.org
+License: MIT License
+Description: UNKNOWN
+Platform: UNKNOWN

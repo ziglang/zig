@@ -1,0 +1,10 @@
+# .coveragerc file to control coverage.py (code coverage plugin for pytest)
+# Get it here: https://pypi.python.org/pypi/pytest-cov
+# Examples:
+# $ python -m pytest test --cov rpython.rlib.rstrategies --cov-report html --cov-config .coveragerc
+
+[run]
+omit =
+    test/*
+    */__init__.py
+    logparser.py

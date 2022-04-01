@@ -1,0 +1,3 @@
+Don't use gcc __thread attribute for fast thread local storage
+implementation. Increases the chance that moving the resulting
+executable to another same processor Linux machine will work.

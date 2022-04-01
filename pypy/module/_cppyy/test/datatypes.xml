@@ -1,0 +1,67 @@
+<lcgdict>
+
+  <class pattern="CppyyTest*" />
+  <class name="FourVector" />
+
+  <enum name="EFruit" />
+  <enum name="NamedClassEnum" />
+  <enum name="EnumSpace::E" />
+  <class name="EnumSpace::EnumClass" />
+  <enum name="EnumSpace::letter_code" />
+  <enum name="EnumSpace::NamedClassEnum" />
+
+  <function pattern="get_*" />
+  <function pattern="set_*" />
+  <function pattern="is_*" />
+
+  <variable name="N" />
+
+  <variable name="g_int" />
+  <variable name="g_pod" />
+
+  <variable name="g_some_global_string" />
+  <function name="get_some_global_string" />
+  <variable name="g_some_global_string2" />
+  <function name="get_some_global_string2" />
+
+  <class name="StorableData" />
+  <variable name="gData" />
+
+  <namespace name="SomeStaticDataNS" />
+  <variable name="SomeStaticDataNS::s_some_static_string" />
+  <function name="SomeStaticDataNS::get_some_static_string" />
+  <variable name="SomeStaticDataNS::s_some_static_string2" />
+  <function name="SomeStaticDataNS::get_some_static_string2" />
+
+  <function name="sum_uc_data" />
+  <function name="sum_byte_data" />
+
+  <function name="sum_of_int1" />
+  <function name="sum_of_int2" />
+  <variable name="sum_of_int_ptr" />
+  <function name="call_sum_of_int" />
+  <function name="sum_of_double" />
+  <function name="call_double_double" />
+
+  <function name="call_int_int" />
+  <function name="call_void" />
+  <class name="StoreCallable" />
+
+  <function name="sum_of_int_sf" />
+  <function name="sum_of_double_sf" />
+  <function name="call_double_double_sf" />
+
+  <function name="call_int_int_sf" />
+  <function name="call_void_sf" />
+  <class name="StoreCallable_sf" />
+
+  <namespace name="ArrayOfStruct" />
+  <class pattern="ArrayOfStruct::*" />
+
+  <namespace name="ArrayOfCStrings" />
+  <function pattern="ArrayOfCStrings::*" />
+
+  <namespace name="AggregateTest" />
+  <struct pattern="AggregateTest::*" />
+
+</lcgdict>

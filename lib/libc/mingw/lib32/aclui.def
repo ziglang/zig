@@ -1,7 +1,0 @@
-LIBRARY ACLUI.dll
-
-EXPORTS
-CreateSecurityPage@4
-EditSecurity@8
-IID_ISecurityInformation DATA
-

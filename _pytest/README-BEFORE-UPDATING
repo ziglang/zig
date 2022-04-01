@@ -1,0 +1,17 @@
+This is PyPy's code of the pytest lib.  We don't expect to upgrade it
+very often, but once we do:
+
+    WARNING!
+
+    WE HAVE MADE A FEW TWEAKS HERE!
+
+Please be sure that you don't just copy the newer version from
+upstream without checking the few changes that we did.  This
+can be done like this:
+
+    cd <this directory>
+    hg log . -v | less
+
+then search for all " _pytest/" in that list to know which are the
+relevant checkins.  (Look for the checkins that only edit one
+or two files in this directory.)

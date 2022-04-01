@@ -1,0 +1,7 @@
+Choose the method used to find the roots in the GC.  This only
+applies to our framework GCs.
+
+- ``--gcrootfinder=shadowstack``: use a so-called "shadow
+  stack", which is an explicitly maintained custom stack of
+  root pointers.  This is the most portable solution, and also
+  the only one available now.

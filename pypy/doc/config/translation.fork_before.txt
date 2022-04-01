@@ -1,0 +1,4 @@
+This is an option mostly useful when working on the PyPy toolchain. If you use
+it, translation will fork before the specified phase. If the translation
+crashes after that fork, you can fix the bug in the toolchain, and continue
+translation at the fork-point.

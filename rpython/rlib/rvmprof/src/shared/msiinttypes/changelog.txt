@@ -1,0 +1,138 @@
+------------------------------------------------------------------------
+r26 | 2009-10-02 13:36:47 +0400 | 2 lines
+
+[Issue 5] Change <stdint.h> to "stdint.h" to let compiler search for it in local directory.
+
+------------------------------------------------------------------------
+r25 | 2009-09-17 23:46:49 +0400 | 2 lines
+
+[Issue 4] Fix incorrect int8_t behaviour if compiled with /J flag.
+
+------------------------------------------------------------------------
+r24 | 2009-05-13 14:53:48 +0400 | 2 lines
+
+Forgot about #ifdef __cplusplus guard around 'extern "C"', so inclusion to C files has been broken.
+
+------------------------------------------------------------------------
+r23 | 2009-05-12 01:27:45 +0400 | 3 lines
+
+[Issue 2] Always wrap <wcharîàž with external "C" {}.
+It turns out that not only Visual Studio 6 requires this, but also newer versions when compiling for ARM.
+
+------------------------------------------------------------------------
+r22 | 2009-05-11 22:22:15 +0400 | 3 lines
+
+[Issue 3] Visual Studio 6 and Embedded Visual C++ 4 doesn't realize that, e.g. char has the same size as __int8 so we give up on __intX for them.
+his should close Issue 3 in issue tracker.
+
+------------------------------------------------------------------------
+r21 | 2008-07-17 09:47:22 +0400 | 4 lines
+
+Get rid of these compiler warnings when compiling for 32-bit:
+  warning C4311: 'type cast' : pointer truncation from 'void *' to 'uintptr_t'
+  warning C4312: 'type cast' : conversion from 'uintptr_t' to 'const void *' of greater size
+
+------------------------------------------------------------------------
+r20 | 2007-10-09 16:54:27 +0400 | 2 lines
+
+Better C99 conformance: macros for format specifiers should only be included in C++ implementations if __STDC_FORMAT_MACROS is defined before <inttypes.h> is included.
+
+------------------------------------------------------------------------
+r19 | 2007-07-04 02:14:40 +0400 | 3 lines
+
+Explicitly cast to appropriate type INT8_MIN, INT16_MIN, INT32_MIN and INT64_MIN constants.
+Due to their unusual definition in Visual Studio headers (-_Ix_MAX-1) they are propagated to int and thus do not have expected type, causing VS6 strict compiler to claim about type inconsistency.
+
+------------------------------------------------------------------------
+r18 | 2007-06-26 16:53:23 +0400 | 2 lines
+
+Better handling of (U)INTx_C macros - now they generate constants of exact width.
+
+------------------------------------------------------------------------
+r17 | 2007-03-29 20:16:14 +0400 | 2 lines
+
+Fix typo: Miscrosoft -> Microsoft.
+
+------------------------------------------------------------------------
+r16 | 2007-02-24 17:32:58 +0300 | 4 lines
+
+Remove <BaseTsd.h> include, as it is not present in Visual Studio 2005 Epxress Edition and required only for INT_PTR and UINT_PTR types.
+
+'intptr_t' and 'uintptr_t' types now defined explicitly with #ifdef _WIN64.
+
+------------------------------------------------------------------------
+r15 | 2007-02-11 20:53:05 +0300 | 2 lines
+
+More correct fix for compilation under VS6.
+
+------------------------------------------------------------------------
+r14 | 2007-02-11 20:04:32 +0300 | 2 lines
+
+Bugfix: fix compiling under VS6, when stdint.h enclosed in 'extern "C" {}'.
+
+------------------------------------------------------------------------
+r13 | 2006-12-13 16:53:11 +0300 | 2 lines
+
+Make _inline modifier for imaxdiv default option. Use STATIC_IMAXDIV to make it static.
+
+------------------------------------------------------------------------
+r12 | 2006-12-13 16:42:24 +0300 | 2 lines
+
+Error message changed: VC6 supported from now.
+
+------------------------------------------------------------------------
+r11 | 2006-12-13 16:39:33 +0300 | 2 lines
+
+All (U)INT* types changed to (unsigned) __int*. This should make stdint.h compatible with VC6.
+
+------------------------------------------------------------------------
+r10 | 2006-12-13 16:20:57 +0300 | 3 lines
+
+Added INLINE_IMAXDIV define switch. 
+If INLINE_IMAXDIV is defined imaxdiv() have static modifier. If not - it is _inline.
+
+------------------------------------------------------------------------
+r9 | 2006-12-13 15:53:52 +0300 | 2 lines
+
+Error message for non-MSC compiler changed.
+
+------------------------------------------------------------------------
+r8 | 2006-12-13 12:47:48 +0300 | 2 lines
+
+Added #ifndef for SIZE_MAX (it is defined in limits.h on MSVSC 8).
+
+------------------------------------------------------------------------
+r7 | 2006-12-13 01:08:02 +0300 | 2 lines
+
+License chaged to BSD-derivative.
+
+------------------------------------------------------------------------
+r6 | 2006-12-13 00:53:20 +0300 | 2 lines
+
+Added <wchar.h> include to avoid warnings when it is included after stdint.h.
+
+------------------------------------------------------------------------
+r5 | 2006-12-12 00:58:05 +0300 | 2 lines
+
+BUGFIX: Definitions of INTPTR_MIN, INTPTR_MAX and UINTPTR_MAX for WIN32 and WIN64 was mixed up.
+
+------------------------------------------------------------------------
+r4 | 2006-12-12 00:51:55 +0300 | 2 lines
+
+Rise #error if _MSC_VER is not defined. I.e. compiler other then Microsoft Visual C++ is used.
+
+------------------------------------------------------------------------
+r3 | 2006-12-11 22:54:14 +0300 | 2 lines
+
+Added <limits.h> include to stdint.h.
+
+------------------------------------------------------------------------
+r2 | 2006-12-11 21:39:27 +0300 | 2 lines
+
+Initial check in.
+
+------------------------------------------------------------------------
+r1 | 2006-12-11 21:30:23 +0300 | 1 line
+
+Initial directory structure.
+------------------------------------------------------------------------

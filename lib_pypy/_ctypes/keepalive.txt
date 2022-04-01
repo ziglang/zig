@@ -1,0 +1,34 @@
+
+Few rules about ctypes keepalives:
+
+* Ownership: the memory is freed when owner of this memory is deleted.
+  Owner is the one who allocated the memory. So if we have:
+
+  a = c_int(3)
+  b = c_int.from_address(a._buffer.buffer) # pypy notion of address access
+
+  only a frees memory.
+
+* _objects: each ctypes object has (eventually) _objects dictionary in which
+  it simply keeps objects to be kept alive.
+
+* there are (some) rules about when to put stuff in it's objects when
+  accessing the fields etc. need to list them here.
+
+  * each object has _objects dictionary. In this dict stuff is stored per
+    key, which should be a tuple of indices of storages.
+
+places storing stuff in _objects:
+
+* array item assignement, if we share the storage
+
+* pointer item assignement, if we share the storage
+
+* getitem on CDLL stores function pointer
+
+* CFuncPtr.__new__ (assuming that it's a ctypes callable), stores itself
+  (XXX???)
+
+* set contents on pointer
+
+* set value on primitive or __init__ on primitive

@@ -1,0 +1,20 @@
+* find a better way to run "find" without creating the index storage, if one
+  if one is not already readily available (understand cost now, improve after merge)
+* improve performance of splitlines (CF)
+* think about cost of utf8 list strategy (CF)
+* revisit why runicode import str_decode_utf_8_impl needed instead of runicode
+  import str_decode_utf_8
+* revisit remaining places in win32 where we do utf8.decode('utf-8'), they should work
+  directly with utf8 (can be converted via runicode.str_decode_utf_8 as well)
+  - rutf8.utf8_encode_mbcs
+  - unicodehelper.fsencode
+  - _winreg.interp_winreg
+* remove 'assert not isinstance(*, unicode)
+* add a flag that prevents support for unicode in rpython and enable it in PyPy (CF, Armin)
+* convert all realunicode_w to unicode_w after we flush out all old uses of
+  unicode_w
+* review all uses of W_Unicode.text_w, right now it is exactly W_Unicode.utf8_w. 
+  It shoud only return valid utf8 (see 0be26dc39a59 which broke translation on
+  win32 and failed tests on linux64). Then we can use it in places like
+  _socket.interp_func.getaddrinfo instead of space.encode_unicode_object(w_port,
+  'utf-8', 'strict')

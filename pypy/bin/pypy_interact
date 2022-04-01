@@ -1,0 +1,5 @@
+#!/usr/bin/env pypy
+
+from pypy.sandbox import pypy_interact
+
+pypy_interact.main()

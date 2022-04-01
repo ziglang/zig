@@ -1,0 +1,8 @@
+headers for the micronumpy multiarray and umath modules,
+as used by https://bitbucket.org/pypy/numpy. They are needed by
+downstream packages that depend on numpy, like matplotlib, but can
+be slightly non-compatible with traditional numpy C-API use cases.
+
+The trick to including these headers is in get_include, located in
+numpy/lib/utils.py. They will be ignored by an upstream build of numpy
+since the <site-packages>/numpy/core/include path will be used instead

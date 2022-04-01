@@ -1,0 +1,6 @@
+Some simple benchmarks implemented in C and in python. 
+
+sumtst - Sums up the elements in an array
+loop   - Same loop as in sumtst but without array accesses
+intimg - Calculates a integral image transform
+

@@ -1,0 +1,90 @@
+-- Testcases for functions in rcomplex, based on syntax of cpython's
+-- cmath tests.
+--
+-- Each line takes the form:
+--
+-- <testid> <function> <input_value> [<input_value>] -> <output_value> <flags>
+--
+-- where:
+--
+--   <testid> is a short name identifying the test,
+--
+--   <function> is the function to be tested (exp, cos, asinh, ...),
+--
+--   <input_value> is either a pair or a quad of values separated by whitespace
+--     representing real and imaginary parts of a complex number, and
+--
+--   <output_value> is the expected (ideal) output value, again
+--     represented as a pair of values.
+--
+--   The values used may be a hex representation of a float beginning with
+--   '0x' or '0X' or a decimal representation of a float.
+--
+--   <flags> is a list of the floating-point flags required by C99
+--
+-- The possible flags are:
+--
+--   divide-by-zero : raised when a finite input gives a
+--     mathematically infinite result.
+--
+--   overflow : raised when a finite input gives a finite result whose
+--     real or imaginary part is too large to fit in the usual range
+--     of an IEEE 754 double.
+--
+--   invalid : raised for invalid inputs.
+--
+--   ignore-real-sign : indicates that the sign of the real part of
+--     the result is unspecified; if the real part of the result is
+--     given as inf, then both -inf and inf should be accepted as
+--     correct.
+--
+--   ignore-imag-sign : indicates that the sign of the imaginary part
+--     of the result is unspecified.
+--
+-- Flags may appear in any order.
+--
+-- Lines beginning with '--' (like this one) start a comment, and are
+-- ignored.  Blank lines, or lines containing only whitespace, are also
+-- ignored.
+--
+-- These tests are designed to excercise interesting values of functions,
+-- includind special values (+inf, -inf, nan, +0, -0, min_mantissa,
+-- min_exponent, max_mantissa, max_exponent) in both input and output,
+-- random values, and any branch cuts implicit in the function
+-- (non-continuities in function value)
+
+ 
+-----------------------
+-- pow: power --
+-----------------------
+-- if x is 1.0, result is 1.0
+pow0000 pow 1.0 0.0 0.0 0.0 -> 1.0 0.0
+pow0001 pow 1.0 0.0 2.0 0.0 -> 1.0 0.0
+pow0002 pow 1.0 0.0 0.0 2.0 -> 1.0 0.0
+pow0003 pow 1.0 0.0 2.0 2.0 -> 1.0 0.0
+pow0004 pow 1.0 0.0 inf 0.0 -> 1.0 0.0
+pow0005 pow 1.0 0.0 0.0 inf -> 1.0 0.0
+pow0006 pow 1.0 0.0 inf inf -> 1.0 0.0
+pow0007 pow 1.0 0.0 -inf 0.0 -> 1.0 0.0
+pow0008 pow 1.0 0.0 0.0 -inf -> 1.0 0.0
+pow0009 pow 1.0 0.0 -inf -inf -> 1.0 0.0
+pow0010 pow 1.0 0.0 nan 0.0 -> 1.0 0.0
+pow0011 pow 1.0 0.0 0.0 nan -> 1.0 0.0
+pow0012 pow 1.0 0.0 nan nan -> 1.0 0.0
+-- if x is 0.0, result is +0 or -0
+pow0020 pow 0.0 0.0  1.0 0.0 -> 0.0 0.0
+-- if y is 0.0, result is 1.0
+pow0021 pow 2.0 0.0  0.0 0.0 -> 1.0 0.0
+pow0022 pow 0.0 2.0  0.0 0.0 -> 1.0 0.0
+pow0023 pow 2.0 2.0  0.0 0.0 -> 1.0 0.0
+pow0024 pow inf 0.0  0.0 0.0 -> 1.0 0.0
+pow0025 pow 0.0 inf  0.0 0.0 -> 1.0 0.0
+pow0026 pow inf inf  0.0 0.0 -> 1.0 0.0
+pow0027 pow -inf 0.0 0.0 0.0 -> 1.0 0.0
+pow0028 pow 0.0 -inf 0.0 0.0 -> 1.0 0.0
+pow0029 pow -inf -inf 0.0 0.0 -> 1.0 0.0
+pow0030 pow nan 0.0  0.0 0.0 -> 1.0 0.0
+pow0031 pow 0.0 nan  0.0 0.0 -> 1.0 0.0
+pow0032 pow nan nan  0.0 0.0 -> 1.0 0.0
+
+pow0042 pow 2.0 0.0  inf 0.0 -> inf 0.0

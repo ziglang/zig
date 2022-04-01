@@ -1,0 +1,147 @@
+# tokens
+
+#IGNORE: "[ \f\t]*|#[^\n]*";
+#NAME: "[a-zA-Z_][a-zA-Z0-9_]*";
+#NUMBER: "(0[xX][0-9a-fA-F]*[lL]?)|(0[0-7]*[lL]?)|([1-9][0-9]*[lL]?)"
+#STRING: "\"[^\\\"\n]*\"";
+#NEWLINE: "\$\$NEWLINE"
+#INDENT: "\$\$INDENT"
+#DEDENT: "\$\$DEDENT"
+
+# Start symbols for the grammar:
+#	single_input is a single interactive statement;
+#	file_input is a module or sequence of commands read from an input file;
+#	eval_input is the input for the eval() and input() functions.
+# NB: compound_stmt in single_input is followed by extra NEWLINE!
+file_input: newline_or_stmt* [EOF];
+single_input: NEWLINE | simple_stmt | compound_stmt NEWLINE;
+newline_or_stmt: NEWLINE | <stmt>;
+eval_input: testlist NEWLINE* EOF;
+
+decorator: "@" dotted_name ( "(" [arglist] ")" )? NEWLINE;
+decorators: decorator+;
+funcdef: decorators? ["def"] NAME parameters [":"] suite;
+parameters: ["("] >varargslist< [")"] | ["("] [")"];
+varargslist: (parameter [","])*  >star_or_starstarargs< |
+             parameter ([","] parameter)* [","]?;
+parameter: fpdef ("=" test)?;
+star_or_starstarargs:  starargs [","] starstarargs | starargs | starstarargs;
+starargs: ["*"] NAME;
+starstarargs: ["**"] NAME;
+fpdef: <NAME> | "(" fplist ")";
+fplist: fpdef ("," fpdef)* ","?;
+
+stmt: <simple_stmt> | <compound_stmt>;
+simple_stmt: small_stmt ([";"] small_stmt)+ [";"]? [NEWLINE] |
+             <small_stmt> [";"]? [NEWLINE];
+small_stmt: <expr_stmt> | <print_stmt>  | <del_stmt> |
+            <pass_stmt> | <flow_stmt> | <import_stmt> | <global_stmt> |
+            <exec_stmt> | <assert_stmt>;
+expr_stmt: <augassign_stmt> | testlist (["="] testlist)*;
+augassign_stmt: testlist >augassign< testlist;
+augassign: "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" |
+           ">>=" | "**=" | "//=";
+# For normal assignments, additional restrictions enforced by the interpreter
+
+print_stmt: ["print"] print_target (([","] test)+ [","]?)? |
+            ["print"] (test ([","] test)* [","]?)?;
+print_target: [">>"] test;
+del_stmt: ["del"] exprlist;
+pass_stmt: ["pass"];
+flow_stmt: <break_stmt> | <continue_stmt> | <return_stmt> | <raise_stmt> |
+           <yield_stmt>;
+break_stmt: ["break"];
+continue_stmt: ["continue"];
+return_stmt: ["return"] testlist?;
+yield_stmt: ["yield"] testlist;
+raise_stmt: ["raise"] (test ("," test ("," test)?)?)?;
+import_stmt: import_name | import_from;
+import_name: "import" dotted_as_names;
+import_from: "from" dotted_name "import" import_what;
+import_what: "*" | "(" import_as_names ","? ")" | import_as_names;
+
+# the second NAME is the "as" (which is not a keyword in Python)
+import_as_name: NAME ("as" NAME)?;
+dotted_as_name: dotted_name ("as" NAME)?;
+import_as_names: import_as_name ("," import_as_name)*;
+dotted_as_names: dotted_as_name ("," dotted_as_name)*;
+dotted_name: NAME ("." NAME)*;
+global_stmt: "global" NAME ("," NAME)*;
+exec_stmt: "exec" expr ("in" test ("," test)?)?;
+assert_stmt: "assert" test ("," test)?;
+
+compound_stmt: <if_stmt> | <while_stmt> | <for_stmt> | <try_stmt> |
+               <funcdef> | <classdef>;
+if_stmt: "if" test ":" suite ("elif" test ":" suite)* ("else" ":" suite)?;
+while_stmt: ["while"] test [":"] suite (["else" ":"] suite)?;
+for_stmt: ["for"] exprlist ["in"] testlist [":"] suite (["else" ":"] suite)?;
+try_stmt: "try" ":" suite (except_clause ":" suite)+
+          ("else" ":" suite)? | "try" ":" suite "finally" ":" suite;
+
+except_clause: "except" (test ("," test)?)?;
+suite: >simple_stmt< | [NEWLINE] [INDENT] stmt+ [DEDENT];
+
+test: and_test "or" test | <and_test> | <lambdef>;
+and_test: not_test "and" and_test | <not_test>;
+not_test: "not" not_test | <comparison>;
+comparison: expr >comp_op< comparison | <expr>;
+comp_op: "<" | ">" | "==" | ">=" | "<=" | "<>" | "!=" | "in" | "not" "in" |
+         "is" "not" | "is";
+expr: xor_expr "|" expr | <xor_expr>;
+xor_expr: and_expr "^" xor_expr | <and_expr>;
+and_expr: shift_expr "&" and_expr | <shift_expr>;
+shift_expr: arith_expr ("<<" arith_expr)+ |  # was (("<<"|">>") arith_expr)*
+            arith_expr (">>" arith_expr)+ |
+            <arith_expr>;
+arith_expr: term ("+" term)+ |  # was (("+"|"-") term)*
+            term ("-" term)+ |
+            <term>;
+term: factor ("*" term)+ |  # was (("*"|"/"|"%"|"//") factor)*
+      factor ("/" term)+ |
+      factor ("%" term)+ |
+      factor ("//" term)+ |
+      <factor>;
+factor: "+" factor | "-" factor | "~" factor | <power>;
+power: atom trailer+ ("**" factor)? | atom "**" factor | <atom>;
+
+atom: "(" testlist_gexp? ")" | <listliteral> | <dictliteral> |
+       "`" testlist1 "`" | <NAME> | <NUMBER> | STRING+;
+listliteral: ["[" "]"] | "[" <listcomprehension> "]" | ["["] >listmaker< ["]"];
+listcomprehension: test list_for;
+listmaker: test ([","] test)* [","]?;
+testlist_gexp: test gen_for |
+               test ("," test)* ","?;
+
+dictliteral: ["{" "}"] | ["{"] dictitem ([","] dictitem)* [","]? ["}"];
+dictitem: test [":"] test;
+
+lambdef: ["lambda"] varargslist? [":"] test;
+trailer: <call> | <subscription> | <attraccess>;
+call: ["(" ")"] | ["("] arglist [")"];
+subscription: ["["] >subscriptlist< ["]"];
+attraccess: ["."] NAME;
+subscriptlist: subscript ("," subscript)* ","?;
+subscript: "." "." "." | test? ":" test? sliceop? | test;
+sliceop: ":" test?;
+exprlist: expr ("," expr)* ","?;
+testlist: test ("," test)* ","?;
+testlist_safe: test (("," test)+ ","?)?;
+
+classdef: ["class"] NAME (["("] testlist [")"])? [":"] suite;
+
+arglist: (argument [","])* arglist_rest;
+arglist_rest: "*" test ("," "**" test)? | "**" test | argument ","?;
+argument: (test "=")? test gen_for?;
+
+list_iter: <list_for> | <list_if>;
+list_for: ["for"] exprlist ["in"] testlist_safe list_iter?;
+list_if: ["if"] test list_iter?;
+
+gen_iter: <gen_for> | <gen_if>;
+gen_for: ["for"] exprlist ["in"] test gen_iter?;
+gen_if: ["if"] test gen_iter?;
+
+testlist1: test ("," test)*;
+
+# not used in grammar, but may appear in "node" passed from Parser to Compiler
+encoding_decl: NAME;
