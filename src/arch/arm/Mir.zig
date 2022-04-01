@@ -104,6 +104,8 @@ pub const Inst = struct {
         sbfx,
         /// Signed Multiply (halfwords), bottom half, bottom half
         smulbb,
+        /// Signed Multiply Long
+        smull,
         /// Store Register
         str,
         /// Store Register Byte
@@ -118,6 +120,8 @@ pub const Inst = struct {
         svc,
         /// Unsigned Bit Field Extract
         ubfx,
+        /// Unsigned Multiply Long
+        umull,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -212,6 +216,15 @@ pub const Inst = struct {
         /// Used by e.g. mul
         rrr: struct {
             rd: Register,
+            rn: Register,
+            rm: Register,
+        },
+        /// Four registers
+        ///
+        /// Used by e.g. smull
+        rrrr: struct {
+            rdlo: Register,
+            rdhi: Register,
             rn: Register,
             rm: Register,
         },

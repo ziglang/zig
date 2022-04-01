@@ -132,6 +132,9 @@ pub fn emitMir(
             .mul => try emit.mirMultiply(inst),
             .smulbb => try emit.mirMultiply(inst),
 
+            .smull => try emit.mirMultiplyLong(inst),
+            .umull => try emit.mirMultiplyLong(inst),
+
             .nop => try emit.mirNop(),
 
             .pop => try emit.mirBlockDataTransfer(inst),
@@ -691,6 +694,18 @@ fn mirMultiply(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .mul => try emit.writeInstruction(Instruction.mul(cond, rrr.rd, rrr.rn, rrr.rm)),
         .smulbb => try emit.writeInstruction(Instruction.smulbb(cond, rrr.rd, rrr.rn, rrr.rm)),
+        else => unreachable,
+    }
+}
+
+fn mirMultiplyLong(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const cond = emit.mir.instructions.items(.cond)[inst];
+    const rrrr = emit.mir.instructions.items(.data)[inst].rrrr;
+
+    switch (tag) {
+        .smull => try emit.writeInstruction(Instruction.smull(cond, rrrr.rdlo, rrrr.rdhi, rrrr.rn, rrrr.rm)),
+        .umull => try emit.writeInstruction(Instruction.umull(cond, rrrr.rdlo, rrrr.rdhi, rrrr.rn, rrrr.rm)),
         else => unreachable,
     }
 }

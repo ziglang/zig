@@ -1501,8 +1501,114 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags_unsigned = .neq });
 
                     break :result MCValue{ .stack_offset = stack_offset };
+                } else if (int_info.bits <= 32) {
+                    const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
+
+                    try self.spillCompareFlagsIfOccupied();
+                    self.compare_flags_inst = null;
+
+                    const base_tag: Mir.Inst.Tag = switch (int_info.signedness) {
+                        .signed => .smull,
+                        .unsigned => .umull,
+                    };
+
+                    // TODO extract umull etc. to binOpTwoRegister
+                    // once MCValue.rr is implemented
+                    const lhs_is_register = lhs == .register;
+                    const rhs_is_register = rhs == .register;
+
+                    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+                    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+
+                    const lhs_reg = if (lhs_is_register) lhs.register else blk: {
+                        const reg = try self.register_manager.allocReg(null);
+                        self.register_manager.freezeRegs(&.{reg});
+
+                        break :blk reg;
+                    };
+                    defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+
+                    const rhs_reg = if (rhs_is_register) rhs.register else blk: {
+                        const reg = try self.register_manager.allocReg(null);
+                        self.register_manager.freezeRegs(&.{reg});
+
+                        break :blk reg;
+                    };
+                    defer self.register_manager.unfreezeRegs(&.{rhs_reg});
+
+                    const dest_regs = try self.register_manager.allocRegs(2, .{ null, null });
+                    self.register_manager.freezeRegs(&dest_regs);
+                    defer self.register_manager.unfreezeRegs(&dest_regs);
+                    const rdlo = dest_regs[0];
+                    const rdhi = dest_regs[1];
+
+                    if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+                    if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
+
+                    const truncated_reg = try self.register_manager.allocReg(null);
+                    self.register_manager.freezeRegs(&.{truncated_reg});
+                    defer self.register_manager.unfreezeRegs(&.{truncated_reg});
+
+                    _ = try self.addInst(.{
+                        .tag = base_tag,
+                        .data = .{ .rrrr = .{
+                            .rdlo = rdlo,
+                            .rdhi = rdhi,
+                            .rn = lhs_reg,
+                            .rm = rhs_reg,
+                        } },
+                    });
+
+                    // sbfx/ubfx truncated, rdlo, #0, #bits
+                    try self.truncRegister(rdlo, truncated_reg, int_info.signedness, int_info.bits);
+
+                    // str truncated, [...]
+                    try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
+
+                    // cmp truncated, rdlo
+                    _ = try self.binOp(.cmp_eq, null, .{ .register = truncated_reg }, .{ .register = rdlo }, Type.usize, Type.usize);
+
+                    // mov rdlo, #0
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .data = .{ .rr_op = .{
+                            .rd = rdlo,
+                            .rn = .r0,
+                            .op = Instruction.Operand.fromU32(0).?,
+                        } },
+                    });
+
+                    // movne rdlo, #1
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .cond = .ne,
+                        .data = .{ .rr_op = .{
+                            .rd = rdlo,
+                            .rn = .r0,
+                            .op = Instruction.Operand.fromU32(1).?,
+                        } },
+                    });
+
+                    // cmp rdhi, #0
+                    _ = try self.binOp(.cmp_eq, null, .{ .register = rdhi }, .{ .immediate = 0 }, Type.usize, Type.usize);
+
+                    // movne rdlo, #1
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .cond = .ne,
+                        .data = .{ .rr_op = .{
+                            .rd = rdlo,
+                            .rn = .r0,
+                            .op = Instruction.Operand.fromU32(1).?,
+                        } },
+                    });
+
+                    // strb rdlo, [...]
+                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .register = rdlo });
+
+                    break :result MCValue{ .stack_offset = stack_offset };
                 } else {
-                    return self.fail("TODO ARM overflow operations on integers > u16/i16", .{});
+                    return self.fail("TODO ARM overflow operations on integers > u32/i32", .{});
                 }
             },
             else => unreachable,
