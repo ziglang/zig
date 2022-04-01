@@ -1801,7 +1801,10 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     continue;
                 };
 
-                const break_tag: Zir.Inst.Tag = if (block_gz.is_inline) .break_inline else .@"break";
+                const break_tag: Zir.Inst.Tag = if (block_gz.is_inline or block_gz.force_comptime)
+                    .break_inline
+                else
+                    .@"break";
 
                 if (rhs == 0) {
                     _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
@@ -1887,7 +1890,10 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                     continue;
                 }
 
-                const break_tag: Zir.Inst.Tag = if (gen_zir.is_inline) .break_inline else .@"break";
+                const break_tag: Zir.Inst.Tag = if (gen_zir.is_inline or gen_zir.force_comptime)
+                    .break_inline
+                else
+                    .@"break";
                 _ = try parent_gz.addBreak(break_tag, continue_block, .void_value);
                 return Zir.Inst.Ref.unreachable_value;
             },
@@ -1993,7 +1999,8 @@ fn labeledBlockExpr(
 
     // Reserve the Block ZIR instruction index so that we can put it into the GenZir struct
     // so that break statements can reference it.
-    const block_inst = try gz.makeBlockInst(.block, block_node);
+    const block_tag: Zir.Inst.Tag = if (gz.force_comptime) .block_inline else .block;
+    const block_inst = try gz.makeBlockInst(block_tag, block_node);
     try gz.instructions.append(astgen.gpa, block_inst);
 
     var block_scope = gz.makeSubBlock(parent_scope);
@@ -2007,7 +2014,8 @@ fn labeledBlockExpr(
 
     try blockExprStmts(&block_scope, &block_scope.base, statements);
     if (!block_scope.endsWithNoReturn()) {
-        _ = try block_scope.addBreak(.@"break", block_inst, .void_value);
+        const break_tag: Zir.Inst.Tag = if (block_scope.force_comptime) .break_inline else .@"break";
+        _ = try block_scope.addBreak(break_tag, block_inst, .void_value);
     }
 
     if (!block_scope.label.?.used) {
@@ -4833,6 +4841,7 @@ fn tryExpr(
     try genDefers(&else_scope, &fn_block.base, scope, .{ .both = err_code });
     const else_result = try else_scope.addUnNode(.ret_node, err_code, node);
 
+    const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
     return finishThenElseBlock(
         parent_gz,
         rl,
@@ -4846,7 +4855,7 @@ fn tryExpr(
         else_result,
         block,
         block,
-        .@"break",
+        break_tag,
     );
 }
 
@@ -4928,6 +4937,7 @@ fn orelseCatchExpr(
     // instructions into place until we know whether to keep store_to_block_ptr
     // instructions or not.
 
+    const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
     return finishThenElseBlock(
         parent_gz,
         rl,
@@ -4941,7 +4951,7 @@ fn orelseCatchExpr(
         else_result,
         block,
         block,
-        .@"break",
+        break_tag,
     );
 }
 
@@ -5306,6 +5316,7 @@ fn ifExpr(
         .result = .none,
     };
 
+    const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
     return finishThenElseBlock(
         parent_gz,
         rl,
@@ -5319,7 +5330,7 @@ fn ifExpr(
         else_info.result,
         block,
         block,
-        .@"break",
+        break_tag,
     );
 }
 
