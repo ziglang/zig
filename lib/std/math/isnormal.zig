@@ -1,57 +1,54 @@
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
-const maxInt = std.math.maxInt;
 
-// Returns whether x has a normalized representation (i.e. integer part of mantissa is 1).
+/// Returns whether x is neither zero, subnormal, infinity, or NaN.
 pub fn isNormal(x: anytype) bool {
     const T = @TypeOf(x);
-    switch (T) {
-        f16 => {
-            const bits = @bitCast(u16, x);
-            return (bits +% (1 << 10)) & (maxInt(u16) >> 1) >= (1 << 11);
-        },
-        f32 => {
-            const bits = @bitCast(u32, x);
-            return (bits +% (1 << 23)) & (maxInt(u32) >> 1) >= (1 << 24);
-        },
-        f64 => {
-            const bits = @bitCast(u64, x);
-            return (bits +% (1 << 52)) & (maxInt(u64) >> 1) >= (1 << 53);
-        },
-        f128 => {
-            const bits = @bitCast(u128, x);
-            return (bits +% (1 << 112)) & (maxInt(u128) >> 1) >= (1 << 113);
-        },
-        else => {
-            @compileError("isNormal not implemented for " ++ @typeName(T));
-        },
+    const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
+    if (@typeInfo(T) != .Float) {
+        @compileError("isNormal not implemented for " ++ @typeName(T));
     }
+
+    const increment_exp = 1 << math.floatMantissaBits(T);
+    const remove_sign = ~@as(TBits, 0) >> 1;
+
+    // We add 1 to the exponent, and if it overflows to 0 or becomes 1,
+    // then it was all zeroes (subnormal) or all ones (special, inf/nan).
+    // The sign bit is removed because all ones would overflow into it.
+    // For f80, even though it has an explicit integer part stored,
+    // the exponent effectively takes priority if mismatching.
+    const value = @bitCast(TBits, x) +% increment_exp;
+    return value & remove_sign >= (increment_exp << 1);
 }
 
 test "math.isNormal" {
-    try expect(!isNormal(math.nan(f16)));
-    try expect(!isNormal(math.nan(f32)));
-    try expect(!isNormal(math.nan(f64)));
-    try expect(!isNormal(math.nan(f128)));
-    try expect(!isNormal(-math.nan(f16)));
-    try expect(!isNormal(-math.nan(f32)));
-    try expect(!isNormal(-math.nan(f64)));
-    try expect(!isNormal(-math.nan(f128)));
-    try expect(!isNormal(math.inf(f16)));
-    try expect(!isNormal(math.inf(f32)));
-    try expect(!isNormal(math.inf(f64)));
-    try expect(!isNormal(math.inf(f128)));
-    try expect(!isNormal(-math.inf(f16)));
-    try expect(!isNormal(-math.inf(f32)));
-    try expect(!isNormal(-math.inf(f64)));
-    try expect(!isNormal(-math.inf(f128)));
-    try expect(!isNormal(@as(f16, 0)));
-    try expect(!isNormal(@as(f32, 0)));
-    try expect(!isNormal(@as(f64, 0)));
-    try expect(!isNormal(@as(f128, 0)));
-    try expect(isNormal(@as(f16, 1.0)));
-    try expect(isNormal(@as(f32, 1.0)));
-    try expect(isNormal(@as(f64, 1.0)));
-    try expect(isNormal(@as(f128, 1.0)));
+    // TODO remove when #11391 is resolved
+    if (@import("builtin").os.tag == .freebsd) return error.SkipZigTest;
+
+    // TODO add `c_longdouble' when math.inf(T) supports it
+    inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
+        const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
+
+        // normals
+        try expect(isNormal(@as(T, 1.0)));
+        try expect(isNormal(math.floatMin(T)));
+        try expect(isNormal(math.floatMax(T)));
+
+        // subnormals
+        try expect(!isNormal(@as(T, -0.0)));
+        try expect(!isNormal(@as(T, 0.0)));
+        try expect(!isNormal(@as(T, math.floatTrueMin(T))));
+
+        // largest subnormal
+        try expect(!isNormal(@bitCast(T, ~(~@as(TBits, 0) << math.floatMantissaDigits(T) - 1))));
+
+        // non-finite numbers
+        try expect(!isNormal(-math.inf(T)));
+        try expect(!isNormal(math.inf(T)));
+        try expect(!isNormal(math.nan(T)));
+
+        // overflow edge-case (described in implementation, also see #10133)
+        try expect(!isNormal(@bitCast(T, ~@as(TBits, 0))));
+    }
 }
