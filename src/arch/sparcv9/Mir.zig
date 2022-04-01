@@ -29,6 +29,22 @@ pub const Inst = struct {
         dbg_epilogue_begin,
         /// Pseudo-instruction: Update debug line
         dbg_line,
+
+        // All the real instructions are ordered by their section number
+        // in The SPARC Architecture Manual, Version 9.
+
+        /// A.40 No Operation
+        /// It uses the nop field.
+        nop,
+
+        /// A.46 SAVE and RESTORE
+        /// Those uses the arithmetic_3op field.
+        save,
+        restore,
+
+        /// A.45 RETURN
+        /// It uses the arithmetic_2op field.
+        @"return",
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -42,6 +58,36 @@ pub const Inst = struct {
         ///
         /// Used by e.g. flushw
         nop: void,
+
+        /// Three operand arithmetic.
+        /// if is_imm true then it uses the imm field of rs2_or_imm,
+        /// otherwise it uses rs2 field.
+        ///
+        /// Used by e.g. add, sub
+        arithmetic_3op: struct {
+            is_imm: bool,
+            rd: Register,
+            rs1: Register,
+            rs2_or_imm: union {
+                rs2: Register,
+                imm: i13,
+            },
+        },
+
+        /// Two operand arithmetic.
+        /// if is_imm true then it uses the imm field of rs2_or_imm,
+        /// otherwise it uses rs2 field.
+        ///
+        /// Used by e.g. return
+        arithmetic_2op: struct {
+            is_imm: bool,
+            rs1: Register,
+            rs2_or_imm: union {
+                rs2: Register,
+                imm: i13,
+            },
+        },
+
         /// Debug info: line and column
         ///
         /// Used by e.g. dbg_line
@@ -77,4 +123,3 @@ pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end
         .end = i,
     };
 }
-

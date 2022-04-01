@@ -2,6 +2,7 @@
 //! machine code
 
 const std = @import("std");
+const assert = std.debug.assert;
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
 const ErrorMsg = Module.ErrorMsg;
@@ -41,9 +42,15 @@ pub fn emitMir(
         const inst = @intCast(u32, index);
         switch (tag) {
             .dbg_line => try emit.mirDbgLine(inst),
-
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
+
+            .nop => @panic("TODO implement nop"),
+
+            .save => @panic("TODO implement save"),
+            .restore => @panic("TODO implement restore"),
+
+            .@"return" => @panic("TODO implement return"),
         }
     }
 }
@@ -90,4 +97,11 @@ fn mirDebugEpilogueBegin(self: *Emit) !void {
         .plan9 => {},
         .none => {},
     }
+}
+
+fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
+    @setCold(true);
+    assert(emit.err_msg == null);
+    emit.err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
+    return error.EmitFail;
 }

@@ -382,9 +382,109 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, is_caller: bool) !Ca
 
 /// Caller must call `CallMCValues.deinit`.
 fn gen(self: *Self) !void {
-    _ = self;
+    const cc = self.fn_type.fnCallingConvention();
+    if (cc != .Naked) {
+        // TODO Finish function prologue and epilogue for sparcv9.
 
-    @panic("TODO implement gen");
+        // TODO Backpatch stack offset
+        // save %sp, -176, %sp
+        _ = try self.addInst(.{
+            .tag = .save,
+            .data = .{
+                .arithmetic_3op = .{
+                    .is_imm = true,
+                    .rd = .sp,
+                    .rs1 = .sp,
+                    .rs2_or_imm = .{ .imm = -176 },
+                },
+            },
+        });
+
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .data = .{ .nop = {} },
+        });
+
+        try self.genBody(self.air.getMainBody());
+
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .data = .{ .nop = {} },
+        });
+
+        // exitlude jumps
+        if (self.exitlude_jump_relocs.items.len > 0 and
+            self.exitlude_jump_relocs.items[self.exitlude_jump_relocs.items.len - 1] == self.mir_instructions.len - 2)
+        {
+            // If the last Mir instruction (apart from the
+            // dbg_epilogue_begin) is the last exitlude jump
+            // relocation (which would just jump one instruction
+            // further), it can be safely removed
+            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop());
+        }
+
+        for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+            _ = jmp_reloc;
+            return self.fail("TODO add branches in sparcv9", .{});
+        }
+
+        // return %i7 + 8
+        _ = try self.addInst(.{
+            .tag = .@"return",
+            .data = .{
+                .arithmetic_2op = .{
+                    .is_imm = true,
+                    .rs1 = .@"i7",
+                    .rs2_or_imm = .{ .imm = 8 },
+                },
+            },
+        });
+
+        // TODO Find a way to fill this slot
+        // nop
+        _ = try self.addInst(.{
+            .tag = .nop,
+            .data = .{ .nop = {} },
+        });
+    } else {
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .data = .{ .nop = {} },
+        });
+
+        try self.genBody(self.air.getMainBody());
+
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .data = .{ .nop = {} },
+        });
+    }
+
+    // Drop them off at the rbrace.
+    _ = try self.addInst(.{
+        .tag = .dbg_line,
+        .data = .{ .dbg_line_column = .{
+            .line = self.end_di_line,
+            .column = self.end_di_column,
+        } },
+    });
+}
+
+fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
+    _ = self;
+    _ = body;
+
+    @panic("TODO implement genBody");
+}
+
+fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
+    const gpa = self.gpa;
+
+    try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
+
+    const result_index = @intCast(Air.Inst.Index, self.mir_instructions.len);
+    self.mir_instructions.appendAssumeCapacity(inst);
+    return result_index;
 }
 
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
