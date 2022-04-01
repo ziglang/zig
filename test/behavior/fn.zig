@@ -349,7 +349,6 @@ fn numberLiteralArg(a: anytype) !void {
 }
 
 test "function call with anon list literal" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -364,9 +363,19 @@ test "function call with anon list literal" {
             try expect(vec[1] == 8);
             try expect(vec[2] == 7);
         }
+
+        fn doThe2DTest() !void {
+            try consume2DVec(.{ .{ 9, 8 }, .{ 7, 6 } });
+        }
+
+        fn consume2DVec(vec: [2][2]f32) !void {
+            _ = vec;
+        }
     };
     try S.doTheTest();
     comptime try S.doTheTest();
+    try S.doThe2DTest();
+    comptime try S.doThe2DTest();
 }
 
 test "ability to give comptime types and non comptime types to same parameter" {
