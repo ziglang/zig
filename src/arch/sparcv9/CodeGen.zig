@@ -16,6 +16,8 @@ const Type = @import("../../type.zig").Type;
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
 const FnResult = @import("../../codegen.zig").FnResult;
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
+const RegisterManager = RegisterManagerFn(Self, Register, &abi.allocatable_regs);
 
 const build_options = @import("build_options");
 
@@ -72,6 +74,8 @@ branch_stack: *std.ArrayList(Branch),
 
 // Key is the block instruction
 blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+
+register_manager: RegisterManager = .{},
 
 /// Maps offset to what is stored there.
 stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
@@ -380,7 +384,6 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, is_caller: bool) !Ca
     return result;
 }
 
-/// Caller must call `CallMCValues.deinit`.
 fn gen(self: *Self) !void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
