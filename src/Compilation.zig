@@ -232,9 +232,6 @@ const Job = union(enum) {
     /// one of WASI libc static objects
     wasi_libc_crt_file: wasi_libc.CRTFile,
 
-    /// Use stage1 C++ code to compile zig code into an object file.
-    stage1_module: void,
-
     /// The value is the index into `link.File.Options.system_libs`.
     windows_import_lib: usize,
 };
@@ -1831,10 +1828,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         }
     }
 
-    if (comp.bin_file.options.use_stage1 and comp.bin_file.options.module != null) {
-        try comp.work_queue.writeItem(.{ .stage1_module = {} });
-    }
-
     return comp;
 }
 
@@ -2597,13 +2590,13 @@ pub fn getCompileLogOutput(self: *Compilation) []const u8 {
     return module.compile_log_text.items;
 }
 
-pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
+pub fn performAllTheWork(comp: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
     // If the terminal is dumb, we dont want to show the user all the
     // output.
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     var main_progress_node = progress.start("", 0);
     defer main_progress_node.end();
-    if (self.color == .off) progress.terminal = null;
+    if (comp.color == .off) progress.terminal = null;
 
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
@@ -2613,93 +2606,105 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var zir_prog_node = main_progress_node.start("AST Lowering", 0);
     defer zir_prog_node.end();
 
-    var c_obj_prog_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
+    var c_obj_prog_node = main_progress_node.start("Compile C Objects", comp.c_source_files.len);
     defer c_obj_prog_node.end();
 
-    var embed_file_prog_node = main_progress_node.start("Detect @embedFile updates", self.embed_file_work_queue.count);
+    var embed_file_prog_node = main_progress_node.start("Detect @embedFile updates", comp.embed_file_work_queue.count);
     defer embed_file_prog_node.end();
 
-    self.work_queue_wait_group.reset();
-    defer self.work_queue_wait_group.wait();
+    comp.work_queue_wait_group.reset();
+    defer comp.work_queue_wait_group.wait();
 
     {
         const astgen_frame = tracy.namedFrame("astgen");
         defer astgen_frame.end();
 
-        self.astgen_wait_group.reset();
-        defer self.astgen_wait_group.wait();
+        comp.astgen_wait_group.reset();
+        defer comp.astgen_wait_group.wait();
 
         // builtin.zig is handled specially for two reasons:
         // 1. to avoid race condition of zig processes truncating each other's builtin.zig files
         // 2. optimization; in the hot path it only incurs a stat() syscall, which happens
         //    in the `astgen_wait_group`.
-        if (self.bin_file.options.module) |mod| {
+        if (comp.bin_file.options.module) |mod| {
             if (mod.job_queued_update_builtin_zig) {
                 mod.job_queued_update_builtin_zig = false;
 
-                self.astgen_wait_group.start();
-                try self.thread_pool.spawn(workerUpdateBuiltinZigFile, .{
-                    self, mod, &self.astgen_wait_group,
+                comp.astgen_wait_group.start();
+                try comp.thread_pool.spawn(workerUpdateBuiltinZigFile, .{
+                    comp, mod, &comp.astgen_wait_group,
                 });
             }
         }
 
-        while (self.astgen_work_queue.readItem()) |file| {
-            self.astgen_wait_group.start();
-            try self.thread_pool.spawn(workerAstGenFile, .{
-                self, file, &zir_prog_node, &self.astgen_wait_group, .root,
+        while (comp.astgen_work_queue.readItem()) |file| {
+            comp.astgen_wait_group.start();
+            try comp.thread_pool.spawn(workerAstGenFile, .{
+                comp, file, &zir_prog_node, &comp.astgen_wait_group, .root,
             });
         }
 
-        while (self.embed_file_work_queue.readItem()) |embed_file| {
-            self.astgen_wait_group.start();
-            try self.thread_pool.spawn(workerCheckEmbedFile, .{
-                self, embed_file, &embed_file_prog_node, &self.astgen_wait_group,
+        while (comp.embed_file_work_queue.readItem()) |embed_file| {
+            comp.astgen_wait_group.start();
+            try comp.thread_pool.spawn(workerCheckEmbedFile, .{
+                comp, embed_file, &embed_file_prog_node, &comp.astgen_wait_group,
             });
         }
 
-        while (self.c_object_work_queue.readItem()) |c_object| {
-            self.work_queue_wait_group.start();
-            try self.thread_pool.spawn(workerUpdateCObject, .{
-                self, c_object, &c_obj_prog_node, &self.work_queue_wait_group,
+        while (comp.c_object_work_queue.readItem()) |c_object| {
+            comp.work_queue_wait_group.start();
+            try comp.thread_pool.spawn(workerUpdateCObject, .{
+                comp, c_object, &c_obj_prog_node, &comp.work_queue_wait_group,
             });
         }
     }
 
-    const use_stage1 = build_options.is_stage1 and self.bin_file.options.use_stage1;
+    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
     if (!use_stage1) {
         const outdated_and_deleted_decls_frame = tracy.namedFrame("outdated_and_deleted_decls");
         defer outdated_and_deleted_decls_frame.end();
 
         // Iterate over all the files and look for outdated and deleted declarations.
-        if (self.bin_file.options.module) |mod| {
+        if (comp.bin_file.options.module) |mod| {
             try mod.processOutdatedAndDeletedDecls();
         }
-    } else if (self.bin_file.options.module) |mod| {
+    } else if (comp.bin_file.options.module) |mod| {
         // If there are any AstGen compile errors, report them now to avoid
         // hitting stage1 bugs.
         if (mod.failed_files.count() != 0) {
             return;
         }
+        comp.updateStage1Module(main_progress_node) catch |err| {
+            fatal("unable to build stage1 zig object: {s}", .{@errorName(err)});
+        };
     }
+
+    if (comp.bin_file.options.module) |mod| {
+        mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
+        mod.sema_prog_node.activate();
+    }
+    defer if (comp.bin_file.options.module) |mod| {
+        mod.sema_prog_node.end();
+        mod.sema_prog_node = undefined;
+    };
 
     // In this main loop we give priority to non-anonymous Decls in the work queue, so
     // that they can establish references to anonymous Decls, setting alive=true in the
     // backend, preventing anonymous Decls from being prematurely destroyed.
     while (true) {
-        if (self.work_queue.readItem()) |work_item| {
-            try processOneJob(self, work_item, main_progress_node);
+        if (comp.work_queue.readItem()) |work_item| {
+            try processOneJob(comp, work_item);
             continue;
         }
-        if (self.anon_work_queue.readItem()) |work_item| {
-            try processOneJob(self, work_item, main_progress_node);
+        if (comp.anon_work_queue.readItem()) |work_item| {
+            try processOneJob(comp, work_item);
             continue;
         }
         break;
     }
 }
 
-fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress.Node) !void {
+fn processOneJob(comp: *Compilation, job: Job) !void {
     switch (job) {
         .codegen_decl => |decl| switch (decl.analysis) {
             .unreferenced => unreachable,
@@ -2806,9 +2811,6 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
         .analyze_decl => |decl| {
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
-            const named_frame = tracy.namedFrame("analyze_decl");
-            defer named_frame.end();
 
             const module = comp.bin_file.options.module.?;
             module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
@@ -3072,17 +3074,6 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                     "unable to build zig's multitarget libc: {s}",
                     .{@errorName(err)},
                 ),
-            };
-        },
-        .stage1_module => {
-            const named_frame = tracy.namedFrame("stage1_module");
-            defer named_frame.end();
-
-            if (!build_options.is_stage1)
-                unreachable;
-
-            comp.updateStage1Module(main_progress_node) catch |err| {
-                fatal("unable to build stage1 zig object: {s}", .{@errorName(err)});
             };
         },
     }
