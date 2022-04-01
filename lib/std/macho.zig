@@ -1718,6 +1718,7 @@ pub const CS_SIGNER_TYPE_LEGACYVPN: u32 = 5;
 pub const CS_SIGNER_TYPE_MAC_APP_STORE: u32 = 6;
 
 pub const CS_ADHOC: u32 = 0x2;
+pub const CS_LINKER_SIGNED: u32 = 0x20000;
 
 pub const CS_EXECSEG_MAIN_BINARY: u32 = 0x1;
 
