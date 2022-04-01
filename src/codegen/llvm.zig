@@ -1270,7 +1270,8 @@ pub const Object = struct {
                 offset = std.mem.alignForwardGeneric(u64, offset, payload_align);
                 const payload_offset = offset;
 
-                const fields: [2]*llvm.DIType = .{
+                var len: u8 = 2;
+                var fields: [3]*llvm.DIType = .{
                     dib.createMemberType(
                         fwd_decl.toScope(),
                         "tag",
@@ -1293,7 +1294,21 @@ pub const Object = struct {
                         0, // flags
                         try o.lowerDebugType(payload_ty, .full),
                     ),
+                    undefined,
                 };
+
+                const error_size = Type.anyerror.abiSize(target);
+                if (payload_align > error_size) {
+                    fields[2] = fields[1];
+                    const pad_len = @intCast(u32, payload_align - error_size);
+                    fields[1] = dib.createArrayType(
+                        pad_len * 8,
+                        8,
+                        try o.lowerDebugType(Type.u8, .full),
+                        @intCast(c_int, pad_len),
+                    );
+                    len += 1;
+                }
 
                 const full_di_ty = dib.createStructType(
                     compile_unit_scope,
@@ -1305,7 +1320,7 @@ pub const Object = struct {
                     0, // flags
                     null, // derived from
                     &fields,
-                    fields.len,
+                    len,
                     0, // run time lang
                     null, // vtable holder
                     "", // unique id
@@ -2156,8 +2171,16 @@ pub const DeclGen = struct {
                 }
                 const llvm_payload_type = try dg.llvmType(payload_type);
 
-                const fields: [2]*const llvm.Type = .{ llvm_error_type, llvm_payload_type };
-                return dg.context.structType(&fields, fields.len, .False);
+                const payload_align = payload_type.abiAlignment(target);
+                const error_size = error_type.abiSize(target);
+                if (payload_align > error_size) {
+                    const pad_type = dg.context.intType(8).arrayType(@intCast(u32, payload_align - error_size));
+                    const fields: [3]*const llvm.Type = .{ llvm_error_type, pad_type, llvm_payload_type };
+                    return dg.context.structType(&fields, fields.len, .False);
+                } else {
+                    const fields: [2]*const llvm.Type = .{ llvm_error_type, llvm_payload_type };
+                    return dg.context.structType(&fields, fields.len, .False);
+                }
             },
             .ErrorSet => {
                 return dg.context.intType(16);
@@ -2687,8 +2710,8 @@ pub const DeclGen = struct {
                     const err_val = if (!is_pl) tv.val else Value.initTag(.zero);
                     return dg.genTypedValue(.{ .ty = error_type, .val = err_val });
                 }
-
-                const fields: [2]*const llvm.Value = .{
+                var len: u8 = 2;
+                var fields: [3]*const llvm.Value = .{
                     try dg.genTypedValue(.{
                         .ty = error_type,
                         .val = if (is_pl) Value.initTag(.zero) else tv.val,
@@ -2697,8 +2720,18 @@ pub const DeclGen = struct {
                         .ty = payload_type,
                         .val = if (tv.val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef),
                     }),
+                    undefined,
                 };
-                return dg.context.constStruct(&fields, fields.len, .False);
+
+                const payload_align = payload_type.abiAlignment(target);
+                const error_size = error_type.abiSize(target);
+                if (payload_align > error_size) {
+                    fields[2] = fields[1];
+                    const pad_type = dg.context.intType(8).arrayType(@intCast(u32, payload_align - error_size));
+                    fields[1] = pad_type.getUndef();
+                    len += 1;
+                }
+                return dg.context.constStruct(&fields, len, .False);
             },
             .Struct => {
                 const llvm_struct_ty = try dg.llvmType(tv.ty);
@@ -3143,10 +3176,11 @@ pub const DeclGen = struct {
                     break :blk parent_llvm_ptr;
                 }
 
+                const payload_offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
                 const llvm_u32 = dg.context.intType(32);
                 const indices: [2]*const llvm.Value = .{
                     llvm_u32.constInt(0, .False),
-                    llvm_u32.constInt(1, .False),
+                    llvm_u32.constInt(payload_offset, .False),
                 };
                 break :blk parent_llvm_ptr.constInBoundsGEP(&indices, indices.len);
             },
@@ -4834,11 +4868,14 @@ pub const FuncGen = struct {
         const result_ty = self.air.getRefType(ty_op.ty);
         const payload_ty = if (operand_is_ptr) result_ty.childType() else result_ty;
 
+        const target = self.dg.module.getTarget();
+        const offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
+
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return null;
         if (operand_is_ptr or isByRef(payload_ty)) {
-            return self.builder.buildStructGEP(operand, 1, "");
+            return self.builder.buildStructGEP(operand, offset, "");
         }
-        return self.builder.buildExtractValue(operand, 1, "");
+        return self.builder.buildExtractValue(operand, offset, "");
     }
 
     fn airErrUnionErr(
@@ -4894,9 +4931,12 @@ pub const FuncGen = struct {
         // Then return the payload pointer (only if it is used).
         if (self.liveness.isUnused(inst))
             return null;
+
+        const target = self.dg.module.getTarget();
+        const payload_offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
         const indices: [2]*const llvm.Value = .{
             index_type.constNull(), // dereference the pointer
-            index_type.constInt(1, .False), // second field is the payload
+            index_type.constInt(payload_offset, .False), // second field is the payload
         };
         return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
     }
@@ -4941,11 +4981,14 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         const ok_err_code = self.context.intType(16).constNull();
         const err_un_llvm_ty = try self.dg.llvmType(inst_ty);
+
+        const target = self.dg.module.getTarget();
+        const payload_offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
         if (isByRef(inst_ty)) {
             const result_ptr = self.buildAlloca(err_un_llvm_ty);
             const err_ptr = self.builder.buildStructGEP(result_ptr, 0, "");
             _ = self.builder.buildStore(ok_err_code, err_ptr);
-            const payload_ptr = self.builder.buildStructGEP(result_ptr, 1, "");
+            const payload_ptr = self.builder.buildStructGEP(result_ptr, payload_offset, "");
             var ptr_ty_payload: Type.Payload.ElemType = .{
                 .base = .{ .tag = .single_mut_pointer },
                 .data = payload_ty,
@@ -4956,7 +4999,7 @@ pub const FuncGen = struct {
         }
 
         const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), ok_err_code, 0, "");
-        return self.builder.buildInsertValue(partial, operand, 1, "");
+        return self.builder.buildInsertValue(partial, operand, payload_offset, "");
     }
 
     fn airWrapErrUnionErr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -4970,11 +5013,14 @@ pub const FuncGen = struct {
             return operand;
         }
         const err_un_llvm_ty = try self.dg.llvmType(err_un_ty);
+
+        const target = self.dg.module.getTarget();
+        const payload_offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
         if (isByRef(err_un_ty)) {
             const result_ptr = self.buildAlloca(err_un_llvm_ty);
             const err_ptr = self.builder.buildStructGEP(result_ptr, 0, "");
             _ = self.builder.buildStore(operand, err_ptr);
-            const payload_ptr = self.builder.buildStructGEP(result_ptr, 1, "");
+            const payload_ptr = self.builder.buildStructGEP(result_ptr, payload_offset, "");
             var ptr_ty_payload: Type.Payload.ElemType = .{
                 .base = .{ .tag = .single_mut_pointer },
                 .data = payload_ty,
