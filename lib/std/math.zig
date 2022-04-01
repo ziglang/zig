@@ -36,38 +36,44 @@ pub const sqrt2 = 1.414213562373095048801688724209698079;
 /// 1/sqrt(2)
 pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 
-pub const f128_true_min = @bitCast(f128, @as(u128, 0x00000000000000000000000000000001));
-pub const f128_min = @bitCast(f128, @as(u128, 0x00010000000000000000000000000000));
-pub const f128_max = @bitCast(f128, @as(u128, 0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
-pub const f128_epsilon = @bitCast(f128, @as(u128, 0x3F8F0000000000000000000000000000));
-pub const f128_toint = 1.0 / f128_epsilon;
+pub const floatExponentBits = @import("math/float.zig").floatExponentBits;
+pub const floatMantissaBits = @import("math/float.zig").floatMantissaBits;
+pub const floatMantissaDigits = @import("math/float.zig").floatMantissaDigits;
+pub const floatExponentMin = @import("math/float.zig").floatExponentMin;
+pub const floatExponentMax = @import("math/float.zig").floatExponentMax;
+pub const floatTrueMin = @import("math/float.zig").floatTrueMin;
+pub const floatMin = @import("math/float.zig").floatMin;
+pub const floatMax = @import("math/float.zig").floatMax;
+pub const floatEps = @import("math/float.zig").floatEps;
 
-// float.h details
-pub const f80_true_min = make_f80(.{ .fraction = 1, .exp = 0 });
-pub const f80_min = make_f80(.{ .fraction = 0x8000000000000000, .exp = 1 });
-pub const f80_max = make_f80(.{ .fraction = 0xFFFFFFFFFFFFFFFF, .exp = 0x7FFE });
-pub const f80_epsilon = make_f80(.{ .fraction = 0x8000000000000000, .exp = 0x3FC0 });
-pub const f80_toint = 1.0 / f80_epsilon;
-
-pub const f64_true_min = 4.94065645841246544177e-324;
-pub const f64_min = 2.2250738585072014e-308;
-pub const f64_max = 1.79769313486231570815e+308;
-pub const f64_epsilon = 2.22044604925031308085e-16;
-pub const f64_toint = 1.0 / f64_epsilon;
-
-pub const f32_true_min = 1.40129846432481707092e-45;
-pub const f32_min = 1.17549435082228750797e-38;
-pub const f32_max = 3.40282346638528859812e+38;
-pub const f32_epsilon = 1.1920928955078125e-07;
-pub const f32_toint = 1.0 / f32_epsilon;
-
-pub const f16_true_min = 0.000000059604644775390625; // 2**-24
-pub const f16_min = 0.00006103515625; // 2**-14
-pub const f16_max = 65504;
-pub const f16_epsilon = 0.0009765625; // 2**-10
-pub const f16_toint = 1.0 / f16_epsilon;
-
-pub const epsilon = @import("math/epsilon.zig").epsilon;
+// TODO Replace with @compileError("deprecated for foobar") after 0.10.0 is released.
+pub const f16_true_min: comptime_float = floatTrueMin(f16); // prev: 0.000000059604644775390625
+pub const f32_true_min: comptime_float = floatTrueMin(f32); // prev: 1.40129846432481707092e-45
+pub const f64_true_min: comptime_float = floatTrueMin(f64); // prev: 4.94065645841246544177e-324
+pub const f80_true_min = floatTrueMin(f80); // prev: make_f80(.{ .fraction = 1, .exp = 0 })
+pub const f128_true_min = floatTrueMin(f128); // prev: @bitCast(f128, @as(u128, 0x00000000000000000000000000000001))
+pub const f16_min: comptime_float = floatMin(f16); // prev: 0.00006103515625
+pub const f32_min: comptime_float = floatMin(f32); // prev: 1.17549435082228750797e-38
+pub const f64_min: comptime_float = floatMin(f64); // prev: 2.2250738585072014e-308
+pub const f80_min = floatMin(f80); // prev: make_f80(.{ .fraction = 0x8000000000000000, .exp = 1 })
+pub const f128_min = floatMin(f128); // prev: @bitCast(f128, @as(u128, 0x00010000000000000000000000000000))
+pub const f16_max: comptime_float = floatMax(f16); // prev: 65504
+pub const f32_max: comptime_float = floatMax(f32); // prev: 3.40282346638528859812e+38
+pub const f64_max: comptime_float = floatMax(f64); // prev: 1.79769313486231570815e+308
+pub const f80_max = floatMax(f80); // prev: make_f80(.{ .fraction = 0xFFFFFFFFFFFFFFFF, .exp = 0x7FFE })
+pub const f128_max = floatMax(f128); // prev: @bitCast(f128, @as(u128, 0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
+pub const f16_epsilon: comptime_float = floatEps(f16); // prev: 0.0009765625
+pub const f32_epsilon: comptime_float = floatEps(f32); // prev: 1.1920928955078125e-07
+pub const f64_epsilon: comptime_float = floatEps(f64); // prev: 2.22044604925031308085e-16
+pub const f80_epsilon = floatEps(f80); // prev: make_f80(.{ .fraction = 0x8000000000000000, .exp = 0x3FC0 })
+pub const f128_epsilon = floatEps(f128); // prev: @bitCast(f128, @as(u128, 0x3F8F0000000000000000000000000000))
+pub const f16_toint: comptime_float = 1.0 / f16_epsilon; // same as before
+pub const f32_toint: comptime_float = 1.0 / f32_epsilon; // same as before
+pub const f64_toint: comptime_float = 1.0 / f64_epsilon; // same as before
+pub const f80_toint = 1.0 / f80_epsilon; // same as before
+pub const f128_toint = 1.0 / f128_epsilon; // same as before
+pub const epsilon = floatEps;
+// End of "soft deprecated" section
 
 pub const nan_u16 = @as(u16, 0x7C01);
 pub const nan_f16 = @bitCast(f16, nan_u16);
@@ -292,36 +298,6 @@ pub const big = @import("math/big.zig");
 
 test {
     std.testing.refAllDecls(@This());
-}
-
-/// Returns the number of bits in the mantissa of floating point type
-/// T.
-pub fn floatMantissaBits(comptime T: type) comptime_int {
-    assert(@typeInfo(T) == .Float);
-
-    return switch (@typeInfo(T).Float.bits) {
-        16 => 10,
-        32 => 23,
-        64 => 52,
-        80 => 64,
-        128 => 112,
-        else => @compileError("unknown floating point type " ++ @typeName(T)),
-    };
-}
-
-/// Returns the number of bits in the exponent of floating point type
-/// T.
-pub fn floatExponentBits(comptime T: type) comptime_int {
-    assert(@typeInfo(T) == .Float);
-
-    return switch (@typeInfo(T).Float.bits) {
-        16 => 5,
-        32 => 8,
-        64 => 11,
-        80 => 15,
-        128 => 15,
-        else => @compileError("unknown floating point type " ++ @typeName(T)),
-    };
 }
 
 /// Given two types, returns the smallest one which is capable of holding the
