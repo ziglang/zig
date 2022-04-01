@@ -12,16 +12,15 @@ const assert = std.debug.assert;
 pub fn parseHexFloat(comptime T: type, s: []const u8) !T {
     assert(@typeInfo(T) == .Float);
 
-    const IntT = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
 
     const mantissa_bits = math.floatMantissaBits(T);
     const exponent_bits = math.floatExponentBits(T);
+    const exponent_min = math.floatExponentMin(T);
+    const exponent_max = math.floatExponentMax(T);
 
+    const exponent_bias = exponent_max;
     const sign_shift = mantissa_bits + exponent_bits;
-
-    const exponent_bias = (1 << (exponent_bits - 1)) - 1;
-    const exponent_min = 1 - exponent_bias;
-    const exponent_max = exponent_bias;
 
     if (s.len == 0)
         return error.InvalidCharacter;
@@ -233,10 +232,10 @@ pub fn parseHexFloat(comptime T: type, s: []const u8) !T {
     // Remove the implicit bit.
     mantissa &= @as(u128, (1 << mantissa_bits) - 1);
 
-    const raw: IntT =
-        (if (negative) @as(IntT, 1) << sign_shift else 0) |
-        @as(IntT, @bitCast(u16, exponent + exponent_bias)) << mantissa_bits |
-        @truncate(IntT, mantissa);
+    const raw: TBits =
+        (if (negative) @as(TBits, 1) << sign_shift else 0) |
+        @as(TBits, @bitCast(u16, exponent + exponent_bias)) << mantissa_bits |
+        @truncate(TBits, mantissa);
 
     return @bitCast(T, raw);
 }

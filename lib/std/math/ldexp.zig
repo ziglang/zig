@@ -15,22 +15,22 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     var shift = n;
 
     const T = @TypeOf(base);
-    const IntT = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
     if (@typeInfo(T) != .Float) {
         @compileError("ldexp not implemented for " ++ @typeName(T));
     }
 
     const mantissa_bits = math.floatMantissaBits(T);
-    const exponent_bits = math.floatExponentBits(T);
-    const exponent_bias = (1 << (exponent_bits - 1)) - 1;
-    const exponent_min = 1 - exponent_bias;
-    const exponent_max = exponent_bias;
+    const exponent_min = math.floatExponentMin(T);
+    const exponent_max = math.floatExponentMax(T);
+
+    const exponent_bias = exponent_max;
 
     // fix double rounding errors in subnormal ranges
     // https://git.musl-libc.org/cgit/musl/commit/src/math/ldexp.c?id=8c44a060243f04283ca68dad199aab90336141db
     const scale_min_expo = exponent_min + mantissa_bits + 1;
-    const scale_min = @bitCast(T, @as(IntT, scale_min_expo + exponent_bias) << mantissa_bits);
-    const scale_max = @bitCast(T, @intCast(IntT, exponent_max + exponent_bias) << mantissa_bits);
+    const scale_min = @bitCast(T, @as(TBits, scale_min_expo + exponent_bias) << mantissa_bits);
+    const scale_max = @bitCast(T, @intCast(TBits, exponent_max + exponent_bias) << mantissa_bits);
 
     // scale `shift` within floating point limits, if possible
     // second pass is possible due to subnormal range
@@ -53,7 +53,7 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
         }
     }
 
-    return base * @bitCast(T, @intCast(IntT, shift + exponent_bias) << mantissa_bits);
+    return base * @bitCast(T, @intCast(TBits, shift + exponent_bias) << mantissa_bits);
 }
 
 test "math.ldexp" {
