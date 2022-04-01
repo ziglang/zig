@@ -49,7 +49,8 @@ pub const SingleThreadedCondition = struct {
         _ = cond;
         _ = mutex;
         _ = timeout_ns;
-        unreachable; // deadlock detected
+        std.time.sleep(timeout_ns);
+        return error.TimedOut;
     }
 
     pub fn signal(cond: *SingleThreadedCondition) void {
@@ -75,10 +76,18 @@ pub const WindowsCondition = struct {
     }
 
     pub fn timedWait(cond: *WindowsCondition, mutex: *Mutex, timeout_ns: u64) error{TimedOut}!void {
+        var timeout_checked = std.math.cast(windows.DWORD, timeout_ns / std.time.ns_per_ms) catch overflow: {
+            break :overflow std.math.maxInt(windows.DWORD);
+        };
+
+        // Handle the case where timeout is INFINITE, otherwise SleepConditionVariableSRW's time-out never elapses
+        const timeout_overflowed = timeout_checked == windows.INFINITE;
+        timeout_checked -= @boolToInt(timeout_overflowed);
+
         const rc = windows.kernel32.SleepConditionVariableSRW(
             &cond.cond,
             &mutex.impl.srwlock,
-            @truncate(windows.DWORD, timeout_ns / std.time.ns_per_ms),
+            timeout_checked,
             @as(windows.ULONG, 0),
         );
         if (rc == windows.FALSE and windows.kernel32.GetLastError() == windows.Win32Error.TIMEOUT) return error.TimedOut;
@@ -140,6 +149,7 @@ pub const AtomicCondition = struct {
 
     pub const QueueItem = struct {
         futex: i32 = 0,
+        dequeued: bool = false,
 
         fn wait(cond: *@This()) void {
             while (@atomicLoad(i32, &cond.futex, .Acquire) == 0) {
@@ -242,9 +252,28 @@ pub const AtomicCondition = struct {
             @atomicStore(bool, &cond.pending, true, .SeqCst);
         }
 
+        var timed_out = false;
         mutex.unlock();
         defer mutex.lock();
-        try waiter.data.timedWait(timeout_ns);
+        waiter.data.timedWait(timeout_ns) catch |err| switch (err) {
+            error.TimedOut => {
+                defer if (!timed_out) {
+                    waiter.data.wait();
+                };
+                cond.queue_mutex.lock();
+                defer cond.queue_mutex.unlock();
+
+                if (!waiter.data.dequeued) {
+                    timed_out = true;
+                    cond.queue_list.remove(&waiter);
+                }
+            },
+            else => unreachable,
+        };
+
+        if (timed_out) {
+            return error.TimedOut;
+        }
     }
 
     pub fn signal(cond: *AtomicCondition) void {
@@ -256,12 +285,16 @@ pub const AtomicCondition = struct {
             defer cond.queue_mutex.unlock();
 
             const maybe_waiter = cond.queue_list.popFirst();
+            if (maybe_waiter) |waiter| {
+                waiter.data.dequeued = true;
+            }
             @atomicStore(bool, &cond.pending, cond.queue_list.first != null, .SeqCst);
             break :blk maybe_waiter;
         };
 
-        if (maybe_waiter) |waiter|
+        if (maybe_waiter) |waiter| {
             waiter.data.notify();
+        }
     }
 
     pub fn broadcast(cond: *AtomicCondition) void {
@@ -275,12 +308,19 @@ pub const AtomicCondition = struct {
             defer cond.queue_mutex.unlock();
 
             const waiters = cond.queue_list;
+
+            var it = waiters.first;
+            while (it) |node| : (it = node.next) {
+                node.data.dequeued = true;
+            }
+
             cond.queue_list = .{};
             break :blk waiters;
         };
 
-        while (waiters.popFirst()) |waiter|
+        while (waiters.popFirst()) |waiter| {
             waiter.data.notify();
+        }
     }
 };
 
