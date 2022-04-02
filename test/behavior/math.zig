@@ -635,7 +635,6 @@ test "128-bit multiplication" {
 test "@addWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var result: u8 = undefined;
     try expect(@addWithOverflow(u8, 250, 100, &result));
@@ -679,7 +678,6 @@ test "small int addition" {
 test "@mulWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var result: u8 = undefined;
     try expect(@mulWithOverflow(u8, 86, 3, &result));
@@ -700,7 +698,6 @@ test "@mulWithOverflow" {
 test "@subWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var result: u8 = undefined;
     try expect(@subWithOverflow(u8, 1, 2, &result));
@@ -721,7 +718,6 @@ test "@shlWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var result: u16 = undefined;
     try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));

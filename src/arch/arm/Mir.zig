@@ -28,6 +28,8 @@ pub const Inst = struct {
     pub const Tag = enum(u16) {
         /// Add
         add,
+        /// Add, update condition flags
+        adds,
         /// Bitwise AND
         @"and",
         /// Arithmetic Shift Right
@@ -100,6 +102,10 @@ pub const Inst = struct {
         rsb,
         /// Signed Bit Field Extract
         sbfx,
+        /// Signed Multiply (halfwords), bottom half, bottom half
+        smulbb,
+        /// Signed Multiply Long
+        smull,
         /// Store Register
         str,
         /// Store Register Byte
@@ -108,10 +114,14 @@ pub const Inst = struct {
         strh,
         /// Subtract
         sub,
+        /// Subtract, update condition flags
+        subs,
         /// Supervisor Call
         svc,
         /// Unsigned Bit Field Extract
         ubfx,
+        /// Unsigned Multiply Long
+        umull,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -206,6 +216,15 @@ pub const Inst = struct {
         /// Used by e.g. mul
         rrr: struct {
             rd: Register,
+            rn: Register,
+            rm: Register,
+        },
+        /// Four registers
+        ///
+        /// Used by e.g. smull
+        rrrr: struct {
+            rdlo: Register,
+            rdhi: Register,
             rn: Register,
             rm: Register,
         },

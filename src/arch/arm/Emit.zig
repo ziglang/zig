@@ -79,6 +79,7 @@ pub fn emitMir(
         const inst = @intCast(u32, index);
         switch (tag) {
             .add => try emit.mirDataProcessing(inst),
+            .adds => try emit.mirDataProcessing(inst),
             .@"and" => try emit.mirDataProcessing(inst),
             .cmp => try emit.mirDataProcessing(inst),
             .eor => try emit.mirDataProcessing(inst),
@@ -87,6 +88,7 @@ pub fn emitMir(
             .orr => try emit.mirDataProcessing(inst),
             .rsb => try emit.mirDataProcessing(inst),
             .sub => try emit.mirDataProcessing(inst),
+            .subs => try emit.mirDataProcessing(inst),
 
             .asr => try emit.mirShift(inst),
             .lsl => try emit.mirShift(inst),
@@ -120,7 +122,7 @@ pub fn emitMir(
             .ldrsh_stack_argument => try emit.mirLoadStackArgument(inst),
 
             .ldrh => try emit.mirLoadStoreExtra(inst),
-            .ldrsb => try emit.mirLoadStore(inst),
+            .ldrsb => try emit.mirLoadStoreExtra(inst),
             .ldrsh => try emit.mirLoadStoreExtra(inst),
             .strh => try emit.mirLoadStoreExtra(inst),
 
@@ -128,6 +130,10 @@ pub fn emitMir(
             .movt => try emit.mirSpecialMove(inst),
 
             .mul => try emit.mirMultiply(inst),
+            .smulbb => try emit.mirMultiply(inst),
+
+            .smull => try emit.mirMultiplyLong(inst),
+            .umull => try emit.mirMultiplyLong(inst),
 
             .nop => try emit.mirNop(),
 
@@ -474,6 +480,7 @@ fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .add => try emit.writeInstruction(Instruction.add(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .adds => try emit.writeInstruction(Instruction.adds(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .@"and" => try emit.writeInstruction(Instruction.@"and"(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .cmp => try emit.writeInstruction(Instruction.cmp(cond, rr_op.rn, rr_op.op)),
         .eor => try emit.writeInstruction(Instruction.eor(cond, rr_op.rd, rr_op.rn, rr_op.op)),
@@ -482,6 +489,7 @@ fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
         .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .subs => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         else => unreachable,
     }
 }
@@ -685,6 +693,19 @@ fn mirMultiply(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .mul => try emit.writeInstruction(Instruction.mul(cond, rrr.rd, rrr.rn, rrr.rm)),
+        .smulbb => try emit.writeInstruction(Instruction.smulbb(cond, rrr.rd, rrr.rn, rrr.rm)),
+        else => unreachable,
+    }
+}
+
+fn mirMultiplyLong(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const cond = emit.mir.instructions.items(.cond)[inst];
+    const rrrr = emit.mir.instructions.items(.data)[inst].rrrr;
+
+    switch (tag) {
+        .smull => try emit.writeInstruction(Instruction.smull(cond, rrrr.rdlo, rrrr.rdhi, rrrr.rn, rrrr.rm)),
+        .umull => try emit.writeInstruction(Instruction.umull(cond, rrrr.rdlo, rrrr.rdhi, rrrr.rn, rrrr.rm)),
         else => unreachable,
     }
 }
