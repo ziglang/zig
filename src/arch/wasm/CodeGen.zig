@@ -1309,6 +1309,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .xor => self.airBinOp(inst, .xor),
         .max => self.airMaxMin(inst, .max),
         .min => self.airMaxMin(inst, .min),
+        .mul_add => self.airMulAdd(inst),
 
         .add_with_overflow => self.airBinOpOverflow(inst, .add),
         .sub_with_overflow => self.airBinOpOverflow(inst, .sub),
@@ -1468,7 +1469,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .atomic_store_seq_cst,
         .atomic_rmw,
         .tag_name,
-        .mul_add,
         => |tag| return self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
     };
 }
@@ -1721,8 +1721,7 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     else
         .signed;
 
-    // TODO: Revisit below to determine if optional zero-sized pointers should still have abi-size 4.
-    const abi_size = if (ty.isPtrLikeOptional()) @as(u8, 4) else @intCast(u8, ty.abiSize(self.target));
+    const abi_size = @intCast(u8, ty.abiSize(self.target));
 
     const opcode = buildOpcode(.{
         .valtype1 = typeToValtype(ty, self.target),
@@ -3911,4 +3910,25 @@ fn airMaxMin(self: *Self, inst: Air.Inst.Index, op: enum { max, min }) InnerErro
     try self.endBlock();
 
     return result;
+}
+
+fn airMulAdd(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const bin_op = self.air.extraData(Air.Bin, pl_op.payload).data;
+    const ty = self.air.typeOfIndex(inst);
+    if (ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: `@mulAdd` for vectors", .{});
+    }
+
+    if (ty.floatBits(self.target) == 16) {
+        return self.fail("TODO: `@mulAdd` for f16", .{});
+    }
+
+    const addend = try self.resolveInst(pl_op.operand);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+
+    const mul_result = try self.binOp(lhs, rhs, ty, .mul);
+    return self.binOp(mul_result, addend, ty, .add);
 }
