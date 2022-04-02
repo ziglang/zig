@@ -3673,6 +3673,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             const dep_basename = std.fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            if (comp.whole_cache_manifest) |whole_cache_manifest| {
+                try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            }
             // Just to save disk space, we delete the file because it is never needed again.
             zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
                 log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
