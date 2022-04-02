@@ -42,16 +42,23 @@ pub fn emitMir(
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
+            .dbg_arg => try emit.mirDbgArg(inst),
             .dbg_line => try emit.mirDbgLine(inst),
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
 
-            .nop => @panic("TODO implement nop"),
+            .bpcc => @panic("TODO implement sparcv9 bpcc"),
 
-            .save => @panic("TODO implement save"),
-            .restore => @panic("TODO implement restore"),
+            .call => @panic("TODO implement sparcv9 call"),
 
-            .@"return" => @panic("TODO implement return"),
+            .jmpl => @panic("TODO implement sparcv9 jmpl"),
+
+            .nop => @panic("TODO implement sparcv9 nop"),
+
+            .@"return" => @panic("TODO implement sparcv9 return"),
+
+            .save => @panic("TODO implement sparcv9 save"),
+            .restore => @panic("TODO implement sparcv9 restore"),
         }
     }
 }
@@ -108,6 +115,17 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
             self.prev_di_pc = self.code.items.len;
         },
         .none => {},
+    }
+}
+
+fn mirDbgArg(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const dbg_arg_info = emit.mir.instructions.items(.data)[inst].dbg_arg_info;
+    _ = dbg_arg_info;
+
+    switch (tag) {
+        .dbg_arg => {}, // TODO try emit.genArgDbgInfo(dbg_arg_info.air_inst, dbg_arg_info.arg_index),
+        else => unreachable,
     }
 }
 

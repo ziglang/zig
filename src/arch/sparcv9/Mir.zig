@@ -7,9 +7,14 @@
 //! so that, for example, the smaller encodings of jump instructions can be used.
 
 const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
 
 const Mir = @This();
 const bits = @import("bits.zig");
+const Air = @import("../../Air.zig");
+
+const Instruction = bits.Instruction;
 const Register = bits.Register;
 
 instructions: std.MultiArrayList(Inst).Slice,
@@ -23,6 +28,8 @@ pub const Inst = struct {
     data: Data,
 
     pub const Tag = enum(u16) {
+        /// Pseudo-instruction: Argument
+        dbg_arg,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
@@ -32,6 +39,18 @@ pub const Inst = struct {
 
         // All the real instructions are ordered by their section number
         // in The SPARC Architecture Manual, Version 9.
+
+        /// A.7 Branch on Integer Condition Codes with Prediction (BPcc)
+        /// It uses the branch_predict field.
+        bpcc,
+
+        /// A.8 Call and Link
+        /// It uses the branch_link field.
+        call,
+
+        /// A.24 Jump and Link
+        /// It uses the branch_link field.
+        jmpl,
 
         /// A.40 No Operation
         /// It uses the nop field.
@@ -50,28 +69,24 @@ pub const Inst = struct {
     /// The position of an MIR instruction within the `Mir` instructions array.
     pub const Index = u32;
 
-    /// All instructions have a 4-byte payload, which is contained within
+    /// All instructions have a 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
-        /// No additional data
+        /// Debug info: argument
         ///
-        /// Used by e.g. flushw
-        nop: void,
+        /// Used by e.g. dbg_arg
+        dbg_arg_info: struct {
+            air_inst: Air.Inst.Index,
+            arg_index: usize,
+        },
 
-        /// Three operand arithmetic.
-        /// if is_imm true then it uses the imm field of rs2_or_imm,
-        /// otherwise it uses rs2 field.
+        /// Debug info: line and column
         ///
-        /// Used by e.g. add, sub
-        arithmetic_3op: struct {
-            is_imm: bool,
-            rd: Register,
-            rs1: Register,
-            rs2_or_imm: union {
-                rs2: Register,
-                imm: i13,
-            },
+        /// Used by e.g. dbg_line
+        dbg_line_column: struct {
+            line: u32,
+            column: u32,
         },
 
         /// Two operand arithmetic.
@@ -88,13 +103,42 @@ pub const Inst = struct {
             },
         },
 
-        /// Debug info: line and column
+        /// Three operand arithmetic.
+        /// if is_imm true then it uses the imm field of rs2_or_imm,
+        /// otherwise it uses rs2 field.
         ///
-        /// Used by e.g. dbg_line
-        dbg_line_column: struct {
-            line: u32,
-            column: u32,
+        /// Used by e.g. add, sub
+        arithmetic_3op: struct {
+            is_imm: bool,
+            rd: Register,
+            rs1: Register,
+            rs2_or_imm: union {
+                rs2: Register,
+                imm: i13,
+            },
         },
+
+        /// Branch and link (always unconditional).
+        /// Used by e.g. call
+        branch_link: struct {
+            inst: Index,
+            link: Register,
+        },
+
+        /// Branch with prediction.
+        /// Used by e.g. bpcc
+        branch_predict: struct {
+            annul: bool,
+            pt: bool,
+            ccr: Instruction.CCR,
+            cond: Instruction.Condition,
+            inst: Index,
+        },
+
+        /// No additional data
+        ///
+        /// Used by e.g. flushw
+        nop: void,
     };
 };
 
