@@ -3,7 +3,6 @@ const expect = @import("std").testing.expect;
 
 test "@mulAdd" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -13,12 +12,6 @@ test "@mulAdd" {
 }
 
 fn testMulAdd() !void {
-    {
-        var a: f16 = 5.5;
-        var b: f16 = 2.5;
-        var c: f16 = 6.25;
-        try expect(@mulAdd(f16, a, b, c) == 20);
-    }
     {
         var a: f32 = 5.5;
         var b: f32 = 2.5;
@@ -31,6 +24,23 @@ fn testMulAdd() !void {
         var c: f64 = 6.25;
         try expect(@mulAdd(f64, a, b, c) == 20);
     }
+}
+
+test "@mulAdd f16" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    comptime try testMulAdd16();
+    try testMulAdd16();
+}
+
+fn testMulAdd16() !void {
+    var a: f16 = 5.5;
+    var b: f16 = 2.5;
+    var c: f16 = 6.25;
+    try expect(@mulAdd(f16, a, b, c) == 20);
 }
 
 test "@mulAdd f80" {
