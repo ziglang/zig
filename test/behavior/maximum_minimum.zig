@@ -5,6 +5,24 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "@maximum" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var x: i32 = 10;
+            var y: f32 = 0.68;
+            try expect(@as(i32, 10) == @maximum(@as(i32, -3), x));
+            try expect(@as(f32, 3.2) == @maximum(@as(f32, 3.2), y));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "@maximum on vectors" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
@@ -13,9 +31,6 @@ test "@maximum" {
 
     const S = struct {
         fn doTheTest() !void {
-            try expect(@as(i32, 10) == @maximum(@as(i32, -3), @as(i32, 10)));
-            try expect(@as(f32, 3.2) == @maximum(@as(f32, 3.2), @as(f32, 0.68)));
-
             var a: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
             var b: @Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };
             var x = @maximum(a, b);
@@ -37,6 +52,24 @@ test "@maximum" {
 }
 
 test "@minimum" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var x: i32 = 10;
+            var y: f32 = 0.68;
+            try expect(@as(i32, -3) == @minimum(@as(i32, -3), x));
+            try expect(@as(f32, 0.68) == @minimum(@as(f32, 3.2), y));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "@minimum for vectors" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -45,9 +78,6 @@ test "@minimum" {
 
     const S = struct {
         fn doTheTest() !void {
-            try expect(@as(i32, -3) == @minimum(@as(i32, -3), @as(i32, 10)));
-            try expect(@as(f32, 0.68) == @minimum(@as(f32, 3.2), @as(f32, 0.68)));
-
             var a: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
             var b: @Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };
             var x = @minimum(a, b);
