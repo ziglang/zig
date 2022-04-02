@@ -1307,6 +1307,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .shl_exact => self.airBinOp(inst, .shl),
         .shr, .shr_exact => self.airBinOp(inst, .shr),
         .xor => self.airBinOp(inst, .xor),
+        .max => self.airMaxMin(inst, .max),
+        .min => self.airMaxMin(inst, .min),
 
         .add_with_overflow => self.airBinOpOverflow(inst, .add),
         .sub_with_overflow => self.airBinOpOverflow(inst, .sub),
@@ -1431,8 +1433,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .div_floor,
         .div_exact,
         .mod,
-        .max,
-        .min,
         .assembly,
         .shl_sat,
         .ret_addr,
@@ -3872,4 +3872,43 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
     try self.store(result_ptr, overflow_bit, Type.initTag(.u1), offset);
 
     return result_ptr;
+}
+
+fn airMaxMin(self: *Self, inst: Air.Inst.Index, op: enum { max, min }) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    if (ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: `@maximum` and `@minimum` for vectors", .{});
+    }
+
+    if (ty.abiSize(self.target) > 8) {
+        return self.fail("TODO: `@maximum` and `@minimum` for types larger than 8 bytes", .{});
+    }
+
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+
+    const result = try self.allocLocal(ty);
+
+    try self.startBlock(.block, wasm.block_empty);
+    try self.startBlock(.block, wasm.block_empty);
+
+    // check if LHS is greater/lesser than RHS
+    const cmp_result = try self.cmp(lhs, rhs, ty, if (op == .max) .gt else .lt);
+    try self.addLabel(.local_get, cmp_result.local);
+    try self.addLabel(.br_if, 0); // break to outer loop if LHS is greater/lesser than RHS
+
+    // set RHS as max/min
+    try self.emitWValue(rhs);
+    try self.addLabel(.local_set, result.local);
+    try self.addLabel(.br, 1); // break out of all blocks
+    try self.endBlock();
+
+    // set LHS as max/min
+    try self.emitWValue(lhs);
+    try self.addLabel(.local_set, result.local);
+    try self.endBlock();
+
+    return result;
 }
