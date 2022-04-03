@@ -1639,7 +1639,13 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: *Block, err_msg: *Module.ErrorMsg) 
         sema.owner_decl.analysis = .sema_failure;
         sema.owner_decl.generation = mod.generation;
     }
-    mod.failed_decls.putAssumeCapacityNoClobber(sema.owner_decl, err_msg);
+    const gop = mod.failed_decls.getOrPutAssumeCapacity(sema.owner_decl);
+    if (gop.found_existing) {
+        // If there are multiple errors for the same Decl, prefer the first one added.
+        err_msg.destroy(mod.gpa);
+    } else {
+        gop.value_ptr.* = err_msg;
+    }
     return error.AnalysisFail;
 }
 

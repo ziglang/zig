@@ -4854,7 +4854,12 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
         error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
-        error.AnalysisFail => {},
+        error.AnalysisFail => {
+            // In this case our function depends on a type that had a compile error.
+            // We should not try to lower this function.
+            decl.analysis = .dependency_failure;
+            return error.AnalysisFail;
+        },
         else => |e| return e,
     };
 
@@ -4867,7 +4872,12 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
             error.ComptimeBreak => unreachable,
-            error.AnalysisFail => {},
+            error.AnalysisFail => {
+                // In this case our function depends on a type that had a compile error.
+                // We should not try to lower this function.
+                decl.analysis = .dependency_failure;
+                return error.AnalysisFail;
+            },
             else => |e| return e,
         };
     }
