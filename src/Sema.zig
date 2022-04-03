@@ -21945,7 +21945,21 @@ fn semaStructFields(
         }
 
         const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
-        assert(!gop.found_existing);
+        if (gop.found_existing) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const field_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, field_i);
+                const msg = try sema.errMsg(&block_scope, field_src, "duplicate struct field: '{s}'", .{field_name});
+                errdefer msg.destroy(gpa);
+
+                const prev_field_index = struct_obj.fields.getIndex(field_name).?;
+                const prev_field_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, prev_field_index);
+                try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl), msg, "other field here", .{});
+                try sema.errNote(&block_scope, src, msg, "struct declared here", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        }
         gop.value_ptr.* = .{
             .ty = try field_ty.copy(decl_arena_allocator),
             .abi_align = 0,
