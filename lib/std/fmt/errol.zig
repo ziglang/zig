@@ -106,7 +106,10 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     } else if (val >= 16.0 and val < 9.007199254740992e15) {
         return errolFixed(val, buffer);
     }
+    return errolSlow(val, buffer);
+}
 
+fn errolSlow(val: f64, buffer: []u8) FloatDecimal {
     // normalize the midpoint
 
     const e = math.frexp(val).exponent;
@@ -336,7 +339,9 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
     var buf_index = u64toa(m64, buffer) - 1;
 
     if (mi != 0) {
-        buffer[buf_index - 1] += @boolToInt(buffer[buf_index] >= '5');
+        const round_up = buffer[buf_index] >= '5';
+        if (buf_index == 0 or (round_up and buffer[buf_index - 1] == '9')) return errolSlow(val, buffer);
+        buffer[buf_index - 1] += @boolToInt(round_up);
     } else {
         buf_index += 1;
     }
