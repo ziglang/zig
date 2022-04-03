@@ -15,5 +15,5 @@ export fn entry() usize {
 
 // union extra field
 //
-// :6:1: error: enum 'tmp.E' hs no field named 'd'
+// :6:1: error: enum 'tmp.E' has no field named 'd'
 // :1:11: note: enum declared here
