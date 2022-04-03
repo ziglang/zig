@@ -77,11 +77,14 @@ pub fn ArrayHashMap(
     comptime Context: type,
     comptime store_hash: bool,
 ) type {
-    comptime std.hash_map.verifyContext(Context, K, K, u32, true);
     return struct {
         unmanaged: Unmanaged,
         allocator: Allocator,
         ctx: Context,
+
+        comptime {
+            std.hash_map.verifyContext(Context, K, K, u32, true);
+        }
 
         /// The ArrayHashMapUnmanaged type using the same settings as this managed map.
         pub const Unmanaged = ArrayHashMapUnmanaged(K, V, Context, store_hash);
@@ -470,7 +473,6 @@ pub fn ArrayHashMapUnmanaged(
     comptime Context: type,
     comptime store_hash: bool,
 ) type {
-    comptime std.hash_map.verifyContext(Context, K, K, u32, true);
     return struct {
         /// It is permitted to access this field directly.
         entries: DataList = .{},
@@ -480,6 +482,10 @@ pub fn ArrayHashMapUnmanaged(
         /// an IndexHeader followed by an array of Index(I) structs, where I is defined
         /// by how many total indexes there are.
         index_header: ?*IndexHeader = null,
+
+        comptime {
+            std.hash_map.verifyContext(Context, K, K, u32, true);
+        }
 
         /// Modifying the key is allowed only if it does not change the hash.
         /// Modifying the value is allowed.
