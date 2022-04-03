@@ -893,3 +893,108 @@ test "closure capture type of runtime-known parameter" {
     var c: i32 = 1234;
     try S.b(c);
 }
+
+test "comptime break passing through runtime condition converted to runtime break" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var runtime: u8 = 'b';
+            inline for ([3]u8{ 'a', 'b', 'c' }) |byte| {
+                bar();
+                if (byte == runtime) {
+                    foo(byte);
+                    break;
+                }
+            }
+            try expect(ok);
+            try expect(count == 2);
+        }
+        var ok = false;
+        var count: usize = 0;
+
+        fn foo(byte: u8) void {
+            ok = byte == 'b';
+        }
+
+        fn bar() void {
+            count += 1;
+        }
+    };
+
+    try S.doTheTest();
+}
+
+test "comptime break to outer loop passing through runtime condition converted to runtime break" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var runtime: u8 = 'b';
+            outer: inline for ([3]u8{ 'A', 'B', 'C' }) |outer_byte| {
+                inline for ([3]u8{ 'a', 'b', 'c' }) |byte| {
+                    bar(outer_byte);
+                    if (byte == runtime) {
+                        foo(byte);
+                        break :outer;
+                    }
+                }
+            }
+            try expect(ok);
+            try expect(count == 2);
+        }
+        var ok = false;
+        var count: usize = 0;
+
+        fn foo(byte: u8) void {
+            ok = byte == 'b';
+        }
+
+        fn bar(byte: u8) void {
+            _ = byte;
+            count += 1;
+        }
+    };
+
+    try S.doTheTest();
+}
+
+test "comptime break operand passing through runtime condition converted to runtime break" {
+    const S = struct {
+        fn doTheTest(runtime: u8) !void {
+            const result = inline for ([3]u8{ 'a', 'b', 'c' }) |byte| {
+                if (byte == runtime) {
+                    break runtime;
+                }
+            } else 'z';
+            try expect(result == 'b');
+        }
+    };
+
+    try S.doTheTest('b');
+    comptime try S.doTheTest('b');
+}
+
+test "comptime break operand passing through runtime switch converted to runtime break" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest(runtime: u8) !void {
+            const result = inline for ([3]u8{ 'a', 'b', 'c' }) |byte| {
+                switch (runtime) {
+                    byte => break runtime,
+                    else => {},
+                }
+            } else 'z';
+            try expect(result == 'b');
+        }
+    };
+
+    try S.doTheTest('b');
+    comptime try S.doTheTest('b');
+}
