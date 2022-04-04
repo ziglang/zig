@@ -1961,8 +1961,8 @@ pub fn update(comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         comp.bin_file.releaseLock();
 
-        comp.whole_cache_manifest = &man;
         man = comp.cache_parent.obtain();
+        comp.whole_cache_manifest = &man;
         try comp.addNonIncrementalStuffToCacheManifest(&man);
 
         const is_hit = man.hit() catch |err| {
