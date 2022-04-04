@@ -44,6 +44,7 @@ bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 /// This is a pointer to a local variable inside `update()`.
 whole_cache_manifest: ?*Cache.Manifest = null,
+whole_cache_manifest_mutex: std.Thread.Mutex = .{},
 
 link_error_flags: link.File.ErrorFlags = .{},
 
@@ -3332,6 +3333,8 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         const dep_basename = std.fs.path.basename(out_dep_path);
         try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
         if (comp.whole_cache_manifest) |whole_cache_manifest| {
+            comp.whole_cache_manifest_mutex.lock();
+            defer comp.whole_cache_manifest_mutex.unlock();
             try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
         }
 
@@ -3674,7 +3677,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             // Add the files depended on to the cache system.
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             if (comp.whole_cache_manifest) |whole_cache_manifest| {
-                try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+                comp.whole_cache_manifest_mutex.lock();
+                defer comp.whole_cache_manifest_mutex.unlock();
+                try whole_cache_manifest.addDepFilePostContents(zig_cache_tmp_dir, dep_basename);
             }
             // Just to save disk space, we delete the file because it is never needed again.
             zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
