@@ -186,7 +186,7 @@ pub const Client = struct {
 
     /// Have keep-alive messages be sent periodically. The timing in which keep-alive messages are sent are
     /// dependant on operating system settings. It returns `error.UnsupportedSocketOption` if the host does
-    /// not support periodically sending keep-alive messages on connection-oriented sockets. 
+    /// not support periodically sending keep-alive messages on connection-oriented sockets.
     pub fn setKeepAlive(self: Client, enabled: bool) !void {
         return self.socket.setKeepAlive(enabled);
     }

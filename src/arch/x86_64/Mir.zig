@@ -368,7 +368,7 @@ pub const Inst = struct {
         arg_dbg_info,
 
         /// push registers from the callee_preserved_regs
-        /// data is the bitfield of which regs to push 
+        /// data is the bitfield of which regs to push
         /// for example on x86_64, the callee_preserved_regs are [_]Register{ .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11 };    };
         /// so to push rcx and r8 one would make data 0b00000000_00000000_00000000_00001001 (the first and fourth bits are set)
         /// ops is unused

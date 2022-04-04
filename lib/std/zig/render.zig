@@ -2514,7 +2514,7 @@ fn tokenSliceForRender(tree: Ast, token_index: Ast.TokenIndex) []const u8 {
         .container_doc_comment, .doc_comment => {
             ret = mem.trimRight(u8, ret, &std.ascii.spaces);
         },
-        else => {}
+        else => {},
     }
     return ret;
 }

@@ -147,7 +147,7 @@ pub const s_per_day = s_per_hour * 24;
 pub const s_per_week = s_per_day * 7;
 
 /// An Instant represents a timestamp with respect to the currently
-/// executing program that ticks during suspend and can be used to 
+/// executing program that ticks during suspend and can be used to
 /// record elapsed time unlike `nanoTimestamp`.
 ///
 /// It tries to sample the system's fastest and most precise timer available.
@@ -256,7 +256,7 @@ pub const Instant = struct {
 ///
 /// Monotonicity is ensured by saturating on the most previous sample.
 /// This means that while timings reported are monotonic,
-/// they're not guaranteed to tick at a steady rate as this is up to the underlying system.  
+/// they're not guaranteed to tick at a steady rate as this is up to the underlying system.
 pub const Timer = struct {
     started: Instant,
     previous: Instant,
@@ -290,7 +290,7 @@ pub const Timer = struct {
         return current.since(self.started);
     }
 
-    /// Returns an Instant sampled at the callsite that is 
+    /// Returns an Instant sampled at the callsite that is
     /// guaranteed to be monotonic with respect to the timer's starting point.
     fn sample(self: *Timer) Instant {
         const current = Instant.now() catch unreachable;

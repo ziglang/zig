@@ -296,7 +296,7 @@ test "vector searching" {
 pub fn prefixScanWithFunc(
     comptime hop: isize,
     vec: anytype,
-    /// The error type that `func` might return. Set this to `void` if `func` doesn't return an error union. 
+    /// The error type that `func` might return. Set this to `void` if `func` doesn't return an error union.
     comptime ErrorType: type,
     comptime func: fn (@TypeOf(vec), @TypeOf(vec)) if (ErrorType == void) @TypeOf(vec) else ErrorType!@TypeOf(vec),
     /// When one operand of the operation performed by `func` is this value, the result must equal the other operand.

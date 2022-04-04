@@ -437,7 +437,7 @@ test "max3" {
     try testing.expect(max3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 2);
 }
 
-/// Limit val to the inclusive range [lower, upper]. 
+/// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
     return max(lower, min(val, upper));

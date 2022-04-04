@@ -61,7 +61,7 @@ pub fn parseCharLiteral(slice: []const u8) ParsedCharLiteral {
     }
 }
 
-/// Parse an escape sequence from `slice[offset..]`. If parsing is successful, 
+/// Parse an escape sequence from `slice[offset..]`. If parsing is successful,
 /// offset is updated to reflect the characters consumed.
 fn parseEscapeSequence(slice: []const u8, offset: *usize) ParsedCharLiteral {
     assert(slice.len > offset.*);

@@ -131,7 +131,7 @@ pub const Params = struct {
     r: u30,
 
     /// The [p]arallelization parameter.
-    /// A large value of [p] can be used to increase the computational cost of scrypt without 
+    /// A large value of [p] can be used to increase the computational cost of scrypt without
     /// increasing the memory usage.
     p: u30,
 
@@ -326,7 +326,7 @@ const crypt_format = struct {
         try out.writeAll(hash_str);
     }
 
-    /// Custom codec that maps 6 bits into 8 like regular Base64, but uses its own alphabet, 
+    /// Custom codec that maps 6 bits into 8 like regular Base64, but uses its own alphabet,
     /// encodes bits in little-endian, and can also encode integers.
     fn CustomB64Codec(comptime map: [64]u8) type {
         return struct {
