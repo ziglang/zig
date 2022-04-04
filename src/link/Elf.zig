@@ -1827,7 +1827,7 @@ fn writeElfHeader(self: *Elf) !void {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
     var index: usize = 0;
-    hdr_buf[0..4].* = "\x7fELF".*;
+    hdr_buf[0..4].* = elf.MAGIC.*;
     index += 4;
 
     hdr_buf[index] = switch (self.ptr_width) {

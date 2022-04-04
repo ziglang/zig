@@ -133,7 +133,7 @@ pub const ElfDynLib = struct {
         defer os.munmap(file_bytes);
 
         const eh = @ptrCast(*elf.Ehdr, file_bytes.ptr);
-        if (!mem.eql(u8, eh.e_ident[0..4], "\x7fELF")) return error.NotElfFile;
+        if (!mem.eql(u8, eh.e_ident[0..4], elf.MAGIC)) return error.NotElfFile;
         if (eh.e_type != elf.ET.DYN) return error.NotDynamicLibrary;
 
         const elf_addr = @ptrToInt(file_bytes.ptr);
