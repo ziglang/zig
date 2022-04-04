@@ -47,6 +47,12 @@ pub const StdIoAction = union(enum) {
     ignore,
     expect_exact: []const u8,
     expect_matches: []const []const u8,
+    /// Custom comparison function for pipe output
+    /// It is recommended to also handle mismatch reporting
+    expect_custom: switch (builtin.zig_backend) {
+        .stage1 => fn (std_stream: ?[]const u8) bool,
+        else => *fn (std_stream: ?[]const u8) bool,
+    },
 };
 
 pub const Arg = union(enum) {
@@ -150,7 +156,7 @@ fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
     return switch (action) {
         .ignore => .Ignore,
         .inherit => .Inherit,
-        .expect_exact, .expect_matches => .Pipe,
+        .expect_exact, .expect_matches, .expect_custom => .Pipe,
     };
 }
 
@@ -206,7 +212,7 @@ fn make(step: *Step) !void {
     defer if (stdout) |s| self.builder.allocator.free(s);
 
     switch (self.stdout_action) {
-        .expect_exact, .expect_matches => {
+        .expect_exact, .expect_matches, .expect_custom => {
             stdout = child.stdout.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
         },
         .inherit, .ignore => {},
@@ -216,7 +222,7 @@ fn make(step: *Step) !void {
     defer if (stderr) |s| self.builder.allocator.free(s);
 
     switch (self.stderr_action) {
-        .expect_exact, .expect_matches => {
+        .expect_exact, .expect_matches, .expect_custom => {
             stderr = child.stderr.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
         },
         .inherit, .ignore => {},
@@ -271,6 +277,13 @@ fn make(step: *Step) !void {
                 return error.TestFailed;
             }
         },
+        .expect_custom => |customFn| {
+            const success = customFn(stderr);
+            if (!success) {
+                printCmd(cwd, argv); // caller responsible for string error output formatting
+                return error.TestFailed;
+            }
+        },
         .expect_matches => |matches| for (matches) |match| {
             if (mem.indexOf(u8, stderr.?, match) == null) {
                 std.debug.print(
@@ -300,6 +313,13 @@ fn make(step: *Step) !void {
                     \\
                 , .{ expected_bytes, stdout.? });
                 printCmd(cwd, argv);
+                return error.TestFailed;
+            }
+        },
+        .expect_custom => |customFn| {
+            const success = customFn(stdout);
+            if (!success) {
+                printCmd(cwd, argv); // caller responsible for string error output formatting
                 return error.TestFailed;
             }
         },
