@@ -22106,7 +22106,7 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
             // The fields of the union must match the enum exactly.
             // Store a copy of the enum field names so we can check for
             // missing or extraneous fields later.
-            tag_ty_field_names = try union_obj.tag_ty.enumFields().clone(decl_arena_allocator);
+            tag_ty_field_names = try union_obj.tag_ty.enumFields().clone(sema.arena);
         }
     } else {
         // If auto_enum_tag is false, this is an untagged union. However, for semantic analysis
@@ -22200,20 +22200,6 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
             set.putAssumeCapacity(field_name, {});
         }
 
-        if (tag_ty_field_names) |*names| {
-            const enum_has_field = names.contains(field_name);
-            if (!enum_has_field) {
-                const msg = msg: {
-                    const msg = try sema.errMsg(block, src, "enum '{}' has no field named '{s}'", .{ union_obj.tag_ty.fmt(target), field_name });
-                    errdefer msg.destroy(sema.gpa);
-                    try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
-            _ = names.orderedRemove(field_name);
-        }
-
         const field_ty: Type = if (!has_type)
             Type.void
         else if (field_type_ref == .none)
@@ -22243,6 +22229,19 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        }
+
+        if (tag_ty_field_names) |*names| {
+            const enum_has_field = names.orderedRemove(field_name);
+            if (!enum_has_field) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, src, "enum '{}' has no field named '{s}'", .{ union_obj.tag_ty.fmt(target), field_name });
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
         }
 
         gop.value_ptr.* = .{
