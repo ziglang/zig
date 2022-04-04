@@ -1386,3 +1386,8 @@ test "coerce undefined single-item pointer of array to error union of slice" {
     const s = try b;
     try expect(s.len == 0);
 }
+
+test "pointer to empty struct literal to mutable slice" {
+    var x: []i32 = &.{};
+    try expect(x.len == 0);
+}

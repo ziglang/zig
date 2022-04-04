@@ -18166,6 +18166,19 @@ fn coerce(
                     {
                         return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                     }
+
+                    // empty tuple to zero-length slice
+                    // note that this allows coercing to a mutable slice.
+                    if (inst_ty.isSinglePointer() and
+                        inst_ty.childType().tag() == .empty_struct_literal and
+                        dest_info.size == .Slice)
+                    {
+                        const slice_val = try Value.Tag.slice.create(sema.arena, .{
+                            .ptr = Value.undef,
+                            .len = Value.zero,
+                        });
+                        return sema.addConstant(dest_ty, slice_val);
+                    }
                 },
                 .Many => p: {
                     if (!inst_ty.isSlice()) break :p;
