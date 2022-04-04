@@ -47,11 +47,16 @@ pub fn emitMir(
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
 
+            .add => @panic("TODO implement sparcv9 add"),
+
             .bpcc => @panic("TODO implement sparcv9 bpcc"),
 
             .call => @panic("TODO implement sparcv9 call"),
 
             .jmpl => @panic("TODO implement sparcv9 jmpl"),
+            .jmpl_i => @panic("TODO implement sparcv9 jmpl to reg"),
+
+            .@"or" => @panic("TODO implement sparcv9 or"),
 
             .nop => @panic("TODO implement sparcv9 nop"),
 
@@ -59,6 +64,14 @@ pub fn emitMir(
 
             .save => @panic("TODO implement sparcv9 save"),
             .restore => @panic("TODO implement sparcv9 restore"),
+
+            .sethi => @panic("TODO implement sparcv9 sethi"),
+
+            .sllx => @panic("TODO implement sparcv9 sllx"),
+
+            .sub => @panic("TODO implement sparcv9 sub"),
+
+            .tcc => @panic("TODO implement sparcv9 tcc"),
         }
     }
 }

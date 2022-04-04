@@ -40,6 +40,11 @@ pub const Inst = struct {
         // All the real instructions are ordered by their section number
         // in The SPARC Architecture Manual, Version 9.
 
+        /// A.2 Add
+        /// Those uses the arithmetic_3op field.
+        // TODO add other operations.
+        add,
+
         /// A.7 Branch on Integer Condition Codes with Prediction (BPcc)
         /// It uses the branch_predict field.
         bpcc,
@@ -49,8 +54,16 @@ pub const Inst = struct {
         call,
 
         /// A.24 Jump and Link
-        /// It uses the branch_link field.
+        /// jmpl (far direct jump) uses the branch_link field,
+        /// while jmpl_i (indirect jump) uses the branch_link_indirect field.
+        /// Those two MIR instructions will be lowered into SPARCv9 jmpl instruction.
         jmpl,
+        jmpl_i,
+
+        /// A.31 Logical Operations
+        /// Those uses the arithmetic_3op field.
+        // TODO add other operations.
+        @"or",
 
         /// A.40 No Operation
         /// It uses the nop field.
@@ -64,6 +77,24 @@ pub const Inst = struct {
         /// Those uses the arithmetic_3op field.
         save,
         restore,
+
+        /// A.48 SETHI
+        /// It uses the sethi field.
+        sethi,
+
+        /// A.49 Shift
+        /// Those uses the shift field.
+        // TODO add other operations.
+        sllx,
+
+        /// A.56 Subtract
+        /// Those uses the arithmetic_3op field.
+        // TODO add other operations.
+        sub,
+
+        /// A.61 Trap on Integer Condition Codes (Tcc)
+        /// It uses the trap field.
+        tcc,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -72,6 +103,7 @@ pub const Inst = struct {
     /// All instructions have a 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
+    // TODO this is a quick-n-dirty solution that needs to be cleaned up.
     pub const Data = union {
         /// Debug info: argument
         ///
@@ -122,14 +154,21 @@ pub const Inst = struct {
         /// Used by e.g. call
         branch_link: struct {
             inst: Index,
-            link: Register,
+            link: Register = .o7,
+        },
+
+        /// Indirect branch and link (always unconditional).
+        /// Used by e.g. jmpl_i
+        branch_link_indirect: struct {
+            reg: Register,
+            link: Register = .o7,
         },
 
         /// Branch with prediction.
         /// Used by e.g. bpcc
         branch_predict: struct {
             annul: bool,
-            pt: bool,
+            pt: bool = true,
             ccr: Instruction.CCR,
             cond: Instruction.Condition,
             inst: Index,
@@ -139,6 +178,46 @@ pub const Inst = struct {
         ///
         /// Used by e.g. flushw
         nop: void,
+
+        /// SETHI operands.
+        ///
+        /// Used by sethi
+        sethi: struct {
+            rd: Register,
+            imm: u22,
+        },
+
+        /// Shift operands.
+        /// if is_imm true then it uses the imm field of rs2_or_imm,
+        /// otherwise it uses rs2 field.
+        ///
+        /// Used by e.g. add, sub
+        shift: struct {
+            is_imm: bool,
+            width: Instruction.ShiftWidth,
+            rd: Register,
+            rs1: Register,
+            rs2_or_imm: union {
+                rs2: Register,
+                imm: u6,
+            },
+        },
+
+        /// Trap.
+        /// if is_imm true then it uses the imm field of rs2_or_imm,
+        /// otherwise it uses rs2 field.
+        ///
+        /// Used by e.g. tcc
+        trap: struct {
+            is_imm: bool = true,
+            cond: Instruction.Condition,
+            ccr: Instruction.CCR = .icc,
+            rs1: Register = .g0,
+            rs2_or_imm: union {
+                rs2: Register,
+                imm: u8,
+            },
+        },
     };
 };
 
