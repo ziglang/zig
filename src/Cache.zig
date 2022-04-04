@@ -695,6 +695,7 @@ pub const Manifest = struct {
                     errdefer self.cache.gpa.free(resolved_path);
 
                     const file = try fs.cwd().openFile(resolved_path, .{ .mode = .read_only });
+                    defer file.close();
                     const file_stat = try file.stat();
 
                     const contents = try self.cache.gpa.alloc(u8, @intCast(usize, file_stat.size));
