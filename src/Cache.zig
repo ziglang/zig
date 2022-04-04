@@ -665,7 +665,7 @@ pub const Manifest = struct {
         self.hash.hasher.update(&ch_file.bin_digest);
     }
 
-    fn addDepFilePostCommon(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8, comptime is_post_contents: bool) !void {
+    pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         assert(self.manifest_file != null);
 
         const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
@@ -690,29 +690,7 @@ pub const Manifest = struct {
         while (true) {
             switch (it.next() orelse return) {
                 .target, .target_must_resolve => return,
-                .prereq => |file_path| if (is_post_contents) {
-                    const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
-                    errdefer self.cache.gpa.free(resolved_path);
-
-                    const file = try fs.cwd().openFile(resolved_path, .{ .mode = .read_only });
-                    defer file.close();
-                    const file_stat = try file.stat();
-
-                    const contents = try self.cache.gpa.alloc(u8, @intCast(usize, file_stat.size));
-                    defer self.cache.gpa.free(contents);
-
-                    _ = try file.readAll(contents);
-
-                    try self.addFilePostContents(
-                        resolved_path,
-                        contents,
-                        .{
-                            .size = file_stat.size,
-                            .inode = file_stat.inode,
-                            .mtime = file_stat.mtime,
-                        },
-                    );
-                } else try self.addFilePost(file_path),
+                .prereq => |file_path| try self.addFilePost(file_path),
                 else => |err| {
                     try err.printError(error_buf.writer());
                     log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
@@ -720,14 +698,6 @@ pub const Manifest = struct {
                 },
             }
         }
-    }
-
-    pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
-        try self.addDepFilePostCommon(dir, dep_file_basename, false);
-    }
-
-    pub fn addDepFilePostContents(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
-        try self.addDepFilePostCommon(dir, dep_file_basename, true);
     }
 
     /// Returns a hex encoded hash of the inputs.

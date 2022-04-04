@@ -3679,7 +3679,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             if (comp.whole_cache_manifest) |whole_cache_manifest| {
                 comp.whole_cache_manifest_mutex.lock();
                 defer comp.whole_cache_manifest_mutex.unlock();
-                try whole_cache_manifest.addDepFilePostContents(zig_cache_tmp_dir, dep_basename);
+                try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             }
             // Just to save disk space, we delete the file because it is never needed again.
             zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
