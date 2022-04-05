@@ -7273,9 +7273,14 @@ fn zirSwitchCapture(
             }
         },
         else => {
-            return sema.fail(block, operand_src, "switch on type '{}' provides no capture value", .{
-                operand_ty.fmt(target),
-            });
+            // In this case the capture value is just the passed-through value of the
+            // switch condition.
+            if (is_ref) {
+                assert(operand_is_ref);
+                return operand_ptr;
+            } else {
+                return operand;
+            }
         },
     }
 }

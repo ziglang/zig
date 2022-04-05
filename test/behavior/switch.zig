@@ -656,3 +656,25 @@ test "switch capture copies its payload" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "capture of integer forwards the switch condition directly" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo(x: u8) !void {
+            switch (x) {
+                40...45 => |capture| {
+                    try expect(capture == 42);
+                },
+                else => |capture| {
+                    try expect(capture == 100);
+                },
+            }
+        }
+    };
+    try S.foo(42);
+    try S.foo(100);
+    comptime try S.foo(42);
+    comptime try S.foo(100);
+}
