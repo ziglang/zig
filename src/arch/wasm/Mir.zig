@@ -10,7 +10,7 @@ const Mir = @This();
 
 const std = @import("std");
 
-/// A struct of array that represents each individual wasm 
+/// A struct of array that represents each individual wasm
 instructions: std.MultiArrayList(Inst).Slice,
 /// A slice of indexes where the meaning of the data is determined by the
 /// `Inst.Tag` value.
@@ -538,7 +538,7 @@ pub const Inst = struct {
         /// Contains an u32 index into a wasm section entry, such as a local.
         /// Note: This is not an index to another instruction.
         ///
-        /// Used by e.g. `local_get`, `local_set`, etc. 
+        /// Used by e.g. `local_get`, `local_set`, etc.
         label: u32,
         /// A 32-bit immediate value.
         ///

@@ -67,7 +67,7 @@ pub const BootServices = extern struct {
     /// Reinstalls a protocol interface on a device handle
     reinstallProtocolInterface: fn (handle: Handle, protocol: *align(8) const Guid, old_interface: *anyopaque, new_interface: *anyopaque) callconv(.C) Status,
 
-    /// Removes a protocol interface from a device handle. Usage of 
+    /// Removes a protocol interface from a device handle. Usage of
     /// uninstallMultipleProtocolInterfaces is recommended over this.
     uninstallProtocolInterface: fn (handle: Handle, protocol: *align(8) const Guid, interface: *anyopaque) callconv(.C) Status,
 

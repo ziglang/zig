@@ -205,7 +205,7 @@ pub fn Mixin(comptime Socket: type) type {
 
         /// On connection-oriented sockets, have keep-alive messages be sent periodically. The timing in which keep-alive
         /// messages are sent are dependant on operating system settings. It returns `error.UnsupportedSocketOption` if
-        /// the host does not support periodically sending keep-alive messages on connection-oriented sockets. 
+        /// the host does not support periodically sending keep-alive messages on connection-oriented sockets.
         pub fn setKeepAlive(self: Socket, enabled: bool) !void {
             if (@hasDecl(os.SO, "KEEPALIVE")) {
                 return self.setOption(os.SOL.SOCKET, os.SO.KEEPALIVE, mem.asBytes(&@as(u32, @boolToInt(enabled))));
@@ -243,7 +243,7 @@ pub fn Mixin(comptime Socket: type) type {
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
         /// set on a non-blocking socket.
-        /// 
+        ///
         /// Set a timeout on the socket that is to occur if no messages are successfully written
         /// to its bound destination after a specified number of milliseconds. A subsequent write
         /// to the socket will thereafter return `error.WouldBlock` should the timeout be exceeded.
@@ -258,7 +258,7 @@ pub fn Mixin(comptime Socket: type) type {
 
         /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
         /// set on a non-blocking socket.
-        /// 
+        ///
         /// Set a timeout on the socket that is to occur if no messages are successfully read
         /// from its bound destination after a specified number of milliseconds. A subsequent
         /// read from the socket will thereafter return `error.WouldBlock` should the timeout be

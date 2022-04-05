@@ -154,7 +154,7 @@ atom_by_index_table: std.AutoHashMapUnmanaged(u32, *TextBlock) = .{},
 /// const Foo = struct{
 ///     a: u8,
 /// };
-/// 
+///
 /// pub fn main() void {
 ///     var foo = Foo{ .a = 1 };
 ///     _ = foo;

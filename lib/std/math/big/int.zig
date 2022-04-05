@@ -1750,8 +1750,8 @@ pub const Mutable = struct {
     /// Read the value of `x` from `buffer`
     /// Asserts that `buffer`, `abi_size`, and `bit_count` are large enough to store the value.
     ///
-    /// The contents of `buffer` are interpreted as if they were the contents of 
-    /// @ptrCast(*[abi_size]const u8, &x). Byte ordering is determined by `endian` 
+    /// The contents of `buffer` are interpreted as if they were the contents of
+    /// @ptrCast(*[abi_size]const u8, &x). Byte ordering is determined by `endian`
     /// and any required padding bits are expected on the MSB end.
     pub fn readTwosComplement(
         x: *Mutable,

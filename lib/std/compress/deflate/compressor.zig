@@ -219,7 +219,7 @@ const CompressorOptions = struct {
 ///
 /// `dictionary` is optional and initializes the new `Compressor` with a preset dictionary.
 /// The returned Compressor behaves as if the dictionary had been written to it without producing
-/// any compressed output. The compressed data written to hm_bw can only be decompressed by a 
+/// any compressed output. The compressed data written to hm_bw can only be decompressed by a
 /// Decompressor initialized with the same dictionary.
 ///
 /// The compressed data will be passed to the provided `writer`, see `writer()` and `write()`.
