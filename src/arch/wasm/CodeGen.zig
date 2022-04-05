@@ -3889,27 +3889,26 @@ fn airMaxMin(self: *Self, inst: Air.Inst.Index, op: enum { max, min }) InnerErro
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
 
-    const result = try self.allocLocal(ty);
-
-    try self.startBlock(.block, wasm.block_empty);
-    try self.startBlock(.block, wasm.block_empty);
-
-    // check if LHS is greater/lesser than RHS
-    const cmp_result = try self.cmp(lhs, rhs, ty, if (op == .max) .gt else .lt);
-    try self.addLabel(.local_get, cmp_result.local);
-    try self.addLabel(.br_if, 0); // break to outer loop if LHS is greater/lesser than RHS
-
-    // set RHS as max/min
-    try self.emitWValue(rhs);
-    try self.addLabel(.local_set, result.local);
-    try self.addLabel(.br, 1); // break out of all blocks
-    try self.endBlock();
-
-    // set LHS as max/min
+    // operands to select from
     try self.emitWValue(lhs);
-    try self.addLabel(.local_set, result.local);
-    try self.endBlock();
+    try self.emitWValue(rhs);
 
+    // operands to compare
+    try self.emitWValue(lhs);
+    try self.emitWValue(rhs);
+    const opcode = buildOpcode(.{
+        .op = if (op == .max) .gt else .lt,
+        .signedness = if (ty.isSignedInt()) .signed else .unsigned,
+        .valtype1 = typeToValtype(ty, self.target),
+    });
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+
+    // based on the result from comparison, return operand 0 or 1.
+    try self.addTag(.select);
+
+    // store result in local
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
     return result;
 }
 
