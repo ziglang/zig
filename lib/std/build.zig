@@ -1582,6 +1582,7 @@ pub const LibExeObjStep = struct {
     red_zone: ?bool = null,
 
     omit_frame_pointer: ?bool = null,
+    no_dll_export_fns: bool = false,
 
     subsystem: ?std.Target.SubSystem = null,
 
@@ -2552,6 +2553,9 @@ pub const LibExeObjStep = struct {
             } else {
                 try zig_args.append("-fno-omit-frame-pointer");
             }
+        }
+        if (self.no_dll_export_fns){
+            try zig_args.append("-fno-dll-export-fns");
         }
         if (self.disable_sanitize_c) {
             try zig_args.append("-fno-sanitize-c");
