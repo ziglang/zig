@@ -77,6 +77,10 @@ pub const Inst = struct {
         ///
         /// Uses `label`
         call_indirect = 0x11,
+        /// Pops three values from the stack and pushes
+        /// the first or second value dependent on the third value.
+        /// Uses `tag`
+        select = 0x1B,
         /// Loads a local at given index onto the stack.
         ///
         /// Uses `label`

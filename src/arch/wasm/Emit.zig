@@ -96,6 +96,8 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .@"return" => try emit.emitTag(tag),
             .@"unreachable" => try emit.emitTag(tag),
 
+            .select => try emit.emitTag(tag),
+
             // arithmetic
             .i32_eqz => try emit.emitTag(tag),
             .i32_eq => try emit.emitTag(tag),
