@@ -2,17 +2,17 @@ map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
 items: std.MultiArrayList(Item) = .{},
 extra: std.ArrayListUnmanaged(u32) = .{},
 
-const InternArena = @This();
+const InternPool = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const KeyAdapter = struct {
-    intern_arena: *const InternArena,
+    intern_pool: *const InternPool,
 
     pub fn eql(ctx: @This(), a: Key, b_void: void, b_map_index: usize) bool {
         _ = b_void;
-        return ctx.intern_arena.indexToKey(@intToEnum(Index, b_map_index)).eql(a);
+        return ctx.intern_pool.indexToKey(@intToEnum(Index, b_map_index)).eql(a);
     }
 
     pub fn hash(ctx: @This(), a: Key) u32 {
@@ -94,10 +94,10 @@ pub const Item = struct {
 };
 
 /// Represents an index into `map`. It represents the canonical index
-/// of a `Value` within this `InternArena`. The values are typed.
+/// of a `Value` within this `InternPool`. The values are typed.
 /// Two values which have the same type can be equality compared simply
 /// by checking if their indexes are equal, provided they are both in
-/// the same `InternArena`.
+/// the same `InternPool`.
 pub const Index = enum(u32) {
     none = std.math.maxInt(u32),
     _,
@@ -180,14 +180,14 @@ pub const Array = struct {
     child: Index,
 };
 
-pub fn deinit(ia: *InternArena, gpa: Allocator) void {
-    ia.map.deinit(gpa);
-    ia.items.deinit(gpa);
-    ia.extra.deinit(gpa);
+pub fn deinit(ip: *InternPool, gpa: Allocator) void {
+    ip.map.deinit(gpa);
+    ip.items.deinit(gpa);
+    ip.extra.deinit(gpa);
 }
 
-pub fn indexToKey(ia: InternArena, index: Index) Key {
-    const item = ia.items.get(@enumToInt(index));
+pub fn indexToKey(ip: InternPool, index: Index) Key {
+    const item = ip.items.get(@enumToInt(index));
     const data = item.data;
     return switch (item.tag) {
         .type_int_signed => .{
@@ -203,7 +203,7 @@ pub fn indexToKey(ia: InternArena, index: Index) Key {
             },
         },
         .type_array => {
-            const array_info = ia.extraData(Array, data);
+            const array_info = ip.extraData(Array, data);
             return .{ .array_type = .{
                 .len = array_info.len,
                 .child = array_info.child,
@@ -216,9 +216,9 @@ pub fn indexToKey(ia: InternArena, index: Index) Key {
     };
 }
 
-pub fn get(ia: *InternArena, gpa: Allocator, key: Key) Allocator.Error!Index {
-    const adapter: KeyAdapter = .{ .intern_arena = ia };
-    const gop = try ia.map.getOrPutAdapted(gpa, key, adapter);
+pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
     if (gop.found_existing) {
         return @intToEnum(Index, gop.index);
     }
@@ -228,7 +228,7 @@ pub fn get(ia: *InternArena, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .signed => .type_int_signed,
                 .unsigned => .type_int_unsigned,
             };
-            try ia.items.append(gpa, .{
+            try ip.items.append(gpa, .{
                 .tag = tag,
                 .data = int_type.bits,
             });
@@ -236,9 +236,9 @@ pub fn get(ia: *InternArena, gpa: Allocator, key: Key) Allocator.Error!Index {
         .array_type => |array_type| {
             const len = @intCast(u32, array_type.len); // TODO have a big_array encoding
             assert(array_type.sentinel == .none); // TODO have a sentinel_array encoding
-            try ia.items.append(gpa, .{
+            try ip.items.append(gpa, .{
                 .tag = .type_array,
-                .data = try ia.addExtra(gpa, Array{
+                .data = try ip.addExtra(gpa, Array{
                     .len = len,
                     .child = array_type.child,
                 }),
@@ -246,20 +246,20 @@ pub fn get(ia: *InternArena, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
         else => @panic("TODO"),
     }
-    return @intToEnum(Index, ia.items.len - 1);
+    return @intToEnum(Index, ip.items.len - 1);
 }
 
-fn addExtra(ia: *InternArena, gpa: Allocator, extra: anytype) Allocator.Error!u32 {
+fn addExtra(ip: *InternPool, gpa: Allocator, extra: anytype) Allocator.Error!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
-    try ia.extra.ensureUnusedCapacity(gpa, fields.len);
-    return ia.addExtraAssumeCapacity(extra);
+    try ip.extra.ensureUnusedCapacity(gpa, fields.len);
+    return ip.addExtraAssumeCapacity(extra);
 }
 
-fn addExtraAssumeCapacity(ia: *InternArena, extra: anytype) u32 {
+fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
     const fields = std.meta.fields(@TypeOf(extra));
-    const result = @intCast(u32, ia.extra.items.len);
+    const result = @intCast(u32, ip.extra.items.len);
     inline for (fields) |field| {
-        ia.extra.appendAssumeCapacity(switch (field.field_type) {
+        ip.extra.appendAssumeCapacity(switch (field.field_type) {
             u32 => @field(extra, field.name),
             Index => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
@@ -269,15 +269,15 @@ fn addExtraAssumeCapacity(ia: *InternArena, extra: anytype) u32 {
     return result;
 }
 
-fn extraData(ia: InternArena, comptime T: type, index: usize) T {
+fn extraData(ip: InternPool, comptime T: type, index: usize) T {
     const fields = std.meta.fields(T);
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.field_type) {
-            u32 => ia.extra.items[i],
-            Index => @intToEnum(Index, ia.extra.items[i]),
-            i32 => @bitCast(i32, ia.extra.items[i]),
+            u32 => ip.extra.items[i],
+            Index => @intToEnum(Index, ip.extra.items[i]),
+            i32 => @bitCast(i32, ip.extra.items[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -288,26 +288,26 @@ fn extraData(ia: InternArena, comptime T: type, index: usize) T {
 test "basic usage" {
     const gpa = std.testing.allocator;
 
-    var ia: InternArena = .{};
-    defer ia.deinit(gpa);
+    var ip: InternPool = .{};
+    defer ip.deinit(gpa);
 
-    const i32_type = try ia.get(gpa, .{ .int_type = .{
+    const i32_type = try ip.get(gpa, .{ .int_type = .{
         .signedness = .signed,
         .bits = 32,
     } });
-    const array_i32 = try ia.get(gpa, .{ .array_type = .{
+    const array_i32 = try ip.get(gpa, .{ .array_type = .{
         .len = 10,
         .child = i32_type,
         .sentinel = .none,
     } });
 
-    const another_i32_type = try ia.get(gpa, .{ .int_type = .{
+    const another_i32_type = try ip.get(gpa, .{ .int_type = .{
         .signedness = .signed,
         .bits = 32,
     } });
     try std.testing.expect(another_i32_type == i32_type);
 
-    const another_array_i32 = try ia.get(gpa, .{ .array_type = .{
+    const another_array_i32 = try ip.get(gpa, .{ .array_type = .{
         .len = 10,
         .child = i32_type,
         .sentinel = .none,

@@ -39,7 +39,7 @@ atom_last: ?*Atom = null,
 
 abbrev_table_offset: ?u64 = null,
 
-/// TODO replace with InternArena
+/// TODO replace with InternPool
 /// Table of debug symbol names.
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
