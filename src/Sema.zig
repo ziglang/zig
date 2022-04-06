@@ -21547,6 +21547,8 @@ fn resolveUnionLayout(
     union_obj.status = .have_layout;
 }
 
+/// Returns `error.AnalysisFail` if any of the types (recursively) failed to
+/// be resolved.
 pub fn resolveTypeFully(
     sema: *Sema,
     block: *Block,
@@ -21595,18 +21597,29 @@ fn resolveStructFully(
     const resolved_ty = try sema.resolveTypeFields(block, src, ty);
     const payload = resolved_ty.castTag(.@"struct") orelse return;
     const struct_obj = payload.data;
+
     switch (struct_obj.status) {
         .none, .have_field_types, .field_types_wip, .layout_wip, .have_layout => {},
         .fully_resolved_wip, .fully_resolved => return,
     }
 
-    // After we have resolve struct layout we have to go over the fields again to
-    // make sure pointer fields get their child types resolved as well
-    struct_obj.status = .fully_resolved_wip;
-    for (struct_obj.fields.values()) |field| {
-        try sema.resolveTypeFully(block, src, field.ty);
+    log.debug("resolveStructFully {*} ('{s}')", .{
+        struct_obj.owner_decl, struct_obj.owner_decl.name,
+    });
+
+    {
+        // After we have resolve struct layout we have to go over the fields again to
+        // make sure pointer fields get their child types resolved as well.
+        // See also similar code for unions.
+        const prev_status = struct_obj.status;
+        errdefer struct_obj.status = prev_status;
+
+        struct_obj.status = .fully_resolved_wip;
+        for (struct_obj.fields.values()) |field| {
+            try sema.resolveTypeFully(block, src, field.ty);
+        }
+        struct_obj.status = .fully_resolved;
     }
-    struct_obj.status = .fully_resolved;
 
     // And let's not forget comptime-only status.
     _ = try sema.typeRequiresComptime(block, src, ty);
@@ -21627,12 +21640,19 @@ fn resolveUnionFully(
         .fully_resolved_wip, .fully_resolved => return,
     }
 
-    // Same goes for unions (see comment about structs)
-    union_obj.status = .fully_resolved_wip;
-    for (union_obj.fields.values()) |field| {
-        try sema.resolveTypeFully(block, src, field.ty);
+    {
+        // After we have resolve union layout we have to go over the fields again to
+        // make sure pointer fields get their child types resolved as well.
+        // See also similar code for structs.
+        const prev_status = union_obj.status;
+        errdefer union_obj.status = prev_status;
+
+        union_obj.status = .fully_resolved_wip;
+        for (union_obj.fields.values()) |field| {
+            try sema.resolveTypeFully(block, src, field.ty);
+        }
+        union_obj.status = .fully_resolved;
     }
-    union_obj.status = .fully_resolved;
 
     // And let's not forget comptime-only status.
     _ = try sema.typeRequiresComptime(block, src, ty);
