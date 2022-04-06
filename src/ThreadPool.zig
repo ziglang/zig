@@ -12,7 +12,12 @@ idle_queue: IdleQueue = .{},
 const IdleQueue = std.SinglyLinkedList(std.Thread.ResetEvent);
 const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
-    runFn: fn (*Runnable) void,
+    runFn: RunProto,
+};
+
+const RunProto = switch (builtin.zig_backend) {
+    .stage1 => fn (*Runnable) void,
+    else => *const fn (*Runnable) void,
 };
 
 const Worker = struct {
