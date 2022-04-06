@@ -973,7 +973,8 @@ test "variable initialization uses result locations properly with regards to the
 }
 
 test "cast between C pointer with different but compatible types" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn foo(arg: [*]c_ushort) u16 {
@@ -985,6 +986,7 @@ test "cast between C pointer with different but compatible types" {
         }
     };
     try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "peer type resolve string lit with sentinel-terminated mutable slice" {

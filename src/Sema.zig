@@ -18458,6 +18458,17 @@ fn coerceInMemoryAllowed(
     if (dest_ty.eql(src_ty, target))
         return .ok;
 
+    // Differently-named integers with the same number of bits.
+    if (dest_ty.zigTypeTag() == .Int and src_ty.zigTypeTag() == .Int) {
+        const dest_info = dest_ty.intInfo(target);
+        const src_info = src_ty.intInfo(target);
+        if (dest_info.signedness == src_info.signedness and
+            dest_info.bits == src_info.bits)
+        {
+            return .ok;
+        }
+    }
+
     // Pointers / Pointer-like Optionals
     var dest_buf: Type.Payload.ElemType = undefined;
     var src_buf: Type.Payload.ElemType = undefined;
