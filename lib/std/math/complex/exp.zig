@@ -120,7 +120,7 @@ fn exp64(z: Complex(f64)) Complex(f64) {
 }
 
 test "complex.cexp32" {
-    const tolerance_f32 = math.sqrt(math.epsilon(f32));
+    const tolerance_f32 = math.sqrt(math.floatEps(f32));
 
     {
         const a = Complex(f32).init(5, 3);
@@ -140,7 +140,7 @@ test "complex.cexp32" {
 }
 
 test "complex.cexp64" {
-    const tolerance_f64 = math.sqrt(math.epsilon(f64));
+    const tolerance_f64 = math.sqrt(math.floatEps(f64));
 
     {
         const a = Complex(f64).init(5, 3);

@@ -121,7 +121,7 @@ pub const snan = @import("math/nan.zig").snan;
 ///
 /// The `tolerance` parameter is the absolute tolerance used when determining if
 /// the two numbers are close enough; a good value for this parameter is a small
-/// multiple of `epsilon(T)`.
+/// multiple of `floatEps(T)`.
 ///
 /// Note that this function is recommended for comparing small numbers
 /// around zero; using `approxEqRel` is suggested otherwise.
@@ -148,7 +148,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
 ///
 /// The `tolerance` parameter is the relative tolerance used when determining if
 /// the two numbers are close enough; a good value for this parameter is usually
-/// `sqrt(epsilon(T))`, meaning that the two numbers are considered equal if at
+/// `sqrt(floatEps(T))`, meaning that the two numbers are considered equal if at
 /// least half of the digits are equal.
 ///
 /// Note that for comparisons of small numbers around zero this function won't
@@ -179,25 +179,19 @@ pub fn approxEq(comptime T: type, x: T, y: T, tolerance: T) bool {
 
 test "approxEqAbs and approxEqRel" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const eps_value = comptime epsilon(T);
+        const eps_value = comptime floatEps(T);
         const sqrt_eps_value = comptime sqrt(eps_value);
         const nan_value = comptime nan(T);
         const inf_value = comptime inf(T);
-        const min_value: T = switch (T) {
-            f16 => f16_min,
-            f32 => f32_min,
-            f64 => f64_min,
-            f128 => f128_min,
-            else => unreachable,
-        };
+        const min_value = comptime floatMin(T);
 
         try testing.expect(approxEqAbs(T, 0.0, 0.0, eps_value));
         try testing.expect(approxEqAbs(T, -0.0, -0.0, eps_value));
         try testing.expect(approxEqAbs(T, 0.0, -0.0, eps_value));
         try testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
         try testing.expect(!approxEqRel(T, 1.0, 0.0, sqrt_eps_value));
-        try testing.expect(!approxEqAbs(T, 1.0 + 2 * epsilon(T), 1.0, eps_value));
-        try testing.expect(approxEqAbs(T, 1.0 + 1 * epsilon(T), 1.0, eps_value));
+        try testing.expect(!approxEqAbs(T, 1.0 + 2 * eps_value, 1.0, eps_value));
+        try testing.expect(approxEqAbs(T, 1.0 + 1 * eps_value, 1.0, eps_value));
         try testing.expect(!approxEqRel(T, 1.0, nan_value, sqrt_eps_value));
         try testing.expect(!approxEqRel(T, nan_value, nan_value, sqrt_eps_value));
         try testing.expect(approxEqRel(T, inf_value, inf_value, sqrt_eps_value));
@@ -1191,12 +1185,6 @@ test "lossyCast" {
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
     try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
-}
-
-test "f64_min" {
-    const f64_min_u64 = 0x0010000000000000;
-    const fmin: f64 = f64_min;
-    try testing.expect(@bitCast(u64, fmin) == f64_min_u64);
 }
 
 /// Returns the maximum value of integer type T.
