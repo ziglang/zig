@@ -68,7 +68,7 @@ fn fma64(x: f64, y: f64, z: f64) f64 {
     if (spread <= 53 * 2) {
         zs = math.scalbn(zs, -spread);
     } else {
-        zs = math.copysign(f64, math.f64_min, zs);
+        zs = math.copysign(f64, math.floatMin(f64), zs);
     }
 
     const xy = dd_mul(xs, ys);
@@ -277,7 +277,7 @@ fn fma128(x: f128, y: f128, z: f128) f128 {
     if (spread <= 113 * 2) {
         zs = math.scalbn(zs, -spread);
     } else {
-        zs = math.copysign(f128, math.f128_min, zs);
+        zs = math.copysign(f128, math.floatMin(f128), zs);
     }
 
     const xy = dd_mul128(xs, ys);

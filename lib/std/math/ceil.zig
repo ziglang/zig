@@ -62,6 +62,8 @@ fn ceil32(x: f32) f32 {
 }
 
 fn ceil64(x: f64) f64 {
+    const f64_toint = 1.0 / math.floatEps(f64);
+
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
     var y: f64 = undefined;
@@ -71,9 +73,9 @@ fn ceil64(x: f64) f64 {
     }
 
     if (u >> 63 != 0) {
-        y = x - math.f64_toint + math.f64_toint - x;
+        y = x - f64_toint + f64_toint - x;
     } else {
-        y = x + math.f64_toint - math.f64_toint - x;
+        y = x + f64_toint - f64_toint - x;
     }
 
     if (e <= 0x3FF - 1) {
@@ -91,6 +93,8 @@ fn ceil64(x: f64) f64 {
 }
 
 fn ceil128(x: f128) f128 {
+    const f128_toint = 1.0 / math.floatEps(f128);
+
     const u = @bitCast(u128, x);
     const e = (u >> 112) & 0x7FFF;
     var y: f128 = undefined;
@@ -98,9 +102,9 @@ fn ceil128(x: f128) f128 {
     if (e >= 0x3FFF + 112 or x == 0) return x;
 
     if (u >> 127 != 0) {
-        y = x - math.f128_toint + math.f128_toint - x;
+        y = x - f128_toint + f128_toint - x;
     } else {
-        y = x + math.f128_toint - math.f128_toint - x;
+        y = x + f128_toint - f128_toint - x;
     }
 
     if (e <= 0x3FFF - 1) {

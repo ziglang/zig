@@ -9,7 +9,7 @@ fn test__fixsfsi(a: f32, expected: i32) !void {
 }
 
 test "fixsfsi" {
-    try test__fixsfsi(-math.f32_max, math.minInt(i32));
+    try test__fixsfsi(-math.floatMax(f32), math.minInt(i32));
 
     try test__fixsfsi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i32));
     try test__fixsfsi(-0x1.FFFFFFFFFFFFFp+1023, -0x80000000);
@@ -37,9 +37,9 @@ test "fixsfsi" {
     try test__fixsfsi(-1.0, -1);
     try test__fixsfsi(-0.99, 0);
     try test__fixsfsi(-0.5, 0);
-    try test__fixsfsi(-math.f32_min, 0);
+    try test__fixsfsi(-math.floatMin(f32), 0);
     try test__fixsfsi(0.0, 0);
-    try test__fixsfsi(math.f32_min, 0);
+    try test__fixsfsi(math.floatMin(f32), 0);
     try test__fixsfsi(0.5, 0);
     try test__fixsfsi(0.99, 0);
     try test__fixsfsi(1.0, 1);
@@ -68,5 +68,5 @@ test "fixsfsi" {
     try test__fixsfsi(0x1.FFFFFFFFFFFFFp+1023, 0x7FFFFFFF);
     try test__fixsfsi(0x1.FFFFFFFFFFFFFp+1023, math.maxInt(i32));
 
-    try test__fixsfsi(math.f32_max, math.maxInt(i32));
+    try test__fixsfsi(math.floatMax(f32), math.maxInt(i32));
 }

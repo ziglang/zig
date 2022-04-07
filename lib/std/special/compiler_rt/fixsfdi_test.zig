@@ -9,7 +9,7 @@ fn test__fixsfdi(a: f32, expected: i64) !void {
 }
 
 test "fixsfdi" {
-    try test__fixsfdi(-math.f32_max, math.minInt(i64));
+    try test__fixsfdi(-math.floatMax(f32), math.minInt(i64));
 
     try test__fixsfdi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i64));
     try test__fixsfdi(-0x1.FFFFFFFFFFFFFp+1023, -0x8000000000000000);
@@ -33,9 +33,9 @@ test "fixsfdi" {
     try test__fixsfdi(-1.0, -1);
     try test__fixsfdi(-0.99, 0);
     try test__fixsfdi(-0.5, 0);
-    try test__fixsfdi(-math.f32_min, 0);
+    try test__fixsfdi(-math.floatMin(f32), 0);
     try test__fixsfdi(0.0, 0);
-    try test__fixsfdi(math.f32_min, 0);
+    try test__fixsfdi(math.floatMin(f32), 0);
     try test__fixsfdi(0.5, 0);
     try test__fixsfdi(0.99, 0);
     try test__fixsfdi(1.0, 1);
@@ -60,5 +60,5 @@ test "fixsfdi" {
     try test__fixsfdi(0x1.FFFFFFFFFFFFFp+1023, 0x7FFFFFFFFFFFFFFF);
     try test__fixsfdi(0x1.FFFFFFFFFFFFFp+1023, math.maxInt(i64));
 
-    try test__fixsfdi(math.f64_max, math.maxInt(i64));
+    try test__fixsfdi(math.floatMax(f32), math.maxInt(i64));
 }

@@ -29,6 +29,8 @@ pub fn round(x: anytype) @TypeOf(x) {
 }
 
 fn round32(x_: f32) f32 {
+    const f32_toint = 1.0 / math.floatEps(f32);
+
     var x = x_;
     const u = @bitCast(u32, x);
     const e = (u >> 23) & 0xFF;
@@ -41,11 +43,11 @@ fn round32(x_: f32) f32 {
         x = -x;
     }
     if (e < 0x7F - 1) {
-        math.doNotOptimizeAway(x + math.f32_toint);
+        math.doNotOptimizeAway(x + f32_toint);
         return 0 * @bitCast(f32, u);
     }
 
-    y = x + math.f32_toint - math.f32_toint - x;
+    y = x + f32_toint - f32_toint - x;
     if (y > 0.5) {
         y = y + x - 1;
     } else if (y <= -0.5) {
@@ -62,6 +64,8 @@ fn round32(x_: f32) f32 {
 }
 
 fn round64(x_: f64) f64 {
+    const f64_toint = 1.0 / math.floatEps(f64);
+
     var x = x_;
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
@@ -74,11 +78,11 @@ fn round64(x_: f64) f64 {
         x = -x;
     }
     if (e < 0x3ff - 1) {
-        math.doNotOptimizeAway(x + math.f64_toint);
+        math.doNotOptimizeAway(x + f64_toint);
         return 0 * @bitCast(f64, u);
     }
 
-    y = x + math.f64_toint - math.f64_toint - x;
+    y = x + f64_toint - f64_toint - x;
     if (y > 0.5) {
         y = y + x - 1;
     } else if (y <= -0.5) {
@@ -95,6 +99,8 @@ fn round64(x_: f64) f64 {
 }
 
 fn round128(x_: f128) f128 {
+    const f128_toint = 1.0 / math.floatEps(f128);
+
     var x = x_;
     const u = @bitCast(u128, x);
     const e = (u >> 112) & 0x7FFF;
@@ -107,11 +113,11 @@ fn round128(x_: f128) f128 {
         x = -x;
     }
     if (e < 0x3FFF - 1) {
-        math.doNotOptimizeAway(x + math.f64_toint);
+        math.doNotOptimizeAway(x + f128_toint);
         return 0 * @bitCast(f128, u);
     }
 
-    y = x + math.f128_toint - math.f128_toint - x;
+    y = x + f128_toint - f128_toint - x;
     if (y > 0.5) {
         y = y + x - 1;
     } else if (y <= -0.5) {
