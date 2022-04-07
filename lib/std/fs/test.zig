@@ -610,6 +610,16 @@ test "makePath, put some files in it, deleteTree" {
     }
 }
 
+test "makePath in a directory that no longer exists" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest; // Windows returns FileBusy if attempting to remove an open dir
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.parent_dir.deleteTree(&tmp.sub_path);
+
+    try testing.expectError(error.FileNotFound, tmp.dir.makePath("sub-path"));
+}
+
 test "writev, readv" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
