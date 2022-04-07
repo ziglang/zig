@@ -9,11 +9,8 @@ pub fn isFinite(x: anytype) bool {
     if (@typeInfo(T) != .Float) {
         @compileError("isFinite not implemented for " ++ @typeName(T));
     }
-    const exponent_bits = math.floatExponentBits(T);
-    const mantissa_bits = math.floatMantissaBits(T);
-    const all1s_exponent = ((1 << exponent_bits) - 1) << mantissa_bits;
     const remove_sign = ~@as(TBits, 0) >> 1;
-    return @bitCast(TBits, x) & remove_sign < all1s_exponent;
+    return @bitCast(TBits, x) & remove_sign < @bitCast(TBits, math.inf(T));
 }
 
 test "math.isFinite" {

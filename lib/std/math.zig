@@ -45,6 +45,7 @@ pub const floatTrueMin = @import("math/float.zig").floatTrueMin;
 pub const floatMin = @import("math/float.zig").floatMin;
 pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
+pub const inf = @import("math/float.zig").inf;
 
 // TODO Replace with @compileError("deprecated for foobar") after 0.10.0 is released.
 pub const f16_true_min: comptime_float = floatTrueMin(f16); // prev: 0.000000059604644775390625
@@ -72,6 +73,15 @@ pub const f32_toint: comptime_float = 1.0 / f32_epsilon; // same as before
 pub const f64_toint: comptime_float = 1.0 / f64_epsilon; // same as before
 pub const f80_toint = 1.0 / f80_epsilon; // same as before
 pub const f128_toint = 1.0 / f128_epsilon; // same as before
+pub const inf_u16 = @bitCast(u16, inf_f16); // prev: @as(u16, 0x7C00)
+pub const inf_f16 = inf(f16); // prev: @bitCast(f16, inf_u16)
+pub const inf_u32 = @bitCast(u32, inf_f32); // prev: @as(u32, 0x7F800000)
+pub const inf_f32 = inf(f32); // prev: @bitCast(f32, inf_u32)
+pub const inf_u64 = @bitCast(u64, inf_f64); // prev: @as(u64, 0x7FF << 52)
+pub const inf_f64 = inf(f64); // prev: @bitCast(f64, inf_u64)
+pub const inf_f80 = inf(f80); // prev: make_f80(F80{ .fraction = 0x8000000000000000, .exp = 0x7fff })
+pub const inf_u128 = @bitCast(u128, inf_f128); // prev: @as(u128, 0x7fff0000000000000000000000000000)
+pub const inf_f128 = inf(f128); // prev: @bitCast(f128, inf_u128)
 pub const epsilon = floatEps;
 // End of "soft deprecated" section
 
@@ -81,17 +91,11 @@ pub const nan_f16 = @bitCast(f16, nan_u16);
 pub const qnan_u16 = @as(u16, 0x7E00);
 pub const qnan_f16 = @bitCast(f16, qnan_u16);
 
-pub const inf_u16 = @as(u16, 0x7C00);
-pub const inf_f16 = @bitCast(f16, inf_u16);
-
 pub const nan_u32 = @as(u32, 0x7F800001);
 pub const nan_f32 = @bitCast(f32, nan_u32);
 
 pub const qnan_u32 = @as(u32, 0x7FC00000);
 pub const qnan_f32 = @bitCast(f32, qnan_u32);
-
-pub const inf_u32 = @as(u32, 0x7F800000);
-pub const inf_f32 = @bitCast(f32, inf_u32);
 
 pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
 pub const nan_f64 = @bitCast(f64, nan_u64);
@@ -99,10 +103,6 @@ pub const nan_f64 = @bitCast(f64, nan_u64);
 pub const qnan_u64 = @as(u64, 0x7ff8000000000000);
 pub const qnan_f64 = @bitCast(f64, qnan_u64);
 
-pub const inf_u64 = @as(u64, 0x7FF << 52);
-pub const inf_f64 = @bitCast(f64, inf_u64);
-
-pub const inf_f80 = make_f80(F80{ .fraction = 0x8000000000000000, .exp = 0x7fff });
 pub const nan_f80 = make_f80(F80{ .fraction = 0xA000000000000000, .exp = 0x7fff });
 pub const qnan_f80 = make_f80(F80{ .fraction = 0xC000000000000000, .exp = 0x7fff });
 
@@ -112,12 +112,8 @@ pub const nan_f128 = @bitCast(f128, nan_u128);
 pub const qnan_u128 = @as(u128, 0x7fff8000000000000000000000000000);
 pub const qnan_f128 = @bitCast(f128, qnan_u128);
 
-pub const inf_u128 = @as(u128, 0x7fff0000000000000000000000000000);
-pub const inf_f128 = @bitCast(f128, inf_u128);
-
 pub const nan = @import("math/nan.zig").nan;
 pub const snan = @import("math/nan.zig").snan;
-pub const inf = @import("math/inf.zig").inf;
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
