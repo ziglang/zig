@@ -796,9 +796,7 @@ const ExtraTombs = struct {
         assert(this_bit_index < 32); // TODO mechanism for when there are greater than 32 operands
         et.bit_index += 1;
         const gpa = et.analysis.gpa;
-        const op_int = @enumToInt(op_ref);
-        if (op_int < Air.Inst.Ref.typed_value_map.len) return;
-        const op_index: Air.Inst.Index = op_int - @intCast(u32, Air.Inst.Ref.typed_value_map.len);
+        const op_index = Air.refToIndex(op_ref) orelse return;
         const prev = try et.analysis.table.fetchPut(gpa, op_index, {});
         if (prev == null) {
             // Death.

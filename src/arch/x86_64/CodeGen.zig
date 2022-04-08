@@ -280,9 +280,7 @@ const BigTomb = struct {
         const this_bit_index = bt.bit_index;
         bt.bit_index += 1;
 
-        const op_int = @enumToInt(op_ref);
-        if (op_int < Air.Inst.Ref.typed_value_map.len) return;
-        const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
+        const op_index = Air.refToIndex(op_ref) orelse return;
 
         if (this_bit_index < Liveness.bpi - 1) {
             const dies = @truncate(u1, bt.tomb_bits >> @intCast(Liveness.OperandInt, this_bit_index)) != 0;
