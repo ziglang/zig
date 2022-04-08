@@ -18026,8 +18026,7 @@ fn coerce(
                 const array_ty = inst_ty.childType();
                 if (array_ty.zigTypeTag() != .Array) break :src_array_ptr;
                 const len0 = array_ty.arrayLen() == 0;
-                // We resolve here so that the backend has the layout of the elem type.
-                const array_elem_type = try sema.resolveTypeFields(block, inst_src, array_ty.childType());
+                const array_elem_type = array_ty.childType();
                 const dest_is_mut = dest_info.mutable;
                 if (inst_ty.isConstPtr() and dest_is_mut and !len0) break :src_array_ptr;
                 if (inst_ty.isVolatilePtr() and !dest_info.@"volatile") break :src_array_ptr;
