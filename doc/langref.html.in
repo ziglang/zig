@@ -11957,17 +11957,6 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
-            <pre>{#syntax#}false{#endsyntax#}</pre>
-          </th>
-          <td>
-            The boolean value {#syntax#}false{#endsyntax#}.
-            <ul>
-              <li>See also {#link|Primitive Values#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
             <pre>{#syntax#}fn{#endsyntax#}</pre>
           </th>
           <td>
@@ -12038,17 +12027,6 @@ fn readU32Be() u32 {}
             Code inside a {#syntax#}nosuspend{#endsyntax#} scope does not cause the enclosing function to become an {#link|async function|Async Functions#}.
             <ul>
               <li>See also {#link|Async Functions#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
-            <pre>{#syntax#}null{#endsyntax#}</pre>
-          </th>
-          <td>
-            The optional value {#syntax#}null{#endsyntax#}.
-            <ul>
-              <li>See also {#link|null#}</li>
             </ul>
           </td>
         </tr>
@@ -12192,17 +12170,6 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
-            <pre>{#syntax#}true{#endsyntax#}</pre>
-          </th>
-          <td>
-            The boolean value {#syntax#}true{#endsyntax#}.
-            <ul>
-              <li>See also {#link|Primitive Values#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
             <pre>{#syntax#}try{#endsyntax#}</pre>
           </th>
           <td>
@@ -12211,17 +12178,6 @@ fn readU32Be() u32 {}
             Otherwise, the expression results in the unwrapped value.
             <ul>
               <li>See also {#link|try#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
-            <pre>{#syntax#}undefined{#endsyntax#}</pre>
-          </th>
-          <td>
-            {#syntax#}undefined{#endsyntax#} can be used to leave a value uninitialized.
-            <ul>
-              <li>See also {#link|undefined#}</li>
             </ul>
           </td>
         </tr>
