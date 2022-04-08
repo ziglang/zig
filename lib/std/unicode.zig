@@ -269,14 +269,7 @@ pub const Utf8Iterator = struct {
 
     pub fn nextCodepoint(it: *Utf8Iterator) ?u21 {
         const slice = it.nextCodepointSlice() orelse return null;
-
-        switch (slice.len) {
-            1 => return @as(u21, slice[0]),
-            2 => return utf8Decode2(slice) catch unreachable,
-            3 => return utf8Decode3(slice) catch unreachable,
-            4 => return utf8Decode4(slice) catch unreachable,
-            else => unreachable,
-        }
+        return utf8Decode(slice) catch unreachable;
     }
 
     /// Look ahead at the next n codepoints without advancing the iterator.
