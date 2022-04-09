@@ -207,17 +207,8 @@ pub const File = struct {
     ///
     /// Note that this does not ensure that metadata for the
     /// directory containing the file has also reached disk.
-    pub fn syncAll(self: File) SyncError!void {
+    pub fn sync(self: File) SyncError!void {
         return os.fsync(self.handle);
-    }
-
-    /// This is the same as `syncAll` except that it does not necessarily synchronize the file's metadata, but still could.
-    /// Use this if you want to make sure that at least content is stored on disk and metadata is secondary.
-    ///
-    /// Note that this does not ensure that metadata for the
-    /// directory containing the file has also reached disk.
-    pub fn syncContent(self: File) SyncError!void {
-        return os.fdatasync(self.handle);
     }
 
     /// Test whether the file refers to a terminal.
