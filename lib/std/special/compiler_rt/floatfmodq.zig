@@ -1,9 +1,9 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-// fmodl - floating modulo large, returns the remainder of division for f128 types
+// fmodq - floating modulo large, returns the remainder of division for f128 types
 // Logic and flow heavily inspired by MUSL fmodl for 113 mantissa digits
-pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
+pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     @setRuntimeSafety(builtin.is_test);
     var amod = a;
     var bmod = b;
@@ -30,9 +30,9 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
     var expB = bPtr_u16[exp_and_sign_index] & 0x7fff;
 
     // There are 3 cases where the answer is undefined, check for:
-    //   - fmodl(val, 0)
-    //   - fmodl(val, NaN)
-    //   - fmodl(inf, val)
+    //   - fmodq(val, 0)
+    //   - fmodq(val, NaN)
+    //   - fmodq(inf, val)
     // The sign on checked values does not matter.
     // Doing (a * b) / (a * b) procudes undefined results
     // because the three cases always produce undefined calculations:
@@ -122,5 +122,5 @@ pub fn fmodl(a: f128, b: f128) callconv(.C) f128 {
 }
 
 test {
-    _ = @import("floatfmodl_test.zig");
+    _ = @import("floatfmodq_test.zig");
 }

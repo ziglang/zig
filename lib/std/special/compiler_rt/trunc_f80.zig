@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const native_arch = builtin.cpu.arch;
+const testing = std.testing;
 
 // AArch64 is the only ABI (at the moment) to support f16 arguments without the
 // need for extending them to wider fp types.
@@ -117,13 +118,12 @@ pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
     const src_abs_mask = src_sign_mask - 1;
     const round_mask = (1 << (src_sig_bits - dst_sig_bits)) - 1;
     const halfway = 1 << (src_sig_bits - dst_sig_bits - 1);
-    const src_qnan = 1 << (src_sig_bits - 1);
-    const src_nan_mask = src_qnan - 1;
 
     // Break a into a sign and representation of the absolute value
     const a_rep = @bitCast(u128, a);
     const a_abs = a_rep & src_abs_mask;
     const sign: u16 = if (a_rep & src_sign_mask != 0) 0x8000 else 0;
+    const integer_bit = 1 << 63;
 
     var res: std.math.F80 = undefined;
 
@@ -133,27 +133,41 @@ pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
         // bit and inserting the (truncated) trailing NaN field.
         res.exp = 0x7fff;
         res.fraction = 0x8000000000000000;
-        res.fraction |= @truncate(u64, (a_abs & src_qnan) << (src_sig_bits - dst_sig_bits));
-        res.fraction |= @truncate(u64, (a_abs & src_nan_mask) << (src_sig_bits - dst_sig_bits));
+        res.fraction |= @truncate(u64, a_abs >> (src_sig_bits - dst_sig_bits));
     } else {
         // The exponent of a is within the range of normal numbers in the
         // destination format.  We can convert by simply right-shifting with
-        // rounding and adjusting the exponent.
-        res.fraction = @truncate(u64, a_abs >> (src_sig_bits - dst_sig_bits));
+        // rounding, adding the explicit integer bit, and adjusting the exponent
+        res.fraction = @truncate(u64, a_abs >> (src_sig_bits - dst_sig_bits)) | integer_bit;
         res.exp = @truncate(u16, a_abs >> src_sig_bits);
 
         const round_bits = a_abs & round_mask;
         if (round_bits > halfway) {
             // Round to nearest
-            const exp = @addWithOverflow(u64, res.fraction, 1, &res.fraction);
-            res.exp += @boolToInt(exp);
+            const carry = @boolToInt(@addWithOverflow(u64, res.fraction, 1, &res.fraction));
+            res.exp += carry;
+            res.fraction |= @as(u64, carry) << 63; // Restore integer bit after carry
         } else if (round_bits == halfway) {
             // Ties to even
-            const exp = @addWithOverflow(u64, res.fraction, res.fraction & 1, &res.fraction);
-            res.exp += @boolToInt(exp);
+            const carry = @boolToInt(@addWithOverflow(u64, res.fraction, res.fraction & 1, &res.fraction));
+            res.exp += carry;
+            res.fraction |= @as(u64, carry) << 63; // Restore integer bit after carry
         }
+        if (res.exp == 0) res.fraction &= ~@as(u64, integer_bit); // Remove integer bit for de-normals
     }
 
     res.exp |= sign;
     return std.math.make_f80(res);
+}
+
+fn test__trunctfxf2(a: f128, expected: f80) !void {
+    const x = __trunctfxf2(a);
+    try testing.expect(x == expected);
+}
+
+test {
+    try test__trunctfxf2(1.5, 1.5);
+    try test__trunctfxf2(2.5, 2.5);
+    try test__trunctfxf2(-2.5, -2.5);
+    try test__trunctfxf2(0.0, 0.0);
 }

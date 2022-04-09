@@ -291,47 +291,140 @@ comptime {
     const __bswapti2 = @import("compiler_rt/bswap.zig").__bswapti2;
     @export(__bswapti2, .{ .name = "__bswapti2", .linkage = linkage });
 
-    // Integral / floating point conversion (part 1/2)
-    const __floatsidf = @import("compiler_rt/floatsiXf.zig").__floatsidf;
-    @export(__floatsidf, .{ .name = "__floatsidf", .linkage = linkage });
-    const __floatsisf = @import("compiler_rt/floatsiXf.zig").__floatsisf;
+    // Integral -> Float Conversion
+
+    // Conversion to f32
+    const __floatsisf = @import("compiler_rt/floatXiYf.zig").__floatsisf;
     @export(__floatsisf, .{ .name = "__floatsisf", .linkage = linkage });
-    const __floatdidf = @import("compiler_rt/floatdidf.zig").__floatdidf;
-    @export(__floatdidf, .{ .name = "__floatdidf", .linkage = linkage });
-    const __floatsitf = @import("compiler_rt/floatsiXf.zig").__floatsitf;
-    @export(__floatsitf, .{ .name = "__floatsitf", .linkage = linkage });
-
-    const __floatunsisf = @import("compiler_rt/floatunsisf.zig").__floatunsisf;
+    const __floatunsisf = @import("compiler_rt/floatXiYf.zig").__floatunsisf;
     @export(__floatunsisf, .{ .name = "__floatunsisf", .linkage = linkage });
-    const __floatundisf = @import("compiler_rt/floatundisf.zig").__floatundisf;
-    @export(__floatundisf, .{ .name = "__floatundisf", .linkage = linkage });
-    const __floatunsidf = @import("compiler_rt/floatunsidf.zig").__floatunsidf;
-    @export(__floatunsidf, .{ .name = "__floatunsidf", .linkage = linkage });
-    const __floatundidf = @import("compiler_rt/floatundidf.zig").__floatundidf;
-    @export(__floatundidf, .{ .name = "__floatundidf", .linkage = linkage });
 
-    const __floatditf = @import("compiler_rt/floatditf.zig").__floatditf;
-    @export(__floatditf, .{ .name = "__floatditf", .linkage = linkage });
-    const __floattitf = @import("compiler_rt/floattitf.zig").__floattitf;
-    @export(__floattitf, .{ .name = "__floattitf", .linkage = linkage });
-    const __floattidf = @import("compiler_rt/floattidf.zig").__floattidf;
-    @export(__floattidf, .{ .name = "__floattidf", .linkage = linkage });
-    const __floattisf = @import("compiler_rt/floatXisf.zig").__floattisf;
-    @export(__floattisf, .{ .name = "__floattisf", .linkage = linkage });
-    const __floatdisf = @import("compiler_rt/floatXisf.zig").__floatdisf;
+    const __floatundisf = @import("compiler_rt/floatXiYf.zig").__floatundisf;
+    @export(__floatundisf, .{ .name = "__floatundisf", .linkage = linkage });
+    const __floatdisf = @import("compiler_rt/floatXiYf.zig").__floatdisf;
     @export(__floatdisf, .{ .name = "__floatdisf", .linkage = linkage });
 
-    const __floatunditf = @import("compiler_rt/floatunditf.zig").__floatunditf;
-    @export(__floatunditf, .{ .name = "__floatunditf", .linkage = linkage });
-    const __floatunsitf = @import("compiler_rt/floatunsitf.zig").__floatunsitf;
+    const __floattisf = @import("compiler_rt/floatXiYf.zig").__floattisf;
+    @export(__floattisf, .{ .name = "__floattisf", .linkage = linkage });
+    const __floatuntisf = @import("compiler_rt/floatXiYf.zig").__floatuntisf;
+    @export(__floatuntisf, .{ .name = "__floatuntisf", .linkage = linkage });
+
+    // Conversion to f64
+    const __floatsidf = @import("compiler_rt/floatXiYf.zig").__floatsidf;
+    @export(__floatsidf, .{ .name = "__floatsidf", .linkage = linkage });
+    const __floatunsidf = @import("compiler_rt/floatXiYf.zig").__floatunsidf;
+    @export(__floatunsidf, .{ .name = "__floatunsidf", .linkage = linkage });
+
+    const __floatdidf = @import("compiler_rt/floatXiYf.zig").__floatdidf;
+    @export(__floatdidf, .{ .name = "__floatdidf", .linkage = linkage });
+    const __floatundidf = @import("compiler_rt/floatXiYf.zig").__floatundidf;
+    @export(__floatundidf, .{ .name = "__floatundidf", .linkage = linkage });
+
+    const __floattidf = @import("compiler_rt/floatXiYf.zig").__floattidf;
+    @export(__floattidf, .{ .name = "__floattidf", .linkage = linkage });
+    const __floatuntidf = @import("compiler_rt/floatXiYf.zig").__floatuntidf;
+    @export(__floatuntidf, .{ .name = "__floatuntidf", .linkage = linkage });
+
+    // Conversion to f80
+    const __floatsixf = @import("compiler_rt/floatXiYf.zig").__floatsixf;
+    @export(__floatsixf, .{ .name = "__floatsixf", .linkage = linkage });
+    const __floatunsixf = @import("compiler_rt/floatXiYf.zig").__floatunsixf;
+    @export(__floatunsixf, .{ .name = "__floatunsixf", .linkage = linkage });
+
+    const __floatdixf = @import("compiler_rt/floatXiYf.zig").__floatdixf;
+    @export(__floatdixf, .{ .name = "__floatdixf", .linkage = linkage });
+    const __floatundixf = @import("compiler_rt/floatXiYf.zig").__floatundixf;
+    @export(__floatundixf, .{ .name = "__floatundixf", .linkage = linkage });
+
+    const __floattixf = @import("compiler_rt/floatXiYf.zig").__floattixf;
+    @export(__floattixf, .{ .name = "__floattixf", .linkage = linkage });
+    const __floatuntixf = @import("compiler_rt/floatXiYf.zig").__floatuntixf;
+    @export(__floatuntixf, .{ .name = "__floatuntixf", .linkage = linkage });
+
+    // Conversion to f128
+    const __floatsitf = @import("compiler_rt/floatXiYf.zig").__floatsitf;
+    @export(__floatsitf, .{ .name = "__floatsitf", .linkage = linkage });
+    const __floatunsitf = @import("compiler_rt/floatXiYf.zig").__floatunsitf;
     @export(__floatunsitf, .{ .name = "__floatunsitf", .linkage = linkage });
 
-    const __floatuntitf = @import("compiler_rt/floatuntitf.zig").__floatuntitf;
+    const __floatditf = @import("compiler_rt/floatXiYf.zig").__floatditf;
+    @export(__floatditf, .{ .name = "__floatditf", .linkage = linkage });
+    const __floatunditf = @import("compiler_rt/floatXiYf.zig").__floatunditf;
+    @export(__floatunditf, .{ .name = "__floatunditf", .linkage = linkage });
+
+    const __floattitf = @import("compiler_rt/floatXiYf.zig").__floattitf;
+    @export(__floattitf, .{ .name = "__floattitf", .linkage = linkage });
+    const __floatuntitf = @import("compiler_rt/floatXiYf.zig").__floatuntitf;
     @export(__floatuntitf, .{ .name = "__floatuntitf", .linkage = linkage });
-    const __floatuntidf = @import("compiler_rt/floatuntidf.zig").__floatuntidf;
-    @export(__floatuntidf, .{ .name = "__floatuntidf", .linkage = linkage });
-    const __floatuntisf = @import("compiler_rt/floatuntisf.zig").__floatuntisf;
-    @export(__floatuntisf, .{ .name = "__floatuntisf", .linkage = linkage });
+
+    // Float -> Integral Conversion
+
+    // Conversion from f32
+    const __fixsfsi = @import("compiler_rt/fixXfYi.zig").__fixsfsi;
+    @export(__fixsfsi, .{ .name = "__fixsfsi", .linkage = linkage });
+    const __fixunssfsi = @import("compiler_rt/fixXfYi.zig").__fixunssfsi;
+    @export(__fixunssfsi, .{ .name = "__fixunssfsi", .linkage = linkage });
+
+    const __fixsfdi = @import("compiler_rt/fixXfYi.zig").__fixsfdi;
+    @export(__fixsfdi, .{ .name = "__fixsfdi", .linkage = linkage });
+    const __fixunssfdi = @import("compiler_rt/fixXfYi.zig").__fixunssfdi;
+    @export(__fixunssfdi, .{ .name = "__fixunssfdi", .linkage = linkage });
+
+    const __fixsfti = @import("compiler_rt/fixXfYi.zig").__fixsfti;
+    @export(__fixsfti, .{ .name = "__fixsfti", .linkage = linkage });
+    const __fixunssfti = @import("compiler_rt/fixXfYi.zig").__fixunssfti;
+    @export(__fixunssfti, .{ .name = "__fixunssfti", .linkage = linkage });
+
+    // Conversion from f64
+    const __fixdfsi = @import("compiler_rt/fixXfYi.zig").__fixdfsi;
+    @export(__fixdfsi, .{ .name = "__fixdfsi", .linkage = linkage });
+    const __fixunsdfsi = @import("compiler_rt/fixXfYi.zig").__fixunsdfsi;
+    @export(__fixunsdfsi, .{ .name = "__fixunsdfsi", .linkage = linkage });
+
+    const __fixdfdi = @import("compiler_rt/fixXfYi.zig").__fixdfdi;
+    @export(__fixdfdi, .{ .name = "__fixdfdi", .linkage = linkage });
+    const __fixunsdfdi = @import("compiler_rt/fixXfYi.zig").__fixunsdfdi;
+    @export(__fixunsdfdi, .{ .name = "__fixunsdfdi", .linkage = linkage });
+
+    const __fixdfti = @import("compiler_rt/fixXfYi.zig").__fixdfti;
+    @export(__fixdfti, .{ .name = "__fixdfti", .linkage = linkage });
+    const __fixunsdfti = @import("compiler_rt/fixXfYi.zig").__fixunsdfti;
+    @export(__fixunsdfti, .{ .name = "__fixunsdfti", .linkage = linkage });
+
+    // Conversion from f80
+    const __fixxfsi = @import("compiler_rt/fixXfYi.zig").__fixxfsi;
+    @export(__fixxfsi, .{ .name = "__fixxfsi", .linkage = linkage });
+    const __fixunsxfsi = @import("compiler_rt/fixXfYi.zig").__fixunsxfsi;
+    @export(__fixunsxfsi, .{ .name = "__fixunsxfsi", .linkage = linkage });
+
+    const __fixxfdi = @import("compiler_rt/fixXfYi.zig").__fixxfdi;
+    @export(__fixxfdi, .{ .name = "__fixxfdi", .linkage = linkage });
+    const __fixunsxfdi = @import("compiler_rt/fixXfYi.zig").__fixunsxfdi;
+    @export(__fixunsxfdi, .{ .name = "__fixunsxfdi", .linkage = linkage });
+
+    const __fixxfti = @import("compiler_rt/fixXfYi.zig").__fixxfti;
+    @export(__fixxfti, .{ .name = "__fixxfti", .linkage = linkage });
+    const __fixunsxfti = @import("compiler_rt/fixXfYi.zig").__fixunsxfti;
+    @export(__fixunsxfti, .{ .name = "__fixunsxfti", .linkage = linkage });
+
+    // Conversion from f128
+    const __fixtfsi = @import("compiler_rt/fixXfYi.zig").__fixtfsi;
+    @export(__fixtfsi, .{ .name = "__fixtfsi", .linkage = linkage });
+    const __fixunstfsi = @import("compiler_rt/fixXfYi.zig").__fixunstfsi;
+    @export(__fixunstfsi, .{ .name = "__fixunstfsi", .linkage = linkage });
+
+    const __fixtfdi = @import("compiler_rt/fixXfYi.zig").__fixtfdi;
+    @export(__fixtfdi, .{ .name = "__fixtfdi", .linkage = linkage });
+    const __fixunstfdi = @import("compiler_rt/fixXfYi.zig").__fixunstfdi;
+    @export(__fixunstfdi, .{ .name = "__fixunstfdi", .linkage = linkage });
+
+    const __fixtfti = @import("compiler_rt/fixXfYi.zig").__fixtfti;
+    @export(__fixtfti, .{ .name = "__fixtfti", .linkage = linkage });
+    const __fixunstfti = @import("compiler_rt/fixXfYi.zig").__fixunstfti;
+    @export(__fixunstfti, .{ .name = "__fixunstfti", .linkage = linkage });
+
+    const __udivmoddi4 = @import("compiler_rt/int.zig").__udivmoddi4;
+    @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = linkage });
 
     const __truncsfhf2 = @import("compiler_rt/truncXfYf2.zig").__truncsfhf2;
     @export(__truncsfhf2, .{ .name = "__truncsfhf2", .linkage = linkage });
@@ -340,50 +433,6 @@ comptime {
     }
     const __extendsfdf2 = @import("compiler_rt/extendXfYf2.zig").__extendsfdf2;
     @export(__extendsfdf2, .{ .name = "__extendsfdf2", .linkage = linkage });
-
-    // Integral / floating point conversion (part 2/2)
-    const __fixunssfsi = @import("compiler_rt/fixunssfsi.zig").__fixunssfsi;
-    @export(__fixunssfsi, .{ .name = "__fixunssfsi", .linkage = linkage });
-    const __fixunssfdi = @import("compiler_rt/fixunssfdi.zig").__fixunssfdi;
-    @export(__fixunssfdi, .{ .name = "__fixunssfdi", .linkage = linkage });
-    const __fixunssfti = @import("compiler_rt/fixunssfti.zig").__fixunssfti;
-    @export(__fixunssfti, .{ .name = "__fixunssfti", .linkage = linkage });
-
-    const __fixunsdfsi = @import("compiler_rt/fixunsdfsi.zig").__fixunsdfsi;
-    @export(__fixunsdfsi, .{ .name = "__fixunsdfsi", .linkage = linkage });
-    const __fixunsdfdi = @import("compiler_rt/fixunsdfdi.zig").__fixunsdfdi;
-    @export(__fixunsdfdi, .{ .name = "__fixunsdfdi", .linkage = linkage });
-    const __fixunsdfti = @import("compiler_rt/fixunsdfti.zig").__fixunsdfti;
-    @export(__fixunsdfti, .{ .name = "__fixunsdfti", .linkage = linkage });
-
-    const __fixunstfsi = @import("compiler_rt/fixunstfsi.zig").__fixunstfsi;
-    @export(__fixunstfsi, .{ .name = "__fixunstfsi", .linkage = linkage });
-    const __fixunstfdi = @import("compiler_rt/fixunstfdi.zig").__fixunstfdi;
-    @export(__fixunstfdi, .{ .name = "__fixunstfdi", .linkage = linkage });
-    const __fixunstfti = @import("compiler_rt/fixunstfti.zig").__fixunstfti;
-    @export(__fixunstfti, .{ .name = "__fixunstfti", .linkage = linkage });
-
-    const __fixdfdi = @import("compiler_rt/fixdfdi.zig").__fixdfdi;
-    @export(__fixdfdi, .{ .name = "__fixdfdi", .linkage = linkage });
-    const __fixdfsi = @import("compiler_rt/fixdfsi.zig").__fixdfsi;
-    @export(__fixdfsi, .{ .name = "__fixdfsi", .linkage = linkage });
-    const __fixdfti = @import("compiler_rt/fixdfti.zig").__fixdfti;
-    @export(__fixdfti, .{ .name = "__fixdfti", .linkage = linkage });
-    const __fixsfdi = @import("compiler_rt/fixsfdi.zig").__fixsfdi;
-    @export(__fixsfdi, .{ .name = "__fixsfdi", .linkage = linkage });
-    const __fixsfsi = @import("compiler_rt/fixsfsi.zig").__fixsfsi;
-    @export(__fixsfsi, .{ .name = "__fixsfsi", .linkage = linkage });
-    const __fixsfti = @import("compiler_rt/fixsfti.zig").__fixsfti;
-    @export(__fixsfti, .{ .name = "__fixsfti", .linkage = linkage });
-    const __fixtfdi = @import("compiler_rt/fixtfdi.zig").__fixtfdi;
-    @export(__fixtfdi, .{ .name = "__fixtfdi", .linkage = linkage });
-    const __fixtfsi = @import("compiler_rt/fixtfsi.zig").__fixtfsi;
-    @export(__fixtfsi, .{ .name = "__fixtfsi", .linkage = linkage });
-    const __fixtfti = @import("compiler_rt/fixtfti.zig").__fixtfti;
-    @export(__fixtfti, .{ .name = "__fixtfti", .linkage = linkage });
-
-    const __udivmoddi4 = @import("compiler_rt/int.zig").__udivmoddi4;
-    @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = linkage });
 
     if (is_darwin) {
         const __isPlatformVersionAtLeast = @import("compiler_rt/os_version_check.zig").__isPlatformVersionAtLeast;
@@ -553,19 +602,19 @@ comptime {
 
         const __aeabi_f2d = @import("compiler_rt/extendXfYf2.zig").__aeabi_f2d;
         @export(__aeabi_f2d, .{ .name = "__aeabi_f2d", .linkage = linkage });
-        const __aeabi_i2d = @import("compiler_rt/floatsiXf.zig").__aeabi_i2d;
+        const __aeabi_i2d = @import("compiler_rt/floatXiYf.zig").__aeabi_i2d;
         @export(__aeabi_i2d, .{ .name = "__aeabi_i2d", .linkage = linkage });
-        const __aeabi_l2d = @import("compiler_rt/floatdidf.zig").__aeabi_l2d;
+        const __aeabi_l2d = @import("compiler_rt/floatXiYf.zig").__aeabi_l2d;
         @export(__aeabi_l2d, .{ .name = "__aeabi_l2d", .linkage = linkage });
-        const __aeabi_l2f = @import("compiler_rt/floatXisf.zig").__aeabi_l2f;
+        const __aeabi_l2f = @import("compiler_rt/floatXiYf.zig").__aeabi_l2f;
         @export(__aeabi_l2f, .{ .name = "__aeabi_l2f", .linkage = linkage });
-        const __aeabi_ui2d = @import("compiler_rt/floatunsidf.zig").__aeabi_ui2d;
+        const __aeabi_ui2d = @import("compiler_rt/floatXiYf.zig").__aeabi_ui2d;
         @export(__aeabi_ui2d, .{ .name = "__aeabi_ui2d", .linkage = linkage });
-        const __aeabi_ul2d = @import("compiler_rt/floatundidf.zig").__aeabi_ul2d;
+        const __aeabi_ul2d = @import("compiler_rt/floatXiYf.zig").__aeabi_ul2d;
         @export(__aeabi_ul2d, .{ .name = "__aeabi_ul2d", .linkage = linkage });
-        const __aeabi_ui2f = @import("compiler_rt/floatunsisf.zig").__aeabi_ui2f;
+        const __aeabi_ui2f = @import("compiler_rt/floatXiYf.zig").__aeabi_ui2f;
         @export(__aeabi_ui2f, .{ .name = "__aeabi_ui2f", .linkage = linkage });
-        const __aeabi_ul2f = @import("compiler_rt/floatundisf.zig").__aeabi_ul2f;
+        const __aeabi_ul2f = @import("compiler_rt/floatXiYf.zig").__aeabi_ul2f;
         @export(__aeabi_ul2f, .{ .name = "__aeabi_ul2f", .linkage = linkage });
 
         const __aeabi_fneg = @import("compiler_rt/negXf2.zig").__aeabi_fneg;
@@ -581,17 +630,17 @@ comptime {
         const __aeabi_d2h = @import("compiler_rt/truncXfYf2.zig").__aeabi_d2h;
         @export(__aeabi_d2h, .{ .name = "__aeabi_d2h", .linkage = linkage });
 
-        const __aeabi_f2ulz = @import("compiler_rt/fixunssfdi.zig").__aeabi_f2ulz;
+        const __aeabi_f2ulz = @import("compiler_rt/fixXfYi.zig").__aeabi_f2ulz;
         @export(__aeabi_f2ulz, .{ .name = "__aeabi_f2ulz", .linkage = linkage });
-        const __aeabi_d2ulz = @import("compiler_rt/fixunsdfdi.zig").__aeabi_d2ulz;
+        const __aeabi_d2ulz = @import("compiler_rt/fixXfYi.zig").__aeabi_d2ulz;
         @export(__aeabi_d2ulz, .{ .name = "__aeabi_d2ulz", .linkage = linkage });
 
-        const __aeabi_f2lz = @import("compiler_rt/fixsfdi.zig").__aeabi_f2lz;
+        const __aeabi_f2lz = @import("compiler_rt/fixXfYi.zig").__aeabi_f2lz;
         @export(__aeabi_f2lz, .{ .name = "__aeabi_f2lz", .linkage = linkage });
-        const __aeabi_d2lz = @import("compiler_rt/fixdfdi.zig").__aeabi_d2lz;
+        const __aeabi_d2lz = @import("compiler_rt/fixXfYi.zig").__aeabi_d2lz;
         @export(__aeabi_d2lz, .{ .name = "__aeabi_d2lz", .linkage = linkage });
 
-        const __aeabi_d2uiz = @import("compiler_rt/fixunsdfsi.zig").__aeabi_d2uiz;
+        const __aeabi_d2uiz = @import("compiler_rt/fixXfYi.zig").__aeabi_d2uiz;
         @export(__aeabi_d2uiz, .{ .name = "__aeabi_d2uiz", .linkage = linkage });
 
         const __aeabi_h2f = @import("compiler_rt/extendXfYf2.zig").__aeabi_h2f;
@@ -599,7 +648,7 @@ comptime {
         const __aeabi_f2h = @import("compiler_rt/truncXfYf2.zig").__aeabi_f2h;
         @export(__aeabi_f2h, .{ .name = "__aeabi_f2h", .linkage = linkage });
 
-        const __aeabi_i2f = @import("compiler_rt/floatsiXf.zig").__aeabi_i2f;
+        const __aeabi_i2f = @import("compiler_rt/floatXiYf.zig").__aeabi_i2f;
         @export(__aeabi_i2f, .{ .name = "__aeabi_i2f", .linkage = linkage });
         const __aeabi_d2f = @import("compiler_rt/truncXfYf2.zig").__aeabi_d2f;
         @export(__aeabi_d2f, .{ .name = "__aeabi_d2f", .linkage = linkage });
@@ -613,12 +662,12 @@ comptime {
         const __aeabi_dsub = @import("compiler_rt/addXf3.zig").__aeabi_dsub;
         @export(__aeabi_dsub, .{ .name = "__aeabi_dsub", .linkage = linkage });
 
-        const __aeabi_f2uiz = @import("compiler_rt/fixunssfsi.zig").__aeabi_f2uiz;
+        const __aeabi_f2uiz = @import("compiler_rt/fixXfYi.zig").__aeabi_f2uiz;
         @export(__aeabi_f2uiz, .{ .name = "__aeabi_f2uiz", .linkage = linkage });
 
-        const __aeabi_f2iz = @import("compiler_rt/fixsfsi.zig").__aeabi_f2iz;
+        const __aeabi_f2iz = @import("compiler_rt/fixXfYi.zig").__aeabi_f2iz;
         @export(__aeabi_f2iz, .{ .name = "__aeabi_f2iz", .linkage = linkage });
-        const __aeabi_d2iz = @import("compiler_rt/fixdfsi.zig").__aeabi_d2iz;
+        const __aeabi_d2iz = @import("compiler_rt/fixXfYi.zig").__aeabi_d2iz;
         @export(__aeabi_d2iz, .{ .name = "__aeabi_d2iz", .linkage = linkage });
 
         const __aeabi_fdiv = @import("compiler_rt/divsf3.zig").__aeabi_fdiv;
@@ -672,9 +721,12 @@ comptime {
         @export(_aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
-    const fmodl = @import("compiler_rt/floatfmodl.zig").fmodl;
+    const fmodq = @import("compiler_rt/floatfmodq.zig").fmodq;
     if (!is_test) {
-        @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
+        @export(fmodq, .{ .name = "fmodq", .linkage = linkage });
+        if (long_double_is_f128) {
+            @export(fmodq, .{ .name = "fmodl", .linkage = linkage });
+        }
 
         @export(floorf, .{ .name = "floorf", .linkage = linkage });
         @export(floor, .{ .name = "floor", .linkage = linkage });
