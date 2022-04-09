@@ -199,13 +199,23 @@ pub const File = struct {
             os.close(self.handle);
         }
     }
-    
+
     pub const SyncError = os.SyncError;
 
     /// Blocks until all pending file contents and metadata modifications
-    /// have been synchronized with the underlying filesystem.
-    pub fn sync(self: File) SyncError!void {
+    /// for the file have been synchronized with the underlying filesystem.
+    ///
+    /// Note that this does not necessarily ensure that metadata for the directory containing the file has also reached disk.
+    pub fn syncAll(self: File) SyncError!void {
         return os.fsync(self.handle);
+    }
+
+    /// This is the same as `syncAll` except that it does not necessarily synchronize the file's metadata.
+    /// Use this if you want to make sure that at least content is stored on disk and metadata is secondary.
+    ///
+    /// Note that this does not necessarily ensure that metadata for the directory containing the file has also reached disk.
+    pub fn syncContent(self: File) SyncError!void {
+        return os.fdatasync(self.handle);
     }
 
     /// Test whether the file refers to a terminal.
