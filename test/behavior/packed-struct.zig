@@ -322,3 +322,33 @@ test "nested packed structs" {
     try expectEqual(9, @offsetOf(S6, "c"));
     try expectEqual(72, @bitOffsetOf(S6, "c"));
 }
+
+test "regular in irregular packed struct" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const Irregular = packed struct {
+        bar: Regular = Regular{},
+
+        // This field forces the regular packed struct to be a part of single u48
+        // and thus it all gets represented as an array of 6 bytes in LLVM
+        _: u24 = 0,
+
+        // This struct on its own can represent its fields directly in LLVM
+        // with no need to use array of bytes as underlaying representation.
+        pub const Regular = packed struct { a: u16 = 0, b: u8 = 0 };
+    };
+
+    var foo = Irregular{};
+    foo.bar.a = 235;
+    foo.bar.b = 42;
+
+    try expectEqual(@as(u16, 235), foo.bar.a);
+    try expectEqual(@as(u8, 42), foo.bar.b);
+}

@@ -15484,6 +15484,9 @@ static Stage1AirInst *ir_analyze_struct_field_ptr(IrAnalyze *ira, Scope *scope, 
         assert(struct_ptr->value->type->id == ZigTypeIdPointer);
         uint32_t ptr_bit_offset = struct_ptr->value->type->data.pointer.bit_offset_in_host;
         uint32_t ptr_host_int_bytes = struct_ptr->value->type->data.pointer.host_int_bytes;
+        if (ptr_host_int_bytes > 0) {
+            ptr_bit_offset += field->offset * 8;
+        }
         uint32_t host_int_bytes_for_result_type = (ptr_host_int_bytes == 0) ?
             get_host_int_bytes(ira->codegen, struct_type, field) : ptr_host_int_bytes;
         ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
