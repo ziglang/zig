@@ -32,6 +32,8 @@ test "math.isInf" {
         try expect(!isInf(@as(T, -0.0)));
         try expect(isInf(math.inf(T)));
         try expect(isInf(-math.inf(T)));
+        try expect(!isInf(math.nan(T)));
+        try expect(!isInf(-math.nan(T)));
     }
 }
 
@@ -44,6 +46,8 @@ test "math.isPositiveInf" {
         try expect(!isPositiveInf(@as(T, -0.0)));
         try expect(isPositiveInf(math.inf(T)));
         try expect(!isPositiveInf(-math.inf(T)));
+        try expect(!isInf(math.nan(T)));
+        try expect(!isInf(-math.nan(T)));
     }
 }
 
@@ -56,5 +60,7 @@ test "math.isNegativeInf" {
         try expect(!isNegativeInf(@as(T, -0.0)));
         try expect(!isNegativeInf(math.inf(T)));
         try expect(isNegativeInf(-math.inf(T)));
+        try expect(!isInf(math.nan(T)));
+        try expect(!isInf(-math.nan(T)));
     }
 }
