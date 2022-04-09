@@ -199,6 +199,14 @@ pub const File = struct {
             os.close(self.handle);
         }
     }
+    
+    pub const SyncError = os.SyncError;
+
+    /// Blocks until all pending file contents and metadata modifications
+    /// have been synchronized with the underlying filesystem.
+    pub fn sync(self: File) SyncError!void {
+        return os.fsync(self.handle);
+    }
 
     /// Test whether the file refers to a terminal.
     /// See also `supportsAnsiEscapeCodes`.
