@@ -721,11 +721,12 @@ comptime {
         @export(_aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
-    const fmodq = @import("compiler_rt/floatfmodq.zig").fmodq;
     if (!is_test) {
-        @export(fmodq, .{ .name = "fmodq", .linkage = linkage });
+        @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
         if (long_double_is_f128) {
-            @export(fmodq, .{ .name = "fmodl", .linkage = linkage });
+            @export(fmodl, .{ .name = "fmodq", .linkage = linkage });
+        } else {
+            @export(fmodq, .{ .name = "fmodq", .linkage = linkage });
         }
 
         @export(floorf, .{ .name = "floorf", .linkage = linkage });
@@ -878,6 +879,14 @@ fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
         @panic("TODO implement this");
     }
     return math.ceil(x);
+}
+
+const fmodq = @import("compiler_rt/floatfmodq.zig").fmodq;
+fn fmodl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
+    return @floatCast(c_longdouble, fmodq(x, y));
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,

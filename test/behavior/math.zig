@@ -923,6 +923,8 @@ test "comptime float rem int" {
 }
 
 test "remainder division" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     comptime try remdiv(f16);
     comptime try remdiv(f32);
     comptime try remdiv(f64);
@@ -938,11 +940,7 @@ fn remdiv(comptime T: type) !void {
 }
 
 test "float remainder division using @rem" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
     comptime try frem(f16);
     comptime try frem(f32);
@@ -973,11 +971,7 @@ fn frem(comptime T: type) !void {
 }
 
 test "float modulo division using @mod" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 
     comptime try fmod(f16);
     comptime try fmod(f32);
