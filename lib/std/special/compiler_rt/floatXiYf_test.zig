@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
 const floatXiYf = @import("floatXiYf.zig").floatXiYf;
@@ -809,6 +810,9 @@ test "conversion to f32" {
 }
 
 test "conversion to f80" {
+    if (builtin.zig_backend == .stage1 and builtin.cpu.arch != .x86_64)
+        return error.SkipZigTest; // https://github.com/ziglang/zig/issues/11408
+
     try testing.expect(floatXiYf(f80, @as(i80, -12)) == -12);
     try testing.expect(@floatToInt(u80, floatXiYf(f80, @as(u64, math.maxInt(u64)) + 0)) == math.maxInt(u64) + 0);
     try testing.expect(@floatToInt(u80, floatXiYf(f80, @as(u80, math.maxInt(u64)) + 1)) == math.maxInt(u64) + 1);
