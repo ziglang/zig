@@ -29,6 +29,7 @@ comptime {
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_riscv64 or
+        builtin.zig_backend == .stage2_sparcv9 or
         (builtin.zig_backend == .stage2_llvm and native_os != .linux) or
         (builtin.zig_backend == .stage2_llvm and native_arch != .x86_64))
     {
