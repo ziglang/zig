@@ -546,6 +546,9 @@ pub const Instruction = union(enum) {
         };
     }
 
+    // SPARCv9 Instruction formats.
+    // See section 6.2 of the SPARCv9 ISA manual.
+
     fn format1(disp: i32) Instruction {
         const udisp = @bitCast(u32, disp);
 
@@ -561,7 +564,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn format2a(op2: u3, rd: Register, imm: u22) Instruction {
+    fn format2a(op2: u3, imm: u22, rd: Register) Instruction {
         return Instruction{
             .format_2a = .{
                 .rd = rd.enc(),
@@ -956,6 +959,74 @@ pub const Instruction = union(enum) {
             },
         };
     }
+
+    // SPARCv9 Instruction definition.
+    // See appendix A of the SPARCv9 ISA manual.
+
+    pub fn add(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch(s2) {
+            Register => format3a(0b10, 0b00_0000, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b00_0000, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn @"or"(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch(s2) {
+            Register => format3a(0b10, 0b00_0010, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b00_0010, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn nop() Instruction {
+        return sethi(0, .g0);
+    }
+
+    pub fn @"return"(comptime s2: type, rs1: Register, rs2: s2) Instruction {
+        return switch(s2) {
+            Register => format3c(0b10, 0b11_1001, rs1, rs2),
+            i13 => format3d(0b10, 0b11_1001, rs1, rs2),
+            else => unreachable,
+        };
+    }
+
+    pub fn save(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch(s2) {
+            Register => format3a(0b10, 0b11_1100, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b11_1100, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn restore(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch(s2) {
+            Register => format3a(0b10, 0b11_1101, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b11_1101, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn sethi(imm: u22, rd: Register) Instruction {
+        return format2a(0b100, imm, rd);
+    }
+
+    pub fn sub(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch(s2) {
+            Register => format3a(0b10, 0b00_0100, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b00_0100, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn trap(comptime s2: type, cond: Condition, ccr: CCR, rs1: Register, rs2: s2) Instruction {
+        // Tcc instructions abuse the rd field to store the conditionals.
+        return switch(s2) {
+            Register => format4a(0b11_1010, ccr, rs1, rs2, @intToEnum(Register, cond)),
+            u7 => format4e(0b00_0100, ccr, rs1, @intToEnum(Register, cond), rs2),
+            else => unreachable,
+        };
+    }
 };
 
 test "Serialize formats" {
@@ -973,7 +1044,7 @@ test "Serialize formats" {
             .expected = 0b01_000000000000000000000000000001,
         },
         .{
-            .inst = Instruction.format2a(4, .g0, 0),
+            .inst = Instruction.format2a(4, 0, .g0),
             .expected = 0b00_00000_100_0000000000000000000000,
         },
         .{

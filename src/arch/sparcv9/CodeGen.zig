@@ -1270,12 +1270,12 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
 
     if (typed_value.val.castTag(.decl_ref)) |payload| {
         _ = payload;
-        return self.fail("TODO implement lowerDeclRef", .{});
+        return self.fail("TODO implement lowerDeclRef non-mut", .{});
         // return self.lowerDeclRef(typed_value, payload.data);
     }
     if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
         _ = payload;
-        return self.fail("TODO implement lowerDeclRef", .{});
+        return self.fail("TODO implement lowerDeclRef mut", .{});
         // return self.lowerDeclRef(typed_value, payload.data.decl);
     }
     const target = self.target.*;

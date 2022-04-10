@@ -167,7 +167,7 @@ pub const Inst = struct {
         /// Branch with prediction.
         /// Used by e.g. bpcc
         branch_predict: struct {
-            annul: bool,
+            annul: bool = false,
             pt: bool = true,
             ccr: Instruction.CCR,
             cond: Instruction.Condition,
@@ -215,10 +215,21 @@ pub const Inst = struct {
             rs1: Register = .g0,
             rs2_or_imm: union {
                 rs2: Register,
-                imm: u8,
+                imm: u7,
             },
         },
     };
+
+    // Make sure we don't accidentally make instructions bigger than expected.
+    // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
+    comptime {
+        if (builtin.mode != .Debug) {
+            // TODO clean up the definition of Data before enabling this.
+            // I'll do that after the PoC backend can produce usable binaries.
+
+            // assert(@sizeOf(Data) == 8);
+        }
+    }
 };
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {

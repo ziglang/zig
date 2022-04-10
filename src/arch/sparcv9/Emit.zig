@@ -2,6 +2,7 @@
 //! machine code
 
 const std = @import("std");
+const Endian = std.builtin.Endian;
 const assert = std.debug.assert;
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
@@ -14,6 +15,8 @@ const leb128 = std.leb;
 const Emit = @This();
 const Mir = @import("Mir.zig");
 const bits = @import("bits.zig");
+const Instruction = bits.Instruction;
+const Register = bits.Register;
 
 mir: Mir,
 bin_file: *link.File,
@@ -47,7 +50,7 @@ pub fn emitMir(
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
 
-            .add => @panic("TODO implement sparcv9 add"),
+            .add => try emit.mirArithmetic3Op(inst),
 
             .bpcc => @panic("TODO implement sparcv9 bpcc"),
 
@@ -56,22 +59,22 @@ pub fn emitMir(
             .jmpl => @panic("TODO implement sparcv9 jmpl"),
             .jmpl_i => @panic("TODO implement sparcv9 jmpl to reg"),
 
-            .@"or" => @panic("TODO implement sparcv9 or"),
+            .@"or" => try emit.mirArithmetic3Op(inst),
 
-            .nop => @panic("TODO implement sparcv9 nop"),
+            .nop => try emit.mirNop(),
 
-            .@"return" => @panic("TODO implement sparcv9 return"),
+            .@"return" => try emit.mirArithmetic2Op(inst),
 
-            .save => @panic("TODO implement sparcv9 save"),
-            .restore => @panic("TODO implement sparcv9 restore"),
+            .save => try emit.mirArithmetic3Op(inst),
+            .restore => try emit.mirArithmetic3Op(inst),
 
             .sethi => @panic("TODO implement sparcv9 sethi"),
 
             .sllx => @panic("TODO implement sparcv9 sllx"),
 
-            .sub => @panic("TODO implement sparcv9 sub"),
+            .sub => try emit.mirArithmetic3Op(inst),
 
-            .tcc => @panic("TODO implement sparcv9 tcc"),
+            .tcc => try emit.mirTrap(inst),
         }
     }
 }
@@ -79,6 +82,129 @@ pub fn emitMir(
 pub fn deinit(emit: *Emit) void {
     emit.* = undefined;
 }
+
+fn mirDbgArg(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const dbg_arg_info = emit.mir.instructions.items(.data)[inst].dbg_arg_info;
+    _ = dbg_arg_info;
+
+    switch (tag) {
+        .dbg_arg => {}, // TODO try emit.genArgDbgInfo(dbg_arg_info.air_inst, dbg_arg_info.arg_index),
+        else => unreachable,
+    }
+}
+
+fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const dbg_line_column = emit.mir.instructions.items(.data)[inst].dbg_line_column;
+
+    switch (tag) {
+        .dbg_line => try emit.dbgAdvancePCAndLine(dbg_line_column.line, dbg_line_column.column),
+        else => unreachable,
+    }
+}
+
+fn mirDebugPrologueEnd(self: *Emit) !void {
+    switch (self.debug_output) {
+        .dwarf => |dbg_out| {
+            try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
+            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
+        },
+        .plan9 => {},
+        .none => {},
+    }
+}
+
+fn mirDebugEpilogueBegin(self: *Emit) !void {
+    switch (self.debug_output) {
+        .dwarf => |dbg_out| {
+            try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
+            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
+        },
+        .plan9 => {},
+        .none => {},
+    }
+}
+
+fn mirArithmetic2Op(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const data = emit.mir.instructions.items(.data)[inst].arithmetic_2op;
+
+    const rs1 = data.rs1;
+
+    if (data.is_imm) {
+        const imm = data.rs2_or_imm.imm;
+        switch (tag) {
+            .@"return" => try emit.writeInstruction(Instruction.@"return"(i13, rs1, imm)),
+            else => unreachable,
+        }
+    } else {
+        const rs2 = data.rs2_or_imm.rs2;
+        switch (tag) {
+            .@"return" => try emit.writeInstruction(Instruction.@"return"(Register, rs1, rs2)),
+            else => unreachable,
+        }
+    }
+}
+
+fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const data = emit.mir.instructions.items(.data)[inst].arithmetic_3op;
+
+    const rd = data.rd;
+    const rs1 = data.rs1;
+
+    if (data.is_imm) {
+        const imm = data.rs2_or_imm.imm;
+        switch (tag) {
+            .add => try emit.writeInstruction(Instruction.add(i13, rs1, imm, rd)),
+            .@"or" => try emit.writeInstruction(Instruction.@"or"(i13, rs1, imm, rd)),
+            .save => try emit.writeInstruction(Instruction.save(i13, rs1, imm, rd)),
+            .restore => try emit.writeInstruction(Instruction.restore(i13, rs1, imm, rd)),
+            .sub => try emit.writeInstruction(Instruction.sub(i13, rs1, imm, rd)),
+            else => unreachable,
+        }
+    } else {
+        const rs2 = data.rs2_or_imm.rs2;
+        switch (tag) {
+            .add => try emit.writeInstruction(Instruction.add(Register, rs1, rs2, rd)),
+            .@"or" => try emit.writeInstruction(Instruction.@"or"(Register, rs1, rs2, rd)),
+            .save => try emit.writeInstruction(Instruction.save(Register, rs1, rs2, rd)),
+            .restore => try emit.writeInstruction(Instruction.restore(Register, rs1, rs2, rd)),
+            .sub => try emit.writeInstruction(Instruction.sub(Register, rs1, rs2, rd)),
+            else => unreachable,
+        }
+    }
+}
+
+fn mirNop(emit: *Emit) !void {
+    try emit.writeInstruction(Instruction.nop());
+}
+
+fn mirTrap(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const data = emit.mir.instructions.items(.data)[inst].trap;
+
+    const cond = data.cond;
+    const ccr = data.ccr;
+    const rs1 = data.rs1;
+
+    if (data.is_imm) {
+        const imm = data.rs2_or_imm.imm;
+        switch (tag) {
+            .tcc => try emit.writeInstruction(Instruction.trap(u7, cond, ccr, rs1, imm)),
+            else => unreachable,
+        }
+    } else {
+        const rs2 = data.rs2_or_imm.rs2;
+        switch (tag) {
+            .tcc => try emit.writeInstruction(Instruction.trap(Register, cond, ccr, rs1, rs2)),
+            else => unreachable,
+        }
+    }
+}
+
+// Common helper functions
 
 fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
@@ -131,52 +257,18 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     }
 }
 
-fn mirDbgArg(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const dbg_arg_info = emit.mir.instructions.items(.data)[inst].dbg_arg_info;
-    _ = dbg_arg_info;
-
-    switch (tag) {
-        .dbg_arg => {}, // TODO try emit.genArgDbgInfo(dbg_arg_info.air_inst, dbg_arg_info.arg_index),
-        else => unreachable,
-    }
-}
-
-fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const dbg_line_column = emit.mir.instructions.items(.data)[inst].dbg_line_column;
-
-    switch (tag) {
-        .dbg_line => try emit.dbgAdvancePCAndLine(dbg_line_column.line, dbg_line_column.column),
-        else => unreachable,
-    }
-}
-
-fn mirDebugPrologueEnd(self: *Emit) !void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn mirDebugEpilogueBegin(self: *Emit) !void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     assert(emit.err_msg == null);
     emit.err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
     return error.EmitFail;
+}
+
+fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
+    // SPARCv9 instructions are always arranged in BE regardless of the
+    // endianness mode the CPU is running in.
+    // This is to ease porting in case someone wants to do a LE SPARCv9 backend.
+    const endian = Endian.Big;
+
+    std.mem.writeInt(u32, try emit.code.addManyAsArray(4), instruction.toU32(), endian);
 }
