@@ -521,8 +521,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             => try self.airDbgBlock(inst),
 
             .call              => try self.airCall(inst, .auto),
-            .call_always_tail  => @panic("TODO try self.airCall(inst, .always_tail)"),
-            .call_never_tail   => @panic("TODO try self.airCall(inst, .never_tail)"),
+            .call_always_tail  => try self.airCall(inst, .always_tail),
+            .call_never_tail   => try self.airCall(inst, .never_tail),
             .call_never_inline => try self.airCall(inst, .never_inline),
 
             .atomic_store_unordered => @panic("TODO try self.airAtomicStore(inst, .Unordered)"),
@@ -586,16 +586,106 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = (extra.data.flags & 0x80000000) != 0;
     const clobbers_len = @truncate(u31, extra.data.flags);
     var extra_i: usize = extra.end;
-    const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
+    const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..extra_i+extra.data.outputs_len]);
     extra_i += outputs.len;
-    const inputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
+    const inputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..extra_i+extra.data.inputs_len]);
     extra_i += inputs.len;
 
     const dead = !is_volatile and self.liveness.isUnused(inst);
-    _ = dead;
-    _ = clobbers_len;
+    const result: MCValue = if (dead) .dead else result: {
+        if (outputs.len > 1) {
+            return self.fail("TODO implement codegen for asm with more than 1 output", .{});
+        }
 
-    return self.fail("TODO implement asm for {}", .{self.target.cpu.arch});
+        const output_constraint: ?[]const u8 = for (outputs) |output| {
+            if (output != .none) {
+                return self.fail("TODO implement codegen for non-expr asm", .{});
+            }
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += constraint.len / 4 + 1;
+
+            break constraint;
+        } else null;
+
+        for (inputs) |input| {
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += constraint.len / 4 + 1;
+
+            if (constraint.len < 3 or constraint[0] != '{' or constraint[constraint.len - 1] != '}') {
+                return self.fail("unrecognized asm input constraint: '{s}'", .{constraint});
+            }
+            const reg_name = constraint[1 .. constraint.len - 1];
+            const reg = parseRegName(reg_name) orelse
+                return self.fail("unrecognized register: '{s}'", .{reg_name});
+
+            const arg_mcv = try self.resolveInst(input);
+            try self.register_manager.getReg(reg, null);
+            try self.genSetReg(self.air.typeOf(input), reg, arg_mcv);
+        }
+
+        {
+            var clobber_i: u32 = 0;
+            while (clobber_i < clobbers_len) : (clobber_i += 1) {
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                // This equation accounts for the fact that even if we have exactly 4 bytes
+                // for the string, we still use the next u32 for the null terminator.
+                extra_i += clobber.len / 4 + 1;
+
+                // TODO honor these
+            }
+        }
+
+        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+
+        if (mem.eql(u8, asm_source, "ta 0x6d")) {
+            _ = try self.addInst(.{
+                .tag = .tcc,
+                .data = .{
+                    .trap = .{
+                        .is_imm = true,
+                        .cond = 0b1000, // TODO need to look into changing this into an enum
+                        .rs2_or_imm = .{ .imm = 0x6d },
+                    },
+                },
+            });
+        } else {
+            return self.fail("TODO implement a full SPARCv9 assembly parsing", .{});
+        }
+
+        if (output_constraint) |output| {
+            if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
+                return self.fail("unrecognized asm output constraint: '{s}'", .{output});
+            }
+            const reg_name = output[2 .. output.len - 1];
+            const reg = parseRegName(reg_name) orelse
+                return self.fail("unrecognized register: '{s}'", .{reg_name});
+            break :result MCValue{ .register = reg };
+        } else {
+            break :result MCValue{ .none = {} };
+        }
+    };
+
+    simple: {
+        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+        var buf_index: usize = 0;
+        for (outputs) |output| {
+            if (output == .none) continue;
+
+            if (buf_index >= buf.len) break :simple;
+            buf[buf_index] = output;
+            buf_index += 1;
+        }
+        if (buf_index + inputs.len > buf.len) break :simple;
+        std.mem.copy(Air.Inst.Ref, buf[buf_index..], inputs);
+        return self.finishAir(inst, result, buf);
+    }
+
+    @panic("TODO implement asm return");
+    //return self.fail("TODO implement asm return for {}", .{self.target.cpu.arch});
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
@@ -759,9 +849,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         });
     }
 
-    // TODO handle return value
+    const result = info.return_value;
 
-    return self.fail("TODO implement call for {}", .{self.target.cpu.arch});
+    if (args.len + 1 <= Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+        buf[0] = callee;
+        std.mem.copy(Air.Inst.Ref, buf[1..], args);
+        return self.finishAir(inst, result, buf);
+    }
+
+    @panic("TODO handle return value with BigTomb");
 }
 
 fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
@@ -1216,6 +1313,13 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
             return mcv;
         }
     }
+}
+
+fn parseRegName(name: []const u8) ?Register {
+    if (@hasDecl(Register, "parseRegName")) {
+        return Register.parseRegName(name);
+    }
+    return std.meta.stringToEnum(Register, name);
 }
 
 fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
