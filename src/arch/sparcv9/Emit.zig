@@ -59,6 +59,11 @@ pub fn emitMir(
             .jmpl => @panic("TODO implement sparcv9 jmpl"),
             .jmpl_i => @panic("TODO implement sparcv9 jmpl to reg"),
 
+            .ldub => try emit.mirArithmetic3Op(inst),
+            .lduh => try emit.mirArithmetic3Op(inst),
+            .lduw => try emit.mirArithmetic3Op(inst),
+            .ldx => try emit.mirArithmetic3Op(inst),
+
             .@"or" => try emit.mirArithmetic3Op(inst),
 
             .nop => try emit.mirNop(),
@@ -68,7 +73,7 @@ pub fn emitMir(
             .save => try emit.mirArithmetic3Op(inst),
             .restore => try emit.mirArithmetic3Op(inst),
 
-            .sethi => @panic("TODO implement sparcv9 sethi"),
+            .sethi => try emit.mirSethi(inst),
 
             .sllx => @panic("TODO implement sparcv9 sllx"),
 
@@ -158,6 +163,10 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
         const imm = data.rs2_or_imm.imm;
         switch (tag) {
             .add => try emit.writeInstruction(Instruction.add(i13, rs1, imm, rd)),
+            .ldub => try emit.writeInstruction(Instruction.ldub(i13, rs1, imm, rd)),
+            .lduh => try emit.writeInstruction(Instruction.lduh(i13, rs1, imm, rd)),
+            .lduw => try emit.writeInstruction(Instruction.lduw(i13, rs1, imm, rd)),
+            .ldx => try emit.writeInstruction(Instruction.ldx(i13, rs1, imm, rd)),
             .@"or" => try emit.writeInstruction(Instruction.@"or"(i13, rs1, imm, rd)),
             .save => try emit.writeInstruction(Instruction.save(i13, rs1, imm, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(i13, rs1, imm, rd)),
@@ -168,6 +177,10 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
         const rs2 = data.rs2_or_imm.rs2;
         switch (tag) {
             .add => try emit.writeInstruction(Instruction.add(Register, rs1, rs2, rd)),
+            .ldub => try emit.writeInstruction(Instruction.ldub(Register, rs1, rs2, rd)),
+            .lduh => try emit.writeInstruction(Instruction.lduh(Register, rs1, rs2, rd)),
+            .lduw => try emit.writeInstruction(Instruction.lduw(Register, rs1, rs2, rd)),
+            .ldx => try emit.writeInstruction(Instruction.ldx(Register, rs1, rs2, rd)),
             .@"or" => try emit.writeInstruction(Instruction.@"or"(Register, rs1, rs2, rd)),
             .save => try emit.writeInstruction(Instruction.save(Register, rs1, rs2, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(Register, rs1, rs2, rd)),
@@ -179,6 +192,17 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirNop(emit: *Emit) !void {
     try emit.writeInstruction(Instruction.nop());
+}
+
+fn mirSethi(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const data = emit.mir.instructions.items(.data)[inst].sethi;
+
+    const imm = data.imm;
+    const rd = data.rd;
+
+    assert(tag == .sethi);
+    try emit.writeInstruction(Instruction.sethi(imm, rd));
 }
 
 fn mirTrap(emit: *Emit, inst: Mir.Inst.Index) !void {

@@ -60,6 +60,16 @@ pub const Inst = struct {
         jmpl,
         jmpl_i,
 
+        /// A.27 Load Integer
+        /// Those uses the arithmetic_3op field.
+        /// Note that the ldd variant of this instruction is deprecated, do not emit
+        /// it unless specifically requested (e.g. by inline assembly).
+        // TODO add other operations.
+        ldub,
+        lduh,
+        lduw,
+        ldx,
+
         /// A.31 Logical Operations
         /// Those uses the arithmetic_3op field.
         // TODO add other operations.

@@ -193,6 +193,43 @@ const CallMCValues = struct {
     }
 };
 
+const BigTomb = struct {
+    function: *Self,
+    inst: Air.Inst.Index,
+    tomb_bits: Liveness.Bpi,
+    big_tomb_bits: u32,
+    bit_index: usize,
+
+    fn feed(bt: *BigTomb, op_ref: Air.Inst.Ref) void {
+        const this_bit_index = bt.bit_index;
+        bt.bit_index += 1;
+
+        const op_int = @enumToInt(op_ref);
+        if (op_int < Air.Inst.Ref.typed_value_map.len) return;
+        const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
+
+        if (this_bit_index < Liveness.bpi - 1) {
+            const dies = @truncate(u1, bt.tomb_bits >> @intCast(Liveness.OperandInt, this_bit_index)) != 0;
+            if (!dies) return;
+        } else {
+            const big_bit_index = @intCast(u5, this_bit_index - (Liveness.bpi - 1));
+            const dies = @truncate(u1, bt.big_tomb_bits >> big_bit_index) != 0;
+            if (!dies) return;
+        }
+        bt.function.processDeath(op_index);
+    }
+
+    fn finishAir(bt: *BigTomb, result: MCValue) void {
+        const is_used = !bt.function.liveness.isUnused(bt.inst);
+        if (is_used) {
+            log.debug("%{d} => {}", .{ bt.inst, result });
+            const branch = &bt.function.branch_stack.items[bt.function.branch_stack.items.len - 1];
+            branch.inst_table.putAssumeCapacityNoClobber(bt.inst, result);
+        }
+        bt.function.finishAirBookkeeping();
+    }
+};
+
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
@@ -684,8 +721,16 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, result, buf);
     }
 
-    @panic("TODO implement asm return");
-    //return self.fail("TODO implement asm return for {}", .{self.target.cpu.arch});
+    var bt = try self.iterateBigTomb(inst, outputs.len + inputs.len);
+    for (outputs) |output| {
+        if (output == .none) continue;
+
+        bt.feed(output);
+    }
+    for (inputs) |input| {
+        bt.feed(input);
+    }
+    return bt.finishAir(result);
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
@@ -1071,13 +1116,65 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
     self.finishAirBookkeeping();
 }
 
-fn genLoad(self: *Self, value_reg: Register, addr_reg: Register, off: i13, abi_size: u64) !void {
-    _ = value_reg;
-    _ = addr_reg;
-    _ = off;
+fn genLoad(self: *Self, value_reg: Register, addr_reg: Register, comptime off_type: type, off: off_type, abi_size: u64) !void {
+    assert(off_type == Register or off_type == i13);
+
+    const is_imm = (off_type == i13);
+    const rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off };
 
     switch (abi_size) {
-        1, 2, 4, 8 => return self.fail("TODO: A.27 Load Integer", .{}),
+        1 => {
+            _ = try self.addInst(.{
+                .tag = .ldub,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = is_imm,
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2_or_imm = rs2_or_imm,
+                    },
+                },
+            });
+        },
+        2 => {
+            _ = try self.addInst(.{
+                .tag = .lduh,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = is_imm,
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2_or_imm = rs2_or_imm,
+                    },
+                },
+            });
+        },
+        4 => {
+            _ = try self.addInst(.{
+                .tag = .lduw,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = is_imm,
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2_or_imm = rs2_or_imm,
+                    },
+                },
+            });
+        },
+        8 => {
+            _ = try self.addInst(.{
+                .tag = .ldx,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = is_imm,
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2_or_imm = rs2_or_imm,
+                    },
+                },
+            });
+        },
         3, 5, 6, 7 => return self.fail("TODO: genLoad for more abi_sizes", .{}),
         else => unreachable,
     }
@@ -1226,12 +1323,12 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // The value is in memory at a hard-coded address.
             // If the type is a pointer, it means the pointer address is at this memory location.
             try self.genSetReg(ty, reg, .{ .immediate = addr });
-            try self.genLoad(reg, reg, 0, ty.abiSize(self.target.*));
+            try self.genLoad(reg, reg, i13, 0, ty.abiSize(self.target.*));
         },
         .stack_offset => |off| {
             const simm13 = math.cast(u12, off) catch
                 return self.fail("TODO larger stack offsets", .{});
-            try self.genLoad(reg, .sp, simm13, ty.abiSize(self.target.*));
+            try self.genLoad(reg, .sp, i13, simm13, ty.abiSize(self.target.*));
         },
     }
 }
@@ -1269,14 +1366,10 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         return MCValue{ .undef = {} };
 
     if (typed_value.val.castTag(.decl_ref)) |payload| {
-        _ = payload;
-        return self.fail("TODO implement lowerDeclRef non-mut", .{});
-        // return self.lowerDeclRef(typed_value, payload.data);
+        return self.lowerDeclRef(typed_value, payload.data);
     }
     if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
-        _ = payload;
-        return self.fail("TODO implement lowerDeclRef mut", .{});
-        // return self.lowerDeclRef(typed_value, payload.data.decl);
+        return self.lowerDeclRef(typed_value, payload.data.decl);
     }
     const target = self.target.*;
 
@@ -1312,6 +1405,39 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
             assert(mcv != .dead);
             return mcv;
         }
+    }
+}
+
+fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigTomb {
+    try self.ensureProcessDeathCapacity(operand_count + 1);
+    return BigTomb{
+        .function = self,
+        .inst = inst,
+        .tomb_bits = self.liveness.getTombBits(inst),
+        .big_tomb_bits = self.liveness.special.get(inst) orelse 0,
+        .bit_index = 0,
+    };
+}
+
+fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCValue {
+    const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+    const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+
+    // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
+    if (tv.ty.zigTypeTag() == .Pointer) blk: {
+        if (tv.ty.castPtrToFn()) |_| break :blk;
+        if (!tv.ty.elemType2().hasRuntimeBits()) {
+            return MCValue.none;
+        }
+    }
+
+    decl.alive = true;
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+        const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
+        const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
+        return MCValue{ .memory = got_addr };
+    } else {
+        return self.fail("TODO codegen non-ELF const Decl pointer", .{});
     }
 }
 

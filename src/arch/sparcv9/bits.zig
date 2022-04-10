@@ -979,6 +979,38 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn ldub(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_0001, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_0001, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn lduh(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_0010, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_0010, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn lduw(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_0000, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_0000, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn ldx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_1011, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_1011, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
     pub fn nop() Instruction {
         return sethi(0, .g0);
     }
