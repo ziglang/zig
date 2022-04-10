@@ -586,9 +586,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = (extra.data.flags & 0x80000000) != 0;
     const clobbers_len = @truncate(u31, extra.data.flags);
     var extra_i: usize = extra.end;
-    const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..extra_i+extra.data.outputs_len]);
+    const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i .. extra_i + extra.data.outputs_len]);
     extra_i += outputs.len;
-    const inputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..extra_i+extra.data.inputs_len]);
+    const inputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i .. extra_i + extra.data.inputs_len]);
     extra_i += inputs.len;
 
     const dead = !is_volatile and self.liveness.isUnused(inst);

@@ -964,7 +964,7 @@ pub const Instruction = union(enum) {
     // See appendix A of the SPARCv9 ISA manual.
 
     pub fn add(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
-        return switch(s2) {
+        return switch (s2) {
             Register => format3a(0b10, 0b00_0000, rs1, rs2, rd),
             i13 => format3b(0b10, 0b00_0000, rs1, rs2, rd),
             else => unreachable,
@@ -972,7 +972,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn @"or"(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
-        return switch(s2) {
+        return switch (s2) {
             Register => format3a(0b10, 0b00_0010, rs1, rs2, rd),
             i13 => format3b(0b10, 0b00_0010, rs1, rs2, rd),
             else => unreachable,
@@ -984,7 +984,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn @"return"(comptime s2: type, rs1: Register, rs2: s2) Instruction {
-        return switch(s2) {
+        return switch (s2) {
             Register => format3c(0b10, 0b11_1001, rs1, rs2),
             i13 => format3d(0b10, 0b11_1001, rs1, rs2),
             else => unreachable,
@@ -992,7 +992,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn save(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
-        return switch(s2) {
+        return switch (s2) {
             Register => format3a(0b10, 0b11_1100, rs1, rs2, rd),
             i13 => format3b(0b10, 0b11_1100, rs1, rs2, rd),
             else => unreachable,
@@ -1000,7 +1000,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn restore(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
-        return switch(s2) {
+        return switch (s2) {
             Register => format3a(0b10, 0b11_1101, rs1, rs2, rd),
             i13 => format3b(0b10, 0b11_1101, rs1, rs2, rd),
             else => unreachable,
@@ -1012,7 +1012,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn sub(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
-        return switch(s2) {
+        return switch (s2) {
             Register => format3a(0b10, 0b00_0100, rs1, rs2, rd),
             i13 => format3b(0b10, 0b00_0100, rs1, rs2, rd),
             else => unreachable,
@@ -1021,7 +1021,7 @@ pub const Instruction = union(enum) {
 
     pub fn trap(comptime s2: type, cond: Condition, ccr: CCR, rs1: Register, rs2: s2) Instruction {
         // Tcc instructions abuse the rd field to store the conditionals.
-        return switch(s2) {
+        return switch (s2) {
             Register => format4a(0b11_1010, ccr, rs1, rs2, @intToEnum(Register, cond)),
             u7 => format4e(0b00_0100, ccr, rs1, @intToEnum(Register, cond), rs2),
             else => unreachable,
