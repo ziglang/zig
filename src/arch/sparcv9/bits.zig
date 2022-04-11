@@ -164,27 +164,33 @@ pub const Instruction = union(enum) {
     // name them with letters since there's no official naming scheme.
     // TODO: need to rename the minor formats to a more descriptive name.
 
+    // I am using regular structs instead of packed ones to avoid
+    // endianness-dependent behavior when constructing the actual
+    // assembly instructions.
+    // See also: https://github.com/ziglang/zig/issues/10113
+    // TODO: change it back to packed structs once the issue is resolved.
+
     // Format 1 (op = 1): CALL
-    format_1: packed struct {
+    format_1: struct {
         op: u2 = 0b01,
         disp30: u30,
     },
 
     // Format 2 (op = 0): SETHI & Branches (Bicc, BPcc, BPr, FBfcc, FBPfcc)
-    format_2a: packed struct {
+    format_2a: struct {
         op: u2 = 0b00,
         rd: u5,
         op2: u3,
         imm22: u22,
     },
-    format_2b: packed struct {
+    format_2b: struct {
         op: u2 = 0b00,
         a: u1,
         cond: u4,
         op2: u3,
         disp22: u22,
     },
-    format_2c: packed struct {
+    format_2c: struct {
         op: u2 = 0b00,
         a: u1,
         cond: u4,
@@ -194,7 +200,7 @@ pub const Instruction = union(enum) {
         p: u1,
         disp19: u19,
     },
-    format_2d: packed struct {
+    format_2d: struct {
         op: u2 = 0b00,
         a: u1,
         fixed: u1 = 0b0,
@@ -207,7 +213,7 @@ pub const Instruction = union(enum) {
     },
 
     // Format 3 (op = 2 or 3): Arithmetic, Logical, MOVr, MEMBAR, Load, and Store
-    format_3a: packed struct {
+    format_3a: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -224,7 +230,7 @@ pub const Instruction = union(enum) {
         i: u1 = 0b1,
         simm13: u13,
     },
-    format_3c: packed struct {
+    format_3c: struct {
         op: u2,
         reserved1: u5 = 0b00000,
         op3: u6,
@@ -241,7 +247,7 @@ pub const Instruction = union(enum) {
         i: u1 = 0b1,
         simm13: u13,
     },
-    format_3e: packed struct {
+    format_3e: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -260,7 +266,7 @@ pub const Instruction = union(enum) {
         rcond: u3,
         simm10: u10,
     },
-    format_3g: packed struct {
+    format_3g: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -269,7 +275,7 @@ pub const Instruction = union(enum) {
         reserved: u8 = 0b00000000,
         rs2: u5,
     },
-    format_3h: packed struct {
+    format_3h: struct {
         op: u2 = 0b10,
         fixed1: u5 = 0b00000,
         op3: u6 = 0b101000,
@@ -279,7 +285,7 @@ pub const Instruction = union(enum) {
         cmask: u3,
         mmask: u4,
     },
-    format_3i: packed struct {
+    format_3i: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -288,13 +294,13 @@ pub const Instruction = union(enum) {
         imm_asi: u8,
         rs2: u5,
     },
-    format_3j: packed struct {
+    format_3j: struct {
         op: u2,
         impl_dep1: u5,
         op3: u6,
         impl_dep2: u19,
     },
-    format_3k: packed struct {
+    format_3k: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -304,7 +310,7 @@ pub const Instruction = union(enum) {
         reserved: u7 = 0b0000000,
         rs2: u5,
     },
-    format_3l: packed struct {
+    format_3l: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -314,7 +320,7 @@ pub const Instruction = union(enum) {
         reserved: u7 = 0b0000000,
         shcnt32: u5,
     },
-    format_3m: packed struct {
+    format_3m: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -324,7 +330,7 @@ pub const Instruction = union(enum) {
         reserved: u6 = 0b000000,
         shcnt64: u6,
     },
-    format_3n: packed struct {
+    format_3n: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -332,7 +338,7 @@ pub const Instruction = union(enum) {
         opf: u9,
         rs2: u5,
     },
-    format_3o: packed struct {
+    format_3o: struct {
         op: u2,
         fixed: u3 = 0b000,
         cc1: u1,
@@ -342,7 +348,7 @@ pub const Instruction = union(enum) {
         opf: u9,
         rs2: u5,
     },
-    format_3p: packed struct {
+    format_3p: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -350,20 +356,20 @@ pub const Instruction = union(enum) {
         opf: u9,
         rs2: u5,
     },
-    format_3q: packed struct {
+    format_3q: struct {
         op: u2,
         rd: u5,
         op3: u6,
         rs1: u5,
         reserved: u14 = 0b00000000000000,
     },
-    format_3r: packed struct {
+    format_3r: struct {
         op: u2,
         fcn: u5,
         op3: u6,
         reserved: u19 = 0b0000000000000000000,
     },
-    format_3s: packed struct {
+    format_3s: struct {
         op: u2,
         rd: u5,
         op3: u6,
@@ -371,7 +377,7 @@ pub const Instruction = union(enum) {
     },
 
     //Format 4 (op = 2): MOVcc, FMOVr, FMOVcc, and Tcc
-    format_4a: packed struct {
+    format_4a: struct {
         op: u2 = 0b10,
         rd: u5,
         op3: u6,
@@ -392,7 +398,7 @@ pub const Instruction = union(enum) {
         cc0: u1,
         simm11: u11,
     },
-    format_4c: packed struct {
+    format_4c: struct {
         op: u2 = 0b10,
         rd: u5,
         op3: u6,
@@ -415,7 +421,7 @@ pub const Instruction = union(enum) {
         cc0: u1,
         simm11: u11,
     },
-    format_4e: packed struct {
+    format_4e: struct {
         op: u2 = 0b10,
         rd: u5,
         op3: u6,
@@ -426,7 +432,7 @@ pub const Instruction = union(enum) {
         reserved: u4 = 0b0000,
         sw_trap: u7,
     },
-    format_4f: packed struct {
+    format_4f: struct {
         op: u2 = 0b10,
         rd: u5,
         op3: u6,
@@ -436,7 +442,7 @@ pub const Instruction = union(enum) {
         opf_low: u5,
         rs2: u5,
     },
-    format_4g: packed struct {
+    format_4g: struct {
         op: u2 = 0b10,
         rd: u5,
         op3: u6,
@@ -512,37 +518,37 @@ pub const Instruction = union(enum) {
     pub fn toU32(self: Instruction) u32 {
         // TODO: Remove this once packed structs work.
         return switch (self) {
-            .format_1 => |v| @bitCast(u32, v),
-            .format_2a => |v| @bitCast(u32, v),
-            .format_2b => |v| @bitCast(u32, v),
-            .format_2c => |v| @bitCast(u32, v),
-            .format_2d => |v| @bitCast(u32, v),
-            .format_3a => |v| @bitCast(u32, v),
+            .format_1 => |v| (@as(u32, v.op) << 30) | @as(u32, v.disp30),
+            .format_2a => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op2) << 22) | @as(u32, v.imm22),
+            .format_2b => |v| (@as(u32, v.op) << 30) | (@as(u32, v.a) << 29) | (@as(u32, v.cond) << 25) | (@as(u32, v.op2) << 22) | @as(u32, v.disp22),
+            .format_2c => |v| (@as(u32, v.op) << 30) | (@as(u32, v.a) << 29) | (@as(u32, v.cond) << 25) | (@as(u32, v.op2) << 22) | (@as(u32, v.cc1) << 21) | (@as(u32, v.cc0) << 20) | (@as(u32, v.p) << 19) | @as(u32, v.disp19),
+            .format_2d => |v| (@as(u32, v.op) << 30) | (@as(u32, v.a) << 29) | (@as(u32, v.fixed) << 28) | (@as(u32, v.rcond) << 25) | (@as(u32, v.op2) << 22) | (@as(u32, v.d16hi) << 20) | (@as(u32, v.p) << 19) | (@as(u32, v.rs1) << 14) | @as(u32, v.d16lo),
+            .format_3a => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.reserved) << 5) | @as(u32, v.rs2),
             .format_3b => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | @as(u32, v.simm13),
-            .format_3c => |v| @bitCast(u32, v),
+            .format_3c => |v| (@as(u32, v.op) << 30) | (@as(u32, v.reserved1) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.reserved2) << 5) | @as(u32, v.rs2),
             .format_3d => |v| (@as(u32, v.op) << 30) | (@as(u32, v.reserved) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | @as(u32, v.simm13),
-            .format_3e => |v| @bitCast(u32, v),
+            .format_3e => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.rcond) << 10) | (@as(u32, v.reserved) << 5) | @as(u32, v.rs2),
             .format_3f => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.rcond) << 10) | @as(u32, v.simm10),
-            .format_3g => |v| @bitCast(u32, v),
-            .format_3h => |v| @bitCast(u32, v),
-            .format_3i => |v| @bitCast(u32, v),
-            .format_3j => |v| @bitCast(u32, v),
-            .format_3k => |v| @bitCast(u32, v),
-            .format_3l => |v| @bitCast(u32, v),
-            .format_3m => |v| @bitCast(u32, v),
-            .format_3n => |v| @bitCast(u32, v),
-            .format_3o => |v| @bitCast(u32, v),
-            .format_3p => |v| @bitCast(u32, v),
-            .format_3q => |v| @bitCast(u32, v),
-            .format_3r => |v| @bitCast(u32, v),
-            .format_3s => |v| @bitCast(u32, v),
-            .format_4a => |v| @bitCast(u32, v),
+            .format_3g => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.reserved) << 5) | @as(u32, v.rs2),
+            .format_3h => |v| (@as(u32, v.op) << 30) | (@as(u32, v.fixed1) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.fixed2) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.reserved) << 7) | (@as(u32, v.cmask) << 4) | @as(u32, v.mmask),
+            .format_3i => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.imm_asi) << 5) | @as(u32, v.rs2),
+            .format_3j => |v| (@as(u32, v.op) << 30) | (@as(u32, v.impl_dep1) << 25) | (@as(u32, v.op3) << 19) | @as(u32, v.impl_dep2),
+            .format_3k => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.x) << 12) | (@as(u32, v.reserved) << 5) | @as(u32, v.rs2),
+            .format_3l => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.x) << 12) | (@as(u32, v.reserved) << 5) | @as(u32, v.shcnt32),
+            .format_3m => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.x) << 12) | (@as(u32, v.reserved) << 6) | @as(u32, v.shcnt64),
+            .format_3n => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.reserved) << 14) | (@as(u32, v.opf) << 5) | @as(u32, v.rs2),
+            .format_3o => |v| (@as(u32, v.op) << 30) | (@as(u32, v.fixed) << 27) | (@as(u32, v.cc1) << 26) | (@as(u32, v.cc0) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.opf) << 5) | @as(u32, v.rs2),
+            .format_3p => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.opf) << 5) | @as(u32, v.rs2),
+            .format_3q => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | @as(u32, v.reserved),
+            .format_3r => |v| (@as(u32, v.op) << 30) | (@as(u32, v.fcn) << 25) | (@as(u32, v.op3) << 19) | @as(u32, v.reserved),
+            .format_3s => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | @as(u32, v.reserved),
+            .format_4a => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.cc1) << 12) | (@as(u32, v.cc0) << 11) | (@as(u32, v.reserved) << 5) | @as(u32, v.rs2),
             .format_4b => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.cc1) << 12) | (@as(u32, v.cc0) << 11) | @as(u32, v.simm11),
-            .format_4c => |v| @bitCast(u32, v),
+            .format_4c => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.cc2) << 18) | (@as(u32, v.cond) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.cc1) << 12) | (@as(u32, v.cc0) << 11) | (@as(u32, v.reserved) << 5) | @as(u32, v.rs2),
             .format_4d => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.cc2) << 18) | (@as(u32, v.cond) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.cc1) << 12) | (@as(u32, v.cc0) << 11) | @as(u32, v.simm11),
-            .format_4e => |v| @bitCast(u32, v),
-            .format_4f => |v| @bitCast(u32, v),
-            .format_4g => |v| @bitCast(u32, v),
+            .format_4e => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.i) << 13) | (@as(u32, v.cc1) << 12) | (@as(u32, v.cc0) << 11) | (@as(u32, v.reserved) << 7) | @as(u32, v.sw_trap),
+            .format_4f => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.rs1) << 14) | (@as(u32, v.fixed) << 13) | (@as(u32, v.rcond) << 10) | (@as(u32, v.opf_low) << 5) | @as(u32, v.rs2),
+            .format_4g => |v| (@as(u32, v.op) << 30) | (@as(u32, v.rd) << 25) | (@as(u32, v.op3) << 19) | (@as(u32, v.fixed) << 18) | (@as(u32, v.cond) << 14) | (@as(u32, v.opf_cc) << 11) | (@as(u32, v.opf_low) << 5) | @as(u32, v.rs2),
         };
     }
 
