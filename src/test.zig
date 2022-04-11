@@ -46,6 +46,7 @@ test {
         defer stage2_dir.close();
 
         // TODO make this incremental once the bug is solved that it triggers
+        // See: https://github.com/ziglang/zig/issues/11344
         ctx.addErrorCasesFromDir("stage2", stage2_dir, .stage2, .Obj, false, .independent);
     }
 
@@ -653,7 +654,14 @@ pub const TestContext = struct {
         case.compiles(fixed_src);
     }
 
-    const Strategy = enum { incremental, independent };
+    const Strategy = enum {
+        /// Execute tests as independent compilations, unless they are explicitly
+        /// incremental ("foo.1.zig", "foo.2.zig", etc.)
+        independent,
+        /// Execute all tests as incremental updates to a single compilation. Explicitly
+        /// incremental tests ("foo.1.zig", "foo.2.zig", etc.) still execute in order
+        incremental,
+    };
 
     /// Adds a compile-error test for each file in the provided directory, using the
     /// selected backend and output mode. If `one_test_case_per_file` is true, a new
@@ -681,6 +689,66 @@ pub const TestContext = struct {
         };
     }
 
+    /// For a filename in the format "<filename>.X.<ext>" or "<filename>.<ext>", returns
+    /// "<filename>", "<ext>" and X parsed as a decimal number. If X is not present, or
+    /// cannot be parsed as a decimal number, it is treated as part of <filename>
+    fn getTestFileNameParts(name: []const u8) struct {
+        base_name: []const u8,
+        file_ext: []const u8,
+        test_index: ?usize,
+    } {
+        const file_ext = std.fs.path.extension(name);
+        const trimmed = name[0 .. name.len - file_ext.len]; // Trim off ".<ext>"
+        const maybe_index = std.fs.path.extension(trimmed); // Extract ".X"
+
+        // Attempt to parse index
+        const index: ?usize = if (maybe_index.len > 0)
+            std.fmt.parseInt(usize, maybe_index[1..], 10) catch null
+        else
+            null;
+
+        // Adjust "<filename>" extent based on parsing success
+        const base_name_end = trimmed.len - if (index != null) maybe_index.len else 0;
+        return .{
+            .base_name = name[0..base_name_end],
+            .file_ext = if (file_ext.len > 0) file_ext[1..] else file_ext,
+            .test_index = index,
+        };
+    }
+
+    /// Sort test filenames in-place, so that incremental test cases ("foo.1.zig",
+    /// "foo.2.zig", etc.) are contiguous and appear in numerical order.
+    fn sortTestFilenames(
+        filenames: [][]const u8,
+    ) void {
+        const Context = struct {
+            pub fn lessThan(_: @This(), a: []const u8, b: []const u8) bool {
+                const a_parts = getTestFileNameParts(a);
+                const b_parts = getTestFileNameParts(b);
+
+                // Sort "<base_name>.X.<file_ext>" based on "<base_name>" and "<file_ext>" first
+                return switch (std.mem.order(u8, a_parts.base_name, b_parts.base_name)) {
+                    .lt => true,
+                    .gt => false,
+                    .eq => switch (std.mem.order(u8, a_parts.file_ext, b_parts.file_ext)) {
+                        .lt => true,
+                        .gt => false,
+                        .eq => b: { // a and b differ only in their ".X" part
+
+                            // Sort "<base_name>.<file_ext>" before any "<base_name>.X.<file_ext>"
+                            if (a_parts.test_index == null) break :b true;
+                            if (b_parts.test_index == null) break :b false;
+
+                            // Make sure that incremental tests appear in linear order
+                            return a_parts.test_index.? < b_parts.test_index.?;
+                        },
+                    },
+                };
+            }
+        };
+        std.sort.sort([]const u8, filenames, Context{}, Context.lessThan);
+    }
+
     fn addErrorCasesFromDirInner(
         ctx: *TestContext,
         name: []const u8,
@@ -696,6 +764,9 @@ pub const TestContext = struct {
         var opt_case: ?*Case = null;
 
         var it = dir.iterate();
+        var filenames = std.ArrayList([]const u8).init(ctx.arena);
+        defer filenames.deinit();
+
         while (try it.next()) |entry| {
             if (entry.kind != .File) continue;
 
@@ -704,11 +775,46 @@ pub const TestContext = struct {
                 .unknown => continue,
                 else => {},
             }
+            try filenames.append(try ctx.arena.dupe(u8, entry.name));
+        }
 
-            current_file.* = try ctx.arena.dupe(u8, entry.name);
+        // Sort filenames, so that incremental tests are contiguous and in-order
+        sortTestFilenames(filenames.items);
+
+        var prev_filename: []const u8 = "";
+        for (filenames.items) |filename| {
+            current_file.* = filename;
+
+            { // First, check if this file is part of an incremental update sequence
+
+                // Split filename into "<base_name>.<index>.<file_ext>"
+                const prev_parts = getTestFileNameParts(prev_filename);
+                const new_parts = getTestFileNameParts(filename);
+
+                // If base_name and file_ext match, these files are in the same test sequence
+                // and the new one should be the incremented version of the previous test
+                if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
+                    std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
+                {
+
+                    // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
+                    if (prev_parts.test_index == null) return error.InvalidIncrementalTestIndex;
+                    if (new_parts.test_index == null) return error.InvalidIncrementalTestIndex;
+                    if (new_parts.test_index.? != prev_parts.test_index.? + 1) return error.InvalidIncrementalTestIndex;
+                } else {
+
+                    // This is not the same test sequence, so the new file must be the first file
+                    // in a new sequence ("*.1.zig") or an independent test file ("*.zig")
+                    if (new_parts.test_index != null and new_parts.test_index.? != 1) return error.InvalidIncrementalTestIndex;
+
+                    if (strategy == .independent)
+                        opt_case = null; // Generate a new independent test case for this update
+                }
+            }
+            prev_filename = filename;
 
             const max_file_size = 10 * 1024 * 1024;
-            const src = try dir.readFileAllocOptions(ctx.arena, entry.name, max_file_size, null, 1, 0);
+            const src = try dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
 
             // The manifest is the last contiguous block of comments in the file
             // We scan for the beginning by searching backward for the first non-empty line that does not start with "//"
@@ -741,6 +847,7 @@ pub const TestContext = struct {
 
             if (manifest_start) |start| {
                 // Due to the above processing, we know that this is a contiguous block of comments
+                // and do not need to re-validate the leading "//" on each line
                 var manifest_it = std.mem.tokenize(u8, src[start..manifest_end], "\r\n");
 
                 // First line is the test case name
@@ -773,7 +880,6 @@ pub const TestContext = struct {
                     .independent => {
                         case.name = case_name;
                         case.addError(src, errors.items);
-                        opt_case = null;
                     },
                     .incremental => {
                         case.addErrorNamed(case_name, src, errors.items);
@@ -1133,7 +1239,7 @@ pub const TestContext = struct {
                 if (all_errors.list.len != 0) {
                     print(
                         "\nCase '{s}': unexpected errors at update_index={d}:\n{s}\n",
-                        .{ case.name, update_index, hr },
+                        .{ case.name, update_index + 1, hr },
                     );
                     for (all_errors.list) |err_msg| {
                         switch (err_msg) {
@@ -1295,7 +1401,7 @@ pub const TestContext = struct {
                     }
 
                     if (any_failed) {
-                        print("\nupdate_index={d} ", .{update_index});
+                        print("\nupdate_index={d}\n", .{update_index + 1});
                         return error.WrongCompileErrors;
                     }
                 },
@@ -1402,7 +1508,7 @@ pub const TestContext = struct {
                             .cwd = tmp_dir_path,
                         }) catch |err| {
                             print("\nupdate_index={d} The following command failed with {s}:\n", .{
-                                update_index, @errorName(err),
+                                update_index + 1, @errorName(err),
                             });
                             dumpArgs(argv.items);
                             return error.ChildProcessExecution;
