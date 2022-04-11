@@ -2694,7 +2694,28 @@ pub fn renameatW(
         .INVALID_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .ACCESS_DENIED => return error.AccessDenied,
+        .ACCESS_DENIED => {
+            const new_path_len_bytes = math.cast(u16, rename_info.FileNameLength) catch |err| switch (err) {
+                error.Overflow => return error.AccessDenied,
+            };
+            var nt_name = windows.UNICODE_STRING{
+                .Length = new_path_len_bytes,
+                .MaximumLength = new_path_len_bytes,
+                .Buffer = @as([*]u16, &rename_info.FileName),
+            };
+            var attr = windows.OBJECT_ATTRIBUTES{
+                .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
+                .RootDirectory = new_dir_fd,
+                .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+                .ObjectName = &nt_name,
+                .SecurityDescriptor = null,
+                .SecurityQualityOfService = null,
+            };
+            var basic_info: windows.FILE_BASIC_INFORMATION = undefined;
+            const status = windows.ntdll.NtQueryAttributesFile(&attr, &basic_info);
+            if (status == .SUCCESS) return error.PathAlreadyExists;
+            return error.AccessDenied;
+        },
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
