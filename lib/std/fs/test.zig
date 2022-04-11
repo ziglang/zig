@@ -461,18 +461,44 @@ test "Dir.rename directories" {
     file = try dir.openFile("test_file", .{});
     file.close();
     dir.close();
+}
 
-    // Try to rename to a non-empty directory now
-    var target_dir = try tmp_dir.dir.makeOpenPath("non_empty_target_dir", .{});
-    file = try target_dir.createFile("filler", .{ .read = true });
+test "Dir.rename directory onto empty dir" {
+    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.makeDir("test_dir");
+    try tmp_dir.dir.makeDir("target_dir");
+    try tmp_dir.dir.rename("test_dir", "target_dir");
+
+    // Ensure the directory was renamed
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.openDir("test_dir", .{}));
+    var dir = try tmp_dir.dir.openDir("target_dir", .{});
+    dir.close();
+}
+
+test "Dir.rename directory onto non-empty dir" {
+    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.makeDir("test_dir");
+
+    var target_dir = try tmp_dir.dir.makeOpenPath("target_dir", .{});
+    var file = try target_dir.createFile("test_file", .{ .read = true });
     file.close();
+    target_dir.close();
 
-    try testing.expectError(error.PathAlreadyExists, tmp_dir.dir.rename("test_dir_renamed_again", "non_empty_target_dir"));
+    // Rename should fail with PathAlreadyExists if target_dir is non-empty
+    try testing.expectError(error.PathAlreadyExists, tmp_dir.dir.rename("test_dir", "target_dir"));
 
     // Ensure the directory was not renamed
-    dir = try tmp_dir.dir.openDir("test_dir_renamed_again", .{});
-    file = try dir.openFile("test_file", .{});
-    file.close();
+    var dir = try tmp_dir.dir.openDir("test_dir", .{});
     dir.close();
 }
 
