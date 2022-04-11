@@ -1600,10 +1600,24 @@ pub const LibExeObjStep = struct {
     pub const LinkObject = union(enum) {
         static_path: FileSource,
         other_step: *LibExeObjStep,
-        system_lib: []const u8,
+        system_lib: SystemLib,
         assembly_file: FileSource,
         c_source_file: *CSourceFile,
         c_source_files: *CSourceFiles,
+    };
+
+    pub const SystemLib = struct {
+        name: []const u8,
+        use_pkg_config: enum {
+            /// Don't use pkg-config, just pass -lfoo where foo is name.
+            no,
+            /// Try to get information on how to link the library from pkg-config.
+            /// If that fails, fall back to passing -lfoo where foo is name.
+            yes,
+            /// Try to get information on how to link the library from pkg-config.
+            /// If that fails, error out.
+            force,
+        },
     };
 
     pub const IncludeDir = union(enum) {
@@ -1854,7 +1868,7 @@ pub const LibExeObjStep = struct {
         }
         for (self.link_objects.items) |link_object| {
             switch (link_object) {
-                .system_lib => |n| if (mem.eql(u8, n, name)) return true,
+                .system_lib => |lib| if (mem.eql(u8, lib.name, name)) return true,
                 else => continue,
             }
         }
@@ -1879,14 +1893,24 @@ pub const LibExeObjStep = struct {
     pub fn linkLibC(self: *LibExeObjStep) void {
         if (!self.is_linking_libc) {
             self.is_linking_libc = true;
-            self.link_objects.append(.{ .system_lib = "c" }) catch unreachable;
+            self.link_objects.append(.{
+                .system_lib = .{
+                    .name = "c",
+                    .use_pkg_config = .no,
+                },
+            }) catch unreachable;
         }
     }
 
     pub fn linkLibCpp(self: *LibExeObjStep) void {
         if (!self.is_linking_libcpp) {
             self.is_linking_libcpp = true;
-            self.link_objects.append(.{ .system_lib = "c++" }) catch unreachable;
+            self.link_objects.append(.{
+                .system_lib = .{
+                    .name = "c++",
+                    .use_pkg_config = .no,
+                },
+            }) catch unreachable;
         }
     }
 
@@ -1905,12 +1929,28 @@ pub const LibExeObjStep = struct {
     /// This one has no integration with anything, it just puts -lname on the command line.
     /// Prefer to use `linkSystemLibrary` instead.
     pub fn linkSystemLibraryName(self: *LibExeObjStep, name: []const u8) void {
-        self.link_objects.append(.{ .system_lib = self.builder.dupe(name) }) catch unreachable;
+        self.link_objects.append(.{
+            .system_lib = .{
+                .name = self.builder.dupe(name),
+                .use_pkg_config = .no,
+            },
+        }) catch unreachable;
     }
 
     /// This links against a system library, exclusively using pkg-config to find the library.
     /// Prefer to use `linkSystemLibrary` instead.
-    pub fn linkSystemLibraryPkgConfigOnly(self: *LibExeObjStep, lib_name: []const u8) !void {
+    pub fn linkSystemLibraryPkgConfigOnly(self: *LibExeObjStep, lib_name: []const u8) void {
+        self.link_objects.append(.{
+            .system_lib = .{
+                .name = self.builder.dupe(lib_name),
+                .use_pkg_config = .force,
+            },
+        }) catch unreachable;
+    }
+
+    /// Run pkg-config for the given library name and parse the output, returning the arguments
+    /// that should be passed to zig to link the given library.
+    fn runPkgConfig(self: *LibExeObjStep, lib_name: []const u8) ![]const []const u8 {
         const pkg_name = match: {
             // First we have to map the library name to pkg config name. Unfortunately,
             // there are several examples where this is not straightforward:
@@ -1970,34 +2010,38 @@ pub const LibExeObjStep = struct {
             error.ChildExecFailed => return error.PkgConfigFailed,
             else => return err,
         };
+
+        var zig_args = std.ArrayList([]const u8).init(self.builder.allocator);
+        defer zig_args.deinit();
+
         var it = mem.tokenize(u8, stdout, " \r\n\t");
         while (it.next()) |tok| {
             if (mem.eql(u8, tok, "-I")) {
                 const dir = it.next() orelse return error.PkgConfigInvalidOutput;
-                self.addIncludePath(dir);
+                try zig_args.appendSlice(&[_][]const u8{ "-I", dir });
             } else if (mem.startsWith(u8, tok, "-I")) {
-                self.addIncludePath(tok["-I".len..]);
+                try zig_args.append(tok);
             } else if (mem.eql(u8, tok, "-L")) {
                 const dir = it.next() orelse return error.PkgConfigInvalidOutput;
-                self.addLibraryPath(dir);
+                try zig_args.appendSlice(&[_][]const u8{ "-L", dir });
             } else if (mem.startsWith(u8, tok, "-L")) {
-                self.addLibraryPath(tok["-L".len..]);
+                try zig_args.append(tok);
             } else if (mem.eql(u8, tok, "-l")) {
                 const lib = it.next() orelse return error.PkgConfigInvalidOutput;
-                self.linkSystemLibraryName(lib);
+                try zig_args.appendSlice(&[_][]const u8{ "-l", lib });
             } else if (mem.startsWith(u8, tok, "-l")) {
-                self.linkSystemLibraryName(tok["-l".len..]);
+                try zig_args.append(tok);
             } else if (mem.eql(u8, tok, "-D")) {
                 const macro = it.next() orelse return error.PkgConfigInvalidOutput;
-                self.defineCMacroRaw(macro);
+                try zig_args.appendSlice(&[_][]const u8{ "-D", macro });
             } else if (mem.startsWith(u8, tok, "-D")) {
-                self.defineCMacroRaw(tok["-D".len..]);
-            } else if (mem.eql(u8, tok, "-pthread")) {
-                self.linkLibC();
+                try zig_args.append(tok);
             } else if (self.builder.verbose) {
                 warn("Ignoring pkg-config flag '{s}'\n", .{tok});
             }
         }
+
+        return zig_args.toOwnedSlice();
     }
 
     pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
@@ -2009,21 +2053,13 @@ pub const LibExeObjStep = struct {
             self.linkLibCpp();
             return;
         }
-        if (self.linkSystemLibraryPkgConfigOnly(name)) |_| {
-            // pkg-config worked, so nothing further needed to do.
-            return;
-        } else |err| switch (err) {
-            error.PkgConfigInvalidOutput,
-            error.PkgConfigCrashed,
-            error.PkgConfigFailed,
-            error.PkgConfigNotInstalled,
-            error.PackageNotFound,
-            => {},
 
-            else => unreachable,
-        }
-
-        self.linkSystemLibraryName(name);
+        self.link_objects.append(.{
+            .system_lib = .{
+                .name = self.builder.dupe(name),
+                .use_pkg_config = .yes,
+            },
+        }) catch unreachable;
     }
 
     pub fn setNamePrefix(self: *LibExeObjStep, text: []const u8) void {
@@ -2317,27 +2353,34 @@ pub const LibExeObjStep = struct {
         var prev_has_extra_flags = false;
 
         // Resolve transitive dependencies
-        for (self.link_objects.items) |link_object| {
-            switch (link_object) {
-                .other_step => |other| {
-                    // Inherit dependency on system libraries
-                    for (other.link_objects.items) |other_link_object| {
-                        switch (other_link_object) {
-                            .system_lib => |name| self.linkSystemLibrary(name),
-                            else => continue,
-                        }
-                    }
+        {
+            var transitive_dependencies = std.ArrayList(LinkObject).init(builder.allocator);
+            defer transitive_dependencies.deinit();
 
-                    // Inherit dependencies on darwin frameworks
-                    if (!other.isDynamicLibrary()) {
-                        var it = other.frameworks.iterator();
-                        while (it.next()) |framework| {
-                            self.frameworks.insert(framework.*) catch unreachable;
+            for (self.link_objects.items) |link_object| {
+                switch (link_object) {
+                    .other_step => |other| {
+                        // Inherit dependency on system libraries
+                        for (other.link_objects.items) |other_link_object| {
+                            switch (other_link_object) {
+                                .system_lib => try transitive_dependencies.append(other_link_object),
+                                else => continue,
+                            }
                         }
-                    }
-                },
-                else => continue,
+
+                        // Inherit dependencies on darwin frameworks
+                        if (!other.isDynamicLibrary()) {
+                            var it = other.frameworks.iterator();
+                            while (it.next()) |framework| {
+                                self.frameworks.insert(framework.*) catch unreachable;
+                            }
+                        }
+                    },
+                    else => continue,
+                }
             }
+
+            try self.link_objects.appendSlice(transitive_dependencies.items);
         }
 
         for (self.link_objects.items) |link_object| {
@@ -2363,8 +2406,35 @@ pub const LibExeObjStep = struct {
                         }
                     },
                 },
-                .system_lib => |name| {
-                    try zig_args.append(builder.fmt("-l{s}", .{name}));
+
+                .system_lib => |system_lib| {
+                    switch (system_lib.use_pkg_config) {
+                        .no => try zig_args.append(builder.fmt("-l{s}", .{system_lib.name})),
+                        .yes, .force => {
+                            if (self.runPkgConfig(system_lib.name)) |args| {
+                                try zig_args.appendSlice(args);
+                            } else |err| switch (err) {
+                                error.PkgConfigInvalidOutput,
+                                error.PkgConfigCrashed,
+                                error.PkgConfigFailed,
+                                error.PkgConfigNotInstalled,
+                                error.PackageNotFound,
+                                => switch (system_lib.use_pkg_config) {
+                                    .yes => {
+                                        // pkg-config failed, so fall back to linking the library
+                                        // by name directly.
+                                        try zig_args.append(builder.fmt("-l{s}", .{system_lib.name}));
+                                    },
+                                    .force => {
+                                        panic("pkg-config failed for library {s}", .{system_lib.name});
+                                    },
+                                    .no => unreachable,
+                                },
+
+                                else => |e| return e,
+                            }
+                        },
+                    }
                 },
 
                 .assembly_file => |asm_file| {
