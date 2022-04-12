@@ -200,6 +200,17 @@ pub const File = struct {
         }
     }
 
+    pub const SyncError = os.SyncError;
+
+    /// Blocks until all pending file contents and metadata modifications
+    /// for the file have been synchronized with the underlying filesystem.
+    ///
+    /// Note that this does not ensure that metadata for the
+    /// directory containing the file has also reached disk.
+    pub fn sync(self: File) SyncError!void {
+        return os.fsync(self.handle);
+    }
+
     /// Test whether the file refers to a terminal.
     /// See also `supportsAnsiEscapeCodes`.
     pub fn isTty(self: File) bool {
