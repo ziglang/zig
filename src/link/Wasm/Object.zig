@@ -133,6 +133,9 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     gpa.free(self.memories);
     gpa.free(self.globals);
     gpa.free(self.exports);
+    for (self.elements) |el| {
+        gpa.free(el.func_indexes);
+    }
     gpa.free(self.elements);
     gpa.free(self.features);
     for (self.relocations.values()) |val| {
