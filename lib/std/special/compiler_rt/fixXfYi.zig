@@ -12,7 +12,7 @@ pub inline fn fixXfYi(comptime I: type, a: anytype) I {
     const rep_t = std.meta.Int(.unsigned, float_bits);
     const sig_bits = math.floatMantissaBits(F);
     const exp_bits = math.floatExponentBits(F);
-    const fractional_sig_bits = math.floatMantissaDigits(F) - 1;
+    const fractional_bits = math.floatFractionalBits(F);
 
     const implicit_bit = if (F != f80) (@as(rep_t, 1) << sig_bits) else 0;
     const max_exp = (1 << (exp_bits - 1));
@@ -42,10 +42,10 @@ pub inline fn fixXfYi(comptime I: type, a: anytype) I {
     // If 0 <= exponent < sig_bits, right shift to get the result.
     // Otherwise, shift left.
     var result: I = undefined;
-    if (exponent < fractional_sig_bits) {
-        result = @intCast(I, significand >> @intCast(Log2Int(rep_t), fractional_sig_bits - exponent));
+    if (exponent < fractional_bits) {
+        result = @intCast(I, significand >> @intCast(Log2Int(rep_t), fractional_bits - exponent));
     } else {
-        result = @intCast(I, significand) << @intCast(Log2Int(I), exponent - fractional_sig_bits);
+        result = @intCast(I, significand) << @intCast(Log2Int(I), exponent - fractional_bits);
     }
 
     if ((@typeInfo(I).Int.signedness == .signed) and negative)

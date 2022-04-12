@@ -17,9 +17,9 @@ pub fn floatXiYf(comptime T: type, x: anytype) T {
     const float_bits = @bitSizeOf(T);
     const int_bits = @bitSizeOf(@TypeOf(x));
     const exp_bits = math.floatExponentBits(T);
-    const sig_bits = math.floatMantissaDigits(T) - 1; // Only counts the fractional bits
+    const fractional_bits = math.floatFractionalBits(T);
     const exp_bias = math.maxInt(std.meta.Int(.unsigned, exp_bits - 1));
-    const implicit_bit = if (T != f80) @as(uT, 1) << sig_bits else 0;
+    const implicit_bit = if (T != f80) @as(uT, 1) << fractional_bits else 0;
     const max_exp = exp_bias;
 
     // Sign
@@ -29,14 +29,14 @@ pub fn floatXiYf(comptime T: type, x: anytype) T {
 
     // Compute significand
     var exp = int_bits - @clz(Z, abs_val) - 1;
-    if (int_bits <= sig_bits or exp <= sig_bits) {
-        const shift_amt = sig_bits - @intCast(math.Log2Int(uT), exp);
+    if (int_bits <= fractional_bits or exp <= fractional_bits) {
+        const shift_amt = fractional_bits - @intCast(math.Log2Int(uT), exp);
 
         // Shift up result to line up with the significand - no rounding required
         result = (@intCast(uT, abs_val) << shift_amt);
         result ^= implicit_bit; // Remove implicit integer bit
     } else {
-        var shift_amt = @intCast(math.Log2Int(Z), exp - sig_bits);
+        var shift_amt = @intCast(math.Log2Int(Z), exp - fractional_bits);
         const exact_tie: bool = @ctz(Z, abs_val) == shift_amt - 1;
 
         // Shift down result and remove implicit integer bit
@@ -53,7 +53,7 @@ pub fn floatXiYf(comptime T: type, x: anytype) T {
     result += (@as(uT, exp) + exp_bias) << math.floatMantissaBits(T);
 
     // If the result included a carry, we need to restore the explicit integer bit
-    if (T == f80) result |= 1 << sig_bits;
+    if (T == f80) result |= 1 << fractional_bits;
 
     return @bitCast(T, sign_bit | result);
 }

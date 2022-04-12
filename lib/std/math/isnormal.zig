@@ -41,7 +41,7 @@ test "math.isNormal" {
         try expect(!isNormal(@as(T, math.floatTrueMin(T))));
 
         // largest subnormal
-        try expect(!isNormal(@bitCast(T, ~(~@as(TBits, 0) << math.floatMantissaDigits(T) - 1))));
+        try expect(!isNormal(@bitCast(T, ~(~@as(TBits, 0) << math.floatFractionalBits(T)))));
 
         // non-finite numbers
         try expect(!isNormal(-math.inf(T)));
