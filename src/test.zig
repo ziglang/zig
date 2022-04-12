@@ -656,10 +656,10 @@ pub const TestContext = struct {
 
     const Strategy = enum {
         /// Execute tests as independent compilations, unless they are explicitly
-        /// incremental ("foo.1.zig", "foo.2.zig", etc.)
+        /// incremental ("foo.0.zig", "foo.1.zig", etc.)
         independent,
         /// Execute all tests as incremental updates to a single compilation. Explicitly
-        /// incremental tests ("foo.1.zig", "foo.2.zig", etc.) still execute in order
+        /// incremental tests ("foo.0.zig", "foo.1.zig", etc.) still execute in order
         incremental,
     };
 
@@ -716,8 +716,8 @@ pub const TestContext = struct {
         };
     }
 
-    /// Sort test filenames in-place, so that incremental test cases ("foo.1.zig",
-    /// "foo.2.zig", etc.) are contiguous and appear in numerical order.
+    /// Sort test filenames in-place, so that incremental test cases ("foo.0.zig",
+    /// "foo.1.zig", etc.) are contiguous and appear in numerical order.
     fn sortTestFilenames(
         filenames: [][]const u8,
     ) void {
@@ -804,8 +804,8 @@ pub const TestContext = struct {
                 } else {
 
                     // This is not the same test sequence, so the new file must be the first file
-                    // in a new sequence ("*.1.zig") or an independent test file ("*.zig")
-                    if (new_parts.test_index != null and new_parts.test_index.? != 1) return error.InvalidIncrementalTestIndex;
+                    // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
+                    if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
 
                     if (strategy == .independent)
                         opt_case = null; // Generate a new independent test case for this update
@@ -1239,7 +1239,7 @@ pub const TestContext = struct {
                 if (all_errors.list.len != 0) {
                     print(
                         "\nCase '{s}': unexpected errors at update_index={d}:\n{s}\n",
-                        .{ case.name, update_index + 1, hr },
+                        .{ case.name, update_index, hr },
                     );
                     for (all_errors.list) |err_msg| {
                         switch (err_msg) {
@@ -1401,7 +1401,7 @@ pub const TestContext = struct {
                     }
 
                     if (any_failed) {
-                        print("\nupdate_index={d}\n", .{update_index + 1});
+                        print("\nupdate_index={d}\n", .{update_index});
                         return error.WrongCompileErrors;
                     }
                 },
@@ -1508,7 +1508,7 @@ pub const TestContext = struct {
                             .cwd = tmp_dir_path,
                         }) catch |err| {
                             print("\nupdate_index={d} The following command failed with {s}:\n", .{
-                                update_index + 1, @errorName(err),
+                                update_index, @errorName(err),
                             });
                             dumpArgs(argv.items);
                             return error.ChildProcessExecution;
