@@ -2122,19 +2122,22 @@ pub const Value = extern union {
                 const b_union = b.castTag(.@"union").?.data;
                 switch (ty.containerLayout()) {
                     .Packed, .Extern => {
-                        // In this case, we must disregard mismatching tags and compare
-                        // based on the in-memory bytes of the payloads.
-                        @panic("TODO implement comparison of extern union values");
+                        const tag_ty = ty.unionTagTypeHypothetical();
+                        if (!a_union.tag.eql(b_union.tag, tag_ty, target)) {
+                            // In this case, we must disregard mismatching tags and compare
+                            // based on the in-memory bytes of the payloads.
+                            @panic("TODO comptime comparison of extern union values with mismatching tags");
+                        }
                     },
                     .Auto => {
                         const tag_ty = ty.unionTagTypeHypothetical();
                         if (!a_union.tag.eql(b_union.tag, tag_ty, target)) {
                             return false;
                         }
-                        const active_field_ty = ty.unionFieldType(a_union.tag, target);
-                        return a_union.val.eql(b_union.val, active_field_ty, target);
                     },
                 }
+                const active_field_ty = ty.unionFieldType(a_union.tag, target);
+                return a_union.val.eql(b_union.val, active_field_ty, target);
             },
             else => {},
         } else if (a_tag == .null_value or b_tag == .null_value) {

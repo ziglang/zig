@@ -1168,3 +1168,18 @@ test "union with a large struct field" {
     var s: S = undefined;
     U.foo(U{ .s = s });
 }
+
+test "comptime equality of extern unions with same tag" {
+    const S = struct {
+        const U = extern union {
+            a: i32,
+            b: f32,
+        };
+        fn foo(comptime x: U) i32 {
+            return x.a;
+        }
+    };
+    const a = S.U{ .a = 1234 };
+    const b = S.U{ .a = 1234 };
+    try expect(S.foo(a) == S.foo(b));
+}
