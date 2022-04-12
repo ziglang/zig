@@ -6614,7 +6614,9 @@ fn zirParam(
                         // partial type for generic functions but we still need to
                         // detect if a function parameter is a generic function
                         // to force the parent function to also be generic.
-                        break :err error.GenericPoison;
+                        if (!sema.inst_map.contains(inst)) {
+                            break :err error.GenericPoison;
+                        }
                     }
                     break :param_ty param_ty;
                 } else |err| break :err err;
