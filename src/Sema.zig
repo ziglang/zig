@@ -12694,7 +12694,12 @@ fn finishStructInit(
     }
 
     if (is_ref) {
-        const alloc = try block.addTy(.alloc, struct_ty);
+        const target = sema.mod.getTarget();
+        const alloc_ty = try Type.ptr(sema.arena, target, .{
+            .pointee_type = struct_ty,
+            .@"addrspace" = target_util.defaultAddressSpace(target, .local),
+        });
+        const alloc = try block.addTy(.alloc, alloc_ty);
         for (field_inits) |field_init, i_usize| {
             const i = @intCast(u32, i_usize);
             const field_src = src;
