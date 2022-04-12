@@ -724,11 +724,21 @@ const Writer = struct {
         op_index: usize,
         operand: Air.Inst.Ref,
     ) @TypeOf(s).Error!void {
-        const dies = if (op_index < Liveness.bpi - 1)
+        const small_tomb_bits = Liveness.bpi - 1;
+        const dies = if (op_index < small_tomb_bits)
             w.liveness.operandDies(inst, @intCast(Liveness.OperandInt, op_index))
         else blk: {
-            // TODO
-            break :blk false;
+            var extra_index = w.liveness.special.get(inst).?;
+            var tomb_op_index: usize = small_tomb_bits;
+            while (true) {
+                const bits = w.liveness.extra[extra_index];
+                if (op_index < tomb_op_index + 31) {
+                    break :blk @truncate(u1, bits >> @intCast(u5, op_index - tomb_op_index)) != 0;
+                }
+                if ((bits >> 31) != 0) break :blk false;
+                extra_index += 1;
+                tomb_op_index += 31;
+            } else unreachable;
         };
         return w.writeInstRef(s, operand, dies);
     }

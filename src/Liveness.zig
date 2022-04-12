@@ -178,10 +178,49 @@ pub fn deinit(l: *Liveness, gpa: Allocator) void {
     l.* = undefined;
 }
 
+pub fn iterateBigTomb(l: Liveness, inst: Air.Inst.Index) BigTomb {
+    return .{
+        .tomb_bits = l.getTombBits(inst),
+        .extra_start = l.special.get(inst) orelse 0,
+        .extra_offset = 0,
+        .extra = l.extra,
+        .bit_index = 0,
+    };
+}
+
 /// How many tomb bits per AIR instruction.
 pub const bpi = 4;
 pub const Bpi = std.meta.Int(.unsigned, bpi);
 pub const OperandInt = std.math.Log2Int(Bpi);
+
+/// Useful for decoders of Liveness information.
+pub const BigTomb = struct {
+    tomb_bits: Liveness.Bpi,
+    bit_index: u32,
+    extra_start: u32,
+    extra_offset: u32,
+    extra: []const u32,
+
+    /// Returns whether the next operand dies.
+    pub fn feed(bt: *BigTomb) bool {
+        const this_bit_index = bt.bit_index;
+        bt.bit_index += 1;
+
+        const small_tombs = Liveness.bpi - 1;
+        if (this_bit_index < small_tombs) {
+            const dies = @truncate(u1, bt.tomb_bits >> @intCast(Liveness.OperandInt, this_bit_index)) != 0;
+            return dies;
+        }
+
+        const big_bit_index = this_bit_index - small_tombs;
+        while (big_bit_index - bt.extra_offset * 31 >= 31) {
+            bt.extra_offset += 1;
+        }
+        const dies = @truncate(u1, bt.extra[bt.extra_start + bt.extra_offset] >>
+            @intCast(u5, big_bit_index - bt.extra_offset * 31)) != 0;
+        return dies;
+    }
+};
 
 /// In-progress data; on successful analysis converted into `Liveness`.
 const Analysis = struct {
@@ -428,6 +467,7 @@ fn analyzeInst(
                 .inst = inst,
                 .main_tomb = main_tomb,
             };
+            defer extra_tombs.deinit();
             try extra_tombs.feed(callee);
             for (args) |arg| {
                 try extra_tombs.feed(arg);
@@ -468,6 +508,7 @@ fn analyzeInst(
                 .inst = inst,
                 .main_tomb = main_tomb,
             };
+            defer extra_tombs.deinit();
             for (elements) |elem| {
                 try extra_tombs.feed(elem);
             }
@@ -555,6 +596,7 @@ fn analyzeInst(
                 .inst = inst,
                 .main_tomb = main_tomb,
             };
+            defer extra_tombs.deinit();
             for (outputs) |output| {
                 if (output != .none) {
                     try extra_tombs.feed(output);
@@ -790,10 +832,10 @@ const ExtraTombs = struct {
     bit_index: usize = 0,
     tomb_bits: Bpi = 0,
     big_tomb_bits: u32 = 0,
+    big_tomb_bits_extra: std.ArrayListUnmanaged(u32) = .{},
 
     fn feed(et: *ExtraTombs, op_ref: Air.Inst.Ref) !void {
         const this_bit_index = et.bit_index;
-        assert(this_bit_index < 32); // TODO mechanism for when there are greater than 32 operands
         et.bit_index += 1;
         const gpa = et.analysis.gpa;
         const op_index = Air.refToIndex(op_ref) orelse return;
@@ -801,18 +843,37 @@ const ExtraTombs = struct {
         if (prev == null) {
             // Death.
             if (et.new_set) |ns| try ns.putNoClobber(gpa, op_index, {});
-            if (this_bit_index < bpi - 1) {
+            const available_tomb_bits = bpi - 1;
+            if (this_bit_index < available_tomb_bits) {
                 et.tomb_bits |= @as(Bpi, 1) << @intCast(OperandInt, this_bit_index);
             } else {
-                const big_bit_index = this_bit_index - (bpi - 1);
-                et.big_tomb_bits |= @as(u32, 1) << @intCast(u5, big_bit_index);
+                const big_bit_index = this_bit_index - available_tomb_bits;
+                while (big_bit_index >= (et.big_tomb_bits_extra.items.len + 1) * 31) {
+                    // We need another element in the extra array.
+                    try et.big_tomb_bits_extra.append(gpa, et.big_tomb_bits);
+                    et.big_tomb_bits = 0;
+                } else {
+                    const final_bit_index = big_bit_index - et.big_tomb_bits_extra.items.len * 31;
+                    et.big_tomb_bits |= @as(u32, 1) << @intCast(u5, final_bit_index);
+                }
             }
         }
     }
 
     fn finish(et: *ExtraTombs) !void {
         et.tomb_bits |= @as(Bpi, @boolToInt(et.main_tomb)) << (bpi - 1);
+        // Signal the terminal big_tomb_bits element.
+        et.big_tomb_bits |= @as(u32, 1) << 31;
+
         et.analysis.storeTombBits(et.inst, et.tomb_bits);
-        try et.analysis.special.put(et.analysis.gpa, et.inst, et.big_tomb_bits);
+        const extra_index = @intCast(u32, et.analysis.extra.items.len);
+        try et.analysis.extra.ensureUnusedCapacity(et.analysis.gpa, et.big_tomb_bits_extra.items.len + 1);
+        try et.analysis.special.put(et.analysis.gpa, et.inst, extra_index);
+        et.analysis.extra.appendSliceAssumeCapacity(et.big_tomb_bits_extra.items);
+        et.analysis.extra.appendAssumeCapacity(et.big_tomb_bits);
+    }
+
+    fn deinit(et: *ExtraTombs) void {
+        et.big_tomb_bits_extra.deinit(et.analysis.gpa);
     }
 };

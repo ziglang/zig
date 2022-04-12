@@ -1348,7 +1348,7 @@ pub const DeclGen = struct {
                 return w.writeAll(name);
             },
             .ErrorSet => {
-                comptime std.debug.assert(Type.initTag(.anyerror).abiSize(builtin.target) == 2);
+                comptime assert(Type.initTag(.anyerror).abiSize(builtin.target) == 2);
                 return w.writeAll("uint16_t");
             },
             .ErrorUnion => {

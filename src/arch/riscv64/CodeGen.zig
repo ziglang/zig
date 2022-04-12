@@ -194,26 +194,12 @@ const Reloc = union(enum) {
 const BigTomb = struct {
     function: *Self,
     inst: Air.Inst.Index,
-    tomb_bits: Liveness.Bpi,
-    big_tomb_bits: u32,
-    bit_index: usize,
+    lbt: Liveness.BigTomb,
 
     fn feed(bt: *BigTomb, op_ref: Air.Inst.Ref) void {
-        const this_bit_index = bt.bit_index;
-        bt.bit_index += 1;
-
-        const op_int = @enumToInt(op_ref);
-        if (op_int < Air.Inst.Ref.typed_value_map.len) return;
-        const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
-
-        if (this_bit_index < Liveness.bpi - 1) {
-            const dies = @truncate(u1, bt.tomb_bits >> @intCast(Liveness.OperandInt, this_bit_index)) != 0;
-            if (!dies) return;
-        } else {
-            const big_bit_index = @intCast(u5, this_bit_index - (Liveness.bpi - 1));
-            const dies = @truncate(u1, bt.big_tomb_bits >> big_bit_index) != 0;
-            if (!dies) return;
-        }
+        const dies = bt.lbt.feed();
+        const op_index = Air.refToIndex(op_ref) orelse return;
+        if (!dies) return;
         bt.function.processDeath(op_index);
     }
 
@@ -2198,9 +2184,7 @@ fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigT
     return BigTomb{
         .function = self,
         .inst = inst,
-        .tomb_bits = self.liveness.getTombBits(inst),
-        .big_tomb_bits = self.liveness.special.get(inst) orelse 0,
-        .bit_index = 0,
+        .lbt = self.liveness.iterateBigTomb(inst),
     };
 }
 
