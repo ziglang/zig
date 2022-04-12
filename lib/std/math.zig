@@ -45,6 +45,7 @@ pub const floatTrueMin = @import("math/float.zig").floatTrueMin;
 pub const floatMin = @import("math/float.zig").floatMin;
 pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
+pub const inf = @import("math/float.zig").inf;
 
 // TODO Replace with @compileError("deprecated for foobar") after 0.10.0 is released.
 pub const f16_true_min: comptime_float = floatTrueMin(f16); // prev: 0.000000059604644775390625
@@ -72,6 +73,15 @@ pub const f32_toint: comptime_float = 1.0 / f32_epsilon; // same as before
 pub const f64_toint: comptime_float = 1.0 / f64_epsilon; // same as before
 pub const f80_toint = 1.0 / f80_epsilon; // same as before
 pub const f128_toint = 1.0 / f128_epsilon; // same as before
+pub const inf_u16 = @bitCast(u16, inf_f16); // prev: @as(u16, 0x7C00)
+pub const inf_f16 = inf(f16); // prev: @bitCast(f16, inf_u16)
+pub const inf_u32 = @bitCast(u32, inf_f32); // prev: @as(u32, 0x7F800000)
+pub const inf_f32 = inf(f32); // prev: @bitCast(f32, inf_u32)
+pub const inf_u64 = @bitCast(u64, inf_f64); // prev: @as(u64, 0x7FF << 52)
+pub const inf_f64 = inf(f64); // prev: @bitCast(f64, inf_u64)
+pub const inf_f80 = inf(f80); // prev: make_f80(F80{ .fraction = 0x8000000000000000, .exp = 0x7fff })
+pub const inf_u128 = @bitCast(u128, inf_f128); // prev: @as(u128, 0x7fff0000000000000000000000000000)
+pub const inf_f128 = inf(f128); // prev: @bitCast(f128, inf_u128)
 pub const epsilon = floatEps;
 // End of "soft deprecated" section
 
@@ -81,17 +91,11 @@ pub const nan_f16 = @bitCast(f16, nan_u16);
 pub const qnan_u16 = @as(u16, 0x7E00);
 pub const qnan_f16 = @bitCast(f16, qnan_u16);
 
-pub const inf_u16 = @as(u16, 0x7C00);
-pub const inf_f16 = @bitCast(f16, inf_u16);
-
 pub const nan_u32 = @as(u32, 0x7F800001);
 pub const nan_f32 = @bitCast(f32, nan_u32);
 
 pub const qnan_u32 = @as(u32, 0x7FC00000);
 pub const qnan_f32 = @bitCast(f32, qnan_u32);
-
-pub const inf_u32 = @as(u32, 0x7F800000);
-pub const inf_f32 = @bitCast(f32, inf_u32);
 
 pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
 pub const nan_f64 = @bitCast(f64, nan_u64);
@@ -99,10 +103,6 @@ pub const nan_f64 = @bitCast(f64, nan_u64);
 pub const qnan_u64 = @as(u64, 0x7ff8000000000000);
 pub const qnan_f64 = @bitCast(f64, qnan_u64);
 
-pub const inf_u64 = @as(u64, 0x7FF << 52);
-pub const inf_f64 = @bitCast(f64, inf_u64);
-
-pub const inf_f80 = make_f80(F80{ .fraction = 0x8000000000000000, .exp = 0x7fff });
 pub const nan_f80 = make_f80(F80{ .fraction = 0xA000000000000000, .exp = 0x7fff });
 pub const qnan_f80 = make_f80(F80{ .fraction = 0xC000000000000000, .exp = 0x7fff });
 
@@ -112,12 +112,8 @@ pub const nan_f128 = @bitCast(f128, nan_u128);
 pub const qnan_u128 = @as(u128, 0x7fff8000000000000000000000000000);
 pub const qnan_f128 = @bitCast(f128, qnan_u128);
 
-pub const inf_u128 = @as(u128, 0x7fff0000000000000000000000000000);
-pub const inf_f128 = @bitCast(f128, inf_u128);
-
 pub const nan = @import("math/nan.zig").nan;
 pub const snan = @import("math/nan.zig").snan;
-pub const inf = @import("math/inf.zig").inf;
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
@@ -125,7 +121,7 @@ pub const inf = @import("math/inf.zig").inf;
 ///
 /// The `tolerance` parameter is the absolute tolerance used when determining if
 /// the two numbers are close enough; a good value for this parameter is a small
-/// multiple of `epsilon(T)`.
+/// multiple of `floatEps(T)`.
 ///
 /// Note that this function is recommended for comparing small numbers
 /// around zero; using `approxEqRel` is suggested otherwise.
@@ -152,7 +148,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
 ///
 /// The `tolerance` parameter is the relative tolerance used when determining if
 /// the two numbers are close enough; a good value for this parameter is usually
-/// `sqrt(epsilon(T))`, meaning that the two numbers are considered equal if at
+/// `sqrt(floatEps(T))`, meaning that the two numbers are considered equal if at
 /// least half of the digits are equal.
 ///
 /// Note that for comparisons of small numbers around zero this function won't
@@ -183,25 +179,19 @@ pub fn approxEq(comptime T: type, x: T, y: T, tolerance: T) bool {
 
 test "approxEqAbs and approxEqRel" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const eps_value = comptime epsilon(T);
+        const eps_value = comptime floatEps(T);
         const sqrt_eps_value = comptime sqrt(eps_value);
         const nan_value = comptime nan(T);
         const inf_value = comptime inf(T);
-        const min_value: T = switch (T) {
-            f16 => f16_min,
-            f32 => f32_min,
-            f64 => f64_min,
-            f128 => f128_min,
-            else => unreachable,
-        };
+        const min_value = comptime floatMin(T);
 
         try testing.expect(approxEqAbs(T, 0.0, 0.0, eps_value));
         try testing.expect(approxEqAbs(T, -0.0, -0.0, eps_value));
         try testing.expect(approxEqAbs(T, 0.0, -0.0, eps_value));
         try testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
         try testing.expect(!approxEqRel(T, 1.0, 0.0, sqrt_eps_value));
-        try testing.expect(!approxEqAbs(T, 1.0 + 2 * epsilon(T), 1.0, eps_value));
-        try testing.expect(approxEqAbs(T, 1.0 + 1 * epsilon(T), 1.0, eps_value));
+        try testing.expect(!approxEqAbs(T, 1.0 + 2 * eps_value, 1.0, eps_value));
+        try testing.expect(approxEqAbs(T, 1.0 + 1 * eps_value, 1.0, eps_value));
         try testing.expect(!approxEqRel(T, 1.0, nan_value, sqrt_eps_value));
         try testing.expect(!approxEqRel(T, nan_value, nan_value, sqrt_eps_value));
         try testing.expect(approxEqRel(T, inf_value, inf_value, sqrt_eps_value));
@@ -1195,12 +1185,6 @@ test "lossyCast" {
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
     try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
-}
-
-test "f64_min" {
-    const f64_min_u64 = 0x0010000000000000;
-    const fmin: f64 = f64_min;
-    try testing.expect(@bitCast(u64, fmin) == f64_min_u64);
 }
 
 /// Returns the maximum value of integer type T.

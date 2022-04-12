@@ -9,7 +9,7 @@ fn test__fixsfti(a: f32, expected: i128) !void {
 }
 
 test "fixsfti" {
-    try test__fixsfti(-math.f32_max, math.minInt(i128));
+    try test__fixsfti(-math.floatMax(f32), math.minInt(i128));
 
     try test__fixsfti(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i128));
     try test__fixsfti(-0x1.FFFFFFFFFFFFFp+1023, -0x80000000000000000000000000000000);
@@ -41,9 +41,9 @@ test "fixsfti" {
     try test__fixsfti(-1.0, -1);
     try test__fixsfti(-0.99, 0);
     try test__fixsfti(-0.5, 0);
-    try test__fixsfti(-math.f32_min, 0);
+    try test__fixsfti(-math.floatMin(f32), 0);
     try test__fixsfti(0.0, 0);
-    try test__fixsfti(math.f32_min, 0);
+    try test__fixsfti(math.floatMin(f32), 0);
     try test__fixsfti(0.5, 0);
     try test__fixsfti(0.99, 0);
     try test__fixsfti(1.0, 1);
@@ -76,5 +76,5 @@ test "fixsfti" {
     try test__fixsfti(0x1.FFFFFFFFFFFFFp+1023, 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
     try test__fixsfti(0x1.FFFFFFFFFFFFFp+1023, math.maxInt(i128));
 
-    try test__fixsfti(math.f32_max, math.maxInt(i128));
+    try test__fixsfti(math.floatMax(f32), math.maxInt(i128));
 }

@@ -15,10 +15,10 @@ fn test_fmodl_nans() !void {
 }
 
 fn test_fmodl_infs() !void {
-    try testing.expect(fmodl.fmodl(1.0, std.math.inf_f128) == 1.0);
-    try testing.expect(fmodl.fmodl(1.0, -std.math.inf_f128) == 1.0);
-    try testing.expect(std.math.isNan(fmodl.fmodl(std.math.inf_f128, 1.0)));
-    try testing.expect(std.math.isNan(fmodl.fmodl(-std.math.inf_f128, 1.0)));
+    try testing.expect(fmodl.fmodl(1.0, std.math.inf(f128)) == 1.0);
+    try testing.expect(fmodl.fmodl(1.0, -std.math.inf(f128)) == 1.0);
+    try testing.expect(std.math.isNan(fmodl.fmodl(std.math.inf(f128), 1.0)));
+    try testing.expect(std.math.isNan(fmodl.fmodl(-std.math.inf(f128), 1.0)));
 }
 
 test "fmodl" {

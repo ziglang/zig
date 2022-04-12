@@ -57,6 +57,8 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
 }
 
 test "math.ldexp" {
+    // TODO derive the various constants here with new maths API
+
     // basic usage
     try expect(ldexp(@as(f16, 1.5), 4) == 24.0);
     try expect(ldexp(@as(f32, 1.5), 4) == 24.0);
@@ -73,20 +75,20 @@ test "math.ldexp" {
     try expect(math.isNormal(ldexp(@as(f128, 1.0), -16382)));
     try expect(!math.isNormal(ldexp(@as(f128, 1.0), -16383)));
     // unreliable due to lack of native f16 support, see talk on PR #8733
-    // try expect(ldexp(@as(f16, 0x1.1FFp-1), -14 - 9) == math.f16_true_min);
-    try expect(ldexp(@as(f32, 0x1.3FFFFFp-1), -126 - 22) == math.f32_true_min);
-    try expect(ldexp(@as(f64, 0x1.7FFFFFFFFFFFFp-1), -1022 - 51) == math.f64_true_min);
-    try expect(ldexp(@as(f128, 0x1.7FFFFFFFFFFFFFFFFFFFFFFFFFFFp-1), -16382 - 111) == math.f128_true_min);
+    // try expect(ldexp(@as(f16, 0x1.1FFp-1), -14 - 9) == math.floatTrueMin(f16));
+    try expect(ldexp(@as(f32, 0x1.3FFFFFp-1), -126 - 22) == math.floatTrueMin(f32));
+    try expect(ldexp(@as(f64, 0x1.7FFFFFFFFFFFFp-1), -1022 - 51) == math.floatTrueMin(f64));
+    try expect(ldexp(@as(f128, 0x1.7FFFFFFFFFFFFFFFFFFFFFFFFFFFp-1), -16382 - 111) == math.floatTrueMin(f128));
 
     // float limits
-    try expect(ldexp(@as(f32, math.f32_max), -128 - 149) > 0.0);
-    try expect(ldexp(@as(f32, math.f32_max), -128 - 149 - 1) == 0.0);
-    try expect(!math.isPositiveInf(ldexp(@as(f16, math.f16_true_min), 15 + 24)));
-    try expect(math.isPositiveInf(ldexp(@as(f16, math.f16_true_min), 15 + 24 + 1)));
-    try expect(!math.isPositiveInf(ldexp(@as(f32, math.f32_true_min), 127 + 149)));
-    try expect(math.isPositiveInf(ldexp(@as(f32, math.f32_true_min), 127 + 149 + 1)));
-    try expect(!math.isPositiveInf(ldexp(@as(f64, math.f64_true_min), 1023 + 1074)));
-    try expect(math.isPositiveInf(ldexp(@as(f64, math.f64_true_min), 1023 + 1074 + 1)));
-    try expect(!math.isPositiveInf(ldexp(@as(f128, math.f128_true_min), 16383 + 16494)));
-    try expect(math.isPositiveInf(ldexp(@as(f128, math.f128_true_min), 16383 + 16494 + 1)));
+    try expect(ldexp(math.floatMax(f32), -128 - 149) > 0.0);
+    try expect(ldexp(math.floatMax(f32), -128 - 149 - 1) == 0.0);
+    try expect(!math.isPositiveInf(ldexp(math.floatTrueMin(f16), 15 + 24)));
+    try expect(math.isPositiveInf(ldexp(math.floatTrueMin(f16), 15 + 24 + 1)));
+    try expect(!math.isPositiveInf(ldexp(math.floatTrueMin(f32), 127 + 149)));
+    try expect(math.isPositiveInf(ldexp(math.floatTrueMin(f32), 127 + 149 + 1)));
+    try expect(!math.isPositiveInf(ldexp(math.floatTrueMin(f64), 1023 + 1074)));
+    try expect(math.isPositiveInf(ldexp(math.floatTrueMin(f64), 1023 + 1074 + 1)));
+    try expect(!math.isPositiveInf(ldexp(math.floatTrueMin(f128), 16383 + 16494)));
+    try expect(math.isPositiveInf(ldexp(math.floatTrueMin(f128), 16383 + 16494 + 1)));
 }

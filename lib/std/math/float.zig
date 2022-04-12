@@ -92,6 +92,11 @@ pub fn floatEps(comptime T: type) T {
     return reconstructFloat(T, -(floatMantissaDigits(T) - 1), mantissaOne(T));
 }
 
+/// Returns the value inf for floating point type T.
+pub fn inf(comptime T: type) T {
+    return reconstructFloat(T, floatExponentMax(T) + 1, mantissaOne(T));
+}
+
 test "std.math.float" {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // (1 +) for the sign bit, since it is separate from the other bits
