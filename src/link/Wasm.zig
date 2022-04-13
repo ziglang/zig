@@ -101,8 +101,8 @@ exports: std.ArrayListUnmanaged(types.Export) = .{},
 /// When this is non-zero, we must emit a table entry,
 /// as well as an 'elements' section.
 ///
-/// Note: Key is symbol index, value represents the index into the table
-function_table: std.AutoHashMapUnmanaged(u32, u32) = .{},
+/// Note: Key is symbol location, value represents the index into the table
+function_table: std.AutoHashMapUnmanaged(SymbolLoc, u32) = .{},
 
 /// All object files and their data which are linked into the final binary
 objects: std.ArrayListUnmanaged(Object) = .{},
@@ -363,6 +363,9 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             .index = sym_index,
         };
         const sym_name = object.string_table.get(symbol.name);
+        if (mem.eql(u8, sym_name, "__indirect_function_table")) {
+            continue;
+        }
         const sym_name_index = try self.string_table.put(self.base.allocator, sym_name);
 
         if (symbol.isLocal()) {
@@ -837,7 +840,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
 /// Appends a new entry to the indirect function table
 pub fn addTableFunction(self: *Wasm, symbol_index: u32) !void {
     const index = @intCast(u32, self.function_table.count());
-    try self.function_table.put(self.base.allocator, symbol_index, index);
+    try self.function_table.put(self.base.allocator, .{ .file = null, .index = symbol_index }, index);
 }
 
 /// Assigns indexes to all indirect functions.
@@ -1017,6 +1020,9 @@ fn setupImports(self: *Wasm) !void {
         }
 
         const symbol = symbol_loc.getSymbol(self);
+        if (std.mem.eql(u8, symbol_loc.getName(self), "__indirect_function_table")) {
+            continue;
+        }
         if (symbol.tag == .data or !symbol.requiresImport()) {
             continue;
         }
@@ -1166,13 +1172,20 @@ fn setupExports(self: *Wasm) !void {
         if (!symbol.isExported()) continue;
 
         const sym_name = sym_loc.getName(self);
-        const export_name = if (self.export_names.get(sym_loc)) |name| name else symbol.name;
+        const export_name = if (self.export_names.get(sym_loc)) |name| name else blk: {
+            if (sym_loc.file == null) break :blk symbol.name;
+            break :blk try self.string_table.put(self.base.allocator, sym_name);
+        };
         const exp: types.Export = .{
             .name = export_name,
             .kind = symbol.tag.externalType(),
             .index = symbol.index,
         };
-        log.debug("Exporting symbol '{s}' as '{s}' at index: ({d})", .{ sym_name, self.string_table.get(exp.name), exp.index });
+        log.debug("Exporting symbol '{s}' as '{s}' at index: ({d})", .{
+            sym_name,
+            self.string_table.get(exp.name),
+            exp.index,
+        });
         try self.exports.append(self.base.allocator, exp);
     }
 
@@ -1767,8 +1780,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try leb.writeULEB128(writer, @as(u8, 0));
         try leb.writeULEB128(writer, @intCast(u32, self.function_table.count()));
         var symbol_it = self.function_table.keyIterator();
-        while (symbol_it.next()) |symbol_index_ptr| {
-            try leb.writeULEB128(writer, self.symbols.items[symbol_index_ptr.*].index);
+        while (symbol_it.next()) |symbol_loc_ptr| {
+            try leb.writeULEB128(writer, symbol_loc_ptr.*.getSymbol(self).index);
         }
 
         try writeVecSectionHeader(

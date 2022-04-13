@@ -851,15 +851,12 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
                 reloc.offset -= relocatable_data.offset;
                 try atom.relocs.append(gpa, reloc);
 
-                // TODO: Automatically append the target symbol to the indirect
-                // function table when the relocation is a table index.
-                //
-                // if (relocation.isTableIndex()) {
-                //     try wasm_bin.elements.appendSymbol(gpa, .{
-                //         .file = object_index,
-                //         .sym_index = relocation.index,
-                //     });
-                // }
+                if (relocation.isTableIndex()) {
+                    try wasm_bin.function_table.putNoClobber(gpa, .{
+                        .file = object_index,
+                        .index = relocation.index,
+                    }, 0);
+                }
             }
         }
 
