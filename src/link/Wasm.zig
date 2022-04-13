@@ -962,11 +962,6 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
 
     const segment: *Segment = &self.segments.items[final_index];
     segment.alignment = std.math.max(segment.alignment, atom.alignment);
-    segment.size = std.mem.alignForwardGeneric(
-        u32,
-        std.mem.alignForwardGeneric(u32, segment.size, atom.alignment) + atom.size,
-        segment.alignment,
-    );
 
     if (self.atoms.getPtr(final_index)) |last| {
         last.*.next = atom;
@@ -978,9 +973,10 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
 }
 
 fn allocateAtoms(self: *Wasm) !void {
-    var it = self.atoms.valueIterator();
-    while (it.next()) |current_atom| {
-        var atom: *Atom = current_atom.*.getFirst();
+    var it = self.atoms.iterator();
+    while (it.next()) |entry| {
+        const segment = &self.segments.items[entry.key_ptr.*];
+        var atom: *Atom = entry.value_ptr.*.getFirst();
         var offset: u32 = 0;
         while (true) {
             offset = std.mem.alignForwardGeneric(u32, offset, atom.alignment);
@@ -996,6 +992,7 @@ fn allocateAtoms(self: *Wasm) !void {
             self.symbol_atom.putAssumeCapacity(atom.symbolLoc(), atom); // Update atom pointers
             atom = atom.next orelse break;
         }
+        segment.size = std.mem.alignForwardGeneric(u32, offset, segment.alignment);
     }
 }
 
@@ -1566,8 +1563,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try self.objects.items[object_index].parseIntoAtoms(self.base.allocator, object_index, self);
     }
 
-    try self.setupMemory();
     try self.allocateAtoms();
+    try self.setupMemory();
     self.mapFunctionTable();
     try self.mergeSections();
     try self.mergeTypes();
@@ -1832,7 +1829,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             segment_count += 1;
             const atom_index = entry.value_ptr.*;
             var atom: *Atom = self.atoms.getPtr(atom_index).?.*.getFirst();
-            var segment = self.segments.items[atom_index];
+            const segment = self.segments.items[atom_index];
 
             // flag and index to memory section (currently, there can only be 1 memory section in wasm)
             try leb.writeULEB128(writer, @as(u32, 0));

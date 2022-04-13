@@ -865,11 +865,6 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
 
         const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];
         segment.alignment = std.math.max(segment.alignment, atom.alignment);
-        segment.size = std.mem.alignForwardGeneric(
-            u32,
-            std.mem.alignForwardGeneric(u32, segment.size, atom.alignment) + atom.size,
-            segment.alignment,
-        );
 
         if (wasm_bin.atoms.getPtr(final_index)) |last| {
             last.*.next = atom;
