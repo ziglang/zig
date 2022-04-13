@@ -239,6 +239,24 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
             assert(self.len <= capacity);
             mem.set(T, self.slice()[old_len..self.len], value);
         }
+
+        pub const Writer = if (T != u8)
+            @compileError("The Writer interface is only defined for BoundedArray(u8, ...) " ++
+                "but the given type is BoundedArray(" ++ @typeName(T) ++ ", ...)")
+        else
+            std.io.Writer(*Self, error{Overflow}, appendWrite);
+
+        /// Initializes a writer which will write into the array.
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
+
+        /// Same as `appendSlice` except it returns the number of bytes written, which is always the same
+        /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        fn appendWrite(self: *Self, m: []const u8) error{Overflow}!usize {
+            try self.appendSlice(m);
+            return m.len;
+        }
     };
 }
 
@@ -336,4 +354,10 @@ test "BoundedArray" {
     const swapped = a.swapRemove(0);
     try testing.expectEqual(swapped, 0xdd);
     try testing.expectEqual(a.get(0), 0xee);
+
+    while (a.popOrNull()) |_| {}
+    const w = a.writer();
+    const s = "hello, this is a test string";
+    try w.writeAll(s);
+    try testing.expectEqualStrings(s, a.constSlice());
 }
