@@ -3911,8 +3911,8 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
 
     const tag = self.air.instructions.items(.tag)[inst];
     switch (tag) {
-        .dbg_var_ptr => try self.genVarDbgInfo(ty.childType(), mcv, name),
-        .dbg_var_val => try self.genVarDbgInfo(ty, mcv, name),
+        .dbg_var_ptr => try self.genVarDbgInfo(tag, ty.childType(), mcv, name),
+        .dbg_var_val => try self.genVarDbgInfo(tag, ty, mcv, name),
         else => unreachable,
     }
 
@@ -3921,6 +3921,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
 
 fn genVarDbgInfo(
     self: *Self,
+    tag: Air.Inst.Tag,
     ty: Type,
     mcv: MCValue,
     name: [:0]const u8,
@@ -3952,9 +3953,14 @@ fn genVarDbgInfo(
                 .memory => |addr| {
                     const endian = self.target.cpu.arch.endian();
                     const ptr_width = @intCast(u8, @divExact(self.target.cpu.arch.ptrBitWidth(), 8));
+                    const is_ptr = switch (tag) {
+                        .dbg_var_ptr => true,
+                        .dbg_var_val => false,
+                        else => unreachable,
+                    };
                     try dbg_info.ensureUnusedCapacity(2 + ptr_width);
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1 + ptr_width,
+                        1 + ptr_width + @boolToInt(is_ptr),
                         DW.OP.addr, // literal address
                     });
                     switch (ptr_width) {
@@ -3965,6 +3971,10 @@ fn genVarDbgInfo(
                             try dbg_info.writer().writeInt(u64, addr, endian);
                         },
                         else => unreachable,
+                    }
+                    if (is_ptr) {
+                        // We need deref the address as we point to the value via GOT entry.
+                        try dbg_info.append(DW.OP.deref);
                     }
                 },
                 else => {
