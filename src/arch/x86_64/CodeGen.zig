@@ -3926,31 +3926,21 @@ fn genVarDbgInfo(
     name: [:0]const u8,
 ) !void {
     const name_with_null = name.ptr[0 .. name.len + 1];
-    switch (mcv) {
-        .register => |reg| {
-            switch (self.debug_output) {
-                .dwarf => |dw| {
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.ensureUnusedCapacity(3);
-                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
+    switch (self.debug_output) {
+        .dwarf => |dw| {
+            const dbg_info = &dw.dbg_info;
+            try dbg_info.append(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
+
+            switch (mcv) {
+                .register => |reg| {
+                    try dbg_info.ensureUnusedCapacity(2);
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // ULEB128 dwarf expression length
                         reg.dwarfLocOp(),
                     });
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                 },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        .ptr_stack_offset, .stack_offset => |off| {
-            switch (self.debug_output) {
-                .dwarf => |dw| {
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.ensureUnusedCapacity(8);
-                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
+                .ptr_stack_offset, .stack_offset => |off| {
+                    try dbg_info.ensureUnusedCapacity(7);
                     const fixup = dbg_info.items.len;
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // we will backpatch it after we encode the displacement in LEB128
@@ -3958,18 +3948,36 @@ fn genVarDbgInfo(
                     });
                     leb128.writeILEB128(dbg_info.writer(), -off) catch unreachable;
                     dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-
                 },
-                .plan9 => {},
-                .none => {},
+                .memory => |addr| {
+                    const endian = self.target.cpu.arch.endian();
+                    const ptr_width = @intCast(u8, @divExact(self.target.cpu.arch.ptrBitWidth(), 8));
+                    try dbg_info.ensureUnusedCapacity(2 + ptr_width);
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                        1 + ptr_width,
+                        DW.OP.addr, // literal address
+                    });
+                    switch (ptr_width) {
+                        0...4 => {
+                            try dbg_info.writer().writeInt(u32, @intCast(u32, addr), endian);
+                        },
+                        5...8 => {
+                            try dbg_info.writer().writeInt(u64, addr, endian);
+                        },
+                        else => unreachable,
+                    }
+                },
+                else => {
+                    log.debug("TODO generate debug info for {}", .{mcv});
+                },
             }
+
+            try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+            try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+            dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
         },
-        else => {
-            log.debug("TODO generate debug info for {}", .{mcv});
-        },
+        .plan9 => {},
+        .none => {},
     }
 }
 
