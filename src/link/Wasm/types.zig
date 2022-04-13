@@ -67,6 +67,18 @@ pub const Relocation = struct {
         };
     }
 
+    /// Returns true when the relocation represents a table index relocatable
+    pub fn isTableIndex(self: Relocation) bool {
+        return switch (self.relocation_type) {
+            .R_WASM_TABLE_INDEX_I32,
+            .R_WASM_TABLE_INDEX_I64,
+            .R_WASM_TABLE_INDEX_SLEB,
+            .R_WASM_TABLE_INDEX_SLEB64,
+            => true,
+            else => false,
+        };
+    }
+
     pub fn format(self: Relocation, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
