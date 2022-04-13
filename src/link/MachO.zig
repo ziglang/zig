@@ -3472,6 +3472,9 @@ pub fn closeFiles(self: MachO) void {
     for (self.dylibs.items) |dylib| {
         dylib.file.close();
     }
+    if (self.d_sym) |ds| {
+        ds.file.close();
+    }
 }
 
 fn freeAtom(self: *MachO, atom: *Atom, match: MatchingSection, owns_atom: bool) void {
@@ -4274,6 +4277,11 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
             self.got_entries_free_list.append(self.base.allocator, @intCast(u32, got_index)) catch {};
             self.got_entries.items[got_index] = .{ .target = .{ .local = 0 }, .atom = undefined };
             _ = self.got_entries_table.swapRemove(.{ .local = decl.link.macho.local_sym_index });
+
+            if (self.d_sym) |*d_sym| {
+                d_sym.swapRemoveRelocs(decl.link.macho.local_sym_index);
+            }
+
             log.debug("  adding GOT index {d} to free list (target local@{d})", .{
                 got_index,
                 decl.link.macho.local_sym_index,

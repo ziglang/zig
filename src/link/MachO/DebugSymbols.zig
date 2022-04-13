@@ -59,6 +59,19 @@ debug_aranges_section_dirty: bool = false,
 debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
+relocs: std.ArrayListUnmanaged(Reloc) = .{},
+
+pub const Reloc = struct {
+    @"type": enum {
+        direct_load,
+        got_load,
+    },
+    target: u32,
+    offset: u64,
+    addend: u32,
+    prev_vaddr: u64,
+};
+
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
 pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void {
@@ -254,6 +267,30 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
     // Zig source code.
     const module = options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
+    for (self.relocs.items) |*reloc| {
+        const sym = switch (reloc.@"type") {
+            .direct_load => self.base.locals.items[reloc.target],
+            .got_load => blk: {
+                const got_index = self.base.got_entries_table.get(.{ .local = reloc.target }).?;
+                const got_entry = self.base.got_entries.items[got_index];
+                break :blk self.base.locals.items[got_entry.atom.local_sym_index];
+            },
+        };
+        if (sym.n_value == reloc.prev_vaddr) continue;
+
+        const seg = &self.load_commands.items[self.dwarf_segment_cmd_index.?].segment;
+        const sect = &seg.sections.items[self.debug_info_section_index.?];
+        const file_offset = sect.offset + reloc.offset;
+        log.debug("resolving relocation: {d}@{x} ('{s}') at offset {x}", .{
+            reloc.target,
+            sym.n_value,
+            self.base.getString(sym.n_strx),
+            file_offset,
+        });
+        try self.file.pwriteAll(mem.asBytes(&sym.n_value), file_offset);
+        reloc.prev_vaddr = sym.n_value;
+    }
+
     if (self.debug_abbrev_section_dirty) {
         try self.dwarf.writeDbgAbbrev(&self.base.base);
         self.load_commands_dirty = true;
@@ -330,7 +367,20 @@ pub fn deinit(self: *DebugSymbols, allocator: Allocator) void {
     }
     self.load_commands.deinit(allocator);
     self.dwarf.deinit();
-    self.file.close();
+    self.relocs.deinit(allocator);
+}
+
+pub fn swapRemoveRelocs(self: *DebugSymbols, target: u32) void {
+    // TODO re-implement using a hashmap with free lists
+    var last_index: usize = 0;
+    while (last_index < self.relocs.items.len) {
+        const reloc = self.relocs.items[last_index];
+        if (reloc.target == target) {
+            _ = self.relocs.swapRemove(last_index);
+        } else {
+            last_index += 1;
+        }
+    }
 }
 
 fn copySegmentCommand(

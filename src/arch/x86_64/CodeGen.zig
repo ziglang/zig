@@ -3950,7 +3950,7 @@ fn genVarDbgInfo(
                     leb128.writeILEB128(dbg_info.writer(), -off) catch unreachable;
                     dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
                 },
-                .memory => |addr| {
+                .memory, .got_load, .direct_load => {
                     const endian = self.target.cpu.arch.endian();
                     const ptr_width = @intCast(u8, @divExact(self.target.cpu.arch.ptrBitWidth(), 8));
                     const is_ptr = switch (tag) {
@@ -3963,6 +3963,11 @@ fn genVarDbgInfo(
                         1 + ptr_width + @boolToInt(is_ptr),
                         DW.OP.addr, // literal address
                     });
+                    const offset = @intCast(u32, dbg_info.items.len);
+                    const addr = switch (mcv) {
+                        .memory => |addr| addr,
+                        else => 0,
+                    };
                     switch (ptr_width) {
                         0...4 => {
                             try dbg_info.writer().writeInt(u32, @intCast(u32, addr), endian);
@@ -3975,6 +3980,10 @@ fn genVarDbgInfo(
                     if (is_ptr) {
                         // We need deref the address as we point to the value via GOT entry.
                         try dbg_info.append(DW.OP.deref);
+                    }
+                    switch (mcv) {
+                        .got_load, .direct_load => |index| try dw.addExprlocReloc(index, offset, is_ptr),
+                        else => {},
                     }
                 },
                 else => {

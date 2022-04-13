@@ -79,6 +79,7 @@ pub const DeclState = struct {
         std.hash_map.default_max_load_percentage,
     ) = .{},
     abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
+    exprloc_relocs: std.ArrayListUnmanaged(ExprlocRelocation) = .{},
 
     fn init(gpa: Allocator, target: std.Target) DeclState {
         return .{
@@ -97,6 +98,16 @@ pub const DeclState = struct {
         self.abbrev_table.deinit(self.gpa);
         self.abbrev_resolver.deinit(self.gpa);
         self.abbrev_relocs.deinit(self.gpa);
+        self.exprloc_relocs.deinit(self.gpa);
+    }
+
+    pub fn addExprlocReloc(self: *DeclState, target: u32, offset: u32, is_ptr: bool) !void {
+        log.debug("{x}: target sym @{d}, via GOT {}", .{ offset, target, is_ptr });
+        try self.exprloc_relocs.append(self.gpa, .{
+            .@"type" = if (is_ptr) .got_load else .direct_load,
+            .target = target,
+            .offset = offset,
+        });
     }
 
     pub fn addTypeReloc(
@@ -547,6 +558,18 @@ pub const AbbrevRelocation = struct {
     atom: *const Atom,
     offset: u32,
     addend: u32,
+};
+
+pub const ExprlocRelocation = struct {
+    /// Type of the relocation: direct load ref, or GOT load ref (via GOT table)
+    @"type": enum {
+        direct_load,
+        got_load,
+    },
+    /// Index of the target in the linker's locals symbol table.
+    target: u32,
+    /// Offset within the debug info buffer where to patch up the address value.
+    offset: u32,
 };
 
 pub const SrcFn = struct {
@@ -1006,6 +1029,26 @@ pub fn commitDeclState(
                 symbol.atom.off + symbol.offset + reloc.addend,
                 target_endian,
             );
+        }
+    }
+
+    while (decl_state.exprloc_relocs.popOrNull()) |reloc| {
+        switch (self.tag) {
+            .macho => {
+                const macho_file = file.cast(File.MachO).?;
+                const d_sym = &macho_file.d_sym.?;
+                try d_sym.relocs.append(d_sym.base.base.allocator, .{
+                    .@"type" = switch (reloc.@"type") {
+                        .direct_load => .direct_load,
+                        .got_load => .got_load,
+                    },
+                    .target = reloc.target,
+                    .offset = reloc.offset + atom.off,
+                    .addend = 0,
+                    .prev_vaddr = 0,
+                });
+            },
+            else => unreachable,
         }
     }
 
