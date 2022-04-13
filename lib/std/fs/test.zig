@@ -434,9 +434,6 @@ test "Dir.rename files" {
 }
 
 test "Dir.rename directories" {
-    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
