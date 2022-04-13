@@ -1061,7 +1061,7 @@ pub const Instruction = union(enum) {
         // Tcc instructions abuse the rd field to store the conditionals.
         return switch (s2) {
             Register => format4a(0b11_1010, ccr, rs1, rs2, @intToEnum(Register, cond)),
-            u7 => format4e(0b00_0100, ccr, rs1, @intToEnum(Register, cond), rs2),
+            u7 => format4e(0b11_1010, ccr, rs1, @intToEnum(Register, cond), rs2),
             else => unreachable,
         };
     }
