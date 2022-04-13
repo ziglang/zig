@@ -270,6 +270,27 @@ pub const DeclState = struct {
                     try self.addTypeReloc(atom, ty.childType(), @intCast(u32, index), null);
                 }
             },
+            .Array => {
+                // DW.AT.array_type
+                try dbg_info_buffer.append(@enumToInt(AbbrevKind.array_type));
+                // DW.AT.name, DW.FORM.string
+                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(target)});
+                // DW.AT.type, DW.FORM.ref4
+                var index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try self.addTypeReloc(atom, ty.childType(), @intCast(u32, index), null);
+                // DW.AT.subrange_type
+                try dbg_info_buffer.append(@enumToInt(AbbrevKind.array_dim));
+                // DW.AT.type, DW.FORM.ref4
+                index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try self.addTypeReloc(atom, Type.usize, @intCast(u32, index), null);
+                // DW.AT.count, DW.FORM.udata
+                const len = ty.arrayLenIncludingSentinel();
+                try leb128.writeULEB128(dbg_info_buffer.writer(), len);
+                // DW.AT.array_type delimit children
+                try dbg_info_buffer.append(0);
+            },
             .Struct => blk: {
                 // DW.AT.structure_type
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_type));
@@ -564,6 +585,8 @@ pub const AbbrevKind = enum(u8) {
     pad1,
     parameter,
     variable,
+    array_type,
+    array_dim,
 };
 
 /// The reloc offset for the virtual address of a function in its Line Number Program.
@@ -1355,6 +1378,18 @@ pub fn writeDbgAbbrev(self: *Dwarf, file: *File) !void {
         DW.AT.location,  DW.FORM.exprloc,
         DW.AT.type,      DW.FORM.ref4,
         DW.AT.name,      DW.FORM.string,
+        0,
+        0, // table sentinel
+        @enumToInt(AbbrevKind.array_type),
+        DW.TAG.array_type, DW.CHILDREN.yes, // header
+        DW.AT.name,        DW.FORM.string,
+        DW.AT.type,        DW.FORM.ref4,
+        0,
+        0, // table sentinel
+        @enumToInt(AbbrevKind.array_dim),
+        DW.TAG.subrange_type, DW.CHILDREN.no, // header
+        DW.AT.type,           DW.FORM.ref4,
+        DW.AT.count,          DW.FORM.udata,
         0,
         0, // table sentinel
         0,

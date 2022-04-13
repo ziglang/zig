@@ -203,7 +203,6 @@ pub fn generateSymbol(
         },
         .Array => switch (typed_value.val.tag()) {
             .bytes => {
-                // TODO populate .debug_info for the array
                 const payload = typed_value.val.castTag(.bytes).?;
                 const len = @intCast(usize, typed_value.ty.arrayLenIncludingSentinel());
                 // The bytes payload already includes the sentinel, if any
@@ -212,7 +211,6 @@ pub fn generateSymbol(
                 return Result{ .appended = {} };
             },
             .aggregate => {
-                // TODO populate .debug_info for the array
                 const elem_vals = typed_value.val.castTag(.aggregate).?.data;
                 const elem_ty = typed_value.ty.elemType();
                 const len = @intCast(usize, typed_value.ty.arrayLenIncludingSentinel());
