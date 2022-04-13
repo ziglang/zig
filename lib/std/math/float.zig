@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 /// Creates a raw "1.0" mantissa for floating point type T. Used to dedupe f80 logic.
 fn mantissaOne(comptime T: type) comptime_int {
-    return if (floatMantissaDigits(T) == 64) 1 << 63 else 0;
+    return if (T == f80) 1 << floatFractionalBits(T) else 0;
 }
 
 /// Creates floating point type T from an unbiased exponent and raw mantissa.
@@ -42,19 +42,19 @@ pub fn floatMantissaBits(comptime T: type) comptime_int {
     };
 }
 
-/// Returns the number of binary digits in the mantissa of floating point type T.
-pub fn floatMantissaDigits(comptime T: type) comptime_int {
+/// Returns the number of fractional bits in the mantissa of floating point type T.
+pub fn floatFractionalBits(comptime T: type) comptime_int {
     assert(@typeInfo(T) == .Float);
 
     // standard IEEE floats have an implicit 0.m or 1.m integer part
     // f80 is special and has an explicitly stored bit in the MSB
-    // this function corresponds to `MANT_DIG' constants from C
+    // this function corresponds to `MANT_DIG - 1' from C
     return switch (@typeInfo(T).Float.bits) {
-        16 => 11,
-        32 => 24,
-        64 => 53,
-        80 => 64,
-        128 => 113,
+        16 => 10,
+        32 => 23,
+        64 => 52,
+        80 => 63,
+        128 => 112,
         else => @compileError("unknown floating point type " ++ @typeName(T)),
     };
 }
@@ -89,7 +89,7 @@ pub fn floatMax(comptime T: type) T {
 
 /// Returns the machine epsilon of floating point type T.
 pub fn floatEps(comptime T: type) T {
-    return reconstructFloat(T, -(floatMantissaDigits(T) - 1), mantissaOne(T));
+    return reconstructFloat(T, -floatFractionalBits(T), mantissaOne(T));
 }
 
 /// Returns the value inf for floating point type T.
@@ -104,7 +104,7 @@ test "std.math.float" {
         try expect(@bitSizeOf(T) == size);
 
         // for machine epsilon, assert expmin <= -prec <= expmax
-        try expect(floatExponentMin(T) <= -(floatMantissaDigits(T) - 1));
-        try expect(-(floatMantissaDigits(T) - 1) <= floatExponentMax(T));
+        try expect(floatExponentMin(T) <= -floatFractionalBits(T));
+        try expect(-floatFractionalBits(T) <= floatExponentMax(T));
     }
 }

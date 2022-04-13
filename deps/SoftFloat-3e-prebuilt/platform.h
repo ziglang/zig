@@ -17,8 +17,6 @@
 #define BIGENDIAN 1
 #elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define BIGENDIAN 1
-#elif defined(_BIG_ENDIAN)
-#define BIGENDIAN 1
 #elif defined(__sparc)
 #define BIGENDIAN 1
 #elif defined(__sparc__)
@@ -37,7 +35,9 @@
 #define BIGENDIAN 1
 #elif defined(__s390__)
 #define BIGENDIAN 1
-#elif defined(__LITTLE_ENDIAN__)
+#endif
+
+#if defined(__LITTLE_ENDIAN__)
 #define LITTLEENDIAN 1
 #elif defined(__ARMEL__)
 #define LITTLEENDIAN 1
@@ -52,8 +52,6 @@
 #elif defined(__MIPSEL__)
 #define LITTLEENDIAN 1
 #elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define LITTLEENDIAN 1
-#elif defined(_LITTLE_ENDIAN)
 #define LITTLEENDIAN 1
 #elif defined(__i386__)
 #define LITTLEENDIAN 1
@@ -83,7 +81,11 @@
 #define LITTLEENDIAN 1
 #elif defined(__bfin__)
 #define LITTLEENDIAN 1
-#else
+#endif
+
+#if defined(LITTLEENDIAN) && defined(BIGENDIAN)
+#error unable to detect endianness
+#elif !defined(LITTLEENDIAN) && !defined(BIGENDIAN)
 #error unable to detect endianness
 #endif
 

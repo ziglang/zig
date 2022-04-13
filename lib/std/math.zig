@@ -38,7 +38,7 @@ pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 
 pub const floatExponentBits = @import("math/float.zig").floatExponentBits;
 pub const floatMantissaBits = @import("math/float.zig").floatMantissaBits;
-pub const floatMantissaDigits = @import("math/float.zig").floatMantissaDigits;
+pub const floatFractionalBits = @import("math/float.zig").floatFractionalBits;
 pub const floatExponentMin = @import("math/float.zig").floatExponentMin;
 pub const floatExponentMax = @import("math/float.zig").floatExponentMax;
 pub const floatTrueMin = @import("math/float.zig").floatTrueMin;

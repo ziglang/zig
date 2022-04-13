@@ -66,19 +66,19 @@ pub fn _Qp_fge(a: *f128, b: *f128) callconv(.C) bool {
 // Conversion
 
 pub fn _Qp_itoq(c: *f128, a: i32) callconv(.C) void {
-    c.* = @import("floatsiXf.zig").__floatsitf(a);
+    c.* = @import("floatXiYf.zig").__floatsitf(a);
 }
 
 pub fn _Qp_uitoq(c: *f128, a: u32) callconv(.C) void {
-    c.* = @import("floatunsitf.zig").__floatunsitf(a);
+    c.* = @import("floatXiYf.zig").__floatunsitf(a);
 }
 
 pub fn _Qp_xtoq(c: *f128, a: i64) callconv(.C) void {
-    c.* = @import("floatditf.zig").__floatditf(a);
+    c.* = @import("floatXiYf.zig").__floatditf(a);
 }
 
 pub fn _Qp_uxtoq(c: *f128, a: u64) callconv(.C) void {
-    c.* = @import("floatunditf.zig").__floatunditf(a);
+    c.* = @import("floatXiYf.zig").__floatunditf(a);
 }
 
 pub fn _Qp_stoq(c: *f128, a: f32) callconv(.C) void {
@@ -90,19 +90,19 @@ pub fn _Qp_dtoq(c: *f128, a: f64) callconv(.C) void {
 }
 
 pub fn _Qp_qtoi(a: *f128) callconv(.C) i32 {
-    return @import("fixtfsi.zig").__fixtfsi(a.*);
+    return @import("fixXfYi.zig").__fixtfsi(a.*);
 }
 
 pub fn _Qp_qtoui(a: *f128) callconv(.C) u32 {
-    return @import("fixunstfsi.zig").__fixunstfsi(a.*);
+    return @import("fixXfYi.zig").__fixunstfsi(a.*);
 }
 
 pub fn _Qp_qtox(a: *f128) callconv(.C) i64 {
-    return @import("fixtfdi.zig").__fixtfdi(a.*);
+    return @import("fixXfYi.zig").__fixtfdi(a.*);
 }
 
 pub fn _Qp_qtoux(a: *f128) callconv(.C) u64 {
-    return @import("fixunstfdi.zig").__fixunstfdi(a.*);
+    return @import("fixXfYi.zig").__fixunstfdi(a.*);
 }
 
 pub fn _Qp_qtos(a: *f128) callconv(.C) f32 {
