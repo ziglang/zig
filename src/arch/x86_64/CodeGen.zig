@@ -3903,17 +3903,17 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const operand = pl_op.operand;
     const ty = self.air.typeOf(operand);
+    const mcv = try self.resolveInst(operand);
 
-    if (!self.liveness.operandDies(inst, 0)) {
-        const mcv = try self.resolveInst(operand);
-        const name = self.air.nullTerminatedString(pl_op.payload);
+    log.debug("airDbgVar: %{d}: {}, {}", .{ inst, ty.fmtDebug(), mcv });
 
-        const tag = self.air.instructions.items(.tag)[inst];
-        switch (tag) {
-            .dbg_var_ptr => try self.genVarDbgInfo(ty.childType(), mcv, name),
-            .dbg_var_val => try self.genVarDbgInfo(ty, mcv, name),
-            else => unreachable,
-        }
+    const name = self.air.nullTerminatedString(pl_op.payload);
+
+    const tag = self.air.instructions.items(.tag)[inst];
+    switch (tag) {
+        .dbg_var_ptr => try self.genVarDbgInfo(ty.childType(), mcv, name),
+        .dbg_var_val => try self.genVarDbgInfo(ty, mcv, name),
+        else => unreachable,
     }
 
     return self.finishAir(inst, .dead, .{ operand, .none, .none });
@@ -6089,6 +6089,7 @@ fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCV
 }
 
 fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCValue {
+    log.debug("lowerDeclRef: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
@@ -6100,7 +6101,8 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
         }
     }
 
-    decl.alive = true;
+    decl.markAlive();
+
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
@@ -6120,8 +6122,6 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
     } else {
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});
     }
-
-    _ = tv;
 }
 
 fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
@@ -6144,6 +6144,7 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
 }
 
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
+    log.debug("genTypedValue: ty = {}, val = {}", .{ typed_value.ty.fmtDebug(), typed_value.val.fmtDebug() });
     if (typed_value.val.isUndef())
         return MCValue{ .undef = {} };
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
@@ -6181,8 +6182,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .Bool => {
             return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
         },
-        .ComptimeInt => unreachable, // semantic analysis prevents this
-        .ComptimeFloat => unreachable, // semantic analysis prevents this
         .Optional => {
             if (typed_value.ty.isPtrLikeOptional()) {
                 if (typed_value.val.isNull())
@@ -6243,6 +6242,18 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 }
             }
         },
+
+        .ComptimeInt => unreachable,
+        .ComptimeFloat => unreachable,
+        .Type => unreachable,
+        .EnumLiteral => unreachable,
+        .Void => unreachable,
+        .NoReturn => unreachable,
+        .Undefined => unreachable,
+        .Null => unreachable,
+        .BoundFn => unreachable,
+        .Opaque => unreachable,
+
         else => {},
     }
 
