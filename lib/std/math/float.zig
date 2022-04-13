@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 /// Creates a raw "1.0" mantissa for floating point type T. Used to dedupe f80 logic.
 fn mantissaOne(comptime T: type) comptime_int {
-    return if (T == f80) 1 << floatFractionalBits(T) else 0;
+    return if (@typeInfo(T).Float.bits == 80) 1 << floatFractionalBits(T) else 0;
 }
 
 /// Creates floating point type T from an unbiased exponent and raw mantissa.
