@@ -2799,6 +2799,22 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
     };
+    const sym_align: u16 = switch (self.ptr_width) {
+        .p32 => @alignOf(elf.Elf32_Sym),
+        .p64 => @alignOf(elf.Elf64_Sym),
+    };
+    const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
+    if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
+        // Move all the symbols to a new file location.
+        const new_offset = self.findFreeSpace(needed_size, sym_align);
+        const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
+        const amt = try self.base.file.?.copyRangeAll(syms_sect.sh_offset, self.base.file.?, new_offset, existing_size);
+        if (amt != existing_size) return error.InputOutput;
+        syms_sect.sh_offset = new_offset;
+    }
+    syms_sect.sh_size = needed_size; // anticipating adding the global symbols later
+    self.shdr_table_dirty = true; // TODO look into only writing one section
+
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     const global_syms_off = syms_sect.sh_offset + self.local_symbols.items.len * sym_size;
     switch (self.ptr_width) {
