@@ -100,11 +100,11 @@ offset_table: std.ArrayListUnmanaged(u64) = .{},
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
 shstrtab_dirty: bool = false,
-debug_strtab_dirty: bool = false,
 offset_table_count_dirty: bool = false,
+
+debug_strtab_dirty: bool = false,
 debug_abbrev_section_dirty: bool = false,
 debug_aranges_section_dirty: bool = false,
-
 debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
@@ -749,127 +749,129 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         try self.writeSymbol(0);
     }
 
-    if (self.debug_str_section_index == null) {
-        self.debug_str_section_index = @intCast(u16, self.sections.items.len);
-        assert(self.dwarf.?.strtab.items.len == 0);
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_str"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
-            .sh_addr = 0,
-            .sh_offset = 0,
-            .sh_size = 0,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = 1,
-            .sh_entsize = 1,
-        });
-        self.debug_strtab_dirty = true;
-        self.shdr_table_dirty = true;
-    }
+    if (self.dwarf) |dw| {
+        if (self.debug_str_section_index == null) {
+            self.debug_str_section_index = @intCast(u16, self.sections.items.len);
+            assert(dw.strtab.items.len == 0);
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_str"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                .sh_addr = 0,
+                .sh_offset = 0,
+                .sh_size = 0,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = 1,
+                .sh_entsize = 1,
+            });
+            self.debug_strtab_dirty = true;
+            self.shdr_table_dirty = true;
+        }
 
-    if (self.debug_info_section_index == null) {
-        self.debug_info_section_index = @intCast(u16, self.sections.items.len);
+        if (self.debug_info_section_index == null) {
+            self.debug_info_section_index = @intCast(u16, self.sections.items.len);
 
-        const file_size_hint = 200;
-        const p_align = 1;
-        const off = self.findFreeSpace(file_size_hint, p_align);
-        log.debug("found .debug_info free space 0x{x} to 0x{x}", .{
-            off,
-            off + file_size_hint,
-        });
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_info"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = file_size_hint,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = p_align,
-            .sh_entsize = 0,
-        });
-        self.shdr_table_dirty = true;
-        self.debug_info_header_dirty = true;
-    }
+            const file_size_hint = 200;
+            const p_align = 1;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_info free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_info"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_info_header_dirty = true;
+        }
 
-    if (self.debug_abbrev_section_index == null) {
-        self.debug_abbrev_section_index = @intCast(u16, self.sections.items.len);
+        if (self.debug_abbrev_section_index == null) {
+            self.debug_abbrev_section_index = @intCast(u16, self.sections.items.len);
 
-        const file_size_hint = 128;
-        const p_align = 1;
-        const off = self.findFreeSpace(file_size_hint, p_align);
-        log.debug("found .debug_abbrev free space 0x{x} to 0x{x}", .{
-            off,
-            off + file_size_hint,
-        });
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_abbrev"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = file_size_hint,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = p_align,
-            .sh_entsize = 0,
-        });
-        self.shdr_table_dirty = true;
-        self.debug_abbrev_section_dirty = true;
-    }
+            const file_size_hint = 128;
+            const p_align = 1;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_abbrev free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_abbrev"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_abbrev_section_dirty = true;
+        }
 
-    if (self.debug_aranges_section_index == null) {
-        self.debug_aranges_section_index = @intCast(u16, self.sections.items.len);
+        if (self.debug_aranges_section_index == null) {
+            self.debug_aranges_section_index = @intCast(u16, self.sections.items.len);
 
-        const file_size_hint = 160;
-        const p_align = 16;
-        const off = self.findFreeSpace(file_size_hint, p_align);
-        log.debug("found .debug_aranges free space 0x{x} to 0x{x}", .{
-            off,
-            off + file_size_hint,
-        });
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_aranges"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = file_size_hint,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = p_align,
-            .sh_entsize = 0,
-        });
-        self.shdr_table_dirty = true;
-        self.debug_aranges_section_dirty = true;
-    }
+            const file_size_hint = 160;
+            const p_align = 16;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_aranges free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_aranges"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_aranges_section_dirty = true;
+        }
 
-    if (self.debug_line_section_index == null) {
-        self.debug_line_section_index = @intCast(u16, self.sections.items.len);
+        if (self.debug_line_section_index == null) {
+            self.debug_line_section_index = @intCast(u16, self.sections.items.len);
 
-        const file_size_hint = 250;
-        const p_align = 1;
-        const off = self.findFreeSpace(file_size_hint, p_align);
-        log.debug("found .debug_line free space 0x{x} to 0x{x}", .{
-            off,
-            off + file_size_hint,
-        });
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_line"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = file_size_hint,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = p_align,
-            .sh_entsize = 0,
-        });
-        self.shdr_table_dirty = true;
-        self.debug_line_header_dirty = true;
+            const file_size_hint = 250;
+            const p_align = 1;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_line free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_line"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_line_header_dirty = true;
+        }
     }
 
     const shsize: u64 = switch (self.ptr_width) {
@@ -1001,40 +1003,42 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     // mixing local and global symbols within a symbol table.
     try self.writeAllGlobalSymbols();
 
-    if (self.debug_abbrev_section_dirty) {
-        try self.dwarf.?.writeDbgAbbrev(&self.base);
-        if (!self.shdr_table_dirty) {
-            // Then it won't get written with the others and we need to do it.
-            try self.writeSectHeader(self.debug_abbrev_section_index.?);
+    if (self.dwarf) |*dw| {
+        if (self.debug_abbrev_section_dirty) {
+            try dw.writeDbgAbbrev(&self.base);
+            if (!self.shdr_table_dirty) {
+                // Then it won't get written with the others and we need to do it.
+                try self.writeSectHeader(self.debug_abbrev_section_index.?);
+            }
+            self.debug_abbrev_section_dirty = false;
         }
-        self.debug_abbrev_section_dirty = false;
-    }
 
-    if (self.debug_info_header_dirty) {
-        // Currently only one compilation unit is supported, so the address range is simply
-        // identical to the main program header virtual address and memory size.
-        const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-        const low_pc = text_phdr.p_vaddr;
-        const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-        try self.dwarf.?.writeDbgInfoHeader(&self.base, module, low_pc, high_pc);
-        self.debug_info_header_dirty = false;
-    }
-
-    if (self.debug_aranges_section_dirty) {
-        // Currently only one compilation unit is supported, so the address range is simply
-        // identical to the main program header virtual address and memory size.
-        const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-        try self.dwarf.?.writeDbgAranges(&self.base, text_phdr.p_vaddr, text_phdr.p_memsz);
-        if (!self.shdr_table_dirty) {
-            // Then it won't get written with the others and we need to do it.
-            try self.writeSectHeader(self.debug_aranges_section_index.?);
+        if (self.debug_info_header_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            const low_pc = text_phdr.p_vaddr;
+            const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
+            try dw.writeDbgInfoHeader(&self.base, module, low_pc, high_pc);
+            self.debug_info_header_dirty = false;
         }
-        self.debug_aranges_section_dirty = false;
-    }
 
-    if (self.debug_line_header_dirty) {
-        try self.dwarf.?.writeDbgLineHeader(&self.base, module);
-        self.debug_line_header_dirty = false;
+        if (self.debug_aranges_section_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            try dw.writeDbgAranges(&self.base, text_phdr.p_vaddr, text_phdr.p_memsz);
+            if (!self.shdr_table_dirty) {
+                // Then it won't get written with the others and we need to do it.
+                try self.writeSectHeader(self.debug_aranges_section_index.?);
+            }
+            self.debug_aranges_section_dirty = false;
+        }
+
+        if (self.debug_line_header_dirty) {
+            try dw.writeDbgLineHeader(&self.base, module);
+            self.debug_line_header_dirty = false;
+        }
     }
 
     if (self.phdr_table_dirty) {
@@ -1105,9 +1109,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
         }
     }
 
-    {
+    if (self.dwarf) |dwarf| {
         const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
-        const dwarf = self.dwarf.?;
         if (self.debug_strtab_dirty or dwarf.strtab.items.len != debug_strtab_sect.sh_size) {
             const allocated_size = self.allocatedSize(debug_strtab_sect.sh_offset);
             const needed_size = dwarf.strtab.items.len;
@@ -2105,14 +2108,16 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
         phdr.p_memsz = needed_size;
         phdr.p_filesz = needed_size;
 
-        // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
-        // range of the compilation unit. When we expand the text section, this range changes,
-        // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
-        self.debug_info_header_dirty = true;
-        // This becomes dirty for the same reason. We could potentially make this more
-        // fine-grained with the addition of support for more compilation units. It is planned to
-        // model each package as a different compilation unit.
-        self.debug_aranges_section_dirty = true;
+        if (self.dwarf) |_| {
+            // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
+            // range of the compilation unit. When we expand the text section, this range changes,
+            // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
+            self.debug_info_header_dirty = true;
+            // This becomes dirty for the same reason. We could potentially make this more
+            // fine-grained with the addition of support for more compilation units. It is planned to
+            // model each package as a different compilation unit.
+            self.debug_aranges_section_dirty = true;
+        }
 
         self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
         self.shdr_table_dirty = true; // TODO look into making only the one section dirty
