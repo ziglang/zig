@@ -24,6 +24,13 @@ const supports_atomic_ops = switch (arch) {
 // load/store atomically.
 // Objects bigger than this threshold require the use of a lock.
 const largest_atomic_size = switch (arch) {
+    // On SPARC systems that lacks CAS and/or swap instructions, the only
+    // available atomic operation is a test-and-set (`ldstub`), so we force
+    // every atomic memory access to go through the lock.
+    // XXX: Check the presence of CAS/swap instructions and set this parameter
+    // accordingly.
+    .sparc, .sparcel, .sparcv9 => 0,
+
     // XXX: On x86/x86_64 we could check the presence of cmpxchg8b/cmpxchg16b
     // and set this parameter accordingly.
     else => @sizeOf(usize),
@@ -38,18 +45,35 @@ const SpinlockTable = struct {
     const Spinlock = struct {
         // Prevent false sharing by providing enough padding between two
         // consecutive spinlock elements
-        v: enum(usize) { Unlocked = 0, Locked } align(cache_line_size) = .Unlocked,
+        v: if (arch.isSPARC()) enum(u8) { Unlocked = 0, Locked = 255 } else enum(usize) { Unlocked = 0, Locked } align(cache_line_size) = .Unlocked,
 
         fn acquire(self: *@This()) void {
             while (true) {
-                switch (@atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .Acquire)) {
+                const flag = if (comptime arch.isSPARC())
+                    asm volatile ("ldstub [%[addr]], %[flag]"
+                        : [flag] "=r" (-> @TypeOf(self.v)),
+                        : [addr] "r" (&self.v),
+                        : "memory"
+                    )
+                else
+                    @atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .Acquire);
+
+                switch (flag) {
                     .Unlocked => break,
                     .Locked => {},
                 }
             }
         }
         fn release(self: *@This()) void {
-            @atomicStore(@TypeOf(self.v), &self.v, .Unlocked, .Release);
+            if (comptime arch.isSPARC()) {
+                _ = asm volatile ("clr [%[addr]]"
+                    :
+                    : [addr] "r" (&self.v),
+                    : "memory"
+                );
+            } else {
+                @atomicStore(@TypeOf(self.v), &self.v, .Unlocked, .Release);
+            }
         }
     };
 
