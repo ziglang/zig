@@ -719,7 +719,7 @@ pub fn addCases(ctx: *TestContext) !void {
             );
             switch (target.getOsTag()) {
                 .linux => try case.files.append(.{
-                    .src =
+                    .src = 
                     \\pub fn print() void {
                     \\    asm volatile ("syscall"
                     \\        :
@@ -735,7 +735,7 @@ pub fn addCases(ctx: *TestContext) !void {
                     .path = "print.zig",
                 }),
                 .macos => try case.files.append(.{
-                    .src =
+                    .src = 
                     \\extern "c" fn write(usize, usize, usize) usize;
                     \\
                     \\pub fn print() void {
@@ -796,7 +796,7 @@ pub fn addCases(ctx: *TestContext) !void {
             );
             switch (target.getOsTag()) {
                 .linux => try case.files.append(.{
-                    .src =
+                    .src = 
                     \\// dummy comment to make print be on line 2
                     \\fn print() void {
                     \\    asm volatile ("syscall"
@@ -813,7 +813,7 @@ pub fn addCases(ctx: *TestContext) !void {
                     .path = "print.zig",
                 }),
                 .macos => try case.files.append(.{
-                    .src =
+                    .src = 
                     \\extern "c" fn write(usize, usize, usize) usize;
                     \\fn print() void {
                     \\    _ = write(1, @ptrToInt("Hello, World!\n"), 14);

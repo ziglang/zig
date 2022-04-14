@@ -170,7 +170,7 @@ fn exit2(code: usize) noreturn {
                 asm volatile ("ta 0x6d"
                     :
                     : [number] "{g1}" (1),
-                      [arg1] "{o0}" (code)
+                      [arg1] "{o0}" (code),
                     : "o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "memory"
                 );
             },
