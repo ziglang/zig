@@ -79,6 +79,7 @@ pub const DeclState = struct {
         std.hash_map.default_max_load_percentage,
     ) = .{},
     abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
+    exprloc_relocs: std.ArrayListUnmanaged(ExprlocRelocation) = .{},
 
     fn init(gpa: Allocator, target: std.Target) DeclState {
         return .{
@@ -97,6 +98,16 @@ pub const DeclState = struct {
         self.abbrev_table.deinit(self.gpa);
         self.abbrev_resolver.deinit(self.gpa);
         self.abbrev_relocs.deinit(self.gpa);
+        self.exprloc_relocs.deinit(self.gpa);
+    }
+
+    pub fn addExprlocReloc(self: *DeclState, target: u32, offset: u32, is_ptr: bool) !void {
+        log.debug("{x}: target sym @{d}, via GOT {}", .{ offset, target, is_ptr });
+        try self.exprloc_relocs.append(self.gpa, .{
+            .@"type" = if (is_ptr) .got_load else .direct_load,
+            .target = target,
+            .offset = offset,
+        });
     }
 
     pub fn addTypeReloc(
@@ -269,6 +280,27 @@ pub const DeclState = struct {
                     try dbg_info_buffer.resize(index + 4);
                     try self.addTypeReloc(atom, ty.childType(), @intCast(u32, index), null);
                 }
+            },
+            .Array => {
+                // DW.AT.array_type
+                try dbg_info_buffer.append(@enumToInt(AbbrevKind.array_type));
+                // DW.AT.name, DW.FORM.string
+                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(target)});
+                // DW.AT.type, DW.FORM.ref4
+                var index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try self.addTypeReloc(atom, ty.childType(), @intCast(u32, index), null);
+                // DW.AT.subrange_type
+                try dbg_info_buffer.append(@enumToInt(AbbrevKind.array_dim));
+                // DW.AT.type, DW.FORM.ref4
+                index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try self.addTypeReloc(atom, Type.usize, @intCast(u32, index), null);
+                // DW.AT.count, DW.FORM.udata
+                const len = ty.arrayLenIncludingSentinel();
+                try leb128.writeULEB128(dbg_info_buffer.writer(), len);
+                // DW.AT.array_type delimit children
+                try dbg_info_buffer.append(0);
             },
             .Struct => blk: {
                 // DW.AT.structure_type
@@ -528,6 +560,18 @@ pub const AbbrevRelocation = struct {
     addend: u32,
 };
 
+pub const ExprlocRelocation = struct {
+    /// Type of the relocation: direct load ref, or GOT load ref (via GOT table)
+    @"type": enum {
+        direct_load,
+        got_load,
+    },
+    /// Index of the target in the linker's locals symbol table.
+    target: u32,
+    /// Offset within the debug info buffer where to patch up the address value.
+    offset: u32,
+};
+
 pub const SrcFn = struct {
     /// Offset from the beginning of the Debug Line Program header that contains this function.
     off: u32,
@@ -564,6 +608,8 @@ pub const AbbrevKind = enum(u8) {
     pad1,
     parameter,
     variable,
+    array_type,
+    array_dim,
 };
 
 /// The reloc offset for the virtual address of a function in its Line Number Program.
@@ -986,6 +1032,26 @@ pub fn commitDeclState(
         }
     }
 
+    while (decl_state.exprloc_relocs.popOrNull()) |reloc| {
+        switch (self.tag) {
+            .macho => {
+                const macho_file = file.cast(File.MachO).?;
+                const d_sym = &macho_file.d_sym.?;
+                try d_sym.relocs.append(d_sym.base.base.allocator, .{
+                    .@"type" = switch (reloc.@"type") {
+                        .direct_load => .direct_load,
+                        .got_load => .got_load,
+                    },
+                    .target = reloc.target,
+                    .offset = reloc.offset + atom.off,
+                    .addend = 0,
+                    .prev_vaddr = 0,
+                });
+            },
+            else => unreachable,
+        }
+    }
+
     try self.writeDeclDebugInfo(file, atom, dbg_info_buffer.items);
 }
 
@@ -1355,6 +1421,18 @@ pub fn writeDbgAbbrev(self: *Dwarf, file: *File) !void {
         DW.AT.location,  DW.FORM.exprloc,
         DW.AT.type,      DW.FORM.ref4,
         DW.AT.name,      DW.FORM.string,
+        0,
+        0, // table sentinel
+        @enumToInt(AbbrevKind.array_type),
+        DW.TAG.array_type, DW.CHILDREN.yes, // header
+        DW.AT.name,        DW.FORM.string,
+        DW.AT.type,        DW.FORM.ref4,
+        0,
+        0, // table sentinel
+        @enumToInt(AbbrevKind.array_dim),
+        DW.TAG.subrange_type, DW.CHILDREN.no, // header
+        DW.AT.type,           DW.FORM.ref4,
+        DW.AT.count,          DW.FORM.udata,
         0,
         0, // table sentinel
         0,

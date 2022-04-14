@@ -3903,17 +3903,17 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const operand = pl_op.operand;
     const ty = self.air.typeOf(operand);
+    const mcv = try self.resolveInst(operand);
 
-    if (!self.liveness.operandDies(inst, 0)) {
-        const mcv = try self.resolveInst(operand);
-        const name = self.air.nullTerminatedString(pl_op.payload);
+    log.debug("airDbgVar: %{d}: {}, {}", .{ inst, ty.fmtDebug(), mcv });
 
-        const tag = self.air.instructions.items(.tag)[inst];
-        switch (tag) {
-            .dbg_var_ptr => try self.genVarDbgInfo(ty.childType(), mcv, name),
-            .dbg_var_val => try self.genVarDbgInfo(ty, mcv, name),
-            else => unreachable,
-        }
+    const name = self.air.nullTerminatedString(pl_op.payload);
+
+    const tag = self.air.instructions.items(.tag)[inst];
+    switch (tag) {
+        .dbg_var_ptr => try self.genVarDbgInfo(tag, ty.childType(), mcv, name),
+        .dbg_var_val => try self.genVarDbgInfo(tag, ty, mcv, name),
+        else => unreachable,
     }
 
     return self.finishAir(inst, .dead, .{ operand, .none, .none });
@@ -3921,36 +3921,27 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
 
 fn genVarDbgInfo(
     self: *Self,
+    tag: Air.Inst.Tag,
     ty: Type,
     mcv: MCValue,
     name: [:0]const u8,
 ) !void {
     const name_with_null = name.ptr[0 .. name.len + 1];
-    switch (mcv) {
-        .register => |reg| {
-            switch (self.debug_output) {
-                .dwarf => |dw| {
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.ensureUnusedCapacity(3);
-                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
+    switch (self.debug_output) {
+        .dwarf => |dw| {
+            const dbg_info = &dw.dbg_info;
+            try dbg_info.append(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
+
+            switch (mcv) {
+                .register => |reg| {
+                    try dbg_info.ensureUnusedCapacity(2);
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // ULEB128 dwarf expression length
                         reg.dwarfLocOp(),
                     });
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                 },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        .ptr_stack_offset, .stack_offset => |off| {
-            switch (self.debug_output) {
-                .dwarf => |dw| {
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.ensureUnusedCapacity(8);
-                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
+                .ptr_stack_offset, .stack_offset => |off| {
+                    try dbg_info.ensureUnusedCapacity(7);
                     const fixup = dbg_info.items.len;
                     dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                         1, // we will backpatch it after we encode the displacement in LEB128
@@ -3958,18 +3949,54 @@ fn genVarDbgInfo(
                     });
                     leb128.writeILEB128(dbg_info.writer(), -off) catch unreachable;
                     dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-
                 },
-                .plan9 => {},
-                .none => {},
+                .memory, .got_load, .direct_load => {
+                    const endian = self.target.cpu.arch.endian();
+                    const ptr_width = @intCast(u8, @divExact(self.target.cpu.arch.ptrBitWidth(), 8));
+                    const is_ptr = switch (tag) {
+                        .dbg_var_ptr => true,
+                        .dbg_var_val => false,
+                        else => unreachable,
+                    };
+                    try dbg_info.ensureUnusedCapacity(2 + ptr_width);
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                        1 + ptr_width + @boolToInt(is_ptr),
+                        DW.OP.addr, // literal address
+                    });
+                    const offset = @intCast(u32, dbg_info.items.len);
+                    const addr = switch (mcv) {
+                        .memory => |addr| addr,
+                        else => 0,
+                    };
+                    switch (ptr_width) {
+                        0...4 => {
+                            try dbg_info.writer().writeInt(u32, @intCast(u32, addr), endian);
+                        },
+                        5...8 => {
+                            try dbg_info.writer().writeInt(u64, addr, endian);
+                        },
+                        else => unreachable,
+                    }
+                    if (is_ptr) {
+                        // We need deref the address as we point to the value via GOT entry.
+                        try dbg_info.append(DW.OP.deref);
+                    }
+                    switch (mcv) {
+                        .got_load, .direct_load => |index| try dw.addExprlocReloc(index, offset, is_ptr),
+                        else => {},
+                    }
+                },
+                else => {
+                    log.debug("TODO generate debug info for {}", .{mcv});
+                },
             }
+
+            try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+            try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+            dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
         },
-        else => {
-            log.debug("TODO generate debug info for {}", .{mcv});
-        },
+        .plan9 => {},
+        .none => {},
     }
 }
 
@@ -6089,6 +6116,7 @@ fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCV
 }
 
 fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCValue {
+    log.debug("lowerDeclRef: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
@@ -6100,7 +6128,8 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
         }
     }
 
-    decl.alive = true;
+    decl.markAlive();
+
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
@@ -6120,8 +6149,6 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
     } else {
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});
     }
-
-    _ = tv;
 }
 
 fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
@@ -6144,6 +6171,7 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
 }
 
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
+    log.debug("genTypedValue: ty = {}, val = {}", .{ typed_value.ty.fmtDebug(), typed_value.val.fmtDebug() });
     if (typed_value.val.isUndef())
         return MCValue{ .undef = {} };
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
@@ -6181,8 +6209,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .Bool => {
             return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
         },
-        .ComptimeInt => unreachable, // semantic analysis prevents this
-        .ComptimeFloat => unreachable, // semantic analysis prevents this
         .Optional => {
             if (typed_value.ty.isPtrLikeOptional()) {
                 if (typed_value.val.isNull())
@@ -6243,6 +6269,18 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 }
             }
         },
+
+        .ComptimeInt => unreachable,
+        .ComptimeFloat => unreachable,
+        .Type => unreachable,
+        .EnumLiteral => unreachable,
+        .Void => unreachable,
+        .NoReturn => unreachable,
+        .Undefined => unreachable,
+        .Null => unreachable,
+        .BoundFn => unreachable,
+        .Opaque => unreachable,
+
         else => {},
     }
 
