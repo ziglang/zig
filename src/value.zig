@@ -954,6 +954,10 @@ pub const Value = extern union {
                 assert(ty.enumFieldCount() == 1);
                 break :blk 0;
             },
+            .enum_literal => i: {
+                const name = val.castTag(.enum_literal).?.data;
+                break :i ty.enumFieldIndex(name).?;
+            },
             // Assume it is already an integer and return it directly.
             else => return val,
         };
@@ -2023,6 +2027,11 @@ pub const Value = extern union {
     /// This function is used by hash maps and so treats floating-point NaNs as equal
     /// to each other, and not equal to other floating-point values.
     /// Similarly, it treats `undef` as a distinct value from all other values.
+    /// This function has to be able to support implicit coercion of `a` to `ty`. That is,
+    /// `ty` will be an exactly correct Type for `b` but it may be a post-coerced Type
+    /// for `a`. This function must act *as if* `a` has been coerced to `ty`. This complication
+    /// is required in order to make generic function instantiation effecient - specifically
+    /// the insertion into the monomorphized function table.
     pub fn eql(a: Value, b: Value, ty: Type, target: Target) bool {
         const a_tag = a.tag();
         const b_tag = b.tag();
@@ -2200,8 +2209,18 @@ pub const Value = extern union {
                 }
                 return order(a, b, target).compare(.eq);
             },
-            else => return order(a, b, target).compare(.eq),
+            .Optional => {
+                if (a.tag() != .opt_payload and b.tag() == .opt_payload) {
+                    var buffer: Payload.SubValue = .{
+                        .base = .{ .tag = .opt_payload },
+                        .data = a,
+                    };
+                    return eql(Value.initPayload(&buffer.base), b, ty, target);
+                }
+            },
+            else => {},
         }
+        return order(a, b, target).compare(.eq);
     }
 
     /// This function is used by hash maps and so treats floating-point NaNs as equal

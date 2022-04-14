@@ -1394,7 +1394,15 @@ pub const Fn = struct {
     /// there is a `TypedValue` here for each parameter of the function.
     /// Non-comptime parameters are marked with a `generic_poison` for the value.
     /// Non-anytype parameters are marked with a `generic_poison` for the type.
-    comptime_args: ?[*]TypedValue = null,
+    /// These never have .generic_poison for the Type
+    /// because the Type is needed to pass to `Type.eql` and for inserting comptime arguments
+    /// into the inst_map when analyzing the body of a generic function instantiation.
+    /// Instead, the is_anytype knowledge is communicated via `anytype_args`.
+    comptime_args: ?[*]TypedValue,
+    /// When comptime_args is null, this is undefined. Otherwise, this flags each
+    /// parameter and tells whether it is anytype.
+    /// TODO apply the same enhancement for param_names below to this field.
+    anytype_args: [*]bool,
     /// The ZIR instruction that is a function instruction. Use this to find
     /// the body. We store this rather than the body directly so that when ZIR
     /// is regenerated on update(), we can map this to the new corresponding
@@ -4782,18 +4790,24 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
 
             else => continue,
         };
-        if (func.comptime_args) |comptime_args| {
+
+        const param_ty = if (func.comptime_args) |comptime_args| t: {
             const arg_tv = comptime_args[total_param_index];
-            if (arg_tv.val.tag() != .generic_poison) {
-                // We have a comptime value for this parameter.
-                const arg = try sema.addConstant(arg_tv.ty, arg_tv.val);
-                sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
-                total_param_index += 1;
-                continue;
-            }
-        }
-        const param_type = fn_ty_info.param_types[runtime_param_index];
-        const opt_opv = sema.typeHasOnePossibleValue(&inner_block, param.src, param_type) catch |err| switch (err) {
+
+            const arg_val = if (arg_tv.val.tag() != .generic_poison)
+                arg_tv.val
+            else if (arg_tv.ty.onePossibleValue()) |opv|
+                opv
+            else
+                break :t arg_tv.ty;
+
+            const arg = try sema.addConstant(arg_tv.ty, arg_val);
+            sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
+            total_param_index += 1;
+            continue;
+        } else fn_ty_info.param_types[runtime_param_index];
+
+        const opt_opv = sema.typeHasOnePossibleValue(&inner_block, param.src, param_ty) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
@@ -4801,7 +4815,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             else => |e| return e,
         };
         if (opt_opv) |opv| {
-            const arg = try sema.addConstant(param_type, opv);
+            const arg = try sema.addConstant(param_ty, opv);
             sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
             total_param_index += 1;
             runtime_param_index += 1;
@@ -4811,7 +4825,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
         inner_block.instructions.appendAssumeCapacity(arg_index);
         sema.air_instructions.appendAssumeCapacity(.{
             .tag = .arg,
-            .data = .{ .ty = param_type },
+            .data = .{ .ty = param_ty },
         });
         sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));
         total_param_index += 1;

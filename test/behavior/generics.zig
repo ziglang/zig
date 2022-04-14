@@ -306,3 +306,21 @@ test "anonymous struct return type referencing comptime parameter" {
     try expect(s.data == 1234);
     try expect(s.end == 5678);
 }
+
+test "generic function instantiation non-duplicates" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const S = struct {
+        fn copy(comptime T: type, dest: []T, source: []const T) void {
+            @export(foo, .{ .name = "test_generic_instantiation_non_dupe" });
+            for (source) |s, i| dest[i] = s;
+        }
+
+        fn foo() callconv(.C) void {}
+    };
+    var buffer: [100]u8 = undefined;
+    S.copy(u8, &buffer, "hello");
+    S.copy(u8, &buffer, "hello2");
+}
