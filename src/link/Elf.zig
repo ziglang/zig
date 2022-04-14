@@ -65,7 +65,7 @@ phdr_load_rw_index: ?u16 = null,
 phdr_shdr_table: std.AutoHashMapUnmanaged(u16, u16) = .{},
 
 entry_addr: ?u64 = null,
-page_size: u16,
+page_size: u32,
 
 shstrtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
 shstrtab_index: ?u16 = null,
@@ -304,7 +304,12 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     };
     const self = try gpa.create(Elf);
     errdefer gpa.destroy(self);
-    const page_size: u16 = 0x1000; // TODO ppc64le requires 64KB
+
+    const page_size: u32 = switch (options.target.cpu.arch) {
+        .powerpc64le => 0x10000,
+        .sparcv9 => 0x2000,
+        else => 0x1000,
+    };
 
     var dwarf: ?Dwarf = if (!options.strip and options.module != null)
         Dwarf.init(gpa, .elf, options.target)
@@ -472,7 +477,7 @@ pub fn allocatedSize(self: *Elf, start: u64) u64 {
     return min_pos - start;
 }
 
-pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u16) u64 {
+pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u32) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
         start = mem.alignForwardGeneric(u64, item_end, min_alignment);
