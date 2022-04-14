@@ -548,8 +548,8 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
-        const ar = @mod(r, @typeInfo(T).Int.bits);
-        return shr(T, x, ar) | shl(T, x, @typeInfo(T).Int.bits - ar);
+        const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
+        return x >> ar | x << (1 +% ~ar);
     }
 }
 
@@ -576,8 +576,8 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
-        const ar = @mod(r, @typeInfo(T).Int.bits);
-        return shl(T, x, ar) | shr(T, x, @typeInfo(T).Int.bits - ar);
+        const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
+        return x << ar | x >> 1 +% ~ar;
     }
 }
 
