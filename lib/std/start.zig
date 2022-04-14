@@ -29,6 +29,7 @@ comptime {
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_riscv64 or
+        builtin.zig_backend == .stage2_sparcv9 or
         (builtin.zig_backend == .stage2_llvm and native_os != .linux) or
         (builtin.zig_backend == .stage2_llvm and native_arch != .x86_64))
     {
@@ -163,6 +164,14 @@ fn exit2(code: usize) noreturn {
                     : [number] "{a7}" (94),
                       [arg1] "{a0}" (0),
                     : "rcx", "r11", "memory"
+                );
+            },
+            .sparcv9 => {
+                asm volatile ("ta 0x6d"
+                    :
+                    : [number] "{g1}" (1),
+                      [arg1] "{o0}" (code),
+                    : "o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "memory"
                 );
             },
             else => @compileError("TODO"),

@@ -1,12 +1,25 @@
 const bits = @import("bits.zig");
 const Register = bits.Register;
 
-// Register windowing mechanism will take care of preserving registers
-// so no need to do it manually
-pub const callee_preserved_regs = [_]Register{};
+// There are no callee-preserved registers since the windowing
+// mechanism already takes care of them.
+// We still need to preserve %o0-%o5, %g1, %g4, and %g5 before calling
+// something, though, as those are shared with the callee and might be
+// thrashed by it.
+pub const caller_preserved_regs = [_]Register{ .o0, .o1, .o2, .o3, .o4, .o5, .g1, .g4, .g5 };
+
+// Try to allocate i, l, o, then g sets of registers, in order of priority.
+pub const allocatable_regs = [_]Register{
+    // zig fmt: off
+    .@"i0", .@"i1", .@"i2", .@"i3", .@"i4", .@"i5",
+      .l0,    .l1,    .l2,    .l3,    .l4,    .l5,    .l6,    .l7,
+      .o0,    .o1,    .o2,    .o3,    .o4,    .o5,
+              .g1,                    .g4,    .g5,
+    // zig fmt: on
+};
 
 pub const c_abi_int_param_regs_caller_view = [_]Register{ .o0, .o1, .o2, .o3, .o4, .o5 };
 pub const c_abi_int_param_regs_callee_view = [_]Register{ .@"i0", .@"i1", .@"i2", .@"i3", .@"i4", .@"i5" };
 
-pub const c_abi_int_return_regs_caller_view = [_]Register{ .o0, .o1, .o2, .o3, .o4, .o5 };
-pub const c_abi_int_return_regs_callee_view = [_]Register{ .@"i0", .@"i1", .@"i2", .@"i3", .@"i4", .@"i5" };
+pub const c_abi_int_return_regs_caller_view = [_]Register{ .o0, .o1, .o2, .o3 };
+pub const c_abi_int_return_regs_callee_view = [_]Register{ .@"i0", .@"i1", .@"i2", .@"i3" };
