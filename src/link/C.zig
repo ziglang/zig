@@ -89,8 +89,9 @@ pub fn deinit(self: *C) void {
 
 pub fn freeDecl(self: *C, decl: *Module.Decl) void {
     const gpa = self.base.allocator;
-    if (self.decl_table.fetchSwapRemove(decl)) |*kv| {
-        kv.value.deinit(gpa);
+    if (self.decl_table.fetchSwapRemove(decl)) |kv| {
+        var decl_block = kv.value;
+        decl_block.deinit(gpa);
     }
 }
 

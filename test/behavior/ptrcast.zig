@@ -217,3 +217,19 @@ test "implicit optional pointer to optional anyopaque pointer" {
     var z = @ptrCast(*[4]u8, y);
     try expect(std.mem.eql(u8, z, "aoeu"));
 }
+
+test "@ptrCast slice to slice" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo(slice: []u32) []i32 {
+            return @ptrCast([]i32, slice);
+        }
+    };
+    var buf: [4]u32 = .{ 0, 0, 0, 0 };
+    const alias = S.foo(&buf);
+    alias[1] = 42;
+    try expect(buf[1] == 42);
+    try expect(alias.len == 4);
+}

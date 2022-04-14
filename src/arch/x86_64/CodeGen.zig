@@ -3501,7 +3501,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
-    const args = @bitCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
+    const args = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
     const ty = self.air.typeOf(callee);
 
     const fn_ty = switch (ty.zigTypeTag()) {
@@ -3684,7 +3684,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                     .ops = (Mir.Ops{
                         .flags = 0b01,
                     }).encode(),
-                    .data = .{ .imm = @bitCast(i32, @intCast(u32, fn_got_addr)) },
+                    .data = .{ .imm = @intCast(u32, fn_got_addr) },
                 });
             } else return self.fail("TODO implement calling extern fn on plan9", .{});
         } else {
@@ -4220,7 +4220,10 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         // TODO track the new register / stack allocation
     }
 
-    self.branch_stack.pop().deinit(self.gpa);
+    {
+        var item = self.branch_stack.pop();
+        item.deinit(self.gpa);
+    }
 
     // We already took care of pl_op.operand earlier, so we're going
     // to pass .none here
@@ -4562,7 +4565,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+        const items = @ptrCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
         const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
         extra_index = case.end + items.len + case_body.len;
 
@@ -4615,7 +4618,10 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     if (switch_br.data.else_body_len > 0) {
         const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
         try self.branch_stack.append(.{});
-        defer self.branch_stack.pop().deinit(self.gpa);
+        defer {
+            var item = self.branch_stack.pop();
+            item.deinit(self.gpa);
+        }
 
         const else_deaths = liveness.deaths.len - 1;
         try self.ensureProcessDeathCapacity(liveness.deaths[else_deaths].len);
@@ -4705,9 +4711,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
     const clobbers_len = @truncate(u31, extra.data.flags);
     var extra_i: usize = extra.end;
-    const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
+    const outputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
     extra_i += outputs.len;
-    const inputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
+    const inputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
 
     const dead = !is_volatile and self.liveness.isUnused(inst);
@@ -5975,7 +5981,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     const result_ty = self.air.typeOfIndex(inst);
     const len = @intCast(usize, result_ty.arrayLen());
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+    const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
     const abi_size = @intCast(u32, result_ty.abiSize(self.target.*));
     const abi_align = result_ty.abiAlignment(self.target.*);
     const result: MCValue = res: {

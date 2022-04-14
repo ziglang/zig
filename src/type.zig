@@ -1451,7 +1451,7 @@ pub const Type = extern union {
                 var duped_names = Module.ErrorSet.NameMap{};
                 try duped_names.ensureTotalCapacity(allocator, names.len);
                 for (names) |name| {
-                    duped_names.putAssumeCapacityNoClobber(name, .{});
+                    duped_names.putAssumeCapacityNoClobber(name, {});
                 }
                 return Tag.error_set_merged.create(allocator, duped_names);
             },

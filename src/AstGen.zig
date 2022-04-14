@@ -85,12 +85,12 @@ fn reserveExtra(astgen: *AstGen, size: usize) Allocator.Error!u32 {
 }
 
 fn appendRefs(astgen: *AstGen, refs: []const Zir.Inst.Ref) !void {
-    const coerced = @bitCast([]const u32, refs);
+    const coerced = @ptrCast([]const u32, refs);
     return astgen.extra.appendSlice(astgen.gpa, coerced);
 }
 
 fn appendRefsAssumeCapacity(astgen: *AstGen, refs: []const Zir.Inst.Ref) void {
-    const coerced = @bitCast([]const u32, refs);
+    const coerced = @ptrCast([]const u32, refs);
     astgen.extra.appendSliceAssumeCapacity(coerced);
 }
 

@@ -454,7 +454,7 @@ fn analyzeInst(
             const inst_data = inst_datas[inst].pl_op;
             const callee = inst_data.operand;
             const extra = a.air.extraData(Air.Call, inst_data.payload);
-            const args = @bitCast([]const Air.Inst.Ref, a.air.extra[extra.end..][0..extra.data.args_len]);
+            const args = @ptrCast([]const Air.Inst.Ref, a.air.extra[extra.end..][0..extra.data.args_len]);
             if (args.len + 1 <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
                 buf[0] = callee;
@@ -495,7 +495,7 @@ fn analyzeInst(
             const ty_pl = inst_datas[inst].ty_pl;
             const aggregate_ty = a.air.getRefType(ty_pl.ty);
             const len = @intCast(usize, aggregate_ty.arrayLen());
-            const elements = @bitCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
+            const elements = @ptrCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
@@ -571,9 +571,9 @@ fn analyzeInst(
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[inst].ty_pl.payload);
             var extra_i: usize = extra.end;
-            const outputs = @bitCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.outputs_len]);
+            const outputs = @ptrCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.outputs_len]);
             extra_i += outputs.len;
-            const inputs = @bitCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.inputs_len]);
+            const inputs = @ptrCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.inputs_len]);
             extra_i += inputs.len;
 
             simple: {

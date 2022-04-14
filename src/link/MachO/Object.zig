@@ -625,7 +625,6 @@ pub fn parseDataInCode(self: *Object, allocator: Allocator) !void {
     while (true) {
         const dice = reader.readStruct(macho.data_in_code_entry) catch |err| switch (err) {
             error.EndOfStream => break,
-            else => |e| return e,
         };
         try self.data_in_code_entries.append(allocator, dice);
     }

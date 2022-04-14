@@ -14110,21 +14110,27 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     try sema.checkPtrType(block, dest_ty_src, dest_ty);
     try sema.checkPtrOperand(block, operand_src, operand_ty);
-    if (dest_ty.isSlice()) {
+
+    const dest_is_slice = dest_ty.isSlice();
+    const operand_is_slice = operand_ty.isSlice();
+    if (dest_is_slice and !operand_is_slice) {
         return sema.fail(block, dest_ty_src, "illegal pointer cast to slice", .{});
     }
-    const ptr = if (operand_ty.isSlice())
+    const ptr = if (operand_is_slice and !dest_is_slice)
         try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty)
     else
         operand;
 
-    try sema.resolveTypeLayout(block, dest_ty_src, dest_ty.elemType2());
+    const dest_elem_ty = dest_ty.elemType2();
+    try sema.resolveTypeLayout(block, dest_ty_src, dest_elem_ty);
     const dest_align = dest_ty.ptrAlignment(target);
-    try sema.resolveTypeLayout(block, operand_src, operand_ty.elemType2());
+
+    const operand_elem_ty = operand_ty.elemType2();
+    try sema.resolveTypeLayout(block, operand_src, operand_elem_ty);
     const operand_align = operand_ty.ptrAlignment(target);
 
     // If the destination is less aligned than the source, preserve the source alignment
-    var aligned_dest_ty = if (operand_align <= dest_align) dest_ty else blk: {
+    const aligned_dest_ty = if (operand_align <= dest_align) dest_ty else blk: {
         // Unwrap the pointer (or pointer-like optional) type, set alignment, and re-wrap into result
         if (dest_ty.zigTypeTag() == .Optional) {
             var buf: Type.Payload.ElemType = undefined;
@@ -14137,6 +14143,16 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             break :blk try Type.ptr(sema.arena, target, dest_ptr_info);
         }
     };
+
+    if (dest_is_slice) {
+        const operand_elem_size = operand_elem_ty.abiSize(target);
+        const dest_elem_size = dest_elem_ty.abiSize(target);
+        if (operand_elem_size != dest_elem_size) {
+            // note that this is not implemented in stage1 so we should probably wait
+            // until that codebase is replaced before implementing this in stage2.
+            return sema.fail(block, dest_ty_src, "TODO: implement @ptrCast between slices changing the length", .{});
+        }
+    }
 
     return sema.coerceCompatiblePtrs(block, aligned_dest_ty, ptr, operand_src);
 }
@@ -15743,7 +15759,7 @@ fn zirMinMax(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-    air_tag: Air.Inst.Tag,
+    comptime air_tag: Air.Inst.Tag,
 ) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -15763,7 +15779,7 @@ fn analyzeMinMax(
     src: LazySrcLoc,
     lhs: Air.Inst.Ref,
     rhs: Air.Inst.Ref,
-    air_tag: Air.Inst.Tag,
+    comptime air_tag: Air.Inst.Tag,
     lhs_src: LazySrcLoc,
     rhs_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
@@ -20976,7 +20992,7 @@ fn resolvePeerTypes(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    instructions: []Air.Inst.Ref,
+    instructions: []const Air.Inst.Ref,
     candidate_srcs: Module.PeerTypeCandidateSrc,
 ) !Type {
     switch (instructions.len) {
@@ -22794,7 +22810,7 @@ pub fn addExtraAssumeCapacity(sema: *Sema, extra: anytype) u32 {
 }
 
 fn appendRefsAssumeCapacity(sema: *Sema, refs: []const Air.Inst.Ref) void {
-    const coerced = @bitCast([]const u32, refs);
+    const coerced = @ptrCast([]const u32, refs);
     sema.air_extra.appendSliceAssumeCapacity(coerced);
 }
 

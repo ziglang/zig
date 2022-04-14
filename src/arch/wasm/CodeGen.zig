@@ -2425,7 +2425,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     var highest_maybe: ?i32 = null;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+        const items = @ptrCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
         const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
         extra_index = case.end + items.len + case_body.len;
         const values = try self.gpa.alloc(CaseValue, items.len);
@@ -3328,7 +3328,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const result_ty = self.air.typeOfIndex(inst);
     const len = @intCast(usize, result_ty.arrayLen());
-    const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+    const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
 
     switch (result_ty.zigTypeTag()) {
         .Vector => return self.fail("TODO: Wasm backend: implement airAggregateInit for vectors", .{}),

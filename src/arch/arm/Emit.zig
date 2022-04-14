@@ -2,6 +2,7 @@
 //! machine code
 
 const Emit = @This();
+const builtin = @import("builtin");
 const std = @import("std");
 const math = std.math;
 const Mir = @import("Mir.zig");
@@ -622,12 +623,17 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
             const ldr = switch (tag) {
-                .ldr_stack_argument => Instruction.ldr,
-                .ldrb_stack_argument => Instruction.ldrb,
+                .ldr_stack_argument => &Instruction.ldr,
+                .ldrb_stack_argument => &Instruction.ldrb,
                 else => unreachable,
             };
 
-            try emit.writeInstruction(ldr(
+            const ldr_workaround = switch (builtin.zig_backend) {
+                .stage1 => ldr.*,
+                else => ldr,
+            };
+
+            try emit.writeInstruction(ldr_workaround(
                 cond,
                 r_stack_offset.rt,
                 .fp,
@@ -643,13 +649,18 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
             const ldr = switch (tag) {
-                .ldrh_stack_argument => Instruction.ldrh,
-                .ldrsb_stack_argument => Instruction.ldrsb,
-                .ldrsh_stack_argument => Instruction.ldrsh,
+                .ldrh_stack_argument => &Instruction.ldrh,
+                .ldrsb_stack_argument => &Instruction.ldrsb,
+                .ldrsh_stack_argument => &Instruction.ldrsh,
                 else => unreachable,
             };
 
-            try emit.writeInstruction(ldr(
+            const ldr_workaround = switch (builtin.zig_backend) {
+                .stage1 => ldr.*,
+                else => ldr,
+            };
+
+            try emit.writeInstruction(ldr_workaround(
                 cond,
                 r_stack_offset.rt,
                 .fp,

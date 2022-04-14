@@ -66,9 +66,7 @@ pub const Random = struct {
 
     /// Returns a random value from an enum, evenly distributed.
     pub fn enumValue(r: Random, comptime EnumType: type) EnumType {
-        if (comptime !std.meta.trait.is(.Enum)(EnumType)) {
-            @compileError("Random.enumValue requires an enum type, not a " ++ @typeName(EnumType));
-        }
+        comptime assert(@typeInfo(EnumType) == .Enum);
 
         // We won't use int -> enum casting because enum elements can have
         //  arbitrary values.  Instead we'll randomly pick one of the type's values.

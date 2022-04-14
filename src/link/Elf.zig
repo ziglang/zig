@@ -2482,7 +2482,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
     try self.atom_by_index_table.putNoClobber(self.base.allocator, atom.local_sym_index, atom);
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
-        .none = .{},
+        .none = {},
     }, .{
         .parent_atom_index = atom.local_sym_index,
     });

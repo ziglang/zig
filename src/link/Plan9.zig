@@ -307,7 +307,7 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
         .ty = decl.ty,
         .val = decl_val,
-    }, &code_buffer, .{ .none = .{} }, .{
+    }, &code_buffer, .{ .none = {} }, .{
         .parent_atom_index = @intCast(u32, sym_index),
     });
     const code = switch (res) {

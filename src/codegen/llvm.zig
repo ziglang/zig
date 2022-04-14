@@ -3657,7 +3657,7 @@ pub const FuncGen = struct {
     fn airCall(self: *FuncGen, inst: Air.Inst.Index, attr: llvm.CallAttr) !?*const llvm.Value {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
-        const args = @bitCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
+        const args = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
         const callee_ty = self.air.typeOf(pl_op.operand);
         const zig_fn_ty = switch (callee_ty.zigTypeTag()) {
             .Fn => callee_ty,
@@ -4037,7 +4037,7 @@ pub const FuncGen = struct {
 
         while (case_i < switch_br.data.cases_len) : (case_i += 1) {
             const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+            const items = @ptrCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
             const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
             extra_index = case.end + case.data.items_len + case_body.len;
 
@@ -4538,9 +4538,9 @@ pub const FuncGen = struct {
 
         if (!is_volatile and self.liveness.isUnused(inst)) return null;
 
-        const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
+        const outputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
         extra_i += outputs.len;
-        const inputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
+        const inputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
         if (outputs.len > 1) {
@@ -6660,7 +6660,7 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const result_ty = self.air.typeOfIndex(inst);
         const len = @intCast(usize, result_ty.arrayLen());
-        const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+        const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
         const llvm_result_ty = try self.dg.llvmType(result_ty);
         const target = self.dg.module.getTarget();
 

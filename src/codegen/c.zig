@@ -220,6 +220,9 @@ fn formatIdent(
 }
 
 pub fn fmtIdent(ident: []const u8) std.fmt.Formatter(formatIdent) {
+    if (builtin.zig_backend != .stage1) {
+        @panic("TODO");
+    }
     return .{ .data = ident };
 }
 
@@ -2310,7 +2313,6 @@ fn airWrapOp(
                 const val = -1 * std.math.pow(i64, 2, @intCast(i64, bits - 1));
                 break :blk std.fmt.bufPrint(&min_buf, "{d}", .{val}) catch |err| switch (err) {
                     error.NoSpaceLeft => unreachable,
-                    else => |e| return e,
                 };
             },
         },
@@ -2336,7 +2338,6 @@ fn airWrapOp(
             const val = std.math.pow(u64, 2, pow_bits) - 1;
             break :blk std.fmt.bufPrint(&max_buf, "{}", .{val}) catch |err| switch (err) {
                 error.NoSpaceLeft => unreachable,
-                else => |e| return e,
             };
         },
     };
@@ -2418,7 +2419,6 @@ fn airSatOp(f: *Function, inst: Air.Inst.Index, fn_op: [*:0]const u8) !CValue {
                 const val = -1 * std.math.pow(i65, 2, @intCast(i65, bits - 1));
                 break :blk std.fmt.bufPrint(&min_buf, "{d}", .{val}) catch |err| switch (err) {
                     error.NoSpaceLeft => unreachable,
-                    else => |e| return e,
                 };
             },
         },
@@ -2444,7 +2444,6 @@ fn airSatOp(f: *Function, inst: Air.Inst.Index, fn_op: [*:0]const u8) !CValue {
             const val = std.math.pow(u65, 2, pow_bits) - 1;
             break :blk std.fmt.bufPrint(&max_buf, "{}", .{val}) catch |err| switch (err) {
                 error.NoSpaceLeft => unreachable,
-                else => |e| return e,
             };
         },
     };
@@ -2702,7 +2701,7 @@ fn airCall(
     }
     const pl_op = f.air.instructions.items(.data)[inst].pl_op;
     const extra = f.air.extraData(Air.Call, pl_op.payload);
-    const args = @bitCast([]const Air.Inst.Ref, f.air.extra[extra.end..][0..extra.data.args_len]);
+    const args = @ptrCast([]const Air.Inst.Ref, f.air.extra[extra.end..][0..extra.data.args_len]);
     const callee_ty = f.air.typeOf(pl_op.operand);
     const fn_ty = switch (callee_ty.zigTypeTag()) {
         .Fn => callee_ty,
@@ -2959,7 +2958,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     var case_i: u32 = 0;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = f.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @bitCast([]const Air.Inst.Ref, f.air.extra[case.end..][0..case.data.items_len]);
+        const items = @ptrCast([]const Air.Inst.Ref, f.air.extra[case.end..][0..case.data.items_len]);
         const case_body = f.air.extra[case.end + items.len ..][0..case.data.body_len];
         extra_index = case.end + case.data.items_len + case_body.len;
 
@@ -2990,9 +2989,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
     const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
     const clobbers_len = @truncate(u31, extra.data.flags);
     var extra_i: usize = extra.end;
-    const outputs = @bitCast([]const Air.Inst.Ref, f.air.extra[extra_i..][0..extra.data.outputs_len]);
+    const outputs = @ptrCast([]const Air.Inst.Ref, f.air.extra[extra_i..][0..extra.data.outputs_len]);
     extra_i += outputs.len;
-    const inputs = @bitCast([]const Air.Inst.Ref, f.air.extra[extra_i..][0..extra.data.inputs_len]);
+    const inputs = @ptrCast([]const Air.Inst.Ref, f.air.extra[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
 
     if (!is_volatile and f.liveness.isUnused(inst)) return CValue.none;
@@ -3860,7 +3859,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const vector_ty = f.air.getRefType(ty_pl.ty);
     const len = vector_ty.vectorLen();
-    const elements = @bitCast([]const Air.Inst.Ref, f.air.extra[ty_pl.payload..][0..len]);
+    const elements = @ptrCast([]const Air.Inst.Ref, f.air.extra[ty_pl.payload..][0..len]);
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);

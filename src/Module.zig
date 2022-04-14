@@ -4593,7 +4593,7 @@ pub fn clearDecl(
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
                 .spirv => .{ .spirv = .{} },
-                .nvptx => .{ .nvptx = .{} },
+                .nvptx => .{ .nvptx = {} },
             };
         }
         if (decl.getInnerNamespace()) |namespace| {
@@ -4975,7 +4975,7 @@ pub fn allocateNewDecl(
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
             .spirv => .{ .spirv = .{} },
-            .nvptx => .{ .nvptx = .{} },
+            .nvptx => .{ .nvptx = {} },
         },
         .generation = 0,
         .is_pub = false,

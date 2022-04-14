@@ -23052,6 +23052,12 @@ static Stage1AirInst *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, Stage1ZirI
     if (type_is_invalid(src_type))
         return ira->codegen->invalid_inst_gen;
 
+    // This logic is not quite right; this is just to get stage1 to accept valid code
+    // we use in the self-hosted compiler.
+    if (is_slice(dest_type) && is_slice(src_type)) {
+        return ir_analyze_bit_cast(ira, instruction->base.scope, instruction->base.source_node, ptr, dest_type);
+    }
+
     bool keep_bigger_alignment = true;
     return ir_analyze_ptr_cast(ira, instruction->base.scope, instruction->base.source_node, ptr,
             instruction->ptr->source_node, dest_type, dest_type_value->source_node,

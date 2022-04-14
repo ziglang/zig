@@ -649,6 +649,11 @@ pub const File = struct {
         }
     }
 
+    pub const UpdateDeclExportsError = error{
+        OutOfMemory,
+        AnalysisFail,
+    };
+
     /// May be called before or after updateDecl, but must be called after
     /// allocateDeclIndexes for any given Decl.
     pub fn updateDeclExports(
@@ -656,7 +661,7 @@ pub const File = struct {
         module: *Module,
         decl: *Module.Decl,
         exports: []const *Module.Export,
-    ) !void {
+    ) UpdateDeclExportsError!void {
         log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
         assert(decl.has_tv);
         switch (base.tag) {

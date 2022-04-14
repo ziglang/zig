@@ -40,7 +40,6 @@ pub fn getLibraryOffset(reader: anytype, target: std.Target) !u64 {
         // fine because we can keep looking for one that might match.
         const lib_arch = decodeArch(fat_arch.cputype, false) catch |err| switch (err) {
             error.UnsupportedCpuArchitecture => continue,
-            else => |e| return e,
         };
         if (lib_arch == target.cpu.arch) {
             // We have found a matching architecture!

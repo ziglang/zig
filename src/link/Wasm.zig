@@ -2551,7 +2551,8 @@ fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *
         .iov_base = payload.items.ptr,
         .iov_len = payload.items.len,
     };
-    try file.writevAll(&.{iovec});
+    var iovecs = [_]std.os.iovec_const{iovec};
+    try file.writevAll(&iovecs);
 }
 
 fn emitSegmentInfo(self: *Wasm, file: fs.File, arena: Allocator) !void {
@@ -2576,7 +2577,8 @@ fn emitSegmentInfo(self: *Wasm, file: fs.File, arena: Allocator) !void {
         .iov_base = payload.items.ptr,
         .iov_len = payload.items.len,
     };
-    try file.writevAll(&.{iovec});
+    var iovecs = [_]std.os.iovec_const{iovec};
+    try file.writevAll(&iovecs);
 }
 
 fn getULEB128Size(uint_value: anytype) u32 {
@@ -2635,12 +2637,14 @@ fn emitCodeRelocations(
     var buf: [5]u8 = undefined;
     leb.writeUnsignedFixed(5, &buf, count);
     try payload.insertSlice(reloc_start, &buf);
-    const iovec: std.os.iovec_const = .{
-        .iov_base = payload.items.ptr,
-        .iov_len = payload.items.len,
+    var iovecs = [_]std.os.iovec_const{
+        .{
+            .iov_base = payload.items.ptr,
+            .iov_len = payload.items.len,
+        },
     };
     const header_offset = try reserveCustomSectionHeader(file);
-    try file.writevAll(&.{iovec});
+    try file.writevAll(&iovecs);
     const size = @intCast(u32, payload.items.len);
     try writeCustomSectionHeader(file, header_offset, size);
 }
@@ -2694,12 +2698,14 @@ fn emitDataRelocations(
     var buf: [5]u8 = undefined;
     leb.writeUnsignedFixed(5, &buf, count);
     try payload.insertSlice(reloc_start, &buf);
-    const iovec: std.os.iovec_const = .{
-        .iov_base = payload.items.ptr,
-        .iov_len = payload.items.len,
+    var iovecs = [_]std.os.iovec_const{
+        .{
+            .iov_base = payload.items.ptr,
+            .iov_len = payload.items.len,
+        },
     };
     const header_offset = try reserveCustomSectionHeader(file);
-    try file.writevAll(&.{iovec});
+    try file.writevAll(&iovecs);
     const size = @intCast(u32, payload.items.len);
     try writeCustomSectionHeader(file, header_offset, size);
 }
