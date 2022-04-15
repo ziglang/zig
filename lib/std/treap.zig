@@ -8,7 +8,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
         const Self = @This();
 
         // Allow for compareFn to be fn(anytype, anytype) anytype
-        // which allows the convenient use of std.math.order. 
+        // which allows the convenient use of std.math.order.
         fn compare(a: Key, b: Key) Order {
             return compareFn(a, b);
         }
@@ -30,9 +30,9 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
 
                 // Since we're using usize, decide the shifts by the integer's bit width.
                 const shifts = switch (@bitSizeOf(usize)) {
-                    64 => .{13, 7, 17},
-                    32 => .{13, 17, 5},
-                    16 => .{7, 9, 8},
+                    64 => .{ 13, 7, 17 },
+                    32 => .{ 13, 17, 5 },
+                    16 => .{ 7, 9, 8 },
                     else => @compileError("platform not supported"),
                 };
 
@@ -42,7 +42,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
 
                 assert(self.xorshift != 0);
                 return self.xorshift;
-            } 
+            }
         };
 
         /// A Node represents an item or point in the treap with a uniquely associated key.
@@ -164,7 +164,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
 
             return node;
         }
-        
+
         fn insert(self: *Self, key: Key, parent: ?*Node, node: *Node) void {
             // generate a random priority & prepare the node to be inserted into the tree
             node.key = key;
@@ -232,11 +232,11 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
         }
 
         fn rotate(self: *Self, node: *Node, right: bool) void {
-            // if right, converts the following: 
+            // if right, converts the following:
             //      parent -> (node (target YY adjacent) XX)
             //      parent -> (target YY (node adjacent XX))
             //
-            // if left (!right), converts the following: 
+            // if left (!right), converts the following:
             //      parent -> (node (target YY adjacent) XX)
             //      parent -> (target YY (node adjacent XX))
             const parent = node.parent;
@@ -389,7 +389,7 @@ test "std.Treap: insert, find, replace, remove" {
         try testing.expectEqual(entry.node, node);
         try testing.expectEqual(entry.node, treap.getEntryFor(key).node);
         try testing.expectEqual(entry.node, treap.getEntryForExisting(node).node);
-        
+
         // remove the node again and make sure it was cleared after the insert
         entry.set(null);
         try testing.expectEqual(entry.node, null);
