@@ -54,14 +54,15 @@ const SpinlockTable = struct {
 
         fn acquire(self: *@This()) void {
             while (true) {
-                const flag = if (comptime arch.isSPARC())
-                    asm volatile ("ldstub [%[addr]], %[flag]"
+                const flag = if (comptime arch.isSPARC()) flag: {
+                    break :flag asm volatile ("ldstub [%[addr]], %[flag]"
                         : [flag] "=r" (-> @TypeOf(self.v)),
                         : [addr] "r" (&self.v),
                         : "memory"
-                    )
-                else
-                    @atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .Acquire);
+                    );
+                } else flag: {
+                    break :flag @atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .Acquire);
+                };
 
                 switch (flag) {
                     .Unlocked => break,
