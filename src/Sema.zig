@@ -13071,22 +13071,38 @@ fn fieldType(
 ) CompileError!Air.Inst.Ref {
     const resolved_ty = try sema.resolveTypeFields(block, ty_src, aggregate_ty);
     const target = sema.mod.getTarget();
-    switch (resolved_ty.zigTypeTag()) {
-        .Struct => {
-            const struct_obj = resolved_ty.castTag(.@"struct").?.data;
-            const field = struct_obj.fields.get(field_name) orelse
-                return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
-            return sema.addType(field.ty);
-        },
-        .Union => {
-            const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
-            const field = union_obj.fields.get(field_name) orelse
-                return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
-            return sema.addType(field.ty);
-        },
-        else => return sema.fail(block, ty_src, "expected struct or union; found '{}'", .{
+    var cur_ty = resolved_ty;
+    while (true) {
+        switch (cur_ty.zigTypeTag()) {
+            .Struct => {
+                const struct_obj = cur_ty.castTag(.@"struct").?.data;
+                const field = struct_obj.fields.get(field_name) orelse
+                    return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
+                return sema.addType(field.ty);
+            },
+            .Union => {
+                const union_obj = cur_ty.cast(Type.Payload.Union).?.data;
+                const field = union_obj.fields.get(field_name) orelse
+                    return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
+                return sema.addType(field.ty);
+            },
+            .Optional => {
+                if (cur_ty.castTag(.optional)) |some| {
+                    // Struct/array init through optional requires the child type to not be a pointer.
+                    // If the child of .optional is a pointer it'll error on the next loop.
+                    cur_ty = some.data;
+                    continue;
+                }
+            },
+            .ErrorUnion => {
+                cur_ty = cur_ty.errorUnionPayload();
+                continue;
+            },
+            else => {},
+        }
+        return sema.fail(block, ty_src, "expected struct or union; found '{}'", .{
             resolved_ty.fmt(target),
-        }),
+        });
     }
 }
 
