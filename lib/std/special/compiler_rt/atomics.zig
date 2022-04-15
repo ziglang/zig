@@ -43,9 +43,15 @@ const SpinlockTable = struct {
     const max_spinlocks = 64;
 
     const Spinlock = struct {
+        // SPARC ldstub instruction will write a 255 into the memory location.
+        // We'll use that as a sign that the lock is currently held.
+        // See also: Section B.7 in SPARCv8 spec & A.29 in SPARCv9 spec.
+        const sparc_lock: type = enum(u8) { Unlocked = 0, Locked = 255 };
+        const other_lock: type = enum(usize) { Unlocked = 0, Locked };
+
         // Prevent false sharing by providing enough padding between two
         // consecutive spinlock elements
-        v: if (arch.isSPARC()) enum(u8) { Unlocked = 0, Locked = 255 } else enum(usize) { Unlocked = 0, Locked } align(cache_line_size) = .Unlocked,
+        v: if (arch.isSPARC()) sparc_lock else other_lock align(cache_line_size) = .Unlocked,
 
         fn acquire(self: *@This()) void {
             while (true) {
