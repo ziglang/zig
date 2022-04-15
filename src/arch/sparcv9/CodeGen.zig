@@ -624,9 +624,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = (extra.data.flags & 0x80000000) != 0;
     const clobbers_len = @truncate(u31, extra.data.flags);
     var extra_i: usize = extra.end;
-    const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i .. extra_i + extra.data.outputs_len]);
+    const outputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i .. extra_i + extra.data.outputs_len]);
     extra_i += outputs.len;
-    const inputs = @bitCast([]const Air.Inst.Ref, self.air.extra[extra_i .. extra_i + extra.data.inputs_len]);
+    const inputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i .. extra_i + extra.data.inputs_len]);
     extra_i += inputs.len;
 
     const dead = !is_volatile and self.liveness.isUnused(inst);
@@ -826,7 +826,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
-    const args = @bitCast([]const Air.Inst.Ref, self.air.extra[extra.end .. extra.end + extra.data.args_len]);
+    const args = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra.end .. extra.end + extra.data.args_len]);
     const ty = self.air.typeOf(callee);
     const fn_ty = switch (ty.zigTypeTag()) {
         .Fn => ty,

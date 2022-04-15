@@ -100,7 +100,12 @@ pub fn syscall6(
 }
 
 /// This matches the libc clone function.
-pub extern fn clone(func: fn (arg: usize) callconv(.C) u8, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+
+const CloneFn = switch (@import("builtin").zig_backend) {
+    .stage1 => fn (arg: usize) callconv(.C) u8,
+    else => *const fn (arg: usize) callconv(.C) u8,
+};
 
 pub const restore = restore_rt;
 
