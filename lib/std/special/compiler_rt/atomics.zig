@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const arch = builtin.cpu.arch;
+const cpu = builtin.cpu;
+const arch = cpu.arch;
 
 const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
 
@@ -27,9 +28,7 @@ const largest_atomic_size = switch (arch) {
     // On SPARC systems that lacks CAS and/or swap instructions, the only
     // available atomic operation is a test-and-set (`ldstub`), so we force
     // every atomic memory access to go through the lock.
-    // XXX: Check the presence of CAS/swap instructions and set this parameter
-    // accordingly.
-    .sparc, .sparcel, .sparcv9 => 0,
+    .sparc, .sparcel => if (cpu.features.featureSetHas(.hasleoncasa)) @sizeOf(usize) else 0,
 
     // XXX: On x86/x86_64 we could check the presence of cmpxchg8b/cmpxchg16b
     // and set this parameter accordingly.
