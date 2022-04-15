@@ -60,7 +60,7 @@ pub const Context = opaque {
         Packed: Bool,
     ) *const Type;
 
-    const structCreateNamed = LLVMStructCreateNamed;
+    pub const structCreateNamed = LLVMStructCreateNamed;
     extern fn LLVMStructCreateNamed(C: *const Context, Name: [*:0]const u8) *const Type;
 
     pub const constString = LLVMConstStringInContext;
@@ -320,7 +320,7 @@ pub const Module = opaque {
     extern fn LLVMGetNamedFunction(*const Module, Name: [*:0]const u8) ?*const Value;
 
     pub const getIntrinsicDeclaration = LLVMGetIntrinsicDeclaration;
-    extern fn LLVMGetIntrinsicDeclaration(Mod: *const Module, ID: c_uint, ParamTypes: ?[*]*const Type, ParamCount: usize) *const Value;
+    extern fn LLVMGetIntrinsicDeclaration(Mod: *const Module, ID: c_uint, ParamTypes: ?[*]const *const Type, ParamCount: usize) *const Value;
 
     pub const printToString = LLVMPrintModuleToString;
     extern fn LLVMPrintModuleToString(*const Module) [*:0]const u8;

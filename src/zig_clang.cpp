@@ -2706,6 +2706,11 @@ double ZigClangFloatingLiteral_getValueAsApproximateDouble(const ZigClangFloatin
     return casted->getValueAsApproximateDouble();
 }
 
+struct ZigClangSourceLocation ZigClangFloatingLiteral_getBeginLoc(const struct ZigClangFloatingLiteral *self) {
+    auto casted = reinterpret_cast<const clang::FloatingLiteral *>(self);
+    return bitcast(casted->getBeginLoc());
+}
+
 ZigClangAPFloatBase_Semantics ZigClangFloatingLiteral_getRawSemantics(const ZigClangFloatingLiteral *self) {
     auto casted = reinterpret_cast<const clang::FloatingLiteral *>(self);
     return static_cast<ZigClangAPFloatBase_Semantics>(casted->getRawSemantics());

@@ -126,7 +126,11 @@ pub const Token = struct {
         Keyword_error,
         Keyword_pragma,
 
-        pub fn symbol(id: std.meta.Tag(Id)) []const u8 {
+        pub fn symbol(id: Id) []const u8 {
+            return symbolName(id);
+        }
+
+        pub fn symbolName(id: std.meta.Tag(Id)) []const u8 {
             return switch (id) {
                 .Invalid => "Invalid",
                 .Eof => "Eof",
