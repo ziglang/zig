@@ -14,9 +14,6 @@ pub fn isFinite(x: anytype) bool {
 }
 
 test "math.isFinite" {
-    // TODO remove when #11391 is resolved
-    if (@import("builtin").os.tag == .freebsd) return error.SkipZigTest;
-
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         // normals
         try expect(isFinite(@as(T, 1.0)));

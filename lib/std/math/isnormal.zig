@@ -23,9 +23,6 @@ pub fn isNormal(x: anytype) bool {
 }
 
 test "math.isNormal" {
-    // TODO remove when #11391 is resolved
-    if (@import("builtin").os.tag == .freebsd) return error.SkipZigTest;
-
     // TODO add `c_longdouble' when math.inf(T) supports it
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));

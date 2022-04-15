@@ -24,9 +24,6 @@ pub fn isNegativeInf(x: anytype) bool {
 }
 
 test "math.isInf" {
-    // TODO remove when #11391 is resolved
-    if (@import("builtin").os.tag == .freebsd) return error.SkipZigTest;
-
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(!isInf(@as(T, 0.0)));
         try expect(!isInf(@as(T, -0.0)));
@@ -38,9 +35,6 @@ test "math.isInf" {
 }
 
 test "math.isPositiveInf" {
-    // TODO remove when #11391 is resolved
-    if (@import("builtin").os.tag == .freebsd) return error.SkipZigTest;
-
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(!isPositiveInf(@as(T, 0.0)));
         try expect(!isPositiveInf(@as(T, -0.0)));
@@ -52,9 +46,6 @@ test "math.isPositiveInf" {
 }
 
 test "math.isNegativeInf" {
-    // TODO remove when #11391 is resolved
-    if (@import("builtin").os.tag == .freebsd) return error.SkipZigTest;
-
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(!isNegativeInf(@as(T, 0.0)));
         try expect(!isNegativeInf(@as(T, -0.0)));
