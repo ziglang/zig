@@ -426,22 +426,20 @@ pub fn generateSymbol(
             },
         },
         .Int => {
-            // TODO populate .debug_info for the integer
-            const info = typed_value.ty.intInfo(bin_file.options.target);
+            const info = typed_value.ty.intInfo(target);
             if (info.bits <= 8) {
                 const x = @intCast(u8, typed_value.val.toUnsignedInt(target));
                 try code.append(x);
                 return Result{ .appended = {} };
             }
             if (info.bits > 64) {
-                return Result{
-                    .fail = try ErrorMsg.create(
-                        bin_file.allocator,
-                        src_loc,
-                        "TODO implement generateSymbol for big ints ('{}')",
-                        .{typed_value.ty.fmtDebug()},
-                    ),
-                };
+                var bigint_buffer: Value.BigIntSpace = undefined;
+                const bigint = typed_value.val.toBigInt(&bigint_buffer, target);
+                const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
+                const start = code.items.len;
+                try code.resize(start + abi_size);
+                bigint.writeTwosComplement(code.items[start..][0..abi_size], info.bits, abi_size, endian);
+                return Result{ .appended = {} };
             }
             switch (info.signedness) {
                 .unsigned => {
