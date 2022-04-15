@@ -695,6 +695,9 @@ pub const Instruction = union(enum) {
         offset: LoadStoreOffset,
         variant: LoadStoreVariant,
     ) Instruction {
+        assert(rn.size() == 64);
+        assert(rn.id() != Register.xzr.id());
+
         const off = offset.toU12();
         const op1: u2 = blk: {
             switch (offset) {
@@ -741,6 +744,9 @@ pub const Instruction = union(enum) {
         encoding: u2,
         load: bool,
     ) Instruction {
+        assert(rn.size() == 64);
+        assert(rn.id() != Register.xzr.id());
+
         switch (rt1.size()) {
             32 => {
                 assert(-256 <= offset and offset <= 252);
@@ -849,38 +855,26 @@ pub const Instruction = union(enum) {
         shift: LogicalShiftedRegisterShift,
         amount: u6,
     ) Instruction {
-        switch (rd.size()) {
-            32 => {
-                assert(amount < 32);
-                return Instruction{
-                    .logical_shifted_register = .{
-                        .rd = rd.enc(),
-                        .rn = rn.enc(),
-                        .imm6 = amount,
-                        .rm = rm.enc(),
-                        .n = n,
-                        .shift = @enumToInt(shift),
-                        .opc = opc,
-                        .sf = 0b0,
-                    },
-                };
+        assert(rd.size() == rn.size());
+        assert(rd.size() == rm.size());
+        if (rd.size() == 32) assert(amount < 32);
+
+        return Instruction{
+            .logical_shifted_register = .{
+                .rd = rd.enc(),
+                .rn = rn.enc(),
+                .imm6 = amount,
+                .rm = rm.enc(),
+                .n = n,
+                .shift = @enumToInt(shift),
+                .opc = opc,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable,
+                },
             },
-            64 => {
-                return Instruction{
-                    .logical_shifted_register = .{
-                        .rd = rd.enc(),
-                        .rn = rn.enc(),
-                        .imm6 = amount,
-                        .rm = rm.enc(),
-                        .n = n,
-                        .shift = @enumToInt(shift),
-                        .opc = opc,
-                        .sf = 0b1,
-                    },
-                };
-            },
-            else => unreachable, // unexpected register size
-        }
+        };
     }
 
     fn addSubtractImmediate(
@@ -891,6 +885,9 @@ pub const Instruction = union(enum) {
         imm12: u12,
         shift: bool,
     ) Instruction {
+        assert(rd.size() == rn.size());
+        assert(rn.id() != Register.xzr.id());
+
         return Instruction{
             .add_subtract_immediate = .{
                 .rd = rd.enc(),
@@ -916,6 +913,9 @@ pub const Instruction = union(enum) {
         immr: u6,
         n: u1,
     ) Instruction {
+        assert(rd.size() == rn.size());
+        assert(!(rd.size() == 32 and n == 1));
+
         return Instruction{
             .logical_immediate = .{
                 .rd = rd.enc(),
@@ -941,6 +941,8 @@ pub const Instruction = union(enum) {
         immr: u6,
         imms: u6,
     ) Instruction {
+        assert(rd.size() == rn.size());
+
         return Instruction{
             .bitfield = .{
                 .rd = rd.enc(),
@@ -969,6 +971,9 @@ pub const Instruction = union(enum) {
         rm: Register,
         imm6: u6,
     ) Instruction {
+        assert(rd.size() == rn.size());
+        assert(rd.size() == rm.size());
+
         return Instruction{
             .add_subtract_shifted_register = .{
                 .rd = rd.enc(),
@@ -994,6 +999,7 @@ pub const Instruction = union(enum) {
         offset: i21,
     ) Instruction {
         assert(offset & 0b11 == 0b00);
+
         return Instruction{
             .conditional_branch = .{
                 .cond = @enumToInt(cond),
@@ -1010,6 +1016,7 @@ pub const Instruction = union(enum) {
         offset: i21,
     ) Instruction {
         assert(offset & 0b11 == 0b00);
+
         return Instruction{
             .compare_and_branch = .{
                 .rt = rt.enc(),
@@ -1033,6 +1040,9 @@ pub const Instruction = union(enum) {
         rm: Register,
         cond: Condition,
     ) Instruction {
+        assert(rd.size() == rn.size());
+        assert(rd.size() == rm.size());
+
         return Instruction{
             .conditional_select = .{
                 .rd = rd.enc(),
@@ -1085,6 +1095,9 @@ pub const Instruction = union(enum) {
         rn: Register,
         rm: Register,
     ) Instruction {
+        assert(rd.size() == rn.size());
+        assert(rd.size() == rm.size());
+
         return Instruction{
             .data_processing_2_source = .{
                 .rd = rd.enc(),

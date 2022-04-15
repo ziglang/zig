@@ -376,7 +376,7 @@ fn gen(self: *Self) !void {
         // mov fp, sp
         _ = try self.addInst(.{
             .tag = .mov_to_from_sp,
-            .data = .{ .rr = .{ .rd = .x29, .rn = .xzr } },
+            .data = .{ .rr = .{ .rd = .x29, .rn = .sp } },
         });
 
         // sub sp, sp, #reloc
@@ -421,7 +421,7 @@ fn gen(self: *Self) !void {
         if (math.cast(u12, stack_size)) |size| {
             self.mir_instructions.set(backpatch_reloc, .{
                 .tag = .sub_immediate,
-                .data = .{ .rr_imm12_sh = .{ .rd = .xzr, .rn = .xzr, .imm12 = size } },
+                .data = .{ .rr_imm12_sh = .{ .rd = .sp, .rn = .sp, .imm12 = size } },
             });
         } else |_| {
             return self.failSymbol("TODO AArch64: allow larger stacks", .{});
@@ -453,7 +453,7 @@ fn gen(self: *Self) !void {
         // add sp, sp, #stack_size
         _ = try self.addInst(.{
             .tag = .add_immediate,
-            .data = .{ .rr_imm12_sh = .{ .rd = .xzr, .rn = .xzr, .imm12 = @intCast(u12, stack_size) } },
+            .data = .{ .rr_imm12_sh = .{ .rd = .sp, .rn = .sp, .imm12 = @intCast(u12, stack_size) } },
         });
 
         // <load other registers>
@@ -882,7 +882,8 @@ fn spillCompareFlagsIfOccupied(self: *Self) !void {
 /// allocated. A second call to `copyToTmpRegister` may return the same register.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
-    const reg = try self.register_manager.allocReg(null);
+    const raw_reg = try self.register_manager.allocReg(null);
+    const reg = registerAlias(raw_reg, ty.abiSize(self.target.*));
     try self.genSetReg(ty, reg, mcv);
     return reg;
 }
@@ -891,7 +892,9 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// `reg_owner` is the instruction that gets associated with the register in the register table.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, mcv: MCValue) !MCValue {
-    const reg = try self.register_manager.allocReg(reg_owner);
+    const raw_reg = try self.register_manager.allocReg(reg_owner);
+    const ty = self.air.typeOfIndex(reg_owner);
+    const reg = registerAlias(raw_reg, ty.abiSize(self.target.*));
     try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
     return MCValue{ .register = reg };
 }
@@ -1003,7 +1006,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                                 break :blk op_reg;
                             }
 
-                            break :blk try self.register_manager.allocReg(null);
+                            const raw_reg = try self.register_manager.allocReg(null);
+                            break :blk raw_reg.to32();
                         };
 
                         _ = try self.addInst(.{
@@ -1013,7 +1017,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                                 .rn = op_reg,
                                 .imms = 0b000000,
                                 .immr = 0b000000,
-                                .n = 0b1,
+                                .n = 0b0,
                             } },
                         });
 
@@ -1035,7 +1039,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                                     break :blk op_reg;
                                 }
 
-                                break :blk try self.register_manager.allocReg(null);
+                                const raw_reg = try self.register_manager.allocReg(null);
+                                break :blk registerAlias(raw_reg, operand_ty.abiSize(self.target.*));
                             };
 
                             _ = try self.addInst(.{
@@ -1124,7 +1129,8 @@ fn binOpRegister(
             break :inst Air.refToIndex(bin_op.lhs).?;
         } else null;
 
-        const reg = try self.register_manager.allocReg(track_inst);
+        const raw_reg = try self.register_manager.allocReg(track_inst);
+        const reg = registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
         self.register_manager.freezeRegs(&.{reg});
 
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
@@ -1139,7 +1145,8 @@ fn binOpRegister(
             break :inst Air.refToIndex(bin_op.rhs).?;
         } else null;
 
-        const reg = try self.register_manager.allocReg(track_inst);
+        const raw_reg = try self.register_manager.allocReg(track_inst);
+        const reg = registerAlias(raw_reg, rhs_ty.abiAlignment(self.target.*));
         self.register_manager.freezeRegs(&.{reg});
 
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
@@ -1156,7 +1163,8 @@ fn binOpRegister(
         } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
             break :blk rhs_reg;
         } else {
-            break :blk try self.register_manager.allocReg(inst);
+            const raw_reg = try self.register_manager.allocReg(inst);
+            break :blk registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
         }
     } else try self.register_manager.allocReg(null);
 
@@ -1276,7 +1284,8 @@ fn binOpImmediate(
             ).?;
         } else null;
 
-        const reg = try self.register_manager.allocReg(track_inst);
+        const raw_reg = try self.register_manager.allocReg(track_inst);
+        const reg = registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
         self.register_manager.freezeRegs(&.{reg});
 
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
@@ -1298,7 +1307,8 @@ fn binOpImmediate(
             )) {
                 break :blk lhs_reg;
             } else {
-                break :blk try self.register_manager.allocReg(inst);
+                const raw_reg = try self.register_manager.allocReg(inst);
+                break :blk registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
             }
         } else try self.register_manager.allocReg(null),
     };
@@ -1965,7 +1975,8 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 },
                 .stack_offset => |off| {
                     if (elem_size <= 8) {
-                        const tmp_reg = try self.register_manager.allocReg(null);
+                        const raw_tmp_reg = try self.register_manager.allocReg(null);
+                        const tmp_reg = registerAlias(raw_tmp_reg, elem_size);
                         self.register_manager.freezeRegs(&.{tmp_reg});
                         defer self.register_manager.unfreezeRegs(&.{tmp_reg});
 
@@ -2001,12 +2012,8 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .got_load,
         .direct_load,
         => {
-            const reg = try self.register_manager.allocReg(null);
-            self.register_manager.freezeRegs(&.{reg});
-            defer self.register_manager.unfreezeRegs(&.{reg});
-
-            try self.genSetReg(ptr_ty, reg, ptr);
-            try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
+            const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
+            try self.load(dst_mcv, .{ .register = addr_reg }, ptr_ty);
         },
     }
 }
@@ -2091,6 +2098,7 @@ fn genInlineMemcpy(
 fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const elem_ty = self.air.typeOfIndex(inst);
+    const elem_size = elem_ty.abiSize(self.target.*);
     const result: MCValue = result: {
         if (!elem_ty.hasRuntimeBits())
             break :result MCValue.none;
@@ -2101,9 +2109,12 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
             break :result MCValue.dead;
 
         const dst_mcv: MCValue = blk: {
-            if (self.reuseOperand(inst, ty_op.operand, 0, ptr)) {
+            if (elem_size <= 8 and self.reuseOperand(inst, ty_op.operand, 0, ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
-                break :blk ptr;
+                break :blk switch (ptr) {
+                    .register => |r| MCValue{ .register = registerAlias(r, elem_size) },
+                    else => ptr,
+                };
             } else {
                 break :blk try self.allocRegOrMem(inst, true);
             }
@@ -2209,6 +2220,8 @@ fn genStrRegister(self: *Self, value_reg: Register, addr_reg: Register, abi_size
 }
 
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
+    const abi_size = value_ty.abiSize(self.target.*);
+
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -2226,14 +2239,14 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             self.register_manager.freezeRegs(&.{addr_reg});
             defer self.register_manager.unfreezeRegs(&.{addr_reg});
 
-            const abi_size = value_ty.abiSize(self.target.*);
             switch (value) {
                 .register => |value_reg| {
                     try self.genStrRegister(value_reg, addr_reg, abi_size);
                 },
                 else => {
                     if (abi_size <= 8) {
-                        const tmp_reg = try self.register_manager.allocReg(null);
+                        const raw_tmp_reg = try self.register_manager.allocReg(null);
+                        const tmp_reg = registerAlias(raw_tmp_reg, abi_size);
                         self.register_manager.freezeRegs(&.{tmp_reg});
                         defer self.register_manager.unfreezeRegs(&.{tmp_reg});
 
@@ -3522,8 +3535,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         .memory => |addr| {
             // The value is in memory at a hard-coded address.
             // If the type is a pointer, it means the pointer address is at this memory location.
-            try self.genSetReg(ty, reg, .{ .immediate = addr });
-            try self.genLdrRegister(reg, reg, ty.abiSize(self.target.*));
+            try self.genSetReg(ty, reg.to64(), .{ .immediate = addr });
+            try self.genLdrRegister(reg, reg.to64(), ty.abiSize(self.target.*));
         },
         .stack_offset => |off| {
             const abi_size = ty.abiSize(self.target.*);
@@ -3998,6 +4011,12 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             var nsaa: u32 = 0; // Next stacked argument address
 
             for (param_types) |ty, i| {
+                const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                if (param_size == 0) {
+                    result.args[i] = .{ .none = {} };
+                    continue;
+                }
+
                 // We round up NCRN only for non-Apple platforms which allow the 16-byte aligned
                 // values to spread across odd-numbered registers.
                 if (ty.abiAlignment(self.target.*) == 16 and !self.target.isDarwin()) {
@@ -4005,10 +4024,9 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     ncrn += ncrn % 2;
                 }
 
-                const param_size = @intCast(u32, ty.abiSize(self.target.*));
                 if (std.math.divCeil(u32, param_size, 8) catch unreachable <= 8 - ncrn) {
                     if (param_size <= 8) {
-                        result.args[i] = .{ .register = c_abi_int_param_regs[ncrn] };
+                        result.args[i] = .{ .register = registerAlias(c_abi_int_param_regs[ncrn], param_size) };
                         ncrn += 1;
                     } else {
                         return self.fail("TODO MCValues with multiple registers", .{});
@@ -4045,7 +4063,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
         .Unspecified, .C => {
             const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
             if (ret_ty_size <= 8) {
-                result.return_value = .{ .register = c_abi_int_return_regs[0] };
+                result.return_value = .{ .register = registerAlias(c_abi_int_return_regs[0], ret_ty_size) };
             } else {
                 return self.fail("TODO support more return types for ARM backend", .{});
             }

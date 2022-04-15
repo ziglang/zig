@@ -457,8 +457,13 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
             const rn = r_imm12_sh.rn;
             const imm12 = r_imm12_sh.imm12;
             const sh = r_imm12_sh.sh == 1;
+            const zr: Register = switch (rn.size()) {
+                32 => .wzr,
+                64 => .xzr,
+                else => unreachable,
+            };
 
-            try emit.writeInstruction(Instruction.subs(.xzr, rn, imm12, sh));
+            try emit.writeInstruction(Instruction.subs(zr, rn, imm12, sh));
         },
         else => unreachable,
     }
@@ -674,8 +679,13 @@ fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
             const rm = rr_imm6_shift.rm;
             const shift = rr_imm6_shift.shift;
             const imm6 = rr_imm6_shift.imm6;
+            const zr: Register = switch (rn.size()) {
+                32 => .wzr,
+                64 => .xzr,
+                else => unreachable,
+            };
 
-            try emit.writeInstruction(Instruction.subsShiftedRegister(.xzr, rn, rm, shift, imm6));
+            try emit.writeInstruction(Instruction.subsShiftedRegister(zr, rn, rm, shift, imm6));
         },
         else => unreachable,
     }
@@ -686,7 +696,12 @@ fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .cset => {
             const r_cond = emit.mir.instructions.items(.data)[inst].r_cond;
-            try emit.writeInstruction(Instruction.csinc(r_cond.rd, .xzr, .xzr, r_cond.cond));
+            const zr: Register = switch (r_cond.rd.size()) {
+                32 => .wzr,
+                64 => .xzr,
+                else => unreachable,
+            };
+            try emit.writeInstruction(Instruction.csinc(r_cond.rd, zr, zr, r_cond.cond));
         },
         else => unreachable,
     }
@@ -718,14 +733,14 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     // PC-relative displacement to the entry in memory.
     // adrp
     const offset = @intCast(u32, emit.code.items.len);
-    try emit.writeInstruction(Instruction.adrp(reg, 0));
+    try emit.writeInstruction(Instruction.adrp(reg.to64(), 0));
 
     switch (tag) {
         .load_memory_got => {
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
-                reg,
+                reg.to64(),
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
@@ -739,11 +754,11 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             // Note that this can potentially be optimised out by the codegen/linker if the
             // target address is appropriately aligned.
             // add reg, reg, offset
-            try emit.writeInstruction(Instruction.add(reg, reg, 0, false));
+            try emit.writeInstruction(Instruction.add(reg.to64(), reg.to64(), 0, false));
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
-                reg,
+                reg.to64(),
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
@@ -905,7 +920,13 @@ fn mirMoveRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .mov_register => {
             const rr = emit.mir.instructions.items(.data)[inst].rr;
-            try emit.writeInstruction(Instruction.orrShiftedRegister(rr.rd, .xzr, rr.rn, .lsl, 0));
+            const zr: Register = switch (rr.rd.size()) {
+                32 => .wzr,
+                64 => .xzr,
+                else => unreachable,
+            };
+
+            try emit.writeInstruction(Instruction.orrShiftedRegister(rr.rd, zr, rr.rn, .lsl, 0));
         },
         .mov_to_from_sp => {
             const rr = emit.mir.instructions.items(.data)[inst].rr;
@@ -917,8 +938,13 @@ fn mirMoveRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
             const rm = rr_imm6_logical_shift.rm;
             const shift = rr_imm6_logical_shift.shift;
             const imm6 = rr_imm6_logical_shift.imm6;
+            const zr: Register = switch (rd.size()) {
+                32 => .wzr,
+                64 => .xzr,
+                else => unreachable,
+            };
 
-            try emit.writeInstruction(Instruction.ornShiftedRegister(rd, .xzr, rm, shift, imm6));
+            try emit.writeInstruction(Instruction.ornShiftedRegister(rd, zr, rm, shift, imm6));
         },
         else => unreachable,
     }
