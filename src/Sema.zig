@@ -1589,6 +1589,21 @@ fn errNote(
     return sema.mod.errNoteNonLazy(src.toSrcLoc(block.src_decl), parent, format, args);
 }
 
+fn addFieldErrNote(
+    sema: *Sema,
+    block: *Block,
+    container_ty: Type,
+    field_index: usize,
+    parent: *Module.ErrorMsg,
+    comptime format: []const u8,
+    args: anytype,
+) !void {
+    const decl = container_ty.getOwnerDecl();
+    const tree = try sema.getAstTree(block);
+    const field_src = enumFieldSrcLoc(decl, tree.*, container_ty.getNodeOffset(), field_index);
+    try sema.mod.errNoteNonLazy(field_src.toSrcLoc(decl), parent, format, args);
+}
+
 fn errMsg(
     sema: *Sema,
     block: *Block,
@@ -17573,9 +17588,15 @@ fn unionFieldVal(
                 if (tag_matches) {
                     return sema.addConstant(field.ty, tag_and_val.val);
                 } else {
-                    // TODO enhance this saying which one was active
-                    // and which one was accessed, and showing where the union was declared.
-                    return sema.fail(block, src, "access of inactive union field", .{});
+                    const msg = msg: {
+                        const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
+                        const active_field_name = union_obj.fields.keys()[active_index];
+                        const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.addDeclaredHereNote(msg, union_ty);
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(block, msg);
                 }
             },
             .Packed, .Extern => {
@@ -19702,13 +19723,14 @@ fn coerceEnumToUnion(
         const field = union_obj.fields.values()[field_index];
         const field_ty = try sema.resolveTypeFields(block, inst_src, field.ty);
         const opv = (try sema.typeHasOnePossibleValue(block, inst_src, field_ty)) orelse {
-            // TODO resolve the field names and include in the error message,
-            // also instead of 'union declared here' make it 'field "foo" declared here'.
             const msg = msg: {
-                const msg = try sema.errMsg(block, inst_src, "coercion to union {} must initialize {} field", .{
-                    union_ty.fmt(target), field_ty.fmt(target),
+                const field_name = union_obj.fields.keys()[field_index];
+                const msg = try sema.errMsg(block, inst_src, "coercion from enum '{}' to union '{}' must initialize '{}' field '{s}'", .{
+                    inst_ty.fmt(target), union_ty.fmt(target), field_ty.fmt(target), field_name,
                 });
                 errdefer msg.destroy(sema.gpa);
+
+                try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
                 try sema.addDeclaredHereNote(msg, union_ty);
                 break :msg msg;
             };
@@ -19740,13 +19762,24 @@ fn coerceEnumToUnion(
         return block.addBitCast(union_ty, enum_tag);
     }
 
-    // TODO resolve the field names and add a hint that says "field 'foo' has type 'bar'"
-    // instead of the "union declared here" hint
     const msg = msg: {
-        const msg = try sema.errMsg(block, inst_src, "runtime coercion to union {} which has non-void fields", .{
-            union_ty.fmt(target),
-        });
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const msg = try sema.errMsg(
+            block,
+            inst_src,
+            "runtime coercion from enum '{}' to union '{}' which has non-void fields",
+            .{ tag_ty.fmt(target), union_ty.fmt(target) },
+        );
         errdefer msg.destroy(sema.gpa);
+
+        var it = union_obj.fields.iterator();
+        var field_index: usize = 0;
+        while (it.next()) |field| {
+            const field_name = field.key_ptr.*;
+            const field_ty = field.value_ptr.ty;
+            try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' has type '{}'", .{ field_name, field_ty.fmt(target) });
+            field_index += 1;
+        }
         try sema.addDeclaredHereNote(msg, union_ty);
         break :msg msg;
     };
@@ -21835,7 +21868,7 @@ fn resolveTypeFieldsUnion(
     }
 
     union_obj.status = .field_types_wip;
-    try semaUnionFields(sema.mod, union_obj);
+    try semaUnionFields(block, sema.mod, union_obj);
     union_obj.status = .have_field_types;
 }
 
@@ -22044,7 +22077,21 @@ fn semaStructFields(
         }
 
         const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
-        assert(!gop.found_existing);
+        if (gop.found_existing) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const field_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, field_i);
+                const msg = try sema.errMsg(&block_scope, field_src, "duplicate struct field: '{s}'", .{field_name});
+                errdefer msg.destroy(gpa);
+
+                const prev_field_index = struct_obj.fields.getIndex(field_name).?;
+                const prev_field_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, prev_field_index);
+                try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl), msg, "other field here", .{});
+                try sema.errNote(&block_scope, src, msg, "struct declared here", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        }
         gop.value_ptr.* = .{
             .ty = try field_ty.copy(decl_arena_allocator),
             .abi_align = 0,
@@ -22075,7 +22122,7 @@ fn semaStructFields(
     }
 }
 
-fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
+fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -22175,6 +22222,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     var int_tag_ty: Type = undefined;
     var enum_field_names: ?*Module.EnumNumbered.NameMap = null;
     var enum_value_map: ?*Module.EnumNumbered.ValueMap = null;
+    var tag_ty_field_names: ?Module.EnumFull.NameMap = null;
     if (tag_type_ref != .none) {
         const provided_ty = try sema.resolveType(&block_scope, src, tag_type_ref);
         if (small.auto_enum_tag) {
@@ -22187,6 +22235,10 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         } else {
             // The provided type is the enum tag type.
             union_obj.tag_ty = try provided_ty.copy(decl_arena_allocator);
+            // The fields of the union must match the enum exactly.
+            // Store a copy of the enum field names so we can check for
+            // missing or extraneous fields later.
+            tag_ty_field_names = try union_obj.tag_ty.enumFields().clone(sema.arena);
         }
     } else {
         // If auto_enum_tag is false, this is an untagged union. However, for semantic analysis
@@ -22295,7 +22347,35 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         }
 
         const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
-        assert(!gop.found_existing);
+        if (gop.found_existing) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                const msg = try sema.errMsg(&block_scope, field_src, "duplicate union field: '{s}'", .{field_name});
+                errdefer msg.destroy(gpa);
+
+                const prev_field_index = union_obj.fields.getIndex(field_name).?;
+                const prev_field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, prev_field_index);
+                try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl), msg, "other field here", .{});
+                try sema.errNote(&block_scope, src, msg, "union declared here", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        }
+
+        if (tag_ty_field_names) |*names| {
+            const enum_has_field = names.orderedRemove(field_name);
+            if (!enum_has_field) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, src, "enum '{}' has no field named '{s}'", .{ union_obj.tag_ty.fmt(target), field_name });
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+        }
+
         gop.value_ptr.* = .{
             .ty = try field_ty.copy(decl_arena_allocator),
             .abi_align = 0,
@@ -22308,6 +22388,24 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             gop.value_ptr.abi_align = try sema.resolveAlign(&block_scope, src, align_ref);
         } else {
             gop.value_ptr.abi_align = 0;
+        }
+    }
+
+    if (tag_ty_field_names) |names| {
+        if (names.count() > 0) {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "enum field(s) missing in union", .{});
+                errdefer msg.destroy(sema.gpa);
+
+                const enum_ty = union_obj.tag_ty;
+                for (names.keys()) |field_name| {
+                    const field_index = enum_ty.enumFieldIndex(field_name).?;
+                    try sema.addFieldErrNote(block, enum_ty, field_index, msg, "field '{s}' missing, declared here", .{field_name});
+                }
+                try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
         }
     }
 }
