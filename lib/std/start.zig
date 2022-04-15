@@ -30,8 +30,8 @@ comptime {
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_riscv64 or
         builtin.zig_backend == .stage2_sparcv9 or
-        (builtin.zig_backend == .stage2_llvm and native_os != .linux) or
-        (builtin.zig_backend == .stage2_llvm and native_arch != .x86_64))
+        (builtin.zig_backend == .stage2_llvm and native_os != .linux and native_os != .macos) or
+        (builtin.zig_backend == .stage2_llvm and native_arch != .x86_64 and native_arch != .aarch64))
     {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
