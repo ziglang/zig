@@ -72,7 +72,7 @@ const SpinlockTable = struct {
         }
         fn release(self: *@This()) void {
             if (comptime arch.isSPARC()) {
-                _ = asm volatile ("clr [%[addr]]"
+                _ = asm volatile ("clrb [%[addr]]"
                     :
                     : [addr] "r" (&self.v),
                     : "memory"
