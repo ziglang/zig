@@ -352,11 +352,6 @@ pub const File = struct {
         }
         switch (base.tag) {
             .macho => if (base.file) |f| {
-                if (base.intermediary_basename != null) {
-                    // The file we have open is not the final file that we want to
-                    // make executable, so we don't have to close it.
-                    return;
-                }
                 if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
                     if (base.options.target.cpu.arch == .aarch64) {
                         // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
@@ -371,8 +366,10 @@ pub const File = struct {
                         try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
                     }
                 }
-                f.close();
-                base.file = null;
+                if (base.intermediary_basename == null) {
+                    f.close();
+                    base.file = null;
+                }
             },
             .coff, .elf, .plan9 => if (base.file) |f| {
                 if (base.intermediary_basename != null) {
