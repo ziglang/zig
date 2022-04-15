@@ -2063,7 +2063,8 @@ pub const Const = struct {
         // This is the inverse of calcDivLimbsBufferLen
         const available_len = (limbs.len / 3) - 2;
 
-        const biggest: Const = .{
+        // TODO https://github.com/ziglang/zig/issues/11439
+        const biggest = comptime Const{
             .limbs = &([1]Limb{math.maxInt(Limb)} ** available_len),
             .positive = false,
         };
