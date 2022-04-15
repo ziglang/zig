@@ -6155,7 +6155,6 @@ pub const CType = enum {
             },
 
             .linux,
-            .macos,
             .freebsd,
             .netbsd,
             .dragonfly,
@@ -6198,7 +6197,7 @@ pub const CType = enum {
                 .longlong, .ulonglong, .longdouble => return 64,
             },
 
-            .ios, .tvos, .watchos => switch (self) {
+            .macos, .ios, .tvos, .watchos => switch (self) {
                 .short, .ushort => return 16,
                 .int, .uint => return 32,
                 .long, .ulong, .longlong, .ulonglong => return 64,

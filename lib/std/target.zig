@@ -1718,8 +1718,17 @@ pub const Target = struct {
         }
         return switch (F) {
             f128 => switch (target.cpu.arch) {
+                .aarch64 => {
+                    // According to Apple's official guide:
+                    // > The long double type is a double precision IEEE754 binary floating-point type,
+                    // > which makes it identical to the double type. This behavior contrasts to the
+                    // > standard specification, in which a long double is a quad-precision, IEEE754
+                    // > binary, floating-point type.
+                    // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms
+                    return !target.isDarwin();
+                },
+
                 .riscv64,
-                .aarch64,
                 .aarch64_be,
                 .aarch64_32,
                 .s390x,

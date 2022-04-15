@@ -1008,8 +1008,16 @@ bool target_long_double_is_f128(const ZigTarget *target) {
         return false;
     }
     switch (target->arch) {
-        case ZigLLVM_riscv64:
         case ZigLLVM_aarch64:
+            // According to Apple's official guide:
+            // > The long double type is a double precision IEEE754 binary floating-point type,
+            // > which makes it identical to the double type. This behavior contrasts to the
+            // > standard specification, in which a long double is a quad-precision, IEEE754
+            // > binary, floating-point type.
+            // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms
+            return !target_os_is_darwin(target->os);
+
+        case ZigLLVM_riscv64:
         case ZigLLVM_aarch64_be:
         case ZigLLVM_aarch64_32:
         case ZigLLVM_systemz:
