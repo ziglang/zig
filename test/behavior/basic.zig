@@ -859,7 +859,6 @@ test "catch in block has correct result location" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const S = struct {
         fn open() error{A}!@This() {
@@ -886,4 +885,23 @@ test "labeled block with runtime branch forwards its result location type to bre
         break :blk .b;
     };
     try expect(e == .b);
+}
+
+test "try in labeled block doesn't cast to wrong type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        a: u32,
+        fn foo() anyerror!u32 {
+            return 1;
+        }
+    };
+    const s: ?*S = blk: {
+        var a = try S.foo();
+
+        _ = a;
+        break :blk null;
+    };
+    _ = s;
 }
