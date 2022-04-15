@@ -155,6 +155,8 @@ pub const MCValue = union(enum) {
             .memory,
             .stack_offset,
             .ptr_stack_offset,
+            .direct_load,
+            .got_load,
             => true,
             else => false,
         };
@@ -3131,20 +3133,19 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
 }
 
 fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
-    const abi_size = dst_ty.abiSize(self.target.*);
+    const abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
     switch (dst_mcv) {
         .none => unreachable,
         .undef => unreachable,
         .dead, .unreach, .immediate => unreachable,
         .compare_flags_unsigned => unreachable,
         .compare_flags_signed => unreachable,
-        .ptr_stack_offset => unreachable,
         .register_overflow_unsigned => unreachable,
         .register_overflow_signed => unreachable,
         .register => |dst_reg| {
             switch (src_mcv) {
                 .none => unreachable,
-                .undef => try self.genSetReg(dst_ty, dst_reg, .undef),
+                .undef => unreachable,
                 .dead, .unreach => unreachable,
                 .register_overflow_unsigned => unreachable,
                 .register_overflow_signed => unreachable,
@@ -3168,7 +3169,7 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
+                            .reg1 = registerAlias(dst_reg, abi_size),
                         }).encode(),
                         .data = .{ .imm = @truncate(u32, imm) },
                     });
@@ -3192,7 +3193,7 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
+                            .reg1 = registerAlias(dst_reg, abi_size),
                             .reg2 = .rbp,
                             .flags = 0b01,
                         }).encode(),
@@ -3201,19 +3202,18 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                 },
             }
         },
-        .stack_offset => |off| {
+        .ptr_stack_offset, .stack_offset => |off| {
             if (off > math.maxInt(i32)) {
                 return self.fail("stack offset too large", .{});
             }
             if (abi_size > 8) {
-                return self.fail("TODO implement ADD/SUB/CMP for stack dst with large ABI", .{});
+                return self.fail("TODO implement {} for stack dst with large ABI", .{mir_tag});
             }
 
             switch (src_mcv) {
                 .none => unreachable,
-                .undef => return self.genSetStack(dst_ty, off, .undef, .{}),
+                .undef => unreachable,
                 .dead, .unreach => unreachable,
-                .ptr_stack_offset => unreachable,
                 .register_overflow_unsigned => unreachable,
                 .register_overflow_signed => unreachable,
                 .register => |src_reg| {
@@ -3221,7 +3221,7 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
                             .reg1 = .rbp,
-                            .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
+                            .reg2 = registerAlias(src_reg, abi_size),
                             .flags = 0b10,
                         }).encode(),
                         .data = .{ .imm = @bitCast(u32, -off) },
@@ -3257,7 +3257,10 @@ fn genBinMathOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MC
                         .data = .{ .payload = payload },
                     });
                 },
-                .memory, .stack_offset => {
+                .memory,
+                .stack_offset,
+                .ptr_stack_offset,
+                => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source memory", .{});
                 },
                 .got_load, .direct_load => {
