@@ -4637,6 +4637,7 @@ pub const FuncGen = struct {
             switch (state) {
                 .start => switch (byte) {
                     '%' => state = .percent,
+                    '$' => try rendered_template.appendSlice("$$"),
                     else => try rendered_template.append(byte),
                 },
                 .percent => switch (byte) {

@@ -492,7 +492,8 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
             mem.copy(u8, atom.code.items, code);
         }
 
-        try atom.parseRelocs(relocs, .{
+        // TODO stage2 bug: @alignCast shouldn't be needed
+        try atom.parseRelocs(@alignCast(@alignOf(macho.relocation_info), relocs), .{
             .base_addr = sect.addr,
             .allocator = allocator,
             .object = self,

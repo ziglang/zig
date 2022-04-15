@@ -472,7 +472,8 @@ fn writeLoadCommands(self: *DebugSymbols, allocator: Allocator) !void {
 
     var buffer = try allocator.alloc(u8, sizeofcmds);
     defer allocator.free(buffer);
-    var writer = std.io.fixedBufferStream(buffer).writer();
+    var fib = std.io.fixedBufferStream(buffer);
+    const writer = fib.writer();
     for (self.load_commands.items) |lc| {
         try lc.write(writer);
     }

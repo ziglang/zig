@@ -2851,6 +2851,9 @@ fn varDecl(
             return &sub_scope.base;
         },
         .keyword_var => {
+            const old_rl_ty_inst = gz.rl_ty_inst;
+            defer gz.rl_ty_inst = old_rl_ty_inst;
+
             const is_comptime = var_decl.comptime_token != null or gz.force_comptime;
             var resolve_inferred_alloc: Zir.Inst.Ref = .none;
             const var_data: struct {
@@ -2875,6 +2878,7 @@ fn varDecl(
                         });
                     }
                 };
+                gz.rl_ty_inst = type_inst;
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
                 const alloc = alloc: {
@@ -2894,6 +2898,7 @@ fn varDecl(
                         });
                     }
                 };
+                gz.rl_ty_inst = .none;
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };

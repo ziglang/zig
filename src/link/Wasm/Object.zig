@@ -312,7 +312,8 @@ fn Parser(comptime ReaderType: type) type {
             var section_index: u32 = 0;
             while (self.reader.reader().readByte()) |byte| : (section_index += 1) {
                 const len = try readLeb(u32, self.reader.reader());
-                const reader = std.io.limitedReader(self.reader.reader(), len).reader();
+                var limited_reader = std.io.limitedReader(self.reader.reader(), len);
+                const reader = limited_reader.reader();
                 switch (@intToEnum(std.wasm.Section, byte)) {
                     .custom => {
                         const name_len = try readLeb(u32, reader);

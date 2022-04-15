@@ -1317,6 +1317,9 @@ pub fn parseDylib(self: *MachO, path: []const u8, opts: DylibCreateOpts) ParseDy
         error.EndOfStream, error.NotDylib => {
             try file.seekTo(0);
 
+            // TODO https://github.com/ziglang/zig/issues/11367
+            if (@import("builtin").zig_backend != .stage1) return error.Unexpected;
+
             var lib_stub = LibStub.loadFromFile(self.base.allocator, file) catch {
                 dylib.deinit(self.base.allocator);
                 return false;
@@ -5747,7 +5750,6 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
     while (true) {
         const inst = reader.readByte() catch |err| switch (err) {
             error.EndOfStream => break,
-            else => return err,
         };
         const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
 
@@ -5875,7 +5877,7 @@ fn writeFunctionStarts(self: *MachO) !void {
     mem.set(u8, buffer, 0);
 
     var stream = std.io.fixedBufferStream(buffer);
-    var writer = stream.writer();
+    const writer = stream.writer();
 
     for (offsets.items) |offset| {
         try std.leb.writeULEB128(writer, offset);
@@ -6236,7 +6238,8 @@ fn writeLoadCommands(self: *MachO) !void {
 
     var buffer = try self.base.allocator.alloc(u8, sizeofcmds);
     defer self.base.allocator.free(buffer);
-    var writer = std.io.fixedBufferStream(buffer).writer();
+    var fib = std.io.fixedBufferStream(buffer);
+    const writer = fib.writer();
     for (self.load_commands.items) |lc| {
         try lc.write(writer);
     }
@@ -6416,7 +6419,7 @@ fn snapshotState(self: *MachO) !void {
         error.Unseekable => try out_file.writer().writeByte('['),
         else => |e| return e,
     }
-    var writer = out_file.writer();
+    const writer = out_file.writer();
 
     var snapshot = Snapshot{
         .timestamp = std.time.nanoTimestamp(),
