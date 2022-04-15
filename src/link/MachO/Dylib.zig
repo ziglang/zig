@@ -64,7 +64,7 @@ pub const Id = struct {
         };
     }
 
-    pub fn deinit(id: *Id, allocator: Allocator) void {
+    pub fn deinit(id: Id, allocator: Allocator) void {
         allocator.free(id.name);
     }
 

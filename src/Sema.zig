@@ -12417,7 +12417,8 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src: LazySrcLoc = .unneeded;
+    // TODO better source location
+    const src: LazySrcLoc = sema.src;
     const elem_ty_src: LazySrcLoc = .unneeded;
     const inst_data = sema.code.instructions.items(.data)[inst].ptr_type;
     const extra = sema.code.extraData(Zir.Inst.PtrType, inst_data.payload_index);
