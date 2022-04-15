@@ -49,6 +49,7 @@ gpa: Allocator,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
+debug_output: DebugInfoOutput,
 target: *const std.Target,
 mod_fn: *const Module.Fn,
 err_msg: ?*ErrorMsg,
@@ -72,6 +73,12 @@ end_di_column: u32,
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+
+/// For every argument, we postpone the creation of debug info for
+/// later after all Mir instructions have been generated. Only then we
+/// will know saved_regs_stack_space which is necessary in order to
+/// address parameters passed on the stack.
+dbg_arg_relocs: std.ArrayListUnmanaged(DbgArgReloc) = .{},
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -244,6 +251,11 @@ const BigTomb = struct {
     }
 };
 
+const DbgArgReloc = struct {
+    inst: Air.Inst.Index,
+    index: u32,
+};
+
 const Self = @This();
 
 pub fn generate(
@@ -276,6 +288,7 @@ pub fn generate(
         .liveness = liveness,
         .target = &bin_file.options.target,
         .bin_file = bin_file,
+        .debug_output = debug_output,
         .mod_fn = module_fn,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
@@ -291,6 +304,7 @@ pub fn generate(
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
     defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
+    defer function.dbg_arg_relocs.deinit(bin_file.allocator);
 
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
         error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
@@ -314,6 +328,10 @@ pub fn generate(
         else => |e| return e,
     };
 
+    for (function.dbg_arg_relocs.items) |reloc| {
+        try function.genArgDbgInfo(reloc.inst, reloc.index, call_info.stack_byte_count);
+    }
+
     var mir = Mir{
         .instructions = function.mir_instructions.toOwnedSlice(),
         .extra = function.mir_extra.toOwnedSlice(bin_file.allocator),
@@ -323,7 +341,6 @@ pub fn generate(
     var emit = Emit{
         .mir = mir,
         .bin_file = bin_file,
-        .function = &function,
         .debug_output = debug_output,
         .target = &bin_file.options.target,
         .src_loc = src_loc,
@@ -3074,6 +3091,91 @@ fn genInlineMemcpy(
     // end:
 }
 
+/// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
+/// after codegen for this symbol is done.
+fn addDbgInfoTypeReloc(self: *Self, ty: Type) error{OutOfMemory}!void {
+    switch (self.debug_output) {
+        .dwarf => |dw| {
+            assert(ty.hasRuntimeBits());
+            const dbg_info = &dw.dbg_info;
+            const index = dbg_info.items.len;
+            try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
+            const atom = switch (self.bin_file.tag) {
+                .elf => &self.mod_fn.owner_decl.link.elf.dbg_info_atom,
+                .macho => unreachable,
+                else => unreachable,
+            };
+            try dw.addTypeReloc(atom, ty, @intCast(u32, index), null);
+        },
+        .plan9 => {},
+        .none => {},
+    }
+}
+
+fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32, stack_byte_count: u32) error{OutOfMemory}!void {
+    const prologue_stack_space = stack_byte_count + self.saved_regs_stack_space;
+
+    const mcv = self.args[arg_index];
+    const ty = self.air.instructions.items(.data)[inst].ty;
+    const name = self.mod_fn.getParamName(arg_index);
+    const name_with_null = name.ptr[0 .. name.len + 1];
+
+    switch (mcv) {
+        .register => |reg| {
+            switch (self.debug_output) {
+                .dwarf => |dw| {
+                    const dbg_info = &dw.dbg_info;
+                    try dbg_info.ensureUnusedCapacity(3);
+                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                        1, // ULEB128 dwarf expression length
+                        reg.dwarfLocOp(),
+                    });
+                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+                },
+                .plan9 => {},
+                .none => {},
+            }
+        },
+        .stack_offset,
+        .stack_argument_offset,
+        => {
+            switch (self.debug_output) {
+                .dwarf => |dw| {
+                    // const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+                    const adjusted_stack_offset = switch (mcv) {
+                        .stack_offset => |offset| -@intCast(i32, offset),
+                        .stack_argument_offset => |offset| @intCast(i32, prologue_stack_space - offset),
+                        else => unreachable,
+                    };
+
+                    const dbg_info = &dw.dbg_info;
+                    try dbg_info.append(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
+
+                    // Get length of the LEB128 stack offset
+                    var counting_writer = std.io.countingWriter(std.io.null_writer);
+                    leb128.writeILEB128(counting_writer.writer(), adjusted_stack_offset) catch unreachable;
+
+                    // DW.AT.location, DW.FORM.exprloc
+                    // ULEB128 dwarf expression length
+                    try leb128.writeULEB128(dbg_info.writer(), counting_writer.bytes_written + 1);
+                    try dbg_info.append(DW.OP.breg11);
+                    try leb128.writeILEB128(dbg_info.writer(), adjusted_stack_offset);
+
+                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+                },
+                .plan9 => {},
+                .none => {},
+            }
+        },
+        else => unreachable, // not a possible argument
+    }
+}
+
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const arg_index = self.arg_index;
     self.arg_index += 1;
@@ -3094,13 +3196,9 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
         else => result,
     };
 
-    _ = try self.addInst(.{
-        .tag = .dbg_arg,
-        .cond = undefined,
-        .data = .{ .dbg_arg_info = .{
-            .air_inst = inst,
-            .arg_index = arg_index,
-        } },
+    try self.dbg_arg_relocs.append(self.gpa, .{
+        .inst = inst,
+        .index = arg_index,
     });
 
     if (self.liveness.isUnused(inst))
