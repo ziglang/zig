@@ -539,6 +539,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/Thread/ResetEvent.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/Thread/StaticResetEvent.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/time.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/treap.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/unicode.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Ast.zig"

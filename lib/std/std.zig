@@ -39,6 +39,7 @@ pub const StringArrayHashMapUnmanaged = array_hash_map.StringArrayHashMapUnmanag
 pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("Thread.zig");
+pub const Treap = @import("treap.zig").Treap;
 pub const Tz = @import("tz.zig").Tz;
 
 pub const array_hash_map = @import("array_hash_map.zig");
