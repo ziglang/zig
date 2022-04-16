@@ -405,6 +405,7 @@ pub const TmpDir = struct {
             filename,
             suffix_zig,
         });
+        errdefer alloc.free(zigfile_path);
         const zigfile = try std.mem.concat(alloc, u8, &[_][]const u8{ filename, suffix_zig });
         defer alloc.free(zigfile);
         try self.dir.writeFile(zigfile, progstr);
