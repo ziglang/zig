@@ -423,7 +423,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (self.llvm_object) |llvm_object| {
-                return try llvm_object.flushModule(comp);
+                try llvm_object.flushModule(comp);
             }
         }
         return;
@@ -1116,7 +1116,8 @@ pub fn flushObject(self: *MachO, comp: *Compilation) !void {
     defer tracy.end();
 
     if (build_options.have_llvm)
-        if (self.llvm_object) |llvm_object| return llvm_object.flushModule(comp);
+        if (self.llvm_object) |llvm_object|
+            return llvm_object.flushModule(comp);
 
     return error.TODOImplementWritingObjFiles;
 }

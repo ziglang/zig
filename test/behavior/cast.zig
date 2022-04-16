@@ -79,19 +79,16 @@ test "comptime_int @intToFloat" {
         try expect(result == 1234.0);
     }
 
-    if (!((builtin.zig_backend == .stage2_aarch64 or builtin.zig_backend == .stage2_x86_64) and builtin.os.tag == .macos)) {
-        // TODO investigate why this traps on x86_64-macos and aarch64-macos
-        {
-            const result = @intToFloat(f128, 1234);
-            try expect(@TypeOf(result) == f128);
-            try expect(result == 1234.0);
-        }
-        // big comptime_int (> 64 bits) to f128 conversion
-        {
-            const result = @intToFloat(f128, 0x1_0000_0000_0000_0000);
-            try expect(@TypeOf(result) == f128);
-            try expect(result == 0x1_0000_0000_0000_0000.0);
-        }
+    {
+        const result = @intToFloat(f128, 1234);
+        try expect(@TypeOf(result) == f128);
+        try expect(result == 1234.0);
+    }
+    // big comptime_int (> 64 bits) to f128 conversion
+    {
+        const result = @intToFloat(f128, 0x1_0000_0000_0000_0000);
+        try expect(@TypeOf(result) == f128);
+        try expect(result == 0x1_0000_0000_0000_0000.0);
     }
 }
 
