@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const arch = builtin.cpu.arch;
+const cpu = builtin.cpu;
+const arch = cpu.arch;
 
 const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
 
@@ -24,6 +25,11 @@ const supports_atomic_ops = switch (arch) {
 // load/store atomically.
 // Objects bigger than this threshold require the use of a lock.
 const largest_atomic_size = switch (arch) {
+    // On SPARC systems that lacks CAS and/or swap instructions, the only
+    // available atomic operation is a test-and-set (`ldstub`), so we force
+    // every atomic memory access to go through the lock.
+    .sparc, .sparcel => if (cpu.features.featureSetHas(.hasleoncasa)) @sizeOf(usize) else 0,
+
     // XXX: On x86/x86_64 we could check the presence of cmpxchg8b/cmpxchg16b
     // and set this parameter accordingly.
     else => @sizeOf(usize),
@@ -36,20 +42,44 @@ const SpinlockTable = struct {
     const max_spinlocks = 64;
 
     const Spinlock = struct {
+        // SPARC ldstub instruction will write a 255 into the memory location.
+        // We'll use that as a sign that the lock is currently held.
+        // See also: Section B.7 in SPARCv8 spec & A.29 in SPARCv9 spec.
+        const sparc_lock: type = enum(u8) { Unlocked = 0, Locked = 255 };
+        const other_lock: type = enum(usize) { Unlocked = 0, Locked };
+
         // Prevent false sharing by providing enough padding between two
         // consecutive spinlock elements
-        v: enum(usize) { Unlocked = 0, Locked } align(cache_line_size) = .Unlocked,
+        v: if (arch.isSPARC()) sparc_lock else other_lock align(cache_line_size) = .Unlocked,
 
         fn acquire(self: *@This()) void {
             while (true) {
-                switch (@atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .Acquire)) {
+                const flag = if (comptime arch.isSPARC()) flag: {
+                    break :flag asm volatile ("ldstub [%[addr]], %[flag]"
+                        : [flag] "=r" (-> @TypeOf(self.v)),
+                        : [addr] "r" (&self.v),
+                        : "memory"
+                    );
+                } else flag: {
+                    break :flag @atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .Acquire);
+                };
+
+                switch (flag) {
                     .Unlocked => break,
                     .Locked => {},
                 }
             }
         }
         fn release(self: *@This()) void {
-            @atomicStore(@TypeOf(self.v), &self.v, .Unlocked, .Release);
+            if (comptime arch.isSPARC()) {
+                _ = asm volatile ("clrb [%[addr]]"
+                    :
+                    : [addr] "r" (&self.v),
+                    : "memory"
+                );
+            } else {
+                @atomicStore(@TypeOf(self.v), &self.v, .Unlocked, .Release);
+            }
         }
     };
 
