@@ -48,7 +48,10 @@ cd $WORKSPACE
 $ZIG fmt --check . --exclude test/compile_errors/
 
 # Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
-$ZIG build -p stage2 -Denable-llvm -Duse-zig-libcxx
+$ZIG             build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+
+# Ensure that stage2 can build itself.
+./stage2/bin/zig build -p stage3 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 
 stage2/bin/zig test test/behavior.zig -I test -fLLVM
 stage2/bin/zig test test/behavior.zig -I test -fno-LLVM
@@ -95,8 +98,7 @@ tidy --drop-empty-elements no -qe zig-cache/langref.html
 $ZIG build \
   --prefix "$RELEASE_STAGING" \
   --search-prefix "$DEPS_LOCAL" \
-  -Denable-llvm \
-  -Duse-zig-libcxx \
+  -Dstatic-llvm \
   -Drelease \
   -Dstrip \
   -Dtarget="$TARGET" \
