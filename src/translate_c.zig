@@ -368,11 +368,13 @@ pub fn translate(
     resources_path: [*:0]const u8,
     zig_is_stage1: bool,
 ) !std.zig.Ast {
+    // TODO stage2 bug
+    var tmp = errors;
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
         args_end,
-        &errors.ptr,
-        &errors.len,
+        &tmp.ptr,
+        &tmp.len,
         resources_path,
     ) orelse {
         if (errors.len == 0) return error.ASTUnitFailure;
@@ -5325,7 +5327,7 @@ const MacroCtx = struct {
             try self.fail(
                 c,
                 "unable to translate C expr: expected '{s}' instead got '{s}'",
-                .{ CToken.Id.symbol(expected_id), next_id.symbol() },
+                .{ CToken.Id.symbolName(expected_id), next_id.symbol() },
             );
             return error.ParseError;
         }

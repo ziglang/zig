@@ -1807,6 +1807,8 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     .@"break";
 
                 if (rhs == 0) {
+                    try genDefers(parent_gz, scope, parent_scope, .normal_only);
+
                     _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
                     return Zir.Inst.Ref.unreachable_value;
                 }
@@ -1819,12 +1821,15 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 const prev_rvalue_noresult = parent_gz.rvalue_noresult;
                 parent_gz.rvalue_noresult = .none;
                 const operand = try reachableExpr(parent_gz, parent_scope, block_gz.break_result_loc, rhs, node);
+                const search_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
                 parent_gz.rvalue_noresult = prev_rvalue_noresult;
+
+                try genDefers(parent_gz, scope, parent_scope, .normal_only);
 
                 switch (block_gz.break_result_loc) {
                     .block_ptr => {
                         const br = try parent_gz.addBreak(break_tag, block_inst, operand);
-                        try block_gz.labeled_breaks.append(astgen.gpa, br);
+                        try block_gz.labeled_breaks.append(astgen.gpa, .{ .br = br, .search = search_index });
                     },
                     .ptr => {
                         // In this case we don't have any mechanism to intercept it;
@@ -1843,13 +1848,7 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             .namespace => break,
-            .defer_normal => {
-                const defer_scope = scope.cast(Scope.Defer).?;
-                scope = defer_scope.parent;
-                const expr_node = node_datas[defer_scope.defer_node].rhs;
-                try unusedResultDeferExpr(parent_gz, defer_scope, defer_scope.parent, expr_node);
-            },
-            .defer_error => scope = scope.cast(Scope.Defer).?.parent,
+            .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
             .top => unreachable,
         }
     }
@@ -2030,7 +2029,7 @@ fn labeledBlockExpr(
             // The code took advantage of the result location as a pointer.
             // Turn the break instruction operands into void.
             for (block_scope.labeled_breaks.items) |br| {
-                zir_datas[br].@"break".operand = .void_value;
+                zir_datas[br.br].@"break".operand = .void_value;
             }
             try block_scope.setBlockBody(block_inst);
 
@@ -2047,17 +2046,17 @@ fn labeledBlockExpr(
                 for (block_scope.labeled_breaks.items) |br| {
                     // We expect the `store_to_block_ptr` to be created between 1-3 instructions
                     // prior to the break.
-                    var search_index = br -| 3;
-                    while (search_index < br) : (search_index += 1) {
+                    var search_index = br.search -| 3;
+                    while (search_index < br.search) : (search_index += 1) {
                         if (zir_tags[search_index] == .store_to_block_ptr and
                             zir_datas[search_index].bin.lhs == block_scope.rl_ptr)
                         {
                             zir_tags[search_index] = .as;
                             zir_datas[search_index].bin = .{
                                 .lhs = block_scope.rl_ty_inst,
-                                .rhs = zir_datas[br].@"break".operand,
+                                .rhs = zir_datas[br.br].@"break".operand,
                             };
-                            zir_datas[br].@"break".operand = indexToRef(search_index);
+                            zir_datas[br.br].@"break".operand = indexToRef(search_index);
                             break;
                         }
                     } else unreachable;
@@ -9719,7 +9718,7 @@ const GenZir = struct {
     break_count: usize = 0,
     /// Tracks `break :foo bar` instructions so they can possibly be elided later if
     /// the labeled block ends up not needing a result location pointer.
-    labeled_breaks: ArrayListUnmanaged(Zir.Inst.Index) = .{},
+    labeled_breaks: ArrayListUnmanaged(struct { br: Zir.Inst.Index, search: Zir.Inst.Index }) = .{},
 
     suspend_node: Ast.Node.Index = 0,
     nosuspend_node: Ast.Node.Index = 0,

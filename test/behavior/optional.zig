@@ -332,3 +332,42 @@ test "array of optional unaligned types" {
     i += 1;
     try expect(Enum.three == values[i].?.Num);
 }
+
+test "optional pointer to zero bit optional payload" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const B = struct {
+        fn foo(_: *@This()) void {}
+    };
+    const A = struct {
+        b: ?B = .{},
+    };
+    var a: A = .{};
+    var a_ptr = &a;
+    if (a_ptr.b) |*some| {
+        some.foo();
+    }
+}
+
+test "optional pointer to zero bit error union payload" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const B = struct {
+        fn foo(_: *@This()) void {}
+    };
+    const A = struct {
+        b: anyerror!B = .{},
+    };
+    var a: A = .{};
+    var a_ptr = &a;
+    if (a_ptr.b) |*some| {
+        some.foo();
+    } else |_| {}
+}

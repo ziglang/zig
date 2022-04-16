@@ -779,7 +779,7 @@ const TokenTag = std.zig.Token.Tag;
 
 const Context = struct {
     gpa: Allocator,
-    buf: std.ArrayList(u8) = .{},
+    buf: std.ArrayList(u8),
     nodes: std.zig.Ast.NodeList = .{},
     extra_data: std.ArrayListUnmanaged(std.zig.Ast.Node.Index) = .{},
     tokens: std.zig.Ast.TokenList = .{},

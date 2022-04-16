@@ -4732,10 +4732,11 @@ pub const FuncGen = struct {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+            const loaded = if (operand_is_ptr) self.builder.buildLoad(operand, "") else operand;
             if (invert) {
-                return self.builder.buildNot(operand, "");
+                return self.builder.buildNot(loaded, "");
             } else {
-                return operand;
+                return loaded;
             }
         }
 
@@ -4784,12 +4785,16 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOf(ty_op.operand).childType();
+        const result_ty = self.air.getRefType(ty_op.ty);
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             // We have a pointer to a zero-bit value and we need to return
             // a pointer to a zero-bit value.
-            return operand;
+
+            // TODO once we update to LLVM 14 this bitcast won't be necessary.
+            const res_ptr_ty = try self.dg.llvmType(result_ty);
+            return self.builder.buildBitCast(operand, res_ptr_ty, "");
         }
         if (optional_ty.isPtrLikeOptional()) {
             // The payload and the optional are the same value.
@@ -4807,13 +4812,17 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOf(ty_op.operand).childType();
+        const result_ty = self.air.getRefType(ty_op.ty);
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
         const non_null_bit = self.context.intType(1).constAllOnes();
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             // We have a pointer to a i1. We need to set it to 1 and then return the same pointer.
             _ = self.builder.buildStore(non_null_bit, operand);
-            return operand;
+
+            // TODO once we update to LLVM 14 this bitcast won't be necessary.
+            const res_ptr_ty = try self.dg.llvmType(result_ty);
+            return self.builder.buildBitCast(operand, res_ptr_ty, "");
         }
         if (optional_ty.isPtrLikeOptional()) {
             // The payload and the optional are the same value.
@@ -4872,7 +4881,13 @@ pub const FuncGen = struct {
         const target = self.dg.module.getTarget();
         const offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
 
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return null;
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+            if (!operand_is_ptr) return null;
+
+            // TODO once we update to LLVM 14 this bitcast won't be necessary.
+            const res_ptr_ty = try self.dg.llvmType(result_ty);
+            return self.builder.buildBitCast(operand, res_ptr_ty, "");
+        }
         if (operand_is_ptr or isByRef(payload_ty)) {
             return self.builder.buildStructGEP(operand, offset, "");
         }
@@ -7205,7 +7220,7 @@ pub const FuncGen = struct {
         return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
     }
 
-    fn getIntrinsic(self: *FuncGen, name: []const u8, types: []*const llvm.Type) *const llvm.Value {
+    fn getIntrinsic(self: *FuncGen, name: []const u8, types: []const *const llvm.Type) *const llvm.Value {
         const id = llvm.lookupIntrinsicID(name.ptr, name.len);
         assert(id != 0);
         return self.llvmModule().getIntrinsicDeclaration(id, types.ptr, types.len);

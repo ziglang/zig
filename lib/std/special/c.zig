@@ -32,10 +32,8 @@ comptime {
         @export(wasm_start, .{ .name = "_start", .linkage = .Strong });
     }
 
-    if (builtin.zig_backend == .stage1) { // TODO remove this condition
-        if (native_os == .linux) {
-            @export(clone, .{ .name = "clone" });
-        }
+    if (native_os == .linux) {
+        @export(clone, .{ .name = "clone" });
     }
 
     @export(memset, .{ .name = "memset", .linkage = .Strong });
