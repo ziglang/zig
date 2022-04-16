@@ -21,8 +21,8 @@ pub fn fabs(x: anytype) @TypeOf(x) {
 }
 
 test "math.fabs" {
-    // TODO add support for f80 & c_longdouble here
-    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
+    // TODO add support for c_longdouble here
+    inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         // normals
         try expect(fabs(@as(T, 1.0)) == 1.0);
         try expect(fabs(@as(T, -1.0)) == 1.0);
