@@ -510,33 +510,23 @@ pub const Instruction = union(enum) {
         imm16: u16,
         shift: u6,
     ) Instruction {
-        switch (rd.size()) {
-            32 => {
-                assert(shift % 16 == 0 and shift <= 16);
-                return Instruction{
-                    .move_wide_immediate = .{
-                        .rd = rd.enc(),
-                        .imm16 = imm16,
-                        .hw = @intCast(u2, shift / 16),
-                        .opc = opc,
-                        .sf = 0,
-                    },
-                };
+        assert(shift % 16 == 0);
+        assert(!(rd.size() == 32 and shift > 16));
+        assert(!(rd.size() == 64 and shift > 48));
+
+        return Instruction{
+            .move_wide_immediate = .{
+                .rd = rd.enc(),
+                .imm16 = imm16,
+                .hw = @intCast(u2, shift / 16),
+                .opc = opc,
+                .sf = switch (rd.size()) {
+                    32 => 0,
+                    64 => 1,
+                    else => unreachable, // unexpected register size
+                },
             },
-            64 => {
-                assert(shift % 16 == 0 and shift <= 48);
-                return Instruction{
-                    .move_wide_immediate = .{
-                        .rd = rd.enc(),
-                        .imm16 = imm16,
-                        .hw = @intCast(u2, shift / 16),
-                        .opc = opc,
-                        .sf = 1,
-                    },
-                };
-            },
-            else => unreachable, // unexpected register size
-        }
+        };
     }
 
     fn pcRelativeAddress(rd: Register, imm21: i21, op: u1) Instruction {
@@ -914,7 +904,7 @@ pub const Instruction = union(enum) {
         n: u1,
     ) Instruction {
         assert(rd.size() == rn.size());
-        assert(!(rd.size() == 32 and n == 1));
+        assert(!(rd.size() == 32 and n != 0));
 
         return Instruction{
             .logical_immediate = .{
@@ -942,6 +932,8 @@ pub const Instruction = union(enum) {
         imms: u6,
     ) Instruction {
         assert(rd.size() == rn.size());
+        assert(!(rd.size() == 64 and n != 1));
+        assert(!(rd.size() == 32 and (n != 0 or immr >> 5 != 0 or immr >> 5 != 0)));
 
         return Instruction{
             .bitfield = .{
@@ -1417,6 +1409,23 @@ pub const Instruction = union(enum) {
         return sbfm(rd, rn, shift, imms);
     }
 
+    pub fn sbfx(rd: Register, rn: Register, lsb: u6, width: u7) Instruction {
+        return sbfm(rd, rn, lsb, @intCast(u6, lsb + width - 1));
+    }
+
+    pub fn sxtb(rd: Register, rn: Register) Instruction {
+        return sbfm(rd, rn, 0, 7);
+    }
+
+    pub fn sxth(rd: Register, rn: Register) Instruction {
+        return sbfm(rd, rn, 0, 15);
+    }
+
+    pub fn sxtw(rd: Register, rn: Register) Instruction {
+        assert(rd.size() == 64);
+        return sbfm(rd, rn, 0, 31);
+    }
+
     pub fn lslImmediate(rd: Register, rn: Register, shift: u6) Instruction {
         const size = @intCast(u6, rd.size() - 1);
         return ubfm(rd, rn, size - shift + 1, size - shift);
@@ -1425,6 +1434,18 @@ pub const Instruction = union(enum) {
     pub fn lsrImmediate(rd: Register, rn: Register, shift: u6) Instruction {
         const imms = @intCast(u6, rd.size() - 1);
         return ubfm(rd, rn, shift, imms);
+    }
+
+    pub fn ubfx(rd: Register, rn: Register, lsb: u6, width: u7) Instruction {
+        return ubfm(rd, rn, lsb, @intCast(u6, lsb + width - 1));
+    }
+
+    pub fn uxtb(rd: Register, rn: Register) Instruction {
+        return ubfm(rd, rn, 0, 7);
+    }
+
+    pub fn uxth(rd: Register, rn: Register) Instruction {
+        return ubfm(rd, rn, 0, 15);
     }
 
     // Add/subtract (shifted register)

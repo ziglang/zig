@@ -939,14 +939,99 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     return self.fail("TODO implement intCast for {}", .{self.target.cpu.arch});
 }
 
+fn truncRegister(
+    self: *Self,
+    operand_reg: Register,
+    dest_reg: Register,
+    int_signedness: std.builtin.Signedness,
+    int_bits: u16,
+) !void {
+    switch (int_bits) {
+        1...31, 33...63 => {
+            _ = try self.addInst(.{
+                .tag = switch (int_signedness) {
+                    .signed => .sbfx,
+                    .unsigned => .ubfx,
+                },
+                .data = .{ .rr_lsb_width = .{
+                    .rd = dest_reg,
+                    .rn = operand_reg,
+                    .lsb = 0,
+                    .width = @intCast(u6, int_bits),
+                } },
+            });
+        },
+        32, 64 => {
+            _ = try self.addInst(.{
+                .tag = .mov_register,
+                .data = .{ .rr = .{
+                    .rd = dest_reg,
+                    .rn = operand_reg,
+                } },
+            });
+        },
+        else => unreachable,
+    }
+}
+
+fn trunc(
+    self: *Self,
+    maybe_inst: ?Air.Inst.Index,
+    operand: MCValue,
+    operand_ty: Type,
+    dest_ty: Type,
+) !MCValue {
+    const info_a = operand_ty.intInfo(self.target.*);
+    const info_b = dest_ty.intInfo(self.target.*);
+
+    if (info_b.bits <= 64) {
+        const operand_reg = switch (operand) {
+            .register => |r| r,
+            else => operand_reg: {
+                if (info_a.bits <= 64) {
+                    const raw_reg = try self.copyToTmpRegister(operand_ty, operand);
+                    break :operand_reg registerAlias(raw_reg, operand_ty.abiSize(self.target.*));
+                } else {
+                    return self.fail("TODO load least significant word into register", .{});
+                }
+            },
+        };
+        self.register_manager.freezeRegs(&.{operand_reg});
+        defer self.register_manager.unfreezeRegs(&.{operand_reg});
+
+        const dest_reg = if (maybe_inst) |inst| blk: {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+
+            if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                break :blk registerAlias(operand_reg, dest_ty.abiSize(self.target.*));
+            } else {
+                const raw_reg = try self.register_manager.allocReg(inst);
+                break :blk registerAlias(raw_reg, dest_ty.abiSize(self.target.*));
+            }
+        } else blk: {
+            const raw_reg = try self.register_manager.allocReg(null);
+            break :blk registerAlias(raw_reg, dest_ty.abiSize(self.target.*));
+        };
+
+        try self.truncRegister(operand_reg, dest_reg, info_b.signedness, info_b.bits);
+
+        return MCValue{ .register = dest_reg };
+    } else {
+        return self.fail("TODO: truncate to ints > 32 bits", .{});
+    }
+}
+
 fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    if (self.liveness.isUnused(inst))
-        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
-
     const operand = try self.resolveInst(ty_op.operand);
-    _ = operand;
-    return self.fail("TODO implement trunc for {}", .{self.target.cpu.arch});
+    const operand_ty = self.air.typeOf(ty_op.operand);
+    const dest_ty = self.air.typeOfIndex(inst);
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
+        break :blk try self.trunc(inst, operand, operand_ty, dest_ty);
+    };
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
@@ -3483,23 +3568,26 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .data = .{ .r_imm16_sh = .{ .rd = reg, .imm16 = @truncate(u16, x) } },
             });
 
-            if (x > math.maxInt(u16)) {
+            if (x & 0x0000_0000_ffff_0000 != 0) {
                 _ = try self.addInst(.{
                     .tag = .movk,
                     .data = .{ .r_imm16_sh = .{ .rd = reg, .imm16 = @truncate(u16, x >> 16), .hw = 1 } },
                 });
             }
-            if (x > math.maxInt(u32)) {
-                _ = try self.addInst(.{
-                    .tag = .movk,
-                    .data = .{ .r_imm16_sh = .{ .rd = reg, .imm16 = @truncate(u16, x >> 32), .hw = 2 } },
-                });
-            }
-            if (x > math.maxInt(u48)) {
-                _ = try self.addInst(.{
-                    .tag = .movk,
-                    .data = .{ .r_imm16_sh = .{ .rd = reg, .imm16 = @truncate(u16, x >> 48), .hw = 3 } },
-                });
+
+            if (reg.size() == 64) {
+                if (x & 0x0000_ffff_0000_0000 != 0) {
+                    _ = try self.addInst(.{
+                        .tag = .movk,
+                        .data = .{ .r_imm16_sh = .{ .rd = reg, .imm16 = @truncate(u16, x >> 32), .hw = 2 } },
+                    });
+                }
+                if (x & 0xffff_0000_0000_0000 != 0) {
+                    _ = try self.addInst(.{
+                        .tag = .movk,
+                        .data = .{ .r_imm16_sh = .{ .rd = reg, .imm16 = @truncate(u16, x >> 48), .hw = 3 } },
+                    });
+                }
             }
         },
         .register => |src_reg| {

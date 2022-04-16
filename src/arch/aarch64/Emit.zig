@@ -162,6 +162,17 @@ pub fn emitMir(
 
             .push_regs => try emit.mirPushPopRegs(inst),
             .pop_regs => try emit.mirPushPopRegs(inst),
+
+            .sbfx,
+            .ubfx,
+            => try emit.mirBitfieldExtract(inst),
+
+            .sxtb,
+            .sxth,
+            .sxtw,
+            .uxtb,
+            .uxth,
+            => try emit.mirExtend(inst),
         }
     }
 }
@@ -1047,6 +1058,35 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
             }
             assert(count == number_of_regs);
         },
+        else => unreachable,
+    }
+}
+
+fn mirBitfieldExtract(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rr_lsb_width = emit.mir.instructions.items(.data)[inst].rr_lsb_width;
+    const rd = rr_lsb_width.rd;
+    const rn = rr_lsb_width.rn;
+    const lsb = rr_lsb_width.lsb;
+    const width = rr_lsb_width.width;
+
+    switch (tag) {
+        .sbfx => try emit.writeInstruction(Instruction.sbfx(rd, rn, lsb, width)),
+        .ubfx => try emit.writeInstruction(Instruction.ubfx(rd, rn, lsb, width)),
+        else => unreachable,
+    }
+}
+
+fn mirExtend(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rr = emit.mir.instructions.items(.data)[inst].rr;
+
+    switch (tag) {
+        .sxtb => try emit.writeInstruction(Instruction.sxtb(rr.rd, rr.rn)),
+        .sxth => try emit.writeInstruction(Instruction.sxth(rr.rd, rr.rn)),
+        .sxtw => try emit.writeInstruction(Instruction.sxtw(rr.rd, rr.rn)),
+        .uxtb => try emit.writeInstruction(Instruction.uxtb(rr.rd, rr.rn)),
+        .uxth => try emit.writeInstruction(Instruction.uxth(rr.rd, rr.rn)),
         else => unreachable,
     }
 }
