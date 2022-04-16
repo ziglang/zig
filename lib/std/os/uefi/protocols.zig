@@ -4,9 +4,10 @@ pub usingnamespace @import("protocols/device_path_protocol.zig");
 pub usingnamespace @import("protocols/rng_protocol.zig");
 pub usingnamespace @import("protocols/shell_parameters_protocol.zig");
 
-// Files
+// Files / IO
 pub usingnamespace @import("protocols/simple_file_system_protocol.zig");
 pub usingnamespace @import("protocols/file_protocol.zig");
+pub usingnamespace @import("protocols/block_io_protocol.zig");
 
 // Text
 pub usingnamespace @import("protocols/simple_text_input_protocol.zig");
