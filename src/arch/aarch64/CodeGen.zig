@@ -2056,7 +2056,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .undef => unreachable,
                 .compare_flags_signed, .compare_flags_unsigned => unreachable,
                 .register => |dst_reg| {
-                    try self.genLdrRegister(dst_reg, addr_reg, elem_size);
+                    try self.genLdrRegister(dst_reg, addr_reg, elem_ty);
                 },
                 .stack_offset => |off| {
                     if (elem_size <= 8) {
@@ -2210,98 +2210,47 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn genLdrRegister(self: *Self, value_reg: Register, addr_reg: Register, abi_size: u64) !void {
-    switch (abi_size) {
-        1 => {
-            _ = try self.addInst(.{
-                .tag = .ldrb_immediate,
-                .data = .{ .load_store_register_immediate = .{
-                    .rt = value_reg.to32(),
-                    .rn = addr_reg,
-                    .offset = Instruction.LoadStoreOffset.none.immediate,
-                } },
-            });
-        },
-        2 => {
-            _ = try self.addInst(.{
-                .tag = .ldrh_immediate,
-                .data = .{ .load_store_register_immediate = .{
-                    .rt = value_reg.to32(),
-                    .rn = addr_reg,
-                    .offset = Instruction.LoadStoreOffset.none.immediate,
-                } },
-            });
-        },
-        4 => {
-            _ = try self.addInst(.{
-                .tag = .ldr_immediate,
-                .data = .{ .load_store_register_immediate = .{
-                    .rt = value_reg.to32(),
-                    .rn = addr_reg,
-                    .offset = Instruction.LoadStoreOffset.none.immediate,
-                } },
-            });
-        },
-        8 => {
-            _ = try self.addInst(.{
-                .tag = .ldr_immediate,
-                .data = .{ .load_store_register_immediate = .{
-                    .rt = value_reg.to64(),
-                    .rn = addr_reg,
-                    .offset = Instruction.LoadStoreOffset.none.immediate,
-                } },
-            });
-        },
+fn genLdrRegister(self: *Self, value_reg: Register, addr_reg: Register, ty: Type) !void {
+    const abi_size = ty.abiSize(self.target.*);
+
+    const tag: Mir.Inst.Tag = switch (abi_size) {
+        1 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsb_immediate else .ldrb_immediate,
+        2 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsh_immediate else .ldrh_immediate,
+        4 => .ldr_immediate,
+        8 => .ldr_immediate,
         3, 5, 6, 7 => return self.fail("TODO: genLdrRegister for more abi_sizes", .{}),
         else => unreachable,
-    }
+    };
+
+    _ = try self.addInst(.{
+        .tag = tag,
+        .data = .{ .load_store_register_immediate = .{
+            .rt = value_reg,
+            .rn = addr_reg,
+            .offset = Instruction.LoadStoreOffset.none.immediate,
+        } },
+    });
 }
 
-fn genStrRegister(self: *Self, value_reg: Register, addr_reg: Register, abi_size: u64) !void {
-    switch (abi_size) {
-        1 => {
-            _ = try self.addInst(.{
-                .tag = .strb_immediate,
-                .data = .{ .load_store_register_immediate = .{
-                    .rt = value_reg.to32(),
-                    .rn = addr_reg,
-                    .offset = Instruction.LoadStoreOffset.none.immediate,
-                } },
-            });
-        },
-        2 => {
-            _ = try self.addInst(.{
-                .tag = .strh_immediate,
-                .data = .{ .load_store_register_immediate = .{
-                    .rt = value_reg.to32(),
-                    .rn = addr_reg,
-                    .offset = Instruction.LoadStoreOffset.none.immediate,
-                } },
-            });
-        },
-        4 => {
-            _ = try self.addInst(.{
-                .tag = .str_immediate,
-                .data = .{ .load_store_register_immediate = .{
-                    .rt = value_reg.to32(),
-                    .rn = addr_reg,
-                    .offset = Instruction.LoadStoreOffset.none.immediate,
-                } },
-            });
-        },
-        8 => {
-            _ = try self.addInst(.{
-                .tag = .str_immediate,
-                .data = .{ .load_store_register_immediate = .{
-                    .rt = value_reg.to64(),
-                    .rn = addr_reg,
-                    .offset = Instruction.LoadStoreOffset.none.immediate,
-                } },
-            });
-        },
+fn genStrRegister(self: *Self, value_reg: Register, addr_reg: Register, ty: Type) !void {
+    const abi_size = ty.abiSize(self.target.*);
+
+    const tag: Mir.Inst.Tag = switch (abi_size) {
+        1 => .strb_immediate,
+        2 => .strh_immediate,
+        4, 8 => .str_immediate,
         3, 5, 6, 7 => return self.fail("TODO: genStrRegister for more abi_sizes", .{}),
         else => unreachable,
-    }
+    };
+
+    _ = try self.addInst(.{
+        .tag = tag,
+        .data = .{ .load_store_register_immediate = .{
+            .rt = value_reg,
+            .rn = addr_reg,
+            .offset = Instruction.LoadStoreOffset.none.immediate,
+        } },
+    });
 }
 
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
@@ -2326,7 +2275,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
 
             switch (value) {
                 .register => |value_reg| {
-                    try self.genStrRegister(value_reg, addr_reg, abi_size);
+                    try self.genStrRegister(value_reg, addr_reg, value_ty);
                 },
                 else => {
                     if (abi_size <= 8) {
@@ -3624,7 +3573,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // The value is in memory at a hard-coded address.
             // If the type is a pointer, it means the pointer address is at this memory location.
             try self.genSetReg(ty, reg.to64(), .{ .immediate = addr });
-            try self.genLdrRegister(reg, reg.to64(), ty.abiSize(self.target.*));
+            try self.genLdrRegister(reg, reg.to64(), ty);
         },
         .stack_offset => |off| {
             const abi_size = ty.abiSize(self.target.*);
@@ -3632,21 +3581,16 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             switch (abi_size) {
                 1, 2, 4, 8 => {
                     const tag: Mir.Inst.Tag = switch (abi_size) {
-                        1 => .ldrb_stack,
-                        2 => .ldrh_stack,
+                        1 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsb_stack else .ldrb_stack,
+                        2 => if (ty.isSignedInt()) Mir.Inst.Tag.ldrsh_stack else .ldrh_stack,
                         4, 8 => .ldr_stack,
-                        else => unreachable, // unexpected abi size
-                    };
-                    const rt: Register = switch (abi_size) {
-                        1, 2, 4 => reg.to32(),
-                        8 => reg.to64(),
                         else => unreachable, // unexpected abi size
                     };
 
                     _ = try self.addInst(.{
                         .tag = tag,
                         .data = .{ .load_store_stack = .{
-                            .rt = rt,
+                            .rt = reg,
                             .offset = @intCast(u32, off),
                         } },
                     });

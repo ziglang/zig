@@ -131,6 +131,8 @@ pub fn emitMir(
             .ldr_stack => try emit.mirLoadStoreStack(inst),
             .ldrb_stack => try emit.mirLoadStoreStack(inst),
             .ldrh_stack => try emit.mirLoadStoreStack(inst),
+            .ldrsb_stack => try emit.mirLoadStoreStack(inst),
+            .ldrsh_stack => try emit.mirLoadStoreStack(inst),
             .str_stack => try emit.mirLoadStoreStack(inst),
             .strb_stack => try emit.mirLoadStoreStack(inst),
             .strh_stack => try emit.mirLoadStoreStack(inst),
@@ -145,6 +147,9 @@ pub fn emitMir(
             .ldr_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
             .ldrb_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
             .ldrh_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
+            .ldrsb_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
+            .ldrsh_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
+            .ldrsw_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
             .str_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
             .strb_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
             .strh_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
@@ -847,14 +852,14 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     const raw_offset = emit.stack_size - load_store_stack.offset;
     const offset = switch (tag) {
-        .ldrb_stack, .strb_stack => blk: {
+        .ldrb_stack, .ldrsb_stack, .strb_stack => blk: {
             if (math.cast(u12, raw_offset)) |imm| {
                 break :blk Instruction.LoadStoreOffset.imm(imm);
             } else |_| {
                 return emit.fail("TODO load/store stack byte with larger offset", .{});
             }
         },
-        .ldrh_stack, .strh_stack => blk: {
+        .ldrh_stack, .ldrsh_stack, .strh_stack => blk: {
             assert(std.mem.isAlignedGeneric(u32, raw_offset, 2)); // misaligned stack entry
             if (math.cast(u12, @divExact(raw_offset, 2))) |imm| {
                 break :blk Instruction.LoadStoreOffset.imm(imm);
@@ -883,6 +888,8 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
         .ldr_stack => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
         .ldrb_stack => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
         .ldrh_stack => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
+        .ldrsb_stack => try emit.writeInstruction(Instruction.ldrsb(rt, .sp, offset)),
+        .ldrsh_stack => try emit.writeInstruction(Instruction.ldrsh(rt, .sp, offset)),
         .str_stack => try emit.writeInstruction(Instruction.str(rt, .sp, offset)),
         .strb_stack => try emit.writeInstruction(Instruction.strb(rt, .sp, offset)),
         .strh_stack => try emit.writeInstruction(Instruction.strh(rt, .sp, offset)),
@@ -901,6 +908,9 @@ fn mirLoadStoreRegisterImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
         .ldr_immediate => try emit.writeInstruction(Instruction.ldr(rt, rn, offset)),
         .ldrb_immediate => try emit.writeInstruction(Instruction.ldrb(rt, rn, offset)),
         .ldrh_immediate => try emit.writeInstruction(Instruction.ldrh(rt, rn, offset)),
+        .ldrsb_immediate => try emit.writeInstruction(Instruction.ldrsb(rt, rn, offset)),
+        .ldrsh_immediate => try emit.writeInstruction(Instruction.ldrsh(rt, rn, offset)),
+        .ldrsw_immediate => try emit.writeInstruction(Instruction.ldrsw(rt, rn, offset)),
         .str_immediate => try emit.writeInstruction(Instruction.str(rt, rn, offset)),
         .strb_immediate => try emit.writeInstruction(Instruction.strb(rt, rn, offset)),
         .strh_immediate => try emit.writeInstruction(Instruction.strh(rt, rn, offset)),

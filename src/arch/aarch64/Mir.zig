@@ -100,6 +100,16 @@ pub const Inst = struct {
         ldrh_immediate,
         /// Load Register Halfword (register)
         ldrh_register,
+        /// Load Register Signed Byte (immediate)
+        ldrsb_immediate,
+        /// Pseudo-instruction: Load signed byte from stack
+        ldrsb_stack,
+        /// Load Register Signed Halfword (immediate)
+        ldrsh_immediate,
+        /// Pseudo-instruction: Load signed halfword from stack
+        ldrsh_stack,
+        /// Load Register Signed Word (immediate)
+        ldrsw_immediate,
         /// Logical Shift Left (immediate)
         lsl_immediate,
         /// Logical Shift Left (register)

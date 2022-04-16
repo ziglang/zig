@@ -665,18 +665,24 @@ pub const Instruction = union(enum) {
 
     /// Which kind of load/store to perform
     const LoadStoreVariant = enum {
-        /// 32-bit or 64-bit
+        /// 32 bits or 64 bits
         str,
-        /// 16-bit, zero-extended
-        strh,
-        /// 8-bit, zero-extended
+        /// 8 bits, zero-extended
         strb,
-        /// 32-bit or 64-bit
+        /// 16 bits, zero-extended
+        strh,
+        /// 32 bits or 64 bits
         ldr,
-        /// 16-bit, zero-extended
-        ldrh,
-        /// 8-bit, zero-extended
+        /// 8 bits, zero-extended
         ldrb,
+        /// 16 bits, zero-extended
+        ldrh,
+        /// 8 bits, sign extended
+        ldrsb,
+        /// 16 bits, sign extended
+        ldrsh,
+        /// 32 bits, sign extended
+        ldrsw,
     };
 
     fn loadStoreRegister(
@@ -689,6 +695,7 @@ pub const Instruction = union(enum) {
         assert(rn.id() != Register.xzr.id());
 
         const off = offset.toU12();
+
         const op1: u2 = blk: {
             switch (offset) {
                 .immediate => |imm| switch (imm) {
@@ -699,10 +706,35 @@ pub const Instruction = union(enum) {
             }
             break :blk 0b00;
         };
-        const opc: u2 = switch (variant) {
-            .ldr, .ldrh, .ldrb => 0b01,
-            .str, .strh, .strb => 0b00,
+
+        const opc: u2 = blk: {
+            switch (variant) {
+                .ldr, .ldrh, .ldrb => break :blk 0b01,
+                .str, .strh, .strb => break :blk 0b00,
+                .ldrsb,
+                .ldrsh,
+                => switch (rt.size()) {
+                    32 => break :blk 0b11,
+                    64 => break :blk 0b10,
+                    else => unreachable, // unexpected register size
+                },
+                .ldrsw => break :blk 0b10,
+            }
         };
+
+        const size: u2 = blk: {
+            switch (variant) {
+                .ldr, .str => switch (rt.size()) {
+                    32 => break :blk 0b10,
+                    64 => break :blk 0b11,
+                    else => unreachable, // unexpected register size
+                },
+                .ldrsw => break :blk 0b10,
+                .ldrh, .ldrsh, .strh => break :blk 0b01,
+                .ldrb, .ldrsb, .strb => break :blk 0b00,
+            }
+        };
+
         return Instruction{
             .load_store_register = .{
                 .rt = rt.enc(),
@@ -711,17 +743,7 @@ pub const Instruction = union(enum) {
                 .opc = opc,
                 .op1 = op1,
                 .v = 0,
-                .size = blk: {
-                    switch (variant) {
-                        .ldr, .str => switch (rt.size()) {
-                            32 => break :blk 0b10,
-                            64 => break :blk 0b11,
-                            else => unreachable, // unexpected register size
-                        },
-                        .ldrh, .strh => break :blk 0b01,
-                        .ldrb, .strb => break :blk 0b00,
-                    }
-                },
+                .size = size,
             },
         };
     }
@@ -1148,6 +1170,18 @@ pub const Instruction = union(enum) {
 
     pub fn ldrb(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
         return loadStoreRegister(rt, rn, offset, .ldrb);
+    }
+
+    pub fn ldrsb(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
+        return loadStoreRegister(rt, rn, offset, .ldrsb);
+    }
+
+    pub fn ldrsh(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
+        return loadStoreRegister(rt, rn, offset, .ldrsh);
+    }
+
+    pub fn ldrsw(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
+        return loadStoreRegister(rt, rn, offset, .ldrsw);
     }
 
     pub fn str(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
