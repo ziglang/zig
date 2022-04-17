@@ -113,11 +113,14 @@ pub fn detectTTYConfig() TTY.Config {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     nosuspend {
-        const stderr = io.getStdErr().writer();
         if (comptime builtin.target.isWasm()) {
-            stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
+            if (native_os == .wasi) {
+                const stderr = io.getStdErr().writer();
+                stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
+            }
             return;
         }
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -138,6 +141,13 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     nosuspend {
+        if (comptime builtin.target.isWasm()) {
+            if (native_os == .wasi) {
+                const stderr = io.getStdErr().writer();
+                stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
+            }
+            return;
+        }
         const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
@@ -208,6 +218,13 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     nosuspend {
+        if (comptime builtin.target.isWasm()) {
+            if (native_os == .wasi) {
+                const stderr = io.getStdErr().writer();
+                stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
+            }
+            return;
+        }
         const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
@@ -1138,6 +1155,8 @@ pub const DebugInfo = struct {
             return self.lookupModuleWin32(address);
         } else if (native_os == .haiku) {
             return self.lookupModuleHaiku(address);
+        } else if (comptime builtin.target.isWasm()) {
+            return self.lookupModuleWasm(address);
         } else {
             return self.lookupModuleDl(address);
         }
@@ -1352,6 +1371,12 @@ pub const DebugInfo = struct {
         _ = self;
         _ = address;
         @panic("TODO implement lookup module for Haiku");
+    }
+
+    fn lookupModuleWasm(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        _ = self;
+        _ = address;
+        @panic("TODO implement lookup module for Wasm");
     }
 };
 
@@ -1630,6 +1655,13 @@ pub const ModuleDebugInfo = switch (native_os) {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
             return getSymbolFromDwarf(relocated_address, &self.dwarf);
+        }
+    },
+    .wasi => struct {
+        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+            _ = self;
+            _ = address;
+            return SymbolInfo{};
         }
     },
     else => DW.DwarfInfo,

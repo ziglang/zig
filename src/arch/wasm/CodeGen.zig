@@ -871,7 +871,8 @@ fn genFunc(self: *Self) InnerError!void {
     // we emit an unreachable instruction to tell the stack validator that part will never be reached.
     if (func_type.returns.len != 0 and self.air.instructions.len > 0) {
         const inst = @intCast(u32, self.air.instructions.len - 1);
-        if (self.air.typeOfIndex(inst).isNoReturn()) {
+        const last_inst_ty = self.air.typeOfIndex(inst);
+        if (!last_inst_ty.hasRuntimeBitsIgnoreComptime() or last_inst_ty.isNoReturn()) {
             try self.addTag(.@"unreachable");
         }
     }
