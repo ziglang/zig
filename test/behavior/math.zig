@@ -499,8 +499,6 @@ fn mod(comptime T: type, a: T, b: T) T {
 }
 
 test "unsigned wrapping" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     try testUnsignedWrappingEval(maxInt(u32));
     comptime try testUnsignedWrappingEval(maxInt(u32));
 }
@@ -512,8 +510,6 @@ fn testUnsignedWrappingEval(x: u32) !void {
 }
 
 test "signed wrapping" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     try testSignedWrappingEval(maxInt(i32));
     comptime try testSignedWrappingEval(maxInt(i32));
 }
@@ -525,8 +521,6 @@ fn testSignedWrappingEval(x: i32) !void {
 }
 
 test "signed negation wrapping" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     try testSignedNegationWrappingEval(minInt(i16));
     comptime try testSignedNegationWrappingEval(minInt(i16));
 }
@@ -537,8 +531,6 @@ fn testSignedNegationWrappingEval(x: i16) !void {
 }
 
 test "unsigned negation wrapping" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     try testUnsignedNegationWrappingEval(1);
     comptime try testUnsignedNegationWrappingEval(1);
 }
