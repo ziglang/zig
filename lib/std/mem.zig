@@ -1941,13 +1941,29 @@ test "joinZ" {
 
 /// Copies each T from slices into a new slice that exactly holds all the elements.
 pub fn concat(allocator: Allocator, comptime T: type, slices: []const []const T) ![]T {
-    if (slices.len == 0) return &[0]T{};
+    return concatMaybeSentinel(allocator, T, slices, null);
+}
+
+/// Copies each T from slices into a new slice that exactly holds all the elements.
+pub fn concatWithSentinel(allocator: Allocator, comptime T: type, slices: []const []const T, comptime s: T) ![:s]T {
+    const ret = try concatMaybeSentinel(allocator, T, slices, s);
+    return ret[0 .. ret.len - 1 :s];
+}
+
+/// Copies each T from slices into a new slice that exactly holds all the elements as well as the sentinel.
+pub fn concatMaybeSentinel(allocator: Allocator, comptime T: type, slices: []const []const T, comptime s: ?T) ![]T {
+    if (slices.len == 0) return if (s) |sentinel| try allocator.dupe(T, &[1]T{sentinel}) else &[0]T{};
 
     const total_len = blk: {
         var sum: usize = 0;
         for (slices) |slice| {
             sum += slice.len;
         }
+
+        if (s) |_| {
+            sum += 1;
+        }
+
         break :blk sum;
     };
 
@@ -1958,6 +1974,10 @@ pub fn concat(allocator: Allocator, comptime T: type, slices: []const []const T)
     for (slices) |slice| {
         copy(T, buf[buf_index..], slice);
         buf_index += slice.len;
+    }
+
+    if (s) |sentinel| {
+        buf[buf.len - 1] = sentinel;
     }
 
     // No need for shrink since buf is exactly the correct size.
@@ -1979,6 +1999,26 @@ test "concat" {
         });
         defer testing.allocator.free(str);
         try testing.expect(eql(u32, str, &[_]u32{ 0, 1, 2, 3, 4, 5 }));
+    }
+    {
+        const str = try concatWithSentinel(testing.allocator, u8, &[_][]const u8{ "abc", "def", "ghi" }, 0);
+        defer testing.allocator.free(str);
+        try testing.expectEqualSentinel(u8, 0, str, "abcdefghi");
+    }
+    {
+        const slice = try concatWithSentinel(testing.allocator, u8, &[_][]const u8{}, 0);
+        defer testing.allocator.free(slice);
+        try testing.expectEqualSentinel(u8, 0, slice, &[_:0]u8{});
+    }
+    {
+        const slice = try concatWithSentinel(testing.allocator, u32, &[_][]const u32{
+            &[_]u32{ 0, 1 },
+            &[_]u32{ 2, 3, 4 },
+            &[_]u32{},
+            &[_]u32{5},
+        }, 2);
+        defer testing.allocator.free(slice);
+        try testing.expectEqualSentinel(u32, 2, slice, &[_:2]u32{ 0, 1, 2, 3, 4, 5 });
     }
 }
 
