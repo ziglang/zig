@@ -291,7 +291,7 @@ pub const Object = struct {
                 0, // runtime version
                 "", // split name
                 0, // dwo id
-                true, // emit debug info
+                target_util.hasDebugInfo(options.target), // emit debug info
             );
         }
 

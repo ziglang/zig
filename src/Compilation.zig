@@ -1201,7 +1201,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :blk buf.items[0 .. buf.items.len - 1 :0].ptr;
         } else null;
 
-        const strip = options.strip or !target_util.hasDebugInfo(options.target);
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
         const omit_frame_pointer = options.omit_frame_pointer orelse (options.optimize_mode != .Debug);
         const linker_optimization: u8 = options.linker_optimization orelse switch (options.optimize_mode) {
@@ -1244,7 +1243,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(omit_frame_pointer);
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
-        cache.hash.add(strip);
+        cache.hash.add(options.strip);
         cache.hash.add(link_libc);
         cache.hash.add(link_libcpp);
         cache.hash.add(link_libunwind);
@@ -1433,7 +1432,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         };
         errdefer if (module) |zm| zm.deinit();
 
-        const error_return_tracing = !strip and switch (options.optimize_mode) {
+        const error_return_tracing = !options.strip and
+            target_util.hasDebugInfo(options.target) and
+            switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => true,
             .ReleaseFast, .ReleaseSmall => false,
         };
@@ -1555,7 +1556,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .wasi_emulated_libs = options.wasi_emulated_libs,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
-            .strip = strip,
+            .strip = options.strip,
             .is_native_os = options.is_native_os,
             .is_native_abi = options.is_native_abi,
             .function_sections = options.function_sections,
@@ -4697,7 +4698,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         comp.bin_file.options.valgrind,
         comp.bin_file.options.pic,
         comp.bin_file.options.pie,
-        comp.bin_file.options.strip,
+        comp.bin_file.options.strip or !target_util.hasDebugInfo(comp.bin_file.options.target),
         std.zig.fmtId(@tagName(comp.bin_file.options.machine_code_model)),
     });
 
@@ -4948,6 +4949,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         @intToEnum(stage1.TargetSubsystem, @enumToInt(s))
     else
         stage1.TargetSubsystem.Auto;
+
     stage1_module.* = .{
         .root_name_ptr = comp.bin_file.options.root_name.ptr,
         .root_name_len = comp.bin_file.options.root_name.len,
