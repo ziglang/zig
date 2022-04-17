@@ -66,11 +66,11 @@ pub fn hashString(s: []const u8) u32 {
 /// the alternative `std.HashMap`.
 /// Context must be a struct type with two member functions:
 ///   hash(self, K) u32
-///   eql(self, K, K) bool
+///   eql(self, K, K, usize) bool
 /// Adapted variants of many functions are provided.  These variants
 /// take a pseudo key instead of a key.  Their context must have the functions:
 ///   hash(self, PseudoKey) u32
-///   eql(self, PseudoKey, K) bool
+///   eql(self, PseudoKey, K, usize) bool
 pub fn ArrayHashMap(
     comptime K: type,
     comptime V: type,
