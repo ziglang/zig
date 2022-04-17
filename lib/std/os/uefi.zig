@@ -53,13 +53,19 @@ pub const Guid = extern struct {
     ) !void {
         _ = options;
         if (f.len == 0) {
-            return std.fmt.format(writer, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
-                self.time_low,
-                self.time_mid,
-                self.time_high_and_version,
-                self.clock_seq_high_and_reserved,
-                self.clock_seq_low,
-                self.node,
+            const fmt = std.fmt.fmtSliceHexLower;
+
+            const time_low = @byteSwap(u32, self.time_low);
+            const time_mid = @byteSwap(u16, self.time_mid);
+            const time_high_and_version = @byteSwap(u16, self.time_high_and_version);
+
+            return std.fmt.format(writer, "{:0>8}-{:0>4}-{:0>4}-{:0>2}{:0>2}-{:0>12}", .{
+                fmt(std.mem.asBytes(&time_low)),
+                fmt(std.mem.asBytes(&time_mid)),
+                fmt(std.mem.asBytes(&time_high_and_version)),
+                fmt(std.mem.asBytes(&self.clock_seq_high_and_reserved)),
+                fmt(std.mem.asBytes(&self.clock_seq_low)),
+                fmt(std.mem.asBytes(&self.node)),
             });
         } else {
             @compileError("Unknown format character: '" ++ f ++ "'");
@@ -133,3 +139,14 @@ pub const TimeCapabilities = extern struct {
 
 /// File Handle as specified in the EFI Shell Spec
 pub const FileHandle = *opaque {};
+
+test "GUID formatting" {
+    var bytes = [_]u8{ 137, 60, 203, 50, 128, 128, 124, 66, 186, 19, 80, 73, 135, 59, 194, 135 };
+
+    var guid = @bitCast(Guid, bytes);
+
+    var str = try std.fmt.allocPrint(std.testing.allocator, "{}", .{guid});
+    defer std.testing.allocator.free(str);
+
+    try std.testing.expect(std.mem.eql(u8, str, "32cb3c89-8080-427c-ba13-5049873bc287"));
+}
