@@ -829,35 +829,39 @@ pub fn updateDeclExports(
     }
 }
 
-pub fn flush(self: *Coff, comp: *Compilation) !void {
+pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (self.llvm_object) |llvm_object| {
-                return try llvm_object.flushModule(comp);
+                return try llvm_object.flushModule(comp, prog_node);
             }
         }
         return;
     }
     if (build_options.have_llvm and self.base.options.use_lld) {
-        return self.linkWithLLD(comp);
+        return self.linkWithLLD(comp, prog_node);
     } else {
         switch (self.base.options.effectiveOutputMode()) {
             .Exe, .Obj => {},
             .Lib => return error.TODOImplementWritingLibFiles,
         }
-        return self.flushModule(comp);
+        return self.flushModule(comp, prog_node);
     }
 }
 
-pub fn flushModule(self: *Coff, comp: *Compilation) !void {
+pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp);
+            return try llvm_object.flushModule(comp, prog_node);
         }
     }
+
+    var sub_prog_node = prog_node.start("COFF Flush", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     if (self.text_section_size_dirty) {
         // Write the new raw size in the .text header
@@ -892,7 +896,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation) !void {
     }
 }
 
-fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
+fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -924,7 +928,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             }
         }
 
-        try self.flushModule(comp);
+        try self.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
@@ -932,6 +936,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             break :blk self.base.intermediary_basename.?;
         }
     } else null;
+
+    var sub_prog_node = prog_node.start("LLD Link", 0);
+    sub_prog_node.activate();
+    sub_prog_node.context.refresh();
+    defer sub_prog_node.end();
 
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;

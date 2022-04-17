@@ -174,21 +174,25 @@ pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {
     self.decl_table.swapRemoveAt(index);
 }
 
-pub fn flush(self: *SpirV, comp: *Compilation) !void {
+pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
         return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
     } else {
-        return self.flushModule(comp);
+        return self.flushModule(comp, prog_node);
     }
 }
 
-pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
+pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
     const tracy = trace(@src());
     defer tracy.end();
+
+    var sub_prog_node = prog_node.start("Flush Module", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     const module = self.base.options.module.?;
     const target = comp.getTarget();

@@ -573,7 +573,7 @@ pub const File = struct {
 
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
-    pub fn flush(base: *File, comp: *Compilation) !void {
+    pub fn flush(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
         if (comp.clang_preprocessor_mode == .yes) {
             const emit = base.options.emit orelse return; // -fno-emit-bin
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
@@ -591,32 +591,32 @@ pub const File = struct {
 
         const use_lld = build_options.have_llvm and base.options.use_lld;
         if (use_lld and base.options.output_mode == .Lib and base.options.link_mode == .Static) {
-            return base.linkAsArchive(comp);
+            return base.linkAsArchive(comp, prog_node);
         }
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).flush(comp),
-            .elf => return @fieldParentPtr(Elf, "base", base).flush(comp),
-            .macho => return @fieldParentPtr(MachO, "base", base).flush(comp),
-            .c => return @fieldParentPtr(C, "base", base).flush(comp),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).flush(comp),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).flush(comp),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).flush(comp),
-            .nvptx => return @fieldParentPtr(NvPtx, "base", base).flush(comp),
+            .coff => return @fieldParentPtr(Coff, "base", base).flush(comp, prog_node),
+            .elf => return @fieldParentPtr(Elf, "base", base).flush(comp, prog_node),
+            .macho => return @fieldParentPtr(MachO, "base", base).flush(comp, prog_node),
+            .c => return @fieldParentPtr(C, "base", base).flush(comp, prog_node),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).flush(comp, prog_node),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).flush(comp, prog_node),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).flush(comp, prog_node),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).flush(comp, prog_node),
         }
     }
 
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
-    pub fn flushModule(base: *File, comp: *Compilation) !void {
+    pub fn flushModule(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).flushModule(comp),
-            .elf => return @fieldParentPtr(Elf, "base", base).flushModule(comp),
-            .macho => return @fieldParentPtr(MachO, "base", base).flushModule(comp),
-            .c => return @fieldParentPtr(C, "base", base).flushModule(comp),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).flushModule(comp),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).flushModule(comp),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).flushModule(comp),
-            .nvptx => return @fieldParentPtr(NvPtx, "base", base).flushModule(comp),
+            .coff => return @fieldParentPtr(Coff, "base", base).flushModule(comp, prog_node),
+            .elf => return @fieldParentPtr(Elf, "base", base).flushModule(comp, prog_node),
+            .macho => return @fieldParentPtr(MachO, "base", base).flushModule(comp, prog_node),
+            .c => return @fieldParentPtr(C, "base", base).flushModule(comp, prog_node),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).flushModule(comp, prog_node),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).flushModule(comp, prog_node),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).flushModule(comp, prog_node),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).flushModule(comp, prog_node),
         }
     }
 
@@ -754,7 +754,7 @@ pub const File = struct {
         }
     }
 
-    pub fn linkAsArchive(base: *File, comp: *Compilation) !void {
+    pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -787,9 +787,9 @@ pub const File = struct {
                 }
             }
             if (base.options.object_format == .macho) {
-                try base.cast(MachO).?.flushObject(comp);
+                try base.cast(MachO).?.flushObject(comp, prog_node);
             } else {
-                try base.flushModule(comp);
+                try base.flushModule(comp, prog_node);
             }
             break :blk try fs.path.join(arena, &.{
                 fs.path.dirname(full_out_path_z).?, base.intermediary_basename.?,

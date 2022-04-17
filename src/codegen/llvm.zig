@@ -469,7 +469,12 @@ pub const Object = struct {
         _ = builder.buildRet(is_lt);
     }
 
-    pub fn flushModule(self: *Object, comp: *Compilation) !void {
+    pub fn flushModule(self: *Object, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+        var sub_prog_node = prog_node.start("LLVM Emit Object", 0);
+        sub_prog_node.activate();
+        sub_prog_node.context.refresh();
+        defer sub_prog_node.end();
+
         try self.genErrorNameTable(comp);
         try self.genCmpLtErrorsLenFunction(comp);
 

@@ -1477,31 +1477,35 @@ fn resetState(self: *Wasm) void {
     self.code_section_index = null;
 }
 
-pub fn flush(self: *Wasm, comp: *Compilation) !void {
+pub fn flush(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (self.llvm_object) |llvm_object| {
-                return try llvm_object.flushModule(comp);
+                return try llvm_object.flushModule(comp, prog_node);
             }
         }
         return;
     }
     if (build_options.have_llvm and self.base.options.use_lld) {
-        return self.linkWithLLD(comp);
+        return self.linkWithLLD(comp, prog_node);
     } else {
-        return self.flushModule(comp);
+        return self.flushModule(comp, prog_node);
     }
 }
 
-pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
+pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp);
+            return try llvm_object.flushModule(comp, prog_node);
         }
     }
+
+    var sub_prog_node = prog_node.start("WASM Flush", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     // ensure the error names table is populated when an error name is referenced
     try self.populateErrorNameTable();
@@ -2028,7 +2032,7 @@ fn emitImport(self: *Wasm, writer: anytype, import: types.Import) !void {
     }
 }
 
-fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
+fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2060,7 +2064,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             }
         }
 
-        try self.flushModule(comp);
+        try self.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
@@ -2068,6 +2072,11 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             break :blk self.base.intermediary_basename.?;
         }
     } else null;
+
+    var sub_prog_node = prog_node.start("LLD Link", 0);
+    sub_prog_node.activate();
+    sub_prog_node.context.refresh();
+    defer sub_prog_node.end();
 
     const is_obj = self.base.options.output_mode == .Obj;
 

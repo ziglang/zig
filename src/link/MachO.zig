@@ -419,33 +419,34 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     return self;
 }
 
-pub fn flush(self: *MachO, comp: *Compilation) !void {
+pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (self.llvm_object) |llvm_object| {
-                try llvm_object.flushModule(comp);
+                try llvm_object.flushModule(comp, prog_node);
             }
         }
         return;
     }
+
     if (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Static) {
         if (build_options.have_llvm) {
-            return self.base.linkAsArchive(comp);
+            return self.base.linkAsArchive(comp, prog_node);
         } else {
             log.err("TODO: non-LLVM archiver for MachO object files", .{});
             return error.TODOImplementWritingStaticLibFiles;
         }
     }
-    try self.flushModule(comp);
+    try self.flushModule(comp, prog_node);
 }
 
-pub fn flushModule(self: *MachO, comp: *Compilation) !void {
+pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
     if (!use_stage1 and self.base.options.output_mode == .Obj)
-        return self.flushObject(comp);
+        return self.flushObject(comp, prog_node);
 
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
@@ -482,7 +483,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
         const obj_basename = self.base.intermediary_basename orelse break :blk null;
 
-        try self.flushObject(comp);
+        try self.flushObject(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, obj_basename });
@@ -490,6 +491,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             break :blk obj_basename;
         }
     } else null;
+
+    var sub_prog_node = prog_node.start("MachO Flush", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
@@ -1111,13 +1116,13 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     self.cold_start = false;
 }
 
-pub fn flushObject(self: *MachO, comp: *Compilation) !void {
+pub fn flushObject(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (build_options.have_llvm)
         if (self.llvm_object) |llvm_object|
-            return llvm_object.flushModule(comp);
+            return llvm_object.flushModule(comp, prog_node);
 
     return error.TODOImplementWritingObjFiles;
 }

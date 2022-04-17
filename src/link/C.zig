@@ -235,13 +235,17 @@ pub fn updateDeclLineNumber(self: *C, module: *Module, decl: *Module.Decl) !void
     _ = decl;
 }
 
-pub fn flush(self: *C, comp: *Compilation) !void {
-    return self.flushModule(comp);
+pub fn flush(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    return self.flushModule(comp, prog_node);
 }
 
-pub fn flushModule(self: *C, comp: *Compilation) !void {
+pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    var sub_prog_node = prog_node.start("Flush Module", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     const gpa = comp.gpa;
     const module = self.base.options.module.?;

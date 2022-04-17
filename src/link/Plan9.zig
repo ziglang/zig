@@ -351,7 +351,7 @@ fn updateFinish(self: *Plan9, decl: *Module.Decl) !void {
     }
 }
 
-pub fn flush(self: *Plan9, comp: *Compilation) !void {
+pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     assert(!self.base.options.use_lld);
 
     switch (self.base.options.effectiveOutputMode()) {
@@ -360,7 +360,7 @@ pub fn flush(self: *Plan9, comp: *Compilation) !void {
         .Obj => return error.TODOImplementPlan9Objs,
         .Lib => return error.TODOImplementWritingLibFiles,
     }
-    return self.flushModule(comp);
+    return self.flushModule(comp, prog_node);
 }
 
 pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
@@ -387,7 +387,7 @@ fn declCount(self: *Plan9) usize {
     return self.data_decl_table.count() + fn_decl_count;
 }
 
-pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
+pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -395,6 +395,10 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     _ = comp;
     const tracy = trace(@src());
     defer tracy.end();
+
+    var sub_prog_node = prog_node.start("Flush Module", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     log.debug("flushModule", .{});
 

@@ -929,34 +929,38 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 }
 
-pub fn flush(self: *Elf, comp: *Compilation) !void {
+pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (self.llvm_object) |llvm_object| {
-                return try llvm_object.flushModule(comp);
+                return try llvm_object.flushModule(comp, prog_node);
             }
         }
         return;
     }
     const use_lld = build_options.have_llvm and self.base.options.use_lld;
     if (use_lld) {
-        return self.linkWithLLD(comp);
+        return self.linkWithLLD(comp, prog_node);
     }
     switch (self.base.options.output_mode) {
-        .Exe, .Obj => return self.flushModule(comp),
+        .Exe, .Obj => return self.flushModule(comp, prog_node),
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 }
 
-pub fn flushModule(self: *Elf, comp: *Compilation) !void {
+pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp);
+            return try llvm_object.flushModule(comp, prog_node);
         }
     }
+
+    var sub_prog_node = prog_node.start("ELF Flush", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
@@ -1204,7 +1208,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     assert(!self.debug_strtab_dirty);
 }
 
-fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
+fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1236,7 +1240,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             }
         }
 
-        try self.flushModule(comp);
+        try self.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
@@ -1244,6 +1248,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             break :blk self.base.intermediary_basename.?;
         }
     } else null;
+
+    var sub_prog_node = prog_node.start("LLD Link", 0);
+    sub_prog_node.activate();
+    sub_prog_node.context.refresh();
+    defer sub_prog_node.end();
 
     const is_obj = self.base.options.output_mode == .Obj;
     const is_lib = self.base.options.output_mode == .Lib;

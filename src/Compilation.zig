@@ -2084,7 +2084,13 @@ pub fn update(comp: *Compilation) !void {
         }
     }
 
-    try comp.performAllTheWork();
+    // If the terminal is dumb, we dont want to show the user all the output.
+    var progress: std.Progress = .{ .dont_print_on_dumb = true };
+    const main_progress_node = progress.start("", 0);
+    defer main_progress_node.end();
+    if (comp.color == .off) progress.terminal = null;
+
+    try comp.performAllTheWork(main_progress_node);
 
     if (!use_stage1) {
         if (comp.bin_file.options.module) |module| {
@@ -2158,9 +2164,9 @@ pub fn update(comp: *Compilation) !void {
                 .path = dir_path,
             };
 
-            try comp.flush();
+            try comp.flush(main_progress_node);
         } else {
-            try comp.flush();
+            try comp.flush(main_progress_node);
         }
 
         // Failure here only means an unnecessary cache miss.
@@ -2171,7 +2177,7 @@ pub fn update(comp: *Compilation) !void {
         assert(comp.bin_file.lock == null);
         comp.bin_file.lock = man.toOwnedLock();
     } else {
-        try comp.flush();
+        try comp.flush(main_progress_node);
     }
 
     // Unload all source files to save memory.
@@ -2188,8 +2194,8 @@ pub fn update(comp: *Compilation) !void {
     }
 }
 
-fn flush(comp: *Compilation) !void {
-    try comp.bin_file.flush(comp); // This is needed before reading the error flags.
+fn flush(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    try comp.bin_file.flush(comp, prog_node); // This is needed before reading the error flags.
     comp.link_error_flags = comp.bin_file.errorFlags();
 
     const use_stage1 = build_options.omit_stage2 or
@@ -2590,14 +2596,10 @@ pub fn getCompileLogOutput(self: *Compilation) []const u8 {
     return module.compile_log_text.items;
 }
 
-pub fn performAllTheWork(comp: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
-    // If the terminal is dumb, we dont want to show the user all the
-    // output.
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
-    var main_progress_node = progress.start("", 0);
-    defer main_progress_node.end();
-    if (comp.color == .off) progress.terminal = null;
-
+pub fn performAllTheWork(
+    comp: *Compilation,
+    main_progress_node: *std.Progress.Node,
+) error{ TimerUnsupported, OutOfMemory }!void {
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation

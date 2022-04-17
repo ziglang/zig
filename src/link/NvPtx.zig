@@ -97,11 +97,11 @@ pub fn freeDecl(self: *NvPtx, decl: *Module.Decl) void {
     return self.llvm_object.freeDecl(decl);
 }
 
-pub fn flush(self: *NvPtx, comp: *Compilation) !void {
-    return self.flushModule(comp);
+pub fn flush(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    return self.flushModule(comp, prog_node);
 }
 
-pub fn flushModule(self: *NvPtx, comp: *Compilation) !void {
+pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) return;
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
@@ -117,5 +117,5 @@ pub fn flushModule(self: *NvPtx, comp: *Compilation) !void {
         };
         hack_comp.bin_file.options.emit = null;
     }
-    return try self.llvm_object.flushModule(hack_comp);
+    return try self.llvm_object.flushModule(hack_comp, prog_node);
 }
