@@ -1193,7 +1193,7 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
 /// Asserts that generating an instruction of that form is possible.
 fn binOpRegister(
     self: *Self,
-    tag: Air.Inst.Tag,
+    mir_tag: Mir.Inst.Tag,
     maybe_inst: ?Air.Inst.Index,
     lhs: MCValue,
     rhs: MCValue,
@@ -1256,38 +1256,9 @@ fn binOpRegister(
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
     if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
 
-    const mir_tag: Mir.Inst.Tag = switch (tag) {
-        .add,
-        .ptr_add,
-        => .add_shifted_register,
-        .sub,
-        .ptr_sub,
-        => .sub_shifted_register,
-        .cmp_eq => .cmp_shifted_register,
-        .mul => .mul,
-        .bit_and,
-        .bool_and,
-        => .and_shifted_register,
-        .bit_or,
-        .bool_or,
-        => .orr_shifted_register,
-        .shl,
-        .shl_exact,
-        => .lsl_register,
-        .shr,
-        .shr_exact,
-        => switch (lhs_ty.intInfo(self.target.*).signedness) {
-            .signed => Mir.Inst.Tag.asr_register,
-            .unsigned => Mir.Inst.Tag.lsr_register,
-        },
-        .xor => .eor_shifted_register,
-        else => unreachable,
-    };
-    const mir_data: Mir.Inst.Data = switch (tag) {
-        .add,
-        .sub,
-        .ptr_add,
-        .ptr_sub,
+    const mir_data: Mir.Inst.Data = switch (mir_tag) {
+        .add_shifted_register,
+        .sub_shifted_register,
         => .{ .rrr_imm6_shift = .{
             .rd = dest_reg,
             .rn = lhs_reg,
@@ -1295,27 +1266,24 @@ fn binOpRegister(
             .imm6 = 0,
             .shift = .lsl,
         } },
-        .cmp_eq => .{ .rr_imm6_shift = .{
+        .cmp_shifted_register => .{ .rr_imm6_shift = .{
             .rn = lhs_reg,
             .rm = rhs_reg,
             .imm6 = 0,
             .shift = .lsl,
         } },
         .mul,
-        .shl,
-        .shl_exact,
-        .shr,
-        .shr_exact,
+        .lsl_register,
+        .asr_register,
+        .lsr_register,
         => .{ .rrr = .{
             .rd = dest_reg,
             .rn = lhs_reg,
             .rm = rhs_reg,
         } },
-        .bit_and,
-        .bool_and,
-        .bit_or,
-        .bool_or,
-        .xor,
+        .and_shifted_register,
+        .orr_shifted_register,
+        .eor_shifted_register,
         => .{ .rrr_imm6_logical_shift = .{
             .rd = dest_reg,
             .rn = lhs_reg,
@@ -1348,7 +1316,7 @@ fn binOpRegister(
 /// Asserts that generating an instruction of that form is possible.
 fn binOpImmediate(
     self: *Self,
-    tag: Air.Inst.Tag,
+    mir_tag: Mir.Inst.Tag,
     maybe_inst: ?Air.Inst.Index,
     lhs: MCValue,
     rhs: MCValue,
@@ -1379,8 +1347,8 @@ fn binOpImmediate(
     };
     defer self.register_manager.unfreezeRegs(&.{lhs_reg});
 
-    const dest_reg = switch (tag) {
-        .cmp_eq => undefined, // cmp has no destination register
+    const dest_reg = switch (mir_tag) {
+        .cmp_immediate => undefined, // cmp has no destination register
         else => if (maybe_inst) |inst| blk: {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
@@ -1400,39 +1368,23 @@ fn binOpImmediate(
 
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
 
-    const mir_tag: Mir.Inst.Tag = switch (tag) {
-        .add => .add_immediate,
-        .sub => .sub_immediate,
-        .shl,
-        .shl_exact,
-        => .lsl_immediate,
-        .shr,
-        .shr_exact,
-        => switch (lhs_ty.intInfo(self.target.*).signedness) {
-            .signed => Mir.Inst.Tag.asr_immediate,
-            .unsigned => Mir.Inst.Tag.lsr_immediate,
-        },
-        .cmp_eq => .cmp_immediate,
-        else => unreachable,
-    };
-    const mir_data: Mir.Inst.Data = switch (tag) {
-        .add,
-        .sub,
+    const mir_data: Mir.Inst.Data = switch (mir_tag) {
+        .add_immediate,
+        .sub_immediate,
         => .{ .rr_imm12_sh = .{
             .rd = dest_reg,
             .rn = lhs_reg,
             .imm12 = @intCast(u12, rhs.immediate),
         } },
-        .shl,
-        .shl_exact,
-        .shr,
-        .shr_exact,
+        .lsl_immediate,
+        .asr_immediate,
+        .lsr_immediate,
         => .{ .rr_shift = .{
             .rd = dest_reg,
             .rn = lhs_reg,
             .shift = @intCast(u6, rhs.immediate),
         } },
-        .cmp_eq => .{ .r_imm12_sh = .{
+        .cmp_immediate => .{ .r_imm12_sh = .{
             .rn = lhs_reg,
             .imm12 = @intCast(u12, rhs.immediate),
         } },
@@ -1470,7 +1422,6 @@ fn binOp(
 ) InnerError!MCValue {
     const target = self.target.*;
     switch (tag) {
-        // Arithmetic operations on integers and floats
         .add,
         .sub,
         .cmp_eq,
@@ -1498,13 +1449,26 @@ fn binOp(
                             else => unreachable,
                         };
 
+                        const mir_tag_register: Mir.Inst.Tag = switch (tag) {
+                            .add => .add_shifted_register,
+                            .sub => .sub_shifted_register,
+                            .cmp_eq => .cmp_shifted_register,
+                            else => unreachable,
+                        };
+                        const mir_tag_immediate: Mir.Inst.Tag = switch (tag) {
+                            .add => .add_immediate,
+                            .sub => .sub_immediate,
+                            .cmp_eq => .cmp_immediate,
+                            else => unreachable,
+                        };
+
                         if (rhs_immediate_ok) {
-                            return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                            return try self.binOpImmediate(mir_tag_immediate, maybe_inst, lhs, rhs, lhs_ty, false);
                         } else if (lhs_immediate_ok) {
                             // swap lhs and rhs
-                            return try self.binOpImmediate(tag, maybe_inst, rhs, lhs, rhs_ty, true);
+                            return try self.binOpImmediate(mir_tag_immediate, maybe_inst, rhs, lhs, rhs_ty, true);
                         } else {
-                            return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                            return try self.binOpRegister(mir_tag_register, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                         }
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
@@ -1523,7 +1487,7 @@ fn binOp(
                         // TODO add optimisations for multiplication
                         // with immediates, for example a * 2 can be
                         // lowered to a << 1
-                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        return try self.binOpRegister(.mul, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
@@ -1564,7 +1528,6 @@ fn binOp(
                 else => unreachable,
             }
         },
-        // Bitwise operations on integers
         .bit_and,
         .bit_or,
         .xor,
@@ -1576,7 +1539,14 @@ fn binOp(
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 64) {
                         // TODO implement bitwise operations with immediates
-                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        const mir_tag: Mir.Inst.Tag = switch (tag) {
+                            .bit_and => .and_shifted_register,
+                            .bit_or => .orr_shifted_register,
+                            .xor => .eor_shifted_register,
+                            else => unreachable,
+                        };
+
+                        return try self.binOpRegister(mir_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
@@ -1594,10 +1564,27 @@ fn binOp(
                     if (int_info.bits <= 64) {
                         const rhs_immediate_ok = rhs == .immediate;
 
+                        const mir_tag_register: Mir.Inst.Tag = switch (tag) {
+                            .shl => .lsl_register,
+                            .shr => switch (lhs_ty.intInfo(self.target.*).signedness) {
+                                .signed => Mir.Inst.Tag.asr_register,
+                                .unsigned => Mir.Inst.Tag.lsr_register,
+                            },
+                            else => unreachable,
+                        };
+                        const mir_tag_immediate: Mir.Inst.Tag = switch (tag) {
+                            .shl => .lsl_immediate,
+                            .shr => switch (lhs_ty.intInfo(self.target.*).signedness) {
+                                .signed => Mir.Inst.Tag.asr_immediate,
+                                .unsigned => Mir.Inst.Tag.lsr_immediate,
+                            },
+                            else => unreachable,
+                        };
+
                         if (rhs_immediate_ok) {
-                            return try self.binOpImmediate(tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                            return try self.binOpImmediate(mir_tag_immediate, maybe_inst, lhs, rhs, lhs_ty, false);
                         } else {
-                            return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                            return try self.binOpRegister(mir_tag_register, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                         }
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
@@ -1614,7 +1601,13 @@ fn binOp(
                     assert(lhs != .immediate); // should have been handled by Sema
                     assert(rhs != .immediate); // should have been handled by Sema
 
-                    return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                    const mir_tag_register: Mir.Inst.Tag = switch (tag) {
+                        .bool_and => .and_shifted_register,
+                        .bool_or => .orr_shifted_register,
+                        else => unreachable,
+                    };
+
+                    return try self.binOpRegister(mir_tag_register, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                 },
                 else => unreachable,
             }
@@ -1632,9 +1625,9 @@ fn binOp(
                     const elem_size = elem_ty.abiSize(self.target.*);
 
                     if (elem_size == 1) {
-                        const base_tag: Air.Inst.Tag = switch (tag) {
-                            .ptr_add => .add,
-                            .ptr_sub => .sub,
+                        const base_tag: Mir.Inst.Tag = switch (tag) {
+                            .ptr_add => .add_shifted_register,
+                            .ptr_sub => .sub_shifted_register,
                             else => unreachable,
                         };
 
