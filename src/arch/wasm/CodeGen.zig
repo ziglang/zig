@@ -1929,7 +1929,7 @@ fn lowerParentPtrDecl(self: *Self, ptr_val: Value, decl: *Module.Decl) InnerErro
 
 fn lowerDeclRefValue(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!WValue {
     if (tv.ty.isSlice()) {
-        return WValue{ .memory = try self.bin_file.lowerUnnamedConst(self.decl, tv) };
+        return WValue{ .memory = try self.bin_file.lowerUnnamedConst(decl, tv) };
     } else if (decl.ty.zigTypeTag() != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
