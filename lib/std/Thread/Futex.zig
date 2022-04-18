@@ -7,12 +7,12 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Futex = @This();
 
+const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
 
 const Atomic = std.atomic.Atomic;
 const spinLoopHint = std.atomic.spinLoopHint;
-
 
 /// Checks if `ptr` still contains the value `expect` and, if so, blocks the caller until either:
 /// - The value at `ptr` is no longer equal to `expect`.
@@ -91,7 +91,7 @@ const UnsupportedImpl = struct {
     }
 
     fn unsupported(unused: anytype) noreturn {
-        @compileLog("Unsupported operating system", target.os.tag);
+        @compileLog("Unsupported operating system", builtin.target.os.tag);
         _ = unused;
         unreachable;
     }
@@ -268,7 +268,7 @@ const LinuxImpl = struct {
         switch (os.linux.getErrno(os.linux.futex_wake(
             @ptrCast(*const i32, &ptr.value),
             os.linux.FUTEX.PRIVATE_FLAG | os.linux.FUTEX.WAKE,
-            std.math.cast(i32, num_waiters) catch std.math.maxInt(i32),
+            std.math.cast(i32, max_waiters) catch std.math.maxInt(i32),
         ))) {
             .SUCCESS => {}, // successful wake up
             .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
@@ -401,13 +401,13 @@ const DragonflyImpl = struct {
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         // A count of zero means wake all waiters.
         assert(max_waiters != 0);
-        const count = std.math.cast(c_int, max_waiters) catch 0;
+        const to_wake = std.math.cast(c_int, max_waiters) catch 0;
 
         // https://man.dragonflybsd.org/?command=umtx&section=2
         // > umtx_wakeup() will generally return 0 unless the address is bad.
         // We are fine with the address being bad (e.g. for Semaphore.post() where Semaphore.wait() frees the Semaphore)
         const addr = @ptrCast(*const volatile c_int, &ptr.value);
-        _ = os.dragonfly.umtx_wakeup(ptr, waiters);
+        _ = os.dragonfly.umtx_wakeup(addr, to_wake);
     }
 };
 
@@ -789,3 +789,69 @@ const PosixImpl = struct {
         }
     }
 };
+
+test "Futex - smoke test" {
+    var value = Atomic(u32).init(0);
+    Futex.wait(&value, 0xdeadbeef);
+    try Futex.timedWait(&value, 0xdeadbeef, 0);
+
+    try testing.expectError(Futex.timedWait(&value, 0, 0), error.Timeout);
+    try testing.expectError(Futex.timedWait(&value, 0, std.time.ns_per_ms), error.Timeout);
+
+    Futex.wake(&value, 0);
+    Futex.wake(&value, 1);
+    Futex.wake(&value, std.math.maxInt(u32));
+}
+
+test "Futex - signaling" {
+    // This test requires spawning threads
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const num_threads = 4;
+    const num_iterations = 4;
+
+    const Paddle = struct {
+        value: Atomic(u32) = Atomic(u32).init(0),
+        current: u32 = 0,
+
+        fn hit(self: *@This()) void {
+            _ = self.value.fetchAdd(1, .Release);
+            Futex.wake(&self.value, 1);
+        }
+
+        fn run(self: *@This(), hit_to: *@This()) !void {
+            while (self.current < num_iterations) {
+                var new_value: u32 = undefined;
+                while (true) {
+                    new_value = self.value.load(.Acquire);
+                    if (new_value != self.current) break;
+                    Futex.wait(&self.value, self.current);
+                }
+
+                try testing.expectEqual(new_value, self.current + 1);
+                self.current = new_value;
+
+                hit_to.hit();
+            }
+        }
+    };
+
+    var paddles = [_]Paddle{.{}} ** num_threads;
+    var threads = [_]std.Thread{undefined} ** num_threads;
+
+    for (threads) |*t, i| {
+        const paddle = &paddles[i];
+        const hit_to = &paddles[(i + 1) % paddles.len];
+        t.* = try std.Thread.spawn(.{}, Paddle.run, .{ paddle, hit_to });
+    }
+
+    paddles[0].hit();
+    for (threads) |t| t.join();
+    for (paddles) |p| try testing.expectEqual(p.current, num_iterations);
+}
+
+test "Futex - broadcasting" {}
+
+test "Futex - chaining" {}

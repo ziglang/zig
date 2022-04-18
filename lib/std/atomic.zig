@@ -1,7 +1,7 @@
 const std = @import("std.zig");
-const target = @import("builtin").target;
+const builtin = @import("builtin");
 
-pub const Ordering = std.builtin.AtomicOrder;
+pub const Ordering = builtin.AtomicOrder;
 
 pub const Stack = @import("atomic/stack.zig").Stack;
 pub const Queue = @import("atomic/queue.zig").Queue;
@@ -40,7 +40,7 @@ test "fence/compilerFence" {
 
 /// Signals to the processor that the caller is inside a busy-wait spin-loop.
 pub inline fn spinLoopHint() void {
-    switch (target.cpu.arch) {
+    switch (builtin.target.cpu.arch) {
         // No-op instruction that can hint to save (or share with a hardware-thread)
         // pipelining/power resources
         // https://software.intel.com/content/www/us/en/develop/articles/benefitting-power-and-performance-sleep-loops.html
@@ -59,7 +59,7 @@ pub inline fn spinLoopHint() void {
         // `yield` was introduced in v6k but is also available on v6m.
         // https://www.keil.com/support/man/docs/armasm/armasm_dom1361289926796.htm
         .arm, .armeb, .thumb, .thumbeb => {
-            const can_yield = comptime std.Target.arm.featureSetHasAny(target.cpu.features, .{
+            const can_yield = comptime std.Target.arm.featureSetHasAny(builtin.target.cpu.features, .{
                 .has_v6k, .has_v6m,
             });
             if (can_yield) {
