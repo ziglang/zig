@@ -849,36 +849,7 @@ fn buildOutputType(
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        if (mem.eql(u8, next_arg, "console")) {
-                            subsystem = .Console;
-                        } else if (mem.eql(u8, next_arg, "windows")) {
-                            subsystem = .Windows;
-                        } else if (mem.eql(u8, next_arg, "posix")) {
-                            subsystem = .Posix;
-                        } else if (mem.eql(u8, next_arg, "native")) {
-                            subsystem = .Native;
-                        } else if (mem.eql(u8, next_arg, "efi_application")) {
-                            subsystem = .EfiApplication;
-                        } else if (mem.eql(u8, next_arg, "efi_boot_service_driver")) {
-                            subsystem = .EfiBootServiceDriver;
-                        } else if (mem.eql(u8, next_arg, "efi_rom")) {
-                            subsystem = .EfiRom;
-                        } else if (mem.eql(u8, next_arg, "efi_runtime_driver")) {
-                            subsystem = .EfiRuntimeDriver;
-                        } else {
-                            fatal("invalid: --subsystem: '{s}'. Options are:\n{s}", .{
-                                next_arg,
-                                \\  console
-                                \\  windows
-                                \\  posix
-                                \\  native
-                                \\  efi_application
-                                \\  efi_boot_service_driver
-                                \\  efi_rom
-                                \\  efi_runtime_driver
-                                \\
-                            });
-                        }
+                        subsystem = try parseSubSystem(next_arg);
                     } else if (mem.eql(u8, arg, "-O")) {
                         optimize_mode_string = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -1610,6 +1581,12 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     try rpath_list.append(linker_args.items[i]);
+                } else if (mem.eql(u8, arg, "--subsystem")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    subsystem = try parseSubSystem(linker_args.items[i]);
                 } else if (mem.eql(u8, arg, "-I") or
                     mem.eql(u8, arg, "--dynamic-linker") or
                     mem.eql(u8, arg, "-dynamic-linker"))
@@ -5130,5 +5107,38 @@ fn warnAboutForeignBinaries(
                 host_name, foreign_name, tip_suffix,
             });
         },
+    }
+}
+
+fn parseSubSystem(next_arg: []const u8) !std.Target.SubSystem {
+    if (mem.eql(u8, next_arg, "console")) {
+        return .Console;
+    } else if (mem.eql(u8, next_arg, "windows")) {
+        return .Windows;
+    } else if (mem.eql(u8, next_arg, "posix")) {
+        return .Posix;
+    } else if (mem.eql(u8, next_arg, "native")) {
+        return .Native;
+    } else if (mem.eql(u8, next_arg, "efi_application")) {
+        return .EfiApplication;
+    } else if (mem.eql(u8, next_arg, "efi_boot_service_driver")) {
+        return .EfiBootServiceDriver;
+    } else if (mem.eql(u8, next_arg, "efi_rom")) {
+        return .EfiRom;
+    } else if (mem.eql(u8, next_arg, "efi_runtime_driver")) {
+        return .EfiRuntimeDriver;
+    } else {
+        fatal("invalid: --subsystem: '{s}'. Options are:\n{s}", .{
+            next_arg,
+            \\  console
+            \\  windows
+            \\  posix
+            \\  native
+            \\  efi_application
+            \\  efi_boot_service_driver
+            \\  efi_rom
+            \\  efi_runtime_driver
+            \\
+        });
     }
 }
