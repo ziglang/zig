@@ -363,7 +363,6 @@ fn comptimeAdd(comptime a: comptime_int, comptime b: comptime_int) comptime_int 
 test "binary not" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expect(comptime x: {
         break :x ~@as(u16, 0b1010101010101010) == 0b0101010101010101;
@@ -851,8 +850,6 @@ test "quad hex float literal parsing accurate" {
 }
 
 test "truncating shift left" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     try testShlTrunc(maxInt(u16));
     comptime try testShlTrunc(maxInt(u16));
 }
@@ -863,7 +860,6 @@ fn testShlTrunc(x: u16) !void {
 
 test "exact shift left" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testShlExact(0b00110101);
     comptime try testShlExact(0b00110101);
@@ -875,7 +871,6 @@ fn testShlExact(x: u8) !void {
 
 test "exact shift right" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testShrExact(0b10110100);
     comptime try testShrExact(0b10110100);
@@ -887,7 +882,6 @@ fn testShrExact(x: u8) !void {
 
 test "shift left/right on u0 operand" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {

@@ -1138,6 +1138,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                                 } },
                             });
 
+                            try self.truncRegister(dest_reg, dest_reg, int_info.signedness, int_info.bits);
+
                             break :result MCValue{ .register = dest_reg };
                         } else {
                             return self.fail("TODO AArch64 not on integers > u64/i64", .{});
@@ -1516,11 +1518,8 @@ fn binOp(
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 64) {
                         const result_reg = result.register;
-
-                        if (int_info.bits < 64) {
-                            try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
-                            return result;
-                        } else return result;
+                        try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
+                        return result;
                     } else {
                         return self.fail("TODO binary operations on integers > u64/i64", .{});
                     }
@@ -1554,8 +1553,8 @@ fn binOp(
                 else => unreachable,
             }
         },
-        .shl,
-        .shr,
+        .shl_exact,
+        .shr_exact,
         => {
             switch (lhs_ty.zigTypeTag()) {
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
@@ -1565,16 +1564,16 @@ fn binOp(
                         const rhs_immediate_ok = rhs == .immediate;
 
                         const mir_tag_register: Mir.Inst.Tag = switch (tag) {
-                            .shl => .lsl_register,
-                            .shr => switch (lhs_ty.intInfo(self.target.*).signedness) {
+                            .shl_exact => .lsl_register,
+                            .shr_exact => switch (int_info.signedness) {
                                 .signed => Mir.Inst.Tag.asr_register,
                                 .unsigned => Mir.Inst.Tag.lsr_register,
                             },
                             else => unreachable,
                         };
                         const mir_tag_immediate: Mir.Inst.Tag = switch (tag) {
-                            .shl => .lsl_immediate,
-                            .shr => switch (lhs_ty.intInfo(self.target.*).signedness) {
+                            .shl_exact => .lsl_immediate,
+                            .shr_exact => switch (int_info.signedness) {
                                 .signed => Mir.Inst.Tag.asr_immediate,
                                 .unsigned => Mir.Inst.Tag.lsr_immediate,
                             },
@@ -1589,6 +1588,38 @@ fn binOp(
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
+                },
+                else => unreachable,
+            }
+        },
+        .shl,
+        .shr,
+        => {
+            const base_tag: Air.Inst.Tag = switch (tag) {
+                .shl => .shl_exact,
+                .shr => .shr_exact,
+                else => unreachable,
+            };
+
+            // Generate a shl_exact/shr_exact
+            const result = try self.binOp(base_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+
+            // Truncate if necessary
+            switch (tag) {
+                .shr => return result,
+                .shl => switch (lhs_ty.zigTypeTag()) {
+                    .Vector => return self.fail("TODO binary operations on vectors", .{}),
+                    .Int => {
+                        const int_info = lhs_ty.intInfo(self.target.*);
+                        if (int_info.bits <= 64) {
+                            const result_reg = result.register;
+                            try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
+                            return result;
+                        } else {
+                            return self.fail("TODO binary operations on integers > u64/i64", .{});
+                        }
+                    },
+                    else => unreachable,
                 },
                 else => unreachable,
             }
