@@ -1633,9 +1633,9 @@ pub const LibExeObjStep = struct {
     };
 
     const IncludePathVisibilityPresets = enum(u2) {
-        Interface = @bitCast(u2, IncludePathVisibility{.visible_to_others = true, .visible_to_self = false }),
-        Public = @bitCast(u2, IncludePathVisibility{.visible_to_others = true, .visible_to_self = true }),
-        Private = @bitCast(u2, IncludePathVisibility{.visible_to_others = false, .visible_to_self = true }),
+        Interface = @bitCast(u2, IncludePathVisibility{ .visible_to_others = true, .visible_to_self = false }),
+        Public = @bitCast(u2, IncludePathVisibility{ .visible_to_others = true, .visible_to_self = true }),
+        Private = @bitCast(u2, IncludePathVisibility{ .visible_to_others = false, .visible_to_self = true }),
     };
 
     pub const Kind = enum {
