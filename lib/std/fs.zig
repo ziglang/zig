@@ -2547,6 +2547,15 @@ pub const SelfExePathError = os.ReadLinkError || os.SysCtlError || os.RealPathEr
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExePathAlloc(allocator: Allocator) ![]u8 {
+    if (builtin.os.tag == .wasi) {
+        var args = try std.process.argsWithAllocator(allocator);
+        defer args.deinit();
+        // On WASI, argv[0] is always just the basename of the current executable
+        const exe_name = args.next() orelse return error.FileNotFound;
+
+        var buf: [MAX_PATH_BYTES]u8 = undefined;
+        return allocator.dupe(u8, try selfExePathWasi(&buf, exe_name));
+    }
     // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
     // system, readlink will completely fail to return a result larger than
     // PATH_MAX even if given a sufficiently large buffer. This makes it
@@ -2643,8 +2652,46 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
             return out_buffer[0..end_index];
         },
+        .wasi => @compileError("std.fs.selfExePath not supported for WASI. Use std.fs.selfExePathAlloc instead."),
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }
+}
+
+/// WASI-specific implementation of selfExePath
+///
+/// On WASI argv0 is always just the executable basename, so this function relies
+/// using a fixed executable directory path: "/zig"
+///
+/// This path can be configured in wasmtime using `--mapdir=/zig::/path/to/zig/dir/`
+fn selfExePathWasi(out_buffer: []u8, argv0: []const u8) SelfExePathError![]const u8 {
+    var allocator = std.heap.FixedBufferAllocator.init(out_buffer);
+    var alloc = allocator.allocator();
+
+    // Check these paths:
+    //  1. "/zig/{exe_name}"
+    //  2. "/zig/bin/{exe_name}"
+    const base_paths_to_check = &[_][]const u8{ "/zig", "/zig/bin" };
+    const exe_names_to_check = &[_][]const u8{ path.basename(argv0), "zig.wasm" };
+
+    for (base_paths_to_check) |base_path| {
+        for (exe_names_to_check) |exe_name| {
+            const test_path = path.join(alloc, &.{ base_path, exe_name }) catch continue;
+
+            // Make sure it's a file we're pointing to
+            const file = os.fstatat(os.wasi.AT.FDCWD, test_path, 0) catch continue;
+            if (file.filetype != .REGULAR_FILE) continue;
+
+            // Path seems to be valid, let's try to turn it into an absolute path
+            var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+            if (os.realpath(test_path, &real_path_buf)) |real_path| {
+                if (real_path.len > out_buffer.len)
+                    return error.NameTooLong;
+                mem.copy(u8, out_buffer, real_path);
+                return out_buffer[0..real_path.len];
+            } else |_| continue;
+        }
+    }
+    return error.FileNotFound;
 }
 
 /// The result is UTF16LE-encoded.
