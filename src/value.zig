@@ -3987,7 +3987,7 @@ pub const Value = extern union {
         const shift = @intCast(usize, rhs.toUnsignedInt(target));
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.big.int.calcTwosCompLimbCount(info.bits),
+            std.math.big.int.calcTwosCompLimbCount(info.bits) + 1,
         );
         var result_bigint = BigIntMutable{
             .limbs = limbs,
