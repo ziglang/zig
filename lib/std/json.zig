@@ -3048,7 +3048,8 @@ pub fn stringify(
                         try out_stream.writeByte('\n');
                         try child_whitespace.outputIndent(out_stream);
                     }
-                    try stringify(Field.name, options, out_stream);
+                    const key_options = StringifyOptions{};
+                    try stringify(Field.name, key_options, out_stream);
                     try out_stream.writeByte(':');
                     if (child_options.whitespace) |child_whitespace| {
                         if (child_whitespace.separator) {
@@ -3253,6 +3254,11 @@ test "stringify string" {
     try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"/\"", "/", StringifyOptions{});
     try teststringify("\"\\/\"", "/", StringifyOptions{ .string = .{ .String = .{ .escape_solidus = true } } });
+}
+
+test "stringify struct with string value" {
+    try teststringify("{\"bar\":\"donuts\"}", .{ .bar = "donuts" }, StringifyOptions{});
+    try teststringify("{\"bar\":[100,111,110,117,116,115]}", .{ .bar = "donuts" }, StringifyOptions{ .string = .Array });
 }
 
 test "stringify tagged unions" {
