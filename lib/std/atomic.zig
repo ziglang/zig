@@ -80,3 +80,41 @@ test "spinLoopHint" {
         spinLoopHint();
     }
 }
+
+/// The estimated size of the CPU's cache line when atomically updating memory.
+/// Add this much padding or align to this boundary to avoid atomically-updated
+/// memory from forcing cache invalidations on near, but non-atomic, memory.
+///
+// https://en.wikipedia.org/wiki/False_sharing
+// https://github.com/golang/go/search?q=CacheLinePadSize
+pub const cache_line = switch (builtin.cpu.arch) {
+    // x86_64: Starting from Intel's Sandy Bridge, the spatial prefetcher pulls in pairs of 64-byte cache lines at a time.
+    // - https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-optimization-manual.pdf
+    // - https://github.com/facebook/folly/blob/1b5288e6eea6df074758f877c849b6e73bbb9fbb/folly/lang/Align.h#L107
+    //
+    // aarch64: Some big.LITTLE ARM archs have "big" cores with 128-byte cache lines:
+    // - https://www.mono-project.com/news/2016/09/12/arm64-icache/
+    // - https://cpufun.substack.com/p/more-m1-fun-hardware-information
+    //
+    // powerpc64: PPC has 128-byte cache lines
+    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_ppc64x.go#L9
+    .x86_64, .aarch64, .powerpc64 => 128,
+
+    // These platforms reportedly have 32-byte cache lines
+    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_arm.go#L7
+    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips.go#L7
+    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mipsle.go#L7
+    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips64x.go#L9
+    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_riscv64.go#L7
+    .arm, .mips, .mips64, .riscv64 => 32,
+
+    // This platform reportedly has 256-byte cache lines
+    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_s390x.go#L7
+    .s390x => 256,
+
+    // Other x86 and WASM platforms have 64-byte cache lines.
+    // The rest of the architectures are assumed to be similar.
+    // - https://github.com/golang/go/blob/dda2991c2ea0c5914714469c4defc2562a907230/src/internal/cpu/cpu_x86.go#L9
+    // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_wasm.go#L7
+    else => 64,
+};
