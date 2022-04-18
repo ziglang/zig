@@ -36,6 +36,9 @@ pub const sem_t = ?*opaque {};
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
 
+pub extern "c" fn umtx_sleep(ptr: *const volatile c_int, value: c_int, timeout: c_int) c_int;
+pub extern "c" fn umtx_wakeup(ptr: *const volatile c_int, count: c_int) c_int;
+
 // See:
 // - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/include/unistd.h
 // - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/sys/sys/types.h

@@ -196,7 +196,7 @@ const DarwinImpl = struct {
                 break :overflow std.math.maxInt(u32);
             };
 
-            break :blk os.darwin.__ulock_wait2(flags, addr, expect, timeout_us);
+            break :blk os.darwin.__ulock_wait(flags, addr, expect, timeout_us);
         };
 
         if (status >= 0) return;
@@ -208,7 +208,7 @@ const DarwinImpl = struct {
             // without waiting, but the caller should retry anyway.
             .FAULT => {},
             // Only report Timeout if we didn't have to cap the timeout
-            .TIMEOUT => {
+            .TIMEDOUT => {
                 assert(timeout != null);
                 if (!timeout_overflowed) return error.Timeout;
             },
@@ -286,25 +286,25 @@ const FreebsdImpl = struct {
         var tm: os.freebsd._umtx_time = undefined;
         var tm_ptr: ?*const os.freebsd._umtx_time = null;
 
-        if (timeout) |delay| {
+        if (timeout) |timeout_ns| {
             tm_ptr = &tm;
             tm_size = @sizeOf(@TypeOf(tm));
 
             tm._flags = 0; // use relative time not UMTX_ABSTIME
             tm._clockid = os.CLOCK.MONOTONIC;
-            tm._timeout.tv_sec = @intCast(@TypeOf(tm._timeout.tv_sec), delay / std.time.ns_per_s);
-            tm._timeout.tv_nsec = @intCast(@TypeOf(tm._timeout.tv_snec), delay % std.time.ns_per_s);
+            tm._timeout.tv_sec = @intCast(@TypeOf(tm._timeout.tv_sec), timeout_ns / std.time.ns_per_s);
+            tm._timeout.tv_nsec = @intCast(@TypeOf(tm._timeout.tv_nsec), timeout_ns % std.time.ns_per_s);
         }
 
         const rc = os.freebsd._umtx_op(
             @ptrToInt(&ptr.value),
-            os.freebsd.UMTX_OP.WAIT_UINT_PRIVATE,
+            @enumToInt(os.freebsd.UMTX_OP.WAIT_UINT_PRIVATE),
             @as(c_ulong, expect),
             tm_size,
             @ptrToInt(tm_ptr),
         );
 
-        switch (rc) {
+        switch (os.errno(rc)) {
             .SUCCESS => {},
             .FAULT => unreachable, // one of the args points to invalid memory
             .INVAL => unreachable, // arguments should be correct
@@ -320,13 +320,13 @@ const FreebsdImpl = struct {
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         const rc = os.freebsd._umtx_op(
             @ptrToInt(&ptr.value),
-            os.freebsd.UMTX_OP.WAKE_PRIVATE,
+            @enumToInt(os.freebsd.UMTX_OP.WAKE_PRIVATE),
             @as(c_ulong, max_waiters),
             0,
             0,
         );
 
-        switch (rc) {
+        switch (os.errno(rc)) {
             .SUCCESS => {},
             .FAULT => {}, // it's ok if the ptr doesn't point to valid memory
             .INVAL => unreachable, // arguments should be correct
@@ -352,14 +352,8 @@ const OpenbsdImpl = struct {
             null,
         );
 
-        switch (rc) {
-            0 => return, // woken up by wake()
-            -1 => {},
-            else => unreachable,
-        }
-
-        switch (os.errno()) {
-            .SUCCESS => unreachable, // handled by rc = 0
+        switch (os.errno(rc)) {
+            .SUCCESS => {}, // woken up by wake
             .NOSYS => unreachable, // the futex operation shouldn't be invalid
             .FAULT => unreachable, // ptr was invalid
             .AGAIN => {}, // ptr != expect
@@ -403,15 +397,10 @@ const DragonflyImpl = struct {
         const addr = @ptrCast(*const volatile c_int, &ptr.value);
         const rc = os.dragonfly.umtx_sleep(addr, value, timeout_us);
 
-        switch (rc) {
-            0 => return,
-            -1 => {},
-            else => unreachable,
-        }
-
-        switch (os.errno()) {
+        switch (os.errno(rc)) {
+            .SUCCESS => {},
             .BUSY => {}, // ptr != expect
-            .WOULDBLOCK => return error.Timeout, // maybe timed out, or paged out, or hit 2s kernel refresh
+            .AGAIN => return error.Timeout, // maybe timed out, or paged out, or hit 2s kernel refresh
             .INTR => {}, // spurious wake
             .INVAL => unreachable, // invalid timeout
             else => unreachable,
@@ -885,7 +874,7 @@ test "Futex - signaling" {
         const hit_to = &paddles[(i + 1) % paddles.len];
         t.* = try std.Thread.spawn(.{}, Paddle.run, .{ paddle, hit_to });
     }
-    
+
     // Hit the first paddle and wait for them all to complete by hitting each other for num_iterations.
     paddles[0].hit();
     for (threads) |t| t.join();
@@ -945,4 +934,3 @@ test "Futex - broadcasting" {
     for (broadcast.threads) |*t| t.* = try std.Thread.spawn(.{}, Broadcast.run, .{&broadcast});
     for (broadcast.threads) |t| t.join();
 }
-
