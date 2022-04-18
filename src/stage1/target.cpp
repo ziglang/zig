@@ -1000,7 +1000,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
 }
 
 bool target_has_debug_info(const ZigTarget *target) {
-    return !target_is_wasm(target);
+    return true;
 }
 
 bool target_long_double_is_f128(const ZigTarget *target) {

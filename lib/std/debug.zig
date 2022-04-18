@@ -114,6 +114,10 @@ pub fn detectTTYConfig() TTY.Config {
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     nosuspend {
         const stderr = io.getStdErr().writer();
+        if (comptime builtin.target.isWasm()) {
+            stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
+            return;
+        }
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;

@@ -2645,6 +2645,9 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, Stage1Air *executabl
         Stage1AirInstSaveErrRetAddr *save_err_ret_addr_instruction)
 {
     assert(g->have_err_ret_tracing);
+    if ((target_is_wasm(g->zig_target) && g->zig_target->os != OsEmscripten) || target_is_bpf(g->zig_target)) {
+        return nullptr;
+    }
 
     LLVMValueRef return_err_fn = get_return_err_fn(g);
     bool is_llvm_alloca;
