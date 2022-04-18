@@ -135,10 +135,9 @@ var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
 pub fn main() anyerror!void {
     crash_report.initialize();
 
-    var gpa_need_deinit = false;
+    const use_gpa = build_options.force_gpa or !builtin.link_libc;
     const gpa = gpa: {
-        if (build_options.force_gpa or !builtin.link_libc) {
-            gpa_need_deinit = true;
+        if (use_gpa) {
             break :gpa general_purpose_allocator.allocator();
         }
         // We would prefer to use raw libc allocator here, but cannot
@@ -148,7 +147,7 @@ pub fn main() anyerror!void {
         }
         break :gpa std.heap.raw_c_allocator;
     };
-    defer if (gpa_need_deinit) {
+    defer if (use_gpa) {
         _ = general_purpose_allocator.deinit();
     };
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
