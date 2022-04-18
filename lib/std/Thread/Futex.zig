@@ -881,6 +881,57 @@ test "Futex - signaling" {
     for (paddles) |p| try testing.expectEqual(p.current, num_iterations);
 }
 
-test "Futex - broadcasting" {}
+test "Futex - broadcasting" {
+    // This test requires spawning threads
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
 
-test "Futex - chaining" {}
+    const num_threads = 4;
+    const num_iterations = 4;
+
+    const Barrier = struct {
+        count: Atomic(u32) = Atomic(u32).init(num_threads),
+        futex: Atomic(u32) = Atomic(u32).init(0),
+
+        fn wait(self: *@This()) !void {
+            // Decrement the counter.
+            // Release ensures stuff before this barrier.wait() happens before the last one.
+            const count = self.count.fetchSub(1, .Release);
+            try testing.expect(count <= num_threads);
+            try testing.expect(count > 0);
+
+            // First counter to reach zero wakes all other threads.
+            // Acquire for the last counter ensures stuff before previous barrier.wait()s happened before it.
+            // Release on futex update ensures stuff before all barrier.wait()'s happens before they all return.
+            if (count - 1 == 0) {
+                _ = self.count.load(.Acquire); // TODO: could be fence(Acquire) if not for TSAN
+                self.futex.store(1, .Release);
+                Futex.wake(&self.futex, num_threads - 1);
+                return;
+            }
+
+            // Other threads wait until last counter wakes them up.
+            // Acquire on futex synchronizes with last barrier count to ensure stuff before all barrier.wait()'s happen before us.
+            while (self.futex.load(.Acquire) == 0) {
+                Futex.wait(&self.futex, 0);
+            }
+        }
+    };
+
+    const Broadcast = struct {
+        barriers: [num_iterations]Barrier = [_]Barrier{.{}} ** num_iterations,
+        threads: [num_threads]std.Thread = undefined,
+
+        fn run(self: *@This()) !void {
+            for (self.barriers) |*barrier| {
+                try barrier.wait();
+            }
+        }
+    };
+
+    var broadcast = Broadcast{};
+    for (broadcast.threads) |*t| t.* = try std.Thread.spawn(.{}, Broadcast.run, .{&broadcast});
+    for (broadcast.threads) |t| t.join();
+}
+
