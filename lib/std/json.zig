@@ -3048,7 +3048,7 @@ pub fn stringify(
                         try out_stream.writeByte('\n');
                         try child_whitespace.outputIndent(out_stream);
                     }
-                    try stringify(Field.name, options, out_stream);
+                    try out_stream.writeAll(Field.name);
                     try out_stream.writeByte(':');
                     if (child_options.whitespace) |child_whitespace| {
                         if (child_whitespace.separator) {
