@@ -205,7 +205,7 @@ pub const MemoizedCall = struct {
 
         // The generic function Decl is guaranteed to be the first dependency
         // of each of its instantiations.
-        std.hash.autoHash(&hasher, @ptrToInt(key.func));
+        std.hash.autoHash(&hasher, key.func);
 
         // This logic must be kept in sync with the logic in `analyzeCall` that
         // computes the hash.

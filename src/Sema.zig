@@ -5012,7 +5012,12 @@ fn analyzeCall(
                             // parameter or return type.
                             return error.GenericPoison;
                         },
-                        else => {},
+                        else => {
+                            // Needed so that lazy values do not trigger
+                            // assertion due to type not being resolved
+                            // when the hash function is called.
+                            try sema.resolveLazyValue(&child_block, arg_src, arg_val);
+                        },
                     }
                     should_memoize = should_memoize and !arg_val.canMutateComptimeVarState();
                     memoized_call_key.args[arg_i] = .{
@@ -5039,7 +5044,12 @@ fn analyzeCall(
                             // parameter or return type.
                             return error.GenericPoison;
                         },
-                        else => {},
+                        else => {
+                            // Needed so that lazy values do not trigger
+                            // assertion due to type not being resolved
+                            // when the hash function is called.
+                            try sema.resolveLazyValue(&child_block, arg_src, arg_val);
+                        },
                     }
                     should_memoize = should_memoize and !arg_val.canMutateComptimeVarState();
                     memoized_call_key.args[arg_i] = .{
@@ -21598,6 +21608,23 @@ pub fn resolveFnTypes(
 
     for (fn_info.param_types) |param_ty| {
         try sema.resolveTypeFully(block, src, param_ty);
+    }
+}
+
+/// Make it so that calling hash() and eql() on `val` will not assert due
+/// to a type not having its layout resolved.
+fn resolveLazyValue(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    val: Value,
+) CompileError!void {
+    switch (val.tag()) {
+        .lazy_align => {
+            const ty = val.castTag(.lazy_align).?.data;
+            return sema.resolveTypeLayout(block, src, ty);
+        },
+        else => return,
     }
 }
 
