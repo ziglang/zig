@@ -64,7 +64,7 @@ const Impl = if (builtin.single_threaded)
     SerialImpl
 else if (builtin.os.tag == .windows)
     WindowsImpl
-else if (builtin.os.isDarwin())
+else if (builtin.os.tag.isDarwin())
     DarwinImpl
 else if (builtin.os.tag == .linux)
     LinuxImpl
@@ -237,27 +237,28 @@ const DarwinImpl = struct {
     }
 };
 
+// https://man7.org/linux/man-pages/man2/futex.2.html
 const LinuxImpl = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
         var ts: os.timespec = undefined;
-        var ts_ptr: ?*const os.timespec = null;
-
-        if (timeout) |delay| {
-            ts_ptr = &ts;
-            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), delay / std.time.ns_per_s);
-            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), delay % std.time.ns_per_s);
+        if (timeout) |timeout_ns| {
+            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
+            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), timeout_ns % std.time.ns_per_s);
         }
 
         switch (os.linux.getErrno(os.linux.futex_wait(
             @ptrCast(*const i32, &ptr.value),
             os.linux.FUTEX.PRIVATE_FLAG | os.linux.FUTEX.WAIT,
             @bitCast(i32, expect),
-            ts_ptr,
+            if (timeout != null) &ts else null,
         ))) {
             .SUCCESS => {}, // notified by `wake()`
             .INTR => {}, // spurious wakeup
             .AGAIN => {}, // ptr.* != expect
-            .TIMEDOUT => return error.Timeout,
+            .TIMEDOUT => {
+                assert(timeout != null);
+                return error.Timeout;
+            },
             .INVAL => {}, // possibly timeout overflow
             .FAULT => unreachable,
             else => unreachable,
@@ -278,6 +279,7 @@ const LinuxImpl = struct {
     }
 };
 
+// https://www.freebsd.org/cgi/man.cgi?query=_umtx_op&sektion=2&n=1
 const FreebsdImpl = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
         var tm_size: usize = 0;
@@ -302,14 +304,17 @@ const FreebsdImpl = struct {
             @ptrToInt(tm_ptr),
         );
 
-        return switch (rc) {
+        switch (rc) {
             .SUCCESS => {},
             .FAULT => unreachable, // one of the args points to invalid memory
             .INVAL => unreachable, // arguments should be correct
-            .TIMEDOUT => error.Timeout,
+            .TIMEDOUT => {
+                assert(timeout != null);
+                return error.Timeout;
+            },
             .INTR => {}, // spurious wake
             else => unreachable,
-        };
+        }
     }
 
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
@@ -330,49 +335,60 @@ const FreebsdImpl = struct {
     }
 };
 
+// https://man.openbsd.org/futex.2
 const OpenbsdImpl = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
         var ts: os.timespec = undefined;
-        var ts_ptr: ?*const os.timespec = null;
-        var clock_id: os.clockid_t = undefined;
-
-        // Openbsd uses absolute timeouts on a given clock_id
-        if (timeout) |delay| {
-            ts_ptr = &ts;
-            clock_id = os.CLOCK.MONOTONIC;
-            os.clock_gettime(clock_id, &ts) catch unreachable;
-
-            ts.tv_sec +|= @intCast(@TypeOf(ts.tv_sec), delay / std.time.ns_per_s);
-            ts.tv_nsec += @intCast(@TypeOf(ts.tv_nsec), delay % std.time.ns_per_s);
-
-            if (ts.tv_nsec >= std.time.ns_per_s) {
-                ts.tv_nsec -= std.time.ns_per_s;
-                ts.tv_sec +|= 1;
-            }
+        if (timeout) |timeout_ns| {
+            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
+            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), timeout_ns % std.time.ns_per_s);
         }
 
-        const id = @ptrCast(*const volatile anyopaque, &ptr.value);
-        switch (std.c.__thrsleep(id, clock_id, ts_ptr, null, null)) {
-            .INVAL => unreachable, // we can't have a nulll id or invalid timespec
-            .WOULDBLOCK => return error.Timeout,
-            .INTR => {}, // spurious wake via signal
-            .CANCELED => {}, // spurious wake via SA_RESTART signal
+        const rc = os.openbsd.futex(
+            @ptrCast(*const volatile u32, &ptr.value),
+            os.openbsd.FUTEX_WAIT | os.openbsd.FUTEX_PRIVATE_FLAG,
+            @bitCast(c_int, expect),
+            if (timeout != null) &ts else null,
+            null,
+        );
+
+        switch (rc) {
+            0 => return, // woken up by wake()
+            -1 => {},
+            else => unreachable,
+        }
+
+        switch (os.errno()) {
+            .SUCCESS => unreachable, // handled by rc = 0
+            .NOSYS => unreachable, // the futex operation shouldn't be invalid
+            .FAULT => unreachable, // ptr was invalid
+            .AGAIN => {}, // ptr != expect
+            .INVAL => unreachable, // invalid timeout
+            .TIMEDOUT => {
+                assert(timeout != null);
+                return error.Timeout;
+            },
+            .INTR => {}, // spurious wake from signal
+            .CANCELED => {}, // spurious wake from signal with SA_RESTART
             else => unreachable,
         }
     }
 
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
-        const id = @ptrCast(*const volatile anyopaque, &ptr.value);
-        const max_wake = std.math.cast(c_int, max_waiters) catch std.math.maxInt(c_int);
+        const rc = os.openbsd.futex(
+            @ptrCast(*const volatile u32, &ptr.value),
+            os.openbsd.FUTEX_WAKE | os.openbsd.FUTEX_PRIVATE_FLAG,
+            std.math.cast(c_int, max_waiters) catch std.math.maxInt(c_int),
+            null,
+            null,
+        );
 
-        switch (std.c.__thrwakeup(id, max_wake)) {
-            .INVAL => unreachable, // we can't have a null id
-            .SRCH => {}, // no sleeping threads were found
-            else => unreachable,
-        }
+        // returns number of threads woken up.
+        assert(rc >= 0);
     }
 };
 
+// https://man.dragonflybsd.org/?command=umtx&section=2
 const DragonflyImpl = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
         // Dragonfly uses a scheme where 0 timeout means wait until signaled or spurious wake.
@@ -387,11 +403,15 @@ const DragonflyImpl = struct {
         const addr = @ptrCast(*const volatile c_int, &ptr.value);
         const rc = os.dragonfly.umtx_sleep(addr, value, timeout_us);
 
-        if (rc == 0) return;
-        assert(rc == -1);
+        switch (rc) {
+            0 => return,
+            -1 => {},
+            else => unreachable,
+        }
+
         switch (os.errno()) {
             .BUSY => {}, // ptr != expect
-            .WOULDBLOCK => {}, // maybe timed out, or paged out, or hit 2s kernel refresh ¯\_(ツ)_/¯
+            .WOULDBLOCK => return error.Timeout, // maybe timed out, or paged out, or hit 2s kernel refresh
             .INTR => {}, // spurious wake
             .INVAL => unreachable, // invalid timeout
             else => unreachable,
@@ -792,12 +812,16 @@ const PosixImpl = struct {
 
 test "Futex - smoke test" {
     var value = Atomic(u32).init(0);
+
+    // Try waits with invalid values.
     Futex.wait(&value, 0xdeadbeef);
-    try Futex.timedWait(&value, 0xdeadbeef, 0);
+    Futex.timedWait(&value, 0xdeadbeef, 0) catch {};
 
-    try testing.expectError(Futex.timedWait(&value, 0, 0), error.Timeout);
-    try testing.expectError(Futex.timedWait(&value, 0, std.time.ns_per_ms), error.Timeout);
+    // Try timeout waits.
+    try testing.expectError(error.Timeout, Futex.timedWait(&value, 0, 0));
+    try testing.expectError(error.Timeout, Futex.timedWait(&value, 0, std.time.ns_per_ms));
 
+    // Try wakes
     Futex.wake(&value, 0);
     Futex.wake(&value, 1);
     Futex.wake(&value, std.math.maxInt(u32));
@@ -823,6 +847,7 @@ test "Futex - signaling" {
 
         fn run(self: *@This(), hit_to: *@This()) !void {
             while (self.current < num_iterations) {
+                // Wait for the value to change from hit()
                 var new_value: u32 = undefined;
                 while (true) {
                     new_value = self.value.load(.Acquire);
@@ -830,9 +855,11 @@ test "Futex - signaling" {
                     Futex.wait(&self.value, self.current);
                 }
 
+                // change the internal "current" value
                 try testing.expectEqual(new_value, self.current + 1);
                 self.current = new_value;
 
+                // hit the next paddle
                 hit_to.hit();
             }
         }
@@ -841,12 +868,14 @@ test "Futex - signaling" {
     var paddles = [_]Paddle{.{}} ** num_threads;
     var threads = [_]std.Thread{undefined} ** num_threads;
 
+    // Create a circle of paddles which hit each other
     for (threads) |*t, i| {
         const paddle = &paddles[i];
         const hit_to = &paddles[(i + 1) % paddles.len];
         t.* = try std.Thread.spawn(.{}, Paddle.run, .{ paddle, hit_to });
     }
-
+    
+    // Hit the first paddle and wait for them all to complete by hitting each other for num_iterations.
     paddles[0].hit();
     for (threads) |t| t.join();
     for (paddles) |p| try testing.expectEqual(p.current, num_iterations);

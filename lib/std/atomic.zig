@@ -1,7 +1,7 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 
-pub const Ordering = builtin.AtomicOrder;
+pub const Ordering = std.builtin.AtomicOrder;
 
 pub const Stack = @import("atomic/stack.zig").Stack;
 pub const Queue = @import("atomic/queue.zig").Queue;

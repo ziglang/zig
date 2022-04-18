@@ -45,6 +45,13 @@ pub extern "c" fn unveil(path: ?[*:0]const u8, permissions: ?[*:0]const u8) c_in
 pub extern "c" fn pthread_set_name_np(thread: std.c.pthread_t, name: [*:0]const u8) void;
 pub extern "c" fn pthread_get_name_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) void;
 
+// https://github.com/openbsd/src/blob/2207c4325726fdc5c4bcd0011af0fdf7d3dab137/sys/sys/futex.h
+pub const FUTEX_WAIT = 1;
+pub const FUTEX_WAKE = 2;
+pub const FUTEX_REQUEUE = 3;
+pub const FUTEX_PRIVATE_FLAG = 128;
+pub extern "c" fn futex(uaddr: ?*const volatile u32, op: c_int, val: c_int, timeout: ?*const timespec, uaddr2: ?*const volatile u32) c_int;
+
 pub const login_cap_t = extern struct {
     lc_class: ?[*:0]const u8,
     lc_cap: ?[*:0]const u8,
