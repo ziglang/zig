@@ -1438,11 +1438,6 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-static"))
                             {
                                 force_static_libs = true;
-                            } else if (mem.eql(u8, linker_arg, "--subsystem")) {
-                                const next_arg = split_it.next() orelse {
-                                    fatal("expected parameter after {s}", .{linker_arg});
-                                };
-                                subsystem = try parseSubSystem(next_arg);
                             } else {
                                 try linker_args.append(linker_arg);
                             }
@@ -1586,6 +1581,12 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     try rpath_list.append(linker_args.items[i]);
+                } else if (mem.eql(u8, arg, "--subsystem")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    subsystem = try parseSubSystem(linker_args.items[i]);
                 } else if (mem.eql(u8, arg, "-I") or
                     mem.eql(u8, arg, "--dynamic-linker") or
                     mem.eql(u8, arg, "-dynamic-linker"))
