@@ -1534,6 +1534,7 @@ pub const LibExeObjStep = struct {
 
     link_objects: ArrayList(LinkObject),
     include_dirs: ArrayList(IncludeDir),
+    visible_include_dirs: ArrayList(IncludeDir),
     c_macros: ArrayList([]const u8),
     output_dir: ?[]const u8,
     is_linking_libc: bool = false,
@@ -1624,6 +1625,17 @@ pub const LibExeObjStep = struct {
         raw_path: []const u8,
         raw_path_system: []const u8,
         other_step: *LibExeObjStep,
+    };
+
+    const IncludePathVisibility = packed struct {
+        visible_to_others: bool,
+        visible_to_self: bool,
+    };
+
+    const IncludePathVisibilityPresets = enum(u2) {
+        Interface = @bitCast(u2, IncludePathVisibility{.visible_to_others = true, .visible_to_self = false }),
+        Public = @bitCast(u2, IncludePathVisibility{.visible_to_others = true, .visible_to_self = true }),
+        Private = @bitCast(u2, IncludePathVisibility{.visible_to_others = false, .visible_to_self = true }),
     };
 
     pub const Kind = enum {
@@ -1720,6 +1732,7 @@ pub const LibExeObjStep = struct {
             .name_only_filename = null,
             .packages = ArrayList(Pkg).init(builder.allocator),
             .include_dirs = ArrayList(IncludeDir).init(builder.allocator),
+            .visible_include_dirs = ArrayList(IncludeDir).init(builder.allocator),
             .link_objects = ArrayList(LinkObject).init(builder.allocator),
             .c_macros = ArrayList([]const u8).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
@@ -1878,6 +1891,9 @@ pub const LibExeObjStep = struct {
     pub fn linkLibrary(self: *LibExeObjStep, lib: *LibExeObjStep) void {
         assert(lib.kind == .lib);
         self.linkLibraryOrObject(lib);
+        for (lib.visible_include_dirs.items) |dir| {
+            self.include_dirs.append(dir) catch unreachable;
+        }
     }
 
     pub fn isDynamicLibrary(self: *LibExeObjStep) bool {
@@ -2192,7 +2208,14 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addIncludePath(self: *LibExeObjStep, path: []const u8) void {
+        self.addIncludePathWithVisibility(path, .Private);
+    }
+
+    pub fn addIncludePathWithVisibility(self: *LibExeObjStep, path: []const u8, visibility: IncludePathVisibilityPresets) void {
         self.include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
+        if (@bitCast(IncludePathVisibility, visibility).visible_to_others) {
+            self.visible_include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
+        }
     }
 
     /// TODO deprecated, use `addLibraryPath`.
