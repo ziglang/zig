@@ -2212,7 +2212,9 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addIncludePathWithVisibility(self: *LibExeObjStep, path: []const u8, visibility: IncludePathVisibilityPresets) void {
-        self.include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
+        if (@bitCast(IncludePathVisibility, visibility).visible_to_self) {
+            self.include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
+        }
         if (@bitCast(IncludePathVisibility, visibility).visible_to_others) {
             self.visible_include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
         }
