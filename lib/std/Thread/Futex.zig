@@ -441,14 +441,20 @@ const PosixImpl = struct {
         state: enum { empty, waiting, notified },
 
         fn init(self: *Event) void {
-            assert(std.c.pthread_cond_init(&self.cond, null) == .SUCCESS);
-            assert(std.c.pthread_mutex_init(&self.mutex, null) == .SUCCESS);
+            // Use static init instead of pthread_cond/mutex_init() since this is generally faster.
+            self.cond = .{};
+            self.mutex = .{};
             self.state = .empty;
         }
 
         fn deinit(self: *Event) void {
-            assert(std.c.pthread_cond_destroy(&self.cond) == .SUCCESS);
-            assert(std.c.pthread_mutex_destroy(&self.mutex) == .SUCCESS);
+            // Some platforms reportedly give EINVAL for statically initialized pthread types.
+            const rc = std.c.pthread_cond_destroy(&self.cond);
+            assert(rc == .SUCCESS or rc == .INVAL);
+
+            const rm = std.c.pthread_mutex_destroy(&self.mutex);
+            assert(rm == .SUCCESS or rm == .INVAL);
+
             self.* = undefined;
         }
 
@@ -488,16 +494,21 @@ const PosixImpl = struct {
                 };
 
                 // After waking up, check if the event was set.
-                assert(self.state == .waiting);
                 if (self.state == .notified) {
                     return;
                 }
 
-                // Check if we timed out, and if so, reset the event to avoid the set() thread doing an unnecessary signal().
-                assert(rc == .SUCCESS or rc == .TIMEOUT);
-                if (rc == .TIMEOUT) {
-                    self.state = .empty;
-                    return error.Timeout;
+                assert(self.state == .waiting);
+                switch (rc) {
+                    .SUCCESS => {},
+                    .TIMEDOUT => {
+                        // If timed out, reset the event to avoid the set() thread doing an unnecessary signal().
+                        self.state = .empty;
+                        return error.Timeout;
+                    },
+                    .INVAL => unreachable, // cond, mutex, and potentially ts should all be valid
+                    .PERM => unreachable, // mutex is locked when cond_*wait() functions are called
+                    else => unreachable,
                 }
             }
         }
@@ -579,7 +590,7 @@ const PosixImpl = struct {
             // Find the wait queue associated with this address and get the head/tail if any.
             var entry = treap.getEntryFor(address);
             var queue_head = if (entry.node) |node| @fieldParentPtr(Waiter, "node", node) else null;
-            const queue_tail = if (queue_head) |head| head.tail orelse null;
+            const queue_tail = if (queue_head) |head| head.tail else null;
 
             // Once we're done updating the head, fix it's tail pointer and update the treap's queue head as well.
             defer entry.set(blk: {
@@ -672,15 +683,15 @@ const PosixImpl = struct {
         // https://github.com/Amanieu/parking_lot/blob/1cf12744d097233316afa6c8b7d37389e4211756/core/src/parking_lot.rs#L343-L353
         fn from(address: usize) *Bucket {
             // The upper `@bitSizeOf(usize)` bits of the fibonacci golden ratio.
-            // Hashing this via (h * k) >> (max_bits - b) where k=golden-ration and b=bitsize-of-array
+            // Hashing this via (h * k) >> (64 - b) where k=golden-ration and b=bitsize-of-array
             // evenly lays out h=hash values over the bit range even when the hash has poor entropy (identity-hash for pointers).
-            const max_bits = 64 - @bitSizeOf(usize);
-            const fibonacci_multiplier = 0x9E3779B97F4A7C15 >> max_bits;
+            const max_multiplier_bits = @bitSizeOf(usize);
+            const fibonacci_multiplier = 0x9E3779B97F4A7C15 >> (64 - max_multiplier_bits);
 
             const max_bucket_bits = @ctz(usize, buckets.len);
             comptime assert(std.math.isPowerOfTwo(buckets.len));
 
-            const index = (address *% fibonacci_multiplier) >> max_bucket_bits;
+            const index = (address *% fibonacci_multiplier) >> (max_multiplier_bits - max_bucket_bits);
             return &buckets[index];
         }
     };
