@@ -185,7 +185,7 @@ pub fn ArrayHashMap(
             return self.unmanaged.getOrPutContext(self.allocator, key, self.ctx);
         }
         pub fn getOrPutAdapted(self: *Self, key: anytype, ctx: anytype) !GetOrPutResult {
-            return self.unmanaged.getOrPutContextAdapted(key, ctx, self.ctx);
+            return self.unmanaged.getOrPutContextAdapted(self.allocator, key, ctx, self.ctx);
         }
 
         /// If there is an existing item with `key`, then the result
