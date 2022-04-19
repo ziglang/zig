@@ -3268,6 +3268,11 @@ test "stringify struct" {
     }{ .foo = 42 }, StringifyOptions{});
 }
 
+test "stringify struct with string as array" {
+    try teststringify("{\"foo\":\"bar\"}", .{ .foo = "bar" }, StringifyOptions{});
+    try teststringify("{\"foo\":[98,97,114]}", .{ .foo = "bar" }, StringifyOptions{ .string = .Array });
+}
+
 test "stringify struct with indentation" {
     try teststringify(
         \\{
