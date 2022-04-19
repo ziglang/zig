@@ -1897,7 +1897,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         if (data_section_index) |data_index| {
             try self.emitDataRelocations(file, arena, data_index, symbol_table);
         }
-    } else {
+    } else if (!self.base.options.strip) {
         try self.emitNameSection(file, arena);
     }
 }

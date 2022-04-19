@@ -455,7 +455,8 @@ pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerR
 }
 
 pub fn hasDebugInfo(target: std.Target) bool {
-    return !target.cpu.arch.isWasm();
+    _ = target;
+    return true;
 }
 
 pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.Mode {
