@@ -226,23 +226,26 @@ comptime {
     @export(__addsf3, .{ .name = "__addsf3", .linkage = linkage });
     const __adddf3 = @import("compiler_rt/addXf3.zig").__adddf3;
     @export(__adddf3, .{ .name = "__adddf3", .linkage = linkage });
-    const __addtf3 = @import("compiler_rt/addXf3.zig").__addtf3;
-    @export(__addtf3, .{ .name = "__addtf3", .linkage = linkage });
     const __addxf3 = @import("compiler_rt/addXf3.zig").__addxf3;
     @export(__addxf3, .{ .name = "__addxf3", .linkage = linkage });
+    const __addtf3 = @import("compiler_rt/addXf3.zig").__addtf3;
+    @export(__addtf3, .{ .name = "__addtf3", .linkage = linkage });
+
     const __subsf3 = @import("compiler_rt/addXf3.zig").__subsf3;
     @export(__subsf3, .{ .name = "__subsf3", .linkage = linkage });
     const __subdf3 = @import("compiler_rt/addXf3.zig").__subdf3;
     @export(__subdf3, .{ .name = "__subdf3", .linkage = linkage });
-    const __subtf3 = @import("compiler_rt/addXf3.zig").__subtf3;
-    @export(__subtf3, .{ .name = "__subtf3", .linkage = linkage });
     const __subxf3 = @import("compiler_rt/addXf3.zig").__subxf3;
     @export(__subxf3, .{ .name = "__subxf3", .linkage = linkage });
+    const __subtf3 = @import("compiler_rt/addXf3.zig").__subtf3;
+    @export(__subtf3, .{ .name = "__subtf3", .linkage = linkage });
 
     const __mulsf3 = @import("compiler_rt/mulXf3.zig").__mulsf3;
     @export(__mulsf3, .{ .name = "__mulsf3", .linkage = linkage });
     const __muldf3 = @import("compiler_rt/mulXf3.zig").__muldf3;
     @export(__muldf3, .{ .name = "__muldf3", .linkage = linkage });
+    const __mulxf3 = @import("compiler_rt/mulXf3.zig").__mulxf3;
+    @export(__mulxf3, .{ .name = "__mulxf3", .linkage = linkage });
     const __multf3 = @import("compiler_rt/mulXf3.zig").__multf3;
     @export(__multf3, .{ .name = "__multf3", .linkage = linkage });
 

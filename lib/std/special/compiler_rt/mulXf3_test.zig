@@ -2,10 +2,15 @@
 //
 // https://github.com/llvm/llvm-project/blob/2ffb1b0413efa9a24eb3c49e710e36f92e2cb50b/compiler-rt/test/builtins/Unit/multf3_test.c
 
+const std = @import("std");
+const math = std.math;
 const qnan128 = @bitCast(f128, @as(u128, 0x7fff800000000000) << 64);
 const inf128 = @bitCast(f128, @as(u128, 0x7fff000000000000) << 64);
 
 const __multf3 = @import("mulXf3.zig").__multf3;
+const __mulxf3 = @import("mulXf3.zig").__mulxf3;
+const __muldf3 = @import("mulXf3.zig").__muldf3;
+const __mulsf3 = @import("mulXf3.zig").__mulsf3;
 
 // return true if equal
 // use two 64-bit integers intead of one 128-bit integer
@@ -97,4 +102,66 @@ test "multf3" {
         0x3f90000000000000,
         0x0,
     );
+
+    try test__multf3(0x1.0000_0000_0000_0000_0000_0000_0001p+0, 0x1.8p+5, 0x4004_8000_0000_0000, 0x0000_0000_0000_0002);
+    try test__multf3(0x1.0000_0000_0000_0000_0000_0000_0002p+0, 0x1.8p+5, 0x4004_8000_0000_0000, 0x0000_0000_0000_0003);
+}
+
+const qnan80 = @bitCast(f80, @bitCast(u80, math.nan(f80)) | (1 << (math.floatFractionalBits(f80) - 1)));
+
+fn test__mulxf3(a: f80, b: f80, expected: u80) !void {
+    const x = __mulxf3(a, b);
+    const rep = @bitCast(u80, x);
+
+    if (rep == expected)
+        return;
+
+    if (math.isNan(@bitCast(f80, expected)) and math.isNan(x))
+        return; // We don't currently test NaN payload propagation
+
+    return error.TestFailed;
+}
+
+test "mulxf3" {
+    // NaN * any = NaN
+    try test__mulxf3(qnan80, 0x1.23456789abcdefp+5, @bitCast(u80, qnan80));
+    try test__mulxf3(@bitCast(f80, @as(u80, 0x7fff_8000_8000_3000_0000)), 0x1.23456789abcdefp+5, @bitCast(u80, qnan80));
+
+    // any * NaN = NaN
+    try test__mulxf3(0x1.23456789abcdefp+5, qnan80, @bitCast(u80, qnan80));
+    try test__mulxf3(0x1.23456789abcdefp+5, @bitCast(f80, @as(u80, 0x7fff_8000_8000_3000_0000)), @bitCast(u80, qnan80));
+
+    // NaN * inf = NaN
+    try test__mulxf3(qnan80, math.inf(f80), @bitCast(u80, qnan80));
+
+    // inf * NaN = NaN
+    try test__mulxf3(math.inf(f80), qnan80, @bitCast(u80, qnan80));
+
+    // inf * inf = inf
+    try test__mulxf3(math.inf(f80), math.inf(f80), @bitCast(u80, math.inf(f80)));
+
+    // inf * -inf = -inf
+    try test__mulxf3(math.inf(f80), -math.inf(f80), @bitCast(u80, -math.inf(f80)));
+
+    // -inf + inf = -inf
+    try test__mulxf3(-math.inf(f80), math.inf(f80), @bitCast(u80, -math.inf(f80)));
+
+    // inf * any = inf
+    try test__mulxf3(math.inf(f80), 0x1.2335653452436234723489432abcdefp+5, @bitCast(u80, math.inf(f80)));
+
+    // any * inf = inf
+    try test__mulxf3(0x1.2335653452436234723489432abcdefp+5, math.inf(f80), @bitCast(u80, math.inf(f80)));
+
+    // any * any
+    try test__mulxf3(0x1.0p+0, 0x1.dcba987654321p+5, 0x4004_ee5d_4c3b_2a19_0800);
+    try test__mulxf3(0x1.0000_0000_0000_0004p+0, 0x1.8p+5, 0x4004_C000_0000_0000_0003); // exact
+
+    try test__mulxf3(0x1.0000_0000_0000_0002p+0, 0x1.0p+5, 0x4004_8000_0000_0000_0001); // exact
+    try test__mulxf3(0x1.0000_0000_0000_0002p+0, 0x1.7ffep+5, 0x4004_BFFF_0000_0000_0001); // round down
+    try test__mulxf3(0x1.0000_0000_0000_0002p+0, 0x1.8p+5, 0x4004_C000_0000_0000_0002); // round up to even
+    try test__mulxf3(0x1.0000_0000_0000_0002p+0, 0x1.8002p+5, 0x4004_C001_0000_0000_0002); // round up
+    try test__mulxf3(0x1.0000_0000_0000_0002p+0, 0x1.0p+6, 0x4005_8000_0000_0000_0001); // exact
+
+    try test__mulxf3(0x1.0000_0001p+0, 0x1.0000_0001p+0, 0x3FFF_8000_0001_0000_0000); // round down to even
+    try test__mulxf3(0x1.0000_0001p+0, 0x1.0000_0001_0002p+0, 0x3FFF_8000_0001_0001_0001); // round up
 }
