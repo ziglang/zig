@@ -2526,7 +2526,7 @@ fn buildOutputType(
         pkg_tree_root.table = .{};
     }
 
-    const self_exe_path = try fs.selfExePathAlloc(arena);
+    const self_exe_path = try introspect.findZigExePath(arena);
     var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
         .path = lib_dir,
         .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
@@ -3395,7 +3395,7 @@ pub fn cmdInit(
             }
         }
     }
-    const self_exe_path = try fs.selfExePathAlloc(arena);
+    const self_exe_path = try introspect.findZigExePath(arena);
     var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
         fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
@@ -3475,7 +3475,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
     const child_argv = argv: {
-        const self_exe_path = try fs.selfExePathAlloc(arena);
+        const self_exe_path = try introspect.findZigExePath(arena);
 
         var build_file: ?[]const u8 = null;
         var override_lib_dir: ?[]const u8 = null;
