@@ -3464,13 +3464,20 @@ pub const usage_build =
     \\   Build a project from build.zig.
     \\
     \\Options:
-    \\   -h, --help             Print this help and exit
-    \\
+    \\   -fstage1                      Force using bootstrap compiler as the codegen backend
+    \\   -fno-stage1                   Prevent using bootstrap compiler as the codegen backend
+    \\   --build-file [file]           Override path to build.zig
+    \\   --cache-dir [path]            Override path to local Zig cache directory
+    \\   --global-cache-dir [path]     Override path to global Zig cache directory
+    \\   --zig-lib-dir [arg]           Override path to Zig lib directory
+    \\   --prominent-compile-errors    Output compile errors formatted for a human to read
+    \\   -h, --help                    Print this help and exit
     \\
 ;
 
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var prominent_compile_errors: bool = false;
+    var use_stage1: ?bool = null;
 
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
@@ -3525,6 +3532,12 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         continue;
                     } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
                         prominent_compile_errors = true;
+                    } else if (mem.eql(u8, arg, "-fstage1")) {
+                        use_stage1 = true;
+                        try child_argv.append(arg);
+                    } else if (mem.eql(u8, arg, "-fno-stage1")) {
+                        use_stage1 = false;
+                        try child_argv.append(arg);
                     }
                 }
                 try child_argv.append(arg);
@@ -3665,6 +3678,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
+            .use_stage1 = use_stage1,
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };

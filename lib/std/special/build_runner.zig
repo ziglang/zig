@@ -24,19 +24,19 @@ pub fn main() !void {
     var arg_idx: usize = 1;
 
     const zig_exe = nextArg(args, &arg_idx) orelse {
-        std.debug.print("Expected first argument to be path to zig compiler\n", .{});
+        std.debug.print("Expected path to zig compiler\n", .{});
         return error.InvalidArgs;
     };
     const build_root = nextArg(args, &arg_idx) orelse {
-        std.debug.print("Expected second argument to be build root directory path\n", .{});
+        std.debug.print("Expected build root directory path\n", .{});
         return error.InvalidArgs;
     };
     const cache_root = nextArg(args, &arg_idx) orelse {
-        std.debug.print("Expected third argument to be cache root directory path\n", .{});
+        std.debug.print("Expected cache root directory path\n", .{});
         return error.InvalidArgs;
     };
     const global_cache_root = nextArg(args, &arg_idx) orelse {
-        std.debug.print("Expected third argument to be global cache root directory path\n", .{});
+        std.debug.print("Expected global cache root directory path\n", .{});
         return error.InvalidArgs;
     };
 
@@ -181,6 +181,10 @@ pub fn main() !void {
                 builder.enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
                 builder.enable_darling = false;
+            } else if (mem.eql(u8, arg, "-fstage1")) {
+                builder.use_stage1 = true;
+            } else if (mem.eql(u8, arg, "-fno-stage1")) {
+                builder.use_stage1 = false;
             } else if (mem.eql(u8, arg, "--")) {
                 builder.args = argsRest(args, arg_idx);
                 break;
@@ -302,8 +306,11 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
     try out_stream.writeAll(
         \\
         \\Advanced Options:
+        \\  -fstage1                     Force using bootstrap compiler as the codegen backend
+        \\  -fno-stage1                  Prevent using bootstrap compiler as the codegen backend
         \\  --build-file [file]          Override path to build.zig
-        \\  --cache-dir [path]           Override path to zig cache directory
+        \\  --cache-dir [path]           Override path to local Zig cache directory
+        \\  --global-cache-dir [path]    Override path to global Zig cache directory
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --verbose-link               Enable compiler debug output for linking

@@ -44,6 +44,7 @@ pub const Builder = struct {
     /// The purpose of executing the command is for a human to read compile errors from the terminal
     prominent_compile_errors: bool,
     color: enum { auto, on, off } = .auto,
+    use_stage1: ?bool = null,
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: *Step,
@@ -1591,6 +1592,7 @@ pub const LibExeObjStep = struct {
     stack_size: ?u64 = null,
 
     want_lto: ?bool = null,
+    use_stage1: ?bool = null,
 
     output_path_source: GeneratedFile,
     output_lib_path_source: GeneratedFile,
@@ -2336,6 +2338,20 @@ pub const LibExeObjStep = struct {
         if (builder.color != .auto) {
             try zig_args.append("--color");
             try zig_args.append(@tagName(builder.color));
+        }
+
+        if (self.use_stage1) |stage1| {
+            if (stage1) {
+                try zig_args.append("-fstage1");
+            } else {
+                try zig_args.append("-fno-stage1");
+            }
+        } else if (builder.use_stage1) |stage1| {
+            if (stage1) {
+                try zig_args.append("-fstage1");
+            } else {
+                try zig_args.append("-fno-stage1");
+            }
         }
 
         if (self.entry_symbol_name) |entry| {
