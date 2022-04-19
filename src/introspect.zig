@@ -33,9 +33,46 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
     return Compilation.Directory{ .handle = test_zig_dir, .path = "lib" };
 }
 
+/// This is a small wrapper around selfExePathAlloc that adds support for WASI
+/// based on a hard-coded Preopen directory ("/zig")
+pub fn findZigExePath(allocator: mem.Allocator) ![]u8 {
+    if (builtin.os.tag == .wasi) {
+        var args = try std.process.argsWithAllocator(allocator);
+        defer args.deinit();
+        // On WASI, argv[0] is always just the basename of the current executable
+        const argv0 = args.next() orelse return error.FileNotFound;
+
+        // Check these paths:
+        //  1. "/zig/{exe_name}"
+        //  2. "/zig/bin/{exe_name}"
+        const base_paths_to_check = &[_][]const u8{ "/zig", "/zig/bin" };
+        const exe_names_to_check = &[_][]const u8{ fs.path.basename(argv0), "zig.wasm" };
+
+        for (base_paths_to_check) |base_path| {
+            for (exe_names_to_check) |exe_name| {
+                const test_path = fs.path.join(allocator, &.{ base_path, exe_name }) catch continue;
+                defer allocator.free(test_path);
+
+                // Make sure it's a file we're pointing to
+                const file = os.fstatat(os.wasi.AT.FDCWD, test_path, 0) catch continue;
+                if (file.filetype != .REGULAR_FILE) continue;
+
+                // Path seems to be valid, let's try to turn it into an absolute path
+                var real_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                if (os.realpath(test_path, &real_path_buf)) |real_path| {
+                    return allocator.dupe(u8, real_path); // Success: return absolute path
+                } else |_| continue;
+            }
+        }
+        return error.FileNotFound;
+    }
+
+    return fs.selfExePathAlloc(allocator);
+}
+
 /// Both the directory handle and the path are newly allocated resources which the caller now owns.
 pub fn findZigLibDir(gpa: mem.Allocator) !Compilation.Directory {
-    const self_exe_path = try fs.selfExePathAlloc(gpa);
+    const self_exe_path = try findZigExePath(gpa);
     defer gpa.free(self_exe_path);
 
     return findZigLibDirFromSelfExe(gpa, self_exe_path);
