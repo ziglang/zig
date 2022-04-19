@@ -24,7 +24,9 @@ const spinLoopHint = std.atomic.spinLoopHint;
 pub fn wait(ptr: *const Atomic(u32), expect: u32) void {
     @setCold(true);
 
-    Impl.wait(ptr, expect, null) catch unreachable;
+    Impl.wait(ptr, expect, null) catch |err| switch (err) {
+        error.Timeout => unreachable, // null timeout meant to wait forever
+    };
 }
 
 /// Checks if `ptr` still contains the value `expect` and, if so, blocks the caller until either:
@@ -40,9 +42,8 @@ pub fn timedWait(ptr: *const Atomic(u32), expect: u32, timeout_ns: u64) error{Ti
 
     // Avoid calling into the OS for no-op timeouts.
     if (timeout_ns == 0) {
-        if (ptr.load(.SeqCst) != expect) {
-            return error.Timeout;
-        }
+        if (ptr.load(.SeqCst) != expect) return;
+        return error.Timeout;
     }
 
     return Impl.wait(ptr, expect, timeout_ns);
@@ -91,9 +92,8 @@ const UnsupportedImpl = struct {
     }
 
     fn unsupported(unused: anytype) noreturn {
-        @compileLog("Unsupported operating system", builtin.target.os.tag);
         _ = unused;
-        unreachable;
+        @compileError("Unsupported operating system " ++ @tagName(builtin.target.os.tag));
     }
 };
 
@@ -130,16 +130,19 @@ const WindowsImpl = struct {
         // NTDLL functions work with time in units of 100 nanoseconds.
         // Positive values are absolute deadlines while negative values are relative durations.
         if (timeout) |delay| {
-            timeout_value = -@intCast(os.windows.LARGE_INTEGER, delay / 100);
+            timeout_value = @intCast(os.windows.LARGE_INTEGER, delay / 100);
+            timeout_value = -timeout_value;
             timeout_ptr = &timeout_value;
         }
 
-        switch (os.windows.ntdll.RtlWaitOnAddress(
+        const rc = os.windows.ntdll.RtlWaitOnAddress(
             @ptrCast(?*const anyopaque, ptr),
             @ptrCast(?*const anyopaque, &expect),
             @sizeOf(@TypeOf(expect)),
             timeout_ptr,
-        )) {
+        );
+
+        switch (rc) {
             .SUCCESS => {},
             .TIMEOUT => {
                 assert(timeout != null);
@@ -174,6 +177,7 @@ const DarwinImpl = struct {
 
         var timeout_ns: u64 = 0;
         if (timeout) |delay| {
+            assert(delay != 0); // handled by timedWait()
             timeout_ns = delay;
         }
 
@@ -203,7 +207,7 @@ const DarwinImpl = struct {
         switch (@intToEnum(std.os.E, -status)) {
             // Wait was interrupted by the OS or other spurious signalling.
             .INTR => {},
-            // Address of the futex is paged out. This is unlikely, but possible in theory, and
+            // Address of the futex was paged out. This is unlikely, but possible in theory, and
             // pthread/libdispatch on darwin bother to handle it. In this case we'll return
             // without waiting, but the caller should retry anyway.
             .FAULT => {},
@@ -229,6 +233,7 @@ const DarwinImpl = struct {
             if (status >= 0) return;
             switch (@intToEnum(std.os.E, -status)) {
                 .INTR => continue, // spurious wake()
+                .FAULT => unreachable, // __ulock_wake doesn't generate EFAULT according to darwin pthread_cond_t
                 .NOENT => return, // nothing was woken up
                 .ALREADY => unreachable, // only for ULF_WAKE_THREAD
                 else => unreachable,
@@ -246,12 +251,14 @@ const LinuxImpl = struct {
             ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), timeout_ns % std.time.ns_per_s);
         }
 
-        switch (os.linux.getErrno(os.linux.futex_wait(
+        const rc = os.linux.futex_wait(
             @ptrCast(*const i32, &ptr.value),
             os.linux.FUTEX.PRIVATE_FLAG | os.linux.FUTEX.WAIT,
             @bitCast(i32, expect),
             if (timeout != null) &ts else null,
-        ))) {
+        );
+
+        switch (os.linux.getErrno(rc)) {
             .SUCCESS => {}, // notified by `wake()`
             .INTR => {}, // spurious wakeup
             .AGAIN => {}, // ptr.* != expect
@@ -260,17 +267,19 @@ const LinuxImpl = struct {
                 return error.Timeout;
             },
             .INVAL => {}, // possibly timeout overflow
-            .FAULT => unreachable,
+            .FAULT => unreachable, // ptr was invalid
             else => unreachable,
         }
     }
 
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
-        switch (os.linux.getErrno(os.linux.futex_wake(
+        const rc = os.linux.futex_wake(
             @ptrCast(*const i32, &ptr.value),
             os.linux.FUTEX.PRIVATE_FLAG | os.linux.FUTEX.WAKE,
             std.math.cast(i32, max_waiters) catch std.math.maxInt(i32),
-        ))) {
+        );
+
+        switch (os.linux.getErrno(rc)) {
             .SUCCESS => {}, // successful wake up
             .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
             .FAULT => {}, // pointer became invalid while doing the wake
@@ -322,8 +331,8 @@ const FreebsdImpl = struct {
             @ptrToInt(&ptr.value),
             @enumToInt(os.freebsd.UMTX_OP.WAKE_PRIVATE),
             @as(c_ulong, max_waiters),
-            0,
-            0,
+            0, // there is no timeout struct
+            0, // there is no timeout struct pointer
         );
 
         switch (os.errno(rc)) {
@@ -349,7 +358,7 @@ const OpenbsdImpl = struct {
             os.openbsd.FUTEX_WAIT | os.openbsd.FUTEX_PRIVATE_FLAG,
             @bitCast(c_int, expect),
             if (timeout != null) &ts else null,
-            null,
+            null, // FUTEX_WAIT takes no requeue address
         );
 
         switch (os.errno(rc)) {
@@ -373,8 +382,8 @@ const OpenbsdImpl = struct {
             @ptrCast(*const volatile u32, &ptr.value),
             os.openbsd.FUTEX_WAKE | os.openbsd.FUTEX_PRIVATE_FLAG,
             std.math.cast(c_int, max_waiters) catch std.math.maxInt(c_int),
-            null,
-            null,
+            null, // FUTEX_WAKE takes no timeout ptr
+            null, // FUTEX_WAKE takes no requeue address
         );
 
         // returns number of threads woken up.
@@ -386,11 +395,22 @@ const OpenbsdImpl = struct {
 const DragonflyImpl = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
         // Dragonfly uses a scheme where 0 timeout means wait until signaled or spurious wake.
-        // We don't need to track if delay overflows the timeout as dragonfly reports timeouts weird (see below).
+        // It's reporting of timeout's is also unrealiable so we use an external timing source (Timer) instead.
         var timeout_us: c_int = 0;
+        var timeout_overflowed = false;
+        var sleep_timer: std.time.Timer = undefined;
+
         if (timeout) |delay| {
-            const delay_us = delay / std.time.ns_per_us;
-            timeout_us = std.math.cast(c_int, delay_us) catch std.math.maxInt(c_int);
+            assert(delay != 0); // handled by timedWait().
+            timeout_us = std.math.cast(c_int, delay / std.time.ns_per_us) catch blk: {
+                timeout_overflowed = true;
+                break :blk std.math.maxInt(c_int);
+            };
+
+            // Only need to record the start time if we can provide somewhat accurate error.Timeout's
+            if (!timeout_overflowed) {
+                sleep_timer = std.time.Timer.start() catch unreachable;
+            }
         }
 
         const value = @bitCast(c_int, expect);
@@ -400,7 +420,15 @@ const DragonflyImpl = struct {
         switch (os.errno(rc)) {
             .SUCCESS => {},
             .BUSY => {}, // ptr != expect
-            .AGAIN => return error.Timeout, // maybe timed out, or paged out, or hit 2s kernel refresh
+            .AGAIN => { // maybe timed out, or paged out, or hit 2s kernel refresh
+                if (timeout) |timeout_ns| {
+                    // Report error.Timeout only if we know the timeout duration has passed.
+                    // If not, there's not much choice other than treating it as a spurious wake.
+                    if (!timeout_overflowed and sleep_timer.read() >= timeout_ns) {
+                        return error.Timeout;
+                    }
+                }
+            },
             .INTR => {}, // spurious wake
             .INVAL => unreachable, // invalid timeout
             else => unreachable,
@@ -708,7 +736,7 @@ const PosixImpl = struct {
         //
         // - T1: checks ptr == expect which is true
         // - T2: updates ptr to != expect
-        // - T2: does Futex.wake(), sees no pending waiters, exists
+        // - T2: does Futex.wake(), sees no pending waiters, exits
         // - T1: bumps pending waiters (was reordered after the ptr == expect check)
         // - T1: goes to sleep and misses both the ptr change and T2's wake up
         //
