@@ -340,16 +340,15 @@ fn gen(self: *Self) !void {
     if (cc != .Naked) {
         // TODO Finish function prologue and epilogue for sparcv9.
 
-        // TODO Backpatch stack offset
-        // save %sp, -176, %sp
-        _ = try self.addInst(.{
+        // save %sp, stack_save_area, %sp
+        const save_inst = try self.addInst(.{
             .tag = .save,
             .data = .{
                 .arithmetic_3op = .{
                     .is_imm = true,
                     .rd = .sp,
                     .rs1 = .sp,
-                    .rs2_or_imm = .{ .imm = -176 },
+                    .rs2_or_imm = .{ .imm = -abi.stack_save_area },
                 },
             },
         });
@@ -380,6 +379,28 @@ fn gen(self: *Self) !void {
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             _ = jmp_reloc;
             return self.fail("TODO add branches in sparcv9", .{});
+        }
+
+        // Backpatch stack offset
+        const total_stack_size = self.max_end_stack + abi.stack_save_area; // TODO + self.saved_regs_stack_space;
+        const stack_size = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
+        if (math.cast(i13, stack_size)) |size| {
+            self.mir_instructions.set(save_inst, .{
+                .tag = .save,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = true,
+                        .rd = .sp,
+                        .rs1 = .sp,
+                        .rs2_or_imm = .{ .imm = -size },
+                    },
+                },
+            });
+        } else |_| {
+            // TODO for large stacks, replace the prologue with:
+            // setx stack_size, %g1
+            // save %sp, %g1, %sp
+            return self.fail("TODO SPARCv9: allow larger stacks", .{});
         }
 
         // return %i7 + 8
@@ -1367,8 +1388,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             try self.genLoad(reg, reg, i13, 0, ty.abiSize(self.target.*));
         },
         .stack_offset => |off| {
-            const biased_offset = off + abi.stack_bias;
-            const simm13 = math.cast(i13, biased_offset) catch
+            const real_offset = off + abi.stack_bias + abi.stack_save_area;
+            const simm13 = math.cast(i13, real_offset) catch
                 return self.fail("TODO larger stack offsets", .{});
             try self.genLoad(reg, .sp, i13, simm13, ty.abiSize(self.target.*));
         },
@@ -1399,8 +1420,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
         },
         .register => |reg| {
-            const biased_offset = stack_offset + abi.stack_bias;
-            const simm13 = math.cast(i13, biased_offset) catch
+            const real_offset = stack_offset + abi.stack_bias + abi.stack_save_area;
+            const simm13 = math.cast(i13, real_offset) catch
                 return self.fail("TODO larger stack offsets", .{});
             return self.genStore(reg, .sp, i13, simm13, abi_size);
         },
