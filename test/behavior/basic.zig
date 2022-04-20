@@ -15,8 +15,6 @@ test "empty function with comments" {
 }
 
 test "truncate" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     try expect(testTruncate(0x10fd) == 0xfd);
     comptime try expect(testTruncate(0x10fd) == 0xfd);
 }
@@ -25,8 +23,6 @@ fn testTruncate(x: u32) u8 {
 }
 
 test "truncate to non-power-of-two integers" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     try testTrunc(u32, u1, 0b10101, 0b1);
     try testTrunc(u32, u1, 0b10110, 0b0);
     try testTrunc(u32, u2, 0b10101, 0b01);

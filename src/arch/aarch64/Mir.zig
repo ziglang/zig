@@ -100,6 +100,16 @@ pub const Inst = struct {
         ldrh_immediate,
         /// Load Register Halfword (register)
         ldrh_register,
+        /// Load Register Signed Byte (immediate)
+        ldrsb_immediate,
+        /// Pseudo-instruction: Load signed byte from stack
+        ldrsb_stack,
+        /// Load Register Signed Halfword (immediate)
+        ldrsh_immediate,
+        /// Pseudo-instruction: Load signed halfword from stack
+        ldrsh_stack,
+        /// Load Register Signed Word (immediate)
+        ldrsw_immediate,
         /// Logical Shift Left (immediate)
         lsl_immediate,
         /// Logical Shift Left (register)
@@ -130,6 +140,14 @@ pub const Inst = struct {
         push_regs,
         /// Return from subroutine
         ret,
+        /// Signed bitfield extract
+        sbfx,
+        /// Signed extend byte
+        sxtb,
+        /// Signed extend halfword
+        sxth,
+        /// Signed extend word
+        sxtw,
         /// Store Pair of Registers
         stp,
         /// Pseudo-instruction: Store to stack
@@ -156,6 +174,12 @@ pub const Inst = struct {
         sub_shifted_register,
         /// Supervisor Call
         svc,
+        /// Unsigned bitfield extract
+        ubfx,
+        /// Unsigned extend byte
+        uxtb,
+        /// Unsigned extend halfword
+        uxth,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -225,13 +249,6 @@ pub const Inst = struct {
             rt: Register,
             inst: Index,
         },
-        /// Two registers
-        ///
-        /// Used by e.g. mov_register
-        rr: struct {
-            rd: Register,
-            rn: Register,
-        },
         /// A register, an unsigned 12-bit immediate, and an optional shift
         ///
         /// Used by e.g. cmp_immediate
@@ -239,6 +256,13 @@ pub const Inst = struct {
             rn: Register,
             imm12: u12,
             sh: u1 = 0,
+        },
+        /// Two registers
+        ///
+        /// Used by e.g. mov_register
+        rr: struct {
+            rd: Register,
+            rn: Register,
         },
         /// Two registers, an unsigned 12-bit immediate, and an optional shift
         ///
@@ -267,6 +291,16 @@ pub const Inst = struct {
             rm: Register,
             imm6: u6,
             shift: bits.Instruction.LogicalShiftedRegisterShift,
+        },
+        /// Two registers and a lsb (range 0-63) and a width (range
+        /// 1-64)
+        ///
+        /// Used by e.g. ubfx
+        rr_lsb_width: struct {
+            rd: Register,
+            rn: Register,
+            lsb: u6,
+            width: u7,
         },
         /// Two registers and a bitmask immediate
         ///
