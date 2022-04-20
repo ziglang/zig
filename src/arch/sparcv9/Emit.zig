@@ -76,6 +76,11 @@ pub fn emitMir(
 
             .sllx => @panic("TODO implement sparcv9 sllx"),
 
+            .stb => try emit.mirArithmetic3Op(inst),
+            .sth => try emit.mirArithmetic3Op(inst),
+            .stw => try emit.mirArithmetic3Op(inst),
+            .stx => try emit.mirArithmetic3Op(inst),
+
             .sub => try emit.mirArithmetic3Op(inst),
 
             .tcc => try emit.mirTrap(inst),
@@ -170,6 +175,10 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .@"or" => try emit.writeInstruction(Instruction.@"or"(i13, rs1, imm, rd)),
             .save => try emit.writeInstruction(Instruction.save(i13, rs1, imm, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(i13, rs1, imm, rd)),
+            .stb => try emit.writeInstruction(Instruction.stb(i13, rs1, imm, rd)),
+            .sth => try emit.writeInstruction(Instruction.sth(i13, rs1, imm, rd)),
+            .stw => try emit.writeInstruction(Instruction.stw(i13, rs1, imm, rd)),
+            .stx => try emit.writeInstruction(Instruction.stx(i13, rs1, imm, rd)),
             .sub => try emit.writeInstruction(Instruction.sub(i13, rs1, imm, rd)),
             else => unreachable,
         }
@@ -185,6 +194,10 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .@"or" => try emit.writeInstruction(Instruction.@"or"(Register, rs1, rs2, rd)),
             .save => try emit.writeInstruction(Instruction.save(Register, rs1, rs2, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(Register, rs1, rs2, rd)),
+            .stb => try emit.writeInstruction(Instruction.stb(Register, rs1, rs2, rd)),
+            .sth => try emit.writeInstruction(Instruction.sth(Register, rs1, rs2, rd)),
+            .stw => try emit.writeInstruction(Instruction.stw(Register, rs1, rs2, rd)),
+            .stx => try emit.writeInstruction(Instruction.stx(Register, rs1, rs2, rd)),
             .sub => try emit.writeInstruction(Instruction.sub(Register, rs1, rs2, rd)),
             else => unreachable,
         }

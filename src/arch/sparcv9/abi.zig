@@ -1,6 +1,11 @@
 const bits = @import("bits.zig");
 const Register = bits.Register;
 
+// On SPARCv9, %sp points to top of stack + stack bias,
+// and %fp points to top of previous frame + stack bias.
+// See: Registers and the Stack Frame, page 3P-8, SCD 2.4.1.
+pub const stack_bias = 2047;
+
 // There are no callee-preserved registers since the windowing
 // mechanism already takes care of them.
 // We still need to preserve %o0-%o5, %g1, %g4, and %g5 before calling

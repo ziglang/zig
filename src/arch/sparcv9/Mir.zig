@@ -94,6 +94,16 @@ pub const Inst = struct {
         // TODO add other operations.
         sllx,
 
+        /// A.54 Store Integer
+        /// This uses the arithmetic_3op field.
+        /// Note that the std variant of this instruction is deprecated, so do not emit
+        /// it unless specifically requested (e.g. by inline assembly).
+        // TODO add other operations.
+        stb,
+        sth,
+        stw,
+        stx,
+
         /// A.56 Subtract
         /// Those uses the arithmetic_3op field.
         // TODO add other operations.

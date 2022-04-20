@@ -1351,7 +1351,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             try self.genLoad(reg, reg, i13, 0, ty.abiSize(self.target.*));
         },
         .stack_offset => |off| {
-            const simm13 = math.cast(u12, off) catch
+            const biased_offset = off + abi.stack_bias;
+            const simm13 = math.cast(i13, biased_offset) catch
                 return self.fail("TODO larger stack offsets", .{});
             try self.genLoad(reg, .sp, i13, simm13, ty.abiSize(self.target.*));
         },
@@ -1381,8 +1382,77 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
         },
-        .register => return self.fail("TODO implement storing types abi_size={}", .{abi_size}),
+        .register => |reg| {
+            const biased_offset = stack_offset + abi.stack_bias;
+            const simm13 = math.cast(i13, biased_offset) catch
+                return self.fail("TODO larger stack offsets", .{});
+            return self.genStore(reg, .sp, i13, simm13, abi_size);
+        },
         .memory, .stack_offset => return self.fail("TODO implement memcpy", .{}),
+    }
+}
+
+fn genStore(self: *Self, value_reg: Register, addr_reg: Register, comptime off_type: type, off: off_type, abi_size: u64) !void {
+    assert(off_type == Register or off_type == i13);
+
+    const is_imm = (off_type == i13);
+    const rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off };
+
+    switch (abi_size) {
+        1 => {
+            _ = try self.addInst(.{
+                .tag = .stb,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = is_imm,
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2_or_imm = rs2_or_imm,
+                    },
+                },
+            });
+        },
+        2 => {
+            _ = try self.addInst(.{
+                .tag = .sth,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = is_imm,
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2_or_imm = rs2_or_imm,
+                    },
+                },
+            });
+        },
+        4 => {
+            _ = try self.addInst(.{
+                .tag = .stw,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = is_imm,
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2_or_imm = rs2_or_imm,
+                    },
+                },
+            });
+        },
+        8 => {
+            _ = try self.addInst(.{
+                .tag = .stx,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = is_imm,
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2_or_imm = rs2_or_imm,
+                    },
+                },
+            });
+        },
+        3, 5, 6, 7 => return self.fail("TODO: genLoad for more abi_sizes", .{}),
+        else => unreachable,
     }
 }
 

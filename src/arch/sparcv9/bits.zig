@@ -1059,6 +1059,38 @@ pub const Instruction = union(enum) {
         return format2a(0b100, imm, rd);
     }
 
+    pub fn stb(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_0101, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_0101, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn sth(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_0110, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_0110, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn stw(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_0100, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_0100, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn stx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_1110, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_1110, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
     pub fn sub(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
             Register => format3a(0b10, 0b00_0100, rs1, rs2, rd),
