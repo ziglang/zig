@@ -633,7 +633,13 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
-    fn airArithOp(self: *DeclGen, inst: Air.Inst.Index, comptime fop: Opcode, comptime sop: Opcode, comptime uop: Opcode) !IdRef {
+    fn airArithOp(
+        self: *DeclGen,
+        inst: Air.Inst.Index,
+        comptime fop: Opcode,
+        comptime sop: Opcode,
+        comptime uop: Opcode,
+    ) !IdRef {
         // LHS and RHS are guaranteed to have the same type, and AIR guarantees
         // the result to be the same as the LHS and RHS, which matches SPIR-V.
         const ty = self.air.typeOfIndex(inst);
@@ -644,10 +650,8 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocId();
         const result_type_id = try self.resolveTypeId(ty);
 
-        const target = self.getTarget();
-
-        assert(self.air.typeOf(bin_op.lhs).eql(ty, target));
-        assert(self.air.typeOf(bin_op.rhs).eql(ty, target));
+        assert(self.air.typeOf(bin_op.lhs).eql(ty, self.module));
+        assert(self.air.typeOf(bin_op.rhs).eql(ty, self.module));
 
         // Binary operations are generally applicable to both scalar and vector operations
         // in SPIR-V, but int and float versions of operations require different opcodes.
@@ -694,7 +698,7 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocId();
         const result_type_id = try self.resolveTypeId(Type.initTag(.bool));
         const op_ty = self.air.typeOf(bin_op.lhs);
-        assert(op_ty.eql(self.air.typeOf(bin_op.rhs), self.getTarget()));
+        assert(op_ty.eql(self.air.typeOf(bin_op.rhs), self.module));
 
         // Comparisons are generally applicable to both scalar and vector operations in SPIR-V,
         // but int and float versions of operations require different opcodes.

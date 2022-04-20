@@ -3892,7 +3892,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 .tree_loaded = true,
                 .zir = undefined,
                 .pkg = undefined,
-                .root_decl = null,
+                .root_decl = .none,
             };
 
             file.pkg = try Package.create(gpa, null, file.sub_file_path);
@@ -4098,7 +4098,7 @@ fn fmtPathFile(
             .tree_loaded = true,
             .zir = undefined,
             .pkg = undefined,
-            .root_decl = null,
+            .root_decl = .none,
         };
 
         file.pkg = try Package.create(fmt.gpa, null, file.sub_file_path);
@@ -4757,7 +4757,7 @@ pub fn cmdAstCheck(
         .tree = undefined,
         .zir = undefined,
         .pkg = undefined,
-        .root_decl = null,
+        .root_decl = .none,
     };
     if (zig_source_file) |file_name| {
         var f = fs.cwd().openFile(file_name, .{}) catch |err| {
@@ -4910,7 +4910,7 @@ pub fn cmdChangelist(
         .tree = undefined,
         .zir = undefined,
         .pkg = undefined,
-        .root_decl = null,
+        .root_decl = .none,
     };
 
     file.pkg = try Package.create(gpa, null, file.sub_file_path);

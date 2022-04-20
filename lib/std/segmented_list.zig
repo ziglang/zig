@@ -148,6 +148,24 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             return result;
         }
 
+        /// Reduce length to `new_len`.
+        /// Invalidates pointers for the elements at index new_len and beyond.
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            assert(new_len <= self.len);
+            self.len = new_len;
+        }
+
+        /// Invalidates all element pointers.
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.items.len = 0;
+        }
+
+        /// Invalidates all element pointers.
+        pub fn clearAndFree(self: *Self, allocator: Allocator) void {
+            self.setCapacity(allocator, 0) catch unreachable;
+            self.items.len = 0;
+        }
+
         /// Grows or shrinks capacity to match usage.
         /// TODO update this and related methods to match the conventions set by ArrayList
         pub fn setCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {

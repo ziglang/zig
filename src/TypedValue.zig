@@ -1,6 +1,7 @@
 const std = @import("std");
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
+const Module = @import("Module.zig");
 const Allocator = std.mem.Allocator;
 const TypedValue = @This();
 const Target = std.Target;
@@ -31,13 +32,13 @@ pub fn copy(self: TypedValue, arena: Allocator) error{OutOfMemory}!TypedValue {
     };
 }
 
-pub fn eql(a: TypedValue, b: TypedValue, target: std.Target) bool {
-    if (!a.ty.eql(b.ty, target)) return false;
-    return a.val.eql(b.val, a.ty, target);
+pub fn eql(a: TypedValue, b: TypedValue, mod: *Module) bool {
+    if (!a.ty.eql(b.ty, mod)) return false;
+    return a.val.eql(b.val, a.ty, mod);
 }
 
-pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash, target: std.Target) void {
-    return tv.val.hash(tv.ty, hasher, target);
+pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash, mod: *Module) void {
+    return tv.val.hash(tv.ty, hasher, mod);
 }
 
 pub fn enumToInt(tv: TypedValue, buffer: *Value.Payload.U64) Value {
@@ -48,7 +49,7 @@ const max_aggregate_items = 100;
 
 const FormatContext = struct {
     tv: TypedValue,
-    target: Target,
+    mod: *Module,
 };
 
 pub fn format(
@@ -59,7 +60,7 @@ pub fn format(
 ) !void {
     _ = options;
     comptime std.debug.assert(fmt.len == 0);
-    return ctx.tv.print(writer, 3, ctx.target);
+    return ctx.tv.print(writer, 3, ctx.mod);
 }
 
 /// Prints the Value according to the Type, not according to the Value Tag.
@@ -67,8 +68,9 @@ pub fn print(
     tv: TypedValue,
     writer: anytype,
     level: u8,
-    target: std.Target,
+    mod: *Module,
 ) @TypeOf(writer).Error!void {
+    const target = mod.getTarget();
     var val = tv.val;
     var ty = tv.ty;
     while (true) switch (val.tag()) {
@@ -156,7 +158,7 @@ pub fn print(
                     try print(.{
                         .ty = fields[i].ty,
                         .val = vals[i],
-                    }, writer, level - 1, target);
+                    }, writer, level - 1, mod);
                 }
                 return writer.writeAll(" }");
             } else {
@@ -170,7 +172,7 @@ pub fn print(
                     try print(.{
                         .ty = elem_ty,
                         .val = vals[i],
-                    }, writer, level - 1, target);
+                    }, writer, level - 1, mod);
                 }
                 return writer.writeAll(" }");
             }
@@ -185,12 +187,12 @@ pub fn print(
             try print(.{
                 .ty = ty.unionTagType().?,
                 .val = union_val.tag,
-            }, writer, level - 1, target);
+            }, writer, level - 1, mod);
             try writer.writeAll(" = ");
             try print(.{
-                .ty = ty.unionFieldType(union_val.tag, target),
+                .ty = ty.unionFieldType(union_val.tag, mod),
                 .val = union_val.val,
-            }, writer, level - 1, target);
+            }, writer, level - 1, mod);
 
             return writer.writeAll(" }");
         },
@@ -205,7 +207,7 @@ pub fn print(
         },
         .bool_true => return writer.writeAll("true"),
         .bool_false => return writer.writeAll("false"),
-        .ty => return val.castTag(.ty).?.data.print(writer, target),
+        .ty => return val.castTag(.ty).?.data.print(writer, mod),
         .int_type => {
             const int_type = val.castTag(.int_type).?.data;
             return writer.print("{s}{d}", .{
@@ -222,28 +224,32 @@ pub fn print(
             const x = sub_ty.abiAlignment(target);
             return writer.print("{d}", .{x});
         },
-        .function => return writer.print("(function '{s}')", .{val.castTag(.function).?.data.owner_decl.name}),
+        .function => return writer.print("(function '{s}')", .{
+            mod.declPtr(val.castTag(.function).?.data.owner_decl).name,
+        }),
         .extern_fn => return writer.writeAll("(extern function)"),
         .variable => return writer.writeAll("(variable)"),
         .decl_ref_mut => {
-            const decl = val.castTag(.decl_ref_mut).?.data.decl;
+            const decl_index = val.castTag(.decl_ref_mut).?.data.decl_index;
+            const decl = mod.declPtr(decl_index);
             if (level == 0) {
                 return writer.print("(decl ref mut '{s}')", .{decl.name});
             }
             return print(.{
                 .ty = decl.ty,
                 .val = decl.val,
-            }, writer, level - 1, target);
+            }, writer, level - 1, mod);
         },
         .decl_ref => {
-            const decl = val.castTag(.decl_ref).?.data;
+            const decl_index = val.castTag(.decl_ref).?.data;
+            const decl = mod.declPtr(decl_index);
             if (level == 0) {
                 return writer.print("(decl ref '{s}')", .{decl.name});
             }
             return print(.{
                 .ty = decl.ty,
                 .val = decl.val,
-            }, writer, level - 1, target);
+            }, writer, level - 1, mod);
         },
         .elem_ptr => {
             const elem_ptr = val.castTag(.elem_ptr).?.data;
@@ -251,7 +257,7 @@ pub fn print(
             try print(.{
                 .ty = elem_ptr.elem_ty,
                 .val = elem_ptr.array_ptr,
-            }, writer, level - 1, target);
+            }, writer, level - 1, mod);
             return writer.print("[{}]", .{elem_ptr.index});
         },
         .field_ptr => {
@@ -260,7 +266,7 @@ pub fn print(
             try print(.{
                 .ty = field_ptr.container_ty,
                 .val = field_ptr.container_ptr,
-            }, writer, level - 1, target);
+            }, writer, level - 1, mod);
 
             if (field_ptr.container_ty.zigTypeTag() == .Struct) {
                 const field_name = field_ptr.container_ty.structFields().keys()[field_ptr.field_index];
@@ -288,7 +294,7 @@ pub fn print(
             };
             while (i < max_aggregate_items) : (i += 1) {
                 if (i != 0) try writer.writeAll(", ");
-                try print(elem_tv, writer, level - 1, target);
+                try print(elem_tv, writer, level - 1, mod);
             }
             return writer.writeAll(" }");
         },
@@ -300,7 +306,7 @@ pub fn print(
             try print(.{
                 .ty = ty.elemType2(),
                 .val = ty.sentinel().?,
-            }, writer, level - 1, target);
+            }, writer, level - 1, mod);
             return writer.writeAll(" }");
         },
         .slice => return writer.writeAll("(slice)"),

@@ -418,11 +418,12 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
     return self;
 }
 
-pub fn allocateDeclIndexes(self: *Coff, decl: *Module.Decl) !void {
+pub fn allocateDeclIndexes(self: *Coff, decl_index: Module.Decl.Index) !void {
     if (self.llvm_object) |_| return;
 
     try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
 
+    const decl = self.base.options.module.?.declPtr(decl_index);
     if (self.offset_table_free_list.popOrNull()) |i| {
         decl.link.coff.offset_table_index = i;
     } else {
@@ -674,7 +675,8 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const decl = func.owner_decl;
+    const decl_index = func.owner_decl;
+    const decl = module.declPtr(decl_index);
     const res = try codegen.generateFunction(
         &self.base,
         decl.srcLoc(),
@@ -688,7 +690,7 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.failed_decls.put(module.gpa, decl_index, em);
             return;
         },
     };
@@ -696,23 +698,25 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
     return self.finishUpdateDecl(module, func.owner_decl, code);
 }
 
-pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl: *Module.Decl) !u32 {
+pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
     _ = self;
     _ = tv;
-    _ = decl;
+    _ = decl_index;
     log.debug("TODO lowerUnnamedConst for Coff", .{});
     return error.AnalysisFail;
 }
 
-pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
+pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl_index);
     }
     const tracy = trace(@src());
     defer tracy.end();
+
+    const decl = module.declPtr(decl_index);
 
     if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
@@ -735,15 +739,16 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.failed_decls.put(module.gpa, decl_index, em);
             return;
         },
     };
 
-    return self.finishUpdateDecl(module, decl, code);
+    return self.finishUpdateDecl(module, decl_index, code);
 }
 
-fn finishUpdateDecl(self: *Coff, module: *Module, decl: *Module.Decl, code: []const u8) !void {
+fn finishUpdateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index, code: []const u8) !void {
+    const decl = module.declPtr(decl_index);
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
     const curr_size = decl.link.coff.size;
     if (curr_size != 0) {
@@ -778,14 +783,17 @@ fn finishUpdateDecl(self: *Coff, module: *Module, decl: *Module.Decl, code: []co
     try self.base.file.?.pwriteAll(code, self.section_data_offset + self.offset_table_size + decl.link.coff.text_offset);
 
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl, decl_exports);
+    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
+    return self.updateDeclExports(module, decl_index, decl_exports);
 }
 
-pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
+pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     }
+
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.coff);
@@ -795,16 +803,17 @@ pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
 pub fn updateDeclExports(
     self: *Coff,
     module: *Module,
-    decl: *Module.Decl,
+    decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl_index, exports);
     }
 
+    const decl = module.declPtr(decl_index);
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
@@ -1474,8 +1483,14 @@ fn findLib(self: *Coff, arena: Allocator, name: []const u8) !?[]const u8 {
     return null;
 }
 
-pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(
+    self: *Coff,
+    decl_index: Module.Decl.Index,
+    reloc_info: link.File.RelocInfo,
+) !u64 {
     _ = reloc_info;
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
     assert(self.llvm_object == null);
     return self.text_section_virtual_address + decl.link.coff.text_offset;
 }

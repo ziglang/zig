@@ -243,8 +243,10 @@ pub fn generate(
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    assert(module_fn.owner_decl.has_tv);
-    const fn_type = module_fn.owner_decl.ty;
+    const mod = bin_file.options.module.?;
+    const fn_owner_decl = mod.declPtr(module_fn.owner_decl);
+    assert(fn_owner_decl.has_tv);
+    const fn_type = fn_owner_decl.ty;
 
     var branch_stack = std.ArrayList(Branch).init(bin_file.allocator);
     defer {
@@ -871,7 +873,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
                     const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-                    break :blk @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
+                    const mod = self.bin_file.options.module.?;
+                    break :blk @intCast(u32, got.p_vaddr + mod.declPtr(func.owner_decl).link.elf.offset_table_index * ptr_bytes);
                 } else unreachable;
 
                 try self.genSetReg(Type.initTag(.usize), .o7, .{ .memory = got_addr });
@@ -1026,9 +1029,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
         return @as(u32, 0);
     }
 
-    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
+        const mod = self.bin_file.options.module.?;
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = elem_ty.abiAlignment(self.target.*);
@@ -1037,9 +1040,9 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const elem_ty = self.air.typeOfIndex(inst);
-    const target = self.target.*;
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(target)});
+        const mod = self.bin_file.options.module.?;
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
     const abi_align = elem_ty.abiAlignment(self.target.*);
     if (abi_align > self.stack_align)
@@ -1372,7 +1375,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         return self.lowerDeclRef(typed_value, payload.data);
     }
     if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
-        return self.lowerDeclRef(typed_value, payload.data.decl);
+        return self.lowerDeclRef(typed_value, payload.data.decl_index);
     }
     const target = self.target.*;
 
@@ -1422,7 +1425,7 @@ fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigT
     };
 }
 
-fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCValue {
+fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) InnerError!MCValue {
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
@@ -1434,7 +1437,10 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCVa
         }
     }
 
-    decl.alive = true;
+    const mod = self.bin_file.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    mod.markDeclAlive(decl);
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;

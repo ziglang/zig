@@ -521,7 +521,7 @@ pub const Type = extern union {
         }
     }
 
-    pub fn eql(a: Type, b: Type, target: Target) bool {
+    pub fn eql(a: Type, b: Type, mod: *Module) bool {
         // As a shortcut, if the small tags / addresses match, we're done.
         if (a.tag_if_small_enough == b.tag_if_small_enough) return true;
 
@@ -637,7 +637,7 @@ pub const Type = extern union {
                 const a_info = a.fnInfo();
                 const b_info = b.fnInfo();
 
-                if (!eql(a_info.return_type, b_info.return_type, target))
+                if (!eql(a_info.return_type, b_info.return_type, mod))
                     return false;
 
                 if (a_info.cc != b_info.cc)
@@ -663,7 +663,7 @@ pub const Type = extern union {
                     if (a_param_ty.tag() == .generic_poison) continue;
                     if (b_param_ty.tag() == .generic_poison) continue;
 
-                    if (!eql(a_param_ty, b_param_ty, target))
+                    if (!eql(a_param_ty, b_param_ty, mod))
                         return false;
                 }
 
@@ -681,13 +681,13 @@ pub const Type = extern union {
                 if (a.arrayLen() != b.arrayLen())
                     return false;
                 const elem_ty = a.elemType();
-                if (!elem_ty.eql(b.elemType(), target))
+                if (!elem_ty.eql(b.elemType(), mod))
                     return false;
                 const sentinel_a = a.sentinel();
                 const sentinel_b = b.sentinel();
                 if (sentinel_a) |sa| {
                     if (sentinel_b) |sb| {
-                        return sa.eql(sb, elem_ty, target);
+                        return sa.eql(sb, elem_ty, mod);
                     } else {
                         return false;
                     }
@@ -718,7 +718,7 @@ pub const Type = extern union {
 
                 const info_a = a.ptrInfo().data;
                 const info_b = b.ptrInfo().data;
-                if (!info_a.pointee_type.eql(info_b.pointee_type, target))
+                if (!info_a.pointee_type.eql(info_b.pointee_type, mod))
                     return false;
                 if (info_a.@"align" != info_b.@"align")
                     return false;
@@ -741,7 +741,7 @@ pub const Type = extern union {
                 const sentinel_b = info_b.sentinel;
                 if (sentinel_a) |sa| {
                     if (sentinel_b) |sb| {
-                        if (!sa.eql(sb, info_a.pointee_type, target))
+                        if (!sa.eql(sb, info_a.pointee_type, mod))
                             return false;
                     } else {
                         return false;
@@ -762,7 +762,7 @@ pub const Type = extern union {
 
                 var buf_a: Payload.ElemType = undefined;
                 var buf_b: Payload.ElemType = undefined;
-                return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b), target);
+                return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b), mod);
             },
 
             .anyerror_void_error_union, .error_union => {
@@ -770,18 +770,18 @@ pub const Type = extern union {
 
                 const a_set = a.errorUnionSet();
                 const b_set = b.errorUnionSet();
-                if (!a_set.eql(b_set, target)) return false;
+                if (!a_set.eql(b_set, mod)) return false;
 
                 const a_payload = a.errorUnionPayload();
                 const b_payload = b.errorUnionPayload();
-                if (!a_payload.eql(b_payload, target)) return false;
+                if (!a_payload.eql(b_payload, mod)) return false;
 
                 return true;
             },
 
             .anyframe_T => {
                 if (b.zigTypeTag() != .AnyFrame) return false;
-                return a.childType().eql(b.childType(), target);
+                return a.childType().eql(b.childType(), mod);
             },
 
             .empty_struct => {
@@ -804,7 +804,7 @@ pub const Type = extern union {
 
                 for (a_tuple.types) |a_ty, i| {
                     const b_ty = b_tuple.types[i];
-                    if (!eql(a_ty, b_ty, target)) return false;
+                    if (!eql(a_ty, b_ty, mod)) return false;
                 }
 
                 for (a_tuple.values) |a_val, i| {
@@ -820,7 +820,7 @@ pub const Type = extern union {
                         if (b_val.tag() == .unreachable_value) {
                             return false;
                         } else {
-                            if (!Value.eql(a_val, b_val, ty, target)) return false;
+                            if (!Value.eql(a_val, b_val, ty, mod)) return false;
                         }
                     }
                 }
@@ -840,7 +840,7 @@ pub const Type = extern union {
 
                 for (a_struct_obj.types) |a_ty, i| {
                     const b_ty = b_struct_obj.types[i];
-                    if (!eql(a_ty, b_ty, target)) return false;
+                    if (!eql(a_ty, b_ty, mod)) return false;
                 }
 
                 for (a_struct_obj.values) |a_val, i| {
@@ -856,7 +856,7 @@ pub const Type = extern union {
                         if (b_val.tag() == .unreachable_value) {
                             return false;
                         } else {
-                            if (!Value.eql(a_val, b_val, ty, target)) return false;
+                            if (!Value.eql(a_val, b_val, ty, mod)) return false;
                         }
                     }
                 }
@@ -911,13 +911,13 @@ pub const Type = extern union {
         }
     }
 
-    pub fn hash(self: Type, target: Target) u64 {
+    pub fn hash(self: Type, mod: *Module) u64 {
         var hasher = std.hash.Wyhash.init(0);
-        self.hashWithHasher(&hasher, target);
+        self.hashWithHasher(&hasher, mod);
         return hasher.final();
     }
 
-    pub fn hashWithHasher(ty: Type, hasher: *std.hash.Wyhash, target: Target) void {
+    pub fn hashWithHasher(ty: Type, hasher: *std.hash.Wyhash, mod: *Module) void {
         switch (ty.tag()) {
             .generic_poison => unreachable,
 
@@ -1036,7 +1036,7 @@ pub const Type = extern union {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Fn);
 
                 const fn_info = ty.fnInfo();
-                hashWithHasher(fn_info.return_type, hasher, target);
+                hashWithHasher(fn_info.return_type, hasher, mod);
                 std.hash.autoHash(hasher, fn_info.alignment);
                 std.hash.autoHash(hasher, fn_info.cc);
                 std.hash.autoHash(hasher, fn_info.is_var_args);
@@ -1046,7 +1046,7 @@ pub const Type = extern union {
                 for (fn_info.param_types) |param_ty, i| {
                     std.hash.autoHash(hasher, fn_info.paramIsComptime(i));
                     if (param_ty.tag() == .generic_poison) continue;
-                    hashWithHasher(param_ty, hasher, target);
+                    hashWithHasher(param_ty, hasher, mod);
                 }
             },
 
@@ -1059,8 +1059,8 @@ pub const Type = extern union {
 
                 const elem_ty = ty.elemType();
                 std.hash.autoHash(hasher, ty.arrayLen());
-                hashWithHasher(elem_ty, hasher, target);
-                hashSentinel(ty.sentinel(), elem_ty, hasher, target);
+                hashWithHasher(elem_ty, hasher, mod);
+                hashSentinel(ty.sentinel(), elem_ty, hasher, mod);
             },
 
             .vector => {
@@ -1068,7 +1068,7 @@ pub const Type = extern union {
 
                 const elem_ty = ty.elemType();
                 std.hash.autoHash(hasher, ty.vectorLen());
-                hashWithHasher(elem_ty, hasher, target);
+                hashWithHasher(elem_ty, hasher, mod);
             },
 
             .single_const_pointer_to_comptime_int,
@@ -1092,8 +1092,8 @@ pub const Type = extern union {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Pointer);
 
                 const info = ty.ptrInfo().data;
-                hashWithHasher(info.pointee_type, hasher, target);
-                hashSentinel(info.sentinel, info.pointee_type, hasher, target);
+                hashWithHasher(info.pointee_type, hasher, mod);
+                hashSentinel(info.sentinel, info.pointee_type, hasher, mod);
                 std.hash.autoHash(hasher, info.@"align");
                 std.hash.autoHash(hasher, info.@"addrspace");
                 std.hash.autoHash(hasher, info.bit_offset);
@@ -1111,22 +1111,22 @@ pub const Type = extern union {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Optional);
 
                 var buf: Payload.ElemType = undefined;
-                hashWithHasher(ty.optionalChild(&buf), hasher, target);
+                hashWithHasher(ty.optionalChild(&buf), hasher, mod);
             },
 
             .anyerror_void_error_union, .error_union => {
                 std.hash.autoHash(hasher, std.builtin.TypeId.ErrorUnion);
 
                 const set_ty = ty.errorUnionSet();
-                hashWithHasher(set_ty, hasher, target);
+                hashWithHasher(set_ty, hasher, mod);
 
                 const payload_ty = ty.errorUnionPayload();
-                hashWithHasher(payload_ty, hasher, target);
+                hashWithHasher(payload_ty, hasher, mod);
             },
 
             .anyframe_T => {
                 std.hash.autoHash(hasher, std.builtin.TypeId.AnyFrame);
-                hashWithHasher(ty.childType(), hasher, target);
+                hashWithHasher(ty.childType(), hasher, mod);
             },
 
             .empty_struct => {
@@ -1145,10 +1145,10 @@ pub const Type = extern union {
                 std.hash.autoHash(hasher, tuple.types.len);
 
                 for (tuple.types) |field_ty, i| {
-                    hashWithHasher(field_ty, hasher, target);
+                    hashWithHasher(field_ty, hasher, mod);
                     const field_val = tuple.values[i];
                     if (field_val.tag() == .unreachable_value) continue;
-                    field_val.hash(field_ty, hasher, target);
+                    field_val.hash(field_ty, hasher, mod);
                 }
             },
             .anon_struct => {
@@ -1160,9 +1160,9 @@ pub const Type = extern union {
                     const field_name = struct_obj.names[i];
                     const field_val = struct_obj.values[i];
                     hasher.update(field_name);
-                    hashWithHasher(field_ty, hasher, target);
+                    hashWithHasher(field_ty, hasher, mod);
                     if (field_val.tag() == .unreachable_value) continue;
-                    field_val.hash(field_ty, hasher, target);
+                    field_val.hash(field_ty, hasher, mod);
                 }
             },
 
@@ -1210,35 +1210,35 @@ pub const Type = extern union {
         }
     }
 
-    fn hashSentinel(opt_val: ?Value, ty: Type, hasher: *std.hash.Wyhash, target: Target) void {
+    fn hashSentinel(opt_val: ?Value, ty: Type, hasher: *std.hash.Wyhash, mod: *Module) void {
         if (opt_val) |s| {
             std.hash.autoHash(hasher, true);
-            s.hash(ty, hasher, target);
+            s.hash(ty, hasher, mod);
         } else {
             std.hash.autoHash(hasher, false);
         }
     }
 
     pub const HashContext64 = struct {
-        target: Target,
+        mod: *Module,
 
         pub fn hash(self: @This(), t: Type) u64 {
-            return t.hash(self.target);
+            return t.hash(self.mod);
         }
         pub fn eql(self: @This(), a: Type, b: Type) bool {
-            return a.eql(b, self.target);
+            return a.eql(b, self.mod);
         }
     };
 
     pub const HashContext32 = struct {
-        target: Target,
+        mod: *Module,
 
         pub fn hash(self: @This(), t: Type) u32 {
-            return @truncate(u32, t.hash(self.target));
+            return @truncate(u32, t.hash(self.mod));
         }
         pub fn eql(self: @This(), a: Type, b: Type, b_index: usize) bool {
             _ = b_index;
-            return a.eql(b, self.target);
+            return a.eql(b, self.mod);
         }
     };
 
@@ -1483,16 +1483,16 @@ pub const Type = extern union {
         @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
     }
 
-    pub fn fmt(ty: Type, target: Target) std.fmt.Formatter(format2) {
+    pub fn fmt(ty: Type, module: *Module) std.fmt.Formatter(format2) {
         return .{ .data = .{
             .ty = ty,
-            .target = target,
+            .module = module,
         } };
     }
 
     const FormatContext = struct {
         ty: Type,
-        target: Target,
+        module: *Module,
     };
 
     fn format2(
@@ -1503,7 +1503,7 @@ pub const Type = extern union {
     ) !void {
         comptime assert(unused_format_string.len == 0);
         _ = options;
-        return print(ctx.ty, writer, ctx.target);
+        return print(ctx.ty, writer, ctx.module);
     }
 
     pub fn fmtDebug(ty: Type) std.fmt.Formatter(dump) {
@@ -1579,27 +1579,39 @@ pub const Type = extern union {
 
                 .@"struct" => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
-                    return struct_obj.owner_decl.renderFullyQualifiedName(writer);
+                    return writer.print("({s} decl={d})", .{
+                        @tagName(t), struct_obj.owner_decl,
+                    });
                 },
                 .@"union", .union_tagged => {
                     const union_obj = ty.cast(Payload.Union).?.data;
-                    return union_obj.owner_decl.renderFullyQualifiedName(writer);
+                    return writer.print("({s} decl={d})", .{
+                        @tagName(t), union_obj.owner_decl,
+                    });
                 },
                 .enum_full, .enum_nonexhaustive => {
                     const enum_full = ty.cast(Payload.EnumFull).?.data;
-                    return enum_full.owner_decl.renderFullyQualifiedName(writer);
+                    return writer.print("({s} decl={d})", .{
+                        @tagName(t), enum_full.owner_decl,
+                    });
                 },
                 .enum_simple => {
                     const enum_simple = ty.castTag(.enum_simple).?.data;
-                    return enum_simple.owner_decl.renderFullyQualifiedName(writer);
+                    return writer.print("({s} decl={d})", .{
+                        @tagName(t), enum_simple.owner_decl,
+                    });
                 },
                 .enum_numbered => {
                     const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                    return enum_numbered.owner_decl.renderFullyQualifiedName(writer);
+                    return writer.print("({s} decl={d})", .{
+                        @tagName(t), enum_numbered.owner_decl,
+                    });
                 },
                 .@"opaque" => {
-                    // TODO use declaration name
-                    return writer.writeAll("opaque {}");
+                    const opaque_obj = ty.castTag(.@"opaque").?.data;
+                    return writer.print("({s} decl={d})", .{
+                        @tagName(t), opaque_obj.owner_decl,
+                    });
                 },
 
                 .anyerror_void_error_union => return writer.writeAll("anyerror!void"),
@@ -1845,7 +1857,9 @@ pub const Type = extern union {
                 },
                 .error_set_inferred => {
                     const func = ty.castTag(.error_set_inferred).?.data.func;
-                    return writer.print("@typeInfo(@typeInfo(@TypeOf({s})).Fn.return_type.?).ErrorUnion.error_set", .{func.owner_decl.name});
+                    return writer.print("({s} func={d})", .{
+                        @tagName(t), func.owner_decl,
+                    });
                 },
                 .error_set_merged => {
                     const names = ty.castTag(.error_set_merged).?.data.keys();
@@ -1871,15 +1885,15 @@ pub const Type = extern union {
 
     pub const nameAllocArena = nameAlloc;
 
-    pub fn nameAlloc(ty: Type, ally: Allocator, target: Target) Allocator.Error![:0]const u8 {
+    pub fn nameAlloc(ty: Type, ally: Allocator, module: *Module) Allocator.Error![:0]const u8 {
         var buffer = std.ArrayList(u8).init(ally);
         defer buffer.deinit();
-        try ty.print(buffer.writer(), target);
+        try ty.print(buffer.writer(), module);
         return buffer.toOwnedSliceSentinel(0);
     }
 
     /// Prints a name suitable for `@typeName`.
-    pub fn print(ty: Type, writer: anytype, target: Target) @TypeOf(writer).Error!void {
+    pub fn print(ty: Type, writer: anytype, mod: *Module) @TypeOf(writer).Error!void {
         const t = ty.tag();
         switch (t) {
             .inferred_alloc_const => unreachable,
@@ -1946,32 +1960,38 @@ pub const Type = extern union {
 
             .empty_struct => {
                 const namespace = ty.castTag(.empty_struct).?.data;
-                try namespace.renderFullyQualifiedName("", writer);
+                try namespace.renderFullyQualifiedName(mod, "", writer);
             },
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                try struct_obj.owner_decl.renderFullyQualifiedName(writer);
+                const decl = mod.declPtr(struct_obj.owner_decl);
+                try decl.renderFullyQualifiedName(mod, writer);
             },
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                try union_obj.owner_decl.renderFullyQualifiedName(writer);
+                const decl = mod.declPtr(union_obj.owner_decl);
+                try decl.renderFullyQualifiedName(mod, writer);
             },
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
-                try enum_full.owner_decl.renderFullyQualifiedName(writer);
+                const decl = mod.declPtr(enum_full.owner_decl);
+                try decl.renderFullyQualifiedName(mod, writer);
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                try enum_simple.owner_decl.renderFullyQualifiedName(writer);
+                const decl = mod.declPtr(enum_simple.owner_decl);
+                try decl.renderFullyQualifiedName(mod, writer);
             },
             .enum_numbered => {
                 const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                try enum_numbered.owner_decl.renderFullyQualifiedName(writer);
+                const decl = mod.declPtr(enum_numbered.owner_decl);
+                try decl.renderFullyQualifiedName(mod, writer);
             },
             .@"opaque" => {
                 const opaque_obj = ty.cast(Payload.Opaque).?.data;
-                try opaque_obj.owner_decl.renderFullyQualifiedName(writer);
+                const decl = mod.declPtr(opaque_obj.owner_decl);
+                try decl.renderFullyQualifiedName(mod, writer);
             },
 
             .anyerror_void_error_union => try writer.writeAll("anyerror!void"),
@@ -1990,7 +2010,8 @@ pub const Type = extern union {
                 const func = ty.castTag(.error_set_inferred).?.data.func;
 
                 try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
-                try func.owner_decl.renderFullyQualifiedName(writer);
+                const owner_decl = mod.declPtr(func.owner_decl);
+                try owner_decl.renderFullyQualifiedName(mod, writer);
                 try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
             },
 
@@ -1999,7 +2020,7 @@ pub const Type = extern union {
                 try writer.writeAll("fn(");
                 for (fn_info.param_types) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
-                    try print(param_ty, writer, target);
+                    try print(param_ty, writer, mod);
                 }
                 if (fn_info.is_var_args) {
                     if (fn_info.param_types.len != 0) {
@@ -2016,14 +2037,14 @@ pub const Type = extern union {
                 if (fn_info.alignment != 0) {
                     try writer.print("align({d}) ", .{fn_info.alignment});
                 }
-                try print(fn_info.return_type, writer, target);
+                try print(fn_info.return_type, writer, mod);
             },
 
             .error_union => {
                 const error_union = ty.castTag(.error_union).?.data;
-                try print(error_union.error_set, writer, target);
+                try print(error_union.error_set, writer, mod);
                 try writer.writeAll("!");
-                try print(error_union.payload, writer, target);
+                try print(error_union.payload, writer, mod);
             },
 
             .array_u8 => {
@@ -2037,21 +2058,21 @@ pub const Type = extern union {
             .vector => {
                 const payload = ty.castTag(.vector).?.data;
                 try writer.print("@Vector({d}, ", .{payload.len});
-                try print(payload.elem_type, writer, target);
+                try print(payload.elem_type, writer, mod);
                 try writer.writeAll(")");
             },
             .array => {
                 const payload = ty.castTag(.array).?.data;
                 try writer.print("[{d}]", .{payload.len});
-                try print(payload.elem_type, writer, target);
+                try print(payload.elem_type, writer, mod);
             },
             .array_sentinel => {
                 const payload = ty.castTag(.array_sentinel).?.data;
                 try writer.print("[{d}:{}]", .{
                     payload.len,
-                    payload.sentinel.fmtValue(payload.elem_type, target),
+                    payload.sentinel.fmtValue(payload.elem_type, mod),
                 });
-                try print(payload.elem_type, writer, target);
+                try print(payload.elem_type, writer, mod);
             },
             .tuple => {
                 const tuple = ty.castTag(.tuple).?.data;
@@ -2063,9 +2084,9 @@ pub const Type = extern union {
                     if (val.tag() != .unreachable_value) {
                         try writer.writeAll("comptime ");
                     }
-                    try print(field_ty, writer, target);
+                    try print(field_ty, writer, mod);
                     if (val.tag() != .unreachable_value) {
-                        try writer.print(" = {}", .{val.fmtValue(field_ty, target)});
+                        try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
                     }
                 }
                 try writer.writeAll("}");
@@ -2083,10 +2104,10 @@ pub const Type = extern union {
                     try writer.writeAll(anon_struct.names[i]);
                     try writer.writeAll(": ");
 
-                    try print(field_ty, writer, target);
+                    try print(field_ty, writer, mod);
 
                     if (val.tag() != .unreachable_value) {
-                        try writer.print(" = {}", .{val.fmtValue(field_ty, target)});
+                        try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
                     }
                 }
                 try writer.writeAll("}");
@@ -2106,8 +2127,8 @@ pub const Type = extern union {
 
                 if (info.sentinel) |s| switch (info.size) {
                     .One, .C => unreachable,
-                    .Many => try writer.print("[*:{}]", .{s.fmtValue(info.pointee_type, target)}),
-                    .Slice => try writer.print("[:{}]", .{s.fmtValue(info.pointee_type, target)}),
+                    .Many => try writer.print("[*:{}]", .{s.fmtValue(info.pointee_type, mod)}),
+                    .Slice => try writer.print("[:{}]", .{s.fmtValue(info.pointee_type, mod)}),
                 } else switch (info.size) {
                     .One => try writer.writeAll("*"),
                     .Many => try writer.writeAll("[*]"),
@@ -2129,7 +2150,7 @@ pub const Type = extern union {
                 if (info.@"volatile") try writer.writeAll("volatile ");
                 if (info.@"allowzero" and info.size != .C) try writer.writeAll("allowzero ");
 
-                try print(info.pointee_type, writer, target);
+                try print(info.pointee_type, writer, mod);
             },
 
             .int_signed => {
@@ -2143,22 +2164,22 @@ pub const Type = extern union {
             .optional => {
                 const child_type = ty.castTag(.optional).?.data;
                 try writer.writeByte('?');
-                try print(child_type, writer, target);
+                try print(child_type, writer, mod);
             },
             .optional_single_mut_pointer => {
                 const pointee_type = ty.castTag(.optional_single_mut_pointer).?.data;
                 try writer.writeAll("?*");
-                try print(pointee_type, writer, target);
+                try print(pointee_type, writer, mod);
             },
             .optional_single_const_pointer => {
                 const pointee_type = ty.castTag(.optional_single_const_pointer).?.data;
                 try writer.writeAll("?*const ");
-                try print(pointee_type, writer, target);
+                try print(pointee_type, writer, mod);
             },
             .anyframe_T => {
                 const return_type = ty.castTag(.anyframe_T).?.data;
                 try writer.print("anyframe->", .{});
-                try print(return_type, writer, target);
+                try print(return_type, writer, mod);
             },
             .error_set => {
                 const names = ty.castTag(.error_set).?.data.names.keys();
@@ -3834,8 +3855,8 @@ pub const Type = extern union {
     /// For [*]T, returns *T
     /// For []T, returns *T
     /// Handles const-ness and address spaces in particular.
-    pub fn elemPtrType(ptr_ty: Type, arena: Allocator, target: Target) !Type {
-        return try Type.ptr(arena, target, .{
+    pub fn elemPtrType(ptr_ty: Type, arena: Allocator, mod: *Module) !Type {
+        return try Type.ptr(arena, mod, .{
             .pointee_type = ptr_ty.elemType2(),
             .mutable = ptr_ty.ptrIsMutable(),
             .@"addrspace" = ptr_ty.ptrAddressSpace(),
@@ -3948,9 +3969,9 @@ pub const Type = extern union {
         return union_obj.fields;
     }
 
-    pub fn unionFieldType(ty: Type, enum_tag: Value, target: Target) Type {
+    pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) Type {
         const union_obj = ty.cast(Payload.Union).?.data;
-        const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag, target).?;
+        const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag, mod).?;
         assert(union_obj.haveFieldTypes());
         return union_obj.fields.values()[index].ty;
     }
@@ -4970,20 +4991,20 @@ pub const Type = extern union {
     /// Asserts `ty` is an enum. `enum_tag` can either be `enum_field_index` or
     /// an integer which represents the enum value. Returns the field index in
     /// declaration order, or `null` if `enum_tag` does not match any field.
-    pub fn enumTagFieldIndex(ty: Type, enum_tag: Value, target: Target) ?usize {
+    pub fn enumTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?usize {
         if (enum_tag.castTag(.enum_field_index)) |payload| {
             return @as(usize, payload.data);
         }
         const S = struct {
-            fn fieldWithRange(int_ty: Type, int_val: Value, end: usize, tg: Target) ?usize {
+            fn fieldWithRange(int_ty: Type, int_val: Value, end: usize, m: *Module) ?usize {
                 if (int_val.compareWithZero(.lt)) return null;
                 var end_payload: Value.Payload.U64 = .{
                     .base = .{ .tag = .int_u64 },
                     .data = end,
                 };
                 const end_val = Value.initPayload(&end_payload.base);
-                if (int_val.compare(.gte, end_val, int_ty, tg)) return null;
-                return @intCast(usize, int_val.toUnsignedInt(tg));
+                if (int_val.compare(.gte, end_val, int_ty, m)) return null;
+                return @intCast(usize, int_val.toUnsignedInt(m.getTarget()));
             }
         };
         switch (ty.tag()) {
@@ -4991,11 +5012,11 @@ pub const Type = extern union {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
                 const tag_ty = enum_full.tag_ty;
                 if (enum_full.values.count() == 0) {
-                    return S.fieldWithRange(tag_ty, enum_tag, enum_full.fields.count(), target);
+                    return S.fieldWithRange(tag_ty, enum_tag, enum_full.fields.count(), mod);
                 } else {
                     return enum_full.values.getIndexContext(enum_tag, .{
                         .ty = tag_ty,
-                        .target = target,
+                        .mod = mod,
                     });
                 }
             },
@@ -5003,11 +5024,11 @@ pub const Type = extern union {
                 const enum_obj = ty.castTag(.enum_numbered).?.data;
                 const tag_ty = enum_obj.tag_ty;
                 if (enum_obj.values.count() == 0) {
-                    return S.fieldWithRange(tag_ty, enum_tag, enum_obj.fields.count(), target);
+                    return S.fieldWithRange(tag_ty, enum_tag, enum_obj.fields.count(), mod);
                 } else {
                     return enum_obj.values.getIndexContext(enum_tag, .{
                         .ty = tag_ty,
-                        .target = target,
+                        .mod = mod,
                     });
                 }
             },
@@ -5020,7 +5041,7 @@ pub const Type = extern union {
                     .data = bits,
                 };
                 const tag_ty = Type.initPayload(&buffer.base);
-                return S.fieldWithRange(tag_ty, enum_tag, fields_len, target);
+                return S.fieldWithRange(tag_ty, enum_tag, fields_len, mod);
             },
             .atomic_order,
             .atomic_rmw_op,
@@ -5224,32 +5245,35 @@ pub const Type = extern union {
         }
     }
 
-    pub fn declSrcLoc(ty: Type) Module.SrcLoc {
-        return declSrcLocOrNull(ty).?;
+    pub fn declSrcLoc(ty: Type, mod: *Module) Module.SrcLoc {
+        return declSrcLocOrNull(ty, mod).?;
     }
 
-    pub fn declSrcLocOrNull(ty: Type) ?Module.SrcLoc {
+    pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
         switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return enum_full.srcLoc();
+                return enum_full.srcLoc(mod);
             },
-            .enum_numbered => return ty.castTag(.enum_numbered).?.data.srcLoc(),
+            .enum_numbered => {
+                const enum_numbered = ty.castTag(.enum_numbered).?.data;
+                return enum_numbered.srcLoc(mod);
+            },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                return enum_simple.srcLoc();
+                return enum_simple.srcLoc(mod);
             },
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                return struct_obj.srcLoc();
+                return struct_obj.srcLoc(mod);
             },
             .error_set => {
                 const error_set = ty.castTag(.error_set).?.data;
-                return error_set.srcLoc();
+                return error_set.srcLoc(mod);
             },
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                return union_obj.srcLoc();
+                return union_obj.srcLoc(mod);
             },
             .atomic_order,
             .atomic_rmw_op,
@@ -5268,7 +5292,7 @@ pub const Type = extern union {
         }
     }
 
-    pub fn getOwnerDecl(ty: Type) *Module.Decl {
+    pub fn getOwnerDecl(ty: Type) Module.Decl.Index {
         switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
@@ -5357,30 +5381,30 @@ pub const Type = extern union {
     }
 
     /// Asserts the type is an enum.
-    pub fn enumHasInt(ty: Type, int: Value, target: Target) bool {
+    pub fn enumHasInt(ty: Type, int: Value, mod: *Module) bool {
         const S = struct {
-            fn intInRange(tag_ty: Type, int_val: Value, end: usize, tg: Target) bool {
+            fn intInRange(tag_ty: Type, int_val: Value, end: usize, m: *Module) bool {
                 if (int_val.compareWithZero(.lt)) return false;
                 var end_payload: Value.Payload.U64 = .{
                     .base = .{ .tag = .int_u64 },
                     .data = end,
                 };
                 const end_val = Value.initPayload(&end_payload.base);
-                if (int_val.compare(.gte, end_val, tag_ty, tg)) return false;
+                if (int_val.compare(.gte, end_val, tag_ty, m)) return false;
                 return true;
             }
         };
         switch (ty.tag()) {
-            .enum_nonexhaustive => return int.intFitsInType(ty, target),
+            .enum_nonexhaustive => return int.intFitsInType(ty, mod.getTarget()),
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
                 const tag_ty = enum_full.tag_ty;
                 if (enum_full.values.count() == 0) {
-                    return S.intInRange(tag_ty, int, enum_full.fields.count(), target);
+                    return S.intInRange(tag_ty, int, enum_full.fields.count(), mod);
                 } else {
                     return enum_full.values.containsContext(int, .{
                         .ty = tag_ty,
-                        .target = target,
+                        .mod = mod,
                     });
                 }
             },
@@ -5388,11 +5412,11 @@ pub const Type = extern union {
                 const enum_obj = ty.castTag(.enum_numbered).?.data;
                 const tag_ty = enum_obj.tag_ty;
                 if (enum_obj.values.count() == 0) {
-                    return S.intInRange(tag_ty, int, enum_obj.fields.count(), target);
+                    return S.intInRange(tag_ty, int, enum_obj.fields.count(), mod);
                 } else {
                     return enum_obj.values.containsContext(int, .{
                         .ty = tag_ty,
-                        .target = target,
+                        .mod = mod,
                     });
                 }
             },
@@ -5405,7 +5429,7 @@ pub const Type = extern union {
                     .data = bits,
                 };
                 const tag_ty = Type.initPayload(&buffer.base);
-                return S.intInRange(tag_ty, int, fields_len, target);
+                return S.intInRange(tag_ty, int, fields_len, mod);
             },
             .atomic_order,
             .atomic_rmw_op,
@@ -5937,7 +5961,9 @@ pub const Type = extern union {
     pub const @"anyopaque" = initTag(.anyopaque);
     pub const @"null" = initTag(.@"null");
 
-    pub fn ptr(arena: Allocator, target: Target, data: Payload.Pointer.Data) !Type {
+    pub fn ptr(arena: Allocator, mod: *Module, data: Payload.Pointer.Data) !Type {
+        const target = mod.getTarget();
+
         var d = data;
 
         if (d.size == .C) {
@@ -5967,7 +5993,7 @@ pub const Type = extern union {
             d.bit_offset == 0 and d.host_size == 0 and !d.@"allowzero" and !d.@"volatile")
         {
             if (d.sentinel) |sent| {
-                if (!d.mutable and d.pointee_type.eql(Type.u8, target)) {
+                if (!d.mutable and d.pointee_type.eql(Type.u8, mod)) {
                     switch (d.size) {
                         .Slice => {
                             if (sent.compareWithZero(.eq)) {
@@ -5982,7 +6008,7 @@ pub const Type = extern union {
                         else => {},
                     }
                 }
-            } else if (!d.mutable and d.pointee_type.eql(Type.u8, target)) {
+            } else if (!d.mutable and d.pointee_type.eql(Type.u8, mod)) {
                 switch (d.size) {
                     .Slice => return Type.initTag(.const_slice_u8),
                     .Many => return Type.initTag(.manyptr_const_u8),
@@ -6016,11 +6042,11 @@ pub const Type = extern union {
         len: u64,
         sent: ?Value,
         elem_type: Type,
-        target: Target,
+        mod: *Module,
     ) Allocator.Error!Type {
-        if (elem_type.eql(Type.u8, target)) {
+        if (elem_type.eql(Type.u8, mod)) {
             if (sent) |some| {
-                if (some.eql(Value.zero, elem_type, target)) {
+                if (some.eql(Value.zero, elem_type, mod)) {
                     return Tag.array_u8_sentinel_0.create(arena, len);
                 }
             } else {
@@ -6067,11 +6093,11 @@ pub const Type = extern union {
         arena: Allocator,
         error_set: Type,
         payload: Type,
-        target: Target,
+        mod: *Module,
     ) Allocator.Error!Type {
         assert(error_set.zigTypeTag() == .ErrorSet);
-        if (error_set.eql(Type.@"anyerror", target) and
-            payload.eql(Type.void, target))
+        if (error_set.eql(Type.@"anyerror", mod) and
+            payload.eql(Type.void, mod))
         {
             return Type.initTag(.anyerror_void_error_union);
         }

@@ -191,22 +191,22 @@ pub const CSourceFile = struct {
 
 const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
-    codegen_decl: *Module.Decl,
+    codegen_decl: Module.Decl.Index,
     /// Write the machine code for a function to the output file.
     codegen_func: *Module.Fn,
     /// Render the .h file snippet for the Decl.
-    emit_h_decl: *Module.Decl,
+    emit_h_decl: Module.Decl.Index,
     /// The Decl needs to be analyzed and possibly export itself.
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
-    analyze_decl: *Module.Decl,
+    analyze_decl: Module.Decl.Index,
     /// The file that was loaded with `@embedFile` has changed on disk
     /// and has been re-loaded into memory. All Decls that depend on it
     /// need to be re-analyzed.
     update_embed_file: *Module.EmbedFile,
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
-    update_line_number: *Module.Decl,
+    update_line_number: Module.Decl.Index,
     /// The main source file for the package needs to be analyzed.
     analyze_pkg: *Package,
 
@@ -2105,17 +2105,18 @@ pub fn update(comp: *Compilation) !void {
             // deletion set may grow as we call `clearDecl` within this loop,
             // and more unreferenced Decls are revealed.
             while (module.deletion_set.count() != 0) {
-                const decl = module.deletion_set.keys()[0];
+                const decl_index = module.deletion_set.keys()[0];
+                const decl = module.declPtr(decl_index);
                 assert(decl.deletion_flag);
                 assert(decl.dependants.count() == 0);
                 const is_anon = if (decl.zir_decl_index == 0) blk: {
-                    break :blk decl.src_namespace.anon_decls.swapRemove(decl);
+                    break :blk decl.src_namespace.anon_decls.swapRemove(decl_index);
                 } else false;
 
-                try module.clearDecl(decl, null);
+                try module.clearDecl(decl_index, null);
 
                 if (is_anon) {
-                    decl.destroy(module);
+                    module.destroyDecl(decl_index);
                 }
             }
 
@@ -2444,13 +2445,15 @@ pub fn totalErrorCount(self: *Compilation) usize {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.keys()) |key| {
-            if (key.getFileScope().okToReportErrors()) {
+            const decl = module.declPtr(key);
+            if (decl.getFileScope().okToReportErrors()) {
                 total += 1;
             }
         }
         if (module.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys()) |key| {
-                if (key.getFileScope().okToReportErrors()) {
+                const decl = module.declPtr(key);
+                if (decl.getFileScope().okToReportErrors()) {
                     total += 1;
                 }
             }
@@ -2529,9 +2532,10 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         {
             var it = module.failed_decls.iterator();
             while (it.next()) |entry| {
+                const decl = module.declPtr(entry.key_ptr.*);
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (entry.key_ptr.*.getFileScope().okToReportErrors()) {
+                if (decl.getFileScope().okToReportErrors()) {
                     try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
                 }
             }
@@ -2539,9 +2543,10 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         if (module.emit_h) |emit_h| {
             var it = emit_h.failed_decls.iterator();
             while (it.next()) |entry| {
+                const decl = module.declPtr(entry.key_ptr.*);
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (entry.key_ptr.*.getFileScope().okToReportErrors()) {
+                if (decl.getFileScope().okToReportErrors()) {
                     try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
                 }
             }
@@ -2564,7 +2569,8 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             const keys = module.compile_log_decls.keys();
             const values = module.compile_log_decls.values();
             // First one will be the error; subsequent ones will be notes.
-            const src_loc = keys[0].nodeOffsetSrcLoc(values[0]);
+            const err_decl = module.declPtr(keys[0]);
+            const src_loc = err_decl.nodeOffsetSrcLoc(values[0]);
             const err_msg = Module.ErrorMsg{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
@@ -2573,8 +2579,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             defer self.gpa.free(err_msg.notes);
 
             for (keys[1..]) |key, i| {
+                const note_decl = module.declPtr(key);
                 err_msg.notes[i] = .{
-                    .src_loc = key.nodeOffsetSrcLoc(values[i + 1]),
+                    .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1]),
                     .msg = "also here",
                 };
             }
@@ -2708,38 +2715,42 @@ pub fn performAllTheWork(
 
 fn processOneJob(comp: *Compilation, job: Job) !void {
     switch (job) {
-        .codegen_decl => |decl| switch (decl.analysis) {
-            .unreferenced => unreachable,
-            .in_progress => unreachable,
-            .outdated => unreachable,
+        .codegen_decl => |decl_index| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
 
-            .file_failure,
-            .sema_failure,
-            .codegen_failure,
-            .dependency_failure,
-            .sema_failure_retryable,
-            => return,
+            const module = comp.bin_file.options.module.?;
+            const decl = module.declPtr(decl_index);
 
-            .complete, .codegen_failure_retryable => {
-                if (build_options.omit_stage2)
-                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+            switch (decl.analysis) {
+                .unreferenced => unreachable,
+                .in_progress => unreachable,
+                .outdated => unreachable,
 
-                const named_frame = tracy.namedFrame("codegen_decl");
-                defer named_frame.end();
+                .file_failure,
+                .sema_failure,
+                .codegen_failure,
+                .dependency_failure,
+                .sema_failure_retryable,
+                => return,
 
-                const module = comp.bin_file.options.module.?;
-                assert(decl.has_tv);
+                .complete, .codegen_failure_retryable => {
+                    const named_frame = tracy.namedFrame("codegen_decl");
+                    defer named_frame.end();
 
-                if (decl.alive) {
-                    try module.linkerUpdateDecl(decl);
+                    assert(decl.has_tv);
+
+                    if (decl.alive) {
+                        try module.linkerUpdateDecl(decl_index);
+                        return;
+                    }
+
+                    // Instead of sending this decl to the linker, we actually will delete it
+                    // because we found out that it in fact was never referenced.
+                    module.deleteUnusedDecl(decl_index);
                     return;
-                }
-
-                // Instead of sending this decl to the linker, we actually will delete it
-                // because we found out that it in fact was never referenced.
-                module.deleteUnusedDecl(decl);
-                return;
-            },
+                },
+            }
         },
         .codegen_func => |func| {
             if (build_options.omit_stage2)
@@ -2754,68 +2765,73 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 error.AnalysisFail => return,
             };
         },
-        .emit_h_decl => |decl| switch (decl.analysis) {
-            .unreferenced => unreachable,
-            .in_progress => unreachable,
-            .outdated => unreachable,
-
-            .file_failure,
-            .sema_failure,
-            .dependency_failure,
-            .sema_failure_retryable,
-            => return,
-
-            // emit-h only requires semantic analysis of the Decl to be complete,
-            // it does not depend on machine code generation to succeed.
-            .codegen_failure, .codegen_failure_retryable, .complete => {
-                if (build_options.omit_stage2)
-                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
-                const named_frame = tracy.namedFrame("emit_h_decl");
-                defer named_frame.end();
-
-                const gpa = comp.gpa;
-                const module = comp.bin_file.options.module.?;
-                const emit_h = module.emit_h.?;
-                _ = try emit_h.decl_table.getOrPut(gpa, decl);
-                const decl_emit_h = decl.getEmitH(module);
-                const fwd_decl = &decl_emit_h.fwd_decl;
-                fwd_decl.shrinkRetainingCapacity(0);
-                var typedefs_arena = std.heap.ArenaAllocator.init(gpa);
-                defer typedefs_arena.deinit();
-
-                var dg: c_codegen.DeclGen = .{
-                    .gpa = gpa,
-                    .module = module,
-                    .error_msg = null,
-                    .decl = decl,
-                    .fwd_decl = fwd_decl.toManaged(gpa),
-                    .typedefs = c_codegen.TypedefMap.initContext(gpa, .{
-                        .target = comp.getTarget(),
-                    }),
-                    .typedefs_arena = typedefs_arena.allocator(),
-                };
-                defer dg.fwd_decl.deinit();
-                defer dg.typedefs.deinit();
-
-                c_codegen.genHeader(&dg) catch |err| switch (err) {
-                    error.AnalysisFail => {
-                        try emit_h.failed_decls.put(gpa, decl, dg.error_msg.?);
-                        return;
-                    },
-                    else => |e| return e,
-                };
-
-                fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
-                fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
-            },
-        },
-        .analyze_decl => |decl| {
+        .emit_h_decl => |decl_index| {
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
 
             const module = comp.bin_file.options.module.?;
-            module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
+            const decl = module.declPtr(decl_index);
+
+            switch (decl.analysis) {
+                .unreferenced => unreachable,
+                .in_progress => unreachable,
+                .outdated => unreachable,
+
+                .file_failure,
+                .sema_failure,
+                .dependency_failure,
+                .sema_failure_retryable,
+                => return,
+
+                // emit-h only requires semantic analysis of the Decl to be complete,
+                // it does not depend on machine code generation to succeed.
+                .codegen_failure, .codegen_failure_retryable, .complete => {
+                    const named_frame = tracy.namedFrame("emit_h_decl");
+                    defer named_frame.end();
+
+                    const gpa = comp.gpa;
+                    const emit_h = module.emit_h.?;
+                    _ = try emit_h.decl_table.getOrPut(gpa, decl_index);
+                    const decl_emit_h = emit_h.declPtr(decl_index);
+                    const fwd_decl = &decl_emit_h.fwd_decl;
+                    fwd_decl.shrinkRetainingCapacity(0);
+                    var typedefs_arena = std.heap.ArenaAllocator.init(gpa);
+                    defer typedefs_arena.deinit();
+
+                    var dg: c_codegen.DeclGen = .{
+                        .gpa = gpa,
+                        .module = module,
+                        .error_msg = null,
+                        .decl_index = decl_index,
+                        .decl = decl,
+                        .fwd_decl = fwd_decl.toManaged(gpa),
+                        .typedefs = c_codegen.TypedefMap.initContext(gpa, .{
+                            .mod = module,
+                        }),
+                        .typedefs_arena = typedefs_arena.allocator(),
+                    };
+                    defer dg.fwd_decl.deinit();
+                    defer dg.typedefs.deinit();
+
+                    c_codegen.genHeader(&dg) catch |err| switch (err) {
+                        error.AnalysisFail => {
+                            try emit_h.failed_decls.put(gpa, decl_index, dg.error_msg.?);
+                            return;
+                        },
+                        else => |e| return e,
+                    };
+
+                    fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
+                    fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
+                },
+            }
+        },
+        .analyze_decl => |decl_index| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
+            const module = comp.bin_file.options.module.?;
+            module.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
@@ -2833,7 +2849,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 error.AnalysisFail => return,
             };
         },
-        .update_line_number => |decl| {
+        .update_line_number => |decl_index| {
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
 
@@ -2842,9 +2858,10 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             const gpa = comp.gpa;
             const module = comp.bin_file.options.module.?;
+            const decl = module.declPtr(decl_index);
             comp.bin_file.updateDeclLineNumber(module, decl) catch |err| {
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
-                module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
+                module.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                     gpa,
                     decl.srcLoc(),
                     "unable to update line number: {s}",
@@ -3472,7 +3489,7 @@ fn reportRetryableEmbedFileError(
     const mod = comp.bin_file.options.module.?;
     const gpa = mod.gpa;
 
-    const src_loc: Module.SrcLoc = embed_file.owner_decl.srcLoc();
+    const src_loc: Module.SrcLoc = mod.declPtr(embed_file.owner_decl).srcLoc();
 
     const err_msg = if (embed_file.pkg.root_src_directory.path) |dir_path|
         try Module.ErrorMsg.create(

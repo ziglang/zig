@@ -90,9 +90,11 @@ fn dumpStatusReport() !void {
 
     const stderr = io.getStdErr().writer();
     const block: *Sema.Block = anal.block;
+    const mod = anal.sema.mod;
+    const block_src_decl = mod.declPtr(block.src_decl);
 
     try stderr.writeAll("Analyzing ");
-    try writeFullyQualifiedDeclWithFile(block.src_decl, stderr);
+    try writeFullyQualifiedDeclWithFile(mod, block_src_decl, stderr);
     try stderr.writeAll("\n");
 
     print_zir.renderInstructionContext(
@@ -100,7 +102,7 @@ fn dumpStatusReport() !void {
         anal.body,
         anal.body_index,
         block.namespace.file_scope,
-        block.src_decl.src_node,
+        block_src_decl.src_node,
         6, // indent
         stderr,
     ) catch |err| switch (err) {
@@ -115,13 +117,14 @@ fn dumpStatusReport() !void {
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        try writeFullyQualifiedDeclWithFile(curr.block.src_decl, stderr);
+        const curr_block_src_decl = mod.declPtr(curr.block.src_decl);
+        try writeFullyQualifiedDeclWithFile(mod, curr_block_src_decl, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
             curr.block.namespace.file_scope,
-            curr.block.src_decl.src_node,
+            curr_block_src_decl.src_node,
             6, // indent
             stderr,
         ) catch |err| switch (err) {
@@ -146,10 +149,10 @@ fn writeFilePath(file: *Module.File, stream: anytype) !void {
     try stream.writeAll(file.sub_file_path);
 }
 
-fn writeFullyQualifiedDeclWithFile(decl: *Decl, stream: anytype) !void {
+fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, stream: anytype) !void {
     try writeFilePath(decl.getFileScope(), stream);
     try stream.writeAll(": ");
-    try decl.renderFullyQualifiedDebugName(stream);
+    try decl.renderFullyQualifiedDebugName(mod, stream);
 }
 
 pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {

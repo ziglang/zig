@@ -731,16 +731,16 @@ pub const Value = extern union {
             .int_i64 => return std.fmt.formatIntValue(val.castTag(.int_i64).?.data, "", options, out_stream),
             .int_big_positive => return out_stream.print("{}", .{val.castTag(.int_big_positive).?.asBigInt()}),
             .int_big_negative => return out_stream.print("{}", .{val.castTag(.int_big_negative).?.asBigInt()}),
-            .function => return out_stream.print("(function '{s}')", .{val.castTag(.function).?.data.owner_decl.name}),
+            .function => return out_stream.print("(function decl={d})", .{val.castTag(.function).?.data.owner_decl}),
             .extern_fn => return out_stream.writeAll("(extern function)"),
             .variable => return out_stream.writeAll("(variable)"),
             .decl_ref_mut => {
-                const decl = val.castTag(.decl_ref_mut).?.data.decl;
-                return out_stream.print("(decl_ref_mut '{s}')", .{decl.name});
+                const decl_index = val.castTag(.decl_ref_mut).?.data.decl_index;
+                return out_stream.print("(decl_ref_mut {d})", .{decl_index});
             },
             .decl_ref => {
-                const decl = val.castTag(.decl_ref).?.data;
-                return out_stream.print("(decl ref '{s}')", .{decl.name});
+                const decl_index = val.castTag(.decl_ref).?.data;
+                return out_stream.print("(decl_ref {d})", .{decl_index});
             },
             .elem_ptr => {
                 const elem_ptr = val.castTag(.elem_ptr).?.data;
@@ -798,16 +798,17 @@ pub const Value = extern union {
         return .{ .data = val };
     }
 
-    pub fn fmtValue(val: Value, ty: Type, target: Target) std.fmt.Formatter(TypedValue.format) {
+    pub fn fmtValue(val: Value, ty: Type, mod: *Module) std.fmt.Formatter(TypedValue.format) {
         return .{ .data = .{
             .tv = .{ .ty = ty, .val = val },
-            .target = target,
+            .mod = mod,
         } };
     }
 
     /// Asserts that the value is representable as an array of bytes.
     /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
-    pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, target: Target) ![]u8 {
+    pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, mod: *Module) ![]u8 {
+        const target = mod.getTarget();
         switch (val.tag()) {
             .bytes => {
                 const bytes = val.castTag(.bytes).?.data;
@@ -823,25 +824,26 @@ pub const Value = extern union {
                 return result;
             },
             .decl_ref => {
-                const decl = val.castTag(.decl_ref).?.data;
+                const decl_index = val.castTag(.decl_ref).?.data;
+                const decl = mod.declPtr(decl_index);
                 const decl_val = try decl.value();
-                return decl_val.toAllocatedBytes(decl.ty, allocator, target);
+                return decl_val.toAllocatedBytes(decl.ty, allocator, mod);
             },
             .the_only_possible_value => return &[_]u8{},
             .slice => {
                 const slice = val.castTag(.slice).?.data;
-                return arrayToAllocatedBytes(slice.ptr, slice.len.toUnsignedInt(target), allocator, target);
+                return arrayToAllocatedBytes(slice.ptr, slice.len.toUnsignedInt(target), allocator, mod);
             },
-            else => return arrayToAllocatedBytes(val, ty.arrayLen(), allocator, target),
+            else => return arrayToAllocatedBytes(val, ty.arrayLen(), allocator, mod),
         }
     }
 
-    fn arrayToAllocatedBytes(val: Value, len: u64, allocator: Allocator, target: Target) ![]u8 {
+    fn arrayToAllocatedBytes(val: Value, len: u64, allocator: Allocator, mod: *Module) ![]u8 {
         const result = try allocator.alloc(u8, @intCast(usize, len));
         var elem_value_buf: ElemValueBuffer = undefined;
         for (result) |*elem, i| {
-            const elem_val = val.elemValueBuffer(i, &elem_value_buf);
-            elem.* = @intCast(u8, elem_val.toUnsignedInt(target));
+            const elem_val = val.elemValueBuffer(mod, i, &elem_value_buf);
+            elem.* = @intCast(u8, elem_val.toUnsignedInt(mod.getTarget()));
         }
         return result;
     }
@@ -1164,7 +1166,7 @@ pub const Value = extern union {
                 var elem_value_buf: ElemValueBuffer = undefined;
                 var buf_off: usize = 0;
                 while (elem_i < len) : (elem_i += 1) {
-                    const elem_val = val.elemValueBuffer(elem_i, &elem_value_buf);
+                    const elem_val = val.elemValueBuffer(mod, elem_i, &elem_value_buf);
                     writeToMemory(elem_val, elem_ty, mod, buffer[buf_off..]);
                     buf_off += elem_size;
                 }
@@ -1975,34 +1977,47 @@ pub const Value = extern union {
 
     /// Asserts the values are comparable. Both operands have type `ty`.
     /// Vector results will be reduced with AND.
-    pub fn compare(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, target: Target) bool {
+    pub fn compare(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, mod: *Module) bool {
         if (ty.zigTypeTag() == .Vector) {
             var i: usize = 0;
             while (i < ty.vectorLen()) : (i += 1) {
-                if (!compareScalar(lhs.indexVectorlike(i), op, rhs.indexVectorlike(i), ty.scalarType(), target)) {
+                if (!compareScalar(lhs.indexVectorlike(i), op, rhs.indexVectorlike(i), ty.scalarType(), mod)) {
                     return false;
                 }
             }
             return true;
         }
-        return compareScalar(lhs, op, rhs, ty, target);
+        return compareScalar(lhs, op, rhs, ty, mod);
     }
 
     /// Asserts the values are comparable. Both operands have type `ty`.
-    pub fn compareScalar(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, target: Target) bool {
+    pub fn compareScalar(
+        lhs: Value,
+        op: std.math.CompareOperator,
+        rhs: Value,
+        ty: Type,
+        mod: *Module,
+    ) bool {
         return switch (op) {
-            .eq => lhs.eql(rhs, ty, target),
-            .neq => !lhs.eql(rhs, ty, target),
-            else => compareHetero(lhs, op, rhs, target),
+            .eq => lhs.eql(rhs, ty, mod),
+            .neq => !lhs.eql(rhs, ty, mod),
+            else => compareHetero(lhs, op, rhs, mod.getTarget()),
         };
     }
 
     /// Asserts the values are comparable vectors of type `ty`.
-    pub fn compareVector(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, allocator: Allocator, target: Target) !Value {
+    pub fn compareVector(
+        lhs: Value,
+        op: std.math.CompareOperator,
+        rhs: Value,
+        ty: Type,
+        allocator: Allocator,
+        mod: *Module,
+    ) !Value {
         assert(ty.zigTypeTag() == .Vector);
         const result_data = try allocator.alloc(Value, ty.vectorLen());
         for (result_data) |*scalar, i| {
-            const res_bool = compareScalar(lhs.indexVectorlike(i), op, rhs.indexVectorlike(i), ty.scalarType(), target);
+            const res_bool = compareScalar(lhs.indexVectorlike(i), op, rhs.indexVectorlike(i), ty.scalarType(), mod);
             scalar.* = if (res_bool) Value.@"true" else Value.@"false";
         }
         return Value.Tag.aggregate.create(allocator, result_data);
@@ -2032,7 +2047,8 @@ pub const Value = extern union {
     /// for `a`. This function must act *as if* `a` has been coerced to `ty`. This complication
     /// is required in order to make generic function instantiation effecient - specifically
     /// the insertion into the monomorphized function table.
-    pub fn eql(a: Value, b: Value, ty: Type, target: Target) bool {
+    pub fn eql(a: Value, b: Value, ty: Type, mod: *Module) bool {
+        const target = mod.getTarget();
         const a_tag = a.tag();
         const b_tag = b.tag();
         if (a_tag == b_tag) switch (a_tag) {
@@ -2052,31 +2068,31 @@ pub const Value = extern union {
                 const a_payload = a.castTag(.opt_payload).?.data;
                 const b_payload = b.castTag(.opt_payload).?.data;
                 var buffer: Type.Payload.ElemType = undefined;
-                return eql(a_payload, b_payload, ty.optionalChild(&buffer), target);
+                return eql(a_payload, b_payload, ty.optionalChild(&buffer), mod);
             },
             .slice => {
                 const a_payload = a.castTag(.slice).?.data;
                 const b_payload = b.castTag(.slice).?.data;
-                if (!eql(a_payload.len, b_payload.len, Type.usize, target)) return false;
+                if (!eql(a_payload.len, b_payload.len, Type.usize, mod)) return false;
 
                 var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
 
-                return eql(a_payload.ptr, b_payload.ptr, ptr_ty, target);
+                return eql(a_payload.ptr, b_payload.ptr, ptr_ty, mod);
             },
             .elem_ptr => {
                 const a_payload = a.castTag(.elem_ptr).?.data;
                 const b_payload = b.castTag(.elem_ptr).?.data;
                 if (a_payload.index != b_payload.index) return false;
 
-                return eql(a_payload.array_ptr, b_payload.array_ptr, ty, target);
+                return eql(a_payload.array_ptr, b_payload.array_ptr, ty, mod);
             },
             .field_ptr => {
                 const a_payload = a.castTag(.field_ptr).?.data;
                 const b_payload = b.castTag(.field_ptr).?.data;
                 if (a_payload.field_index != b_payload.field_index) return false;
 
-                return eql(a_payload.container_ptr, b_payload.container_ptr, ty, target);
+                return eql(a_payload.container_ptr, b_payload.container_ptr, ty, mod);
             },
             .@"error" => {
                 const a_name = a.castTag(.@"error").?.data.name;
@@ -2086,7 +2102,7 @@ pub const Value = extern union {
             .eu_payload => {
                 const a_payload = a.castTag(.eu_payload).?.data;
                 const b_payload = b.castTag(.eu_payload).?.data;
-                return eql(a_payload, b_payload, ty.errorUnionPayload(), target);
+                return eql(a_payload, b_payload, ty.errorUnionPayload(), mod);
             },
             .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
             .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
@@ -2104,7 +2120,7 @@ pub const Value = extern union {
                     const types = ty.tupleFields().types;
                     assert(types.len == a_field_vals.len);
                     for (types) |field_ty, i| {
-                        if (!eql(a_field_vals[i], b_field_vals[i], field_ty, target)) return false;
+                        if (!eql(a_field_vals[i], b_field_vals[i], field_ty, mod)) return false;
                     }
                     return true;
                 }
@@ -2113,7 +2129,7 @@ pub const Value = extern union {
                     const fields = ty.structFields().values();
                     assert(fields.len == a_field_vals.len);
                     for (fields) |field, i| {
-                        if (!eql(a_field_vals[i], b_field_vals[i], field.ty, target)) return false;
+                        if (!eql(a_field_vals[i], b_field_vals[i], field.ty, mod)) return false;
                     }
                     return true;
                 }
@@ -2122,7 +2138,7 @@ pub const Value = extern union {
                 for (a_field_vals) |a_elem, i| {
                     const b_elem = b_field_vals[i];
 
-                    if (!eql(a_elem, b_elem, elem_ty, target)) return false;
+                    if (!eql(a_elem, b_elem, elem_ty, mod)) return false;
                 }
                 return true;
             },
@@ -2132,7 +2148,7 @@ pub const Value = extern union {
                 switch (ty.containerLayout()) {
                     .Packed, .Extern => {
                         const tag_ty = ty.unionTagTypeHypothetical();
-                        if (!a_union.tag.eql(b_union.tag, tag_ty, target)) {
+                        if (!a_union.tag.eql(b_union.tag, tag_ty, mod)) {
                             // In this case, we must disregard mismatching tags and compare
                             // based on the in-memory bytes of the payloads.
                             @panic("TODO comptime comparison of extern union values with mismatching tags");
@@ -2140,13 +2156,13 @@ pub const Value = extern union {
                     },
                     .Auto => {
                         const tag_ty = ty.unionTagTypeHypothetical();
-                        if (!a_union.tag.eql(b_union.tag, tag_ty, target)) {
+                        if (!a_union.tag.eql(b_union.tag, tag_ty, mod)) {
                             return false;
                         }
                     },
                 }
-                const active_field_ty = ty.unionFieldType(a_union.tag, target);
-                return a_union.val.eql(b_union.val, active_field_ty, target);
+                const active_field_ty = ty.unionFieldType(a_union.tag, mod);
+                return a_union.val.eql(b_union.val, active_field_ty, mod);
             },
             else => {},
         } else if (a_tag == .null_value or b_tag == .null_value) {
@@ -2171,7 +2187,7 @@ pub const Value = extern union {
                 var buf_b: ToTypeBuffer = undefined;
                 const a_type = a.toType(&buf_a);
                 const b_type = b.toType(&buf_b);
-                return a_type.eql(b_type, target);
+                return a_type.eql(b_type, mod);
             },
             .Enum => {
                 var buf_a: Payload.U64 = undefined;
@@ -2180,7 +2196,7 @@ pub const Value = extern union {
                 const b_val = b.enumToInt(ty, &buf_b);
                 var buf_ty: Type.Payload.Bits = undefined;
                 const int_ty = ty.intTagType(&buf_ty);
-                return eql(a_val, b_val, int_ty, target);
+                return eql(a_val, b_val, int_ty, mod);
             },
             .Array, .Vector => {
                 const len = ty.arrayLen();
@@ -2189,9 +2205,9 @@ pub const Value = extern union {
                 var a_buf: ElemValueBuffer = undefined;
                 var b_buf: ElemValueBuffer = undefined;
                 while (i < len) : (i += 1) {
-                    const a_elem = elemValueBuffer(a, i, &a_buf);
-                    const b_elem = elemValueBuffer(b, i, &b_buf);
-                    if (!eql(a_elem, b_elem, elem_ty, target)) return false;
+                    const a_elem = elemValueBuffer(a, mod, i, &a_buf);
+                    const b_elem = elemValueBuffer(b, mod, i, &b_buf);
+                    if (!eql(a_elem, b_elem, elem_ty, mod)) return false;
                 }
                 return true;
             },
@@ -2215,7 +2231,7 @@ pub const Value = extern union {
                         .base = .{ .tag = .opt_payload },
                         .data = a,
                     };
-                    return eql(Value.initPayload(&buffer.base), b, ty, target);
+                    return eql(Value.initPayload(&buffer.base), b, ty, mod);
                 }
             },
             else => {},
@@ -2225,7 +2241,7 @@ pub const Value = extern union {
 
     /// This function is used by hash maps and so treats floating-point NaNs as equal
     /// to each other, and not equal to other floating-point values.
-    pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash, target: Target) void {
+    pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash, mod: *Module) void {
         const zig_ty_tag = ty.zigTypeTag();
         std.hash.autoHash(hasher, zig_ty_tag);
         if (val.isUndef()) return;
@@ -2242,7 +2258,7 @@ pub const Value = extern union {
 
             .Type => {
                 var buf: ToTypeBuffer = undefined;
-                return val.toType(&buf).hashWithHasher(hasher, target);
+                return val.toType(&buf).hashWithHasher(hasher, mod);
             },
             .Float, .ComptimeFloat => {
                 // Normalize the float here because this hash must match eql semantics.
@@ -2263,11 +2279,11 @@ pub const Value = extern union {
                     const slice = val.castTag(.slice).?.data;
                     var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
                     const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
-                    hash(slice.ptr, ptr_ty, hasher, target);
-                    hash(slice.len, Type.usize, hasher, target);
+                    hash(slice.ptr, ptr_ty, hasher, mod);
+                    hash(slice.len, Type.usize, hasher, mod);
                 },
 
-                else => return hashPtr(val, hasher, target),
+                else => return hashPtr(val, hasher, mod.getTarget()),
             },
             .Array, .Vector => {
                 const len = ty.arrayLen();
@@ -2275,15 +2291,15 @@ pub const Value = extern union {
                 var index: usize = 0;
                 var elem_value_buf: ElemValueBuffer = undefined;
                 while (index < len) : (index += 1) {
-                    const elem_val = val.elemValueBuffer(index, &elem_value_buf);
-                    elem_val.hash(elem_ty, hasher, target);
+                    const elem_val = val.elemValueBuffer(mod, index, &elem_value_buf);
+                    elem_val.hash(elem_ty, hasher, mod);
                 }
             },
             .Struct => {
                 if (ty.isTupleOrAnonStruct()) {
                     const fields = ty.tupleFields();
                     for (fields.values) |field_val, i| {
-                        field_val.hash(fields.types[i], hasher, target);
+                        field_val.hash(fields.types[i], hasher, mod);
                     }
                     return;
                 }
@@ -2292,13 +2308,13 @@ pub const Value = extern union {
                 switch (val.tag()) {
                     .empty_struct_value => {
                         for (fields) |field| {
-                            field.default_val.hash(field.ty, hasher, target);
+                            field.default_val.hash(field.ty, hasher, mod);
                         }
                     },
                     .aggregate => {
                         const field_values = val.castTag(.aggregate).?.data;
                         for (field_values) |field_val, i| {
-                            field_val.hash(fields[i].ty, hasher, target);
+                            field_val.hash(fields[i].ty, hasher, mod);
                         }
                     },
                     else => unreachable,
@@ -2310,7 +2326,7 @@ pub const Value = extern union {
                     const sub_val = payload.data;
                     var buffer: Type.Payload.ElemType = undefined;
                     const sub_ty = ty.optionalChild(&buffer);
-                    sub_val.hash(sub_ty, hasher, target);
+                    sub_val.hash(sub_ty, hasher, mod);
                 } else {
                     std.hash.autoHash(hasher, false); // non-null
                 }
@@ -2319,14 +2335,14 @@ pub const Value = extern union {
                 if (val.tag() == .@"error") {
                     std.hash.autoHash(hasher, false); // error
                     const sub_ty = ty.errorUnionSet();
-                    val.hash(sub_ty, hasher, target);
+                    val.hash(sub_ty, hasher, mod);
                     return;
                 }
 
                 if (val.castTag(.eu_payload)) |payload| {
                     std.hash.autoHash(hasher, true); // payload
                     const sub_ty = ty.errorUnionPayload();
-                    payload.data.hash(sub_ty, hasher, target);
+                    payload.data.hash(sub_ty, hasher, mod);
                     return;
                 } else unreachable;
             },
@@ -2339,15 +2355,15 @@ pub const Value = extern union {
             .Enum => {
                 var enum_space: Payload.U64 = undefined;
                 const int_val = val.enumToInt(ty, &enum_space);
-                hashInt(int_val, hasher, target);
+                hashInt(int_val, hasher, mod.getTarget());
             },
             .Union => {
                 const union_obj = val.cast(Payload.Union).?.data;
                 if (ty.unionTagType()) |tag_ty| {
-                    union_obj.tag.hash(tag_ty, hasher, target);
+                    union_obj.tag.hash(tag_ty, hasher, mod);
                 }
-                const active_field_ty = ty.unionFieldType(union_obj.tag, target);
-                union_obj.val.hash(active_field_ty, hasher, target);
+                const active_field_ty = ty.unionFieldType(union_obj.tag, mod);
+                union_obj.val.hash(active_field_ty, hasher, mod);
             },
             .Fn => {
                 const func: *Module.Fn = val.castTag(.function).?.data;
@@ -2372,30 +2388,30 @@ pub const Value = extern union {
 
     pub const ArrayHashContext = struct {
         ty: Type,
-        target: Target,
+        mod: *Module,
 
         pub fn hash(self: @This(), val: Value) u32 {
-            const other_context: HashContext = .{ .ty = self.ty, .target = self.target };
+            const other_context: HashContext = .{ .ty = self.ty, .mod = self.mod };
             return @truncate(u32, other_context.hash(val));
         }
         pub fn eql(self: @This(), a: Value, b: Value, b_index: usize) bool {
             _ = b_index;
-            return a.eql(b, self.ty, self.target);
+            return a.eql(b, self.ty, self.mod);
         }
     };
 
     pub const HashContext = struct {
         ty: Type,
-        target: Target,
+        mod: *Module,
 
         pub fn hash(self: @This(), val: Value) u64 {
             var hasher = std.hash.Wyhash.init(0);
-            val.hash(self.ty, &hasher, self.target);
+            val.hash(self.ty, &hasher, self.mod);
             return hasher.final();
         }
 
         pub fn eql(self: @This(), a: Value, b: Value) bool {
-            return a.eql(b, self.ty, self.target);
+            return a.eql(b, self.ty, self.mod);
         }
     };
 
@@ -2434,9 +2450,9 @@ pub const Value = extern union {
     /// Gets the decl referenced by this pointer.  If the pointer does not point
     /// to a decl, or if it points to some part of a decl (like field_ptr or element_ptr),
     /// this function returns null.
-    pub fn pointerDecl(val: Value) ?*Module.Decl {
+    pub fn pointerDecl(val: Value) ?Module.Decl.Index {
         return switch (val.tag()) {
-            .decl_ref_mut => val.castTag(.decl_ref_mut).?.data.decl,
+            .decl_ref_mut => val.castTag(.decl_ref_mut).?.data.decl_index,
             .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
             .function => val.castTag(.function).?.data.owner_decl,
             .variable => val.castTag(.variable).?.data.owner_decl,
@@ -2462,7 +2478,7 @@ pub const Value = extern union {
             .function,
             .variable,
             => {
-                const decl: *Module.Decl = ptr_val.pointerDecl().?;
+                const decl: Module.Decl.Index = ptr_val.pointerDecl().?;
                 std.hash.autoHash(hasher, decl);
             },
 
@@ -2505,53 +2521,6 @@ pub const Value = extern union {
         }
     }
 
-    pub fn markReferencedDeclsAlive(val: Value) void {
-        switch (val.tag()) {
-            .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.markAlive(),
-            .extern_fn => return val.castTag(.extern_fn).?.data.owner_decl.markAlive(),
-            .function => return val.castTag(.function).?.data.owner_decl.markAlive(),
-            .variable => return val.castTag(.variable).?.data.owner_decl.markAlive(),
-            .decl_ref => return val.cast(Payload.Decl).?.data.markAlive(),
-
-            .repeated,
-            .eu_payload,
-            .opt_payload,
-            .empty_array_sentinel,
-            => return markReferencedDeclsAlive(val.cast(Payload.SubValue).?.data),
-
-            .eu_payload_ptr,
-            .opt_payload_ptr,
-            => return markReferencedDeclsAlive(val.cast(Payload.PayloadPtr).?.data.container_ptr),
-
-            .slice => {
-                const slice = val.cast(Payload.Slice).?.data;
-                markReferencedDeclsAlive(slice.ptr);
-                markReferencedDeclsAlive(slice.len);
-            },
-
-            .elem_ptr => {
-                const elem_ptr = val.cast(Payload.ElemPtr).?.data;
-                return markReferencedDeclsAlive(elem_ptr.array_ptr);
-            },
-            .field_ptr => {
-                const field_ptr = val.cast(Payload.FieldPtr).?.data;
-                return markReferencedDeclsAlive(field_ptr.container_ptr);
-            },
-            .aggregate => {
-                for (val.castTag(.aggregate).?.data) |field_val| {
-                    markReferencedDeclsAlive(field_val);
-                }
-            },
-            .@"union" => {
-                const data = val.cast(Payload.Union).?.data;
-                markReferencedDeclsAlive(data.tag);
-                markReferencedDeclsAlive(data.val);
-            },
-
-            else => {},
-        }
-    }
-
     pub fn slicePtr(val: Value) Value {
         return switch (val.tag()) {
             .slice => val.castTag(.slice).?.data.ptr,
@@ -2561,11 +2530,12 @@ pub const Value = extern union {
         };
     }
 
-    pub fn sliceLen(val: Value, target: Target) u64 {
+    pub fn sliceLen(val: Value, mod: *Module) u64 {
         return switch (val.tag()) {
-            .slice => val.castTag(.slice).?.data.len.toUnsignedInt(target),
+            .slice => val.castTag(.slice).?.data.len.toUnsignedInt(mod.getTarget()),
             .decl_ref => {
-                const decl = val.castTag(.decl_ref).?.data;
+                const decl_index = val.castTag(.decl_ref).?.data;
+                const decl = mod.declPtr(decl_index);
                 if (decl.ty.zigTypeTag() == .Array) {
                     return decl.ty.arrayLen();
                 } else {
@@ -2599,18 +2569,19 @@ pub const Value = extern union {
 
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
-    pub fn elemValue(val: Value, arena: Allocator, index: usize) !Value {
-        return elemValueAdvanced(val, index, arena, undefined);
+    pub fn elemValue(val: Value, mod: *Module, arena: Allocator, index: usize) !Value {
+        return elemValueAdvanced(val, mod, index, arena, undefined);
     }
 
     pub const ElemValueBuffer = Payload.U64;
 
-    pub fn elemValueBuffer(val: Value, index: usize, buffer: *ElemValueBuffer) Value {
-        return elemValueAdvanced(val, index, null, buffer) catch unreachable;
+    pub fn elemValueBuffer(val: Value, mod: *Module, index: usize, buffer: *ElemValueBuffer) Value {
+        return elemValueAdvanced(val, mod, index, null, buffer) catch unreachable;
     }
 
     pub fn elemValueAdvanced(
         val: Value,
+        mod: *Module,
         index: usize,
         arena: ?Allocator,
         buffer: *ElemValueBuffer,
@@ -2643,13 +2614,13 @@ pub const Value = extern union {
             .repeated => return val.castTag(.repeated).?.data,
 
             .aggregate => return val.castTag(.aggregate).?.data[index],
-            .slice => return val.castTag(.slice).?.data.ptr.elemValueAdvanced(index, arena, buffer),
+            .slice => return val.castTag(.slice).?.data.ptr.elemValueAdvanced(mod, index, arena, buffer),
 
-            .decl_ref => return val.castTag(.decl_ref).?.data.val.elemValueAdvanced(index, arena, buffer),
-            .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.val.elemValueAdvanced(index, arena, buffer),
+            .decl_ref => return mod.declPtr(val.castTag(.decl_ref).?.data).val.elemValueAdvanced(mod, index, arena, buffer),
+            .decl_ref_mut => return mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.elemValueAdvanced(mod, index, arena, buffer),
             .elem_ptr => {
                 const data = val.castTag(.elem_ptr).?.data;
-                return data.array_ptr.elemValueAdvanced(index + data.index, arena, buffer);
+                return data.array_ptr.elemValueAdvanced(mod, index + data.index, arena, buffer);
             },
 
             // The child type of arrays which have only one possible value need
@@ -2661,18 +2632,24 @@ pub const Value = extern union {
     }
 
     // Asserts that the provided start/end are in-bounds.
-    pub fn sliceArray(val: Value, arena: Allocator, start: usize, end: usize) error{OutOfMemory}!Value {
+    pub fn sliceArray(
+        val: Value,
+        mod: *Module,
+        arena: Allocator,
+        start: usize,
+        end: usize,
+    ) error{OutOfMemory}!Value {
         return switch (val.tag()) {
             .empty_array_sentinel => if (start == 0 and end == 1) val else Value.initTag(.empty_array),
             .bytes => Tag.bytes.create(arena, val.castTag(.bytes).?.data[start..end]),
             .aggregate => Tag.aggregate.create(arena, val.castTag(.aggregate).?.data[start..end]),
-            .slice => sliceArray(val.castTag(.slice).?.data.ptr, arena, start, end),
+            .slice => sliceArray(val.castTag(.slice).?.data.ptr, mod, arena, start, end),
 
-            .decl_ref => sliceArray(val.castTag(.decl_ref).?.data.val, arena, start, end),
-            .decl_ref_mut => sliceArray(val.castTag(.decl_ref_mut).?.data.decl.val, arena, start, end),
+            .decl_ref => sliceArray(mod.declPtr(val.castTag(.decl_ref).?.data).val, mod, arena, start, end),
+            .decl_ref_mut => sliceArray(mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val, mod, arena, start, end),
             .elem_ptr => blk: {
                 const elem_ptr = val.castTag(.elem_ptr).?.data;
-                break :blk sliceArray(elem_ptr.array_ptr, arena, start + elem_ptr.index, end + elem_ptr.index);
+                break :blk sliceArray(elem_ptr.array_ptr, mod, arena, start + elem_ptr.index, end + elem_ptr.index);
             },
 
             .repeated,
@@ -2718,7 +2695,13 @@ pub const Value = extern union {
     }
 
     /// Returns a pointer to the element value at the index.
-    pub fn elemPtr(val: Value, ty: Type, arena: Allocator, index: usize, target: Target) Allocator.Error!Value {
+    pub fn elemPtr(
+        val: Value,
+        ty: Type,
+        arena: Allocator,
+        index: usize,
+        mod: *Module,
+    ) Allocator.Error!Value {
         const elem_ty = ty.elemType2();
         const ptr_val = switch (val.tag()) {
             .slice => val.castTag(.slice).?.data.ptr,
@@ -2727,7 +2710,7 @@ pub const Value = extern union {
 
         if (ptr_val.tag() == .elem_ptr) {
             const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-            if (elem_ptr.elem_ty.eql(elem_ty, target)) {
+            if (elem_ptr.elem_ty.eql(elem_ty, mod)) {
                 return Tag.elem_ptr.create(arena, .{
                     .array_ptr = elem_ptr.array_ptr,
                     .elem_ty = elem_ptr.elem_ty,
@@ -5059,7 +5042,7 @@ pub const Value = extern union {
 
         pub const Decl = struct {
             base: Payload,
-            data: *Module.Decl,
+            data: Module.Decl.Index,
         };
 
         pub const Variable = struct {
@@ -5079,7 +5062,7 @@ pub const Value = extern union {
             data: Data,
 
             pub const Data = struct {
-                decl: *Module.Decl,
+                decl_index: Module.Decl.Index,
                 runtime_index: u32,
             };
         };
@@ -5215,7 +5198,7 @@ pub const Value = extern union {
 
             base: Payload = .{ .tag = base_tag },
             data: struct {
-                decl: *Module.Decl,
+                decl_index: Module.Decl.Index,
                 /// 0 means ABI-aligned.
                 alignment: u16,
             },
