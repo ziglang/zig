@@ -1627,15 +1627,13 @@ pub const LibExeObjStep = struct {
         other_step: *LibExeObjStep,
     };
 
-    const IncludePathVisibility = packed struct {
-        visible_to_others: bool,
-        visible_to_self: bool,
-    };
+    pub const IncludePathAccess = packed struct {
+        pub const Interface = IncludePathAccess{ .by_others = true, .by_self = false };
+        pub const Public = IncludePathAccess{ .by_others = true, .by_self = true };
+        pub const Private = IncludePathAccess{ .by_others = false, .by_self = true };
 
-    const IncludePathVisibilityPresets = enum(u2) {
-        Interface = @bitCast(u2, IncludePathVisibility{ .visible_to_others = true, .visible_to_self = false }),
-        Public = @bitCast(u2, IncludePathVisibility{ .visible_to_others = true, .visible_to_self = true }),
-        Private = @bitCast(u2, IncludePathVisibility{ .visible_to_others = false, .visible_to_self = true }),
+        by_others: bool,
+        by_self: bool,
     };
 
     pub const Kind = enum {
@@ -2208,14 +2206,14 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addIncludePath(self: *LibExeObjStep, path: []const u8) void {
-        self.addIncludePathWithVisibility(path, .Private);
+        self.addIncludePathAccess(path, IncludePathAccess.Private);
     }
 
-    pub fn addIncludePathWithVisibility(self: *LibExeObjStep, path: []const u8, visibility: IncludePathVisibilityPresets) void {
-        if (@bitCast(IncludePathVisibility, visibility).visible_to_self) {
+    pub fn addIncludePathAccess(self: *LibExeObjStep, path: []const u8, access: IncludePathAccess) void {
+        if (access.by_self) {
             self.include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
         }
-        if (@bitCast(IncludePathVisibility, visibility).visible_to_others) {
+        if (access.by_others) {
             self.visible_include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
         }
     }
