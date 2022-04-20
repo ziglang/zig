@@ -30,10 +30,8 @@ pub const LineInfo = struct {
     line: u64,
     column: u64,
     file_name: []const u8,
-    allocator: ?mem.Allocator,
 
-    pub fn deinit(self: LineInfo) void {
-        const allocator = self.allocator orelse return;
+    pub fn deinit(self: LineInfo, allocator: mem.Allocator) void {
         allocator.free(self.file_name);
     }
 };
@@ -43,9 +41,9 @@ pub const SymbolInfo = struct {
     compile_unit_name: []const u8 = "???",
     line_info: ?LineInfo = null,
 
-    pub fn deinit(self: @This()) void {
+    pub fn deinit(self: @This(), allocator: mem.Allocator) void {
         if (self.line_info) |li| {
-            li.deinit();
+            li.deinit(allocator);
         }
     }
 };
@@ -695,7 +693,7 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address
     };
 
     const symbol_info = try module.getSymbolAtAddress(address);
-    defer symbol_info.deinit();
+    defer symbol_info.deinit(debug_info.allocator);
 
     return printLineInfo(
         out_stream,
@@ -1568,10 +1566,17 @@ pub const ModuleDebugInfo = switch (native_os) {
                 if (o_file_di.findCompileUnit(relocated_address_o)) |compile_unit| {
                     return SymbolInfo{
                         .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
-                        .compile_unit_name = compile_unit.die.getAttrString(o_file_di, DW.AT.name) catch |err| switch (err) {
+                        .compile_unit_name = compile_unit.die.getAttrString(
+                            o_file_di,
+                            DW.AT.name,
+                        ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         },
-                        .line_info = o_file_di.getLineNumberInfo(compile_unit.*, relocated_address_o + addr_off) catch |err| switch (err) {
+                        .line_info = o_file_di.getLineNumberInfo(
+                            self.allocator(),
+                            compile_unit.*,
+                            relocated_address_o + addr_off,
+                        ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => null,
                             else => return err,
                         },
