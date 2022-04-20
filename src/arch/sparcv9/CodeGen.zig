@@ -394,7 +394,11 @@ fn gen(self: *Self) !void {
             },
         });
 
-        // TODO Find a way to fill this slot
+        // Branches in SPARC have a delay slot, that is, the instruction
+        // following it will unconditionally be executed.
+        // See: Section 3.2.3 Control Transfer in SPARCv9 manual.
+        // See also: https://arcb.csc.ncsu.edu/~mueller/codeopt/codeopt00/notes/delaybra.html
+        // TODO Find a way to fill this delay slot
         // nop
         _ = try self.addInst(.{
             .tag = .nop,
@@ -895,6 +899,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                         },
                     },
                 });
+
+                // TODO Find a way to fill this delay slot
+                _ = try self.addInst(.{
+                    .tag = .nop,
+                    .data = .{ .nop = {} },
+                });
             } else if (func_value.castTag(.extern_fn)) |_| {
                 return self.fail("TODO implement calling extern functions", .{});
             } else {
@@ -916,6 +926,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                     .rs2_or_imm = .{ .rs2 = .g0 },
                 },
             },
+        });
+
+        // TODO Find a way to fill this delay slot
+        _ = try self.addInst(.{
+            .tag = .nop,
+            .data = .{ .nop = {} },
         });
     }
 
