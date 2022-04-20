@@ -1185,48 +1185,17 @@ fn genLoad(self: *Self, value_reg: Register, addr_reg: Register, comptime off_ty
     const rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off };
 
     switch (abi_size) {
-        1 => {
+        1, 2, 4, 8 => {
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .ldub,
+                2 => .lduh,
+                4 => .lduw,
+                8 => .ldx,
+                else => unreachable, // unexpected abi size
+            };
+
             _ = try self.addInst(.{
-                .tag = .ldub,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = is_imm,
-                        .rd = value_reg,
-                        .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
-                    },
-                },
-            });
-        },
-        2 => {
-            _ = try self.addInst(.{
-                .tag = .lduh,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = is_imm,
-                        .rd = value_reg,
-                        .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
-                    },
-                },
-            });
-        },
-        4 => {
-            _ = try self.addInst(.{
-                .tag = .lduw,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = is_imm,
-                        .rd = value_reg,
-                        .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
-                    },
-                },
-            });
-        },
-        8 => {
-            _ = try self.addInst(.{
-                .tag = .ldx,
+                .tag = tag,
                 .data = .{
                     .arithmetic_3op = .{
                         .is_imm = is_imm,
@@ -1436,48 +1405,17 @@ fn genStore(self: *Self, value_reg: Register, addr_reg: Register, comptime off_t
     const rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off };
 
     switch (abi_size) {
-        1 => {
+        1, 2, 4, 8 => {
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .stb,
+                2 => .sth,
+                4 => .stw,
+                8 => .stx,
+                else => unreachable, // unexpected abi size
+            };
+
             _ = try self.addInst(.{
-                .tag = .stb,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = is_imm,
-                        .rd = value_reg,
-                        .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
-                    },
-                },
-            });
-        },
-        2 => {
-            _ = try self.addInst(.{
-                .tag = .sth,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = is_imm,
-                        .rd = value_reg,
-                        .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
-                    },
-                },
-            });
-        },
-        4 => {
-            _ = try self.addInst(.{
-                .tag = .stw,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = is_imm,
-                        .rd = value_reg,
-                        .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
-                    },
-                },
-            });
-        },
-        8 => {
-            _ = try self.addInst(.{
-                .tag = .stx,
+                .tag = tag,
                 .data = .{
                     .arithmetic_3op = .{
                         .is_imm = is_imm,
