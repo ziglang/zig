@@ -1,5 +1,7 @@
 //! SPARCv9 codegen.
 //! This lowers AIR into MIR.
+//! For now this only implements medium/low code model with absolute addressing.
+//! TODO add support for other code models.
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log.scoped(.codegen);
@@ -884,7 +886,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
                 _ = try self.addInst(.{
                     .tag = .jmpl,
-                    .data = .{ .branch_link_indirect = .{ .reg = .o7 } },
+                    .data = .{
+                        .arithmetic_3op = .{
+                            .is_imm = false,
+                            .rd = .o7,
+                            .rs1 = .o7,
+                            .rs2_or_imm = .{ .rs2 = .g0 },
+                        },
+                    },
                 });
             } else if (func_value.castTag(.extern_fn)) |_| {
                 return self.fail("TODO implement calling extern functions", .{});
@@ -899,7 +908,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
         _ = try self.addInst(.{
             .tag = .jmpl,
-            .data = .{ .branch_link_indirect = .{ .reg = .o7 } },
+            .data = .{
+                .arithmetic_3op = .{
+                    .is_imm = false,
+                    .rd = .o7,
+                    .rs1 = .o7,
+                    .rs2_or_imm = .{ .rs2 = .g0 },
+                },
+            },
         });
     }
 

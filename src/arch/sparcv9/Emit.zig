@@ -56,8 +56,7 @@ pub fn emitMir(
 
             .call => @panic("TODO implement sparcv9 call"),
 
-            .jmpl => @panic("TODO implement sparcv9 jmpl"),
-            .jmpl_i => @panic("TODO implement sparcv9 jmpl to reg"),
+            .jmpl => try emit.mirArithmetic3Op(inst),
 
             .ldub => try emit.mirArithmetic3Op(inst),
             .lduh => try emit.mirArithmetic3Op(inst),
@@ -163,6 +162,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
         const imm = data.rs2_or_imm.imm;
         switch (tag) {
             .add => try emit.writeInstruction(Instruction.add(i13, rs1, imm, rd)),
+            .jmpl => try emit.writeInstruction(Instruction.jmpl(i13, rs1, imm, rd)),
             .ldub => try emit.writeInstruction(Instruction.ldub(i13, rs1, imm, rd)),
             .lduh => try emit.writeInstruction(Instruction.lduh(i13, rs1, imm, rd)),
             .lduw => try emit.writeInstruction(Instruction.lduw(i13, rs1, imm, rd)),
@@ -177,6 +177,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
         const rs2 = data.rs2_or_imm.rs2;
         switch (tag) {
             .add => try emit.writeInstruction(Instruction.add(Register, rs1, rs2, rd)),
+            .jmpl => try emit.writeInstruction(Instruction.jmpl(Register, rs1, rs2, rd)),
             .ldub => try emit.writeInstruction(Instruction.ldub(Register, rs1, rs2, rd)),
             .lduh => try emit.writeInstruction(Instruction.lduh(Register, rs1, rs2, rd)),
             .lduw => try emit.writeInstruction(Instruction.lduw(Register, rs1, rs2, rd)),

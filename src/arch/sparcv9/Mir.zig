@@ -54,11 +54,8 @@ pub const Inst = struct {
         call,
 
         /// A.24 Jump and Link
-        /// jmpl (far direct jump) uses the branch_link field,
-        /// while jmpl_i (indirect jump) uses the branch_link_indirect field.
-        /// Those two MIR instructions will be lowered into SPARCv9 jmpl instruction.
+        /// It uses the arithmetic_3op field.
         jmpl,
-        jmpl_i,
 
         /// A.27 Load Integer
         /// Those uses the arithmetic_3op field.
@@ -164,13 +161,6 @@ pub const Inst = struct {
         /// Used by e.g. call
         branch_link: struct {
             inst: Index,
-            link: Register = .o7,
-        },
-
-        /// Indirect branch and link (always unconditional).
-        /// Used by e.g. jmpl_i
-        branch_link_indirect: struct {
-            reg: Register,
             link: Register = .o7,
         },
 
