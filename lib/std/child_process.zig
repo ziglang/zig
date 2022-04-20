@@ -593,9 +593,9 @@ pub const ChildProcess = struct {
         var actions = try os.posix_spawn.Actions.init();
         defer actions.deinit();
 
-        try setUpChildIoPosixSpawn(self.stdin_behavior, &actions, stdin_pipe[0], os.STDIN_FILENO, dev_null_fd);
-        try setUpChildIoPosixSpawn(self.stdout_behavior, &actions, stdout_pipe[1], os.STDOUT_FILENO, dev_null_fd);
-        try setUpChildIoPosixSpawn(self.stderr_behavior, &actions, stderr_pipe[1], os.STDERR_FILENO, dev_null_fd);
+        try setUpChildIoPosixSpawn(self.stdin_behavior, &actions, stdin_pipe, os.STDIN_FILENO, dev_null_fd);
+        try setUpChildIoPosixSpawn(self.stdout_behavior, &actions, stdout_pipe, os.STDOUT_FILENO, dev_null_fd);
+        try setUpChildIoPosixSpawn(self.stderr_behavior, &actions, stderr_pipe, os.STDERR_FILENO, dev_null_fd);
 
         if (self.cwd_dir) |cwd| {
             try actions.fchdir(cwd.fd);
@@ -650,12 +650,16 @@ pub const ChildProcess = struct {
     fn setUpChildIoPosixSpawn(
         stdio: StdIo,
         actions: *os.posix_spawn.Actions,
-        pipe_fd: i32,
+        pipe_fd: [2]i32,
         std_fileno: i32,
         dev_null_fd: i32,
     ) !void {
         switch (stdio) {
-            .Pipe => try actions.dup2(pipe_fd, std_fileno),
+            .Pipe => {
+                const idx: usize = if (std_fileno == 0) 0 else 1;
+                try actions.dup2(pipe_fd[idx], std_fileno);
+                try actions.close(pipe_fd[1-idx]);
+            },
             .Close => try actions.close(std_fileno),
             .Inherit => {},
             .Ignore => try actions.dup2(dev_null_fd, std_fileno),
