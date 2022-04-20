@@ -692,7 +692,7 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address
         else => return err,
     };
 
-    const symbol_info = try module.getSymbolAtAddress(address);
+    const symbol_info = try module.getSymbolAtAddress(debug_info.allocator, address);
     defer symbol_info.deinit(debug_info.allocator);
 
     return printLineInfo(
@@ -1142,7 +1142,12 @@ pub const DebugInfo = struct {
     }
 
     pub fn deinit(self: *DebugInfo) void {
-        // TODO: resources https://github.com/ziglang/zig/issues/4353
+        var it = self.address_map.iterator();
+        while (it.next()) |entry| {
+            const mdi = entry.value_ptr.*;
+            mdi.deinit(self.allocator);
+            self.allocator.destroy(mdi);
+        }
         self.address_map.deinit();
     }
 
@@ -1392,11 +1397,18 @@ pub const ModuleDebugInfo = switch (native_os) {
             addr_table: std.StringHashMap(u64),
         };
 
-        pub fn allocator(self: @This()) mem.Allocator {
-            return self.ofiles.allocator;
+        fn deinit(self: *@This(), allocator: mem.Allocator) void {
+            var it = self.ofiles.iterator();
+            while (it.next()) |entry| {
+                const ofile = entry.value_ptr;
+                ofile.di.deinit(allocator);
+                ofile.addr_table.deinit();
+            }
+            self.ofiles.deinit();
+            allocator.free(self.symbols);
         }
 
-        fn loadOFile(self: *@This(), o_file_path: []const u8) !OFileInfo {
+        fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !OFileInfo {
             const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
             const mapped_mem = try mapWholeFile(o_file);
 
@@ -1448,7 +1460,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             )[0..symtabcmd.?.nsyms];
 
             // TODO handle tentative (common) symbols
-            var addr_table = std.StringHashMap(u64).init(self.allocator());
+            var addr_table = std.StringHashMap(u64).init(allocator);
             try addr_table.ensureTotalCapacity(@intCast(u32, symtab.len));
             for (symtab) |sym| {
                 if (sym.n_strx == 0) continue;
@@ -1517,7 +1529,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                     null,
             };
 
-            try DW.openDwarfDebugInfo(&di, self.allocator());
+            try DW.openDwarfDebugInfo(&di, allocator);
             var info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,
@@ -1529,7 +1541,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             return info;
         }
 
-        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
             nosuspend {
                 // Translate the VA into an address into this object
                 const relocated_address = address - self.base_address;
@@ -1546,7 +1558,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
                 // Check if its debug infos are already in the cache
                 var o_file_info = self.ofiles.get(o_file_path) orelse
-                    (self.loadOFile(o_file_path) catch |err| switch (err) {
+                    (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
                     error.FileNotFound,
                     error.MissingDebugInfo,
                     error.InvalidDebugInfo,
@@ -1573,7 +1585,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         },
                         .line_info = o_file_di.getLineNumberInfo(
-                            self.allocator(),
+                            allocator,
                             compile_unit.*,
                             relocated_address_o + addr_off,
                         ) catch |err| switch (err) {
