@@ -658,7 +658,7 @@ pub const ChildProcess = struct {
             .Pipe => {
                 const idx: usize = if (std_fileno == 0) 0 else 1;
                 try actions.dup2(pipe_fd[idx], std_fileno);
-                try actions.close(pipe_fd[1-idx]);
+                try actions.close(pipe_fd[1 - idx]);
             },
             .Close => try actions.close(std_fileno),
             .Inherit => {},
@@ -1408,7 +1408,7 @@ test "creating a child process with stdin and stdout behavior set to StdIo.Pipe"
 
     const out_bytes = try child_process.stdout.?.reader().readAllAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(out_bytes);
-    
+
     switch (try child_process.wait()) {
         .Exited => |code| if (code == 0) {
             const expected_program =
@@ -1420,6 +1420,6 @@ test "creating a child process with stdin and stdout behavior set to StdIo.Pipe"
             ;
             try testing.expectEqualStrings(expected_program, out_bytes);
         },
-        else => unreachable
+        else => unreachable,
     }
 }
