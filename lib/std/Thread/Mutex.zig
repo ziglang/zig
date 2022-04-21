@@ -1,6 +1,6 @@
 //! Mutex is a synchronization primitive which enforces atomic access to a shared region of code known as the "critical section".
 //! It does this by blocking ensuring only one thread is in the critical section at any given point in time by blocking the others.
-//! Mutex can be statically initialized and is at most `@sizeOf(usize)` large.
+//! Mutex can be statically initialized and is at most `@sizeOf(u64)` large.
 //! Use `lock()` or `tryLock()` to enter the critical section and `unlock()` to leave it.
 //!
 //! Example:
@@ -117,26 +117,41 @@ const DarwinImpl = struct {
 const FutexImpl = struct {
     state: Atomic(u32) = Atomic(u32).init(unlocked),
 
-    const unlocked = 0;
-    const locked = 1;
-    const contended = 2;
+    const unlocked = 0b00;
+    const locked = 0b01;
+    const contended = 0b11; // must contain the `locked` bit for x86 optimization below
 
     fn tryLock(self: *Impl) bool {
-        // Acquire barrier ensures grabbing the lock happens before the critical section
-        // and that the previous lock holder's critical section happens before we grab the lock.
-        return self.state.compareAndSwap(unlocked, locked, .Acquire, .Monotonic) == null;
+        // Lock with compareAndSwap instead of tryCompareAndSwap to avoid reporting spurious CAS failure.
+        return self.lockFast("compareAndSwap");
     }
 
     fn lock(self: *Impl) void {
-        // Fast path: assume the mutex is unlocked and try to grab it immediately.
-        //
+        // Lock with tryCompareAndSwap instead of compareAndSwap due to being more inline-able on LL/SC archs like ARM.
+        if (!self.lockFast("tryCompareAndSwap")) {
+            self.lockSlow();
+        }
+    }
+
+    inline fn lockFast(self: *Impl, comptime casFn: []const u8) bool {
+        // On x86, use `lock bts` instead of `lock cmpxchg` as:
+        // - they both seem to invalid the cache line regardless: https://stackoverflow.com/a/63350048
+        // - `lock bts` is smaller instruction-wise which makes it better for inlining
+        if (comptime builtin.target.cpu.arch.isX86()) {
+            return self.state.bitSet(@ctz(u32, locked), .Acquire) == 0;
+        }
+
         // Acquire barrier ensures grabbing the lock happens before the critical section
         // and that the previous lock holder's critical section happens before we grab the lock.
-        var state = self.state.tryCompareAndSwap(unlocked, locked, .Acquire, .Monotonic) orelse return;
+        return @field(self.state, casFn)(unlocked, locked, .Acquire, .Monotonic) == null;
+    }
+
+    fn lockSlow(self: *Impl) void {
+        @setCold(true);
 
         // Avoid doing an atomic swap below if we already know the state is contended.
         // An atomic swap unconditionally stores which takes ownership of the cache line unnecessarily.
-        if (state == contended) {
+        if (self.state.load(.Monotonic) == contended) {
             Futex.wait(&self.state, contended);
         }
 
