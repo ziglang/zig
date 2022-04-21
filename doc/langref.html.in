@@ -672,8 +672,8 @@ pub fn main() void {
         </tr>
         <tr>
             <th scope="row">{#syntax#}usize{#endsyntax#}</th>
-          <td><code class="c">uintptr_t</code></td>
-          <td>unsigned pointer sized integer</td>
+          <td><code class="c">uintptr_t</code>, <code class="c">size_t</code></td>
+          <td>unsigned pointer sized integer. Also see <a href="https://github.com/ziglang/zig/issues/5185">#5185</a></td>
         </tr>
 
         <tr>
