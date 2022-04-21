@@ -1224,6 +1224,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         // This is shared hasher state common to zig source and all C source files.
         cache.hash.addBytes(build_options.version);
+        cache.hash.add(builtin.zig_backend);
         cache.hash.addBytes(options.zig_lib_directory.path orelse ".");
         cache.hash.add(options.optimize_mode);
         cache.hash.add(options.target.cpu.arch);
