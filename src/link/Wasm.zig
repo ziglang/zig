@@ -429,11 +429,14 @@ pub fn deinit(self: *Wasm) void {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
     }
 
-    const mod = self.base.options.module.?;
-    var decl_it = self.decls.keyIterator();
-    while (decl_it.next()) |decl_index_ptr| {
-        const decl = mod.declPtr(decl_index_ptr.*);
-        decl.link.wasm.deinit(gpa);
+    if (self.base.options.module) |mod| {
+        var decl_it = self.decls.keyIterator();
+        while (decl_it.next()) |decl_index_ptr| {
+            const decl = mod.declPtr(decl_index_ptr.*);
+            decl.link.wasm.deinit(gpa);
+        }
+    } else {
+        assert(self.decls.count() == 0);
     }
 
     for (self.func_types.items) |*func_type| {
