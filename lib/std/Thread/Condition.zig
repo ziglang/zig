@@ -1,3 +1,35 @@
+//! Condition variables are used in tangent with a Mutex to efficiently wait for an arbitrary condition to occur.
+//! It does this by atomically unlocking the mutex, blocking the thread until notified, and finally re-locking the mutex.
+//! Condition can be statically initialized and is at most `@sizeOf(u64)` large.
+//!
+//! Example:
+//! ```
+//! var m = Mutex{};
+//! var c = Condition{};
+//! var predicate = false;
+//!
+//! fn consumer() void {
+//!     m.lock();
+//!     defer m.unlock();
+//!
+//!     while (!predicate) {
+//!         c.wait(&mutex);
+//!     }
+//! }
+//!
+//! fn producer() void {
+//!     m.lock();
+//!     defer m.unlock();
+//!
+//!     predicate = true;
+//!     c.signal();
+//! }
+//!
+//! const thread = try std.Thread.spawn(.{}, producer, .{});
+//! consumer();
+//! thread.join();
+//! ```
+
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Condition = @This();
@@ -11,6 +43,13 @@ const Futex = std.Thread.Futex;
 
 impl: Impl = .{},
 
+/// Blocks the caller's thread until either:
+/// - the condition is notified via `signal()` or `broadcast()`.
+/// - a spurious wakeup occurs.
+///
+/// The mutex is assumed to be held by the caller and is atomically unlocked when blocking the caller thread.
+/// Calls to `signal()` and `broadcast()` are only guaranteed to wake a blocked wait() thread
+/// if they've acquired the corresponding mutex and if the wait() thread was previously blocked.
 pub fn wait(noalias self: *Condition, noalias mutex: *Mutex) void {
     self.impl.wait(mutex, null) catch |err| switch (err) {
         error.Timeout => unreachable, // no timeout provided so we shouldn't have timed-out
