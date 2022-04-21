@@ -780,16 +780,6 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     // TODO Copy registers to the stack
     const mcv = result;
 
-    _ = try self.addInst(.{
-        .tag = .dbg_arg,
-        .data = .{
-            .dbg_arg_info = .{
-                .air_inst = inst,
-                .arg_index = arg_index,
-            },
-        },
-    });
-
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
 
@@ -1050,9 +1040,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
 fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     const gpa = self.gpa;
-
     try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
-
     const result_index = @intCast(Air.Inst.Index, self.mir_instructions.len);
     self.mir_instructions.appendAssumeCapacity(inst);
     return result_index;

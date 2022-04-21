@@ -45,7 +45,6 @@ pub fn emitMir(
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
-            .dbg_arg => try emit.mirDbgArg(inst),
             .dbg_line => try emit.mirDbgLine(inst),
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
@@ -90,17 +89,6 @@ pub fn emitMir(
 
 pub fn deinit(emit: *Emit) void {
     emit.* = undefined;
-}
-
-fn mirDbgArg(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const dbg_arg_info = emit.mir.instructions.items(.data)[inst].dbg_arg_info;
-    _ = dbg_arg_info;
-
-    switch (tag) {
-        .dbg_arg => {}, // TODO try emit.genArgDbgInfo(dbg_arg_info.air_inst, dbg_arg_info.arg_index),
-        else => unreachable,
-    }
 }
 
 fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {

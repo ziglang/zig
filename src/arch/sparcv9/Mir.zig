@@ -28,8 +28,6 @@ pub const Inst = struct {
     data: Data,
 
     pub const Tag = enum(u16) {
-        /// Pseudo-instruction: Argument
-        dbg_arg,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
@@ -122,14 +120,6 @@ pub const Inst = struct {
     /// how to interpret the data within.
     // TODO this is a quick-n-dirty solution that needs to be cleaned up.
     pub const Data = union {
-        /// Debug info: argument
-        ///
-        /// Used by e.g. dbg_arg
-        dbg_arg_info: struct {
-            air_inst: Air.Inst.Index,
-            arg_index: usize,
-        },
-
         /// Debug info: line and column
         ///
         /// Used by e.g. dbg_line
@@ -234,10 +224,7 @@ pub const Inst = struct {
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
     comptime {
         if (builtin.mode != .Debug) {
-            // TODO clean up the definition of Data before enabling this.
-            // I'll do that after the PoC backend can produce usable binaries.
-
-            // assert(@sizeOf(Data) == 8);
+            assert(@sizeOf(Data) == 8);
         }
     }
 };
