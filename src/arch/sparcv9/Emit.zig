@@ -101,22 +101,22 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
-fn mirDebugPrologueEnd(self: *Emit) !void {
-    switch (self.debug_output) {
+fn mirDebugPrologueEnd(emit: *Emit) !void {
+    switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
+            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
         .none => {},
     }
 }
 
-fn mirDebugEpilogueBegin(self: *Emit) !void {
-    switch (self.debug_output) {
+fn mirDebugEpilogueBegin(emit: *Emit) !void {
+    switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
+            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
         .none => {},
@@ -232,10 +232,10 @@ fn mirTrap(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 // Common helper functions
 
-fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
-    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
-    const delta_pc: usize = self.code.items.len - self.prev_di_pc;
-    switch (self.debug_output) {
+fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
+    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
+    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             // TODO Look into using the DWARF special opcodes to compress this data.
             // It lets you emit single-byte opcodes that add different numbers to
@@ -248,38 +248,12 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
                 leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
             }
             dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            self.prev_di_pc = self.code.items.len;
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
+            emit.prev_di_pc = emit.code.items.len;
+            emit.prev_di_line = line;
+            emit.prev_di_column = column;
+            emit.prev_di_pc = emit.code.items.len;
         },
-        .plan9 => |dbg_out| {
-            if (delta_pc <= 0) return; // only do this when the pc changes
-            // we have already checked the target in the linker to make sure it is compatable
-            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
-
-            // increasing the line number
-            try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
-            // increasing the pc
-            const d_pc_p9 = @intCast(i64, delta_pc) - quant;
-            if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
-                if (dbg_out.pcop_change_index.*) |pci|
-                    dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index.* = @intCast(u32, dbg_out.dbg_line.items.len - 1);
-            } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the quant does it for us
-            } else unreachable;
-            if (dbg_out.start_line.* == null)
-                dbg_out.start_line.* = self.prev_di_line;
-            dbg_out.end_line.* = line;
-            // only do this if the pc changed
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .none => {},
+        else => {},
     }
 }
 
