@@ -41,7 +41,7 @@ pub const SymbolInfo = struct {
     compile_unit_name: []const u8 = "???",
     line_info: ?LineInfo = null,
 
-    pub fn deinit(self: @This(), allocator: mem.Allocator) void {
+    pub fn deinit(self: SymbolInfo, allocator: mem.Allocator) void {
         if (self.line_info) |li| {
             li.deinit(allocator);
         }
@@ -50,6 +50,13 @@ pub const SymbolInfo = struct {
 const PdbOrDwarf = union(enum) {
     pdb: pdb.Pdb,
     dwarf: DW.DwarfInfo,
+
+    fn deinit(self: *PdbOrDwarf, allocator: mem.Allocator) void {
+        switch (self.*) {
+            .pdb => |*inner| inner.deinit(),
+            .dwarf => |*inner| inner.deinit(allocator),
+        }
+    }
 };
 
 var stderr_mutex = std.Thread.Mutex{};
@@ -793,6 +800,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
         errdefer coff_file.close();
 
         const coff_obj = try allocator.create(coff.Coff);
+        errdefer allocator.destroy(coff_obj);
         coff_obj.* = coff.Coff.init(allocator, coff_file);
 
         var di = ModuleDebugInfo{
@@ -1386,7 +1394,7 @@ pub const DebugInfo = struct {
 pub const ModuleDebugInfo = switch (native_os) {
     .macos, .ios, .watchos, .tvos => struct {
         base_address: usize,
-        mapped_memory: []const u8,
+        mapped_memory: []align(mem.page_size) const u8,
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
         ofiles: OFileTable,
@@ -1406,6 +1414,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             }
             self.ofiles.deinit();
             allocator.free(self.symbols);
+            os.munmap(self.mapped_memory);
         }
 
         fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !OFileInfo {
@@ -1609,18 +1618,20 @@ pub const ModuleDebugInfo = switch (native_os) {
         debug_data: PdbOrDwarf,
         coff: *coff.Coff,
 
-        pub fn allocator(self: @This()) mem.Allocator {
-            return self.coff.allocator;
+        fn deinit(self: *@This(), allocator: mem.Allocator) void {
+            self.debug_data.deinit(allocator);
+            self.coff.deinit();
+            allocator.destroy(self.coff);
         }
 
-        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
             switch (self.debug_data) {
                 .dwarf => |*dwarf| {
                     const dwarf_address = relocated_address + self.coff.pe_header.image_base;
-                    return getSymbolFromDwarf(dwarf_address, dwarf);
+                    return getSymbolFromDwarf(allocator, dwarf_address, dwarf);
                 },
                 .pdb => {
                     // fallthrough to pdb handling
@@ -1666,17 +1677,28 @@ pub const ModuleDebugInfo = switch (native_os) {
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
-        mapped_memory: []const u8,
+        mapped_memory: []align(mem.page_size) const u8,
 
-        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        fn deinit(self: *@This(), allocator: mem.Allocator) void {
+            self.dwarf.deinit(allocator);
+            os.munmap(self.mapped_memory);
+        }
+
+        pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
-            return getSymbolFromDwarf(relocated_address, &self.dwarf);
+            return getSymbolFromDwarf(allocator, relocated_address, &self.dwarf);
         }
     },
     .wasi => struct {
-        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = self;
+            _ = allocator;
+        }
+
+        pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
+            _ = self;
+            _ = allocator;
             _ = address;
             return SymbolInfo{};
         }
@@ -1684,14 +1706,14 @@ pub const ModuleDebugInfo = switch (native_os) {
     else => DW.DwarfInfo,
 };
 
-fn getSymbolFromDwarf(address: u64, di: *DW.DwarfInfo) !SymbolInfo {
+fn getSymbolFromDwarf(allocator: mem.Allocator, address: u64, di: *DW.DwarfInfo) !SymbolInfo {
     if (nosuspend di.findCompileUnit(address)) |compile_unit| {
         return SymbolInfo{
             .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
             .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => "???",
             },
-            .line_info = nosuspend di.getLineNumberInfo(compile_unit.*, address) catch |err| switch (err) {
+            .line_info = nosuspend di.getLineNumberInfo(allocator, compile_unit.*, address) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => null,
                 else => return err,
             },

@@ -4,8 +4,6 @@ const mem = std.mem;
 const os = std.os;
 const File = std.fs.File;
 
-const ArrayList = std.ArrayList;
-
 // CoffHeader.machine values
 // see https://msdn.microsoft.com/en-us/library/windows/desktop/ms680313(v=vs.85).aspx
 const IMAGE_FILE_MACHINE_I386 = 0x014c;
@@ -117,7 +115,7 @@ pub const Coff = struct {
 
     coff_header: CoffHeader,
     pe_header: OptionalHeader,
-    sections: ArrayList(Section),
+    sections: std.ArrayListUnmanaged(Section) = .{},
 
     guid: [16]u8,
     age: u32,
@@ -128,10 +126,13 @@ pub const Coff = struct {
             .allocator = allocator,
             .coff_header = undefined,
             .pe_header = undefined,
-            .sections = ArrayList(Section).init(allocator),
             .guid = undefined,
             .age = undefined,
         };
+    }
+
+    pub fn deinit(self: *Coff) void {
+        self.sections.deinit(self.allocator);
     }
 
     pub fn loadHeader(self: *Coff) !void {
@@ -291,7 +292,7 @@ pub const Coff = struct {
         if (self.sections.items.len == self.coff_header.number_of_sections)
             return;
 
-        try self.sections.ensureTotalCapacityPrecise(self.coff_header.number_of_sections);
+        try self.sections.ensureTotalCapacityPrecise(self.allocator, self.coff_header.number_of_sections);
 
         const in = self.in_file.reader();
 

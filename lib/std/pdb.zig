@@ -764,7 +764,6 @@ pub const Pdb = struct {
                                 const flags = @ptrCast(*LineNumberEntry.Flags, &line_num_entry.Flags);
 
                                 return debug.LineInfo{
-                                    .allocator = self.allocator,
                                     .file_name = source_file_name,
                                     .line = flags.Start,
                                     .column = column,
