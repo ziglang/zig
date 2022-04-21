@@ -682,7 +682,6 @@ test "machoSearchSymbols" {
     try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 5000).?);
 }
 
-/// TODO resources https://github.com/ziglang/zig/issues/4353
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: TTY.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {
@@ -768,7 +767,6 @@ pub const OpenSelfDebugInfoError = error{
     UnsupportedOperatingSystem,
 };
 
-/// TODO resources https://github.com/ziglang/zig/issues/4353
 pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
     nosuspend {
         if (builtin.strip_debug_info)
@@ -793,7 +791,6 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
 
 /// This takes ownership of coff_file: users of this function should not close
 /// it themselves, even on error.
-/// TODO resources https://github.com/ziglang/zig/issues/4353
 /// TODO it's weird to take ownership even on error, rework this code.
 fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo {
     nosuspend {
@@ -863,7 +860,6 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
 
 /// This takes ownership of elf_file: users of this function should not close
 /// it themselves, even on error.
-/// TODO resources https://github.com/ziglang/zig/issues/4353
 /// TODO it's weird to take ownership even on error, rework this code.
 pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugInfo {
     nosuspend {
@@ -937,7 +933,6 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
     }
 }
 
-/// TODO resources https://github.com/ziglang/zig/issues/4353
 /// This takes ownership of macho_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
@@ -1933,4 +1928,17 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
         : [argc] "={rsp}" (-> usize),
     );
     std.debug.print("{} sp = 0x{x}\n", .{ prefix, sp });
+}
+
+test "#4353: std.debug should manage resources correctly" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const writer = std.io.null_writer;
+    var di = try openSelfDebugInfo(testing.allocator);
+    defer di.deinit();
+    try printSourceAtAddress(&di, writer, showMyTrace(), detectTTYConfig());
+}
+
+noinline fn showMyTrace() usize {
+    return @returnAddress();
 }
