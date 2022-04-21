@@ -10,9 +10,7 @@ const Futex = @This();
 const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
-
 const Atomic = std.atomic.Atomic;
-const spinLoopHint = std.atomic.spinLoopHint;
 
 /// Checks if `ptr` still contains the value `expect` and, if so, blocks the caller until either:
 /// - The value at `ptr` is no longer equal to `expect`.
@@ -62,7 +60,7 @@ pub fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
 }
 
 const Impl = if (builtin.single_threaded)
-    SerialImpl
+    SingleThreadedImpl
 else if (builtin.os.tag == .windows)
     WindowsImpl
 else if (builtin.os.tag.isDarwin())
@@ -97,7 +95,7 @@ const UnsupportedImpl = struct {
     }
 };
 
-const SerialImpl = struct {
+const SingleThreadedImpl = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
         if (ptr.loadUnchecked() != expect) {
             return;

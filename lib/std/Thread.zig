@@ -459,9 +459,8 @@ const UnsupportedImpl = struct {
     }
 
     fn unsupported(unusued: anytype) noreturn {
-        @compileLog("Unsupported operating system", target.os.tag);
         _ = unusued;
-        unreachable;
+        @compileError("Unsupported operating system " ++ @tagName(target.os.tag));
     }
 };
 
