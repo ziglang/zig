@@ -538,6 +538,10 @@ const Self = @This();
 /// Reference to the function declaration the code
 /// section belongs to
 decl: *Decl,
+decl_index: Decl.Index,
+/// Current block depth. Used to calculate the relative difference between a break
+/// and block
+block_depth: u32 = 0,
 air: Air,
 liveness: Liveness,
 gpa: mem.Allocator,
@@ -559,9 +563,6 @@ local_index: u32 = 0,
 arg_index: u32 = 0,
 /// If codegen fails, an error messages will be allocated and saved in `err_msg`
 err_msg: *Module.ErrorMsg,
-/// Current block depth. Used to calculate the relative difference between a break
-/// and block
-block_depth: u32 = 0,
 /// List of all locals' types generated throughout this declaration
 /// used to emit locals count at start of 'code' section.
 locals: std.ArrayListUnmanaged(u8),
@@ -644,7 +645,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!WValue {
     // In the other cases, we will simply lower the constant to a value that fits
     // into a single local (such as a pointer, integer, bool, etc).
     const result = if (isByRef(ty, self.target)) blk: {
-        const sym_index = try self.bin_file.lowerUnnamedConst(self.decl, .{ .ty = ty, .val = val });
+        const sym_index = try self.bin_file.lowerUnnamedConst(.{ .ty = ty, .val = val }, self.decl_index);
         break :blk WValue{ .memory = sym_index };
     } else try self.lowerConstant(val, ty);
 
@@ -838,7 +839,8 @@ pub fn generate(
         .liveness = liveness,
         .values = .{},
         .code = code,
-        .decl = func.owner_decl,
+        .decl_index = func.owner_decl,
+        .decl = bin_file.options.module.?.declPtr(func.owner_decl),
         .err_msg = undefined,
         .locals = .{},
         .target = bin_file.options.target,
@@ -1022,8 +1024,9 @@ fn allocStack(self: *Self, ty: Type) !WValue {
     }
 
     const abi_size = std.math.cast(u32, ty.abiSize(self.target)) catch {
+        const module = self.bin_file.base.options.module.?;
         return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
-            ty.fmt(self.target), ty.abiSize(self.target),
+            ty.fmt(module), ty.abiSize(self.target),
         });
     };
     const abi_align = ty.abiAlignment(self.target);
@@ -1056,8 +1059,9 @@ fn allocStackPtr(self: *Self, inst: Air.Inst.Index) !WValue {
 
     const abi_alignment = ptr_ty.ptrAlignment(self.target);
     const abi_size = std.math.cast(u32, pointee_ty.abiSize(self.target)) catch {
+        const module = self.bin_file.base.options.module.?;
         return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
-            pointee_ty.fmt(self.target), pointee_ty.abiSize(self.target),
+            pointee_ty.fmt(module), pointee_ty.abiSize(self.target),
         });
     };
     if (abi_alignment > self.stack_alignment) {
@@ -1542,20 +1546,21 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     const ret_ty = fn_ty.fnReturnType();
     const first_param_sret = isByRef(ret_ty, self.target);
 
-    const target: ?*Decl = blk: {
+    const callee: ?*Decl = blk: {
         const func_val = self.air.value(pl_op.operand) orelse break :blk null;
+        const module = self.bin_file.base.options.module.?;
 
         if (func_val.castTag(.function)) |func| {
-            break :blk func.data.owner_decl;
+            break :blk module.declPtr(func.data.owner_decl);
         } else if (func_val.castTag(.extern_fn)) |extern_fn| {
-            const ext_decl = extern_fn.data.owner_decl;
+            const ext_decl = module.declPtr(extern_fn.data.owner_decl);
             var func_type = try genFunctype(self.gpa, ext_decl.ty, self.target);
             defer func_type.deinit(self.gpa);
             ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
             try self.bin_file.addOrUpdateImport(ext_decl);
             break :blk ext_decl;
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {
-            break :blk decl_ref.data;
+            break :blk module.declPtr(decl_ref.data);
         }
         return self.fail("Expected a function, but instead found type '{s}'", .{func_val.tag()});
     };
@@ -1580,7 +1585,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         }
     }
 
-    if (target) |direct| {
+    if (callee) |direct| {
         try self.addLabel(.call, direct.link.wasm.sym_index);
     } else {
         // in this case we call a function pointer
@@ -1837,16 +1842,16 @@ fn wrapBinOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError
 fn lowerParentPtr(self: *Self, ptr_val: Value, ptr_child_ty: Type) InnerError!WValue {
     switch (ptr_val.tag()) {
         .decl_ref_mut => {
-            const decl = ptr_val.castTag(.decl_ref_mut).?.data.decl;
-            return self.lowerParentPtrDecl(ptr_val, decl);
+            const decl_index = ptr_val.castTag(.decl_ref_mut).?.data.decl_index;
+            return self.lowerParentPtrDecl(ptr_val, decl_index);
         },
         .decl_ref => {
-            const decl = ptr_val.castTag(.decl_ref).?.data;
-            return self.lowerParentPtrDecl(ptr_val, decl);
+            const decl_index = ptr_val.castTag(.decl_ref).?.data;
+            return self.lowerParentPtrDecl(ptr_val, decl_index);
         },
         .variable => {
-            const decl = ptr_val.castTag(.variable).?.data.owner_decl;
-            return self.lowerParentPtrDecl(ptr_val, decl);
+            const decl_index = ptr_val.castTag(.variable).?.data.owner_decl;
+            return self.lowerParentPtrDecl(ptr_val, decl_index);
         },
         .field_ptr => {
             const field_ptr = ptr_val.castTag(.field_ptr).?.data;
@@ -1918,24 +1923,31 @@ fn lowerParentPtr(self: *Self, ptr_val: Value, ptr_child_ty: Type) InnerError!WV
     }
 }
 
-fn lowerParentPtrDecl(self: *Self, ptr_val: Value, decl: *Module.Decl) InnerError!WValue {
-    decl.markAlive();
+fn lowerParentPtrDecl(self: *Self, ptr_val: Value, decl_index: Module.Decl.Index) InnerError!WValue {
+    const module = self.bin_file.base.options.module.?;
+    const decl = module.declPtr(decl_index);
+    module.markDeclAlive(decl);
     var ptr_ty_payload: Type.Payload.ElemType = .{
         .base = .{ .tag = .single_mut_pointer },
         .data = decl.ty,
     };
     const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-    return self.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl);
+    return self.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index);
 }
 
-fn lowerDeclRefValue(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!WValue {
+fn lowerDeclRefValue(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) InnerError!WValue {
     if (tv.ty.isSlice()) {
-        return WValue{ .memory = try self.bin_file.lowerUnnamedConst(decl, tv) };
-    } else if (decl.ty.zigTypeTag() != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
+        return WValue{ .memory = try self.bin_file.lowerUnnamedConst(tv, decl_index) };
+    }
+
+    const module = self.bin_file.base.options.module.?;
+    const decl = module.declPtr(decl_index);
+    if (decl.ty.zigTypeTag() != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
-    decl.markAlive();
+    module.markDeclAlive(decl);
+
     const target_sym_index = decl.link.wasm.sym_index;
     if (decl.ty.zigTypeTag() == .Fn) {
         try self.bin_file.addTableFunction(target_sym_index);
@@ -1946,12 +1958,12 @@ fn lowerDeclRefValue(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError
 fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
     if (val.isUndefDeep()) return self.emitUndefined(ty);
     if (val.castTag(.decl_ref)) |decl_ref| {
-        const decl = decl_ref.data;
-        return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl);
+        const decl_index = decl_ref.data;
+        return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index);
     }
-    if (val.castTag(.decl_ref_mut)) |decl_ref| {
-        const decl = decl_ref.data.decl;
-        return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl);
+    if (val.castTag(.decl_ref_mut)) |decl_ref_mut| {
+        const decl_index = decl_ref_mut.data.decl_index;
+        return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index);
     }
 
     const target = self.target;
@@ -2347,8 +2359,9 @@ fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const struct_ptr = try self.resolveInst(extra.data.struct_operand);
     const struct_ty = self.air.typeOf(extra.data.struct_operand).childType();
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(extra.data.field_index, self.target)) catch {
+        const module = self.bin_file.base.options.module.?;
         return self.fail("Field type '{}' too big to fit into stack frame", .{
-            struct_ty.structFieldType(extra.data.field_index).fmt(self.target),
+            struct_ty.structFieldType(extra.data.field_index).fmt(module),
         });
     };
     return self.structFieldPtr(struct_ptr, offset);
@@ -2360,8 +2373,9 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerEr
     const struct_ty = self.air.typeOf(ty_op.operand).childType();
     const field_ty = struct_ty.structFieldType(index);
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(index, self.target)) catch {
+        const module = self.bin_file.base.options.module.?;
         return self.fail("Field type '{}' too big to fit into stack frame", .{
-            field_ty.fmt(self.target),
+            field_ty.fmt(module),
         });
     };
     return self.structFieldPtr(struct_ptr, offset);
@@ -2387,7 +2401,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const field_ty = struct_ty.structFieldType(field_index);
     if (!field_ty.hasRuntimeBitsIgnoreComptime()) return WValue{ .none = {} };
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, self.target)) catch {
-        return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(self.target)});
+        const module = self.bin_file.base.options.module.?;
+        return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(module)});
     };
 
     if (isByRef(field_ty, self.target)) {
@@ -2782,7 +2797,8 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     }
 
     const offset = std.math.cast(u32, opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) catch {
-        return self.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(self.target)});
+        const module = self.bin_file.base.options.module.?;
+        return self.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(module)});
     };
 
     try self.emitWValue(operand);
@@ -2811,7 +2827,8 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return operand;
     }
     const offset = std.math.cast(u32, op_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) catch {
-        return self.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(self.target)});
+        const module = self.bin_file.base.options.module.?;
+        return self.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(module)});
     };
 
     // Create optional type, set the non-null bit, and store the operand inside the optional type

@@ -417,17 +417,18 @@ pub const File = struct {
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
     /// constant. Returns the symbol index of the lowered constant in the read-only section
     /// of the final binary.
-    pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl: *Module.Decl) UpdateDeclError!u32 {
+    pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: Module.Decl.Index) UpdateDeclError!u32 {
+        const decl = base.options.module.?.declPtr(decl_index);
         log.debug("lowerUnnamedConst {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
             // zig fmt: off
-            .coff  => return @fieldParentPtr(Coff,  "base", base).lowerUnnamedConst(tv, decl),
-            .elf   => return @fieldParentPtr(Elf,   "base", base).lowerUnnamedConst(tv, decl),
-            .macho => return @fieldParentPtr(MachO, "base", base).lowerUnnamedConst(tv, decl),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).lowerUnnamedConst(tv, decl),
+            .coff  => return @fieldParentPtr(Coff,  "base", base).lowerUnnamedConst(tv, decl_index),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).lowerUnnamedConst(tv, decl_index),
+            .macho => return @fieldParentPtr(MachO, "base", base).lowerUnnamedConst(tv, decl_index),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).lowerUnnamedConst(tv, decl_index),
             .spirv => unreachable,
             .c     => unreachable,
-            .wasm  => unreachable,
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).lowerUnnamedConst(tv, decl_index),
             .nvptx => unreachable,
             // zig fmt: on
         }
@@ -435,19 +436,20 @@ pub const File = struct {
 
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
-    pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) UpdateDeclError!void {
+    pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
+        const decl = module.declPtr(decl_index);
         log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmtDebug() });
         assert(decl.has_tv);
         switch (base.tag) {
             // zig fmt: off
-            .coff  => return @fieldParentPtr(Coff,  "base", base).updateDecl(module, decl),
-            .elf   => return @fieldParentPtr(Elf,   "base", base).updateDecl(module, decl),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
-            .c     => return @fieldParentPtr(C,     "base", base).updateDecl(module, decl),
-            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateDecl(module, decl),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDecl(module, decl),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDecl(module, decl),
-            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateDecl(module, decl),
+            .coff  => return @fieldParentPtr(Coff,  "base", base).updateDecl(module, decl_index),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).updateDecl(module, decl_index),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl_index),
+            .c     => return @fieldParentPtr(C,     "base", base).updateDecl(module, decl_index),
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateDecl(module, decl_index),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDecl(module, decl_index),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDecl(module, decl_index),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateDecl(module, decl_index),
             // zig fmt: on
         }
     }
@@ -455,8 +457,9 @@ pub const File = struct {
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
+        const owner_decl = module.declPtr(func.owner_decl);
         log.debug("updateFunc {*} ({s}), type={}", .{
-            func.owner_decl, func.owner_decl.name, func.owner_decl.ty.fmtDebug(),
+            owner_decl, owner_decl.name, owner_decl.ty.fmtDebug(),
         });
         switch (base.tag) {
             // zig fmt: off
@@ -492,19 +495,20 @@ pub const File = struct {
     /// TODO we're transitioning to deleting this function and instead having
     /// each linker backend notice the first time updateDecl or updateFunc is called, or
     /// a callee referenced from AIR.
-    pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) error{OutOfMemory}!void {
+    pub fn allocateDeclIndexes(base: *File, decl_index: Module.Decl.Index) error{OutOfMemory}!void {
+        const decl = base.options.module.?.declPtr(decl_index);
         log.debug("allocateDeclIndexes {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
-            .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
-            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl) catch |err| switch (err) {
+            .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl_index),
+            .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl_index),
+            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl_index) catch |err| switch (err) {
                 // remap this error code because we are transitioning away from
                 // `allocateDeclIndexes`.
                 error.Overflow => return error.OutOfMemory,
                 error.OutOfMemory => return error.OutOfMemory,
             },
-            .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl_index),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl_index),
             .c, .spirv, .nvptx => {},
         }
     }
@@ -621,17 +625,16 @@ pub const File = struct {
     }
 
     /// Called when a Decl is deleted from the Module.
-    pub fn freeDecl(base: *File, decl: *Module.Decl) void {
-        log.debug("freeDecl {*} ({s})", .{ decl, decl.name });
+    pub fn freeDecl(base: *File, decl_index: Module.Decl.Index) void {
         switch (base.tag) {
-            .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
-            .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
-            .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
-            .c => @fieldParentPtr(C, "base", base).freeDecl(decl),
-            .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl),
-            .spirv => @fieldParentPtr(SpirV, "base", base).freeDecl(decl),
-            .plan9 => @fieldParentPtr(Plan9, "base", base).freeDecl(decl),
-            .nvptx => @fieldParentPtr(NvPtx, "base", base).freeDecl(decl),
+            .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl_index),
+            .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl_index),
+            .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl_index),
+            .c => @fieldParentPtr(C, "base", base).freeDecl(decl_index),
+            .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl_index),
+            .spirv => @fieldParentPtr(SpirV, "base", base).freeDecl(decl_index),
+            .plan9 => @fieldParentPtr(Plan9, "base", base).freeDecl(decl_index),
+            .nvptx => @fieldParentPtr(NvPtx, "base", base).freeDecl(decl_index),
         }
     }
 
@@ -656,20 +659,21 @@ pub const File = struct {
     pub fn updateDeclExports(
         base: *File,
         module: *Module,
-        decl: *Module.Decl,
+        decl_index: Module.Decl.Index,
         exports: []const *Module.Export,
     ) UpdateDeclExportsError!void {
+        const decl = module.declPtr(decl_index);
         log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
         assert(decl.has_tv);
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
-            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl, exports),
-            .c => return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl, exports),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl, exports),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDeclExports(module, decl, exports),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclExports(module, decl, exports),
-            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateDeclExports(module, decl, exports),
+            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl_index, exports),
+            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl_index, exports),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl_index, exports),
+            .c => return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl_index, exports),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl_index, exports),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDeclExports(module, decl_index, exports),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclExports(module, decl_index, exports),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateDeclExports(module, decl_index, exports),
         }
     }
 
@@ -683,14 +687,14 @@ pub const File = struct {
     /// The linker is passed information about the containing atom, `parent_atom_index`, and offset within it's
     /// memory buffer, `offset`, so that it can make a note of potential relocation sites, should the
     /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
-    pub fn getDeclVAddr(base: *File, decl: *const Module.Decl, reloc_info: RelocInfo) !u64 {
+    pub fn getDeclVAddr(base: *File, decl_index: Module.Decl.Index, reloc_info: RelocInfo) !u64 {
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl, reloc_info),
-            .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl, reloc_info),
-            .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl, reloc_info),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl, reloc_info),
+            .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl_index, reloc_info),
+            .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl_index, reloc_info),
+            .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl_index, reloc_info),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl_index, reloc_info),
             .c => unreachable,
-            .wasm => return @fieldParentPtr(Wasm, "base", base).getDeclVAddr(decl, reloc_info),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).getDeclVAddr(decl_index, reloc_info),
             .spirv => unreachable,
             .nvptx => unreachable,
         }

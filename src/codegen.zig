@@ -347,7 +347,9 @@ pub fn generateSymbol(
 
                 switch (container_ptr.tag()) {
                     .decl_ref => {
-                        const decl = container_ptr.castTag(.decl_ref).?.data;
+                        const decl_index = container_ptr.castTag(.decl_ref).?.data;
+                        const mod = bin_file.options.module.?;
+                        const decl = mod.declPtr(decl_index);
                         const addend = blk: {
                             switch (decl.ty.tag()) {
                                 .@"struct" => {
@@ -364,7 +366,7 @@ pub fn generateSymbol(
                                 },
                             }
                         };
-                        return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output, .{
+                        return lowerDeclRef(bin_file, src_loc, typed_value, decl_index, code, debug_output, .{
                             .parent_atom_index = reloc_info.parent_atom_index,
                             .addend = (reloc_info.addend orelse 0) + addend,
                         });
@@ -400,8 +402,8 @@ pub fn generateSymbol(
 
                 switch (array_ptr.tag()) {
                     .decl_ref => {
-                        const decl = array_ptr.castTag(.decl_ref).?.data;
-                        return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output, .{
+                        const decl_index = array_ptr.castTag(.decl_ref).?.data;
+                        return lowerDeclRef(bin_file, src_loc, typed_value, decl_index, code, debug_output, .{
                             .parent_atom_index = reloc_info.parent_atom_index,
                             .addend = (reloc_info.addend orelse 0) + addend,
                         });
@@ -589,7 +591,8 @@ pub fn generateSymbol(
             }
 
             const union_ty = typed_value.ty.cast(Type.Payload.Union).?.data;
-            const field_index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag, target).?;
+            const mod = bin_file.options.module.?;
+            const field_index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag, mod).?;
             assert(union_ty.haveFieldTypes());
             const field_ty = union_ty.fields.values()[field_index].ty;
             if (!field_ty.hasRuntimeBits()) {
@@ -772,12 +775,13 @@ fn lowerDeclRef(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     typed_value: TypedValue,
-    decl: *Module.Decl,
+    decl_index: Module.Decl.Index,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
 ) GenerateSymbolError!Result {
     const target = bin_file.options.target;
+    const module = bin_file.options.module.?;
     if (typed_value.ty.isSlice()) {
         // generate ptr
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
@@ -796,7 +800,7 @@ fn lowerDeclRef(
         // generate length
         var slice_len: Value.Payload.U64 = .{
             .base = .{ .tag = .int_u64 },
-            .data = typed_value.val.sliceLen(target),
+            .data = typed_value.val.sliceLen(module),
         };
         switch (try generateSymbol(bin_file, src_loc, .{
             .ty = Type.usize,
@@ -813,14 +817,16 @@ fn lowerDeclRef(
     }
 
     const ptr_width = target.cpu.arch.ptrBitWidth();
+    const decl = module.declPtr(decl_index);
     const is_fn_body = decl.ty.zigTypeTag() == .Fn;
     if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
         try code.writer().writeByteNTimes(0xaa, @divExact(ptr_width, 8));
         return Result{ .appended = {} };
     }
 
-    decl.markAlive();
-    const vaddr = try bin_file.getDeclVAddr(decl, .{
+    module.markDeclAlive(decl);
+
+    const vaddr = try bin_file.getDeclVAddr(decl_index, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,
         .addend = reloc_info.addend orelse 0,

@@ -134,7 +134,7 @@ atom_free_lists: std.AutoHashMapUnmanaged(u16, std.ArrayListUnmanaged(*TextBlock
 /// We store them here so that we can properly dispose of any allocated
 /// memory within the atom in the incremental linker.
 /// TODO consolidate this.
-decls: std.AutoHashMapUnmanaged(*Module.Decl, ?u16) = .{},
+decls: std.AutoHashMapUnmanaged(Module.Decl.Index, ?u16) = .{},
 
 /// List of atoms that are owned directly by the linker.
 /// Currently these are only atoms that are the result of linking
@@ -178,7 +178,7 @@ const Reloc = struct {
 };
 
 const RelocTable = std.AutoHashMapUnmanaged(*TextBlock, std.ArrayListUnmanaged(Reloc));
-const UnnamedConstTable = std.AutoHashMapUnmanaged(*Module.Decl, std.ArrayListUnmanaged(*TextBlock));
+const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(*TextBlock));
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
@@ -389,7 +389,10 @@ pub fn deinit(self: *Elf) void {
     }
 }
 
-pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl, reloc_info: File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: File.RelocInfo) !u64 {
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
     assert(self.llvm_object == null);
     assert(decl.link.elf.local_sym_index != 0);
 
@@ -2189,15 +2192,17 @@ fn allocateLocalSymbol(self: *Elf) !u32 {
     return index;
 }
 
-pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
+pub fn allocateDeclIndexes(self: *Elf, decl_index: Module.Decl.Index) !void {
     if (self.llvm_object) |_| return;
 
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
     if (decl.link.elf.local_sym_index != 0) return;
 
     try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
-    try self.decls.putNoClobber(self.base.allocator, decl, null);
+    try self.decls.putNoClobber(self.base.allocator, decl_index, null);
 
-    const decl_name = try decl.getFullyQualifiedName(self.base.allocator);
+    const decl_name = try decl.getFullyQualifiedName(mod);
     defer self.base.allocator.free(decl_name);
 
     log.debug("allocating symbol indexes for {s}", .{decl_name});
@@ -2214,8 +2219,8 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
     self.offset_table.items[decl.link.elf.offset_table_index] = 0;
 }
 
-fn freeUnnamedConsts(self: *Elf, decl: *Module.Decl) void {
-    const unnamed_consts = self.unnamed_const_atoms.getPtr(decl) orelse return;
+fn freeUnnamedConsts(self: *Elf, decl_index: Module.Decl.Index) void {
+    const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom| {
         self.freeTextBlock(atom, self.phdr_load_ro_index.?);
         self.local_symbol_free_list.append(self.base.allocator, atom.local_sym_index) catch {};
@@ -2225,15 +2230,18 @@ fn freeUnnamedConsts(self: *Elf, decl: *Module.Decl) void {
     unnamed_consts.clearAndFree(self.base.allocator);
 }
 
-pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
+pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     }
 
-    const kv = self.decls.fetchRemove(decl);
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    const kv = self.decls.fetchRemove(decl_index);
     if (kv.?.value) |index| {
         self.freeTextBlock(&decl.link.elf, index);
-        self.freeUnnamedConsts(decl);
+        self.freeUnnamedConsts(decl_index);
     }
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
@@ -2274,14 +2282,17 @@ fn getDeclPhdrIndex(self: *Elf, decl: *Module.Decl) !u16 {
     return phdr_index;
 }
 
-fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8) !*elf.Elf64_Sym {
-    const decl_name = try decl.getFullyQualifiedName(self.base.allocator);
+fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, stt_bits: u8) !*elf.Elf64_Sym {
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    const decl_name = try decl.getFullyQualifiedName(mod);
     defer self.base.allocator.free(decl_name);
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
 
-    const decl_ptr = self.decls.getPtr(decl).?;
+    const decl_ptr = self.decls.getPtr(decl_index).?;
     if (decl_ptr.* == null) {
         decl_ptr.* = try self.getDeclPhdrIndex(decl);
     }
@@ -2355,10 +2366,11 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const decl = func.owner_decl;
-    self.freeUnnamedConsts(decl);
+    const decl_index = func.owner_decl;
+    const decl = module.declPtr(decl_index);
+    self.freeUnnamedConsts(decl_index);
 
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(decl) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     const res = if (decl_state) |*ds|
@@ -2372,11 +2384,11 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.failed_decls.put(module.gpa, decl_index, em);
             return;
         },
     };
-    const local_sym = try self.updateDeclCode(decl, code, elf.STT_FUNC);
+    const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_FUNC);
     if (decl_state) |*ds| {
         try self.dwarf.?.commitDeclState(
             &self.base,
@@ -2389,20 +2401,22 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl, decl_exports);
+    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
+    return self.updateDeclExports(module, decl_index, decl_exports);
 }
 
-pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
+pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl_index);
     }
 
     const tracy = trace(@src());
     defer tracy.end();
+
+    const decl = module.declPtr(decl_index);
 
     if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
@@ -2414,12 +2428,12 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         }
     }
 
-    assert(!self.unnamed_const_atoms.contains(decl));
+    assert(!self.unnamed_const_atoms.contains(decl_index));
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(decl) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     // TODO implement .debug_info for global variables
@@ -2446,12 +2460,12 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.failed_decls.put(module.gpa, decl_index, em);
             return;
         },
     };
 
-    const local_sym = try self.updateDeclCode(decl, code, elf.STT_OBJECT);
+    const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_OBJECT);
     if (decl_state) |*ds| {
         try self.dwarf.?.commitDeclState(
             &self.base,
@@ -2464,16 +2478,18 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl, decl_exports);
+    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
+    return self.updateDeclExports(module, decl_index, decl_exports);
 }
 
-pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl) !u32 {
+pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const module = self.base.options.module.?;
-    const gop = try self.unnamed_const_atoms.getOrPut(self.base.allocator, decl);
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    const gop = try self.unnamed_const_atoms.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
@@ -2485,7 +2501,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
     try self.managed_atoms.append(self.base.allocator, atom);
 
     const name_str_index = blk: {
-        const decl_name = try decl.getFullyQualifiedName(self.base.allocator);
+        const decl_name = try decl.getFullyQualifiedName(mod);
         defer self.base.allocator.free(decl_name);
 
         const index = unnamed_consts.items.len;
@@ -2510,7 +2526,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
             log.err("{s}", .{em.msg});
             return error.AnalysisFail;
         },
@@ -2547,24 +2563,25 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
 pub fn updateDeclExports(
     self: *Elf,
     module: *Module,
-    decl: *Module.Decl,
+    decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl_index, exports);
     }
 
     const tracy = trace(@src());
     defer tracy.end();
 
     try self.global_symbols.ensureUnusedCapacity(self.base.allocator, exports.len);
+    const decl = module.declPtr(decl_index);
     if (decl.link.elf.local_sym_index == 0) return;
     const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
 
-    const decl_ptr = self.decls.getPtr(decl).?;
+    const decl_ptr = self.decls.getPtr(decl_index).?;
     if (decl_ptr.* == null) {
         decl_ptr.* = try self.getDeclPhdrIndex(decl);
     }
@@ -2633,12 +2650,11 @@ pub fn updateDeclExports(
 }
 
 /// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Decl) !void {
-    _ = module;
+pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl: *const Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl_name = try decl.getFullyQualifiedName(self.base.allocator);
+    const decl_name = try decl.getFullyQualifiedName(mod);
     defer self.base.allocator.free(decl_name);
 
     log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });

@@ -7,7 +7,7 @@ const Value = @import("value.zig").Value;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 
-pub fn dump(gpa: Allocator, air: Air, liveness: Liveness) void {
+pub fn dump(module: *Module, air: Air, liveness: Liveness) void {
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
@@ -41,11 +41,12 @@ pub fn dump(gpa: Allocator, air: Air, liveness: Liveness) void {
         liveness.special.count(), fmtIntSizeBin(liveness_special_bytes),
     });
     // zig fmt: on
-    var arena = std.heap.ArenaAllocator.init(gpa);
+    var arena = std.heap.ArenaAllocator.init(module.gpa);
     defer arena.deinit();
 
     var writer: Writer = .{
-        .gpa = gpa,
+        .module = module,
+        .gpa = module.gpa,
         .arena = arena.allocator(),
         .air = air,
         .liveness = liveness,
@@ -58,6 +59,7 @@ pub fn dump(gpa: Allocator, air: Air, liveness: Liveness) void {
 }
 
 const Writer = struct {
+    module: *Module,
     gpa: Allocator,
     arena: Allocator,
     air: Air,
@@ -591,7 +593,8 @@ const Writer = struct {
     fn writeDbgInline(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const function = w.air.values[ty_pl.payload].castTag(.function).?.data;
-        try s.print("{s}", .{function.owner_decl.name});
+        const owner_decl = w.module.declPtr(function.owner_decl);
+        try s.print("{s}", .{owner_decl.name});
     }
 
     fn writeDbgVar(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

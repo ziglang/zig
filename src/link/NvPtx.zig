@@ -74,27 +74,27 @@ pub fn updateFunc(self: *NvPtx, module: *Module, func: *Module.Fn, air: Air, liv
     try self.llvm_object.updateFunc(module, func, air, liveness);
 }
 
-pub fn updateDecl(self: *NvPtx, module: *Module, decl: *Module.Decl) !void {
+pub fn updateDecl(self: *NvPtx, module: *Module, decl_index: Module.Decl.Index) !void {
     if (!build_options.have_llvm) return;
-    return self.llvm_object.updateDecl(module, decl);
+    return self.llvm_object.updateDecl(module, decl_index);
 }
 
 pub fn updateDeclExports(
     self: *NvPtx,
     module: *Module,
-    decl: *const Module.Decl,
+    decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
     if (!build_options.have_llvm) return;
     if (build_options.skip_non_native and builtin.object_format != .nvptx) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    return self.llvm_object.updateDeclExports(module, decl, exports);
+    return self.llvm_object.updateDeclExports(module, decl_index, exports);
 }
 
-pub fn freeDecl(self: *NvPtx, decl: *Module.Decl) void {
+pub fn freeDecl(self: *NvPtx, decl_index: Module.Decl.Index) void {
     if (!build_options.have_llvm) return;
-    return self.llvm_object.freeDecl(decl);
+    return self.llvm_object.freeDecl(decl_index);
 }
 
 pub fn flush(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) !void {
