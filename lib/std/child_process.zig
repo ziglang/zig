@@ -1380,7 +1380,7 @@ test "build and call child_process" {
     try testing.expectEqual(ret_val, .{ .Exited = 0 });
 }
 
-test "creating a child process with stdin/stdout behavior set to StdIo.Pipe" {
+test "creating a child process with stdin and stdout behavior set to StdIo.Pipe" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
     const testing = std.testing;
     const allocator = testing.allocator;
@@ -1420,8 +1420,6 @@ test "creating a child process with stdin/stdout behavior set to StdIo.Pipe" {
             ;
             try testing.expectEqualStrings(expected_program, out_bytes);
         },
-        else => {
-            try testing.expect(false);
-        }
+        else => unreachable
     }
 }
