@@ -798,7 +798,7 @@ pub fn ArrayHashMapUnmanaged(
             allocator: Allocator,
             additional_capacity: usize,
         ) !void {
-            if (@sizeOf(ByIndexContext) != 0)
+            if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call ensureTotalCapacityContext instead.");
             return self.ensureUnusedCapacityContext(allocator, additional_capacity, undefined);
         }
