@@ -1412,6 +1412,12 @@ fn analyzeAsType(
 }
 
 pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) !void {
+    const backend_supports_error_return_tracing = false;
+    if (!backend_supports_error_return_tracing) {
+        // TODO implement this feature in all the backends and then delete this branch
+        return;
+    }
+
     var err_trace_block = block.makeSubBlock();
     err_trace_block.is_comptime = false;
     defer err_trace_block.instructions.deinit(sema.gpa);
@@ -12655,7 +12661,12 @@ fn analyzeRet(
         return always_noreturn;
     }
 
-    if (sema.fn_ret_ty.isError() and sema.mod.comp.bin_file.options.error_return_tracing) {
+    // TODO implement this feature in all the backends and then delete this check.
+    const backend_supports_error_return_tracing = false;
+
+    if (sema.fn_ret_ty.isError() and sema.mod.comp.bin_file.options.error_return_tracing and
+        backend_supports_error_return_tracing)
+    {
         const return_err_fn = try sema.getBuiltin(block, src, "returnError");
         const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
         const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
@@ -13397,9 +13408,14 @@ fn zirErrorReturnTrace(
     const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
     const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
     const opt_ptr_stack_trace_ty = try Type.Tag.optional_single_mut_pointer.create(sema.arena, stack_trace_ty);
+
+    // TODO implement this feature in all the backends and then delete this check.
+    const backend_supports_error_return_tracing = false;
+
     if (sema.owner_func != null and
         sema.owner_func.?.calls_or_awaits_errorable_fn and
-        sema.mod.comp.bin_file.options.error_return_tracing)
+        sema.mod.comp.bin_file.options.error_return_tracing and
+        backend_supports_error_return_tracing)
     {
         return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
     }

@@ -92,9 +92,9 @@ pub fn main() void {
                 fail_count += 1;
                 progress.log("FAIL ({s})\n", .{@errorName(err)});
                 if (!have_tty) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
-                if (builtin.zig_backend != .stage2_llvm) if (@errorReturnTrace()) |trace| {
+                if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
-                };
+                }
                 test_node.end();
             },
         }

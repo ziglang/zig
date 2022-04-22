@@ -1270,21 +1270,17 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    _ = inst;
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
         return self.fail("TODO implement airErrReturnTrace for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
 fn airSetErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airSetErrReturnTrace for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    _ = inst;
+    return self.fail("TODO implement airSetErrReturnTrace for {}", .{self.target.cpu.arch});
 }
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
