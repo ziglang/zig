@@ -384,16 +384,16 @@ pub fn translate(
 
     // For memory that has the same lifetime as the Ast that we return
     // from this function.
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    errdefer arena.deinit();
-    const arena_allocator = arena.allocator();
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    errdefer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
 
     var context = Context{
         .gpa = gpa,
-        .arena = arena_allocator,
+        .arena = arena,
         .source_manager = ast_unit.getSourceManager(),
         .alias_list = AliasList.init(gpa),
-        .global_scope = try arena_allocator.create(Scope.Root),
+        .global_scope = try arena.create(Scope.Root),
         .clang_context = ast_unit.getASTContext(),
         .pattern_list = try PatternList.init(gpa),
         .zig_is_stage1 = zig_is_stage1,
@@ -412,9 +412,9 @@ pub fn translate(
 
     inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
         if (decl.is_pub) {
-            const builtin = try Tag.pub_var_simple.create(context.arena, .{
+            const builtin = try Tag.pub_var_simple.create(arena, .{
                 .name = decl.name,
-                .init = try Tag.import_c_builtin.create(context.arena, decl.name),
+                .init = try Tag.import_c_builtin.create(arena, decl.name),
             });
             try addTopLevelDecl(&context, decl.name, builtin);
         }
@@ -431,7 +431,7 @@ pub fn translate(
     try addMacros(&context);
     for (context.alias_list.items) |alias| {
         if (!context.global_scope.sym_table.contains(alias.alias)) {
-            const node = try Tag.alias.create(context.arena, .{ .actual = alias.alias, .mangled = alias.name });
+            const node = try Tag.alias.create(arena, .{ .actual = alias.alias, .mangled = alias.name });
             try addTopLevelDecl(&context, alias.alias, node);
         }
     }

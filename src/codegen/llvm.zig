@@ -21,6 +21,7 @@ const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const LazySrcLoc = Module.LazySrcLoc;
 const CType = @import("../type.zig").CType;
+const x86_64_abi = @import("../arch/x86_64/abi.zig");
 
 const Error = error{ OutOfMemory, CodegenFail };
 
@@ -2391,27 +2392,20 @@ pub const DeclGen = struct {
             },
             .Fn => {
                 const fn_info = t.fnInfo();
-                const sret = firstParamSRet(fn_info, target);
-                const return_type = fn_info.return_type;
-                const llvm_sret_ty = if (return_type.hasRuntimeBitsIgnoreComptime())
-                    try dg.llvmType(return_type)
-                else
-                    dg.context.voidType();
-                const llvm_ret_ty = if (sret) dg.context.voidType() else llvm_sret_ty;
+                const llvm_ret_ty = try lowerFnRetTy(dg, fn_info);
 
                 var llvm_params = std.ArrayList(*const llvm.Type).init(dg.gpa);
                 defer llvm_params.deinit();
 
-                if (sret) {
+                if (firstParamSRet(fn_info, target)) {
+                    const llvm_sret_ty = try dg.llvmType(fn_info.return_type);
                     try llvm_params.append(llvm_sret_ty.pointerType(0));
                 }
 
                 for (fn_info.param_types) |param_ty| {
                     if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                    const raw_llvm_ty = try dg.llvmType(param_ty);
-                    const actual_llvm_ty = if (!isByRef(param_ty)) raw_llvm_ty else raw_llvm_ty.pointerType(0);
-                    try llvm_params.append(actual_llvm_ty);
+                    try llvm_params.append(try lowerFnParamTy(dg, fn_info.cc, param_ty));
                 }
 
                 return llvm.functionType(
@@ -3704,24 +3698,45 @@ pub const FuncGen = struct {
             break :blk ret_ptr;
         };
 
-        if (fn_info.is_var_args) {
-            for (args) |arg| {
-                try llvm_args.append(try self.resolveInst(arg));
-            }
-        } else {
-            for (args) |arg, i| {
-                const param_ty = fn_info.param_types[i];
-                if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
+        for (args) |arg| {
+            const param_ty = self.air.typeOf(arg);
+            if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                try llvm_args.append(try self.resolveInst(arg));
+            const llvm_arg = try self.resolveInst(arg);
+            const abi_llvm_ty = try lowerFnParamTy(self.dg, fn_info.cc, param_ty);
+            const param_llvm_ty = llvm_arg.typeOf();
+            if (abi_llvm_ty == param_llvm_ty) {
+                try llvm_args.append(llvm_arg);
+                continue;
             }
+
+            // In this case the function param type is honoring the calling convention
+            // by having a different LLVM type than the usual one. We solve this here
+            // at the callsite by bitcasting a pointer to our canonical type, then
+            // loading it if necessary.
+            const alignment = param_ty.abiAlignment(target);
+            const ptr_abi_ty = abi_llvm_ty.pointerType(0);
+
+            const casted_ptr = if (isByRef(param_ty))
+                self.builder.buildBitCast(llvm_arg, ptr_abi_ty, "")
+            else p: {
+                const arg_ptr = self.buildAlloca(param_llvm_ty);
+                arg_ptr.setAlignment(alignment);
+                const store_inst = self.builder.buildStore(llvm_arg, arg_ptr);
+                store_inst.setAlignment(alignment);
+                break :p self.builder.buildBitCast(arg_ptr, ptr_abi_ty, "");
+            };
+
+            const load_inst = self.builder.buildLoad(casted_ptr, "");
+            load_inst.setAlignment(alignment);
+            try llvm_args.append(load_inst);
         }
 
         const call = self.builder.buildCall(
             llvm_fn,
             llvm_args.items.ptr,
             @intCast(c_uint, llvm_args.items.len),
-            toLlvmCallConv(zig_fn_ty.fnCallingConvention(), target),
+            toLlvmCallConv(fn_info.cc, target),
             attr,
             "",
         );
@@ -3735,8 +3750,9 @@ pub const FuncGen = struct {
             return null;
         }
 
+        const llvm_ret_ty = try self.dg.llvmType(return_type);
+
         if (ret_ptr) |rp| {
-            const llvm_ret_ty = try self.dg.llvmType(return_type);
             call.setCallSret(llvm_ret_ty);
             if (isByRef(return_type)) {
                 return rp;
@@ -3748,10 +3764,31 @@ pub const FuncGen = struct {
             }
         }
 
+        const abi_ret_ty = try lowerFnRetTy(self.dg, fn_info);
+
+        if (abi_ret_ty != llvm_ret_ty) {
+            // In this case the function return type is honoring the calling convention by having
+            // a different LLVM type than the usual one. We solve this here at the callsite
+            // by bitcasting a pointer to our canonical type, then loading it if necessary.
+            const rp = self.buildAlloca(llvm_ret_ty);
+            const alignment = return_type.abiAlignment(target);
+            rp.setAlignment(alignment);
+            const ptr_abi_ty = abi_ret_ty.pointerType(0);
+            const casted_ptr = self.builder.buildBitCast(rp, ptr_abi_ty, "");
+            const store_inst = self.builder.buildStore(call, casted_ptr);
+            store_inst.setAlignment(alignment);
+            if (isByRef(return_type)) {
+                return rp;
+            } else {
+                const load_inst = self.builder.buildLoad(rp, "");
+                load_inst.setAlignment(alignment);
+                return load_inst;
+            }
+        }
+
         if (isByRef(return_type)) {
             // our by-ref status disagrees with sret so we must allocate, store,
             // and return the allocation pointer.
-            const llvm_ret_ty = try self.dg.llvmType(return_type);
             const rp = self.buildAlloca(llvm_ret_ty);
             const alignment = return_type.abiAlignment(target);
             rp.setAlignment(alignment);
@@ -3781,8 +3818,26 @@ pub const FuncGen = struct {
             _ = self.builder.buildRetVoid();
             return null;
         }
+        const fn_info = self.dg.decl.ty.fnInfo();
+        const abi_ret_ty = try lowerFnRetTy(self.dg, fn_info);
         const operand = try self.resolveInst(un_op);
-        _ = self.builder.buildRet(operand);
+        const llvm_ret_ty = operand.typeOf();
+        if (abi_ret_ty == llvm_ret_ty) {
+            _ = self.builder.buildRet(operand);
+            return null;
+        }
+
+        const target = self.dg.module.getTarget();
+        const alignment = ret_ty.abiAlignment(target);
+        const ptr_abi_ty = abi_ret_ty.pointerType(0);
+        const rp = self.buildAlloca(llvm_ret_ty);
+        rp.setAlignment(alignment);
+        const store_inst = self.builder.buildStore(operand, rp);
+        store_inst.setAlignment(alignment);
+        const casted_ptr = self.builder.buildBitCast(rp, ptr_abi_ty, "");
+        const load_inst = self.builder.buildLoad(casted_ptr, "");
+        load_inst.setAlignment(alignment);
+        _ = self.builder.buildRet(load_inst);
         return null;
     }
 
@@ -3794,9 +3849,16 @@ pub const FuncGen = struct {
             _ = self.builder.buildRetVoid();
             return null;
         }
-        const target = self.dg.module.getTarget();
         const ptr = try self.resolveInst(un_op);
-        const loaded = self.builder.buildLoad(ptr, "");
+        const target = self.dg.module.getTarget();
+        const fn_info = self.dg.decl.ty.fnInfo();
+        const abi_ret_ty = try lowerFnRetTy(self.dg, fn_info);
+        const llvm_ret_ty = try self.dg.llvmType(ret_ty);
+        const casted_ptr = if (abi_ret_ty == llvm_ret_ty) ptr else p: {
+            const ptr_abi_ty = abi_ret_ty.pointerType(0);
+            break :p self.builder.buildBitCast(ptr, ptr_abi_ty, "");
+        };
+        const loaded = self.builder.buildLoad(casted_ptr, "");
         loaded.setAlignment(ret_ty.abiAlignment(target));
         _ = self.builder.buildRet(loaded);
         return null;
@@ -7711,20 +7773,211 @@ fn llvmFieldIndex(
         return null;
     }
 }
+
 fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool {
     switch (fn_info.cc) {
         .Unspecified, .Inline => return isByRef(fn_info.return_type),
-        .C => {},
+        .C => switch (target.cpu.arch) {
+            .mips, .mipsel => return false,
+            .x86_64 => switch (target.os.tag) {
+                .windows => return x86_64_abi.classifyWindows(fn_info.return_type, target) == .memory,
+                else => return x86_64_abi.classifySystemV(fn_info.return_type, target)[0] == .memory,
+            },
+            else => return false, // TODO investigate C ABI for other architectures
+        },
         else => return false,
     }
-    const x86_64_abi = @import("../arch/x86_64/abi.zig");
-    switch (target.cpu.arch) {
-        .mips, .mipsel => return false,
-        .x86_64 => switch (target.os.tag) {
-            .windows => return x86_64_abi.classifyWindows(fn_info.return_type, target) == .memory,
-            else => return x86_64_abi.classifySystemV(fn_info.return_type, target)[0] == .memory,
+}
+
+/// In order to support the C calling convention, some return types need to be lowered
+/// completely differently in the function prototype to honor the C ABI, and then
+/// be effectively bitcasted to the actual return type.
+fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.Type {
+    if (!fn_info.return_type.hasRuntimeBitsIgnoreComptime()) {
+        return dg.context.voidType();
+    }
+    const target = dg.module.getTarget();
+    switch (fn_info.cc) {
+        .Unspecified, .Inline => {
+            if (isByRef(fn_info.return_type)) {
+                return dg.context.voidType();
+            } else {
+                return dg.llvmType(fn_info.return_type);
+            }
         },
-        else => return false, // TODO investigate C ABI for other architectures
+        .C => {
+            const is_scalar = switch (fn_info.return_type.zigTypeTag()) {
+                .Void,
+                .Bool,
+                .NoReturn,
+                .Int,
+                .Float,
+                .Pointer,
+                .Optional,
+                .ErrorSet,
+                .Enum,
+                .AnyFrame,
+                .Vector,
+                => true,
+
+                else => false,
+            };
+            switch (target.cpu.arch) {
+                .mips, .mipsel => return dg.llvmType(fn_info.return_type),
+                .x86_64 => switch (target.os.tag) {
+                    .windows => switch (x86_64_abi.classifyWindows(fn_info.return_type, target)) {
+                        .integer => {
+                            if (is_scalar) {
+                                return dg.llvmType(fn_info.return_type);
+                            } else {
+                                const abi_size = fn_info.return_type.abiSize(target);
+                                return dg.context.intType(@intCast(c_uint, abi_size * 8));
+                            }
+                        },
+                        .memory => return dg.context.voidType(),
+                        .sse => return dg.llvmType(fn_info.return_type),
+                        else => unreachable,
+                    },
+                    else => {
+                        if (is_scalar) {
+                            return dg.llvmType(fn_info.return_type);
+                        }
+                        const classes = x86_64_abi.classifySystemV(fn_info.return_type, target);
+                        if (classes[0] == .memory) {
+                            return dg.context.voidType();
+                        }
+                        var llvm_types_buffer: [8]*const llvm.Type = undefined;
+                        var llvm_types_index: u32 = 0;
+                        for (classes) |class| {
+                            switch (class) {
+                                .integer => {
+                                    llvm_types_buffer[llvm_types_index] = dg.context.intType(64);
+                                    llvm_types_index += 1;
+                                },
+                                .sse => {
+                                    @panic("TODO");
+                                },
+                                .sseup => {
+                                    @panic("TODO");
+                                },
+                                .x87 => {
+                                    @panic("TODO");
+                                },
+                                .x87up => {
+                                    @panic("TODO");
+                                },
+                                .complex_x87 => {
+                                    @panic("TODO");
+                                },
+                                .memory => unreachable, // handled above
+                                .none => break,
+                            }
+                        }
+                        if (classes[0] == .integer and classes[1] == .none) {
+                            return llvm_types_buffer[0];
+                        }
+                        return dg.context.structType(&llvm_types_buffer, llvm_types_index, .False);
+                    },
+                },
+                // TODO investigate C ABI for other architectures
+                else => return dg.llvmType(fn_info.return_type),
+            }
+        },
+        else => return dg.llvmType(fn_info.return_type),
+    }
+}
+
+fn lowerFnParamTy(dg: *DeclGen, cc: std.builtin.CallingConvention, ty: Type) !*const llvm.Type {
+    assert(ty.hasRuntimeBitsIgnoreComptime());
+    const target = dg.module.getTarget();
+    switch (cc) {
+        .Unspecified, .Inline => {
+            const raw_llvm_ty = try dg.llvmType(ty);
+            if (isByRef(ty)) {
+                return raw_llvm_ty.pointerType(0);
+            } else {
+                return raw_llvm_ty;
+            }
+        },
+        .C => {
+            const is_scalar = switch (ty.zigTypeTag()) {
+                .Void,
+                .Bool,
+                .NoReturn,
+                .Int,
+                .Float,
+                .Pointer,
+                .Optional,
+                .ErrorSet,
+                .Enum,
+                .AnyFrame,
+                .Vector,
+                => true,
+
+                else => false,
+            };
+            switch (target.cpu.arch) {
+                .mips, .mipsel => return dg.llvmType(ty),
+                .x86_64 => switch (target.os.tag) {
+                    .windows => switch (x86_64_abi.classifyWindows(ty, target)) {
+                        .integer => {
+                            if (is_scalar) {
+                                return dg.llvmType(ty);
+                            } else {
+                                const abi_size = ty.abiSize(target);
+                                return dg.context.intType(@intCast(c_uint, abi_size * 8));
+                            }
+                        },
+                        .memory => return (try dg.llvmType(ty)).pointerType(0),
+                        .sse => return dg.llvmType(ty),
+                        else => unreachable,
+                    },
+                    else => {
+                        if (is_scalar) {
+                            return dg.llvmType(ty);
+                        }
+                        const classes = x86_64_abi.classifySystemV(ty, target);
+                        if (classes[0] == .memory) {
+                            return (try dg.llvmType(ty)).pointerType(0);
+                        }
+                        var llvm_types_buffer: [8]*const llvm.Type = undefined;
+                        var llvm_types_index: u32 = 0;
+                        for (classes) |class| {
+                            switch (class) {
+                                .integer => {
+                                    llvm_types_buffer[llvm_types_index] = dg.context.intType(64);
+                                    llvm_types_index += 1;
+                                },
+                                .sse => {
+                                    @panic("TODO");
+                                },
+                                .sseup => {
+                                    @panic("TODO");
+                                },
+                                .x87 => {
+                                    @panic("TODO");
+                                },
+                                .x87up => {
+                                    @panic("TODO");
+                                },
+                                .complex_x87 => {
+                                    @panic("TODO");
+                                },
+                                .memory => unreachable, // handled above
+                                .none => break,
+                            }
+                        }
+                        if (classes[0] == .integer and classes[1] == .none) {
+                            return llvm_types_buffer[0];
+                        }
+                        return dg.context.structType(&llvm_types_buffer, llvm_types_index, .False);
+                    },
+                },
+                // TODO investigate C ABI for other architectures
+                else => return dg.llvmType(ty),
+            }
+        },
+        else => return dg.llvmType(ty),
     }
 }
 

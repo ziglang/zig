@@ -106,15 +106,15 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
                 return result;
             },
             128 => {
-                // "Arguments of types__float128,_Decimal128and__m128are
+                // "Arguments of types__float128, _Decimal128 and__m128 are
                 // split into two halves.  The least significant ones belong
-                // to class SSE, the mostsignificant one to class SSEUP."
+                // to class SSE, the most significant one to class SSEUP."
                 result[0] = .sse;
                 result[1] = .sseup;
                 return result;
             },
             else => {
-                // "The 64-bit mantissa of arguments of typelong double
+                // "The 64-bit mantissa of arguments of type long double
                 // belongs to classX87, the 16-bit exponent plus 6 bytes
                 // of padding belongs to class X87UP."
                 result[0] = .x87;

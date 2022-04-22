@@ -1050,7 +1050,8 @@ ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangLexer_getLocForEndOfToken(str
         const ZigClangSourceManager *, const ZigClangASTUnit *);
 
 // Can return null.
-ZIG_EXTERN_C struct ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char **args_end,
+ZIG_EXTERN_C struct ZigClangASTUnit *ZigClangLoadFromCommandLine(
+        const char **args_begin, const char **args_end,
         struct Stage2ErrorMsg **errors_ptr, size_t *errors_len, const char *resources_path);
 ZIG_EXTERN_C void ZigClangASTUnit_delete(struct ZigClangASTUnit *);
 ZIG_EXTERN_C void ZigClangErrorMsg_delete(struct Stage2ErrorMsg *ptr, size_t len);
