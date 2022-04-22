@@ -198,7 +198,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         else if (config.thread_safe)
             std.Thread.Mutex{}
         else
-            DummyMutex;
+            DummyMutex{};
 
         const DummyMutex = struct {
             fn lock(_: *DummyMutex) void {}
