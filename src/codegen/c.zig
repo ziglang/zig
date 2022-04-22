@@ -3451,33 +3451,11 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airErrReturnTrace(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
-
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
-    const writer = f.object.writer();
-    const inst_ty = f.air.typeOfIndex(inst);
-    const operand = try f.resolveInst(un_op);
-    const local = try f.allocLocal(inst_ty, .Const);
-
-    try writer.writeAll(" = ");
-
-    _ = operand;
-    _ = local;
     return f.fail("TODO: C backend: implement airErrReturnTrace", .{});
 }
 
 fn airSetErrReturnTrace(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst)) return CValue.none;
-
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
-    const writer = f.object.writer();
-    const inst_ty = f.air.typeOfIndex(inst);
-    const operand = try f.resolveInst(un_op);
-    const local = try f.allocLocal(inst_ty, .Const);
-
-    try writer.writeAll(" = ");
-
-    _ = operand;
-    _ = local;
+    _ = inst;
     return f.fail("TODO: C backend: implement airSetErrReturnTrace", .{});
 }
 

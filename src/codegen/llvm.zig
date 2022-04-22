@@ -637,7 +637,7 @@ pub const Object = struct {
         const gpa = dg.gpa;
 
         const err_return_tracing = fn_info.return_type.isError() and
-            dg.module.comp.bin_file.options.error_return_tracing;
+            dg.module.comp.bin_file.options.error_return_tracing and false;
 
         const err_ret_trace = if (err_return_tracing)
             llvm_func.getParam(@boolToInt(ret_ptr != null))
@@ -1765,7 +1765,7 @@ pub const Object = struct {
                 }
 
                 if (fn_info.return_type.isError() and
-                    o.module.comp.bin_file.options.error_return_tracing)
+                    o.module.comp.bin_file.options.error_return_tracing and false)
                 {
                     var ptr_ty_payload: Type.Payload.ElemType = .{
                         .base = .{ .tag = .single_mut_pointer },
@@ -2018,7 +2018,7 @@ pub const DeclGen = struct {
         }
 
         const err_return_tracing = fn_info.return_type.isError() and
-            dg.module.comp.bin_file.options.error_return_tracing;
+            dg.module.comp.bin_file.options.error_return_tracing and false;
 
         if (err_return_tracing) {
             dg.addArgAttr(llvm_fn, @boolToInt(sret), "nonnull");
@@ -2484,7 +2484,7 @@ pub const DeclGen = struct {
                 }
 
                 if (fn_info.return_type.isError() and
-                    dg.module.comp.bin_file.options.error_return_tracing)
+                    dg.module.comp.bin_file.options.error_return_tracing and false)
                 {
                     var ptr_ty_payload: Type.Payload.ElemType = .{
                         .base = .{ .tag = .single_mut_pointer },
@@ -3796,7 +3796,7 @@ pub const FuncGen = struct {
         };
 
         if (fn_info.return_type.isError() and
-            self.dg.module.comp.bin_file.options.error_return_tracing)
+            self.dg.module.comp.bin_file.options.error_return_tracing and false)
         {
             try llvm_args.append(self.err_ret_trace.?);
         }
