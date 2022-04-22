@@ -61,6 +61,11 @@ const FormatTypeAsCIdentContext = struct {
     mod: *Module,
 };
 
+const ValueRenderLocation = enum {
+    FunctionArgument,
+    Other,
+};
+
 /// TODO make this not cut off at 128 bytes
 fn formatTypeAsCIdentifier(
     data: FormatTypeAsCIdentContext,
@@ -259,7 +264,7 @@ pub const Function = struct {
                     0,
                 );
                 try writer.writeAll(" = ");
-                try f.object.dg.renderValue(writer, ty, val);
+                try f.object.dg.renderValue(writer, ty, val, .Other);
                 try writer.writeAll(";\n ");
                 return decl_c_value;
             },
@@ -298,7 +303,7 @@ pub const Function = struct {
             .constant => |inst| {
                 const ty = f.air.typeOf(inst);
                 const val = f.air.value(inst).?;
-                return f.object.dg.renderValue(w, ty, val);
+                return f.object.dg.renderValue(w, ty, val, .Other);
             },
             else => return f.object.dg.writeCValue(w, c_value),
         }
@@ -310,7 +315,7 @@ pub const Function = struct {
                 const ty = f.air.typeOf(inst);
                 const val = f.air.value(inst).?;
                 try w.writeAll("(*");
-                try f.object.dg.renderValue(w, ty, val);
+                try f.object.dg.renderValue(w, ty, val, .Other);
                 return w.writeByte(')');
             },
             else => return f.object.dg.writeCValueDeref(w, c_value),
@@ -384,7 +389,7 @@ pub const DeclGen = struct {
             try dg.renderTypecast(writer, ty);
             try writer.writeAll("){");
             var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-            try dg.renderValue(writer, ty.slicePtrFieldType(&buf), val.slicePtr());
+            try dg.renderValue(writer, ty.slicePtrFieldType(&buf), val.slicePtr(), .Other);
             try writer.writeAll(", ");
             try writer.print("{d}", .{val.sliceLen(dg.module)});
             try writer.writeAll("}");
@@ -544,6 +549,7 @@ pub const DeclGen = struct {
         writer: anytype,
         ty: Type,
         val: Value,
+        location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const target = dg.module.getTarget();
         if (val.isUndefDeep()) {
@@ -636,9 +642,9 @@ pub const DeclGen = struct {
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
                     try writer.writeAll("){");
-                    try dg.renderValue(writer, ty.slicePtrFieldType(&buf), slice.ptr);
+                    try dg.renderValue(writer, ty.slicePtrFieldType(&buf), slice.ptr, location);
                     try writer.writeAll(", ");
-                    try dg.renderValue(writer, Type.usize, slice.len);
+                    try dg.renderValue(writer, Type.usize, slice.len, location);
                     try writer.writeAll("}");
                 },
                 .function => {
@@ -670,7 +676,7 @@ pub const DeclGen = struct {
                         try writer.writeByte('{');
                         const ai = ty.arrayInfo();
                         if (ai.sentinel) |s| {
-                            try dg.renderValue(writer, ai.elem_type, s);
+                            try dg.renderValue(writer, ai.elem_type, s, location);
                         }
                         try writer.writeByte('}');
                     },
@@ -680,17 +686,23 @@ pub const DeclGen = struct {
                         defer arena.deinit();
                         const arena_allocator = arena.allocator();
 
+                        if (location == .FunctionArgument) {
+                            try writer.writeByte('(');
+                            try dg.renderTypecast(writer, ty);
+                            try writer.writeByte(')');
+                        }
+
                         try writer.writeByte('{');
                         const ai = ty.arrayInfo();
                         var index: usize = 0;
                         while (index < ai.len) : (index += 1) {
                             if (index != 0) try writer.writeAll(",");
                             const elem_val = try val.elemValue(dg.module, arena_allocator, index);
-                            try dg.renderValue(writer, ai.elem_type, elem_val);
+                            try dg.renderValue(writer, ai.elem_type, elem_val, .Other);
                         }
                         if (ai.sentinel) |s| {
                             if (index != 0) try writer.writeAll(",");
-                            try dg.renderValue(writer, ai.elem_type, s);
+                            try dg.renderValue(writer, ai.elem_type, s, .Other);
                         }
                         try writer.writeByte('}');
                     },
@@ -701,7 +713,7 @@ pub const DeclGen = struct {
                 var opt_buf: Type.Payload.ElemType = undefined;
                 const payload_type = ty.optionalChild(&opt_buf);
                 if (ty.isPtrLikeOptional()) {
-                    return dg.renderValue(writer, payload_type, val);
+                    return dg.renderValue(writer, payload_type, val, location);
                 }
                 if (payload_type.abiSize(target) == 0) {
                     const is_null = val.castTag(.opt_payload) == null;
@@ -713,7 +725,7 @@ pub const DeclGen = struct {
                 if (val.castTag(.opt_payload)) |pl| {
                     const payload_val = pl.data;
                     try writer.writeAll(" .is_null = false, .payload = ");
-                    try dg.renderValue(writer, payload_type, payload_val);
+                    try dg.renderValue(writer, payload_type, payload_val, location);
                     try writer.writeAll(" }");
                 } else {
                     try writer.writeAll(" .is_null = true }");
@@ -740,7 +752,7 @@ pub const DeclGen = struct {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     const err_val = if (val.errorUnionIsPayload()) Value.initTag(.zero) else val;
-                    return dg.renderValue(writer, error_type, err_val);
+                    return dg.renderValue(writer, error_type, err_val, location);
                 }
 
                 try writer.writeByte('(');
@@ -749,11 +761,11 @@ pub const DeclGen = struct {
                 if (val.castTag(.eu_payload)) |pl| {
                     const payload_val = pl.data;
                     try writer.writeAll(" .payload = ");
-                    try dg.renderValue(writer, payload_type, payload_val);
+                    try dg.renderValue(writer, payload_type, payload_val, location);
                     try writer.writeAll(", .error = 0 }");
                 } else {
                     try writer.writeAll(" .error = ");
-                    try dg.renderValue(writer, error_type, val);
+                    try dg.renderValue(writer, error_type, val, location);
                     try writer.writeAll(" }");
                 }
             },
@@ -767,7 +779,7 @@ pub const DeclGen = struct {
                                 const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
                                 if (enum_full.values.count() != 0) {
                                     const tag_val = enum_full.values.keys()[field_index];
-                                    return dg.renderValue(writer, enum_full.tag_ty, tag_val);
+                                    return dg.renderValue(writer, enum_full.tag_ty, tag_val, location);
                                 } else {
                                     return writer.print("{d}", .{field_index});
                                 }
@@ -776,7 +788,7 @@ pub const DeclGen = struct {
                                 const enum_obj = ty.castTag(.enum_numbered).?.data;
                                 if (enum_obj.values.count() != 0) {
                                     const tag_val = enum_obj.values.keys()[field_index];
-                                    return dg.renderValue(writer, enum_obj.tag_ty, tag_val);
+                                    return dg.renderValue(writer, enum_obj.tag_ty, tag_val, location);
                                 } else {
                                     return writer.print("{d}", .{field_index});
                                 }
@@ -787,7 +799,7 @@ pub const DeclGen = struct {
                     else => {
                         var int_tag_ty_buffer: Type.Payload.Bits = undefined;
                         const int_tag_ty = ty.intTagType(&int_tag_ty_buffer);
-                        return dg.renderValue(writer, int_tag_ty, val);
+                        return dg.renderValue(writer, int_tag_ty, val, location);
                     },
                 }
             },
@@ -814,7 +826,7 @@ pub const DeclGen = struct {
                     if (!field_ty.hasRuntimeBits()) continue;
 
                     if (i != 0) try writer.writeAll(",");
-                    try dg.renderValue(writer, field_ty, field_val);
+                    try dg.renderValue(writer, field_ty, field_val, location);
                 }
 
                 try writer.writeAll("}");
@@ -831,7 +843,7 @@ pub const DeclGen = struct {
                 if (ty.unionTagType()) |tag_ty| {
                     if (layout.tag_size != 0) {
                         try writer.writeAll(".tag = ");
-                        try dg.renderValue(writer, tag_ty, union_obj.tag);
+                        try dg.renderValue(writer, tag_ty, union_obj.tag, location);
                         try writer.writeAll(", ");
                     }
                     try writer.writeAll(".payload = {");
@@ -842,7 +854,7 @@ pub const DeclGen = struct {
                 const field_name = ty.unionFields().keys()[index];
                 if (field_ty.hasRuntimeBits()) {
                     try writer.print(".{ } = ", .{fmtIdent(field_name)});
-                    try dg.renderValue(writer, field_ty, union_obj.val);
+                    try dg.renderValue(writer, field_ty, union_obj.val, location);
                 }
                 if (ty.unionTagType()) |_| {
                     try writer.writeAll("}");
@@ -988,7 +1000,7 @@ pub const DeclGen = struct {
         }
         if (ptr_sentinel) |s| {
             try bw.writeAll("_s_");
-            try dg.renderValue(bw, child_type, s);
+            try dg.renderValue(bw, child_type, s, .Other);
         }
         try bw.writeAll(";\n");
 
@@ -1629,7 +1641,7 @@ pub fn genDecl(o: *Object) !void {
         try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.@"align");
         try w.writeAll(" = ");
         if (variable.init.tag() != .unreachable_value) {
-            try o.dg.renderValue(w, tv.ty, variable.init);
+            try o.dg.renderValue(w, tv.ty, variable.init, .Other);
         }
         try w.writeAll(";");
         try o.indent_writer.insertNewline();
@@ -1644,7 +1656,7 @@ pub fn genDecl(o: *Object) !void {
         try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut, o.dg.decl.@"align");
 
         try writer.writeAll(" = ");
-        try o.dg.renderValue(writer, tv.ty, tv.val);
+        try o.dg.renderValue(writer, tv.ty, tv.val, .Other);
         try writer.writeAll(";\n");
     }
 }
@@ -2748,7 +2760,7 @@ fn airCall(
             try writer.writeAll(", ");
         }
         if (f.air.value(arg)) |val| {
-            try f.object.dg.renderValue(writer, f.air.typeOf(arg), val);
+            try f.object.dg.renderValue(writer, f.air.typeOf(arg), val, .FunctionArgument);
         } else {
             const val = try f.resolveInst(arg);
             try f.writeCValue(writer, val);
@@ -2964,7 +2976,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
         for (items) |item| {
             try f.object.indent_writer.insertNewline();
             try writer.writeAll("case ");
-            try f.object.dg.renderValue(writer, condition_ty, f.air.value(item).?);
+            try f.object.dg.renderValue(writer, condition_ty, f.air.value(item).?, .Other);
             try writer.writeAll(": ");
         }
         // The case body must be noreturn so we don't need to insert a break.
@@ -3414,14 +3426,14 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
         try f.writeCValueDeref(writer, operand);
         try writer.writeAll(" = ");
-        try f.object.dg.renderValue(writer, error_ty, Value.zero);
+        try f.object.dg.renderValue(writer, error_ty, Value.zero, .Other);
         try writer.writeAll(";\n ");
 
         return operand;
     }
     try f.writeCValueDeref(writer, operand);
     try writer.writeAll(".error = ");
-    try f.object.dg.renderValue(writer, error_ty, Value.zero);
+    try f.object.dg.renderValue(writer, error_ty, Value.zero, .Other);
     try writer.writeAll(";\n");
 
     // Then return the payload pointer (only if it is used)

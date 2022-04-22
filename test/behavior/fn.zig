@@ -349,10 +349,9 @@ fn numberLiteralArg(a: anytype) !void {
 }
 
 test "function call with anon list literal" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -363,6 +362,28 @@ test "function call with anon list literal" {
             try expect(vec[0] == 9);
             try expect(vec[1] == 8);
             try expect(vec[2] == 7);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "function call with anon list literal - 2D" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            try consumeVec(.{ .{ 9, 8 }, .{ 7, 6 } });
+        }
+
+        fn consumeVec(vec: [2][2]f32) !void {
+            try expect(vec[0][0] == 9);
+            try expect(vec[0][1] == 8);
+            try expect(vec[1][0] == 7);
+            try expect(vec[1][1] == 6);
         }
     };
     try S.doTheTest();
