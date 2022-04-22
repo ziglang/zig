@@ -991,7 +991,7 @@ pub const Deadline = struct {
     /// - `Futex.wake()` is called on the `ptr`.
     /// - A spurious wake occurs.
     /// - The deadline expires; In which case `error.Timeout` is returned.
-    pub fn wait(noalias self: *Deadline, noalias ptr: *const Atomic(u32), expect: u32) error{Timeout}!void {
+    pub fn wait(self: *Deadline, ptr: *const Atomic(u32), expect: u32) error{Timeout}!void {
         @setCold(true);
 
         // Check if we actually have a timeout to wait until.

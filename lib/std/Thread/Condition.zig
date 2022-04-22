@@ -68,7 +68,7 @@ impl: Impl = .{},
 ///
 /// Given wait() can be interrupted spuriously, the blocking condition should be checked continuously
 /// irrespective of any notifications from `signal()` or `broadcast()`.
-pub fn wait(noalias self: *Condition, noalias mutex: *Mutex) void {
+pub fn wait(self: *Condition, mutex: *Mutex) void {
     self.impl.wait(mutex, null) catch |err| switch (err) {
         error.Timeout => unreachable, // no timeout provided so we shouldn't have timed-out
     };
@@ -89,7 +89,7 @@ pub fn wait(noalias self: *Condition, noalias mutex: *Mutex) void {
 ///
 /// Given `timedWait()` can be interrupted spuriously, the blocking condition should be checked continuously
 /// irrespective of any notifications from `signal()` or `broadcast()`.
-pub fn timedWait(noalias self: *Condition, noalias mutex: *Mutex, timeout_ns: u64) error{Timeout}!void {
+pub fn timedWait(self: *Condition, mutex: *Mutex, timeout_ns: u64) error{Timeout}!void {
     return self.impl.wait(mutex, timeout_ns);
 }
 
@@ -120,7 +120,7 @@ const Notify = enum {
 };
 
 const SingleThreadedImpl = struct {
-    fn wait(noalias self: *Impl, noalias mutex: *Mutex, timeout: ?u64) error{Timeout}!void {
+    fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{Timeout}!void {
         _ = self;
         _ = mutex;
 
@@ -144,7 +144,7 @@ const SingleThreadedImpl = struct {
 const WindowsImpl = struct {
     condition: os.windows.CONDITION_VARIABLE = .{},
 
-    fn wait(noalias self: *Impl, noalias mutex: *Mutex, timeout: ?u64) error{Timeout}!void {
+    fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{Timeout}!void {
         var timeout_overflowed = false;
         var timeout_ms: os.windows.DWORD = os.windows.INFINITE;
 
@@ -193,7 +193,7 @@ const FutexImpl = struct {
     const one_signal = 1 << 16;
     const signal_mask = 0xffff << 16;
 
-    fn wait(noalias self: *Impl, noalias mutex: *Mutex, timeout: ?u64) error{Timeout}!void {
+    fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{Timeout}!void {
         // Register that we're waiting on the state by incrementing the wait count.
         // This assumes that there can be at most ((1<<16)-1) or 65,355 threads concurrently waiting on the same Condvar.
         // If this is hit in practice, then this condvar not working is the least of your concerns.
