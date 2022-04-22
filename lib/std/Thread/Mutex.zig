@@ -135,7 +135,7 @@ const FutexImpl = struct {
 
     inline fn lockFast(self: *Impl, comptime casFn: []const u8) bool {
         // On x86, use `lock bts` instead of `lock cmpxchg` as:
-        // - they both seem to invalid the cache line regardless: https://stackoverflow.com/a/63350048
+        // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
         if (comptime builtin.target.cpu.arch.isX86()) {
             return self.state.bitSet(@ctz(u32, locked), .Acquire) == 0;
@@ -150,7 +150,7 @@ const FutexImpl = struct {
         @setCold(true);
 
         // Avoid doing an atomic swap below if we already know the state is contended.
-        // An atomic swap unconditionally stores which takes ownership of the cache line unnecessarily.
+        // An atomic swap unconditionally stores which marks the cache-line as modified unnecessarily.
         if (self.state.load(.Monotonic) == contended) {
             Futex.wait(&self.state, contended);
         }
@@ -177,7 +177,10 @@ const FutexImpl = struct {
         //
         // Release barrier ensures the critical section happens before we let go of the lock
         // and that our critical section happens before the next lock holder grabs the lock.
-        if (self.state.swap(unlocked, .Release) == contended) {
+        const state = self.state.swap(unlocked, .Release);
+        assert(state != unlocked);
+
+        if (state == contended) {
             Futex.wake(&self.state, 1);
         }
     }

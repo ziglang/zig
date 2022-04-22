@@ -15,7 +15,7 @@ const Atomic = std.atomic.Atomic;
 /// Checks if `ptr` still contains the value `expect` and, if so, blocks the caller until either:
 /// - The value at `ptr` is no longer equal to `expect`.
 /// - The caller is unblocked by a matching `wake()`.
-/// - The caller is unblocked spuriously by an arbitrary internal signal.
+/// - The caller is unblocked spuriously ("at random").
 ///
 /// The checking of `ptr` and `expect`, along with blocking the caller, is done atomically
 /// and totally ordered (sequentially consistent) with respect to other wait()/wake() calls on the same `ptr`.
@@ -30,7 +30,7 @@ pub fn wait(ptr: *const Atomic(u32), expect: u32) void {
 /// Checks if `ptr` still contains the value `expect` and, if so, blocks the caller until either:
 /// - The value at `ptr` is no longer equal to `expect`.
 /// - The caller is unblocked by a matching `wake()`.
-/// - The caller is unblocked spuriously by an arbitrary internal signal.
+/// - The caller is unblocked spuriously ("at random").
 /// - The caller blocks for longer than the given timeout. In which case, `error.Timeout` is returned.
 ///
 /// The checking of `ptr` and `expect`, along with blocking the caller, is done atomically
