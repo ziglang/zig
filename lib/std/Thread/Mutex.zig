@@ -138,7 +138,8 @@ const FutexImpl = struct {
         // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
         if (comptime builtin.target.cpu.arch.isX86()) {
-            return self.state.bitSet(@ctz(u32, locked), .Acquire) == 0;
+            const locked_bit = @ctz(u32, @as(u32, locked));
+            return self.state.bitSet(locked_bit, .Acquire) == 0;
         }
 
         // Acquire barrier ensures grabbing the lock happens before the critical section
