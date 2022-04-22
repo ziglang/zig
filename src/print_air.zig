@@ -170,6 +170,7 @@ const Writer = struct {
             .round,
             .trunc_float,
             .cmp_lt_errors_len,
+            .set_err_return_trace,
             => try w.writeUnOp(s, inst),
 
             .breakpoint,
@@ -182,6 +183,7 @@ const Writer = struct {
             .alloc,
             .ret_ptr,
             .arg,
+            .err_return_trace,
             => try w.writeTy(s, inst),
 
             .not,

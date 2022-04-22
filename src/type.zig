@@ -4093,6 +4093,13 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isError(ty: Type) bool {
+        return switch (ty.zigTypeTag()) {
+            .ErrorUnion, .ErrorSet => true,
+            else => false,
+        };
+    }
+
     /// Returns whether ty, which must be an error set, includes an error `name`.
     /// Might return a false negative if `ty` is an inferred error set and not fully
     /// resolved yet.
