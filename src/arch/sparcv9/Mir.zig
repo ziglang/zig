@@ -39,24 +39,24 @@ pub const Inst = struct {
         // in The SPARC Architecture Manual, Version 9.
 
         /// A.2 Add
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         // TODO add other operations.
         add,
 
         /// A.7 Branch on Integer Condition Codes with Prediction (BPcc)
-        /// It uses the branch_predict field.
+        /// This uses the branch_predict field.
         bpcc,
 
         /// A.8 Call and Link
-        /// It uses the branch_link field.
+        /// This uses the branch_link field.
         call,
 
         /// A.24 Jump and Link
-        /// It uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         jmpl,
 
         /// A.27 Load Integer
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         /// Note that the ldd variant of this instruction is deprecated, so do not emit
         /// it unless specifically requested (e.g. by inline assembly).
         // TODO add other operations.
@@ -66,29 +66,29 @@ pub const Inst = struct {
         ldx,
 
         /// A.31 Logical Operations
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         // TODO add other operations.
         @"or",
 
         /// A.40 No Operation
-        /// It uses the nop field.
+        /// This uses the nop field.
         nop,
 
         /// A.45 RETURN
-        /// It uses the arithmetic_2op field.
+        /// This Thisuses the arithmetic_2op field.
         @"return",
 
         /// A.46 SAVE and RESTORE
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         save,
         restore,
 
         /// A.48 SETHI
-        /// It uses the sethi field.
+        /// This uses the sethi field.
         sethi,
 
         /// A.49 Shift
-        /// Those uses the shift field.
+        /// This uses the shift field.
         // TODO add other operations.
         sllx,
 
@@ -103,12 +103,12 @@ pub const Inst = struct {
         stx,
 
         /// A.56 Subtract
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         // TODO add other operations.
         sub,
 
         /// A.61 Trap on Integer Condition Codes (Tcc)
-        /// It uses the trap field.
+        /// This uses the trap field.
         tcc,
     };
 
