@@ -8349,7 +8349,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                                 break;
                         }
 
-                        if (src_field_index + 1 == src_field_index_end) {
+                        if (src_field_index + 1 == src_field_index_end && !type_entry->data.structure.misaligned_field) {
                             ZigValue *field_val = const_val->data.x_struct.fields[src_field_index];
                             LLVMValueRef val = gen_const_val(g, field_val, "");
                             fields[type_struct_field->gen_index] = val;

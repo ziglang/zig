@@ -2404,6 +2404,8 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     size_t size_in_bits = 0;
     size_t abi_align = struct_type->abi_align;
 
+    TypeStructField *last_packed_field = nullptr;
+
     // Calculate offsets
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = struct_type->data.structure.fields[i];
@@ -2428,6 +2430,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
                 return err;
             }
 
+            last_packed_field = field;
             size_t field_size_in_bits = type_size_bits(g, field_type);
             size_t next_packed_bits_offset = packed_bits_offset + field_size_in_bits;
 
@@ -2487,8 +2490,13 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     }
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
+        size_t full_abi_size = get_abi_size_bytes(full_bit_count, 1);
         next_offset = next_field_offset(next_offset, abi_align, full_abi_size, abi_align);
+        ZigType* last_field_type = last_packed_field->type_entry;
+        // If only last field is misaligned and it is of int type save it so we can generate proper code for it later
+        if (last_field_type->size_in_bits == full_bit_count && (last_field_type->id == ZigTypeIdInt || last_field_type->id == ZigTypeIdEnum)) {
+            struct_type->data.structure.misaligned_field = last_packed_field;
+        }
         host_int_bytes[gen_field_index] = full_abi_size;
         gen_field_index += 1;
     }
@@ -8839,6 +8847,8 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         llvm_struct_abi_align = max(llvm_struct_abi_align, llvm_field_abi_align);
     }
 
+    ZigType* last_packed_field_type = nullptr;
+
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = field->type_entry;
@@ -8849,6 +8859,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         }
 
         if (packed) {
+            last_packed_field_type = field_type;
             size_t field_size_in_bits = type_size_bits(g, field_type);
             size_t next_packed_bits_offset = packed_bits_offset + field_size_in_bits;
 
@@ -8933,8 +8944,15 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
-        element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
+        size_t full_abi_size = get_abi_size_bytes(full_bit_count, 1);
+        if (last_packed_field_type->size_in_bits == full_bit_count && last_packed_field_type->id != ZigTypeIdInt && last_packed_field_type->id != ZigTypeIdEnum) {
+            // If there is only one field that is misaligned and it is a custom type just use it
+            element_types[gen_field_index] = get_llvm_type(g, last_packed_field_type);
+            assert(full_abi_size == LLVMStoreSizeOfType(g->target_data_ref, element_types[gen_field_index]));
+        } else {
+            // Otherwise represent it as array of proper number of bytes in LLVM
+            element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
+        }
         gen_field_index += 1;
     }
 

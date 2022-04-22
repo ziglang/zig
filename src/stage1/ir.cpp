@@ -15484,12 +15484,22 @@ static Stage1AirInst *ir_analyze_struct_field_ptr(IrAnalyze *ira, Scope *scope, 
         assert(struct_ptr->value->type->id == ZigTypeIdPointer);
         uint32_t ptr_bit_offset = struct_ptr->value->type->data.pointer.bit_offset_in_host;
         uint32_t ptr_host_int_bytes = struct_ptr->value->type->data.pointer.host_int_bytes;
+        if (ptr_host_int_bytes > 0) {
+            ptr_bit_offset += field->offset * 8;
+        }
         uint32_t host_int_bytes_for_result_type = (ptr_host_int_bytes == 0) ?
             get_host_int_bytes(ira->codegen, struct_type, field) : ptr_host_int_bytes;
         ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
                 is_const, is_volatile, PtrLenSingle, field->align,
                 (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
                 (uint32_t)host_int_bytes_for_result_type, false);
+        
+        if (field == struct_type->data.structure.misaligned_field) {
+            // If field is the last single misaligned field it will be represented as array
+            // of bytes in LLVM but get_pointer_to_type_extra will set its host_int_bytes to 0.
+            // We need it not to be 0 so later stage would generate proper bit casting code.
+            ptr_type->data.pointer.host_int_bytes = host_int_bytes_for_result_type;
+        }
     }
     if (instr_is_comptime(struct_ptr)) {
         ZigValue *ptr_val = ir_resolve_const(ira, struct_ptr, UndefBad);
