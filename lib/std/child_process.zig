@@ -593,9 +593,9 @@ pub const ChildProcess = struct {
         var actions = try os.posix_spawn.Actions.init();
         defer actions.deinit();
 
-        try setUpChildIoPosixSpawn(self.stdin_behavior, &actions, stdin_pipe[0], os.STDIN_FILENO, dev_null_fd);
-        try setUpChildIoPosixSpawn(self.stdout_behavior, &actions, stdout_pipe[1], os.STDOUT_FILENO, dev_null_fd);
-        try setUpChildIoPosixSpawn(self.stderr_behavior, &actions, stderr_pipe[1], os.STDERR_FILENO, dev_null_fd);
+        try setUpChildIoPosixSpawn(self.stdin_behavior, &actions, stdin_pipe, os.STDIN_FILENO, dev_null_fd);
+        try setUpChildIoPosixSpawn(self.stdout_behavior, &actions, stdout_pipe, os.STDOUT_FILENO, dev_null_fd);
+        try setUpChildIoPosixSpawn(self.stderr_behavior, &actions, stderr_pipe, os.STDERR_FILENO, dev_null_fd);
 
         if (self.cwd_dir) |cwd| {
             try actions.fchdir(cwd.fd);
@@ -650,12 +650,16 @@ pub const ChildProcess = struct {
     fn setUpChildIoPosixSpawn(
         stdio: StdIo,
         actions: *os.posix_spawn.Actions,
-        pipe_fd: i32,
+        pipe_fd: [2]i32,
         std_fileno: i32,
         dev_null_fd: i32,
     ) !void {
         switch (stdio) {
-            .Pipe => try actions.dup2(pipe_fd, std_fileno),
+            .Pipe => {
+                const idx: usize = if (std_fileno == 0) 0 else 1;
+                try actions.dup2(pipe_fd[idx], std_fileno);
+                try actions.close(pipe_fd[1 - idx]);
+            },
             .Close => try actions.close(std_fileno),
             .Inherit => {},
             .Ignore => try actions.dup2(dev_null_fd, std_fileno),
@@ -1374,4 +1378,48 @@ test "build and call child_process" {
     defer child_proc.deinit();
     const ret_val = try child_proc.spawnAndWait();
     try testing.expectEqual(ret_val, .{ .Exited = 0 });
+}
+
+test "creating a child process with stdin and stdout behavior set to StdIo.Pipe" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var child_process = try std.ChildProcess.init(
+        &[_][]const u8{ testing.zig_exe_path, "fmt", "--stdin" },
+        allocator,
+    );
+    defer child_process.deinit();
+    child_process.stdin_behavior = .Pipe;
+    child_process.stdout_behavior = .Pipe;
+
+    try child_process.spawn();
+
+    const input_program =
+        \\ const std = @import("std");
+        \\ pub fn main() void {
+        \\ std.debug.print("Hello World", .{});
+        \\ }
+    ;
+
+    try child_process.stdin.?.writer().writeAll(input_program);
+    child_process.stdin.?.close();
+    child_process.stdin = null;
+
+    const out_bytes = try child_process.stdout.?.reader().readAllAlloc(allocator, std.math.maxInt(usize));
+    defer allocator.free(out_bytes);
+
+    switch (try child_process.wait()) {
+        .Exited => |code| if (code == 0) {
+            const expected_program =
+                \\const std = @import("std");
+                \\pub fn main() void {
+                \\    std.debug.print("Hello World", .{});
+                \\}
+                \\
+            ;
+            try testing.expectEqualStrings(expected_program, out_bytes);
+        },
+        else => unreachable,
+    }
 }
