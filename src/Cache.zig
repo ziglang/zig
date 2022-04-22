@@ -690,7 +690,7 @@ pub const Manifest = struct {
         while (true) {
             switch (it.next() orelse return) {
                 .target, .target_must_resolve => return,
-                .prereq => |file_path| try self.addFilePost(file_path),
+                .prereq => |bytes| try self.addFilePost(bytes),
                 else => |err| {
                     try err.printError(error_buf.writer());
                     log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
