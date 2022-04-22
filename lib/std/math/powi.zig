@@ -11,7 +11,7 @@ const testing = std.testing;
 /// Returns the power of x raised by the integer y (x^y).
 ///
 /// Special Cases:
-///  - powi(x, +-0)   = 1 for any x
+///  - powi(x, 0)   = 1 for any x
 ///  - powi(0, y)     = 0 for any y
 ///  - powi(1, y)     = 1 for any y
 ///  - powi(-1, y)    = -1 for y an odd integer
@@ -26,8 +26,8 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
 
     comptime assert(@typeInfo(T) == .Int);
 
-    //  powi(x, +-0)   = 1 for any x
-    if (y == 0 or y == -0) {
+    //  powi(x, 0)   = 1 for any x
+    if (y == 0) {
         return 1;
     }
 
