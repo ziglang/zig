@@ -1187,27 +1187,3 @@ test "Thread.detach" {
     event.wait();
     try std.testing.expectEqual(value, 1);
 }
-
-fn testWaitForSignal(mutex: *Mutex, cond: *Condition) void {
-    mutex.lock();
-    defer mutex.unlock();
-    cond.signal();
-    cond.wait(mutex);
-}
-
-test "Condition.signal" {
-    if (builtin.single_threaded) return error.SkipZigTest;
-
-    var mutex = Mutex{};
-    var cond = Condition{};
-
-    var thread: Thread = undefined;
-    {
-        mutex.lock();
-        defer mutex.unlock();
-        thread = try Thread.spawn(.{}, testWaitForSignal, .{ &mutex, &cond });
-        cond.wait(&mutex);
-        cond.signal();
-    }
-    thread.join();
-}
