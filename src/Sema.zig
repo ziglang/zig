@@ -1411,6 +1411,38 @@ fn analyzeAsType(
     return ty.copy(sema.arena);
 }
 
+pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) !void {
+    var err_trace_block = block.makeSubBlock();
+    err_trace_block.is_comptime = false;
+    defer err_trace_block.instructions.deinit(sema.gpa);
+
+    const src: LazySrcLoc = .unneeded;
+
+    // var addrs: [err_return_trace_addr_count]usize = undefined;
+    const err_return_trace_addr_count = 32;
+    const addr_arr_ty = try Type.array(sema.arena, err_return_trace_addr_count, null, Type.usize, sema.mod);
+    const addrs_ptr = try err_trace_block.addTy(.alloc, try Type.Tag.single_mut_pointer.create(sema.arena, addr_arr_ty));
+
+    // var st: StackTrace = undefined;
+    const unresolved_stack_trace_ty = try sema.getBuiltinType(&err_trace_block, src, "StackTrace");
+    const stack_trace_ty = try sema.resolveTypeFields(&err_trace_block, src, unresolved_stack_trace_ty);
+    const st_ptr = try err_trace_block.addTy(.alloc, try Type.Tag.single_mut_pointer.create(sema.arena, stack_trace_ty));
+
+    // st.instruction_addresses = &addrs;
+    const addr_field_ptr = try sema.fieldPtr(&err_trace_block, src, st_ptr, "instruction_addresses", src);
+    try sema.storePtr2(&err_trace_block, src, addr_field_ptr, src, addrs_ptr, src, .store);
+
+    // st.index = 0;
+    const index_field_ptr = try sema.fieldPtr(&err_trace_block, src, st_ptr, "index", src);
+    const zero = try sema.addConstant(Type.usize, Value.zero);
+    try sema.storePtr2(&err_trace_block, src, index_field_ptr, src, zero, src, .store);
+
+    // @errorReturnTrace() = &st;
+    _ = try err_trace_block.addUnOp(.set_err_return_trace, st_ptr);
+
+    try block.instructions.insertSlice(sema.gpa, last_arg_index, err_trace_block.instructions.items);
+}
+
 /// May return Value Tags: `variable`, `undef`.
 /// See `resolveConstValue` for an alternative.
 /// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
@@ -5236,6 +5268,13 @@ fn analyzeCall(
         }
 
         try sema.queueFullTypeResolution(func_ty_info.return_type);
+        if (sema.owner_func != null and func_ty_info.return_type.isError()) {
+            if (!sema.owner_func.?.calls_or_awaits_errorable_fn) {
+                // Ensure the type exists so that backends can assume that.
+                _ = try sema.getBuiltinType(block, call_src, "StackTrace");
+            }
+            sema.owner_func.?.calls_or_awaits_errorable_fn = true;
+        }
 
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
             args.len);
@@ -5645,6 +5684,15 @@ fn instantiateGenericCall(
 
         try sema.queueFullTypeResolution(new_fn_info.return_type);
     }
+
+    if (sema.owner_func != null and new_fn_info.return_type.isError()) {
+        if (!sema.owner_func.?.calls_or_awaits_errorable_fn) {
+            // Ensure the type exists so that backends can assume that.
+            _ = try sema.getBuiltinType(block, call_src, "StackTrace");
+        }
+        sema.owner_func.?.calls_or_awaits_errorable_fn = true;
+    }
+
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
         runtime_args_len);
     const func_inst = try block.addInst(.{
@@ -12607,6 +12655,16 @@ fn analyzeRet(
         return always_noreturn;
     }
 
+    if (sema.fn_ret_ty.isError() and sema.mod.comp.bin_file.options.error_return_tracing) {
+        const return_err_fn = try sema.getBuiltin(block, src, "returnError");
+        const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
+        const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
+        const ptr_stack_trace_ty = try Type.Tag.optional_single_mut_pointer.create(sema.arena, stack_trace_ty);
+        const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
+        const args: [1]Air.Inst.Ref = .{err_return_trace};
+        _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, &args);
+    }
+
     try sema.resolveTypeLayout(block, src, sema.fn_ret_ty);
     _ = try block.addUnOp(.ret, operand);
     return always_noreturn;
@@ -13338,9 +13396,14 @@ fn zirErrorReturnTrace(
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
     const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
-    const opt_stack_trace_ty = try Type.optional(sema.arena, stack_trace_ty);
-    // https://github.com/ziglang/zig/issues/11259
-    return sema.addConstant(opt_stack_trace_ty, Value.@"null");
+    const opt_ptr_stack_trace_ty = try Type.Tag.optional_single_mut_pointer.create(sema.arena, stack_trace_ty);
+    if (sema.owner_func != null and
+        sema.owner_func.?.calls_or_awaits_errorable_fn and
+        sema.mod.comp.bin_file.options.error_return_tracing)
+    {
+        return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
+    }
+    return sema.addConstant(opt_ptr_stack_trace_ty, Value.@"null");
 }
 
 fn zirFrame(
@@ -21817,11 +21880,7 @@ fn resolvePeerTypes(
         info.data.sentinel = chosen_child_ty.sentinel();
         info.data.size = .Slice;
         info.data.mutable = !(seen_const or chosen_child_ty.isConstPtr());
-        info.data.pointee_type = switch (chosen_child_ty.tag()) {
-            .array => chosen_child_ty.elemType2(),
-            .array_u8, .array_u8_sentinel_0 => Type.initTag(.u8),
-            else => unreachable,
-        };
+        info.data.pointee_type = chosen_child_ty.elemType2();
 
         const new_ptr_ty = try Type.ptr(sema.arena, sema.mod, info.data);
         const opt_ptr_ty = if (any_are_null)

@@ -846,5 +846,16 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
     }
 }
 
+pub noinline fn returnError(maybe_st: ?*StackTrace) void {
+    @setCold(true);
+    const st = maybe_st orelse return;
+    addErrRetTraceAddr(st, @returnAddress());
+}
+
+pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
+    st.instruction_addresses[st.index & (st.instruction_addresses.len - 1)] = addr;
+    st.index +%= 1;
+}
+
 const std = @import("std.zig");
 const root = @import("root");

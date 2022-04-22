@@ -636,10 +636,18 @@ pub const Object = struct {
         const ret_ptr = if (sret) llvm_func.getParam(0) else null;
         const gpa = dg.gpa;
 
+        const err_return_tracing = fn_info.return_type.isError() and
+            dg.module.comp.bin_file.options.error_return_tracing;
+
+        const err_ret_trace = if (err_return_tracing)
+            llvm_func.getParam(@boolToInt(ret_ptr != null))
+        else
+            null;
+
         var args = std.ArrayList(*const llvm.Value).init(gpa);
         defer args.deinit();
 
-        const param_offset: c_uint = @boolToInt(ret_ptr != null);
+        const param_offset = @as(c_uint, @boolToInt(ret_ptr != null)) + @boolToInt(err_return_tracing);
         for (fn_info.param_types) |param_ty| {
             if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -711,6 +719,7 @@ pub const Object = struct {
             .base_line = dg.decl.src_line,
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
+            .err_ret_trace = err_ret_trace,
         };
         defer fg.deinit();
 
@@ -1755,6 +1764,17 @@ pub const Object = struct {
                     try param_di_types.append(try o.lowerDebugType(Type.void, .full));
                 }
 
+                if (fn_info.return_type.isError() and
+                    o.module.comp.bin_file.options.error_return_tracing)
+                {
+                    var ptr_ty_payload: Type.Payload.ElemType = .{
+                        .base = .{ .tag = .single_mut_pointer },
+                        .data = o.getStackTraceType(),
+                    };
+                    const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+                    try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
+                }
+
                 for (fn_info.param_types) |param_ty| {
                     if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -1823,6 +1843,27 @@ pub const Object = struct {
             null, // vtable holder
             "", // unique id
         );
+    }
+
+    fn getStackTraceType(o: *Object) Type {
+        const mod = o.module;
+
+        const std_pkg = mod.main_pkg.table.get("std").?;
+        const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
+
+        const builtin_str: []const u8 = "builtin";
+        const std_namespace = mod.declPtr(std_file.root_decl.unwrap().?).src_namespace;
+        const builtin_decl = std_namespace.decls
+            .getKeyAdapted(builtin_str, Module.DeclAdapter{ .mod = mod }).?;
+
+        const stack_trace_str: []const u8 = "StackTrace";
+        // buffer is only used for int_type, `builtin` is a struct.
+        const builtin_ty = mod.declPtr(builtin_decl).val.toType(undefined);
+        const builtin_namespace = builtin_ty.getNamespace().?;
+        const stack_trace_decl = builtin_namespace.decls
+            .getKeyAdapted(stack_trace_str, Module.DeclAdapter{ .mod = mod }).?;
+
+        return mod.declPtr(stack_trace_decl).val.toType(undefined);
     }
 };
 
@@ -1976,8 +2017,15 @@ pub const DeclGen = struct {
             llvm_fn.addSretAttr(0, raw_llvm_ret_ty);
         }
 
+        const err_return_tracing = fn_info.return_type.isError() and
+            dg.module.comp.bin_file.options.error_return_tracing;
+
+        if (err_return_tracing) {
+            dg.addArgAttr(llvm_fn, @boolToInt(sret), "nonnull");
+        }
+
         // Set parameter attributes.
-        var llvm_param_i: c_uint = @boolToInt(sret);
+        var llvm_param_i: c_uint = @as(c_uint, @boolToInt(sret)) + @boolToInt(err_return_tracing);
         for (fn_info.param_types) |param_ty| {
             if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -2433,6 +2481,17 @@ pub const DeclGen = struct {
                 if (firstParamSRet(fn_info, target)) {
                     const llvm_sret_ty = try dg.llvmType(fn_info.return_type);
                     try llvm_params.append(llvm_sret_ty.pointerType(0));
+                }
+
+                if (fn_info.return_type.isError() and
+                    dg.module.comp.bin_file.options.error_return_tracing)
+                {
+                    var ptr_ty_payload: Type.Payload.ElemType = .{
+                        .base = .{ .tag = .single_mut_pointer },
+                        .data = dg.object.getStackTraceType(),
+                    };
+                    const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+                    try llvm_params.append(try lowerFnParamTy(dg, fn_info.cc, ptr_ty));
                 }
 
                 for (fn_info.param_types) |param_ty| {
@@ -3449,6 +3508,8 @@ pub const FuncGen = struct {
 
     llvm_func: *const llvm.Value,
 
+    err_ret_trace: ?*const llvm.Value = null,
+
     /// This data structure is used to implement breaking to blocks.
     blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
         parent_bb: *const llvm.BasicBlock,
@@ -3678,6 +3739,8 @@ pub const FuncGen = struct {
                 .unwrap_errunion_err         => try self.airErrUnionErr(inst, false),
                 .unwrap_errunion_err_ptr     => try self.airErrUnionErr(inst, true),
                 .errunion_payload_ptr_set    => try self.airErrUnionPayloadPtrSet(inst),
+                .err_return_trace            => try self.airErrReturnTrace(inst),
+                .set_err_return_trace        => try self.airSetErrReturnTrace(inst),
 
                 .wrap_optional         => try self.airWrapOptional(inst),
                 .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
@@ -3731,6 +3794,12 @@ pub const FuncGen = struct {
             try llvm_args.append(ret_ptr);
             break :blk ret_ptr;
         };
+
+        if (fn_info.return_type.isError() and
+            self.dg.module.comp.bin_file.options.error_return_tracing)
+        {
+            try llvm_args.append(self.err_ret_trace.?);
+        }
 
         for (args) |arg| {
             const param_ty = self.air.typeOf(arg);
@@ -5147,6 +5216,17 @@ pub const FuncGen = struct {
             index_type.constInt(payload_offset, .False), // second field is the payload
         };
         return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+    }
+
+    fn airErrReturnTrace(self: *FuncGen, _: Air.Inst.Index) !?*const llvm.Value {
+        return self.err_ret_trace.?;
+    }
+
+    fn airSetErrReturnTrace(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = try self.resolveInst(un_op);
+        self.err_ret_trace = operand;
+        return null;
     }
 
     fn airWrapOptional(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

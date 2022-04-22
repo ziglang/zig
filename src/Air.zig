@@ -649,6 +649,12 @@ pub const Inst = struct {
         /// flush().
         cmp_lt_errors_len,
 
+        /// Returns pointer to current error return trace.
+        err_return_trace,
+
+        /// Sets the operand as the current error return trace,
+        set_err_return_trace,
+
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -961,6 +967,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .alloc,
         .ret_ptr,
         .arg,
+        .err_return_trace,
         => return datas[inst].ty,
 
         .assembly,
@@ -1048,6 +1055,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .memcpy,
         .set_union_tag,
         .prefetch,
+        .set_err_return_trace,
         => return Type.void,
 
         .ptrtoint,

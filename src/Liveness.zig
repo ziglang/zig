@@ -362,6 +362,7 @@ fn analyzeInst(
         .ret_addr,
         .frame_addr,
         .wasm_memory_size,
+        .err_return_trace,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,
@@ -434,6 +435,7 @@ fn analyzeInst(
         .round,
         .trunc_float,
         .cmp_lt_errors_len,
+        .set_err_return_trace,
         => {
             const operand = inst_datas[inst].un_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });
