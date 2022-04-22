@@ -10,86 +10,89 @@ const testing = std.testing;
 
 /// Returns the power of x raised by the integer y (x^y).
 ///
+/// Errors:
+///  - Overflow: Integer overflow or Infinity
+///  - Underflow: Absolute value of result smaller than 1
 /// Special Cases:
-///  - powi(x, 0)   = 1 for any x
-///  - powi(-1, y)    = -1 for y an odd integer
-///  - powi(-1, y)    = 1 for y an even integer
-///  - powi(x, y)     = Overflow for y >= @sizeOf(x) - 1
-///  - powi(x, y)     = Underflow for y < 0
+///  - powi(x, 0)   = 1 unless T is i1, i0, u0
+///  - powi(0, x)   = 0
+///  - powi(0, x)   = Overflow when x < 0
+///  - powi(1, y)   = 1 unless T is i1, i0, u0
+///  - powi(-1, y)  = -1 for y an odd integer
+///  - powi(-1, y)  = 1 unless T is i1, i0, u0
+///  - powi(x, y)   = Overflow for y >= @bitSizeOf(x)
+///  - powi(x, y)   = Underflow for y < 0
 pub fn powi(comptime T: type, x: T, y: T) (error{
     Overflow,
     Underflow,
 }!T) {
     const info = @typeInfo(T);
+    const bit_size = @bitSizeOf(T);
 
     comptime assert(@typeInfo(T) == .Int);
 
-    //  powi(x, 0)   = 1 for any x
-    if (y == 0) {
-        return 1;
+    // integer value 1 cannot be coerced to type 'i1'
+    const does_one_overflow = bit_size == 0 or T == i1;
+    const is_y_odd = if (does_one_overflow) @as(i1, y) == -1 else y & 1 == 0;
+
+    if (x == 1 or y == 0 or (x == -1 and is_y_odd)) {
+        if (does_one_overflow) {
+            return error.Overflow;
+        } else {
+            return 1;
+        }
     }
 
-    switch (x) {
-        //  powi(0, y)     = 0 for any y
-        0 => return 0,
+    if (x == -1) {
+        return -1;
+    }
 
-        //  powi(1, y)     = 1 for any y
-        1 => return 1,
+    if (x == 0) {
+        if (y > 0) {
+            return 0;
+        } else {
+            // not overflow in strict sense
+            return error.Overflow;
+        }
+    }
+    // x >= 2 or x <= -2
+    if (y >= bit_size) {
+        return error.Overflow;
+    }
+    if (y < 0) {
+        return error.Underflow;
+    }
+    if (info.Int.signedness == .signed and y == bit_size - 1) {
+        if (x != -2 or bit_size & 1 == 1) {
+            return error.Overflow;
+        }
+    }
 
-        else => {
-            //  powi(x, y)     = Overflow for for y >= @sizeOf(x) - 1 y > 0
-            //  powi(x, y)     = Underflow for for y > @sizeOf(x) - 1 y < 0
-            const bit_size = @sizeOf(T) * 8;
-            if (info.Int.signedness == .signed) {
-                if (x == -1) {
-                    //  powi(-1, y)    = -1 for for y an odd integer
-                    //  powi(-1, y)    = 1 for for y an even integer
-                    if (@mod(y, 2) == 0) {
-                        return 1;
-                    } else {
-                        return -1;
-                    }
-                }
+    var base = x;
+    var exp = y;
+    var acc: T = if (does_one_overflow) unreachable else 1;
 
-                if (x != -2 and y >= bit_size - 1) {
-                    return error.Overflow;
-                } else if (x == -2 and y == bit_size - 1 and bit_size & 1 == 1) {
-                    return error.Overflow;
-                } else if (y < 0) {
-                    return error.Underflow;
-                }
-            }
-            if (y >= bit_size) {
+    while (exp > 1) {
+        if (exp & 1 == 1) {
+            if (@mulWithOverflow(T, acc, base, &acc)) {
                 return error.Overflow;
             }
+        }
 
-            var base = x;
-            var exp = y;
-            var acc: T = 1;
+        exp >>= 1;
 
-            while (exp > 1) {
-                if (exp & 1 == 1) {
-                    if (@mulWithOverflow(T, acc, base, &acc)) {
-                        return error.Overflow;
-                    }
-                }
-
-                exp >>= 1;
-
-                if (@mulWithOverflow(T, base, base, &base)) {
-                    return error.Overflow;
-                }
-            }
-
-            if (exp == 1) {
-                if (@mulWithOverflow(T, acc, base, &acc)) {
-                    return error.Overflow;
-                }
-            }
-
-            return acc;
-        },
+        if (@mulWithOverflow(T, base, base, &base)) {
+            return error.Overflow;
+        }
     }
+
+    if (exp == 1) {
+        if (@mulWithOverflow(T, acc, base, &acc)) {
+            return error.Overflow;
+        }
+    }
+
+    return acc;
 }
 
 test "math.powi" {
@@ -150,6 +153,7 @@ test "math.powi.special" {
     try testing.expect((try powi(i64, -1, 6)) == 1);
     try testing.expect((try powi(i17, -1, 15)) == -1);
     try testing.expect((try powi(i42, -1, 7)) == -1);
+    try testing.expectError(error.Overflow, powi(i1, -1, 0));
 
     try testing.expect((try powi(u8, 1, 2)) == 1);
     try testing.expect((try powi(u16, 1, 4)) == 1);
