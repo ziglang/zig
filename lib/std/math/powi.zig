@@ -53,6 +53,8 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
 
                 if (x != -2 and y >= bit_size - 1) {
                     return error.Overflow;
+                } else if (x == -2 and y == bit_size - 1 and bit_size & 1 == 1) {
+                    return error.Overflow;
                 } else if (y < 0) {
                     return error.Underflow;
                 }
