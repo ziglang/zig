@@ -12,12 +12,10 @@ const testing = std.testing;
 ///
 /// Special Cases:
 ///  - powi(x, 0)   = 1 for any x
-///  - powi(0, y)     = 0 for any y
-///  - powi(1, y)     = 1 for any y
 ///  - powi(-1, y)    = -1 for y an odd integer
 ///  - powi(-1, y)    = 1 for y an even integer
-///  - powi(x, y)     = Overflow for y >= @sizeOf(x) - 1 or y > 0
-///  - powi(x, y)     = Underflow for y > @sizeOf(x) - 1 or y < 0
+///  - powi(x, y)     = Overflow for y >= @sizeOf(x) - 1
+///  - powi(x, y)     = Underflow for y < 0
 pub fn powi(comptime T: type, x: T, y: T) (error{
     Overflow,
     Underflow,
@@ -53,15 +51,14 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
                     }
                 }
 
-                if (x > 0 and y >= bit_size - 1) {
+                if (x != -2 and y >= bit_size - 1) {
                     return error.Overflow;
-                } else if (x < 0 and y > bit_size - 1) {
+                } else if (y < 0) {
                     return error.Underflow;
                 }
-            } else {
-                if (y >= bit_size) {
-                    return error.Overflow;
-                }
+            }
+            if (y >= bit_size) {
+                return error.Overflow;
             }
 
             var base = x;
@@ -71,32 +68,20 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
             while (exp > 1) {
                 if (exp & 1 == 1) {
                     if (@mulWithOverflow(T, acc, base, &acc)) {
-                        if (x > 0) {
-                            return error.Overflow;
-                        } else {
-                            return error.Underflow;
-                        }
+                        return error.Overflow;
                     }
                 }
 
                 exp >>= 1;
 
                 if (@mulWithOverflow(T, base, base, &base)) {
-                    if (x > 0) {
-                        return error.Overflow;
-                    } else {
-                        return error.Underflow;
-                    }
+                    return error.Overflow;
                 }
             }
 
             if (exp == 1) {
                 if (@mulWithOverflow(T, acc, base, &acc)) {
-                    if (x > 0) {
-                        return error.Overflow;
-                    } else {
-                        return error.Underflow;
-                    }
+                    return error.Overflow;
                 }
             }
 
