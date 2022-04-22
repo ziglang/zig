@@ -34,6 +34,7 @@ const TestTarget = struct {
     link_libc: bool = false,
     single_threaded: bool = false,
     disable_native: bool = false,
+    backend: ?std.builtin.CompilerBackend = null,
 };
 
 const test_targets = blk: {
@@ -42,15 +43,73 @@ const test_targets = blk: {
     // lot of branches)
     @setEvalBranchQuota(50000);
     break :blk [_]TestTarget{
-        TestTarget{},
-        TestTarget{
+        .{},
+        .{
             .link_libc = true,
         },
-        TestTarget{
+        .{
             .single_threaded = true,
         },
 
-        TestTarget{
+        .{
+            .link_libc = true,
+            .backend = .stage2_c,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .backend = .stage2_x86_64,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .linux,
+            },
+            .backend = .stage2_aarch64,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .wasm32,
+                .os_tag = .wasi,
+            },
+            .single_threaded = true,
+            .backend = .stage2_wasm,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+            },
+            .backend = .stage2_wasm,
+        },
+        .{
+            .target = CrossTarget.parse(.{
+                .arch_os_abi = "arm-linux-none",
+                .cpu_features = "generic+v8a",
+            }) catch unreachable,
+            .backend = .stage2_arm,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .macos,
+                .abi = .gnu,
+            },
+            .backend = .stage2_aarch64,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .macos,
+                .abi = .gnu,
+            },
+            .backend = .stage2_x86_64,
+        },
+
+        .{
             .target = .{
                 .cpu_arch = .wasm32,
                 .os_tag = .wasi,
@@ -58,7 +117,7 @@ const test_targets = blk: {
             .link_libc = false,
             .single_threaded = true,
         },
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .wasm32,
                 .os_tag = .wasi,
@@ -67,14 +126,14 @@ const test_targets = blk: {
             .single_threaded = true,
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .linux,
                 .abi = .none,
             },
         },
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .linux,
@@ -82,7 +141,7 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .linux,
@@ -91,14 +150,14 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .i386,
                 .os_tag = .linux,
                 .abi = .none,
             },
         },
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .i386,
                 .os_tag = .linux,
@@ -106,7 +165,7 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .i386,
                 .os_tag = .linux,
@@ -115,14 +174,14 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .linux,
                 .abi = .none,
             },
         },
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .linux,
@@ -130,7 +189,7 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .linux,
@@ -138,7 +197,7 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .windows,
@@ -147,13 +206,13 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        TestTarget{
+        .{
             .target = CrossTarget.parse(.{
                 .arch_os_abi = "arm-linux-none",
                 .cpu_features = "generic+v8a",
             }) catch unreachable,
         },
-        TestTarget{
+        .{
             .target = CrossTarget.parse(.{
                 .arch_os_abi = "arm-linux-musleabihf",
                 .cpu_features = "generic+v8a",
@@ -161,7 +220,7 @@ const test_targets = blk: {
             .link_libc = true,
         },
         // https://github.com/ziglang/zig/issues/3287
-        //TestTarget{
+        //.{
         //    .target = CrossTarget.parse(.{
         //        .arch_os_abi = "arm-linux-gnueabihf",
         //        .cpu_features = "generic+v8a",
@@ -169,7 +228,7 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
@@ -177,7 +236,7 @@ const test_targets = blk: {
             },
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
@@ -187,7 +246,7 @@ const test_targets = blk: {
         },
 
         // https://github.com/ziglang/zig/issues/4927
-        //TestTarget{
+        //.{
         //    .target = .{
         //        .cpu_arch = .mips,
         //        .os_tag = .linux,
@@ -196,7 +255,7 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .mipsel,
                 .os_tag = .linux,
@@ -204,7 +263,7 @@ const test_targets = blk: {
             },
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .mipsel,
                 .os_tag = .linux,
@@ -214,7 +273,7 @@ const test_targets = blk: {
         },
 
         // https://github.com/ziglang/zig/issues/4927
-        //TestTarget{
+        //.{
         //    .target = .{
         //        .cpu_arch = .mipsel,
         //        .os_tag = .linux,
@@ -223,14 +282,14 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .powerpc,
                 .os_tag = .linux,
                 .abi = .none,
             },
         },
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .powerpc,
                 .os_tag = .linux,
@@ -239,7 +298,7 @@ const test_targets = blk: {
             .link_libc = true,
         },
         // https://github.com/ziglang/zig/issues/2256
-        //TestTarget{
+        //.{
         //    .target = .{
         //        .cpu_arch = .powerpc,
         //        .os_tag = .linux,
@@ -248,7 +307,7 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .riscv64,
                 .os_tag = .linux,
@@ -256,7 +315,7 @@ const test_targets = blk: {
             },
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .riscv64,
                 .os_tag = .linux,
@@ -266,7 +325,7 @@ const test_targets = blk: {
         },
 
         // https://github.com/ziglang/zig/issues/3340
-        //TestTarget{
+        //.{
         //    .target = .{
         //        .cpu_arch = .riscv64,
         //        .os = .linux,
@@ -275,7 +334,7 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .macos,
@@ -283,7 +342,7 @@ const test_targets = blk: {
             },
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .macos,
@@ -291,7 +350,7 @@ const test_targets = blk: {
             },
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .i386,
                 .os_tag = .windows,
@@ -299,7 +358,7 @@ const test_targets = blk: {
             },
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .windows,
@@ -307,7 +366,7 @@ const test_targets = blk: {
             },
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .i386,
                 .os_tag = .windows,
@@ -316,7 +375,7 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        TestTarget{
+        .{
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .windows,
@@ -326,38 +385,38 @@ const test_targets = blk: {
         },
 
         // Do the release tests last because they take a long time
-        TestTarget{
+        .{
             .mode = .ReleaseFast,
         },
-        TestTarget{
+        .{
             .link_libc = true,
             .mode = .ReleaseFast,
         },
-        TestTarget{
+        .{
             .mode = .ReleaseFast,
             .single_threaded = true,
         },
 
-        TestTarget{
+        .{
             .mode = .ReleaseSafe,
         },
-        TestTarget{
+        .{
             .link_libc = true,
             .mode = .ReleaseSafe,
         },
-        TestTarget{
+        .{
             .mode = .ReleaseSafe,
             .single_threaded = true,
         },
 
-        TestTarget{
+        .{
             .mode = .ReleaseSmall,
         },
-        TestTarget{
+        .{
             .link_libc = true,
             .mode = .ReleaseSmall,
         },
-        TestTarget{
+        .{
             .mode = .ReleaseSmall,
             .single_threaded = true,
         },
@@ -524,6 +583,9 @@ pub fn addPkgTests(
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_libc: bool,
+    skip_stage1: bool,
+    skip_stage2: bool,
+    is_stage1: bool,
 ) *build.Step {
     const step = b.step(b.fmt("test-{s}", .{name}), desc);
 
@@ -549,6 +611,11 @@ pub fn addPkgTests(
             continue;
         }
 
+        if (test_target.backend) |backend| switch (backend) {
+            .stage1 => if (skip_stage1) continue,
+            else => if (skip_stage2) continue,
+        } else if (is_stage1 and skip_stage1) continue;
+
         const want_this_mode = for (modes) |m| {
             if (m == test_target.mode) break true;
         } else false;
@@ -565,12 +632,14 @@ pub fn addPkgTests(
 
         const these_tests = b.addTest(root_src);
         const single_threaded_txt = if (test_target.single_threaded) "single" else "multi";
-        these_tests.setNamePrefix(b.fmt("{s}-{s}-{s}-{s}-{s} ", .{
+        const backend_txt = if (test_target.backend) |backend| @tagName(backend) else "default";
+        these_tests.setNamePrefix(b.fmt("{s}-{s}-{s}-{s}-{s}-{s} ", .{
             name,
             triple_prefix,
             @tagName(test_target.mode),
             libc_prefix,
             single_threaded_txt,
+            backend_txt,
         }));
         these_tests.single_threaded = test_target.single_threaded;
         these_tests.setFilter(test_filter);
@@ -581,6 +650,24 @@ pub fn addPkgTests(
         }
         these_tests.overrideZigLibDir("lib");
         these_tests.addIncludePath("test");
+        if (test_target.backend) |backend| switch (backend) {
+            .stage1 => {
+                these_tests.use_stage1 = true;
+            },
+            .stage2_llvm => {
+                these_tests.use_stage1 = false;
+                these_tests.use_llvm = true;
+            },
+            .stage2_c => {
+                these_tests.use_stage1 = false;
+                these_tests.use_llvm = false;
+                these_tests.ofmt = .c;
+            },
+            else => {
+                these_tests.use_stage1 = false;
+                these_tests.use_llvm = false;
+            },
+        };
 
         step.dependOn(&these_tests.step);
     }

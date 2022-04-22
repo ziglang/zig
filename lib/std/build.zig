@@ -1590,6 +1590,8 @@ pub const LibExeObjStep = struct {
 
     want_lto: ?bool = null,
     use_stage1: ?bool = null,
+    use_llvm: ?bool = null,
+    ofmt: ?std.Target.ObjectFormat = null,
 
     output_path_source: GeneratedFile,
     output_lib_path_source: GeneratedFile,
@@ -2349,6 +2351,18 @@ pub const LibExeObjStep = struct {
             } else {
                 try zig_args.append("-fno-stage1");
             }
+        }
+
+        if (self.use_llvm) |use_llvm| {
+            if (use_llvm) {
+                try zig_args.append("-fLLVM");
+            } else {
+                try zig_args.append("-fno-LLVM");
+            }
+        }
+
+        if (self.ofmt) |ofmt| {
+            try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
         }
 
         if (self.entry_symbol_name) |entry| {
