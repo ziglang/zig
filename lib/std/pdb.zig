@@ -498,6 +498,15 @@ pub const Pdb = struct {
         symbols: []u8,
         subsect_info: []u8,
         checksum_offset: ?usize,
+
+        pub fn deinit(self: *Module, allocator: mem.Allocator) void {
+            allocator.free(self.module_name);
+            allocator.free(self.obj_file_name);
+            if (self.populated) {
+                allocator.free(self.symbols);
+                allocator.free(self.subsect_info);
+            }
+        }
     };
 
     pub fn init(allocator: mem.Allocator, path: []const u8) !Pdb {
@@ -519,6 +528,10 @@ pub const Pdb = struct {
 
     pub fn deinit(self: *Pdb) void {
         self.in_file.close();
+        self.msf.deinit(self.allocator);
+        for (self.modules) |*module| {
+            module.deinit(self.allocator);
+        }
         self.allocator.free(self.modules);
         self.allocator.free(self.sect_contribs);
     }
@@ -764,7 +777,6 @@ pub const Pdb = struct {
                                 const flags = @ptrCast(*LineNumberEntry.Flags, &line_num_entry.Flags);
 
                                 return debug.LineInfo{
-                                    .allocator = self.allocator,
                                     .file_name = source_file_name,
                                     .line = flags.Start,
                                     .column = column,
@@ -941,6 +953,14 @@ const Msf = struct {
             .directory = directory,
             .streams = streams,
         };
+    }
+
+    fn deinit(self: *Msf, allocator: mem.Allocator) void {
+        allocator.free(self.directory.blocks);
+        for (self.streams) |*stream| {
+            allocator.free(stream.blocks);
+        }
+        allocator.free(self.streams);
     }
 };
 
