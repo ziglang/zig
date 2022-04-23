@@ -26,7 +26,6 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
     Overflow,
     Underflow,
 }!T) {
-    const info = @typeInfo(T);
     const bit_size = @bitSizeOf(T);
 
     comptime assert(@typeInfo(T) == .Int);
@@ -61,11 +60,6 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
     }
     if (y < 0) {
         return error.Underflow;
-    }
-    if (info.Int.signedness == .signed and y == bit_size - 1) {
-        if (x != -2 or bit_size & 1 == 1) {
-            return error.Overflow;
-        }
     }
 
     var base = x;
