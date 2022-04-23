@@ -130,6 +130,13 @@ test "math.powi" {
     try testing.expect((try powi(i16, -2, 15)) == minInt(i16));
     try testing.expect((try powi(i32, -2, 31)) == minInt(i32));
     try testing.expect((try powi(i64, -2, 63)) == minInt(i64));
+
+    try testing.expectError(error.Underflow, powi(i8, 6, -2));
+    try testing.expectError(error.Underflow, powi(i16, 5, -4));
+    try testing.expectError(error.Underflow, powi(i32, 12, -6));
+    try testing.expectError(error.Underflow, powi(i64, 34, -2));
+    try testing.expectError(error.Underflow, powi(i17, 16, -3));
+    try testing.expectError(error.Underflow, powi(i42, 34, -6));
 }
 
 test "math.powi.special" {
