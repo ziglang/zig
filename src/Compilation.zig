@@ -1458,7 +1458,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         errdefer if (module) |zm| zm.deinit();
 
         const error_return_tracing = !strip and switch (options.optimize_mode) {
-            .Debug, .ReleaseSafe => true,
+            .Debug, .ReleaseSafe => (!options.target.isWasm() or options.target.os.tag == .emscripten) and
+                !options.target.cpu.arch.isBpf(),
             .ReleaseFast, .ReleaseSmall => false,
         };
 

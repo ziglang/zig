@@ -637,7 +637,7 @@ pub const Object = struct {
         const gpa = dg.gpa;
 
         const err_return_tracing = fn_info.return_type.isError() and
-            dg.module.comp.bin_file.options.error_return_tracing and false;
+            dg.module.comp.bin_file.options.error_return_tracing;
 
         const err_ret_trace = if (err_return_tracing)
             llvm_func.getParam(@boolToInt(ret_ptr != null))
@@ -698,6 +698,9 @@ pub const Object = struct {
 
             const lexical_block = dib.createLexicalBlock(subprogram.toScope(), di_file.?, line_number, 1);
             di_scope = lexical_block.toScope();
+
+            // Setup a debug location in case there is a call to `returnError` before a `.dbg_stmt`.
+            builder.setCurrentDebugLocation(line_number + func.lbrace_line, func.lbrace_column, di_scope.?, null);
         }
 
         var fg: FuncGen = .{
@@ -1765,7 +1768,7 @@ pub const Object = struct {
                 }
 
                 if (fn_info.return_type.isError() and
-                    o.module.comp.bin_file.options.error_return_tracing and false)
+                    o.module.comp.bin_file.options.error_return_tracing)
                 {
                     var ptr_ty_payload: Type.Payload.ElemType = .{
                         .base = .{ .tag = .single_mut_pointer },
@@ -2018,7 +2021,7 @@ pub const DeclGen = struct {
         }
 
         const err_return_tracing = fn_info.return_type.isError() and
-            dg.module.comp.bin_file.options.error_return_tracing and false;
+            dg.module.comp.bin_file.options.error_return_tracing;
 
         if (err_return_tracing) {
             dg.addArgAttr(llvm_fn, @boolToInt(sret), "nonnull");
@@ -2484,7 +2487,7 @@ pub const DeclGen = struct {
                 }
 
                 if (fn_info.return_type.isError() and
-                    dg.module.comp.bin_file.options.error_return_tracing and false)
+                    dg.module.comp.bin_file.options.error_return_tracing)
                 {
                     var ptr_ty_payload: Type.Payload.ElemType = .{
                         .base = .{ .tag = .single_mut_pointer },
@@ -3796,7 +3799,7 @@ pub const FuncGen = struct {
         };
 
         if (fn_info.return_type.isError() and
-            self.dg.module.comp.bin_file.options.error_return_tracing and false)
+            self.dg.module.comp.bin_file.options.error_return_tracing)
         {
             try llvm_args.append(self.err_ret_trace.?);
         }

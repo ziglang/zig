@@ -1412,7 +1412,8 @@ fn analyzeAsType(
 }
 
 pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) !void {
-    const backend_supports_error_return_tracing = false;
+    const backend_supports_error_return_tracing =
+        sema.mod.comp.bin_file.options.use_llvm;
     if (!backend_supports_error_return_tracing) {
         // TODO implement this feature in all the backends and then delete this branch
         return;
@@ -5275,10 +5276,6 @@ fn analyzeCall(
 
         try sema.queueFullTypeResolution(func_ty_info.return_type);
         if (sema.owner_func != null and func_ty_info.return_type.isError()) {
-            if (!sema.owner_func.?.calls_or_awaits_errorable_fn) {
-                // Ensure the type exists so that backends can assume that.
-                _ = try sema.getBuiltinType(block, call_src, "StackTrace");
-            }
             sema.owner_func.?.calls_or_awaits_errorable_fn = true;
         }
 
@@ -5692,10 +5689,6 @@ fn instantiateGenericCall(
     }
 
     if (sema.owner_func != null and new_fn_info.return_type.isError()) {
-        if (!sema.owner_func.?.calls_or_awaits_errorable_fn) {
-            // Ensure the type exists so that backends can assume that.
-            _ = try sema.getBuiltinType(block, call_src, "StackTrace");
-        }
         sema.owner_func.?.calls_or_awaits_errorable_fn = true;
     }
 
@@ -12662,7 +12655,8 @@ fn analyzeRet(
     }
 
     // TODO implement this feature in all the backends and then delete this check.
-    const backend_supports_error_return_tracing = false;
+    const backend_supports_error_return_tracing =
+        sema.mod.comp.bin_file.options.use_llvm;
 
     if (sema.fn_ret_ty.isError() and sema.mod.comp.bin_file.options.error_return_tracing and
         backend_supports_error_return_tracing)
@@ -13410,7 +13404,8 @@ fn zirErrorReturnTrace(
     const opt_ptr_stack_trace_ty = try Type.Tag.optional_single_mut_pointer.create(sema.arena, stack_trace_ty);
 
     // TODO implement this feature in all the backends and then delete this check.
-    const backend_supports_error_return_tracing = false;
+    const backend_supports_error_return_tracing =
+        sema.mod.comp.bin_file.options.use_llvm;
 
     if (sema.owner_func != null and
         sema.owner_func.?.calls_or_awaits_errorable_fn and
@@ -21965,6 +21960,11 @@ pub fn resolveFnTypes(
     fn_info: Type.Payload.Function.Data,
 ) CompileError!void {
     try sema.resolveTypeFully(block, src, fn_info.return_type);
+
+    if (sema.mod.comp.bin_file.options.error_return_tracing and fn_info.return_type.isError()) {
+        // Ensure the type exists so that backends can assume that.
+        _ = try sema.getBuiltinType(block, src, "StackTrace");
+    }
 
     for (fn_info.param_types) |param_ty| {
         try sema.resolveTypeFully(block, src, param_ty);
