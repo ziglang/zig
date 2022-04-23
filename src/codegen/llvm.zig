@@ -5605,14 +5605,24 @@ pub const FuncGen = struct {
 
         const lhs_ty = self.air.typeOf(extra.lhs);
         const scalar_ty = lhs_ty.scalarType();
+        const dest_ty = self.air.typeOfIndex(inst);
 
         const intrinsic_name = if (scalar_ty.isSignedInt()) signed_intrinsic else unsigned_intrinsic;
 
         const llvm_lhs_ty = try self.dg.llvmType(lhs_ty);
+        const llvm_dest_ty = try self.dg.llvmType(dest_ty);
+
+        const tg = self.dg.module.getTarget();
 
         const llvm_fn = self.getIntrinsic(intrinsic_name, &.{llvm_lhs_ty});
         const result_struct = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{ lhs, rhs }, 2, .Fast, .Auto, "");
-        return result_struct;
+
+        const result = self.builder.buildExtractValue(result_struct, 0, "");
+        const overflow_bit = self.builder.buildExtractValue(result_struct, 1, "");
+
+        var ty_buf: Type.Payload.Pointer = undefined;
+        const partial = self.builder.buildInsertValue(llvm_dest_ty.getUndef(), result, llvmFieldIndex(dest_ty, 0, tg, &ty_buf).?, "");
+        return self.builder.buildInsertValue(partial, overflow_bit, llvmFieldIndex(dest_ty, 1, tg, &ty_buf).?, "");
     }
 
     fn buildElementwiseCall(
