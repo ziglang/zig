@@ -4839,7 +4839,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     };
     defer sema.deinit();
 
-    // reset in case case calls to errorable functions are removed.
+    // reset in case calls to errorable functions are removed.
     func.calls_or_awaits_errorable_fn = false;
 
     // First few indexes of extra are reserved and set at the end.

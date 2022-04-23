@@ -12658,7 +12658,8 @@ fn analyzeRet(
     const backend_supports_error_return_tracing =
         sema.mod.comp.bin_file.options.use_llvm;
 
-    if (sema.fn_ret_ty.isError() and sema.mod.comp.bin_file.options.error_return_tracing and
+    if ((sema.fn_ret_ty.zigTypeTag() == .ErrorSet or sema.typeOf(uncasted_operand).zigTypeTag() == .ErrorUnion) and
+        sema.mod.comp.bin_file.options.error_return_tracing and
         backend_supports_error_return_tracing)
     {
         const return_err_fn = try sema.getBuiltin(block, src, "returnError");

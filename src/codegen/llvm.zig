@@ -698,9 +698,6 @@ pub const Object = struct {
 
             const lexical_block = dib.createLexicalBlock(subprogram.toScope(), di_file.?, line_number, 1);
             di_scope = lexical_block.toScope();
-
-            // Setup a debug location in case there is a call to `returnError` before a `.dbg_stmt`.
-            builder.setCurrentDebugLocation(line_number + func.lbrace_line, func.lbrace_column, di_scope.?, null);
         }
 
         var fg: FuncGen = .{
