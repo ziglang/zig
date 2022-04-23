@@ -32,7 +32,7 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
 
     comptime assert(@typeInfo(T) == .Int);
 
-    // integer value 1 cannot be coerced to type 'i1'
+    // `y & 1 == 0` won't compile when `does_one_overflow`.
     const does_one_overflow = bit_size == 0 or T == i1;
     const is_y_even = !does_one_overflow and y & 1 == 0;
 
@@ -52,11 +52,11 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
         if (y > 0) {
             return 0;
         } else {
-            // not overflow in strict sense
+            // Infinity/NaN, not overflow in strict sense
             return error.Overflow;
         }
     }
-    // x >= 2 or x <= -2
+    // x >= 2 or x <= -2 from this point
     if (y >= bit_size) {
         return error.Overflow;
     }
