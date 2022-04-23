@@ -64,6 +64,9 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
         return error.Underflow;
     }
 
+    // invariant :
+    // return value = powi(T, base, exp) * acc;
+
     var base = x;
     var exp = y;
     var acc: T = if (does_one_overflow) unreachable else 1;
