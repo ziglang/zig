@@ -33,9 +33,9 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
 
     // integer value 1 cannot be coerced to type 'i1'
     const does_one_overflow = bit_size == 0 or T == i1;
-    const is_y_odd = if (does_one_overflow) @as(i1, y) == -1 else y & 1 == 0;
+    const is_y_even = !does_one_overflow and y & 1 == 0;
 
-    if (x == 1 or y == 0 or (x == -1 and is_y_odd)) {
+    if (x == 1 or y == 0 or (x == -1 and is_y_even)) {
         if (does_one_overflow) {
             return error.Overflow;
         } else {
@@ -153,6 +153,7 @@ test "math.powi.special" {
     try testing.expect((try powi(i64, -1, 6)) == 1);
     try testing.expect((try powi(i17, -1, 15)) == -1);
     try testing.expect((try powi(i42, -1, 7)) == -1);
+    try testing.expect((try powi(i1, -1, -1)) == -1);
     try testing.expectError(error.Overflow, powi(i1, -1, 0));
 
     try testing.expect((try powi(u8, 1, 2)) == 1);
