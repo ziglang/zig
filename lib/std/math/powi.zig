@@ -159,8 +159,6 @@ test "math.powi.special" {
     try testing.expect((try powi(i64, -1, 6)) == 1);
     try testing.expect((try powi(i17, -1, 15)) == -1);
     try testing.expect((try powi(i42, -1, 7)) == -1);
-    try testing.expect((try powi(i1, -1, -1)) == -1);
-    try testing.expectError(error.Overflow, powi(i1, -1, 0));
 
     try testing.expect((try powi(u8, 1, 2)) == 1);
     try testing.expect((try powi(u16, 1, 4)) == 1);
@@ -189,4 +187,11 @@ test "math.powi.special" {
     try testing.expect((try powi(u64, 34, 0)) == 1);
     try testing.expect((try powi(u17, 16, 0)) == 1);
     try testing.expect((try powi(u42, 34, 0)) == 1);
+
+    try testing.expectError(error.Overflow, powi(u0, 0, 0));
+    try testing.expectError(error.Overflow, powi(i0, 0, 0));
+    try testing.expectError(error.Overflow, powi(i1, 0, 0));
+    try testing.expectError(error.Overflow, powi(i1, -1, 0));
+    try testing.expectError(error.Overflow, powi(i1, 0, -1));
+    try testing.expect((try powi(i1, -1, -1)) == -1);
 }
