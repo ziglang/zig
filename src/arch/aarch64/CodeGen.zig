@@ -546,8 +546,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .trunc_float
             => try self.airUnaryMath(inst),
 
-            .add_with_overflow => try self.airAddWithOverflow(inst),
-            .sub_with_overflow => try self.airSubWithOverflow(inst),
+            .add_with_overflow => try self.airOverflow(inst),
+            .sub_with_overflow => try self.airOverflow(inst),
             .mul_with_overflow => try self.airMulWithOverflow(inst),
             .shl_with_overflow => try self.airShlWithOverflow(inst),
 
@@ -1245,18 +1245,24 @@ fn binOpRegister(
     };
     defer self.register_manager.unfreezeRegs(&.{rhs_reg});
 
-    const dest_reg = if (maybe_inst) |inst| blk: {
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const dest_reg = switch (mir_tag) {
+        .cmp_shifted_register => undefined, // cmp has no destination register
+        else => if (maybe_inst) |inst| blk: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-        if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
-            break :blk lhs_reg;
-        } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
-            break :blk rhs_reg;
-        } else {
-            const raw_reg = try self.register_manager.allocReg(inst);
+            if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
+                break :blk lhs_reg;
+            } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
+                break :blk rhs_reg;
+            } else {
+                const raw_reg = try self.register_manager.allocReg(inst);
+                break :blk registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
+            }
+        } else blk: {
+            const raw_reg = try self.register_manager.allocReg(null);
             break :blk registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
-        }
-    } else try self.register_manager.allocReg(null);
+        },
+    };
 
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
     if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
@@ -1368,7 +1374,10 @@ fn binOpImmediate(
                 const raw_reg = try self.register_manager.allocReg(inst);
                 break :blk registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
             }
-        } else try self.register_manager.allocReg(null),
+        } else blk: {
+            const raw_reg = try self.register_manager.allocReg(null);
+            break :blk registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
+        },
     };
 
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
@@ -1711,14 +1720,68 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airAddWithOverflow for {}", .{self.target.cpu.arch});
-}
+fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[inst];
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+        const rhs_ty = self.air.typeOf(extra.rhs);
 
-fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airSubWithOverflow for {}", .{self.target.cpu.arch});
+        const tuple_ty = self.air.typeOfIndex(inst);
+        const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
+        const tuple_align = tuple_ty.abiAlignment(self.target.*);
+        const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, self.target.*));
+
+        switch (lhs_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
+            .Int => {
+                const mod = self.bin_file.options.module.?;
+                assert(lhs_ty.eql(rhs_ty, mod));
+                const int_info = lhs_ty.intInfo(self.target.*);
+                switch (int_info.bits) {
+                    1...31, 33...63 => {
+                        const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
+
+                        try self.spillCompareFlagsIfOccupied();
+                        self.compare_flags_inst = null;
+
+                        const base_tag: Air.Inst.Tag = switch (tag) {
+                            .add_with_overflow => .add,
+                            .sub_with_overflow => .sub,
+                            else => unreachable,
+                        };
+                        const dest = try self.binOp(base_tag, null, lhs, rhs, lhs_ty, rhs_ty);
+                        const dest_reg = dest.register;
+                        self.register_manager.freezeRegs(&.{dest_reg});
+                        defer self.register_manager.unfreezeRegs(&.{dest_reg});
+
+                        const raw_truncated_reg = try self.register_manager.allocReg(null);
+                        const truncated_reg = registerAlias(raw_truncated_reg, lhs_ty.abiSize(self.target.*));
+                        self.register_manager.freezeRegs(&.{truncated_reg});
+                        defer self.register_manager.unfreezeRegs(&.{truncated_reg});
+
+                        // sbfx/ubfx truncated, dest, #0, #bits
+                        try self.truncRegister(dest_reg, truncated_reg, int_info.signedness, int_info.bits);
+
+                        // cmp dest, truncated
+                        _ = try self.binOp(.cmp_eq, null, dest, .{ .register = truncated_reg }, Type.usize, Type.usize);
+
+                        try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
+                        try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags_unsigned = .neq });
+
+                        break :result MCValue{ .stack_offset = stack_offset };
+                    },
+                    32, 64 => return self.fail("TODO overflow operations on integers u32/i32 and u64/i64", .{}),
+                    else => return self.fail("TODO overflow operations on integers > u32/i32", .{}),
+                }
+            },
+            else => unreachable,
+        }
+    };
+    return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
 fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
@@ -1957,7 +2020,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         switch (elem_size) {
             else => {
                 const dest = try self.allocRegOrMem(inst, true);
-                const addr = try self.binOp(.ptr_add, null, base_mcv, index_mcv, slice_ty, Type.usize);
+                const addr = try self.binOp(.ptr_add, null, base_mcv, index_mcv, slice_ptr_field_type, Type.usize);
                 try self.load(dest, addr, slice_ptr_field_type);
 
                 break :result dest;
@@ -2409,9 +2472,26 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    _ = extra;
-    return self.fail("TODO implement codegen struct_field_val", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+    const operand = extra.struct_operand;
+    const index = extra.field_index;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(operand);
+        const struct_ty = self.air.typeOf(operand);
+        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+
+        switch (mcv) {
+            .dead, .unreach => unreachable,
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off - struct_field_offset };
+            },
+            .memory => |addr| {
+                break :result MCValue{ .memory = addr + struct_field_offset };
+            },
+            else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
+        }
+    };
+
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {

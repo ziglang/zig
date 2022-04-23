@@ -1989,7 +1989,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
             },
             else => {
                 const dest = try self.allocRegOrMem(inst, true);
-                const addr = try self.binOp(.ptr_add, null, base_mcv, index_mcv, slice_ty, Type.usize);
+                const addr = try self.binOp(.ptr_add, null, base_mcv, index_mcv, slice_ptr_field_type, Type.usize);
                 try self.load(dest, addr, slice_ptr_field_type);
 
                 break :result dest;

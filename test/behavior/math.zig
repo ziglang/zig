@@ -624,7 +624,6 @@ test "128-bit multiplication" {
 
 test "@addWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var result: u8 = undefined;
     try expect(@addWithOverflow(u8, 250, 100, &result));
