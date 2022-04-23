@@ -13,7 +13,7 @@ const testing = std.testing;
 /// Errors:
 ///  - Overflow: Integer overflow or Infinity
 ///  - Underflow: Absolute value of result smaller than 1
-/// Special Cases:
+/// Edge case rules ordered by priority:
 ///  - powi(x, 0)   = 1 unless T is i1, i0, u0
 ///  - powi(0, x)   = 0 when x > 0
 ///  - powi(0, x)   = Overflow
@@ -22,8 +22,8 @@ const testing = std.testing;
 ///  - powi(-1, y)  = -1 for y an odd integer
 ///  - powi(-1, y)  = 1 unless T is i1, i0, u0
 ///  - powi(-1, y)  = Overflow
-///  - powi(x, y)   = Overflow for y >= @bitSizeOf(x)
-///  - powi(x, y)   = Underflow for y < 0
+///  - powi(x, y)   = Overflow when y >= @bitSizeOf(x)
+///  - powi(x, y)   = Underflow when y < 0
 pub fn powi(comptime T: type, x: T, y: T) (error{
     Overflow,
     Underflow,
