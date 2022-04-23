@@ -5,11 +5,13 @@
 //!
 //! Example:
 //! ```
-//! var m = Mutex{}
+//! var m = Mutex{};
 //!
-//! m.lock();
-//! defer m.unlock();
-//! // ... critical section code
+//! {
+//!     m.lock();
+//!     defer m.unlock();
+//!     // ... critical section code
+//! }
 //!
 //! if (m.tryLock()) {
 //!     defer m.unlock();

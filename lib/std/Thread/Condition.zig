@@ -1,4 +1,4 @@
-//! Condition variables are used in tangent with a Mutex to efficiently wait for an arbitrary condition to occur.
+//! Condition variables are used with a Mutex to efficiently wait for an arbitrary condition to occur.
 //! It does this by atomically unlocking the mutex, blocking the thread until notified, and finally re-locking the mutex.
 //! Condition can be statically initialized and is at most `@sizeOf(u64)` large.
 //!
@@ -256,7 +256,7 @@ const FutexImpl = struct {
             const waiters = (state & waiter_mask) / one_waiter;
             const signals = (state & signal_mask) / one_signal;
 
-            // wake() threads reserve which waiters to wake up by incrementing the signals count.
+            // Reserves which waiters to wake up by incrementing the signals count.
             // Therefor, the signals count is always less than or equal to the waiters count.
             // We don't need to Futex.wake if there's nothing to wake up or if other wake() threads have reserved to wake up the current waiters.
             const wakeable = waiters - signals;
@@ -308,7 +308,7 @@ test "Condition - smoke test" {
     try testing.expectError(error.Timeout, cond.timedWait(&mutex, 0));
     try testing.expectError(error.Timeout, cond.timedWait(&mutex, std.time.ns_per_ms));
 
-    // Try to wkae inside the mutex.
+    // Try to wake inside the mutex.
     cond.signal();
     cond.broadcast();
 }
