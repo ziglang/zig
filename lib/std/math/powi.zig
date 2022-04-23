@@ -186,7 +186,9 @@ test "math.powi.special" {
     try testing.expect((try powi(u64, 34, 0)) == 1);
     try testing.expect((try powi(u17, 16, 0)) == 1);
     try testing.expect((try powi(u42, 34, 0)) == 1);
+}
 
+test "math.powi.narrow" {
     try testing.expectError(error.Overflow, powi(u0, 0, 0));
     try testing.expectError(error.Overflow, powi(i0, 0, 0));
     try testing.expectError(error.Overflow, powi(i1, 0, 0));
