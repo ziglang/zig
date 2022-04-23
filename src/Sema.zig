@@ -6248,8 +6248,7 @@ fn zirErrUnionPayload(
     }
     try sema.requireRuntimeBlock(block, src);
     if (safety_check and block.wantSafety()) {
-        const is_non_err = try block.addUnOp(.is_err, operand);
-        try sema.addSafetyCheck(block, is_non_err, .unwrap_errunion);
+        try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
     }
     const result_ty = operand_ty.errorUnionPayload();
     return block.addTyOp(.unwrap_errunion_payload, result_ty, operand);
@@ -6330,8 +6329,7 @@ fn analyzeErrUnionPayloadPtr(
 
     try sema.requireRuntimeBlock(block, src);
     if (safety_check and block.wantSafety()) {
-        const is_non_err = try block.addUnOp(.is_err, operand);
-        try sema.addSafetyCheck(block, is_non_err, .unwrap_errunion);
+        try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
     }
     const air_tag: Air.Inst.Tag = if (initializing)
         .errunion_payload_ptr_set
@@ -13400,6 +13398,10 @@ fn zirErrorReturnTrace(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+    return sema.getErrorReturnTrace(block, src);
+}
+
+fn getErrorReturnTrace(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError!Air.Inst.Ref {
     const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
     const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
     const opt_ptr_stack_trace_ty = try Type.Tag.optional_single_mut_pointer.create(sema.arena, stack_trace_ty);
@@ -16852,7 +16854,6 @@ fn explainWhyTypeIsComptime(
 pub const PanicId = enum {
     unreach,
     unwrap_null,
-    unwrap_errunion,
     cast_to_null,
     incorrect_alignment,
     invalid_error_code,
@@ -16962,10 +16963,98 @@ fn panicWithMsg(
         try Type.optional(arena, ptr_stack_trace_ty),
         Value.@"null",
     );
-    const args = try arena.create([2]Air.Inst.Ref);
-    args.* = .{ msg_inst, null_stack_trace };
-    _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, args);
+    const args: [2]Air.Inst.Ref = .{ msg_inst, null_stack_trace };
+    _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args);
     return always_noreturn;
+}
+
+fn panicUnwrapError(
+    sema: *Sema,
+    parent_block: *Block,
+    src: LazySrcLoc,
+    operand: Air.Inst.Ref,
+    unwrap_err_tag: Air.Inst.Tag,
+    is_non_err_tag: Air.Inst.Tag,
+) !void {
+    const ok = try parent_block.addUnOp(is_non_err_tag, operand);
+    const gpa = sema.gpa;
+
+    var fail_block: Block = .{
+        .parent = parent_block,
+        .sema = sema,
+        .src_decl = parent_block.src_decl,
+        .namespace = parent_block.namespace,
+        .wip_capture_scope = parent_block.wip_capture_scope,
+        .instructions = .{},
+        .inlining = parent_block.inlining,
+        .is_comptime = parent_block.is_comptime,
+    };
+
+    defer fail_block.instructions.deinit(gpa);
+
+    {
+        const this_feature_is_implemented_in_the_backend =
+            sema.mod.comp.bin_file.options.object_format == .c or
+            sema.mod.comp.bin_file.options.use_llvm;
+
+        if (!this_feature_is_implemented_in_the_backend) {
+            // TODO implement this feature in all the backends and then delete this branch
+            _ = try fail_block.addNoOp(.breakpoint);
+            _ = try fail_block.addNoOp(.unreach);
+        } else {
+            const panic_fn = try sema.getBuiltin(&fail_block, src, "panicUnwrapError");
+            const err = try fail_block.addTyOp(unwrap_err_tag, Type.anyerror, operand);
+            const err_return_trace = try sema.getErrorReturnTrace(&fail_block, src);
+            const args: [2]Air.Inst.Ref = .{ err_return_trace, err };
+            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, &args);
+        }
+    }
+
+    try parent_block.instructions.ensureUnusedCapacity(gpa, 1);
+
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+        1 + // The main block only needs space for the cond_br.
+        @typeInfo(Air.CondBr).Struct.fields.len +
+        1 + // The ok branch of the cond_br only needs space for the br.
+        fail_block.instructions.items.len);
+
+    try sema.air_instructions.ensureUnusedCapacity(gpa, 3);
+    const block_inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
+    const cond_br_inst = block_inst + 1;
+    const br_inst = cond_br_inst + 1;
+    sema.air_instructions.appendAssumeCapacity(.{
+        .tag = .block,
+        .data = .{ .ty_pl = .{
+            .ty = .void_type,
+            .payload = sema.addExtraAssumeCapacity(Air.Block{
+                .body_len = 1,
+            }),
+        } },
+    });
+    sema.air_extra.appendAssumeCapacity(cond_br_inst);
+
+    sema.air_instructions.appendAssumeCapacity(.{
+        .tag = .cond_br,
+        .data = .{ .pl_op = .{
+            .operand = ok,
+            .payload = sema.addExtraAssumeCapacity(Air.CondBr{
+                .then_body_len = 1,
+                .else_body_len = @intCast(u32, fail_block.instructions.items.len),
+            }),
+        } },
+    });
+    sema.air_extra.appendAssumeCapacity(br_inst);
+    sema.air_extra.appendSliceAssumeCapacity(fail_block.instructions.items);
+
+    sema.air_instructions.appendAssumeCapacity(.{
+        .tag = .br,
+        .data = .{ .br = .{
+            .block_inst = block_inst,
+            .operand = .void_value,
+        } },
+    });
+
+    parent_block.instructions.appendAssumeCapacity(block_inst);
 }
 
 fn safetyPanic(
@@ -16977,7 +17066,6 @@ fn safetyPanic(
     const msg = switch (panic_id) {
         .unreach => "reached unreachable code",
         .unwrap_null => "attempt to use null value",
-        .unwrap_errunion => "unreachable error occurred",
         .cast_to_null => "cast causes pointer to be null",
         .incorrect_alignment => "incorrect alignment",
         .invalid_error_code => "invalid error code",
