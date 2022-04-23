@@ -124,6 +124,12 @@ test "math.powi" {
     try testing.expectError(error.Overflow, powi(u64, 2342, 63));
     try testing.expectError(error.Overflow, powi(u17, 2723, 16));
     try testing.expectError(error.Overflow, powi(u42, 8234, 41));
+
+    const minInt = std.math.minInt;
+    try testing.expect((try powi(i8, -2, 7)) == minInt(i8));
+    try testing.expect((try powi(i16, -2, 15)) == minInt(i16));
+    try testing.expect((try powi(i32, -2, 31)) == minInt(i32));
+    try testing.expect((try powi(i64, -2, 63)) == minInt(i64));
 }
 
 test "math.powi.special" {
@@ -134,12 +140,6 @@ test "math.powi.special" {
     try testing.expectError(error.Overflow, powi(i17, -2, 17));
     try testing.expectError(error.Overflow, powi(i17, -2, 16));
     try testing.expectError(error.Overflow, powi(i42, -2, 42));
-
-    const minInt = std.math.minInt;
-    try testing.expect((try powi(i8, -2, 7)) == minInt(i8));
-    try testing.expect((try powi(i16, -2, 15)) == minInt(i16));
-    try testing.expect((try powi(i32, -2, 31)) == minInt(i32));
-    try testing.expect((try powi(i64, -2, 63)) == minInt(i64));
 
     try testing.expect((try powi(i8, -1, 3)) == -1);
     try testing.expect((try powi(i16, -1, 2)) == 1);
