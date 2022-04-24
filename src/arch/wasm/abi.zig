@@ -52,6 +52,7 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
             return memory;
         },
         .Bool => return direct,
+        .Array => return memory,
         .ErrorUnion => {
             const has_tag = ty.errorUnionSet().hasRuntimeBitsIgnoreComptime();
             const has_pl = ty.errorUnionPayload().hasRuntimeBitsIgnoreComptime();
@@ -73,16 +74,13 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
             if (ty.isSlice()) return memory;
             return direct;
         },
-        .Array => {
-            if (ty.arrayLen() == 1) return direct;
-            return memory;
-        },
         .Union => {
             const layout = ty.unionGetLayout(target);
             if (layout.payload_size == 0 and layout.tag_size != 0) {
                 return classifyType(ty.unionTagType().?, target);
             }
-            return classifyType(ty.errorUnionPayload(), target);
+            if (ty.unionFields().count() > 1) return memory;
+            return classifyType(ty.unionFields().values()[0].ty, target);
         },
         .AnyFrame, .Frame => return direct,
 
@@ -98,5 +96,26 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
         .Opaque,
         .EnumLiteral,
         => unreachable,
+    }
+}
+
+/// Returns the scalar type a given type can represent.
+/// Asserts given type can be represented as scalar, such as
+/// a struct with a single scalar field.
+pub fn scalarType(ty: Type, target: std.Target) Type {
+    switch (ty.zigTypeTag()) {
+        .Struct => {
+            std.debug.assert(ty.structFieldCount() == 1);
+            return scalarType(ty.structFieldType(0), target);
+        },
+        .Union => {
+            const layout = ty.unionGetLayout(target);
+            if (layout.payload_size == 0 and layout.tag_size != 0) {
+                return scalarType(ty.unionTagType().?, target);
+            }
+            std.debug.assert(ty.unionFields().count() == 1);
+            return scalarType(ty.unionFields().values()[0].ty, target);
+        },
+        else => return ty,
     }
 }
