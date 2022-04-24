@@ -9167,17 +9167,21 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, inst: Air.Inst.R
         .Array => t.arrayInfo(),
         .Pointer => blk: {
             const ptrinfo = t.ptrInfo().data;
-            if (ptrinfo.size == .Slice) {
-                const val = try sema.resolveConstValue(block, src, inst);
-                return Type.ArrayInfo{
-                    .elem_type = t.childType(),
-                    .sentinel = t.sentinel(),
-                    .len = val.sliceLen(sema.mod),
-                };
+            switch (ptrinfo.size) {
+                .Slice, .Many => {
+                    const val = try sema.resolveConstValue(block, src, inst);
+                    return Type.ArrayInfo{
+                        .elem_type = t.childType(),
+                        .sentinel = t.sentinel(),
+                        .len = val.sliceLen(sema.mod),
+                    };
+                },
+                .One => {
+                    if (ptrinfo.pointee_type.zigTypeTag() != .Array) return null;
+                    break :blk ptrinfo.pointee_type.arrayInfo();
+                },
+                .C => return null,
             }
-            if (ptrinfo.pointee_type.zigTypeTag() != .Array) return null;
-            if (ptrinfo.size != .One) return null;
-            break :blk ptrinfo.pointee_type.arrayInfo();
         },
         else => null,
     };
