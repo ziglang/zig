@@ -294,71 +294,75 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
         }
 
-        pub const Iterator = struct {
-            list: *Self,
-            index: usize,
-            box_index: usize,
-            shelf_index: ShelfIndex,
-            shelf_size: usize,
+        pub const Iterator = BaseIterator(*Self, *T);
+        pub const ConstIterator = BaseIterator(*const Self, *const T);
+        fn BaseIterator(comptime SelfType: type, comptime ElementPtr: type) type {
+            return struct {
+                list: SelfType,
+                index: usize,
+                box_index: usize,
+                shelf_index: ShelfIndex,
+                shelf_size: usize,
 
-            pub fn next(it: *Iterator) ?*T {
-                if (it.index >= it.list.len) return null;
-                if (it.index < prealloc_item_count) {
-                    const ptr = &it.list.prealloc_segment[it.index];
+                pub fn next(it: *@This()) ?ElementPtr {
+                    if (it.index >= it.list.len) return null;
+                    if (it.index < prealloc_item_count) {
+                        const ptr = &it.list.prealloc_segment[it.index];
+                        it.index += 1;
+                        if (it.index == prealloc_item_count) {
+                            it.box_index = 0;
+                            it.shelf_index = 0;
+                            it.shelf_size = prealloc_item_count * 2;
+                        }
+                        return ptr;
+                    }
+
+                    const ptr = &it.list.dynamic_segments[it.shelf_index][it.box_index];
                     it.index += 1;
-                    if (it.index == prealloc_item_count) {
+                    it.box_index += 1;
+                    if (it.box_index == it.shelf_size) {
+                        it.shelf_index += 1;
                         it.box_index = 0;
-                        it.shelf_index = 0;
-                        it.shelf_size = prealloc_item_count * 2;
+                        it.shelf_size *= 2;
                     }
                     return ptr;
                 }
 
-                const ptr = &it.list.dynamic_segments[it.shelf_index][it.box_index];
-                it.index += 1;
-                it.box_index += 1;
-                if (it.box_index == it.shelf_size) {
-                    it.shelf_index += 1;
-                    it.box_index = 0;
-                    it.shelf_size *= 2;
-                }
-                return ptr;
-            }
+                pub fn prev(it: *@This()) ?ElementPtr {
+                    if (it.index == 0) return null;
 
-            pub fn prev(it: *Iterator) ?*T {
-                if (it.index == 0) return null;
+                    it.index -= 1;
+                    if (it.index < prealloc_item_count) return &it.list.prealloc_segment[it.index];
 
-                it.index -= 1;
-                if (it.index < prealloc_item_count) return &it.list.prealloc_segment[it.index];
+                    if (it.box_index == 0) {
+                        it.shelf_index -= 1;
+                        it.shelf_size /= 2;
+                        it.box_index = it.shelf_size - 1;
+                    } else {
+                        it.box_index -= 1;
+                    }
 
-                if (it.box_index == 0) {
-                    it.shelf_index -= 1;
-                    it.shelf_size /= 2;
-                    it.box_index = it.shelf_size - 1;
-                } else {
-                    it.box_index -= 1;
+                    return &it.list.dynamic_segments[it.shelf_index][it.box_index];
                 }
 
-                return &it.list.dynamic_segments[it.shelf_index][it.box_index];
-            }
+                pub fn peek(it: *@This()) ?ElementPtr {
+                    if (it.index >= it.list.len)
+                        return null;
+                    if (it.index < prealloc_item_count)
+                        return &it.list.prealloc_segment[it.index];
 
-            pub fn peek(it: *Iterator) ?*T {
-                if (it.index >= it.list.len)
-                    return null;
-                if (it.index < prealloc_item_count)
-                    return &it.list.prealloc_segment[it.index];
+                    return &it.list.dynamic_segments[it.shelf_index][it.box_index];
+                }
 
-                return &it.list.dynamic_segments[it.shelf_index][it.box_index];
-            }
-
-            pub fn set(it: *Iterator, index: usize) void {
-                it.index = index;
-                if (index < prealloc_item_count) return;
-                it.shelf_index = shelfIndex(index);
-                it.box_index = boxIndex(index, it.shelf_index);
-                it.shelf_size = shelfSize(it.shelf_index);
-            }
-        };
+                pub fn set(it: *@This(), index: usize) void {
+                    it.index = index;
+                    if (index < prealloc_item_count) return;
+                    it.shelf_index = shelfIndex(index);
+                    it.box_index = boxIndex(index, it.shelf_index);
+                    it.shelf_size = shelfSize(it.shelf_index);
+                }
+            };
+        }
 
         pub fn iterator(self: *Self, start_index: usize) Iterator {
             var it = Iterator{
@@ -371,10 +375,22 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             it.set(start_index);
             return it;
         }
+
+        pub fn constIterator(self: *const Self, start_index: usize) ConstIterator {
+            var it = ConstIterator{
+                .list = self,
+                .index = undefined,
+                .shelf_index = undefined,
+                .box_index = undefined,
+                .shelf_size = undefined,
+            };
+            it.set(start_index);
+            return it;
+        }
     };
 }
 
-test "basic usage" {
+test "SegmentedList basic usage" {
     try testSegmentedList(0);
     try testSegmentedList(1);
     try testSegmentedList(2);
@@ -406,6 +422,20 @@ fn testSegmentedList(comptime prealloc: usize) !void {
 
     {
         var it = list.iterator(0);
+        var x: i32 = 0;
+        while (it.next()) |item| {
+            x += 1;
+            try testing.expect(item.* == x);
+        }
+        try testing.expect(x == 100);
+        while (it.prev()) |item| : (x -= 1) {
+            try testing.expect(item.* == x);
+        }
+        try testing.expect(x == 0);
+    }
+
+    {
+        var it = list.constIterator(0);
         var x: i32 = 0;
         while (it.next()) |item| {
             x += 1;
