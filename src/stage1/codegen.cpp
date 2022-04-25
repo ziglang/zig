@@ -9993,6 +9993,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const link_libcpp = %s;\n", bool_to_str(g->link_libcpp));
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
     buf_appendf(contents, "pub const valgrind_support = false;\n");
+    buf_appendf(contents, "pub const sanitize_thread = false;\n");
     buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
     buf_appendf(contents, "pub const position_independent_executable = %s;\n", bool_to_str(g->have_pie));
     buf_appendf(contents, "pub const strip_debug_info = %s;\n", bool_to_str(g->strip_debug_symbols));
