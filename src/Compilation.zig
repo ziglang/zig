@@ -4690,6 +4690,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
         \\pub const valgrind_support = {};
+        \\pub const sanitize_thread = {};
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
@@ -4702,6 +4703,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         comp.bin_file.options.link_libcpp,
         comp.bin_file.options.error_return_tracing,
         comp.bin_file.options.valgrind,
+        comp.bin_file.options.tsan,
         comp.bin_file.options.pic,
         comp.bin_file.options.pie,
         comp.bin_file.options.strip,
