@@ -14,19 +14,66 @@ pub fn Atomic(comptime T: type) type {
             return .{ .value = value };
         }
 
+        /// Perform an atomic fence which uses the atomic value as a hint for the modification order.
+        /// Use this when you want to imply a fence on an atomic variable without necessarily performing a memory access.
+        ///
+        /// Example:
+        /// ```
+        /// const RefCount = struct {
+        ///     count: Atomic(usize),
+        ///     dropFn: *const fn(*RefCount) void,
+        ///
+        ///     fn ref(self: *RefCount) void {
+        ///         _ =  self.count.fetchAdd(1, .Monotonic); // no ordering necessary, just updating a counter
+        ///     }
+        ///     
+        ///     fn unref(self: *RefCount) void {
+        ///         // Release ensures code before unref() happens-before the count is decremented as dropFn could be called by then.
+        ///         if (self.count.fetchSub(1, .Release)) {
+        ///             // Acquire ensures count decrement and code before previous unrefs()s happens-before we call dropFn below.
+        ///             // NOTE: another alterative is to use .AcqRel on the fetchSub count decrement but it's extra barrier in possibly hot path.
+        ///             self.count.fence(.Acquire);
+        ///             (self.dropFn)(self);
+        ///         }
+        ///     }
+        /// };
+        /// ```
+        pub inline fn fence(self: *Self, comptime ordering: Ordering) void {
+            // LLVM's ThreadSanitizer doesn't support the normal fences so we specialize for it.
+            if (builtin.sanitize_thread) {
+                const tsan = struct {
+                    extern "c" fn __tsan_acquire(addr: *anyopaque) void;
+                    extern "c" fn __tsan_release(addr: *anyopaque) void;
+                };
+
+                const addr = @ptrCast(*anyopaque, self);
+                return switch (ordering) {
+                    .Unordered, .Monotonic => @compileError(@tagName(ordering) ++ " only applies to atomic loads and stores"),
+                    .Acquire => tsan.__tsan_acquire(addr),
+                    .Release => tsan.__tsan_release(addr),
+                    .AcqRel, .SeqCst => {
+                        tsan.__tsan_acquire(addr);
+                        tsan.__tsan_release(addr);
+                    },
+                };
+            }
+
+            return std.atomic.fence(ordering);
+        }
+
         /// Non-atomically load from the atomic value without synchronization.
         /// Care must be taken to avoid data-races when interacting with other atomic operations.
-        pub fn loadUnchecked(self: Self) T {
+        pub inline fn loadUnchecked(self: Self) T {
             return self.value;
         }
 
         /// Non-atomically store to the atomic value without synchronization.
         /// Care must be taken to avoid data-races when interacting with other atomic operations.
-        pub fn storeUnchecked(self: *Self, value: T) void {
+        pub inline fn storeUnchecked(self: *Self, value: T) void {
             self.value = value;
         }
 
-        pub fn load(self: *const Self, comptime ordering: Ordering) T {
+        pub inline fn load(self: *const Self, comptime ordering: Ordering) T {
             return switch (ordering) {
                 .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(Ordering.Release) ++ " which is only allowed on atomic stores"),
                 .Release => @compileError(@tagName(ordering) ++ " is only allowed on atomic stores"),
@@ -34,7 +81,7 @@ pub fn Atomic(comptime T: type) type {
             };
         }
 
-        pub fn store(self: *Self, value: T, comptime ordering: Ordering) void {
+        pub inline fn store(self: *Self, value: T, comptime ordering: Ordering) void {
             return switch (ordering) {
                 .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(Ordering.Acquire) ++ " which is only allowed on atomic loads"),
                 .Acquire => @compileError(@tagName(ordering) ++ " is only allowed on atomic loads"),
@@ -264,6 +311,13 @@ pub fn Atomic(comptime T: type) type {
             }
         });
     };
+}
+
+test "Atomic.fence" {
+    inline for (.{ .Acquire, .Release, .AcqRel, .SeqCst }) |ordering| {
+        var x = Atomic(usize).init(0);
+        x.fence(ordering);
+    }
 }
 
 fn atomicIntTypes() []const type {
