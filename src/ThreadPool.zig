@@ -110,7 +110,6 @@ pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
     self.cond.signal();
 }
 
-
 fn worker(self: *ThreadPool) void {
     self.mutex.lock();
     defer self.mutex.unlock();
@@ -120,7 +119,7 @@ fn worker(self: *ThreadPool) void {
             // Temporarily unlock the mutex in order to execute the run_node
             self.mutex.unlock();
             defer self.mutex.lock();
-            
+
             const runFn = run_node.data.runFn;
             runFn(&run_node.data);
         }

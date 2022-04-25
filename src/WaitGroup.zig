@@ -19,7 +19,7 @@ pub fn finish(self: *WaitGroup) void {
     assert((state / one_pending) > 0);
 
     if (state == (one_pending | is_waiting)) {
-        self.state.fence(.Acquire); 
+        self.state.fence(.Acquire);
         self.event.set();
     }
 }

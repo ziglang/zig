@@ -519,7 +519,7 @@ const PanicSwitch = struct {
             // Sleep forever without hammering the CPU
             var futex = std.atomic.Atomic(u32).init(0);
             while (true) std.Thread.Futex.wait(&futex, 0);
-            
+
             // This should be unreachable, recurse into recoverAbort.
             @panic("event.wait() returned");
         }
