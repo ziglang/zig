@@ -937,7 +937,7 @@ test "open file with exclusive lock twice, make sure second lock waits" {
         fn checkFn(dir: *fs.Dir, started: *std.Thread.ResetEvent, locked: *std.Thread.ResetEvent) !void {
             started.set();
             const file1 = try dir.createFile(filename, .{ .lock = .Exclusive });
-            
+
             locked.set();
             file1.close();
         }
@@ -946,12 +946,16 @@ test "open file with exclusive lock twice, make sure second lock waits" {
     var started = std.Thread.ResetEvent{};
     var locked = std.Thread.ResetEvent{};
 
-    const t = try std.Thread.spawn(.{}, S.checkFn, .{ &tmp.dir, &started, &locked, });
+    const t = try std.Thread.spawn(.{}, S.checkFn, .{
+        &tmp.dir,
+        &started,
+        &locked,
+    });
     defer t.join();
 
     // Wait for the spawned thread to start trying to acquire the exclusive file lock.
     // Then wait a bit to make sure that can't acquire it since we currently hold the file lock.
-    started.wait(); 
+    started.wait();
     try testing.expectError(error.Timeout, locked.timedWait(10 * std.time.ns_per_ms));
 
     // Release the file lock which should unlock the thread to lock it and set the locked event.

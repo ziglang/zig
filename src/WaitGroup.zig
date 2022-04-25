@@ -35,4 +35,5 @@ pub fn wait(self: *WaitGroup) void {
 
 pub fn reset(self: *WaitGroup) void {
     self.state.store(0, .Monotonic);
+    self.event.reset();
 }

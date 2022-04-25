@@ -26,7 +26,7 @@ pub fn Atomic(comptime T: type) type {
         ///     fn ref(self: *RefCount) void {
         ///         _ =  self.count.fetchAdd(1, .Monotonic); // no ordering necessary, just updating a counter
         ///     }
-        ///     
+        ///
         ///     fn unref(self: *RefCount) void {
         ///         // Release ensures code before unref() happens-before the count is decremented as dropFn could be called by then.
         ///         if (self.count.fetchSub(1, .Release)) {
