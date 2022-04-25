@@ -236,21 +236,21 @@ pub fn Atomic(comptime T: type) type {
                         .Set => asm volatile ("lock btsw %[bit], %[ptr]"
                             // LLVM doesn't support u1 flag register return values
                             : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*p" (&self.value),
+                            : [ptr] "*m" (&self.value),
                               [bit] "X" (@as(T, bit)),
                             : "cc", "memory"
                         ),
                         .Reset => asm volatile ("lock btrw %[bit], %[ptr]"
                             // LLVM doesn't support u1 flag register return values
                             : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*p" (&self.value),
+                            : [ptr] "*m" (&self.value),
                               [bit] "X" (@as(T, bit)),
                             : "cc", "memory"
                         ),
                         .Toggle => asm volatile ("lock btcw %[bit], %[ptr]"
                             // LLVM doesn't support u1 flag register return values
                             : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*p" (&self.value),
+                            : [ptr] "*m" (&self.value),
                               [bit] "X" (@as(T, bit)),
                             : "cc", "memory"
                         ),
@@ -259,21 +259,21 @@ pub fn Atomic(comptime T: type) type {
                         .Set => asm volatile ("lock btsl %[bit], %[ptr]"
                             // LLVM doesn't support u1 flag register return values
                             : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*p" (&self.value),
+                            : [ptr] "*m" (&self.value),
                               [bit] "X" (@as(T, bit)),
                             : "cc", "memory"
                         ),
                         .Reset => asm volatile ("lock btrl %[bit], %[ptr]"
                             // LLVM doesn't support u1 flag register return values
                             : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*p" (&self.value),
+                            : [ptr] "*m" (&self.value),
                               [bit] "X" (@as(T, bit)),
                             : "cc", "memory"
                         ),
                         .Toggle => asm volatile ("lock btcl %[bit], %[ptr]"
                             // LLVM doesn't support u1 flag register return values
                             : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*p" (&self.value),
+                            : [ptr] "*m" (&self.value),
                               [bit] "X" (@as(T, bit)),
                             : "cc", "memory"
                         ),
@@ -282,21 +282,21 @@ pub fn Atomic(comptime T: type) type {
                         .Set => asm volatile ("lock btsq %[bit], %[ptr]"
                             // LLVM doesn't support u1 flag register return values
                             : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*p" (&self.value),
+                            : [ptr] "*m" (&self.value),
                               [bit] "X" (@as(T, bit)),
                             : "cc", "memory"
                         ),
                         .Reset => asm volatile ("lock btrq %[bit], %[ptr]"
                             // LLVM doesn't support u1 flag register return values
                             : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*p" (&self.value),
+                            : [ptr] "*m" (&self.value),
                               [bit] "X" (@as(T, bit)),
                             : "cc", "memory"
                         ),
                         .Toggle => asm volatile ("lock btcq %[bit], %[ptr]"
                             // LLVM doesn't support u1 flag register return values
                             : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*p" (&self.value),
+                            : [ptr] "*m" (&self.value),
                               [bit] "X" (@as(T, bit)),
                             : "cc", "memory"
                         ),
