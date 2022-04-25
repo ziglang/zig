@@ -77,8 +77,10 @@ pub fn emitMir(
         const inst = @intCast(u32, index);
         switch (tag) {
             .add_immediate => try emit.mirAddSubtractImmediate(inst),
+            .adds_immediate => try emit.mirAddSubtractImmediate(inst),
             .cmp_immediate => try emit.mirAddSubtractImmediate(inst),
             .sub_immediate => try emit.mirAddSubtractImmediate(inst),
+            .subs_immediate => try emit.mirAddSubtractImmediate(inst),
 
             .asr_register => try emit.mirShiftRegister(inst),
             .lsl_register => try emit.mirShiftRegister(inst),
@@ -106,8 +108,10 @@ pub fn emitMir(
             .eor_immediate => try emit.mirLogicalImmediate(inst),
 
             .add_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
+            .adds_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
             .cmp_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
             .sub_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
+            .subs_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
 
             .cset => try emit.mirConditionalSelect(inst),
 
@@ -454,7 +458,9 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     switch (tag) {
         .add_immediate,
+        .adds_immediate,
         .sub_immediate,
+        .subs_immediate,
         => {
             const rr_imm12_sh = emit.mir.instructions.items(.data)[inst].rr_imm12_sh;
             const rd = rr_imm12_sh.rd;
@@ -464,7 +470,9 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
             switch (tag) {
                 .add_immediate => try emit.writeInstruction(Instruction.add(rd, rn, imm12, sh)),
+                .adds_immediate => try emit.writeInstruction(Instruction.adds(rd, rn, imm12, sh)),
                 .sub_immediate => try emit.writeInstruction(Instruction.sub(rd, rn, imm12, sh)),
+                .subs_immediate => try emit.writeInstruction(Instruction.subs(rd, rn, imm12, sh)),
                 else => unreachable,
             }
         },
@@ -674,7 +682,9 @@ fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     switch (tag) {
         .add_shifted_register,
+        .adds_shifted_register,
         .sub_shifted_register,
+        .subs_shifted_register,
         => {
             const rrr_imm6_shift = emit.mir.instructions.items(.data)[inst].rrr_imm6_shift;
             const rd = rrr_imm6_shift.rd;
@@ -685,7 +695,9 @@ fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
 
             switch (tag) {
                 .add_shifted_register => try emit.writeInstruction(Instruction.addShiftedRegister(rd, rn, rm, shift, imm6)),
+                .adds_shifted_register => try emit.writeInstruction(Instruction.addsShiftedRegister(rd, rn, rm, shift, imm6)),
                 .sub_shifted_register => try emit.writeInstruction(Instruction.subShiftedRegister(rd, rn, rm, shift, imm6)),
+                .subs_shifted_register => try emit.writeInstruction(Instruction.subsShiftedRegister(rd, rn, rm, shift, imm6)),
                 else => unreachable,
             }
         },
@@ -717,7 +729,7 @@ fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
                 64 => .xzr,
                 else => unreachable,
             };
-            try emit.writeInstruction(Instruction.csinc(r_cond.rd, zr, zr, r_cond.cond));
+            try emit.writeInstruction(Instruction.csinc(r_cond.rd, zr, zr, r_cond.cond.negate()));
         },
         else => unreachable,
     }

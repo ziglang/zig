@@ -26,8 +26,12 @@ pub const Inst = struct {
     pub const Tag = enum(u16) {
         /// Add (immediate)
         add_immediate,
+        /// Add, update condition flags (immediate)
+        adds_immediate,
         /// Add (shifted register)
         add_shifted_register,
+        /// Add, update condition flags (shifted register)
+        adds_shifted_register,
         /// Bitwise AND (shifted register)
         and_shifted_register,
         /// Arithmetic Shift Right (immediate)
@@ -170,8 +174,12 @@ pub const Inst = struct {
         strh_register,
         /// Subtract (immediate)
         sub_immediate,
+        /// Subtract, update condition flags (immediate)
+        subs_immediate,
         /// Subtract (shifted register)
         sub_shifted_register,
+        /// Subtract, update condition flags (shifted register)
+        subs_shifted_register,
         /// Supervisor Call
         svc,
         /// Unsigned bitfield extract
