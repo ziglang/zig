@@ -1,4 +1,6 @@
-//! TODO
+//! ResetEvent is a thread-safe bool which can be set to true/false ("set"/"unset").
+//! It can also block threads until the "bool" is set with cancellation via timed waits.
+//! ResetEvent can be statically initialized and is at most `@sizeOf(u64)` large.
 
 const std = @import("../std.zig");
 const builtin = @import("builtin");
