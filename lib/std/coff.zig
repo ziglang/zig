@@ -197,7 +197,11 @@ pub const Coff = struct {
         const opt_header_pos = try self.in_file.getPos();
 
         self.pe_header.magic = try in.readIntLittle(u16);
-        // All we care about is the image base value and PDB info
+        try self.in_file.seekTo(opt_header_pos + 16);
+        self.pe_header.entry_addr = try in.readIntLittle(u32);
+        try self.in_file.seekTo(opt_header_pos + 20);
+        self.pe_header.code_base = try in.readIntLittle(u32);
+
         // The header structure is different for 32 or 64 bit
         var num_rva_pos: u64 = undefined;
         if (self.pe_header.magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
@@ -374,6 +378,8 @@ const OptionalHeader = struct {
 
     magic: u16,
     data_directory: [IMAGE_NUMBEROF_DIRECTORY_ENTRIES]DataDirectory,
+    entry_addr: u32,
+    code_base: u32,
     image_base: u64,
 };
 
