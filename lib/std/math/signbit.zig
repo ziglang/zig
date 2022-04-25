@@ -9,6 +9,7 @@ pub fn signbit(x: anytype) bool {
         f16 => signbit16(x),
         f32 => signbit32(x),
         f64 => signbit64(x),
+        f80 => signbit80(x),
         f128 => signbit128(x),
         else => @compileError("signbit not implemented for " ++ @typeName(T)),
     };
@@ -27,6 +28,11 @@ fn signbit32(x: f32) bool {
 fn signbit64(x: f64) bool {
     const bits = @bitCast(u64, x);
     return bits >> 63 != 0;
+}
+
+fn signbit80(x: f80) bool {
+    const bits = @bitCast(u80, x);
+    return bits >> 79 != 0;
 }
 
 fn signbit128(x: f128) bool {

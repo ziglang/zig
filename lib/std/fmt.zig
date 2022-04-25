@@ -1124,6 +1124,7 @@ pub fn formatFloatHexadecimal(
     const TU = std.meta.Int(.unsigned, std.meta.bitCount(T));
 
     const mantissa_bits = math.floatMantissaBits(T);
+    const fractional_bits = math.floatFractionalBits(T);
     const exponent_bits = math.floatExponentBits(T);
     const mantissa_mask = (1 << mantissa_bits) - 1;
     const exponent_mask = (1 << exponent_bits) - 1;
@@ -1155,14 +1156,14 @@ pub fn formatFloatHexadecimal(
         // Adjust the exponent for printing.
         exponent += 1;
     } else {
-        // Add the implicit 1.
-        mantissa |= 1 << mantissa_bits;
+        if (fractional_bits == mantissa_bits)
+            mantissa |= 1 << fractional_bits; // Add the implicit integer bit.
     }
 
     // Fill in zeroes to round the mantissa width to a multiple of 4.
     if (T == f16) mantissa <<= 2 else if (T == f32) mantissa <<= 1;
 
-    const mantissa_digits = (mantissa_bits + 3) / 4;
+    const mantissa_digits = (fractional_bits + 3) / 4;
 
     if (options.precision) |precision| {
         // Round if needed.
