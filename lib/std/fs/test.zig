@@ -917,7 +917,7 @@ test "open file with exclusive and shared nonblocking lock" {
     try testing.expectError(error.WouldBlock, file2);
 }
 
-test "open file with exclusive lock twice, make sure it waits" {
+test "open file with exclusive lock twice, make sure second lock waits" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     if (std.io.is_async) {
@@ -934,30 +934,29 @@ test "open file with exclusive lock twice, make sure it waits" {
     errdefer file.close();
 
     const S = struct {
-        fn checkFn(dir: *fs.Dir, evt: *std.Thread.ResetEvent) !void {
+        fn checkFn(dir: *fs.Dir, started: *std.Thread.ResetEvent, locked: *std.Thread.ResetEvent) !void {
+            started.set();
             const file1 = try dir.createFile(filename, .{ .lock = .Exclusive });
-            defer file1.close();
-            evt.set();
+            
+            locked.set();
+            file1.close();
         }
     };
 
-    var evt: std.Thread.ResetEvent = undefined;
-    try evt.init();
-    defer evt.deinit();
+    var started = std.Thread.ResetEvent{};
+    var locked = std.Thread.ResetEvent{};
 
-    const t = try std.Thread.spawn(.{}, S.checkFn, .{ &tmp.dir, &evt });
+    const t = try std.Thread.spawn(.{}, S.checkFn, .{ &tmp.dir, &started, &locked, });
     defer t.join();
 
-    const SLEEP_TIMEOUT_NS = 10 * std.time.ns_per_ms;
-    // Make sure we've slept enough.
-    var timer = try std.time.Timer.start();
-    while (true) {
-        std.time.sleep(SLEEP_TIMEOUT_NS);
-        if (timer.read() >= SLEEP_TIMEOUT_NS) break;
-    }
+    // Wait for the spawned thread to start trying to acquire the exclusive file lock.
+    // Then wait a bit to make sure that can't acquire it since we currently hold the file lock.
+    started.wait(); 
+    try testing.expectError(error.Timeout, locked.timedWait(10 * std.time.ns_per_ms));
+
+    // Release the file lock which should unlock the thread to lock it and set the locked event.
     file.close();
-    // No timeout to avoid failures on heavily loaded systems.
-    evt.wait();
+    locked.wait();
 }
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {

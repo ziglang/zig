@@ -3,13 +3,12 @@ const builtin = @import("builtin");
 const ThreadPool = @This();
 
 mutex: std.Thread.Mutex = .{},
+cond: std.Thread.Condition = .{},
 is_running: bool = true,
 allocator: std.mem.Allocator,
 workers: []Worker,
 run_queue: RunQueue = .{},
-idle_queue: IdleQueue = .{},
 
-const IdleQueue = std.SinglyLinkedList(std.Thread.ResetEvent);
 const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
     runFn: RunProto,
@@ -23,9 +22,6 @@ const RunProto = switch (builtin.zig_backend) {
 const Worker = struct {
     pool: *ThreadPool,
     thread: std.Thread,
-    /// The node is for this worker only and must have an already initialized event
-    /// when the thread is spawned.
-    idle_node: IdleQueue.Node,
 
     fn run(worker: *Worker) void {
         const pool = worker.pool;
