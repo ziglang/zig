@@ -343,7 +343,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
 
                 // Sleep forever without hammering the CPU
                 var futex = std.atomic.Atomic(u32).init(0);
-                std.Thread.Futex.wait(&futex, 0);
+                while (true) std.Thread.Futex.wait(&futex, 0);
                 unreachable;
             }
         },
