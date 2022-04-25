@@ -74,7 +74,7 @@ fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T
 
     const shift = @clz(std.meta.Int(.unsigned, bits), significand.*) - @clz(Z, integerBit);
     significand.* <<= @intCast(S, shift);
-    return 1 - shift;
+    return @as(i32, 1) - shift;
 }
 
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
@@ -210,12 +210,10 @@ fn addXf3(comptime T: type, a: T, b: T) T {
     if (aExponent >= maxExponent) return @bitCast(T, infRep | resultSign);
 
     if (aExponent <= 0) {
-        // Result is denormal before rounding; the exponent is zero and we
-        // need to shift the significand.
-        const shift = @intCast(Z, 1 - aExponent);
-        const sticky = if (aSignificand << @intCast(S, typeWidth - shift) != 0) @as(Z, 1) else 0;
-        aSignificand = aSignificand >> @intCast(S, shift | sticky);
-        aExponent = 0;
+        // Result is denormal; the exponent and round/sticky bits are zero.
+        // All we need to do is shift the significand and apply the correct sign.
+        aSignificand >>= @intCast(S, 4 - aExponent);
+        return @bitCast(T, resultSign | aSignificand);
     }
 
     // Low three bits are round, guard, and sticky.

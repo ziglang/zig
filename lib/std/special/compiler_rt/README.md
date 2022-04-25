@@ -152,53 +152,53 @@ Bugs should be solved by trying to duplicate the bug upstream, if possible.
 - todo todo __fixsfsi      // convert a to i32, rounding towards zero
 - todo todo __fixdfsi      //
 - todo todo __fixtfsi      //
-- none none __fixxfsi      // missing
+- todo todo __fixxfsi      //
 - todo todo __fixsfdi      // convert a to i64, rounding towards zero
 - todo todo __fixdfdi      //
 - todo todo __fixtfdi      //
-- none none __fixxfdi      // missing
+- todo todo __fixxfdi      //
 - todo todo __fixsfti      // convert a to i128, rounding towards zero
 - todo todo __fixdfti      //
 - todo todo __fixtfdi      //
-- none none __fixxfti      // missing
+- todo todo __fixxfti      //
 
 - __fixunssfsi   // convert to u32, rounding towards zero. negative values become 0.
 - __fixunsdfsi   //
 - __fixunstfsi   //
-- __fixunsxfsi   // missing
+- __fixunsxfsi   //
 - __fixunssfdi   // convert to u64, rounding towards zero. negative values become 0.
 - __fixunsdfdi   //
 - __fixunstfdi   //
-- __fixunsxfdi   // missing
+- __fixunsxfdi   //
 - __fixunssfti   // convert to u128, rounding towards zero. negative values become 0.
 - __fixunsdfti   //
 - __fixunstfdi   //
-- __fixunsxfti   // missing
+- __fixunsxfti   //
 
 - __floatsisf    // convert i32 to floating point
 - __floatsidf    //
 - __floatsitf    //
-- __floatsixf    // missing
+- __floatsixf    //
 - __floatdisf    // convert i64 to floating point
 - __floatdidf    //
 - __floatditf    //
-- __floatdixf    // missing
+- __floatdixf    //
 - __floattisf    // convert i128 to floating point
 - __floattidf    //
-- __floattixf    // missing
+- __floattixf    //
 
-- __floatunsisf  // convert i32 to floating point
+- __floatunsisf  // convert u32 to floating point
 - __floatunsidf  //
 - __floatunsitf  //
-- __floatunsixf  // missing
-- __floatundisf  // convert i64 to floating point
+- __floatunsixf  //
+- __floatundisf  // convert u64 to floating point
 - __floatundidf  //
 - __floatunditf  //
-- __floatundixf  // missing
-- __floatuntisf  // convert i128 to floating point
+- __floatundixf  //
+- __floatuntisf  // convert u128 to floating point
 - __floatuntidf  //
 - __floatuntitf  //
-- __floatuntixf  // missing
+- __floatuntixf  //
 
 #### Float Comparison
 - __cmpsf2       // return (a<b)=>-1,(a==b)=>0,(a>b)=>1,Nan=>1 dont rely on this
@@ -242,11 +242,11 @@ Bugs should be solved by trying to duplicate the bug upstream, if possible.
 - __mulsf3       // a * b
 - __muldf3       // a * b
 - __multf3       // a * b
-- __mulxf3       // a * b missing
+- __mulxf3       // a * b
 - __divsf3       // a / b
 - __divdf3       // a / b
 - __divtf3       // a / b
-- __divxf3       // a / b missing
+- __divxf3       // a / b
 - __negsf2       // -a symbol-level compatibility: libgcc uses this for the rl78
 - __negdf2       // -a unnecessary: can be lowered directly to a xor
 - __negtf2       // -a

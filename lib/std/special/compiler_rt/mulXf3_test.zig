@@ -105,6 +105,7 @@ test "multf3" {
 
     try test__multf3(0x1.0000_0000_0000_0000_0000_0000_0001p+0, 0x1.8p+5, 0x4004_8000_0000_0000, 0x0000_0000_0000_0002);
     try test__multf3(0x1.0000_0000_0000_0000_0000_0000_0002p+0, 0x1.8p+5, 0x4004_8000_0000_0000, 0x0000_0000_0000_0003);
+    try test__multf3(2.0, math.floatTrueMin(f128), 0x0000_0000_0000_0000, 0x0000_0000_0000_0002);
 }
 
 const qnan80 = @bitCast(f80, @bitCast(u80, math.nan(f80)) | (1 << (math.floatFractionalBits(f80) - 1)));
@@ -164,4 +165,7 @@ test "mulxf3" {
 
     try test__mulxf3(0x1.0000_0001p+0, 0x1.0000_0001p+0, 0x3FFF_8000_0001_0000_0000); // round down to even
     try test__mulxf3(0x1.0000_0001p+0, 0x1.0000_0001_0002p+0, 0x3FFF_8000_0001_0001_0001); // round up
+    try test__mulxf3(0x0.8000_0000_0000_0000p-16382, 2.0, 0x0001_8000_0000_0000_0000); // denormal -> normal
+    try test__mulxf3(0x0.7fff_ffff_ffff_fffep-16382, 0x2.0000_0000_0000_0008p0, 0x0001_8000_0000_0000_0000); // denormal -> normal
+    try test__mulxf3(0x0.7fff_ffff_ffff_fffep-16382, 0x1.0000_0000_0000_0000p0, 0x0000_3FFF_FFFF_FFFF_FFFF); // denormal -> denormal
 }
