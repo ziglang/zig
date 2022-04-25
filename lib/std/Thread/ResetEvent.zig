@@ -155,3 +155,125 @@ const FutexImpl = struct {
         self.state.store(unset, .Monotonic);
     }
 };
+
+test "ResetEvent - smoke test" {
+    // make sure the event is unset
+    var event = ResetEvent{};
+    try testing.expectEqual(false, event.isSet());
+
+    // make sure the event gets set
+    event.set();
+    try testing.expectEqual(true, event.isSet());
+
+    // make sure the event gets unset again
+    event.reset();
+    try testing.expectEqual(false, event.isSet());
+
+    // waits should timeout as there's no other thread to set the event
+    try testing.expectError(error.Timeout, event.timedWait(0));
+    try testing.expectError(error.Timeout, event.timedWait(std.time.ns_per_ms));
+
+    // set the event again and make sure waits complete
+    event.set();
+    event.wait();
+    try event.timedWait(std.time.ns_per_ms);
+    try testing.expectEqual(true, event.isSet());
+}
+
+test "ResetEvent - signaling" {
+    // This test requires spawning threads
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const Context = struct {
+        in: ResetEvent = .{},
+        out: ResetEvent = .{},
+        value: usize = 0,
+
+        fn input(self: *@This()) !void {
+            // wait for the value to become 1
+            self.in.wait();
+            self.in.reset();
+            try testing.expectEqual(self.value, 1);
+
+            // bump the value and wake up output()
+            self.value = 2;
+            self.out.set();
+
+            // wait for output to receive 2, bump the value and wake us up with 3
+            self.in.wait();
+            self.in.reset();
+            try testing.expectEqual(self.value, 3);
+
+            // bump the value and wake up output() for it to see 4
+            self.value = 4;
+            self.out.set();
+        }
+
+        fn output(self: *@This()) !void {
+            // start with 0 and bump the value for input to see 1
+            try testing.expectEqual(self.value, 0);
+            self.value = 1;
+            self.in.set();
+
+            // wait for input to receive 1, bump the value to 2 and wake us up
+            self.out.wait();
+            self.out.reset();
+            try testing.expectEqual(self.value, 2);
+
+            // bump the value to 3 for input to see (rhymes)
+            self.value = 3;
+            self.in.set();
+
+            // wait for input to bump the value to 4 and receive no more (rhymes)
+            self.out.wait();
+            self.out.reset();
+            try testing.expectEqual(self.value, 4);
+        }
+    };
+
+    var ctx = Context{};
+
+    const thread = try std.Thread.spawn(.{}, Context.output, .{&ctx});
+    defer thread.join();
+
+    try ctx.input();
+}
+
+test "ResetEvent - broadcast" {
+    // This test requires spawning threads
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const num_threads = 10;
+    const Barrier = struct {
+        event: ResetEvent = .{},
+        counter: Atomic(usize) = Atomic(usize).init(num_threads),
+
+        fn wait(self: *@This()) void {
+            if (self.counter.fetchSub(1, .AcqRel) == 1) {
+                self.event.set();
+            }
+        }
+    };
+
+    const Context = struct {
+        start_barrier: Barrier = .{},
+        finish_barrier: Barrier = .{},
+
+        fn run(self: *@This()) void {
+            self.start_barrier.wait();
+            self.finish_barrier.wait();
+        }
+    };
+
+    var ctx = Context{};
+    var threads: [num_threads - 1]std.Thread = undefined;
+
+    for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.run, .{&ctx});
+    defer for (threads) |t| t.join();
+
+    ctx.run();
+}
