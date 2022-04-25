@@ -45,3 +45,13 @@ test "exporting enum type and value" {
     };
     try expect(S.e == .two);
 }
+
+test "exporting with internal linkage" {
+    const S = struct {
+        fn foo() callconv(.C) void {}
+        comptime {
+            @export(foo, .{ .name = "exporting_with_internal_linkage_foo", .linkage = .Internal });
+        }
+    };
+    S.foo();
+}

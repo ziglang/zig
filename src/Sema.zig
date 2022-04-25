@@ -4321,6 +4321,10 @@ pub fn analyzeExport(
     const Export = Module.Export;
     const mod = sema.mod;
 
+    if (borrowed_options.linkage == .Internal) {
+        return;
+    }
+
     try mod.ensureDeclAnalyzed(exported_decl_index);
     const exported_decl = mod.declPtr(exported_decl_index);
     // TODO run the same checks as we do for C ABI struct fields
