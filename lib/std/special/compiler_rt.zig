@@ -253,6 +253,8 @@ comptime {
     @export(__divsf3, .{ .name = "__divsf3", .linkage = linkage });
     const __divdf3 = @import("compiler_rt/divdf3.zig").__divdf3;
     @export(__divdf3, .{ .name = "__divdf3", .linkage = linkage });
+    const __divxf3 = @import("compiler_rt/divxf3.zig").__divxf3;
+    @export(__divxf3, .{ .name = "__divxf3", .linkage = linkage });
     const __divtf3 = @import("compiler_rt/divtf3.zig").__divtf3;
     @export(__divtf3, .{ .name = "__divtf3", .linkage = linkage });
 
@@ -725,17 +727,13 @@ comptime {
     }
 
     if (!is_test) {
-        @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
         if (long_double_is_f80) {
-            @export(fmodl, .{ .name = "fmodx", .linkage = linkage });
-        } else {
-            @export(fmodx, .{ .name = "fmodx", .linkage = linkage });
+            @export(fmodx, .{ .name = "fmodl", .linkage = linkage });
+        } else if (long_double_is_f128) {
+            @export(fmodq, .{ .name = "fmodl", .linkage = linkage });
         }
-        if (long_double_is_f128) {
-            @export(fmodl, .{ .name = "fmodq", .linkage = linkage });
-        } else {
-            @export(fmodq, .{ .name = "fmodq", .linkage = linkage });
-        }
+        @export(fmodx, .{ .name = "fmodx", .linkage = linkage });
+        @export(fmodq, .{ .name = "fmodq", .linkage = linkage });
 
         @export(floorf, .{ .name = "floorf", .linkage = linkage });
         @export(floor, .{ .name = "floor", .linkage = linkage });
