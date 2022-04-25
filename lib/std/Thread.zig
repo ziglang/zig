@@ -1153,7 +1153,7 @@ test "Thread.join" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event: ResetEvent{};
+    var event = ResetEvent{};
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.join();
@@ -1165,7 +1165,7 @@ test "Thread.detach" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event: ResetEvent{};
+    var event = ResetEvent{};
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.detach();
