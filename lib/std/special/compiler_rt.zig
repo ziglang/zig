@@ -726,6 +726,11 @@ comptime {
 
     if (!is_test) {
         @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
+        if (long_double_is_f80) {
+            @export(fmodl, .{ .name = "fmodx", .linkage = linkage });
+        } else {
+            @export(fmodx, .{ .name = "fmodx", .linkage = linkage });
+        }
         if (long_double_is_f128) {
             @export(fmodl, .{ .name = "fmodq", .linkage = linkage });
         } else {
@@ -884,13 +889,8 @@ fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
     return math.ceil(x);
 }
 
-const fmodq = @import("compiler_rt/floatfmodq.zig").fmodq;
-fn fmodl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {
-    if (!long_double_is_f128) {
-        @panic("TODO implement this");
-    }
-    return @floatCast(c_longdouble, fmodq(x, y));
-}
+const fmodq = @import("compiler_rt/fmodq.zig").fmodq;
+const fmodx = @import("compiler_rt/fmodx.zig").fmodx;
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
