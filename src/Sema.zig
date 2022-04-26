@@ -6975,6 +6975,7 @@ fn intCast(
     operand_src: LazySrcLoc,
     runtime_safety: bool,
 ) CompileError!Air.Inst.Ref {
+    // TODO: Add support for vectors
     const dest_is_comptime_int = try sema.checkIntType(block, dest_ty_src, dest_ty);
     _ = try sema.checkIntType(block, operand_src, sema.typeOf(operand));
 
@@ -7010,25 +7011,42 @@ fn intCast(
         const wanted_info = dest_ty.intInfo(target);
         const actual_bits = actual_info.bits;
         const wanted_bits = wanted_info.bits;
+        const actual_value_bits = actual_bits - @boolToInt(actual_info.signedness == .signed);
+        const wanted_value_bits = wanted_bits - @boolToInt(wanted_info.signedness == .signed);
 
-        // requirement: signed to unsigned >= 0
-        if (actual_info.signedness == .signed and
-            wanted_info.signedness == .unsigned)
-        {
-            const zero_inst = try sema.addConstant(sema.typeOf(operand), Value.zero);
-            const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
-            try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+        // range shrinkage
+        // requirement: int value fits into target type
+        if (wanted_value_bits < actual_value_bits) {
+            const dest_max_val = try dest_ty.maxInt(sema.arena, target);
+            const dest_max = try sema.addConstant(operand_ty, dest_max_val);
+            const diff = try block.addBinOp(.subwrap, dest_max, operand);
+
+            if (actual_info.signedness == .signed) {
+                // Reinterpret the sign-bit as part of the value. This will make
+                // negative differences (`operand` > `dest_max`) appear too big.
+                const unsigned_operand_ty = try Type.Tag.int_unsigned.create(sema.arena, actual_bits);
+                const diff_unsigned = try block.addBitCast(unsigned_operand_ty, diff);
+
+                // If the destination type is signed, then we need to double its
+                // range to account for negative values.
+                const dest_range_val = if (wanted_info.signedness == .signed) range_val: {
+                    const range_minus_one = try dest_max_val.shl(Value.one, unsigned_operand_ty, sema.arena, target);
+                    break :range_val try range_minus_one.intAdd(Value.one, unsigned_operand_ty, sema.arena, target);
+                } else dest_max_val;
+                const dest_range = try sema.addConstant(unsigned_operand_ty, dest_range_val);
+
+                const is_in_range = try block.addBinOp(.cmp_lte, diff_unsigned, dest_range);
+                try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+            } else {
+                const is_in_range = try block.addBinOp(.cmp_lte, diff, dest_max);
+                try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+            }
         }
-
-        // requirement: unsigned int value fits into target type
-        if (actual_bits > wanted_bits or
-            (actual_bits == wanted_bits and
-            actual_info.signedness == .unsigned and
-            wanted_info.signedness == .signed))
-        {
-            const max_int = try dest_ty.maxInt(sema.arena, target);
-            const max_int_inst = try sema.addConstant(operand_ty, max_int);
-            const is_in_range = try block.addBinOp(.cmp_lte, operand, max_int_inst);
+        // no shrinkage, yes sign loss
+        // requirement: signed to unsigned >= 0
+        else if (actual_info.signedness == .signed and wanted_info.signedness == .unsigned) {
+            const zero_inst = try sema.addConstant(operand_ty, Value.zero);
+            const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
             try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
         }
     }
