@@ -154,6 +154,7 @@ pub fn build(b: *Builder) !void {
 
     b.default_step.dependOn(&exe.step);
     exe.single_threaded = single_threaded;
+    exe.linkSystemLibrary("c_nonshared");
 
     if (target.isWindows() and target.getAbi() == .gnu) {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
