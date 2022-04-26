@@ -97,6 +97,8 @@ test "std.meta.stringToEnum" {
     try testing.expect(null == stringToEnum(E1, "C"));
 }
 
+/// Deprecated, use `@bitSizeOf()`.
+/// TODO Remove this after zig 0.10.0 is released.
 pub fn bitCount(comptime T: type) comptime_int {
     return switch (@typeInfo(T)) {
         .Bool => 1,
