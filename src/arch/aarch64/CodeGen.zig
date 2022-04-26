@@ -1888,8 +1888,54 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airShlWithOverflow for {}", .{self.target.cpu.arch});
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    if (self.liveness.isUnused(inst)) return self.finishAir(inst, .dead, .{ extra.lhs, extra.rhs, .none });
+    const result: MCValue = result: {
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+        const rhs_ty = self.air.typeOf(extra.rhs);
+
+        const tuple_ty = self.air.typeOfIndex(inst);
+        const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
+        const tuple_align = tuple_ty.abiAlignment(self.target.*);
+        const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, self.target.*));
+
+        switch (lhs_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement shl_with_overflow for vectors", .{}),
+            .Int => {
+                const int_info = lhs_ty.intInfo(self.target.*);
+                if (int_info.bits <= 64) {
+                    const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
+
+                    if (lhs == .register) self.register_manager.freezeRegs(&.{lhs.register});
+                    defer if (lhs == .register) self.register_manager.unfreezeRegs(&.{lhs.register});
+
+                    try self.spillCompareFlagsIfOccupied();
+                    self.compare_flags_inst = null;
+
+                    // lsl dest, lhs, rhs
+                    const dest = try self.binOp(.shl, null, lhs, rhs, lhs_ty, rhs_ty);
+
+                    // asr/lsr reconstructed, dest, rhs
+                    const reconstructed = try self.binOp(.shr, null, dest, rhs, lhs_ty, rhs_ty);
+
+                    // cmp lhs, reconstructed
+                    _ = try self.binOp(.cmp_eq, null, lhs, reconstructed, lhs_ty, lhs_ty);
+
+                    try self.genSetStack(lhs_ty, stack_offset, dest);
+                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags_unsigned = .neq });
+
+                    break :result MCValue{ .stack_offset = stack_offset };
+                } else {
+                    return self.fail("TODO overflow operations on integers > u64/i64", .{});
+                }
+            },
+            else => unreachable,
+        }
+    };
+    return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
 fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
