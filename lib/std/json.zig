@@ -1622,7 +1622,7 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
             }
         },
         .Vector => |vectorInfo| {
-            return error{ UnexpectedEndOfJson, UnexpectedToken } ||
+            return error{ UnexpectedEndOfJson, UnexpectedToken, VectorLengthMismatch } ||
                 ParseInternalErrorImpl(vectorInfo.child, inferred_types ++ [_]type{T}) ||
                 UnescapeValidStringError || TokenStream.Error;
         },
@@ -1922,10 +1922,12 @@ fn parseInternal(
                             else => {},
                         }
 
-                        //we ignore extra data, should this be an option to error or ignore?
                         if (idx < vectorInfo.len) {
                             vec[idx] = try parseInternal(vectorInfo.child, tok, tokens, options);
                         }
+                    }
+                    if (idx != vectorInfo.len) {
+                        return error.VectorLengthMismatch;
                     }
                     return vec;
                 },
@@ -2030,6 +2032,8 @@ test "parse" {
 test "parse into vector" {
     try testing.expectEqual(std.meta.Vector(2, f64){-42.0, 42.0}, try parse(std.meta.Vector(2, f64), &TokenStream.init("[-42.0, 42.0]"), ParseOptions{}));
     try testing.expectEqual(std.meta.Vector(3, u8){102, 103, 111}, try parse(std.meta.Vector(3, u8), &TokenStream.init("[102, 103, 111]"), ParseOptions{}));
+    try testing.expectError(error.VectorLengthMismatch, parse(std.meta.Vector(3, u8), &TokenStream.init("[5, 6, 7, 8]"), ParseOptions{}));
+    try testing.expectError(error.VectorLengthMismatch, parse(std.meta.Vector(3, u8), &TokenStream.init("[5, 6]"), ParseOptions{}));
 }
 
 test "parse into enum" {
