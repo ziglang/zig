@@ -14,7 +14,7 @@ const Loop = std.event.Loop;
 /// `begin` will return error.Overflow when the limit is reached, even
 /// if the integer type has not has not overflowed.
 /// By default `max_value` is set to std.math.maxInt(CounterType).
-pub const WaitGroup = WaitGroupGeneric(std.meta.bitCount(usize));
+pub const WaitGroup = WaitGroupGeneric(@bitSizeOf(usize));
 
 pub fn WaitGroupGeneric(comptime counter_size: u16) type {
     const CounterType = std.meta.Int(.unsigned, counter_size);

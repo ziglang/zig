@@ -947,10 +947,10 @@ test "absCast" {
 
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
-pub fn negateCast(x: anytype) !std.meta.Int(.signed, std.meta.bitCount(@TypeOf(x))) {
+pub fn negateCast(x: anytype) !std.meta.Int(.signed, @bitSizeOf(@TypeOf(x))) {
     if (@typeInfo(@TypeOf(x)).Int.signedness == .signed) return negate(x);
 
-    const int = std.meta.Int(.signed, std.meta.bitCount(@TypeOf(x)));
+    const int = std.meta.Int(.signed, @bitSizeOf(@TypeOf(x)));
     if (x > -minInt(int)) return error.Overflow;
 
     if (x == -minInt(int)) return minInt(int);

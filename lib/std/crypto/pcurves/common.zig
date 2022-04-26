@@ -235,7 +235,7 @@ pub fn Field(comptime params: FieldParams) type {
             }
             var v_opp: Limbs = undefined;
             fiat.opp(&v_opp, v);
-            fiat.selectznz(&v, @truncate(u1, f[f.len - 1] >> (meta.bitCount(Word) - 1)), v, v_opp);
+            fiat.selectznz(&v, @truncate(u1, f[f.len - 1] >> (@bitSizeOf(Word) - 1)), v, v_opp);
             var fe: Fe = undefined;
             fiat.mul(&fe.limbs, v, precomp);
             return fe;

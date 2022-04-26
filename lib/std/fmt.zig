@@ -1121,7 +1121,7 @@ pub fn formatFloatHexadecimal(
     }
 
     const T = @TypeOf(value);
-    const TU = std.meta.Int(.unsigned, std.meta.bitCount(T));
+    const TU = std.meta.Int(.unsigned, @bitSizeOf(T));
 
     const mantissa_bits = math.floatMantissaBits(T);
     const fractional_bits = math.floatFractionalBits(T);
