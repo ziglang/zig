@@ -138,7 +138,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (isNan(x) or isNan(y))
         return false;
 
-    return fabs(x - y) <= tolerance;
+    return @fabs(x - y) <= tolerance;
 }
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
@@ -166,7 +166,7 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (isNan(x) or isNan(y))
         return false;
 
-    return fabs(x - y) <= max(fabs(x), fabs(y)) * tolerance;
+    return @fabs(x - y) <= max(@fabs(x), @fabs(y)) * tolerance;
 }
 
 pub fn approxEq(comptime T: type, x: T, y: T, tolerance: T) bool {
@@ -233,11 +233,6 @@ pub fn raiseDivByZero() void {
 
 pub const isNan = @import("math/isnan.zig").isNan;
 pub const isSignalNan = @import("math/isnan.zig").isSignalNan;
-pub const fabs = @import("math/fabs.zig").fabs;
-pub const ceil = @import("math/ceil.zig").ceil;
-pub const floor = @import("math/floor.zig").floor;
-pub const trunc = @import("math/trunc.zig").trunc;
-pub const round = @import("math/round.zig").round;
 pub const frexp = @import("math/frexp.zig").frexp;
 pub const Frexp = @import("math/frexp.zig").Frexp;
 pub const modf = @import("math/modf.zig").modf;
@@ -261,8 +256,6 @@ pub const asin = @import("math/asin.zig").asin;
 pub const atan = @import("math/atan.zig").atan;
 pub const atan2 = @import("math/atan2.zig").atan2;
 pub const hypot = @import("math/hypot.zig").hypot;
-pub const exp = @import("math/exp.zig").exp;
-pub const exp2 = @import("math/exp2.zig").exp2;
 pub const expm1 = @import("math/expm1.zig").expm1;
 pub const ilogb = @import("math/ilogb.zig").ilogb;
 pub const ln = @import("math/ln.zig").ln;
@@ -270,16 +263,12 @@ pub const log = @import("math/log.zig").log;
 pub const log2 = @import("math/log2.zig").log2;
 pub const log10 = @import("math/log10.zig").log10;
 pub const log1p = @import("math/log1p.zig").log1p;
-pub const fma = @import("math/fma.zig").fma;
 pub const asinh = @import("math/asinh.zig").asinh;
 pub const acosh = @import("math/acosh.zig").acosh;
 pub const atanh = @import("math/atanh.zig").atanh;
 pub const sinh = @import("math/sinh.zig").sinh;
 pub const cosh = @import("math/cosh.zig").cosh;
 pub const tanh = @import("math/tanh.zig").tanh;
-pub const cos = @import("math/cos.zig").cos;
-pub const sin = @import("math/sin.zig").sin;
-pub const tan = @import("math/tan.zig").tan;
 
 pub const complex = @import("math/complex.zig");
 pub const Complex = complex.Complex;
@@ -714,17 +703,6 @@ test "absInt" {
 fn testAbsInt() !void {
     try testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
     try testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
-}
-
-pub const absFloat = fabs;
-
-test "absFloat" {
-    try testAbsFloat();
-    comptime try testAbsFloat();
-}
-fn testAbsFloat() !void {
-    try testing.expect(absFloat(@as(f32, -10.05)) == 10.05);
-    try testing.expect(absFloat(@as(f32, 10.05)) == 10.05);
 }
 
 /// Divide numerator by denominator, rounding toward zero. Returns an
@@ -1398,11 +1376,6 @@ test "order.compare" {
     try testing.expect(order(1, 0).compare(.gte));
     try testing.expect(order(1, 0).compare(.gt));
     try testing.expect(order(1, 0).compare(.neq));
-}
-
-test "comptime sin and ln" {
-    const v = comptime (sin(@as(f32, 1)) + ln(@as(f32, 5)));
-    try testing.expect(v == sin(@as(f32, 1)) + ln(@as(f32, 5)));
 }
 
 /// Returns a mask of all ones if value is true,

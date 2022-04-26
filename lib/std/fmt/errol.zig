@@ -113,7 +113,7 @@ fn errolSlow(val: f64, buffer: []u8) FloatDecimal {
     // normalize the midpoint
 
     const e = math.frexp(val).exponent;
-    var exp = @floatToInt(i16, math.floor(307 + @intToFloat(f64, e) * 0.30103));
+    var exp = @floatToInt(i16, @floor(307 + @intToFloat(f64, e) * 0.30103));
     if (exp < 20) {
         exp = 20;
     } else if (@intCast(usize, exp) >= lookup_table.len) {
@@ -170,10 +170,10 @@ fn errolSlow(val: f64, buffer: []u8) FloatDecimal {
     // digit generation
     var buf_index: usize = 0;
     while (true) {
-        var hdig = @floatToInt(u8, math.floor(high.val));
+        var hdig = @floatToInt(u8, @floor(high.val));
         if ((high.val == @intToFloat(f64, hdig)) and (high.off < 0)) hdig -= 1;
 
-        var ldig = @floatToInt(u8, math.floor(low.val));
+        var ldig = @floatToInt(u8, @floor(low.val));
         if ((low.val == @intToFloat(f64, ldig)) and (low.off < 0)) ldig -= 1;
 
         if (ldig != hdig) break;
@@ -187,7 +187,7 @@ fn errolSlow(val: f64, buffer: []u8) FloatDecimal {
     }
 
     const tmp = (high.val + low.val) / 2.0;
-    var mdig = @floatToInt(u8, math.floor(tmp + 0.5));
+    var mdig = @floatToInt(u8, @floor(tmp + 0.5));
     if ((@intToFloat(f64, mdig) - tmp) == 0.5 and (mdig & 0x1) != 0) mdig -= 1;
 
     buffer[buf_index] = mdig + '0';

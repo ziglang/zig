@@ -26,7 +26,7 @@ fn frexp_exp32(x: f32, expt: *i32) f32 {
     const k = 235; // reduction constant
     const kln2 = 162.88958740; // k * ln2
 
-    const exp_x = math.exp(x - kln2);
+    const exp_x = @exp(x - kln2);
     const hx = @bitCast(u32, exp_x);
     // TODO zig should allow this cast implicitly because it should know the value is in range
     expt.* = @intCast(i32, hx >> 23) - (0x7f + 127) + k;
@@ -54,7 +54,7 @@ fn frexp_exp64(x: f64, expt: *i32) f64 {
     const k = 1799; // reduction constant
     const kln2 = 1246.97177782734161156; // k * ln2
 
-    const exp_x = math.exp(x - kln2);
+    const exp_x = @exp(x - kln2);
 
     const fx = @bitCast(u64, exp_x);
     const hx = @intCast(u32, fx >> 32);

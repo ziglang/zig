@@ -33,7 +33,7 @@ fn exp32(z: Complex(f32)) Complex(f32) {
     const hy = @bitCast(u32, y) & 0x7fffffff;
     // cexp(x + i0) = exp(x) + i0
     if (hy == 0) {
-        return Complex(f32).init(math.exp(x), y);
+        return Complex(f32).init(@exp(x), y);
     }
 
     const hx = @bitCast(u32, x);
@@ -63,7 +63,7 @@ fn exp32(z: Complex(f32)) Complex(f32) {
     // - x = +-inf
     // - x = nan
     else {
-        const exp_x = math.exp(x);
+        const exp_x = @exp(x);
         return Complex(f32).init(exp_x * math.cos(y), exp_x * math.sin(y));
     }
 }
@@ -81,7 +81,7 @@ fn exp64(z: Complex(f64)) Complex(f64) {
 
     // cexp(x + i0) = exp(x) + i0
     if (hy | ly == 0) {
-        return Complex(f64).init(math.exp(x), y);
+        return Complex(f64).init(@exp(x), y);
     }
 
     const fx = @bitCast(u64, x);
@@ -114,13 +114,13 @@ fn exp64(z: Complex(f64)) Complex(f64) {
     // - x = +-inf
     // - x = nan
     else {
-        const exp_x = math.exp(x);
+        const exp_x = @exp(x);
         return Complex(f64).init(exp_x * math.cos(y), exp_x * math.sin(y));
     }
 }
 
 test "complex.cexp32" {
-    const tolerance_f32 = math.sqrt(math.floatEps(f32));
+    const tolerance_f32 = @sqrt(math.floatEps(f32));
 
     {
         const a = Complex(f32).init(5, 3);
@@ -140,7 +140,7 @@ test "complex.cexp32" {
 }
 
 test "complex.cexp64" {
-    const tolerance_f64 = math.sqrt(math.floatEps(f64));
+    const tolerance_f64 = @sqrt(math.floatEps(f64));
 
     {
         const a = Complex(f64).init(5, 3);

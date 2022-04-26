@@ -1,32 +1,17 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/cosf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/cos.c
-
-const std = @import("../std.zig");
+const std = @import("std");
 const math = std.math;
 const expect = std.testing.expect;
 
-const kernel = @import("__trig.zig");
-const __rem_pio2 = @import("__rem_pio2.zig").__rem_pio2;
-const __rem_pio2f = @import("__rem_pio2f.zig").__rem_pio2f;
+const kernel = @import("trig.zig");
+const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
+const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 
-/// Returns the cosine of the radian value x.
-///
-/// Special Cases:
-///  - cos(+-inf) = nan
-///  - cos(nan)   = nan
-pub fn cos(x: anytype) @TypeOf(x) {
-    const T = @TypeOf(x);
-    return switch (T) {
-        f32 => cos32(x),
-        f64 => cos64(x),
-        else => @compileError("cos not implemented for " ++ @typeName(T)),
-    };
+pub fn __cosh(a: f16) callconv(.C) f16 {
+    // TODO: more efficient implementation
+    return @floatCast(f16, cosf(a));
 }
 
-fn cos32(x: f32) f32 {
+pub fn cosf(x: f32) callconv(.C) f32 {
     // Small multiples of pi/2 rounded to double precision.
     const c1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
     const c2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
@@ -74,7 +59,7 @@ fn cos32(x: f32) f32 {
     }
 
     var y: f64 = undefined;
-    const n = __rem_pio2f(x, &y);
+    const n = rem_pio2f(x, &y);
     return switch (n & 3) {
         0 => kernel.__cosdf(y),
         1 => kernel.__sindf(-y),
@@ -83,7 +68,7 @@ fn cos32(x: f32) f32 {
     };
 }
 
-fn cos64(x: f64) f64 {
+pub fn cos(x: f64) callconv(.C) f64 {
     var ix = @bitCast(u64, x) >> 32;
     ix &= 0x7fffffff;
 
@@ -103,7 +88,7 @@ fn cos64(x: f64) f64 {
     }
 
     var y: [2]f64 = undefined;
-    const n = __rem_pio2(x, &y);
+    const n = rem_pio2(x, &y);
     return switch (n & 3) {
         0 => kernel.__cos(y[0], y[1]),
         1 => -kernel.__sin(y[0], y[1], 1),
@@ -112,43 +97,48 @@ fn cos64(x: f64) f64 {
     };
 }
 
-test "math.cos" {
-    try expect(cos(@as(f32, 0.0)) == cos32(0.0));
-    try expect(cos(@as(f64, 0.0)) == cos64(0.0));
+pub fn __cosx(a: f80) callconv(.C) f80 {
+    // TODO: more efficient implementation
+    return @floatCast(f80, cosq(a));
 }
 
-test "math.cos32" {
+pub fn cosq(a: f128) callconv(.C) f128 {
+    // TODO: more correct implementation
+    return cos(@floatCast(f64, a));
+}
+
+test "cos32" {
     const epsilon = 0.00001;
 
-    try expect(math.approxEqAbs(f32, cos32(0.0), 1.0, epsilon));
-    try expect(math.approxEqAbs(f32, cos32(0.2), 0.980067, epsilon));
-    try expect(math.approxEqAbs(f32, cos32(0.8923), 0.627623, epsilon));
-    try expect(math.approxEqAbs(f32, cos32(1.5), 0.070737, epsilon));
-    try expect(math.approxEqAbs(f32, cos32(-1.5), 0.070737, epsilon));
-    try expect(math.approxEqAbs(f32, cos32(37.45), 0.969132, epsilon));
-    try expect(math.approxEqAbs(f32, cos32(89.123), 0.400798, epsilon));
+    try expect(math.approxEqAbs(f32, cosf(0.0), 1.0, epsilon));
+    try expect(math.approxEqAbs(f32, cosf(0.2), 0.980067, epsilon));
+    try expect(math.approxEqAbs(f32, cosf(0.8923), 0.627623, epsilon));
+    try expect(math.approxEqAbs(f32, cosf(1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f32, cosf(-1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f32, cosf(37.45), 0.969132, epsilon));
+    try expect(math.approxEqAbs(f32, cosf(89.123), 0.400798, epsilon));
 }
 
-test "math.cos64" {
+test "cos64" {
     const epsilon = 0.000001;
 
-    try expect(math.approxEqAbs(f64, cos64(0.0), 1.0, epsilon));
-    try expect(math.approxEqAbs(f64, cos64(0.2), 0.980067, epsilon));
-    try expect(math.approxEqAbs(f64, cos64(0.8923), 0.627623, epsilon));
-    try expect(math.approxEqAbs(f64, cos64(1.5), 0.070737, epsilon));
-    try expect(math.approxEqAbs(f64, cos64(-1.5), 0.070737, epsilon));
-    try expect(math.approxEqAbs(f64, cos64(37.45), 0.969132, epsilon));
-    try expect(math.approxEqAbs(f64, cos64(89.123), 0.40080, epsilon));
+    try expect(math.approxEqAbs(f64, cos(0.0), 1.0, epsilon));
+    try expect(math.approxEqAbs(f64, cos(0.2), 0.980067, epsilon));
+    try expect(math.approxEqAbs(f64, cos(0.8923), 0.627623, epsilon));
+    try expect(math.approxEqAbs(f64, cos(1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f64, cos(-1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f64, cos(37.45), 0.969132, epsilon));
+    try expect(math.approxEqAbs(f64, cos(89.123), 0.40080, epsilon));
 }
 
-test "math.cos32.special" {
-    try expect(math.isNan(cos32(math.inf(f32))));
-    try expect(math.isNan(cos32(-math.inf(f32))));
-    try expect(math.isNan(cos32(math.nan(f32))));
+test "cos32.special" {
+    try expect(math.isNan(cosf(math.inf(f32))));
+    try expect(math.isNan(cosf(-math.inf(f32))));
+    try expect(math.isNan(cosf(math.nan(f32))));
 }
 
-test "math.cos64.special" {
-    try expect(math.isNan(cos64(math.inf(f64))));
-    try expect(math.isNan(cos64(-math.inf(f64))));
-    try expect(math.isNan(cos64(math.nan(f64))));
+test "cos64.special" {
+    try expect(math.isNan(cos(math.inf(f64))));
+    try expect(math.isNan(cos(-math.inf(f64))));
+    try expect(math.isNan(cos(math.nan(f64))));
 }

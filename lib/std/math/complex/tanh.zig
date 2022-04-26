@@ -44,7 +44,7 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
 
     // x >= 11
     if (ix >= 0x41300000) {
-        const exp_mx = math.exp(-math.fabs(x));
+        const exp_mx = @exp(-@fabs(x));
         return Complex(f32).init(math.copysign(f32, 1, x), 4 * math.sin(y) * math.cos(y) * exp_mx * exp_mx);
     }
 
@@ -52,7 +52,7 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
     const t = math.tan(y);
     const beta = 1.0 + t * t;
     const s = math.sinh(x);
-    const rho = math.sqrt(1 + s * s);
+    const rho = @sqrt(1 + s * s);
     const den = 1 + beta * s * s;
 
     return Complex(f32).init((beta * rho * s) / den, t / den);
@@ -87,7 +87,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
 
     // x >= 22
     if (ix >= 0x40360000) {
-        const exp_mx = math.exp(-math.fabs(x));
+        const exp_mx = @exp(-@fabs(x));
         return Complex(f64).init(math.copysign(f64, 1, x), 4 * math.sin(y) * math.cos(y) * exp_mx * exp_mx);
     }
 
@@ -95,7 +95,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     const t = math.tan(y);
     const beta = 1.0 + t * t;
     const s = math.sinh(x);
-    const rho = math.sqrt(1 + s * s);
+    const rho = @sqrt(1 + s * s);
     const den = 1 + beta * s * s;
 
     return Complex(f64).init((beta * rho * s) / den, t / den);

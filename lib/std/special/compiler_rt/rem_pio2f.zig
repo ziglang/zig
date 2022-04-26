@@ -3,8 +3,8 @@
 //
 // https://git.musl-libc.org/cgit/musl/tree/src/math/__rem_pio2f.c
 
-const std = @import("../std.zig");
-const __rem_pio2_large = @import("__rem_pio2_large.zig").__rem_pio2_large;
+const std = @import("std");
+const rem_pio2_large = @import("rem_pio2_large.zig").rem_pio2_large;
 const math = std.math;
 
 const toint = 1.5 / math.floatEps(f64);
@@ -19,8 +19,8 @@ const pio2_1t = 1.58932547735281966916e-08; // 0x3E5110b4, 0x611A6263
 
 // Returns the remainder of x rem pi/2 in *y
 // use double precision for everything except passing x
-// use __rem_pio2_large() for large x
-pub fn __rem_pio2f(x: f32, y: *f64) i32 {
+// use rem_pio2_large() for large x
+pub fn rem_pio2f(x: f32, y: *f64) i32 {
     var tx: [1]f64 = undefined;
     var ty: [1]f64 = undefined;
     var @"fn": f64 = undefined;
@@ -60,7 +60,7 @@ pub fn __rem_pio2f(x: f32, y: *f64) i32 {
     e0 = (ix >> 23) - (0x7f + 23); // e0 = ilogb(|x|)-23, positive
     ui = ix - (e0 << 23);
     tx[0] = @bitCast(f32, ui);
-    n = __rem_pio2_large(&tx, &ty, @intCast(i32, e0), 1, 0);
+    n = rem_pio2_large(&tx, &ty, @intCast(i32, e0), 1, 0);
     if (sign) {
         y.* = -ty[0];
         return -n;

@@ -1155,6 +1155,7 @@ pub const Value = extern union {
                 16 => return floatWriteToMemory(f16, val.toFloat(f16), target, buffer),
                 32 => return floatWriteToMemory(f32, val.toFloat(f32), target, buffer),
                 64 => return floatWriteToMemory(f64, val.toFloat(f64), target, buffer),
+                80 => return floatWriteToMemory(f80, val.toFloat(f80), target, buffer),
                 128 => return floatWriteToMemory(f128, val.toFloat(f128), target, buffer),
                 else => unreachable,
             },
@@ -1379,25 +1380,21 @@ pub const Value = extern union {
     }
 
     fn floatWriteToMemory(comptime F: type, f: F, target: Target, buffer: []u8) void {
+        const endian = target.cpu.arch.endian();
         if (F == f80) {
-            switch (target.cpu.arch) {
-                .i386, .x86_64 => {
-                    const repr = std.math.break_f80(f);
-                    std.mem.writeIntLittle(u64, buffer[0..8], repr.fraction);
-                    std.mem.writeIntLittle(u16, buffer[8..10], repr.exp);
-                    // TODO set the rest of the bytes to undefined. should we use 0xaa
-                    // or is there a different way?
-                    return;
-                },
-                else => {},
-            }
+            const repr = std.math.break_f80(f);
+            std.mem.writeInt(u64, buffer[0..8], repr.fraction, endian);
+            std.mem.writeInt(u16, buffer[8..10], repr.exp, endian);
+            // TODO set the rest of the bytes to undefined. should we use 0xaa
+            // or is there a different way?
+            return;
         }
         const Int = @Type(.{ .Int = .{
             .signedness = .unsigned,
             .bits = @typeInfo(F).Float.bits,
         } });
         const int = @bitCast(Int, f);
-        std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], int, target.cpu.arch.endian());
+        std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], int, endian);
     }
 
     fn floatReadFromMemory(comptime F: type, target: Target, buffer: []const u8) F {
@@ -2869,9 +2866,7 @@ pub const Value = extern union {
             16 => return Value.Tag.float_16.create(arena, @intToFloat(f16, x)),
             32 => return Value.Tag.float_32.create(arena, @intToFloat(f32, x)),
             64 => return Value.Tag.float_64.create(arena, @intToFloat(f64, x)),
-            // We can't lower this properly on non-x86 llvm backends yet
-            //80 => return Value.Tag.float_80.create(arena, @intToFloat(f80, x)),
-            80 => @panic("TODO f80 intToFloat"),
+            80 => return Value.Tag.float_80.create(arena, @intToFloat(f80, x)),
             128 => return Value.Tag.float_128.create(arena, @intToFloat(f128, x)),
             else => unreachable,
         }
@@ -2908,9 +2903,9 @@ pub const Value = extern union {
         }
 
         const isNegative = std.math.signbit(value);
-        value = std.math.fabs(value);
+        value = @fabs(value);
 
-        const floored = std.math.floor(value);
+        const floored = @floor(value);
 
         var rational = try std.math.big.Rational.init(arena);
         defer rational.deinit();
@@ -2941,7 +2936,7 @@ pub const Value = extern union {
             return 1;
         }
 
-        const w_value = std.math.fabs(scalar);
+        const w_value = @fabs(scalar);
         return @divFloor(@floatToInt(std.math.big.Limb, std.math.log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
     }
 
@@ -3737,9 +3732,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @rem(lhs_val, rhs_val));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt __remx");
-                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @rem(lhs_val, rhs_val));
@@ -3782,9 +3774,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @mod(lhs_val, rhs_val));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt __modx");
-                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @mod(lhs_val, rhs_val));
@@ -4198,9 +4187,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, lhs_val / rhs_val);
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt __divxf3");
-                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, lhs_val / rhs_val);
@@ -4255,9 +4241,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @divFloor(lhs_val, rhs_val));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt __floorx");
-                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @divFloor(lhs_val, rhs_val));
@@ -4312,9 +4295,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @divTrunc(lhs_val, rhs_val));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt __truncx");
-                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @divTrunc(lhs_val, rhs_val));
@@ -4369,9 +4349,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, lhs_val * rhs_val);
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt __mulxf3");
-                }
                 const lhs_val = lhs.toFloat(f80);
                 const rhs_val = rhs.toFloat(f80);
                 return Value.Tag.float_80.create(arena, lhs_val * rhs_val);
@@ -4411,16 +4388,10 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @sqrt(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt __sqrtx");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @sqrt(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt sqrtq");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @sqrt(f));
             },
@@ -4454,16 +4425,10 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @sin(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt sin for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @sin(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt sin for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @sin(f));
             },
@@ -4497,16 +4462,10 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @cos(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt cos for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @cos(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt cos for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @cos(f));
             },
@@ -4540,16 +4499,10 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @exp(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt exp for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @exp(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt exp for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @exp(f));
             },
@@ -4583,16 +4536,10 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @exp2(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt exp2 for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @exp2(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt exp2 for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @exp2(f));
             },
@@ -4626,16 +4573,10 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @log(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt log for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @log(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt log for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @log(f));
             },
@@ -4669,16 +4610,10 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @log2(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt log2 for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @log2(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt log2 for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @log2(f));
             },
@@ -4712,16 +4647,10 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @log10(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt log10 for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @log10(f));
             },
             128 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt log10 for f128");
-                }
                 const f = val.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @log10(f));
             },
@@ -4755,9 +4684,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @fabs(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt fabs for f80 (__fabsx)");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @fabs(f));
             },
@@ -4795,9 +4721,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @floor(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt floor for f80 (__floorx)");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @floor(f));
             },
@@ -4835,9 +4758,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @ceil(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt ceil for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @ceil(f));
             },
@@ -4875,9 +4795,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @round(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt round for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @round(f));
             },
@@ -4915,9 +4832,6 @@ pub const Value = extern union {
                 return Value.Tag.float_64.create(arena, @trunc(f));
             },
             80 => {
-                if (true) {
-                    @panic("TODO implement compiler_rt trunc for f80");
-                }
                 const f = val.toFloat(f80);
                 return Value.Tag.float_80.create(arena, @trunc(f));
             },

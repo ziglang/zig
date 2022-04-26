@@ -82,7 +82,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
         }
         // pow(x, +inf) = +0    for |x| < 1
         // pow(x, -inf) = +0    for |x| > 1
-        else if ((math.fabs(x) < 1) == math.isPositiveInf(y)) {
+        else if ((@fabs(x) < 1) == math.isPositiveInf(y)) {
             return 0;
         }
         // pow(x, -inf) = +inf  for |x| < 1
@@ -108,14 +108,14 @@ pub fn pow(comptime T: type, x: T, y: T) T {
 
     // special case sqrt
     if (y == 0.5) {
-        return math.sqrt(x);
+        return @sqrt(x);
     }
 
     if (y == -0.5) {
-        return 1 / math.sqrt(x);
+        return 1 / @sqrt(x);
     }
 
-    const r1 = math.modf(math.fabs(y));
+    const r1 = math.modf(@fabs(y));
     var yi = r1.ipart;
     var yf = r1.fpart;
 
@@ -123,7 +123,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
         return math.nan(T);
     }
     if (yi >= 1 << (@typeInfo(T).Float.bits - 1)) {
-        return math.exp(y * math.ln(x));
+        return @exp(y * @log(x));
     }
 
     // a = a1 * 2^ae
@@ -136,7 +136,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
             yf -= 1;
             yi += 1;
         }
-        a1 = math.exp(yf * math.ln(x));
+        a1 = @exp(yf * @log(x));
     }
 
     // a *= x^yi

@@ -4,32 +4,11 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/floorf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/floor.c
 
-const expect = std.testing.expect;
-const std = @import("../std.zig");
+const std = @import("std");
 const math = std.math;
+const expect = std.testing.expect;
 
-/// Returns the greatest integer value less than or equal to x.
-///
-/// Special Cases:
-///  - floor(+-0)   = +-0
-///  - floor(+-inf) = +-inf
-///  - floor(nan)   = nan
-pub fn floor(x: anytype) @TypeOf(x) {
-    const T = @TypeOf(x);
-    return switch (T) {
-        f16 => floor16(x),
-        f32 => floor32(x),
-        f64 => floor64(x),
-        f128 => floor128(x),
-
-        // TODO this is not correct for some targets
-        c_longdouble => @floatCast(c_longdouble, floor128(x)),
-
-        else => @compileError("floor not implemented for " ++ @typeName(T)),
-    };
-}
-
-fn floor16(x: f16) f16 {
+pub fn __floorh(x: f16) callconv(.C) f16 {
     var u = @bitCast(u16, x);
     const e = @intCast(i16, (u >> 10) & 31) - 15;
     var m: u16 = undefined;
@@ -63,7 +42,7 @@ fn floor16(x: f16) f16 {
     }
 }
 
-fn floor32(x: f32) f32 {
+pub fn floorf(x: f32) callconv(.C) f32 {
     var u = @bitCast(u32, x);
     const e = @intCast(i32, (u >> 23) & 0xFF) - 0x7F;
     var m: u32 = undefined;
@@ -97,7 +76,7 @@ fn floor32(x: f32) f32 {
     }
 }
 
-fn floor64(x: f64) f64 {
+pub fn floor(x: f64) callconv(.C) f64 {
     const f64_toint = 1.0 / math.floatEps(f64);
 
     const u = @bitCast(u64, x);
@@ -128,7 +107,12 @@ fn floor64(x: f64) f64 {
     }
 }
 
-fn floor128(x: f128) f128 {
+pub fn __floorx(x: f80) callconv(.C) f80 {
+    // TODO: more efficient implementation
+    return @floatCast(f80, floorq(x));
+}
+
+pub fn floorq(x: f128) callconv(.C) f128 {
     const f128_toint = 1.0 / math.floatEps(f128);
 
     const u = @bitCast(u128, x);
@@ -157,65 +141,58 @@ fn floor128(x: f128) f128 {
     }
 }
 
-test "math.floor" {
-    try expect(floor(@as(f16, 1.3)) == floor16(1.3));
-    try expect(floor(@as(f32, 1.3)) == floor32(1.3));
-    try expect(floor(@as(f64, 1.3)) == floor64(1.3));
-    try expect(floor(@as(f128, 1.3)) == floor128(1.3));
+test "floor16" {
+    try expect(__floorh(1.3) == 1.0);
+    try expect(__floorh(-1.3) == -2.0);
+    try expect(__floorh(0.2) == 0.0);
 }
 
-test "math.floor16" {
-    try expect(floor16(1.3) == 1.0);
-    try expect(floor16(-1.3) == -2.0);
-    try expect(floor16(0.2) == 0.0);
+test "floor32" {
+    try expect(floorf(1.3) == 1.0);
+    try expect(floorf(-1.3) == -2.0);
+    try expect(floorf(0.2) == 0.0);
 }
 
-test "math.floor32" {
-    try expect(floor32(1.3) == 1.0);
-    try expect(floor32(-1.3) == -2.0);
-    try expect(floor32(0.2) == 0.0);
+test "floor64" {
+    try expect(floor(1.3) == 1.0);
+    try expect(floor(-1.3) == -2.0);
+    try expect(floor(0.2) == 0.0);
 }
 
-test "math.floor64" {
-    try expect(floor64(1.3) == 1.0);
-    try expect(floor64(-1.3) == -2.0);
-    try expect(floor64(0.2) == 0.0);
+test "floor128" {
+    try expect(floorq(1.3) == 1.0);
+    try expect(floorq(-1.3) == -2.0);
+    try expect(floorq(0.2) == 0.0);
 }
 
-test "math.floor128" {
-    try expect(floor128(1.3) == 1.0);
-    try expect(floor128(-1.3) == -2.0);
-    try expect(floor128(0.2) == 0.0);
+test "floor16.special" {
+    try expect(__floorh(0.0) == 0.0);
+    try expect(__floorh(-0.0) == -0.0);
+    try expect(math.isPositiveInf(__floorh(math.inf(f16))));
+    try expect(math.isNegativeInf(__floorh(-math.inf(f16))));
+    try expect(math.isNan(__floorh(math.nan(f16))));
 }
 
-test "math.floor16.special" {
-    try expect(floor16(0.0) == 0.0);
-    try expect(floor16(-0.0) == -0.0);
-    try expect(math.isPositiveInf(floor16(math.inf(f16))));
-    try expect(math.isNegativeInf(floor16(-math.inf(f16))));
-    try expect(math.isNan(floor16(math.nan(f16))));
+test "floor32.special" {
+    try expect(floorf(0.0) == 0.0);
+    try expect(floorf(-0.0) == -0.0);
+    try expect(math.isPositiveInf(floorf(math.inf(f32))));
+    try expect(math.isNegativeInf(floorf(-math.inf(f32))));
+    try expect(math.isNan(floorf(math.nan(f32))));
 }
 
-test "math.floor32.special" {
-    try expect(floor32(0.0) == 0.0);
-    try expect(floor32(-0.0) == -0.0);
-    try expect(math.isPositiveInf(floor32(math.inf(f32))));
-    try expect(math.isNegativeInf(floor32(-math.inf(f32))));
-    try expect(math.isNan(floor32(math.nan(f32))));
+test "floor64.special" {
+    try expect(floor(0.0) == 0.0);
+    try expect(floor(-0.0) == -0.0);
+    try expect(math.isPositiveInf(floor(math.inf(f64))));
+    try expect(math.isNegativeInf(floor(-math.inf(f64))));
+    try expect(math.isNan(floor(math.nan(f64))));
 }
 
-test "math.floor64.special" {
-    try expect(floor64(0.0) == 0.0);
-    try expect(floor64(-0.0) == -0.0);
-    try expect(math.isPositiveInf(floor64(math.inf(f64))));
-    try expect(math.isNegativeInf(floor64(-math.inf(f64))));
-    try expect(math.isNan(floor64(math.nan(f64))));
-}
-
-test "math.floor128.special" {
-    try expect(floor128(0.0) == 0.0);
-    try expect(floor128(-0.0) == -0.0);
-    try expect(math.isPositiveInf(floor128(math.inf(f128))));
-    try expect(math.isNegativeInf(floor128(-math.inf(f128))));
-    try expect(math.isNan(floor128(math.nan(f128))));
+test "floor128.special" {
+    try expect(floorq(0.0) == 0.0);
+    try expect(floorq(-0.0) == -0.0);
+    try expect(math.isPositiveInf(floorq(math.inf(f128))));
+    try expect(math.isNegativeInf(floorq(-math.inf(f128))));
+    try expect(math.isNan(floorq(math.nan(f128))));
 }

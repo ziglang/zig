@@ -29,15 +29,15 @@ fn acosh32(x: f32) f32 {
 
     // |x| < 2, invalid if x < 1 or nan
     if (i < 0x3F800000 + (1 << 23)) {
-        return math.log1p(x - 1 + math.sqrt((x - 1) * (x - 1) + 2 * (x - 1)));
+        return math.log1p(x - 1 + @sqrt((x - 1) * (x - 1) + 2 * (x - 1)));
     }
     // |x| < 0x1p12
     else if (i < 0x3F800000 + (12 << 23)) {
-        return math.ln(2 * x - 1 / (x + math.sqrt(x * x - 1)));
+        return @log(2 * x - 1 / (x + @sqrt(x * x - 1)));
     }
     // |x| >= 0x1p12
     else {
-        return math.ln(x) + 0.693147180559945309417232121458176568;
+        return @log(x) + 0.693147180559945309417232121458176568;
     }
 }
 
@@ -47,15 +47,15 @@ fn acosh64(x: f64) f64 {
 
     // |x| < 2, invalid if x < 1 or nan
     if (e < 0x3FF + 1) {
-        return math.log1p(x - 1 + math.sqrt((x - 1) * (x - 1) + 2 * (x - 1)));
+        return math.log1p(x - 1 + @sqrt((x - 1) * (x - 1) + 2 * (x - 1)));
     }
     // |x| < 0x1p26
     else if (e < 0x3FF + 26) {
-        return math.ln(2 * x - 1 / (x + math.sqrt(x * x - 1)));
+        return @log(2 * x - 1 / (x + @sqrt(x * x - 1)));
     }
     // |x| >= 0x1p26 or nan
     else {
-        return math.ln(x) + 0.693147180559945309417232121458176568;
+        return @log(x) + 0.693147180559945309417232121458176568;
     }
 }
 

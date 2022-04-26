@@ -1,24 +1,24 @@
 const std = @import("std");
-const fmodq = @import("fmodq.zig");
+const fmod = @import("fmod.zig");
 const testing = std.testing;
 
 fn test_fmodq(a: f128, b: f128, exp: f128) !void {
-    const res = fmodq.fmodq(a, b);
+    const res = fmod.fmodq(a, b);
     try testing.expect(exp == res);
 }
 
 fn test_fmodq_nans() !void {
-    try testing.expect(std.math.isNan(fmodq.fmodq(1.0, std.math.nan(f128))));
-    try testing.expect(std.math.isNan(fmodq.fmodq(1.0, -std.math.nan(f128))));
-    try testing.expect(std.math.isNan(fmodq.fmodq(std.math.nan(f128), 1.0)));
-    try testing.expect(std.math.isNan(fmodq.fmodq(-std.math.nan(f128), 1.0)));
+    try testing.expect(std.math.isNan(fmod.fmodq(1.0, std.math.nan(f128))));
+    try testing.expect(std.math.isNan(fmod.fmodq(1.0, -std.math.nan(f128))));
+    try testing.expect(std.math.isNan(fmod.fmodq(std.math.nan(f128), 1.0)));
+    try testing.expect(std.math.isNan(fmod.fmodq(-std.math.nan(f128), 1.0)));
 }
 
 fn test_fmodq_infs() !void {
-    try testing.expect(fmodq.fmodq(1.0, std.math.inf(f128)) == 1.0);
-    try testing.expect(fmodq.fmodq(1.0, -std.math.inf(f128)) == 1.0);
-    try testing.expect(std.math.isNan(fmodq.fmodq(std.math.inf(f128), 1.0)));
-    try testing.expect(std.math.isNan(fmodq.fmodq(-std.math.inf(f128), 1.0)));
+    try testing.expect(fmod.fmodq(1.0, std.math.inf(f128)) == 1.0);
+    try testing.expect(fmod.fmodq(1.0, -std.math.inf(f128)) == 1.0);
+    try testing.expect(std.math.isNan(fmod.fmodq(std.math.inf(f128), 1.0)));
+    try testing.expect(std.math.isNan(fmod.fmodq(-std.math.inf(f128), 1.0)));
 }
 
 test "fmodq" {
