@@ -3518,19 +3518,19 @@ pub const FuncGen = struct {
                 .shr                => try self.airShr(inst, false),
                 .shr_exact          => try self.airShr(inst, true),
 
-                .sqrt         => try self.airUnaryOp(inst, "sqrt"),
-                .sin          => try self.airUnaryOp(inst, "sin"),
-                .cos          => try self.airUnaryOp(inst, "cos"),
-                .exp          => try self.airUnaryOp(inst, "exp"),
-                .exp2         => try self.airUnaryOp(inst, "exp2"),
-                .log          => try self.airUnaryOp(inst, "log"),
-                .log2         => try self.airUnaryOp(inst, "log2"),
-                .log10        => try self.airUnaryOp(inst, "log10"),
-                .fabs         => try self.airUnaryOp(inst, "fabs"),
-                .floor        => try self.airUnaryOp(inst, "floor"),
-                .ceil         => try self.airUnaryOp(inst, "ceil"),
-                .round        => try self.airUnaryOp(inst, "round"),
-                .trunc_float  => try self.airUnaryOp(inst, "trunc"),
+                .sqrt         => try self.airUnaryOp(inst, .sqrt),
+                .sin          => try self.airUnaryOp(inst, .sin),
+                .cos          => try self.airUnaryOp(inst, .cos),
+                .exp          => try self.airUnaryOp(inst, .exp),
+                .exp2         => try self.airUnaryOp(inst, .exp2),
+                .log          => try self.airUnaryOp(inst, .log),
+                .log2         => try self.airUnaryOp(inst, .log2),
+                .log10        => try self.airUnaryOp(inst, .log10),
+                .fabs         => try self.airUnaryOp(inst, .fabs),
+                .floor        => try self.airUnaryOp(inst, .floor),
+                .ceil         => try self.airUnaryOp(inst, .ceil),
+                .round        => try self.airUnaryOp(inst, .round),
+                .trunc_float  => try self.airUnaryOp(inst, .trunc),
 
                 .cmp_eq  => try self.airCmp(inst, .eq),
                 .cmp_gt  => try self.airCmp(inst, .gt),
@@ -3905,7 +3905,7 @@ pub const FuncGen = struct {
         rhs: *const llvm.Value,
         operand_ty: Type,
         op: math.CompareOperator,
-    ) *const llvm.Value {
+    ) Allocator.Error!*const llvm.Value {
         var int_buffer: Type.Payload.Bits = undefined;
         var opt_buffer: Type.Payload.ElemType = undefined;
 
@@ -3947,7 +3947,7 @@ pub const FuncGen = struct {
                 self.builder.positionBuilderAtEnd(both_pl_block);
                 const lhs_payload = self.optPayloadHandle(lhs, is_by_ref);
                 const rhs_payload = self.optPayloadHandle(rhs, is_by_ref);
-                const payload_cmp = self.cmp(lhs_payload, rhs_payload, payload_ty, op);
+                const payload_cmp = try self.cmp(lhs_payload, rhs_payload, payload_ty, op);
                 _ = self.builder.buildBr(end_block);
                 const both_pl_block_end = self.builder.getInsertBlock();
 
@@ -3983,17 +3983,7 @@ pub const FuncGen = struct {
                 );
                 return phi_node;
             },
-            .Float => {
-                const operation: llvm.RealPredicate = switch (op) {
-                    .eq => .OEQ,
-                    .neq => .UNE,
-                    .lt => .OLT,
-                    .lte => .OLE,
-                    .gt => .OGT,
-                    .gte => .OGE,
-                };
-                return self.builder.buildFCmp(operation, lhs, rhs, "");
-            },
+            .Float => return self.buildFloatCmp(op, operand_ty, &.{ lhs, rhs }),
             else => unreachable,
         };
         const is_signed = int_ty.isSignedInt();
@@ -5221,7 +5211,7 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType();
 
-        if (scalar_ty.isAnyFloat()) return self.builder.buildFAdd(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.add, inst_ty, &.{ lhs, rhs });
         if (scalar_ty.isSignedInt()) return self.builder.buildNSWAdd(lhs, rhs, "");
         return self.builder.buildNUWAdd(lhs, rhs, "");
     }
@@ -5260,7 +5250,7 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType();
 
-        if (scalar_ty.isAnyFloat()) return self.builder.buildFSub(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.sub, inst_ty, &.{ lhs, rhs });
         if (scalar_ty.isSignedInt()) return self.builder.buildNSWSub(lhs, rhs, "");
         return self.builder.buildNUWSub(lhs, rhs, "");
     }
@@ -5298,7 +5288,7 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType();
 
-        if (scalar_ty.isAnyFloat()) return self.builder.buildFMul(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.mul, inst_ty, &.{ lhs, rhs });
         if (scalar_ty.isSignedInt()) return self.builder.buildNSWMul(lhs, rhs, "");
         return self.builder.buildNUWMul(lhs, rhs, "");
     }
@@ -5333,8 +5323,9 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
 
-        return self.builder.buildFDiv(lhs, rhs, "");
+        return self.buildFloatOp(.div, inst_ty, &.{ lhs, rhs });
     }
 
     fn airDivTrunc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -5347,8 +5338,8 @@ pub const FuncGen = struct {
         const scalar_ty = inst_ty.scalarType();
 
         if (scalar_ty.isRuntimeFloat()) {
-            const result = self.builder.buildFDiv(lhs, rhs, "");
-            return self.callTrunc(result, inst_ty);
+            const result = try self.buildFloatOp(.div, inst_ty, &.{ lhs, rhs });
+            return self.buildFloatOp(.trunc, inst_ty, &.{result});
         }
         if (scalar_ty.isSignedInt()) return self.builder.buildSDiv(lhs, rhs, "");
         return self.builder.buildUDiv(lhs, rhs, "");
@@ -5364,8 +5355,8 @@ pub const FuncGen = struct {
         const scalar_ty = inst_ty.scalarType();
 
         if (scalar_ty.isRuntimeFloat()) {
-            const result = self.builder.buildFDiv(lhs, rhs, "");
-            return try self.callFloor(result, inst_ty);
+            const result = try self.buildFloatOp(.div, inst_ty, &.{ lhs, rhs });
+            return self.buildFloatOp(.floor, inst_ty, &.{result});
         }
         if (scalar_ty.isSignedInt()) {
             // const d = @divTrunc(a, b);
@@ -5395,7 +5386,7 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType();
 
-        if (scalar_ty.isRuntimeFloat()) return self.builder.buildFDiv(lhs, rhs, "");
+        if (scalar_ty.isRuntimeFloat()) return self.buildFloatOp(.div, inst_ty, &.{ lhs, rhs });
         if (scalar_ty.isSignedInt()) return self.builder.buildExactSDiv(lhs, rhs, "");
         return self.builder.buildExactUDiv(lhs, rhs, "");
     }
@@ -5409,7 +5400,7 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType();
 
-        if (scalar_ty.isRuntimeFloat()) return self.builder.buildFRem(lhs, rhs, "");
+        if (scalar_ty.isRuntimeFloat()) return self.buildFloatOp(.rem, inst_ty, &.{ lhs, rhs });
         if (scalar_ty.isSignedInt()) return self.builder.buildSRem(lhs, rhs, "");
         return self.builder.buildURem(lhs, rhs, "");
     }
@@ -5425,11 +5416,11 @@ pub const FuncGen = struct {
         const scalar_ty = inst_ty.scalarType();
 
         if (scalar_ty.isRuntimeFloat()) {
-            const a = self.builder.buildFRem(lhs, rhs, "");
-            const b = self.builder.buildFAdd(a, rhs, "");
-            const c = self.builder.buildFRem(b, rhs, "");
+            const a = try self.buildFloatOp(.rem, inst_ty, &.{ lhs, rhs });
+            const b = try self.buildFloatOp(.add, inst_ty, &.{ a, rhs });
+            const c = try self.buildFloatOp(.rem, inst_ty, &.{ b, rhs });
             const zero = inst_llvm_ty.constNull();
-            const ltz = self.builder.buildFCmp(.OLT, lhs, zero, "");
+            const ltz = try self.buildFloatCmp(.lt, inst_ty, &.{ lhs, zero });
             return self.builder.buildSelect(ltz, c, a, "");
         }
         if (scalar_ty.isSignedInt()) {
@@ -5508,6 +5499,241 @@ pub const FuncGen = struct {
         return result_struct;
     }
 
+    fn buildElementwiseCall(
+        self: *FuncGen,
+        llvm_fn: *const llvm.Value,
+        args_vectors: []const *const llvm.Value,
+        result_vector: *const llvm.Value,
+        vector_len: usize,
+    ) !*const llvm.Value {
+        const args_len = @intCast(c_uint, args_vectors.len);
+        const llvm_i32 = self.context.intType(32);
+        assert(args_len <= 8);
+
+        var i: usize = 0;
+        var result = result_vector;
+        while (i < vector_len) : (i += 1) {
+            const index_i32 = llvm_i32.constInt(i, .False);
+
+            var args: [8]*const llvm.Value = undefined;
+            for (args_vectors) |arg_vector, k| {
+                args[k] = self.builder.buildExtractElement(arg_vector, index_i32, "");
+            }
+            const result_elem = self.builder.buildCall(llvm_fn, args[0..], args_len, .C, .Auto, "");
+            result = self.builder.buildInsertElement(result, result_elem, index_i32, "");
+        }
+        return result;
+    }
+
+    fn getLibcFunction(
+        self: *FuncGen,
+        fn_name: [:0]const u8,
+        param_types: []const *const llvm.Type,
+        return_type: *const llvm.Type,
+    ) *const llvm.Value {
+        return self.dg.object.llvm_module.getNamedFunction(fn_name.ptr) orelse b: {
+            const alias = self.dg.object.llvm_module.getNamedGlobalAlias(fn_name.ptr, fn_name.len);
+            break :b if (alias) |a| a.getAliasee() else null;
+        } orelse b: {
+            const params_len = @intCast(c_uint, param_types.len);
+            const fn_type = llvm.functionType(return_type, param_types.ptr, params_len, .False);
+            const f = self.dg.object.llvm_module.addFunction(fn_name, fn_type);
+            break :b f;
+        };
+    }
+
+    fn getMathHTypeAbbrev(ty: Type) []const u8 {
+        return switch (ty.tag()) {
+            .f16 => "h", // Non-standard
+            .f32 => "s",
+            .f64 => "",
+            .f80 => "x", // Non-standard
+            .c_longdouble => "l",
+            .f128 => "q", // Non-standard (mimics convention in GCC libquadmath)
+            else => unreachable,
+        };
+    }
+
+    fn getCompilerRtTypeAbbrev(ty: Type, target: std.Target) []const u8 {
+        return switch (ty.floatBits(target)) {
+            16 => "h",
+            32 => "s",
+            64 => "d",
+            80 => "x",
+            128 => "t",
+            else => unreachable,
+        };
+    }
+
+    /// Creates a floating point comparison by lowering to the appropriate
+    /// hardware instruction or softfloat routine for the target
+    fn buildFloatCmp(
+        self: *FuncGen,
+        pred: math.CompareOperator,
+        ty: Type,
+        params: []const *const llvm.Value,
+    ) !*const llvm.Value {
+        const target = self.dg.module.getTarget();
+        const scalar_ty = ty.scalarType();
+        const scalar_llvm_ty = try self.dg.llvmType(scalar_ty);
+
+        // LLVM does not support all floating point comparisons for all targets, so we
+        // may need to manually generate a libc call
+        const intrinsics_allowed = switch (scalar_ty.tag()) {
+            .f80 => target.longDoubleIs(f80) and backendSupportsF80(target),
+            .f128 => target.longDoubleIs(f128),
+            else => true,
+        };
+        if (intrinsics_allowed) {
+            const llvm_predicate: llvm.RealPredicate = switch (pred) {
+                .eq => .OEQ,
+                .neq => .UNE,
+                .lt => .OLT,
+                .lte => .OLE,
+                .gt => .OGT,
+                .gte => .OGE,
+            };
+            return self.builder.buildFCmp(llvm_predicate, params[0], params[1], "");
+        }
+
+        const compiler_rt_type_abbrev = getCompilerRtTypeAbbrev(scalar_ty, target);
+        var fn_name_buf: [64]u8 = undefined;
+        const fn_base_name = switch (pred) {
+            .neq => "ne",
+            .eq => "eq",
+            .lt => "lt",
+            .lte => "le",
+            .gt => "gt",
+            .gte => "ge",
+        };
+        const fn_name = std.fmt.bufPrintZ(&fn_name_buf, "__{s}{s}f2", .{ fn_base_name, compiler_rt_type_abbrev }) catch unreachable;
+
+        assert(params.len == 2);
+        const param_types = [2]*const llvm.Type{ scalar_llvm_ty, scalar_llvm_ty };
+        const llvm_i32 = self.context.intType(32);
+        const libc_fn = self.getLibcFunction(fn_name, param_types[0..], llvm_i32);
+
+        const zero = llvm_i32.constInt(0, .False);
+        const int_pred: llvm.IntPredicate = switch (pred) {
+            .eq => .EQ,
+            .neq => .NE,
+            .lt => .SLT,
+            .lte => .SLE,
+            .gt => .SGT,
+            .gte => .SGE,
+        };
+
+        if (ty.zigTypeTag() == .Vector) {
+            const vec_len = ty.vectorLen();
+            const vector_result_ty = llvm_i32.vectorType(vec_len);
+
+            var result = vector_result_ty.getUndef();
+            result = try self.buildElementwiseCall(libc_fn, params[0..], result, vec_len);
+
+            const zero_vector = self.builder.buildVectorSplat(zero, vec_len, "");
+            return self.builder.buildICmp(int_pred, result, zero_vector, "");
+        }
+
+        const result = self.builder.buildCall(libc_fn, params.ptr, 2, .C, .Auto, "");
+        return self.builder.buildICmp(int_pred, result, zero, "");
+    }
+
+    /// Creates a floating point operation (add, sub, fma, sqrt, exp, etc.)
+    /// by lowering to the appropriate hardware instruction or softfloat
+    /// routine for the target
+    fn buildFloatOp(
+        self: *FuncGen,
+        comptime op: @TypeOf(.EnumLiteral),
+        ty: Type,
+        params: []const *const llvm.Value,
+    ) !*const llvm.Value {
+        const target = self.dg.module.getTarget();
+        const scalar_ty = ty.scalarType();
+        const llvm_ty = try self.dg.llvmType(ty);
+        const scalar_llvm_ty = try self.dg.llvmType(scalar_ty);
+
+        const Strat = union(enum) {
+            intrinsic: []const u8,
+            libc: [:0]const u8,
+        };
+
+        // LLVM does not support all relevant intrinsics for all targets, so we
+        // may need to manually generate a libc call
+        const intrinsics_allowed = switch (scalar_ty.tag()) {
+            .f80 => target.longDoubleIs(f80) and backendSupportsF80(target),
+            .f128 => target.longDoubleIs(f128),
+            else => true,
+        };
+        const strat: Strat = if (intrinsics_allowed) b: {
+            // Some operations are dedicated LLVM instructions, not available as intrinsics
+            switch (op) {
+                .add => return self.builder.buildFAdd(params[0], params[1], ""),
+                .sub => return self.builder.buildFSub(params[0], params[1], ""),
+                .mul => return self.builder.buildFMul(params[0], params[1], ""),
+                .div => return self.builder.buildFDiv(params[0], params[1], ""),
+                .rem => return self.builder.buildFRem(params[0], params[1], ""),
+                else => {},
+            }
+            // All other operations are available as intrinsics
+            break :b .{
+                .intrinsic = "llvm." ++ switch (op) {
+                    .max => "maximum",
+                    .min => "minimum",
+                    .fma, .sqrt, .sin, .cos, .exp, .exp2, .log, .log2, .log10, .fabs, .floor, .ceil, .round, .trunc => @tagName(op),
+                    .add, .sub, .mul, .div, .rem => unreachable,
+                    else => unreachable,
+                },
+            };
+        } else b: {
+            const math_h_type_abbrev = getMathHTypeAbbrev(scalar_ty);
+            const compiler_rt_type_abbrev = getCompilerRtTypeAbbrev(scalar_ty, target);
+            var fn_name_buf: [64]u8 = undefined;
+            break :b switch (op) {
+                .fma => Strat{
+                    .libc = switch (scalar_ty.floatBits(target)) {
+                        80 => "__fmax",
+                        else => std.fmt.bufPrintZ(&fn_name_buf, "fma{s}", .{math_h_type_abbrev}) catch unreachable,
+                    },
+                },
+                .add, .sub, .div, .mul => Strat{
+                    .libc = std.fmt.bufPrintZ(&fn_name_buf, "__{s}{s}f3", .{ @tagName(op), compiler_rt_type_abbrev }) catch unreachable,
+                },
+                .rem => Strat{
+                    .libc = std.fmt.bufPrintZ(&fn_name_buf, "fmod{s}", .{math_h_type_abbrev}) catch unreachable,
+                },
+                .max, .min => Strat{
+                    .libc = std.fmt.bufPrintZ(&fn_name_buf, "f{s}{s}", .{ @tagName(op), math_h_type_abbrev }) catch unreachable,
+                },
+                .sqrt, .sin, .cos, .exp, .exp2, .log, .log2, .log10, .fabs, .floor, .ceil, .round, .trunc => Strat{
+                    .libc = std.fmt.bufPrintZ(&fn_name_buf, "{s}{s}", .{ @tagName(op), math_h_type_abbrev }) catch unreachable,
+                },
+                else => unreachable,
+            };
+        };
+
+        var llvm_fn: *const llvm.Value = switch (strat) {
+            .intrinsic => |fn_name| self.getIntrinsic(fn_name, &.{llvm_ty}),
+            .libc => |fn_name| b: {
+                assert(params.len == switch (op) {
+                    .fma => 3,
+                    .add, .sub, .div, .mul, .rem, .max, .min => 2,
+                    .sqrt, .sin, .cos, .exp, .exp2, .log, .log2, .log10, .fabs, .floor, .ceil, .round, .trunc => 1,
+                    else => unreachable,
+                });
+                const param_types = [3]*const llvm.Type{ scalar_llvm_ty, scalar_llvm_ty, scalar_llvm_ty };
+                const libc_fn = self.getLibcFunction(fn_name, param_types[0..params.len], scalar_llvm_ty);
+                if (ty.zigTypeTag() == .Vector) {
+                    const result = llvm_ty.getUndef();
+                    return self.buildElementwiseCall(libc_fn, params[0..], result, ty.vectorLen());
+                }
+
+                break :b libc_fn;
+            },
+        };
+        const params_len = @intCast(c_uint, params.len);
+        return self.builder.buildCall(llvm_fn, params.ptr, params_len, .C, .Auto, "");
+    }
+
     fn airMulAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
@@ -5519,64 +5745,7 @@ pub const FuncGen = struct {
         const addend = try self.resolveInst(pl_op.operand);
 
         const ty = self.air.typeOfIndex(inst);
-        const llvm_ty = try self.dg.llvmType(ty);
-        const scalar_ty = ty.scalarType();
-        const target = self.dg.module.getTarget();
-
-        const Strat = union(enum) {
-            intrinsic,
-            libc: [*:0]const u8,
-        };
-
-        const strat: Strat = switch (scalar_ty.floatBits(target)) {
-            16, 32, 64 => Strat.intrinsic,
-            80 => if (CType.longdouble.sizeInBits(target) == 80) Strat{ .intrinsic = {} } else Strat{ .libc = "__fmax" },
-            // LLVM always lowers the fma builtin for f128 to fmal, which is for `long double`.
-            // On some targets this will be correct; on others it will be incorrect.
-            128 => if (CType.longdouble.sizeInBits(target) == 128) Strat{ .intrinsic = {} } else Strat{ .libc = "fmaq" },
-            else => unreachable,
-        };
-
-        switch (strat) {
-            .intrinsic => {
-                const llvm_fn = self.getIntrinsic("llvm.fma", &.{llvm_ty});
-                const params = [_]*const llvm.Value{ mulend1, mulend2, addend };
-                return self.builder.buildCall(llvm_fn, &params, params.len, .C, .Auto, "");
-            },
-            .libc => |fn_name| {
-                const scalar_llvm_ty = try self.dg.llvmType(scalar_ty);
-                const llvm_fn = self.dg.object.llvm_module.getNamedFunction(fn_name) orelse b: {
-                    const param_types = [_]*const llvm.Type{ scalar_llvm_ty, scalar_llvm_ty, scalar_llvm_ty };
-                    const fn_type = llvm.functionType(scalar_llvm_ty, &param_types, param_types.len, .False);
-                    break :b self.dg.object.llvm_module.addFunction(fn_name, fn_type);
-                };
-
-                if (ty.zigTypeTag() == .Vector) {
-                    const llvm_i32 = self.context.intType(32);
-                    const vector_llvm_ty = try self.dg.llvmType(ty);
-
-                    var i: usize = 0;
-                    var vector = vector_llvm_ty.getUndef();
-                    while (i < ty.vectorLen()) : (i += 1) {
-                        const index_i32 = llvm_i32.constInt(i, .False);
-
-                        const mulend1_elem = self.builder.buildExtractElement(mulend1, index_i32, "");
-                        const mulend2_elem = self.builder.buildExtractElement(mulend2, index_i32, "");
-                        const addend_elem = self.builder.buildExtractElement(addend, index_i32, "");
-
-                        const params = [_]*const llvm.Value{ mulend1_elem, mulend2_elem, addend_elem };
-                        const mul_add = self.builder.buildCall(llvm_fn, &params, params.len, .C, .Auto, "");
-
-                        vector = self.builder.buildInsertElement(vector, mul_add, index_i32, "");
-                    }
-
-                    return vector;
-                } else {
-                    const params = [_]*const llvm.Value{ mulend1, mulend2, addend };
-                    return self.builder.buildCall(llvm_fn, &params, params.len, .C, .Auto, "");
-                }
-            },
-        }
+        return self.buildFloatOp(.fma, ty, &.{ mulend1, mulend2, addend });
     }
 
     fn airShlWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -6381,14 +6550,15 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airUnaryOp(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !?*const llvm.Value {
+    fn airUnaryOp(self: *FuncGen, inst: Air.Inst.Index, comptime op: @TypeOf(.EnumLiteral)) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
         const operand_ty = self.air.typeOf(un_op);
 
-        return self.callFloatUnary(operand, operand_ty, llvm_fn_name);
+        const params = [_]*const llvm.Value{operand};
+        return self.buildFloatOp(op, operand_ty, &params);
     }
 
     fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !?*const llvm.Value {
@@ -7189,48 +7359,6 @@ pub const FuncGen = struct {
         }
 
         return self.builder.buildExtractValue(opt_handle, 0, "");
-    }
-
-    fn callFloor(self: *FuncGen, arg: *const llvm.Value, ty: Type) !*const llvm.Value {
-        return self.callFloatUnary(arg, ty, "floor");
-    }
-
-    fn callCeil(self: *FuncGen, arg: *const llvm.Value, ty: Type) !*const llvm.Value {
-        return self.callFloatUnary(arg, ty, "ceil");
-    }
-
-    fn callTrunc(self: *FuncGen, arg: *const llvm.Value, ty: Type) !*const llvm.Value {
-        return self.callFloatUnary(arg, ty, "trunc");
-    }
-
-    fn callFloatUnary(
-        self: *FuncGen,
-        arg: *const llvm.Value,
-        ty: Type,
-        name: []const u8,
-    ) !*const llvm.Value {
-        const target = self.dg.module.getTarget();
-
-        var fn_name_buf: [100]u8 = undefined;
-        const llvm_fn_name = switch (ty.zigTypeTag()) {
-            .Vector => std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.v{d}f{d}", .{
-                name, ty.vectorLen(), ty.childType().floatBits(target),
-            }) catch unreachable,
-            .Float => std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.f{d}", .{
-                name, ty.floatBits(target),
-            }) catch unreachable,
-            else => unreachable,
-        };
-
-        const llvm_fn = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
-            const operand_llvm_ty = try self.dg.llvmType(ty);
-            const param_types = [_]*const llvm.Type{operand_llvm_ty};
-            const fn_type = llvm.functionType(operand_llvm_ty, &param_types, param_types.len, .False);
-            break :blk self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
-        };
-
-        const args: [1]*const llvm.Value = .{arg};
-        return self.builder.buildCall(llvm_fn, &args, args.len, .C, .Auto, "");
     }
 
     fn fieldPtr(
