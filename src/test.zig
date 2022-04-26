@@ -165,6 +165,41 @@ const ErrorMsg = union(enum) {
     }
 };
 
+const TestManifestConfigDefaults = struct {
+    /// Asserts if the key doesn't exist - yep, it's an oversight alright.
+    fn get(@"type": TestManifest.Type, key: []const u8) []const u8 {
+        if (std.mem.eql(u8, key, "backend")) {
+            return "stage2";
+        } else if (std.mem.eql(u8, key, "target")) {
+            comptime {
+                var defaults: []const u8 = "";
+                // TODO should we only return "mainstream" targets by default here?
+                // Linux
+                inline for (&[_][]const u8{ "x86_64", "arm", "aarch64" }) |arch| {
+                    inline for (&[_][]const u8{ "gnu", "musl" }) |abi| {
+                        defaults = defaults ++ arch ++ "-linux-" ++ abi ++ ",";
+                    }
+                }
+                // macOS
+                inline for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
+                    defaults = defaults ++ arch ++ "-macos" ++ ",";
+                }
+                // Wasm
+                defaults = defaults ++ "wasm32-wasi";
+                return defaults[0 .. defaults.len - 2];
+            }
+        } else if (std.mem.eql(u8, key, "output_mode")) {
+            return switch (@"type") {
+                .@"error" => "Obj",
+                .run => "Exe",
+                .cli => @panic("TODO test harness for CLI tests"),
+            };
+        } else if (std.mem.eql(u8, key, "is_test")) {
+            return "0";
+        } else unreachable;
+    }
+};
+
 /// Manifest syntax example:
 /// (see https://github.com/ziglang/zig/issues/11288)
 ///
