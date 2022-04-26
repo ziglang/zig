@@ -215,7 +215,37 @@ const TestManifest = struct {
     }
 
     fn parse(arena: Allocator, bytes: []const u8) !TestManifest {
-        var it = std.mem.tokenize(u8, bytes, "\r\n");
+        // The manifest is the last contiguous block of comments in the file
+        // We scan for the beginning by searching backward for the first non-empty line that does not start with "//"
+        var start: ?usize = null;
+        var end: usize = bytes.len;
+        if (bytes.len > 0) {
+            var cursor: usize = bytes.len - 1;
+            while (true) {
+                // Move to beginning of line
+                while (cursor > 0 and bytes[cursor - 1] != '\n') cursor -= 1;
+
+                if (std.mem.startsWith(u8, bytes[cursor..], "//")) {
+                    start = cursor; // Contiguous comment line, include in manifest
+                } else {
+                    if (start != null) break; // Encountered non-comment line, end of manifest
+
+                    // We ignore all-whitespace lines following the comment block, but anything else
+                    // means that there is no manifest present.
+                    if (std.mem.trim(u8, bytes[cursor..end], " \r\n\t").len == 0) {
+                        end = cursor;
+                    } else break; // If it's not whitespace, there is no manifest
+                }
+
+                // Move to previous line
+                if (cursor != 0) cursor -= 1 else break;
+            }
+        }
+
+        const actual_start = start orelse return error.MissingTestManifest;
+        const manifest_bytes = bytes[actual_start..end];
+
+        var it = std.mem.tokenize(u8, manifest_bytes, "\r\n");
 
         // First line is the test type
         const tt: Type = blk: {
@@ -250,20 +280,29 @@ const TestManifest = struct {
         }
 
         // Finally, trailing is expected output
-        manifest.trailing_bytes = bytes[it.index..];
+        manifest.trailing_bytes = manifest_bytes[it.index..];
 
         return manifest;
     }
 
-    fn getConfigValues(
+    fn getConfigForKey(
         self: TestManifest,
         key: []const u8,
         comptime T: type,
-        parse_fn: anytype,
-    ) ?ConfigValueIterator(T, @TypeOf(parse_fn)) {
-        const bytes = self.config_map.get(key) orelse return null;
+        parse_fn: fn ([]const u8) ?T,
+    ) ConfigValueIterator(T, @TypeOf(parse_fn)) {
+        const delimiter = ",";
+        var inner: std.mem.SplitIterator(u8) = if (self.config_map.get(key)) |bytes| .{
+            .buffer = bytes,
+            .delimiter = delimiter,
+            .index = 0,
+        } else .{
+            .buffer = undefined,
+            .delimiter = delimiter,
+            .index = null,
+        };
         return ConfigValueIterator(T, @TypeOf(parse_fn)){
-            .inner = std.mem.split(u8, bytes, ","),
+            .inner = inner,
             .parse_fn = parse_fn,
         };
     }
@@ -958,93 +997,62 @@ pub const TestContext = struct {
             const max_file_size = 10 * 1024 * 1024;
             const src = try dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
 
-            // The manifest is the last contiguous block of comments in the file
-            // We scan for the beginning by searching backward for the first non-empty line that does not start with "//"
-            var manifest_start: ?usize = null;
-            var manifest_end: usize = src.len;
-            if (src.len > 0) {
-                var cursor: usize = src.len - 1;
-                while (true) {
-                    // Move to beginning of line
-                    while (cursor > 0 and src[cursor - 1] != '\n') cursor -= 1;
+            // Parse the manifest
+            var manifest = try TestManifest.parse(ctx.arena, src);
+            const strategy = manifest.getConfigForKey("strategy", Strategy, Strategy.parse).next().?;
+            const backend = manifest.getConfigForKey("backend", Backend, Backend.parse).next().?;
 
-                    if (std.mem.startsWith(u8, src[cursor..], "//")) {
-                        manifest_start = cursor; // Contiguous comment line, include in manifest
-                    } else {
-                        if (manifest_start != null) break; // Encountered non-comment line, end of manifest
+            switch (manifest.@"type") {
+                .@"error" => {
+                    const case = opt_case orelse case: {
+                        const case = try ctx.cases.addOne();
+                        case.* = .{
+                            .name = "none",
+                            .target = .{},
+                            .backend = backend,
+                            .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
+                            .is_test = false,
+                            .output_mode = .Obj,
+                            .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
+                        };
+                        opt_case = case;
+                        break :case case;
+                    };
+                    const errors = try manifest.trailingAlloc(ctx.arena);
 
-                        // We ignore all-whitespace lines following the comment block, but anything else
-                        // means that there is no manifest present.
-                        if (std.mem.trim(u8, src[cursor..manifest_end], " \r\n\t").len == 0) {
-                            manifest_end = cursor;
-                        } else break; // If it's not whitespace, there is no manifest
+                    switch (strategy) {
+                        .independent => {
+                            case.addError(src, errors);
+                        },
+                        .incremental => {
+                            case.addErrorNamed("update", src, errors);
+                        },
                     }
-
-                    // Move to previous line
-                    if (cursor != 0) cursor -= 1 else break;
-                }
-            }
-
-            if (manifest_start) |start| {
-                // Parse the manifest
-                var mani = try TestManifest.parse(ctx.arena, src[start..manifest_end]);
-                const strategy = mani.getConfigValues("strategy", Strategy, Strategy.parse).?.next().?;
-                const backend = mani.getConfigValues("backend", Backend, Backend.parse).?.next().?;
-
-                switch (mani.@"type") {
-                    .@"error" => {
-                        const case = opt_case orelse case: {
-                            const case = try ctx.cases.addOne();
-                            case.* = .{
-                                .name = "none",
-                                .target = .{},
-                                .backend = backend,
-                                .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
-                                .is_test = false,
-                                .output_mode = .Obj,
-                                .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
-                            };
-                            opt_case = case;
-                            break :case case;
+                },
+                .run => {
+                    const case = opt_case orelse case: {
+                        const case = try ctx.cases.addOne();
+                        case.* = .{
+                            .name = "none",
+                            .target = .{},
+                            .backend = backend,
+                            .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
+                            .is_test = false,
+                            .output_mode = .Exe,
+                            .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
                         };
-                        const errors = try mani.trailingAlloc(ctx.arena);
+                        opt_case = case;
+                        break :case case;
+                    };
 
-                        switch (strategy) {
-                            .independent => {
-                                case.addError(src, errors);
-                            },
-                            .incremental => {
-                                case.addErrorNamed("update", src, errors);
-                            },
-                        }
-                    },
-                    .run => {
-                        const case = opt_case orelse case: {
-                            const case = try ctx.cases.addOne();
-                            case.* = .{
-                                .name = "none",
-                                .target = .{},
-                                .backend = backend,
-                                .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
-                                .is_test = false,
-                                .output_mode = .Exe,
-                                .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
-                            };
-                            opt_case = case;
-                            break :case case;
-                        };
-
-                        var output = std.ArrayList(u8).init(ctx.arena);
-                        var trailing_it = mani.trailing();
-                        while (trailing_it.next()) |line| {
-                            try output.appendSlice(line);
-                        }
-                        case.addCompareOutput(src, output.toOwnedSlice());
-                    },
-                    .cli => @panic("TODO cli tests"),
-                }
-            } else {
-                return error.MissingManifest;
+                    var output = std.ArrayList(u8).init(ctx.arena);
+                    var trailing_it = manifest.trailing();
+                    while (trailing_it.next()) |line| {
+                        try output.appendSlice(line);
+                    }
+                    case.addCompareOutput(src, output.toOwnedSlice());
+                },
+                .cli => @panic("TODO cli tests"),
             }
         }
     }
