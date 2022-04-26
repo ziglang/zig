@@ -314,12 +314,11 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
 pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
     @setRuntimeSafety(builtin.is_test);
     const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-    const significandBits = std.math.floatMantissaBits(T);
-    const implicitBit = @as(Z, 1) << significandBits;
+    const integerBit = @as(Z, 1) << std.math.floatFractionalBits(T);
 
-    const shift = @clz(Z, significand.*) - @clz(Z, implicitBit);
+    const shift = @clz(Z, significand.*) - @clz(Z, integerBit);
     significand.* <<= @intCast(std.math.Log2Int(Z), shift);
-    return 1 - shift;
+    return @as(i32, 1) - shift;
 }
 
 pub fn __aeabi_ddiv(a: f64, b: f64) callconv(.AAPCS) f64 {

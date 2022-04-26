@@ -152,4 +152,6 @@ test "addxf3" {
     try test__addxf3(0x1.0fff_ffff_ffff_fffep+0, 0x1.8p-63, 0x3FFF_8800000000000000); // round down to even
     try test__addxf3(0x1.0fff_ffff_ffff_fffep+0, 0x1.9p-63, 0x3FFF_8800000000000001); // round up
     try test__addxf3(0x1.0fff_ffff_ffff_fffep+0, 0x2.0p-63, 0x3FFF_8800000000000001); // exact
+    try test__addxf3(0x0.ffff_ffff_ffff_fffcp-16382, 0x0.0000_0000_0000_0002p-16382, 0x0000_7FFFFFFFFFFFFFFF); // exact
+    try test__addxf3(0x0.1fff_ffff_ffff_fffcp-16382, 0x0.0000_0000_0000_0002p-16382, 0x0000_0FFFFFFFFFFFFFFF); // exact
 }

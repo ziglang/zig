@@ -152,6 +152,10 @@ fn mulXf3(comptime T: type, a: T, b: T) T {
         const sticky = wideShrWithTruncation(ZSignificand, &productHi, &productLo, shift);
         productLo |= @boolToInt(sticky);
         result = productHi;
+
+        // We include the integer bit so that rounding will carry to the exponent,
+        // but it will be removed later if the result is still denormal
+        if (significandBits != fractionalBits) result |= integerBit;
     } else {
         // Result is normal before rounding; insert the exponent.
         result = productHi & significandMask;
@@ -166,7 +170,11 @@ fn mulXf3(comptime T: type, a: T, b: T) T {
 
     // Restore any explicit integer bit, if it was rounded off
     if (significandBits != fractionalBits) {
-        if ((result >> significandBits) != 0) result |= integerBit;
+        if ((result >> significandBits) != 0) {
+            result |= integerBit;
+        } else {
+            result &= ~integerBit;
+        }
     }
 
     // Insert the sign of the result:

@@ -27,7 +27,7 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
 
     const signA = aPtr_u16[exp_and_sign_index] & 0x8000;
     var expA = @intCast(i32, (aPtr_u16[exp_and_sign_index] & 0x7fff));
-    var expB = bPtr_u16[exp_and_sign_index] & 0x7fff;
+    var expB = @intCast(i32, (bPtr_u16[exp_and_sign_index] & 0x7fff));
 
     // There are 3 cases where the answer is undefined, check for:
     //   - fmodq(val, 0)
@@ -55,12 +55,12 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
 
     if (expA == 0) {
         amod *= 0x1p120;
-        expA = aPtr_u16[exp_and_sign_index] -% 120;
+        expA = @as(i32, aPtr_u16[exp_and_sign_index]) - 120;
     }
 
     if (expB == 0) {
         bmod *= 0x1p120;
-        expB = bPtr_u16[exp_and_sign_index] -% 120;
+        expB = @as(i32, bPtr_u16[exp_and_sign_index]) - 120;
     }
 
     // OR in extra non-stored mantissa digit
@@ -73,7 +73,7 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
         var high = highA -% highB;
         var low = lowA -% lowB;
         if (lowA < lowB) {
-            high = highA -% 1;
+            high -%= 1;
         }
         if (high >> 63 == 0) {
             if ((high | low) == 0) {
@@ -122,5 +122,5 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
 }
 
 test {
-    _ = @import("floatfmodq_test.zig");
+    _ = @import("fmodq_test.zig");
 }
