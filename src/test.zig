@@ -102,6 +102,7 @@ const ErrorMsg = union(enum) {
                     .kind = kind,
                 },
             },
+            .ref => unreachable,
         }
     }
 
@@ -1467,6 +1468,7 @@ pub const TestContext = struct {
                             .plain => |plain| {
                                 print("error: {s}\n{s}\n", .{ plain.msg, hr });
                             },
+                            .ref => unreachable,
                         }
                     }
                     // TODO print generated C code
@@ -1548,6 +1550,7 @@ pub const TestContext = struct {
                                         break;
                                     }
                                 },
+                                .ref => unreachable,
                             }
                         } else {
                             print(
@@ -1596,6 +1599,7 @@ pub const TestContext = struct {
                                         break;
                                     }
                                 },
+                                .ref => unreachable,
                             }
                         } else {
                             print(

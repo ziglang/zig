@@ -1649,6 +1649,18 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: *Block, err_msg: *Module.ErrorMsg) 
         if (err_msg.src_loc.lazy == .unneeded) {
             return error.NeededSourceLocation;
         }
+        {
+            var reference_stack = std.ArrayList(Module.ErrorMsg.Note).init(sema.gpa);
+            defer reference_stack.deinit();
+
+            var referenced_by = sema.mod.declPtr(block.src_decl).first_referenced_by;
+            while (referenced_by.decl.unwrap()) |some| {
+                const decl = sema.mod.declPtr(some);
+                try reference_stack.append(.{ .msg = std.mem.sliceTo(decl.name, 0), .src_loc = referenced_by.src.toSrcLoc(decl) });
+                referenced_by = decl.first_referenced_by;
+            }
+            err_msg.reference_trace = reference_stack.toOwnedSlice();
+        }
         try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
         try mod.failed_files.ensureUnusedCapacity(mod.gpa, 1);
     }
@@ -3811,7 +3823,7 @@ fn addStrLit(sema: *Sema, block: *Block, zir_bytes: []const u8) CompileError!Air
         0, // default alignment
     );
 
-    return sema.analyzeDeclRef(new_decl);
+    return sema.analyzeDeclRef(new_decl, .{});
 }
 
 fn zirInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4319,7 +4331,7 @@ pub fn analyzeExport(
         return;
     }
 
-    try mod.ensureDeclAnalyzed(exported_decl_index);
+    try mod.ensureDeclAnalyzed(exported_decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
     const exported_decl = mod.declPtr(exported_decl_index);
     // TODO run the same checks as we do for C ABI struct fields
     switch (exported_decl.ty.zigTypeTag()) {
@@ -4580,7 +4592,7 @@ fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const src = inst_data.src();
     const decl_name = inst_data.get(sema.code);
     const decl_index = try sema.lookupIdentifier(block, src, decl_name);
-    return sema.analyzeDeclRef(decl_index);
+    return sema.analyzeDeclRef(decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
 }
 
 fn zirDeclVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4655,7 +4667,7 @@ fn lookupInNamespace(
                     // a different file than the `a.b`/`@hasDecl` syntax.
                     continue;
                 }
-                try sema.ensureDeclAnalyzed(sub_usingnamespace_decl_index);
+                try sema.ensureDeclAnalyzed(sub_usingnamespace_decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
                 const ns_ty = sub_usingnamespace_decl.val.castTag(.ty).?.data;
                 const sub_ns = ns_ty.getNamespace().?;
                 try checked_namespaces.put(gpa, sub_ns, {});
@@ -8737,7 +8749,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         0, // default alignment
     );
 
-    return sema.analyzeDeclRef(embed_file.owner_decl);
+    return sema.analyzeDeclRef(embed_file.owner_decl, .{});
 }
 
 fn zirRetErrValueCode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9142,7 +9154,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const val = try Value.Tag.aggregate.create(anon_decl.arena(), buf);
             const decl = try anon_decl.finish(ty, val, 0);
             if (lhs_ty.zigTypeTag() == .Pointer or rhs_ty.zigTypeTag() == .Pointer) {
-                return sema.analyzeDeclRef(decl);
+                return sema.analyzeDeclRef(decl, .{});
             } else {
                 return sema.analyzeDeclVal(block, .unneeded, decl);
             }
@@ -9319,7 +9331,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         };
         const decl = try anon_decl.finish(final_ty, val, 0);
         if (lhs_ty.zigTypeTag() == .Pointer) {
-            return sema.analyzeDeclRef(decl);
+            return sema.analyzeDeclRef(decl, .{});
         } else {
             return sema.analyzeDeclVal(block, .unneeded, decl);
         }
@@ -11159,7 +11171,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     "Fn",
                 )).?;
                 try sema.mod.declareDeclDependency(sema.owner_decl_index, fn_info_decl_index);
-                try sema.ensureDeclAnalyzed(fn_info_decl_index);
+                try sema.ensureDeclAnalyzed(fn_info_decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
                 const fn_info_decl = sema.mod.declPtr(fn_info_decl_index);
                 var fn_ty_buffer: Value.ToTypeBuffer = undefined;
                 const fn_ty = fn_info_decl.val.toType(&fn_ty_buffer);
@@ -11170,7 +11182,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     "Param",
                 )).?;
                 try sema.mod.declareDeclDependency(sema.owner_decl_index, param_info_decl_index);
-                try sema.ensureDeclAnalyzed(param_info_decl_index);
+                try sema.ensureDeclAnalyzed(param_info_decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
                 const param_info_decl = sema.mod.declPtr(param_info_decl_index);
                 var param_buffer: Value.ToTypeBuffer = undefined;
                 const param_ty = param_info_decl.val.toType(&param_buffer);
@@ -11350,7 +11362,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     "Error",
                 )).?;
                 try sema.mod.declareDeclDependency(sema.owner_decl_index, set_field_ty_decl_index);
-                try sema.ensureDeclAnalyzed(set_field_ty_decl_index);
+                try sema.ensureDeclAnalyzed(set_field_ty_decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
                 const set_field_ty_decl = sema.mod.declPtr(set_field_ty_decl_index);
                 var buffer: Value.ToTypeBuffer = undefined;
                 break :t try set_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
@@ -11460,7 +11472,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     "EnumField",
                 )).?;
                 try sema.mod.declareDeclDependency(sema.owner_decl_index, enum_field_ty_decl_index);
-                try sema.ensureDeclAnalyzed(enum_field_ty_decl_index);
+                try sema.ensureDeclAnalyzed(enum_field_ty_decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
                 const enum_field_ty_decl = sema.mod.declPtr(enum_field_ty_decl_index);
                 var buffer: Value.ToTypeBuffer = undefined;
                 break :t try enum_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
@@ -11559,7 +11571,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     "UnionField",
                 )).?;
                 try sema.mod.declareDeclDependency(sema.owner_decl_index, union_field_ty_decl_index);
-                try sema.ensureDeclAnalyzed(union_field_ty_decl_index);
+                try sema.ensureDeclAnalyzed(union_field_ty_decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
                 const union_field_ty_decl = sema.mod.declPtr(union_field_ty_decl_index);
                 var buffer: Value.ToTypeBuffer = undefined;
                 break :t try union_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
@@ -11667,7 +11679,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     "StructField",
                 )).?;
                 try sema.mod.declareDeclDependency(sema.owner_decl_index, struct_field_ty_decl_index);
-                try sema.ensureDeclAnalyzed(struct_field_ty_decl_index);
+                try sema.ensureDeclAnalyzed(struct_field_ty_decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
                 const struct_field_ty_decl = sema.mod.declPtr(struct_field_ty_decl_index);
                 var buffer: Value.ToTypeBuffer = undefined;
                 break :t try struct_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
@@ -11858,7 +11870,7 @@ fn typeInfoDecls(
             "Declaration",
         )).?;
         try sema.mod.declareDeclDependency(sema.owner_decl_index, declaration_ty_decl_index);
-        try sema.ensureDeclAnalyzed(declaration_ty_decl_index);
+        try sema.ensureDeclAnalyzed(declaration_ty_decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
         const declaration_ty_decl = sema.mod.declPtr(declaration_ty_decl_index);
         var buffer: Value.ToTypeBuffer = undefined;
         break :t try declaration_ty_decl.val.toType(&buffer).copy(decls_anon_decl.arena());
@@ -13104,7 +13116,7 @@ fn addConstantMaybeRef(
         try val.copy(anon_decl.arena()),
         0, // default alignment
     );
-    return sema.analyzeDeclRef(decl);
+    return sema.analyzeDeclRef(decl, .{});
 }
 
 fn zirFieldTypeRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13527,7 +13539,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 return sema.addType(Type.initTag(.anyerror));
             const slice_val = payload_val.castTag(.slice).?.data;
             const decl_index = slice_val.ptr.pointerDecl().?;
-            try sema.ensureDeclAnalyzed(decl_index);
+            try sema.ensureDeclAnalyzed(decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
             const decl = mod.declPtr(decl_index);
             const array_val = decl.val.castTag(.aggregate).?.data;
 
@@ -14017,7 +14029,7 @@ fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         0, // default alignment
     );
 
-    return sema.analyzeDeclRef(new_decl);
+    return sema.analyzeDeclRef(new_decl, .{});
 }
 
 fn zirFrameType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -16408,7 +16420,7 @@ fn zirBuiltinExtern(
     arena_state.* = new_decl_arena.state;
     new_decl.value_arena = arena_state;
 
-    const ref = try sema.analyzeDeclRef(new_decl_index);
+    const ref = try sema.analyzeDeclRef(new_decl_index, .{});
     try sema.requireRuntimeBlock(block, src);
     return block.addBitCast(ty, ref);
 }
@@ -16733,7 +16745,7 @@ fn safetyPanic(
             try Type.Tag.array_u8.create(anon_decl.arena(), msg.len),
             try Value.Tag.bytes.create(anon_decl.arena(), msg),
             0, // default alignment
-        ));
+        ), .{});
     };
 
     const casted_msg_inst = try sema.coerce(block, Type.initTag(.const_slice_u8), msg_inst, src);
@@ -16961,7 +16973,7 @@ fn fieldPtr(
                     Type.usize,
                     try Value.Tag.int_u64.create(anon_decl.arena(), inner_ty.arrayLen()),
                     0, // default alignment
-                ));
+                ), .{});
             } else {
                 return sema.fail(
                     block,
@@ -17059,7 +17071,7 @@ fn fieldPtr(
                         try child_type.copy(anon_decl.arena()),
                         try Value.Tag.@"error".create(anon_decl.arena(), .{ .name = name }),
                         0, // default alignment
-                    ));
+                    ), .{});
                 },
                 .Union => {
                     if (child_type.getNamespace()) |namespace| {
@@ -17076,7 +17088,7 @@ fn fieldPtr(
                                 try enum_ty.copy(anon_decl.arena()),
                                 try Value.Tag.enum_field_index.create(anon_decl.arena(), field_index_u32),
                                 0, // default alignment
-                            ));
+                            ), .{});
                         }
                     }
                     return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
@@ -17097,7 +17109,7 @@ fn fieldPtr(
                         try child_type.copy(anon_decl.arena()),
                         try Value.Tag.enum_field_index.create(anon_decl.arena(), field_index_u32),
                         0, // default alignment
-                    ));
+                    ), .{});
                 },
                 .Struct, .Opaque => {
                     if (child_type.getNamespace()) |namespace| {
@@ -17302,7 +17314,7 @@ fn namespaceLookupRef(
     decl_name: []const u8,
 ) CompileError!?Air.Inst.Ref {
     const decl = (try sema.namespaceLookup(block, src, namespace, decl_name)) orelse return null;
-    return try sema.analyzeDeclRef(decl);
+    return try sema.analyzeDeclRef(decl, .{ .decl = block.src_decl.toOptional(), .src = src });
 }
 
 fn namespaceLookupVal(
@@ -17408,7 +17420,7 @@ fn structFieldPtrByIndex(
             try field.default_val.copy(anon_decl.arena()),
             ptr_ty_data.@"align",
         );
-        return sema.analyzeDeclRef(decl);
+        return sema.analyzeDeclRef(decl, .{});
     }
 
     if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
@@ -18146,7 +18158,7 @@ fn coerce(
             if (inst_ty.zigTypeTag() == .Fn) {
                 const fn_val = try sema.resolveConstValue(block, inst_src, inst);
                 const fn_decl = fn_val.castTag(.function).?.data.owner_decl;
-                const inst_as_ptr = try sema.analyzeDeclRef(fn_decl);
+                const inst_as_ptr = try sema.analyzeDeclRef(fn_decl, .{});
                 return sema.coerce(block, dest_ty, inst_as_ptr, inst_src);
             }
 
@@ -20221,7 +20233,7 @@ fn analyzeDeclVal(
     if (sema.decl_val_table.get(decl_index)) |result| {
         return result;
     }
-    const decl_ref = try sema.analyzeDeclRef(decl_index);
+    const decl_ref = try sema.analyzeDeclRef(decl_index, .{ .decl = block.src_decl.toOptional(), .src = src });
     const result = try sema.analyzeLoad(block, src, decl_ref, src);
     if (Air.refToIndex(result)) |index| {
         if (sema.air_instructions.items(.tag)[index] == .constant) {
@@ -20231,8 +20243,8 @@ fn analyzeDeclVal(
     return result;
 }
 
-fn ensureDeclAnalyzed(sema: *Sema, decl_index: Decl.Index) CompileError!void {
-    sema.mod.ensureDeclAnalyzed(decl_index) catch |err| {
+fn ensureDeclAnalyzed(sema: *Sema, decl_index: Decl.Index, referenced_by: Decl.ReferencedBy) CompileError!void {
+    sema.mod.ensureDeclAnalyzed(decl_index, referenced_by) catch |err| {
         if (sema.owner_func) |owner_func| {
             owner_func.state = .dependency_failure;
         } else {
@@ -20272,9 +20284,9 @@ fn optRefValue(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type, opt_val: ?
     return result;
 }
 
-fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref {
+fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index, referenced_by: Decl.ReferencedBy) CompileError!Air.Inst.Ref {
     try sema.mod.declareDeclDependency(sema.owner_decl_index, decl_index);
-    try sema.ensureDeclAnalyzed(decl_index);
+    try sema.ensureDeclAnalyzed(decl_index, referenced_by);
 
     const decl = sema.mod.declPtr(decl_index);
     const decl_tv = try decl.typedValue();
@@ -20313,7 +20325,7 @@ fn analyzeRef(
             try operand_ty.copy(anon_decl.arena()),
             try val.copy(anon_decl.arena()),
             0, // default alignment
-        ));
+        ), .{});
     }
 
     try sema.requireRuntimeBlock(block, src);

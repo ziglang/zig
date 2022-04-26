@@ -386,6 +386,7 @@ pub const Decl = struct {
     /// the contents hash, followed by line, name, etc.
     /// For anonymous decls and also the root Decl for a File, this is 0.
     zir_decl_index: Zir.Inst.Index,
+    first_referenced_by: ReferencedBy = .{},
 
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
     /// the function type is analyzed with this set to `in_progress`, however, the semantic
@@ -471,6 +472,11 @@ pub const Decl = struct {
     /// The shallow set of other decls whose typed_value changing indicates that this Decl's
     /// typed_value may need to be regenerated.
     dependencies: DepsTable = .{},
+
+    pub const ReferencedBy = struct {
+        decl: OptionalIndex = .none,
+        src: LazySrcLoc = .unneeded,
+    };
 
     pub const Index = enum(u32) {
         _,
@@ -1953,7 +1959,15 @@ pub const EmbedFile = struct {
 pub const ErrorMsg = struct {
     src_loc: SrcLoc,
     msg: []const u8,
-    notes: []ErrorMsg = &.{},
+    notes: []Note = &.{},
+    /// `msg` is the name of the declaration that referenced the failed decl
+    /// and is managed externally.
+    reference_trace: []Note = &.{},
+
+    pub const Note = struct {
+        src_loc: SrcLoc,
+        msg: []const u8,
+    };
 
     pub fn create(
         gpa: Allocator,
@@ -1988,9 +2002,10 @@ pub const ErrorMsg = struct {
 
     pub fn deinit(err_msg: *ErrorMsg, gpa: Allocator) void {
         for (err_msg.notes) |*note| {
-            note.deinit(gpa);
+            gpa.free(note.msg);
         }
         gpa.free(err_msg.notes);
+        gpa.free(err_msg.reference_trace);
         gpa.free(err_msg.msg);
         err_msg.* = undefined;
     }
@@ -3534,7 +3549,7 @@ pub fn mapOldZirToNew(
 /// However the resolution status of the Type may not be fully resolved.
 /// For example an inferred error set is not resolved until after `analyzeFnBody`.
 /// is called.
-pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
+pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index, referenced_by: Decl.ReferencedBy) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3575,7 +3590,10 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             break :blk true;
         },
 
-        .unreferenced => false,
+        .unreferenced => blk: {
+            decl.first_referenced_by = referenced_by;
+            break :blk false;
+        },
     };
 
     var decl_prog_node = mod.sema_prog_node.start(mem.sliceTo(decl.name, 0), 0);

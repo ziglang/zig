@@ -342,10 +342,17 @@ pub const AllErrors = struct {
             /// Does not include the trailing newline.
             source_line: ?[]const u8,
             notes: []Message = &.{},
+            reference_trace: []Message = &.{},
         },
         plain: struct {
             msg: []const u8,
             notes: []Message = &.{},
+        },
+        ref: struct {
+            decl_name: []const u8,
+            src_path: []const u8,
+            line: u32,
+            column: u32,
         },
 
         pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
@@ -395,6 +402,21 @@ pub const AllErrors = struct {
                     for (src.notes) |note| {
                         try note.renderToStdErrInner(ttyconf, stderr_file, "note:", .Cyan, indent);
                     }
+                    if (src.reference_trace.len != 0) {
+                        ttyconf.setColor(stderr, .Reset);
+                        ttyconf.setColor(stderr, .Dim);
+                        try stderr.print("referenced by:\n", .{});
+                        for (src.reference_trace) |reference| {
+                            try stderr.print("    {s}: {s}:{d}:{d}\n", .{
+                                reference.ref.decl_name,
+                                reference.ref.src_path,
+                                reference.ref.line + 1,
+                                reference.ref.column + 1,
+                            });
+                        }
+                        try stderr.writeByte('\n');
+                        ttyconf.setColor(stderr, .Reset);
+                    }
                 },
                 .plain => |plain| {
                     ttyconf.setColor(stderr, color);
@@ -407,6 +429,7 @@ pub const AllErrors = struct {
                         try note.renderToStdErrInner(ttyconf, stderr_file, "error:", .Red, indent + 4);
                     }
                 },
+                .ref => unreachable,
             }
         }
     };
@@ -448,6 +471,22 @@ pub const AllErrors = struct {
             });
             return;
         }
+        const reference_trace = try allocator.alloc(Message, module_err_msg.reference_trace.len);
+        for (reference_trace) |*reference, i| {
+            const module_reference = module_err_msg.reference_trace[i];
+            const source = try module_reference.src_loc.file_scope.getSource(module.gpa);
+            const byte_offset = try module_reference.src_loc.byteOffset(module.gpa);
+            const loc = std.zig.findLineColumn(source.bytes, byte_offset);
+            const file_path = try module_reference.src_loc.file_scope.fullPath(allocator);
+            reference.* = .{
+                .ref = .{
+                    .src_path = file_path,
+                    .decl_name = try allocator.dupe(u8, module_reference.msg),
+                    .line = @intCast(u32, loc.line),
+                    .column = @intCast(u32, loc.column),
+                },
+            };
+        }
         const source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
         const byte_offset = try module_err_msg.src_loc.byteOffset(module.gpa);
         const loc = std.zig.findLineColumn(source.bytes, byte_offset);
@@ -460,6 +499,7 @@ pub const AllErrors = struct {
                 .line = @intCast(u32, loc.line),
                 .column = @intCast(u32, loc.column),
                 .notes = notes,
+                .reference_trace = reference_trace,
                 .source_line = try allocator.dupe(u8, loc.source_line),
             },
         });
@@ -587,6 +627,7 @@ pub const AllErrors = struct {
                     .msg = try arena.dupe(u8, plain.msg),
                     .notes = try dupeList(plain.notes, arena),
                 } },
+                .ref => unreachable,
             };
         }
         return duped_list;
@@ -2564,7 +2605,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             const err_msg = Module.ErrorMsg{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
-                .notes = try self.gpa.alloc(Module.ErrorMsg, module.compile_log_decls.count() - 1),
+                .notes = try self.gpa.alloc(Module.ErrorMsg.Note, module.compile_log_decls.count() - 1),
             };
             defer self.gpa.free(err_msg.notes);
 
@@ -2821,7 +2862,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
 
             const module = comp.bin_file.options.module.?;
-            module.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
+            module.ensureDeclAnalyzed(decl_index, .{}) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
@@ -4762,6 +4803,7 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
                 .plain => |plain| {
                     log.err("{s}", .{plain.msg});
                 },
+                .ref => unreachable,
             }
         }
         return error.BuildingLibCObjectFailed;
