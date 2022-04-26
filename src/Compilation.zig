@@ -163,8 +163,8 @@ emit_llvm_bc: ?EmitLoc,
 emit_analysis: ?EmitLoc,
 emit_docs: ?EmitLoc,
 
-work_queue_wait_group: WaitGroup,
-astgen_wait_group: WaitGroup,
+work_queue_wait_group: WaitGroup = .{},
+astgen_wait_group: WaitGroup = .{},
 
 /// Exported symbol names. This is only for when the target is wasm.
 /// TODO: Remove this when Stage2 becomes the default compiler as it will already have this information.
@@ -1674,18 +1674,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .test_evented_io = options.test_evented_io,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
-            .work_queue_wait_group = undefined,
-            .astgen_wait_group = undefined,
         };
         break :comp comp;
     };
     errdefer comp.destroy();
-
-    try comp.work_queue_wait_group.init();
-    errdefer comp.work_queue_wait_group.deinit();
-
-    try comp.astgen_wait_group.init();
-    errdefer comp.astgen_wait_group.deinit();
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -1893,9 +1885,6 @@ pub fn destroy(self: *Compilation) void {
 
     self.cache_parent.manifest_dir.close();
     if (self.owned_link_dir) |*dir| dir.close();
-
-    self.work_queue_wait_group.deinit();
-    self.astgen_wait_group.deinit();
 
     for (self.export_symbol_names.items) |symbol_name| {
         gpa.free(symbol_name);
@@ -4701,6 +4690,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
         \\pub const valgrind_support = {};
+        \\pub const sanitize_thread = {};
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
@@ -4713,6 +4703,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         comp.bin_file.options.link_libcpp,
         comp.bin_file.options.error_return_tracing,
         comp.bin_file.options.valgrind,
+        comp.bin_file.options.tsan,
         comp.bin_file.options.pic,
         comp.bin_file.options.pie,
         comp.bin_file.options.strip,

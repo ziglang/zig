@@ -809,7 +809,7 @@ const PosixImpl = struct {
         //
         // The pending count increment in wait() must also now use SeqCst for the update + this pending load
         // to be in the same modification order as our load isn't using Release/Acquire to guarantee it.
-        std.atomic.fence(.SeqCst);
+        bucket.pending.fence(.SeqCst);
         if (bucket.pending.load(.Monotonic) == 0) {
             return;
         }

@@ -10,10 +10,8 @@ const assert = std.debug.assert;
 const target = builtin.target;
 const Atomic = std.atomic.Atomic;
 
-pub const AutoResetEvent = @import("Thread/AutoResetEvent.zig");
 pub const Futex = @import("Thread/Futex.zig");
 pub const ResetEvent = @import("Thread/ResetEvent.zig");
-pub const StaticResetEvent = @import("Thread/StaticResetEvent.zig");
 pub const Mutex = @import("Thread/Mutex.zig");
 pub const Semaphore = @import("Thread/Semaphore.zig");
 pub const Condition = @import("Thread/Condition.zig");
@@ -1078,16 +1076,12 @@ test "setName, getName" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     const Context = struct {
-        start_wait_event: ResetEvent = undefined,
-        test_done_event: ResetEvent = undefined,
+        start_wait_event: ResetEvent = .{},
+        test_done_event: ResetEvent = .{},
+        thread_done_event: ResetEvent = .{},
 
         done: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(false),
         thread: Thread = undefined,
-
-        fn init(self: *@This()) !void {
-            try self.start_wait_event.init();
-            try self.test_done_event.init();
-        }
 
         pub fn run(ctx: *@This()) !void {
             // Wait for the main thread to have set the thread field in the context.
@@ -1104,16 +1098,14 @@ test "setName, getName" {
             // Signal our test is done
             ctx.test_done_event.set();
 
-            while (!ctx.done.load(.SeqCst)) {
-                std.time.sleep(5 * std.time.ns_per_ms);
-            }
+            // wait for the thread to property exit
+            ctx.thread_done_event.wait();
         }
     };
 
     var context = Context{};
-    try context.init();
-
     var thread = try spawn(.{}, Context.run, .{&context});
+
     context.thread = thread;
     context.start_wait_event.set();
     context.test_done_event.wait();
@@ -1139,16 +1131,14 @@ test "setName, getName" {
         },
     }
 
-    context.done.store(true, .SeqCst);
+    context.thread_done_event.set();
     thread.join();
 }
 
 test "std.Thread" {
     // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
-    _ = AutoResetEvent;
     _ = Futex;
     _ = ResetEvent;
-    _ = StaticResetEvent;
     _ = Mutex;
     _ = Semaphore;
     _ = Condition;
@@ -1163,9 +1153,7 @@ test "Thread.join" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event: ResetEvent = undefined;
-    try event.init();
-    defer event.deinit();
+    var event = ResetEvent{};
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.join();
@@ -1177,9 +1165,7 @@ test "Thread.detach" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event: ResetEvent = undefined;
-    try event.init();
-    defer event.deinit();
+    var event = ResetEvent{};
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.detach();

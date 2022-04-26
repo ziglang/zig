@@ -362,7 +362,7 @@ const PanicSwitch = struct {
     /// Updated atomically before taking the panic_mutex.
     /// In recoverable cases, the program will not abort
     /// until all panicking threads have dumped their traces.
-    var panicking: u8 = 0;
+    var panicking = std.atomic.Atomic(u8).init(0);
 
     // Locked to avoid interleaving panic messages from multiple threads.
     var panic_mutex = std.Thread.Mutex{};
@@ -430,7 +430,7 @@ const PanicSwitch = struct {
         };
         state.* = new_state;
 
-        _ = @atomicRmw(u8, &panicking, .Add, 1, .SeqCst);
+        _ = panicking.fetchAdd(1, .SeqCst);
 
         state.recover_stage = .release_ref_count;
 
@@ -512,13 +512,14 @@ const PanicSwitch = struct {
     noinline fn releaseRefCount(state: *volatile PanicState) noreturn {
         state.recover_stage = .abort;
 
-        if (@atomicRmw(u8, &panicking, .Sub, 1, .SeqCst) != 1) {
+        if (panicking.fetchSub(1, .SeqCst) != 1) {
             // Another thread is panicking, wait for the last one to finish
             // and call abort()
 
             // Sleep forever without hammering the CPU
-            var event: std.Thread.StaticResetEvent = .{};
-            event.wait();
+            var futex = std.atomic.Atomic(u32).init(0);
+            while (true) std.Thread.Futex.wait(&futex, 0);
+
             // This should be unreachable, recurse into recoverAbort.
             @panic("event.wait() returned");
         }
