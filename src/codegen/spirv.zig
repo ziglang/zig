@@ -341,7 +341,7 @@ pub const DeclGen = struct {
                 // We can just use toSignedInt/toUnsignedInt here as it returns u64 - a type large enough to hold any
                 // SPIR-V native type (up to i/u64 with Int64). If SPIR-V ever supports native ints of a larger size, this
                 // might need to be updated.
-                assert(self.largestSupportedIntBits() <= std.meta.bitCount(u64));
+                assert(self.largestSupportedIntBits() <= @bitSizeOf(u64));
 
                 // Note, value is required to be sign-extended, so we don't need to mask off the upper bits.
                 // See https://www.khronos.org/registry/SPIR-V/specs/unified1/SPIRV.html#Literal

@@ -488,7 +488,7 @@ test "Atomic.bitSet" {
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(0);
-            const bit_array = @as([std.meta.bitCount(Int)]void, undefined);
+            const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
             for (bit_array) |_, bit_index| {
                 const bit = @intCast(std.math.Log2Int(Int), bit_index);
@@ -518,7 +518,7 @@ test "Atomic.bitReset" {
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(0);
-            const bit_array = @as([std.meta.bitCount(Int)]void, undefined);
+            const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
             for (bit_array) |_, bit_index| {
                 const bit = @intCast(std.math.Log2Int(Int), bit_index);
@@ -549,7 +549,7 @@ test "Atomic.bitToggle" {
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(0);
-            const bit_array = @as([std.meta.bitCount(Int)]void, undefined);
+            const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
             for (bit_array) |_, bit_index| {
                 const bit = @intCast(std.math.Log2Int(Int), bit_index);
