@@ -24300,7 +24300,7 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdLog2:
             return ir_add_error_node(ira, source_node,
                 buf_sprintf("compiler bug: TODO: implement '%s' for type '%s'. See https://github.com/ziglang/zig/issues/4026",
-                    float_op_to_name(fop), buf_ptr(&float_type->name)));
+                    float_un_op_to_name(fop), buf_ptr(&float_type->name)));
         default:
             zig_unreachable();
         }
@@ -24344,7 +24344,7 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdLog2:
             return ir_add_error_node(ira, source_node,
                 buf_sprintf("compiler bug: TODO: implement '%s' for type '%s'. See https://github.com/ziglang/zig/issues/4026",
-                    float_op_to_name(fop), buf_ptr(&float_type->name)));
+                    float_un_op_to_name(fop), buf_ptr(&float_type->name)));
         default:
             zig_unreachable();
         }

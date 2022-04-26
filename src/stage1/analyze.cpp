@@ -10375,7 +10375,7 @@ void ZigValue::dump() {
 
 // float ops that take a single argument
 //TODO Powi, Pow, minnum, maxnum, maximum, minimum, copysign, lround, llround, lrint, llrint
-const char *float_op_to_name(BuiltinFnId op) {
+const char *float_un_op_to_name(BuiltinFnId op) {
     switch (op) {
     case BuiltinFnIdSqrt:
         return "sqrt";
@@ -10405,6 +10405,8 @@ const char *float_op_to_name(BuiltinFnId op) {
         return "nearbyint";
     case BuiltinFnIdRound:
         return "round";
+    case BuiltinFnIdMulAdd:
+        return "fma";
     default:
         zig_unreachable();
     }
