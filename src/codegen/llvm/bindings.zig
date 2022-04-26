@@ -295,6 +295,9 @@ pub const Type = opaque {
 
     pub const countStructElementTypes = LLVMCountStructElementTypes;
     extern fn LLVMCountStructElementTypes(StructTy: *const Type) c_uint;
+
+    pub const getVectorSize = LLVMGetVectorSize;
+    extern fn LLVMGetVectorSize(VectorTy: *const Type) c_uint;
 };
 
 pub const Module = opaque {
@@ -672,6 +675,14 @@ pub const Builder = opaque {
         VecVal: *const Value,
         EltVal: *const Value,
         Index: *const Value,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildVectorSplat = LLVMBuildVectorSplat;
+    extern fn LLVMBuildVectorSplat(
+        *const Builder,
+        EltVal: *const Value,
+        ElementCount: c_uint,
         Name: [*:0]const u8,
     ) *const Value;
 
