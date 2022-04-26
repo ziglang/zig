@@ -1621,6 +1621,11 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
                 else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
             }
         },
+        .Vector => |vectorInfo| {
+            return error{ UnexpectedEndOfJson, UnexpectedToken } ||
+                ParseInternalErrorImpl(vectorInfo.child, inferred_types ++ [_]type{T}) ||
+                UnescapeValidStringError || TokenStream.Error;
+        },
         else => return error{},
     }
     unreachable;
@@ -1905,6 +1910,28 @@ fn parseInternal(
                 else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
             }
         },
+        .Vector => |vectorInfo| {
+            switch (token) {
+                .ArrayBegin => {
+                    var vec = std.meta.Vector(vectorInfo.len, vectorInfo.child){};
+                    var idx: usize = 0;
+                    while (true) : (idx += 1) {
+                        const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
+                        switch (tok) {
+                            .ArrayEnd => break,
+                            else => {},
+                        }
+
+                        //we ignore extra data, should this be an option to error or ignore?
+                        if (idx < vectorInfo.len) {
+                            vec[idx] = try parseInternal(vectorInfo.child, tok, tokens, options);
+                        }
+                    }
+                    return vec;
+                },
+                else => return error.UnexpectedToken,
+            }
+        },
         else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
     }
     unreachable;
@@ -1959,6 +1986,12 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
                 parseFree(arrayInfo.child, v, options);
             }
         },
+        .Vector => |vectorInfo| {
+            comptime var idx: usize = 0;
+            inline while (idx < vectorInfo.len) : (idx += 1) {
+                parseFree(vectorInfo.child, value[idx], options);
+            }
+        },
         .Pointer => |ptrInfo| {
             const allocator = options.allocator orelse unreachable;
             switch (ptrInfo.size) {
@@ -1992,6 +2025,11 @@ test "parse" {
     try testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &TokenStream.init("\"foo\""), ParseOptions{}));
     try testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &TokenStream.init("[102, 111, 111]"), ParseOptions{}));
     try testing.expectEqual(@as([0]u8, undefined), try parse([0]u8, &TokenStream.init("[]"), ParseOptions{}));
+}
+
+test "parse into vector" {
+    try testing.expectEqual(std.meta.Vector(2, f64){-42.0, 42.0}, try parse(std.meta.Vector(2, f64), &TokenStream.init("[-42.0, 42.0]"), ParseOptions{}));
+    try testing.expectEqual(std.meta.Vector(3, u8){102, 103, 111}, try parse(std.meta.Vector(3, u8), &TokenStream.init("[102, 103, 111]"), ParseOptions{}));
 }
 
 test "parse into enum" {
