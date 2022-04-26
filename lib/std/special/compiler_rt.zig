@@ -731,8 +731,13 @@ comptime {
             @export(fmodx, .{ .name = "fmodl", .linkage = linkage });
         } else if (long_double_is_f128) {
             @export(fmodq, .{ .name = "fmodl", .linkage = linkage });
+        } else {
+            @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
         }
-        @export(fmodx, .{ .name = "fmodx", .linkage = linkage });
+        if (long_double_is_f80 or builtin.zig_backend == .stage1) {
+            // TODO: https://github.com/ziglang/zig/issues/11161
+            @export(fmodx, .{ .name = "fmodx", .linkage = linkage });
+        }
         @export(fmodq, .{ .name = "fmodq", .linkage = linkage });
 
         @export(floorf, .{ .name = "floorf", .linkage = linkage });
@@ -889,6 +894,12 @@ fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
 
 const fmodq = @import("compiler_rt/fmodq.zig").fmodq;
 const fmodx = @import("compiler_rt/fmodx.zig").fmodx;
+fn fmodl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
+    return @floatCast(c_longdouble, fmodq(x, y));
+}
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
