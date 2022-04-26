@@ -743,10 +743,14 @@ comptime {
         @export(floorf, .{ .name = "floorf", .linkage = linkage });
         @export(floor, .{ .name = "floor", .linkage = linkage });
         @export(floorl, .{ .name = "floorl", .linkage = linkage });
+        @export(floorq, .{ .name = "floorq", .linkage = linkage });
 
         @export(ceilf, .{ .name = "ceilf", .linkage = linkage });
         @export(ceil, .{ .name = "ceil", .linkage = linkage });
         @export(ceill, .{ .name = "ceill", .linkage = linkage });
+        @export(ceilq, .{ .name = "ceilq", .linkage = linkage });
+
+        @export(fabsq, .{ .name = "fabsq", .linkage = linkage });
 
         @export(fma, .{ .name = "fma", .linkage = linkage });
         @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
@@ -761,6 +765,9 @@ comptime {
         } else {
             @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
         }
+
+        @export(truncq, .{ .name = "truncq", .linkage = .Strong });
+        @export(roundq, .{ .name = "roundq", .linkage = .Strong });
     }
 
     if (arch.isSPARC()) {
@@ -878,6 +885,9 @@ fn floorl(x: c_longdouble) callconv(.C) c_longdouble {
     }
     return math.floor(x);
 }
+fn floorq(x: f128) callconv(.C) f128 {
+    return math.floor(x);
+}
 
 fn ceilf(x: f32) callconv(.C) f32 {
     return math.ceil(x);
@@ -891,6 +901,9 @@ fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
     }
     return math.ceil(x);
 }
+fn ceilq(x: f128) callconv(.C) f128 {
+    return math.ceil(x);
+}
 
 const fmodq = @import("compiler_rt/fmodq.zig").fmodq;
 const fmodx = @import("compiler_rt/fmodx.zig").fmodx;
@@ -899,6 +912,18 @@ fn fmodl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {
         @panic("TODO implement this");
     }
     return @floatCast(c_longdouble, fmodq(x, y));
+}
+
+fn roundq(a: f128) callconv(.C) f128 {
+    return math.round(a);
+}
+
+fn truncq(a: f128) callconv(.C) f128 {
+    return math.trunc(a);
+}
+
+fn fabsq(a: f128) callconv(.C) f128 {
+    return math.fabs(a);
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
