@@ -237,10 +237,10 @@ const TestManifest = struct {
         }
     };
 
-    fn ConfigValueIterator(comptime T: type, comptime ParseFn: type) type {
+    fn ConfigValueIterator(comptime T: type) type {
         return struct {
             inner: std.mem.SplitIterator(u8),
-            parse_fn: ParseFn,
+            parse_fn: ParseFn(T),
 
             fn next(self: *@This()) ?T {
                 const next_raw = self.inner.next() orelse return null;
@@ -320,26 +320,32 @@ const TestManifest = struct {
         return manifest;
     }
 
+    fn getConfigForKeyCustomParser(
+        self: TestManifest,
+        key: []const u8,
+        comptime T: type,
+        parse_fn: ParseFn(T),
+    ) ConfigValueIterator(T) {
+        const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.@"type", key);
+        return ConfigValueIterator(T){
+            .inner = std.mem.split(u8, bytes, ","),
+            .parse_fn = parse_fn,
+        };
+    }
+
     fn getConfigForKey(
         self: TestManifest,
         key: []const u8,
         comptime T: type,
-        parse_fn: fn ([]const u8) ?T,
-    ) ConfigValueIterator(T, @TypeOf(parse_fn)) {
-        const delimiter = ",";
-        var inner: std.mem.SplitIterator(u8) = if (self.config_map.get(key)) |bytes| .{
-            .buffer = bytes,
-            .delimiter = delimiter,
-            .index = 0,
-        } else .{
-            .buffer = undefined,
-            .delimiter = delimiter,
-            .index = null,
-        };
-        return ConfigValueIterator(T, @TypeOf(parse_fn)){
-            .inner = inner,
-            .parse_fn = parse_fn,
-        };
+    ) ConfigValueIterator(T) {
+        return self.getConfigForKeyCustomParser(key, T, getDefaultParser(T));
+    }
+
+    fn getConfigForKeyAssertSingle(self: TestManifest, key: []const u8, comptime T: type) T {
+        var it = self.getConfigForKey(key, T);
+        const res = it.next().?;
+        assert(it.next() == null);
+        return res;
     }
 
     fn trailing(self: TestManifest) TrailingIterator {
@@ -355,6 +361,40 @@ const TestManifest = struct {
             try out.append(line);
         }
         return out.toOwnedSlice();
+    }
+
+    fn ParseFn(comptime T: type) type {
+        return fn ([]const u8) ?T;
+    }
+
+    fn getDefaultParser(comptime T: type) ParseFn(T) {
+        switch (@typeInfo(T)) {
+            .Int => return struct {
+                fn parse(str: []const u8) ?T {
+                    return std.fmt.parseInt(T, str, 0) catch null;
+                }
+            }.parse,
+            .Bool => return struct {
+                fn parse(str: []const u8) ?T {
+                    const as_int = std.fmt.parseInt(u1, str, 0) catch return null;
+                    return as_int > 0;
+                }
+            }.parse,
+            .Enum => return struct {
+                fn parse(str: []const u8) ?T {
+                    return std.meta.stringToEnum(T, str);
+                }
+            }.parse,
+            .Struct => if (comptime std.mem.eql(u8, @typeName(T), "CrossTarget")) return struct {
+                fn parse(str: []const u8) ?T {
+                    var opts = CrossTarget.ParseOptions{
+                        .arch_os_abi = str,
+                    };
+                    return CrossTarget.parse(opts) catch null;
+                }
+            }.parse else @compileError("no default parser for " ++ @typeName(T)),
+            else => @compileError("no default parser for " ++ @typeName(T)),
+        }
     }
 };
 
@@ -401,10 +441,6 @@ pub const TestContext = struct {
         stage1,
         stage2,
         llvm,
-
-        fn parse(str: []const u8) ?Backend {
-            return std.meta.stringToEnum(Backend, str);
-        }
     };
 
     /// A `Case` consists of a list of `Update`. The same `Compilation` is used for each
@@ -899,7 +935,7 @@ pub const TestContext = struct {
 
     pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.Dir, strategy: Strategy) void {
         var current_file: []const u8 = "none";
-        addTestCasesFromDirInner(ctx, dir, strategy, &current_file) catch |err| {
+        ctx.addTestCasesFromDirInner(dir, strategy, &current_file) catch |err| {
             std.debug.panic("test harness failed to process file '{s}': {s}\n", .{
                 current_file, @errorName(err),
             });
@@ -974,11 +1010,10 @@ pub const TestContext = struct {
         /// that if any errors occur the caller knows it happened during this file.
         current_file: *[]const u8,
     ) !void {
-        var opt_case: ?*Case = null;
+        var cases = std.ArrayList(*Case).init(ctx.arena);
 
         var it = dir.iterate();
         var filenames = std.ArrayList([]const u8).init(ctx.arena);
-        defer filenames.deinit();
 
         while (try it.next()) |entry| {
             if (entry.kind != .File) continue;
@@ -1021,7 +1056,7 @@ pub const TestContext = struct {
                     if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
 
                     if (strategy == .independent)
-                        opt_case = null; // Generate a new independent test case for this update
+                        cases.clearRetainingCapacity(); // Generate a new independent test case for this update
                 }
             }
             prev_filename = filename;
@@ -1032,59 +1067,53 @@ pub const TestContext = struct {
             // Parse the manifest
             var manifest = try TestManifest.parse(ctx.arena, src);
 
-            switch (manifest.@"type") {
-                .@"error" => {
-                    const case = opt_case orelse case: {
+            if (cases.items.len == 0) {
+                var backends = manifest.getConfigForKey("backend", Backend);
+                var targets = manifest.getConfigForKey("target", CrossTarget);
+                const is_test = manifest.getConfigForKeyAssertSingle("is_test", bool);
+                const output_mode = manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+
+                // Cross-product to get all possible test combinations
+                while (backends.next()) |backend| {
+                    while (targets.next()) |target| {
                         const case = try ctx.cases.addOne();
-                        const backend = manifest.getConfigForKey("backend", Backend, Backend.parse).next().?;
                         case.* = .{
                             .name = "none",
-                            .target = .{},
+                            .target = target,
                             .backend = backend,
                             .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
-                            .is_test = false,
-                            .output_mode = .Obj,
+                            .is_test = is_test,
+                            .output_mode = output_mode,
                             .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
                         };
-                        opt_case = case;
-                        break :case case;
-                    };
-                    const errors = try manifest.trailingAlloc(ctx.arena);
-
-                    switch (strategy) {
-                        .independent => {
-                            case.addError(src, errors);
-                        },
-                        .incremental => {
-                            case.addErrorNamed("update", src, errors);
-                        },
+                        try cases.append(case);
                     }
-                },
-                .run => {
-                    const case = opt_case orelse case: {
-                        const case = try ctx.cases.addOne();
-                        const backend = manifest.getConfigForKey("backend", Backend, Backend.parse).next().?;
-                        case.* = .{
-                            .name = "none",
-                            .target = .{},
-                            .backend = backend,
-                            .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
-                            .is_test = false,
-                            .output_mode = .Exe,
-                            .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
-                        };
-                        opt_case = case;
-                        break :case case;
-                    };
+                }
+            }
 
-                    var output = std.ArrayList(u8).init(ctx.arena);
-                    var trailing_it = manifest.trailing();
-                    while (trailing_it.next()) |line| {
-                        try output.appendSlice(line);
-                    }
-                    case.addCompareOutput(src, output.toOwnedSlice());
-                },
-                .cli => @panic("TODO cli tests"),
+            for (cases.items) |case| {
+                switch (manifest.@"type") {
+                    .@"error" => {
+                        const errors = try manifest.trailingAlloc(ctx.arena);
+                        switch (strategy) {
+                            .independent => {
+                                case.addError(src, errors);
+                            },
+                            .incremental => {
+                                case.addErrorNamed("update", src, errors);
+                            },
+                        }
+                    },
+                    .run => {
+                        var output = std.ArrayList(u8).init(ctx.arena);
+                        var trailing_it = manifest.trailing();
+                        while (trailing_it.next()) |line| {
+                            try output.appendSlice(line);
+                        }
+                        case.addCompareOutput(src, output.toOwnedSlice());
+                    },
+                    .cli => @panic("TODO cli tests"),
+                }
             }
         }
     }
