@@ -9,6 +9,4 @@ inline fn add(a: usize, b: usize, c: usize) usize {
 }
 
 // run
-// backend=stage2
-// strategy=incremental
 //

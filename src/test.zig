@@ -80,7 +80,7 @@ test {
         var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
         defer dir.close();
 
-        ctx.addTestCasesFromDir(dir);
+        ctx.addTestCasesFromDir(dir, .incremental);
     }
 
     try @import("test_cases").addCases(&ctx);
@@ -834,10 +834,6 @@ pub const TestContext = struct {
         /// Execute all tests as incremental updates to a single compilation. Explicitly
         /// incremental tests ("foo.0.zig", "foo.1.zig", etc.) still execute in order
         incremental,
-
-        fn parse(str: []const u8) ?Strategy {
-            return std.meta.stringToEnum(Strategy, str);
-        }
     };
 
     /// Adds a compile-error test for each file in the provided directory, using the
@@ -866,9 +862,9 @@ pub const TestContext = struct {
         };
     }
 
-    pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.Dir) void {
+    pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.Dir, strategy: Strategy) void {
         var current_file: []const u8 = "none";
-        addTestCasesFromDirInner(ctx, dir, &current_file) catch |err| {
+        addTestCasesFromDirInner(ctx, dir, strategy, &current_file) catch |err| {
             std.debug.panic("test harness failed to process file '{s}': {s}\n", .{
                 current_file, @errorName(err),
             });
@@ -938,6 +934,7 @@ pub const TestContext = struct {
     fn addTestCasesFromDirInner(
         ctx: *TestContext,
         dir: std.fs.Dir,
+        strategy: Strategy,
         /// This is kept up to date with the currently being processed file so
         /// that if any errors occur the caller knows it happened during this file.
         current_file: *[]const u8,
@@ -988,8 +985,8 @@ pub const TestContext = struct {
                     // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
                     if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
 
-                    // if (strategy == .independent)
-                    //     opt_case = null; // Generate a new independent test case for this update
+                    if (strategy == .independent)
+                        opt_case = null; // Generate a new independent test case for this update
                 }
             }
             prev_filename = filename;
@@ -999,13 +996,12 @@ pub const TestContext = struct {
 
             // Parse the manifest
             var manifest = try TestManifest.parse(ctx.arena, src);
-            const strategy = manifest.getConfigForKey("strategy", Strategy, Strategy.parse).next().?;
-            const backend = manifest.getConfigForKey("backend", Backend, Backend.parse).next().?;
 
             switch (manifest.@"type") {
                 .@"error" => {
                     const case = opt_case orelse case: {
                         const case = try ctx.cases.addOne();
+                        const backend = manifest.getConfigForKey("backend", Backend, Backend.parse).next().?;
                         case.* = .{
                             .name = "none",
                             .target = .{},
@@ -1032,6 +1028,7 @@ pub const TestContext = struct {
                 .run => {
                     const case = opt_case orelse case: {
                         const case = try ctx.cases.addOne();
+                        const backend = manifest.getConfigForKey("backend", Backend, Backend.parse).next().?;
                         case.* = .{
                             .name = "none",
                             .target = .{},

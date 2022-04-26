@@ -8,5 +8,4 @@ fn add(a: u32, b: u32) void {
 
 // run
 // backend=stage2
-// strategy=incremental
 //
