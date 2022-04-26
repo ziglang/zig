@@ -72,6 +72,17 @@ test {
         }
     }
 
+    {
+        const dir_path = try std.fs.path.join(arena, &.{
+            std.fs.path.dirname(@src().file).?, "..", "test", "incremental",
+        });
+
+        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+        defer dir.close();
+
+        ctx.addTestCasesFromDir(dir);
+    }
+
     try @import("test_cases").addCases(&ctx);
 
     try ctx.run();
@@ -154,6 +165,125 @@ const ErrorMsg = union(enum) {
     }
 };
 
+/// Manifest syntax example:
+/// (see https://github.com/ziglang/zig/issues/11288)
+///
+/// error
+/// backend=stage1,stage2
+/// output_mode=exe
+///
+/// :3:19: error: foo
+///
+/// run
+/// target=x86_64-linux,aarch64-macos
+///
+/// I am expected stdout! Hello!
+///
+/// cli
+///
+/// build test
+const TestManifest = struct {
+    @"type": Type,
+    config_map: std.StringHashMap([]const u8),
+    trailing_bytes: []const u8 = "",
+
+    const Type = enum {
+        @"error",
+        run,
+        cli,
+    };
+
+    const TrailingIterator = struct {
+        inner: std.mem.TokenIterator(u8),
+
+        fn next(self: *TrailingIterator) ?[]const u8 {
+            const next_inner = self.inner.next() orelse return null;
+            return std.mem.trim(u8, next_inner, " \t");
+        }
+    };
+
+    fn ConfigValueIterator(comptime T: type, comptime ParseFn: type) type {
+        return struct {
+            inner: std.mem.SplitIterator(u8),
+            parse_fn: ParseFn,
+
+            fn next(self: *@This()) ?T {
+                const next_raw = self.inner.next() orelse return null;
+                return self.parse_fn(next_raw);
+            }
+        };
+    }
+
+    fn parse(arena: Allocator, bytes: []const u8) !TestManifest {
+        var it = std.mem.tokenize(u8, bytes, "\r\n");
+
+        // First line is the test type
+        const tt: Type = blk: {
+            const line = it.next() orelse return error.MissingTestCaseType;
+            const raw = std.mem.trim(u8, line[2..], " \t");
+            if (std.mem.eql(u8, raw, "error")) {
+                break :blk .@"error";
+            } else if (std.mem.eql(u8, raw, "run")) {
+                break :blk .run;
+            } else if (std.mem.eql(u8, raw, "cli")) {
+                break :blk .cli;
+            } else {
+                std.log.warn("unknown test case type requested: {s}", .{raw});
+                return error.UnknownTestCaseType;
+            }
+        };
+
+        var manifest: TestManifest = .{
+            .@"type" = tt,
+            .config_map = std.StringHashMap([]const u8).init(arena),
+        };
+
+        // Any subsequent line until a blank comment line is key=value(s) pair
+        while (it.next()) |line| {
+            const trimmed = std.mem.trim(u8, line[2..], " \t");
+            if (trimmed.len == 0) break;
+
+            // Parse key=value(s)
+            var kv_it = std.mem.split(u8, trimmed, "=");
+            const key = kv_it.next() orelse return error.MissingKeyForConfig;
+            try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
+        }
+
+        // Finally, trailing is expected output
+        manifest.trailing_bytes = bytes[it.index..];
+
+        return manifest;
+    }
+
+    fn getConfigValues(
+        self: TestManifest,
+        key: []const u8,
+        comptime T: type,
+        parse_fn: anytype,
+    ) ?ConfigValueIterator(T, @TypeOf(parse_fn)) {
+        const bytes = self.config_map.get(key) orelse return null;
+        return ConfigValueIterator(T, @TypeOf(parse_fn)){
+            .inner = std.mem.split(u8, bytes, ","),
+            .parse_fn = parse_fn,
+        };
+    }
+
+    fn trailing(self: TestManifest) TrailingIterator {
+        return .{
+            .inner = std.mem.tokenize(u8, self.trailing_bytes, "\r\n"),
+        };
+    }
+
+    fn trailingAlloc(self: TestManifest, arena: Allocator) ![]const []const u8 {
+        var out = std.ArrayList([]const u8).init(arena);
+        var it = self.trailing();
+        while (it.next()) |line| {
+            try out.append(line);
+        }
+        return out.toOwnedSlice();
+    }
+};
+
 pub const TestContext = struct {
     arena: Allocator,
     cases: std.ArrayList(Case),
@@ -197,6 +327,10 @@ pub const TestContext = struct {
         stage1,
         stage2,
         llvm,
+
+        fn parse(str: []const u8) ?Backend {
+            return std.meta.stringToEnum(Backend, str);
+        }
     };
 
     /// A `Case` consists of a list of `Update`. The same `Compilation` is used for each
@@ -661,6 +795,10 @@ pub const TestContext = struct {
         /// Execute all tests as incremental updates to a single compilation. Explicitly
         /// incremental tests ("foo.0.zig", "foo.1.zig", etc.) still execute in order
         incremental,
+
+        fn parse(str: []const u8) ?Strategy {
+            return std.meta.stringToEnum(Strategy, str);
+        }
     };
 
     /// Adds a compile-error test for each file in the provided directory, using the
@@ -683,6 +821,15 @@ pub const TestContext = struct {
     ) void {
         var current_file: []const u8 = "none";
         addErrorCasesFromDirInner(ctx, name, dir, backend, output_mode, is_test, strategy, &current_file) catch |err| {
+            std.debug.panic("test harness failed to process file '{s}': {s}\n", .{
+                current_file, @errorName(err),
+            });
+        };
+    }
+
+    pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.Dir) void {
+        var current_file: []const u8 = "none";
+        addTestCasesFromDirInner(ctx, dir, &current_file) catch |err| {
             std.debug.panic("test harness failed to process file '{s}': {s}\n", .{
                 current_file, @errorName(err),
             });
@@ -747,6 +894,159 @@ pub const TestContext = struct {
             }
         };
         std.sort.sort([]const u8, filenames, Context{}, Context.lessThan);
+    }
+
+    fn addTestCasesFromDirInner(
+        ctx: *TestContext,
+        dir: std.fs.Dir,
+        /// This is kept up to date with the currently being processed file so
+        /// that if any errors occur the caller knows it happened during this file.
+        current_file: *[]const u8,
+    ) !void {
+        var opt_case: ?*Case = null;
+
+        var it = dir.iterate();
+        var filenames = std.ArrayList([]const u8).init(ctx.arena);
+        defer filenames.deinit();
+
+        while (try it.next()) |entry| {
+            if (entry.kind != .File) continue;
+
+            // Ignore stuff such as .swp files
+            switch (Compilation.classifyFileExt(entry.name)) {
+                .unknown => continue,
+                else => {},
+            }
+            try filenames.append(try ctx.arena.dupe(u8, entry.name));
+        }
+
+        // Sort filenames, so that incremental tests are contiguous and in-order
+        sortTestFilenames(filenames.items);
+
+        var prev_filename: []const u8 = "";
+        for (filenames.items) |filename| {
+            current_file.* = filename;
+
+            { // First, check if this file is part of an incremental update sequence
+
+                // Split filename into "<base_name>.<index>.<file_ext>"
+                const prev_parts = getTestFileNameParts(prev_filename);
+                const new_parts = getTestFileNameParts(filename);
+
+                // If base_name and file_ext match, these files are in the same test sequence
+                // and the new one should be the incremented version of the previous test
+                if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
+                    std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
+                {
+
+                    // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
+                    if (prev_parts.test_index == null) return error.InvalidIncrementalTestIndex;
+                    if (new_parts.test_index == null) return error.InvalidIncrementalTestIndex;
+                    if (new_parts.test_index.? != prev_parts.test_index.? + 1) return error.InvalidIncrementalTestIndex;
+                } else {
+
+                    // This is not the same test sequence, so the new file must be the first file
+                    // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
+                    if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
+
+                    // if (strategy == .independent)
+                    //     opt_case = null; // Generate a new independent test case for this update
+                }
+            }
+            prev_filename = filename;
+
+            const max_file_size = 10 * 1024 * 1024;
+            const src = try dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
+
+            // The manifest is the last contiguous block of comments in the file
+            // We scan for the beginning by searching backward for the first non-empty line that does not start with "//"
+            var manifest_start: ?usize = null;
+            var manifest_end: usize = src.len;
+            if (src.len > 0) {
+                var cursor: usize = src.len - 1;
+                while (true) {
+                    // Move to beginning of line
+                    while (cursor > 0 and src[cursor - 1] != '\n') cursor -= 1;
+
+                    if (std.mem.startsWith(u8, src[cursor..], "//")) {
+                        manifest_start = cursor; // Contiguous comment line, include in manifest
+                    } else {
+                        if (manifest_start != null) break; // Encountered non-comment line, end of manifest
+
+                        // We ignore all-whitespace lines following the comment block, but anything else
+                        // means that there is no manifest present.
+                        if (std.mem.trim(u8, src[cursor..manifest_end], " \r\n\t").len == 0) {
+                            manifest_end = cursor;
+                        } else break; // If it's not whitespace, there is no manifest
+                    }
+
+                    // Move to previous line
+                    if (cursor != 0) cursor -= 1 else break;
+                }
+            }
+
+            if (manifest_start) |start| {
+                // Parse the manifest
+                var mani = try TestManifest.parse(ctx.arena, src[start..manifest_end]);
+                const strategy = mani.getConfigValues("strategy", Strategy, Strategy.parse).?.next().?;
+                const backend = mani.getConfigValues("backend", Backend, Backend.parse).?.next().?;
+
+                switch (mani.@"type") {
+                    .@"error" => {
+                        const case = opt_case orelse case: {
+                            const case = try ctx.cases.addOne();
+                            case.* = .{
+                                .name = "none",
+                                .target = .{},
+                                .backend = backend,
+                                .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
+                                .is_test = false,
+                                .output_mode = .Obj,
+                                .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
+                            };
+                            opt_case = case;
+                            break :case case;
+                        };
+                        const errors = try mani.trailingAlloc(ctx.arena);
+
+                        switch (strategy) {
+                            .independent => {
+                                case.addError(src, errors);
+                            },
+                            .incremental => {
+                                case.addErrorNamed("update", src, errors);
+                            },
+                        }
+                    },
+                    .run => {
+                        const case = opt_case orelse case: {
+                            const case = try ctx.cases.addOne();
+                            case.* = .{
+                                .name = "none",
+                                .target = .{},
+                                .backend = backend,
+                                .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
+                                .is_test = false,
+                                .output_mode = .Exe,
+                                .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
+                            };
+                            opt_case = case;
+                            break :case case;
+                        };
+
+                        var output = std.ArrayList(u8).init(ctx.arena);
+                        var trailing_it = mani.trailing();
+                        while (trailing_it.next()) |line| {
+                            try output.appendSlice(line);
+                        }
+                        case.addCompareOutput(src, output.toOwnedSlice());
+                    },
+                    .cli => @panic("TODO cli tests"),
+                }
+            } else {
+                return error.MissingManifest;
+            }
+        }
     }
 
     fn addErrorCasesFromDirInner(
