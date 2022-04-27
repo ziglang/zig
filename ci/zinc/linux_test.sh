@@ -45,7 +45,7 @@ cd $WORKSPACE
 
 # Look for non-conforming code formatting.
 # Formatting errors can be fixed by running `zig fmt` on the files printed here.
-$ZIG fmt --check . --exclude test/compile_errors/
+$ZIG fmt --check . --exclude test/compile_errors/ --exclude test/incremental/
 
 # Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
 $ZIG             build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
