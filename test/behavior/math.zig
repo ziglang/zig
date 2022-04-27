@@ -1354,6 +1354,12 @@ test "comptime sin and ln" {
 }
 
 test "fabs" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // normals
         try expect(@fabs(@as(T, 1.0)) == 1.0);
@@ -1377,10 +1383,19 @@ test "fabs" {
 }
 
 test "absFloat" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     try testAbsFloat();
     comptime try testAbsFloat();
 }
 fn testAbsFloat() !void {
-    try expect(@fabs(@as(f32, -10.05)) == @as(f32, 10.05));
-    try expect(@fabs(@as(f32, 10.05)) == @as(f32, 10.05));
+    try testAbsFloatOne(-10.05, 10.05);
+    try testAbsFloatOne(10.05, 10.05);
+}
+fn testAbsFloatOne(in: f32, out: f32) !void {
+    try expect(@fabs(@as(f32, in)) == @as(f32, out));
 }
