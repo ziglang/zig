@@ -279,4 +279,9 @@ const posix_spawn = if (builtin.target.isDarwin()) struct {
             }
         }
     }
+} else if (builtin.target.os.tag == .linux)
+{
+    // TODO .ios, .macos, .watchos, .tvos => true,
+    //switch (tag) { ... };
+    //@panic("successful chosen tag .linux");
 } else struct {};

@@ -6901,3 +6901,218 @@ pub fn perf_event_open(
         else => |err| return unexpectedErrno(err),
     }
 }
+
+// ported from musl, TODO release
+// TODO make this cross platform (pull in other symbols depending on libc/darwin)
+pub const POSIX_SPAWN_RESETIDS = 0x0001;
+pub const POSIX_SPAWN_SETPGROUP = 0x0002;
+pub const POSIX_SPAWN_SETSIGDEF = 0x0004;
+pub const POSIX_SPAWN_SETSIGMASK = 0x0008;
+// The following ones are platform specific and glibc allows platforms to
+// overwrite these, so define them per OS
+pub const POSIX_SPAWN_SETSCHEDPARAM = 0x0010;
+pub const POSIX_SPAWN_SETSCHEDULER = 0x0020;
+pub const POSIX_SPAWN_USEVFORK = 0x0040;
+pub const POSIX_SPAWN_SETSID = 0x0080;
+
+// naive approach, TODO field lenghts
+pub const posix_spawnattr_t = struct {
+    flags: u32, // musl uses int, darinw uses c_short
+    pid: pid_t,
+    // sigset_t is 128 bytes on 64 bit Linux, Linux reserves 1024 bit
+    // https://unix.stackexchange.com/a/399356
+    sigdef: sigset_t,
+    mask: sigset_t,
+    prio: i32, // unused in musl
+    pol: i32, // unused in musl
+    @"fn": *anyopaque,
+    // do we need padding?
+};
+pub const posix_spawn_file_actions_t = struct {
+    actions: ?*anyopaque,
+};
+
+//#define FDOP_CLOSE 1
+//#define FDOP_DUP2 2
+//#define FDOP_OPEN 3
+//#define FDOP_CHDIR 4
+//#define FDOP_FCHDIR 5
+
+const Fdop = struct {
+    next: ?*Fdop,
+    prev: ?*Fdop,
+    cmd: c_int,
+    fd: c_int,
+    srcfd: c_int,
+    oflag: c_int,
+    mode: mode_t,
+    path: []u8,
+};
+
+pub fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int {
+    attr.* = posix_spawnattr_t{
+        .flags = 0,
+        .pid = 0,
+        .sigdef = 0,
+        .mask = 0,
+        .prio = 0,
+        .pol = 0,
+        .@"fn" = 0, // does this compile?
+    };
+    return 0;
+}
+
+pub fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) void {
+    _ = attr; // intential follow musl implementation
+}
+
+const err_spawnattr = error{
+    EINVAL,
+};
+
+pub fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: u32) err_spawnattr!void {
+    const all_flags: u32 =
+        POSIX_SPAWN_RESETIDS |
+        POSIX_SPAWN_SETPGROUP |
+        POSIX_SPAWN_SETSIGDEF |
+        POSIX_SPAWN_SETSIGMASK |
+        POSIX_SPAWN_SETSCHEDPARAM |
+        POSIX_SPAWN_SETSCHEDULER |
+        POSIX_SPAWN_USEVFORK |
+        POSIX_SPAWN_SETSID;
+    if (flags & ~all_flags > 0) return err_spawnattr.EINVAL;
+    attr.flags = flags;
+}
+
+pub fn posix_spawnattr_getflags(noalias attr: *const posix_spawnattr_t, noalias flags: *u32) void {
+    flags.* = attr;
+}
+//pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) void;
+//pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
+//pub extern "c" fn posix_spawnattr_getflags(noalias attr: *const posix_spawnattr_t, noalias flags: *c_short) c_int;
+
+pub fn posix_spawnattr_setpgroup(attr: *const posix_spawnattr_t, pid: pid_t) void {
+    attr.* = pid;
+}
+
+pub fn posix_spawnattr_getpgroup(noalias attr: *const posix_spawnattr_t, noalias pid: *pid_t) void {
+    pid.* = attr.pid;
+}
+pub fn posix_spawnattr_setsigmask(noalias attr: *posix_spawnattr_t, noalias sigmask: *const sigset_t) void {
+    attr.mask = sigmask.*;
+}
+pub fn posix_spawnattr_getsigmask(noalias attr: *const posix_spawnattr_t, noalias sigmask: *sigset_t) void {
+    sigmask.* = attr.mask;
+}
+//int posix_spawnattr_setpgroup(posix_spawnattr_t *, pid_t);
+//int posix_spawnattr_getpgroup(const posix_spawnattr_t *__restrict, pid_t *__restrict);
+//int posix_spawnattr_setsigmask(posix_spawnattr_t *__restrict, const sigset_t *__restrict);
+//int posix_spawnattr_getsigmask(const posix_spawnattr_t *__restrict, sigset_t *__restrict);
+
+pub fn posix_spawnattr_setsigdefault(noalias attr: *posix_spawnattr_t, noalias sigmask: *const sigset_t) void {
+    attr.sigdef = sigmask.*;
+}
+pub fn posix_spawnattr_getsigdefault(noalias attr: *const posix_spawnattr_t, noalias sigmask: *sigset_t) void {
+    sigmask.* = attr.sigdef;
+}
+//int posix_spawnattr_setsigdefault(posix_spawnattr_t *__restrict, const sigset_t *__restrict);
+//int posix_spawnattr_getsigdefault(const posix_spawnattr_t *__restrict, sigset_t *__restrict);
+// unused in musl
+//pub extern "c" fn posix_spawnattr_setschedparam(noalias attr: *posix_spawnattr_t, noalias sigmask: const *sigset_t) c_int;
+//pub extern "c" fn posix_spawnattr_getschedparam(noalias attr: *const posix_spawnattr_t, noalias sigmask: *sigset_t) c_int;
+//pub extern "c" fn posix_spawnattr_setschedpolicy(attr: *posix_spawnattr_t, policy: c_int) c_int;
+//pub extern "c" fn posix_spawnattr_getschedpolicy(noalias attr: *const posix_spawnattr_t, noalias policy: *c_int) c_int;
+
+pub fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) void {
+    actions.actions = null;
+}
+pub fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) void {
+    _ = actions;
+    // TODO translate!
+    // struct fdop *op = fa->__actions, *next;
+    // while (op) {
+    // 	next = op->next;
+    // 	free(op); // allocator interface!
+    // 	op = next;
+    // }
+    // return 0;
+    //var op: ?*posix_spawn_file_actions_t = actions;
+    //var next: ?*posix_spawn_file_actions_t = actions;
+    //while(op) {
+    //    next = op.?.actions.
+
+    //}
+}
+
+const err_addclose = error{
+    ENOMEM,
+};
+//pub fn posix_spawn_file_actions_addclose(actions: *posix_spawn_file_actions_t, filedes: fd_t) void {
+//    // TODO translate (allocator)
+//    //var op: *Fdop =
+//    // struct fdop *op = malloc(sizeof *op);
+//    // if (!op) return ENOMEM;
+//    // op->cmd = FDOP_CLOSE;
+//    // op->fd = fd;
+//    // if ((op->next = fa->__actions)) op->next->prev = op;
+//    // op->prev = 0;
+//    // fa->__actions = op;
+//    // return 0;
+//}
+//pub fn posix_spawn_file_actions_addopen(
+//    noalias actions: *posix_spawn_file_actions_t,
+//    filedes: fd_t,
+//    noalias path: [*:0]const u8,
+//    oflag: c_int,
+//    mode: mode_t,
+//) void {
+//	//struct fdop *op = malloc(sizeof *op + strlen(path) + 1);
+//	//if (!op) return ENOMEM;
+//	//op->cmd = FDOP_OPEN;
+//	//op->fd = fd;
+//	//op->oflag = flags;
+//	//op->mode = mode;
+//	//strcpy(op->path, path);
+//	//if ((op->next = fa->__actions)) op->next->prev = op;
+//	//op->prev = 0;
+//	//fa->__actions = op;
+//	//return 0;
+//}
+//pub fn posix_spawn_file_actions_adddup2(
+//    actions: *posix_spawn_file_actions_t,
+//    filedes: fd_t,
+//    newfiledes: fd_t,
+//) void {
+//    // struct fdop *op = malloc(sizeof *op);
+//    // if (!op) return ENOMEM;
+//    // op->cmd = FDOP_DUP2;
+//    // op->srcfd = srcfd;
+//    // op->fd = fd;
+//    // if ((op->next = fa->__actions)) op->next->prev = op;
+//    // op->prev = 0;
+//    // fa->__actions = op;
+//    // return 0;
+//}
+//pub fn posix_spawn(
+//    noalias pid: *pid_t,
+//    noalias path: [*:0]const u8,
+//    actions: ?*const posix_spawn_file_actions_t,
+//    noalias attr: ?*const posix_spawnattr_t,
+//    noalias argv: [*:null]?[*:0]const u8,
+//    noalias env: [*:null]?[*:0]const u8,
+//) c_int {
+//    // too long to include
+//}
+//pub fn posix_spawnp(
+//    noalias pid: *pid_t,
+//    noalias path: [*:0]const u8,
+//    actions: ?*const posix_spawn_file_actions_t,
+//    noalias attr: ?*const posix_spawnattr_t,
+//    noalias argv: [*:null]?[*:0]const u8,
+//    noalias env: [*:null]?[*:0]const u8,
+//) c_int;
+
+// TODO check, why both flags exist: #if defined(_BSD_SOURCE) || defined(_GNU_SOURCE)
+//pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *posix_spawn_file_actions_t, path: [*:0]const u8) c_int;
+//pub extern "c" fn posix_spawn_file_actions_addfchdir_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+// TODO glibc has also posix_spawn_file_actions_addclosefrom_np, but musl not

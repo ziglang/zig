@@ -3044,6 +3044,9 @@ pub const winsize = extern struct {
 /// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
 pub const NSIG = if (is_mips) 128 else 65;
 
+// TODO document or fix this for 32 bit systems
+// see https://unix.stackexchange.com/a/399356
+// sigset_t is 128 bytes on 64 bit Linux, Linux reserves 1024 bit
 pub const sigset_t = [1024 / 32]u32;
 
 pub const all_mask: sigset_t = [_]u32{0xffffffff} ** sigset_t.len;
