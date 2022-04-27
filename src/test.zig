@@ -347,6 +347,21 @@ const TestManifest = struct {
         return self.getConfigForKeyCustomParser(key, T, getDefaultParser(T));
     }
 
+    fn getConfigForKeyAlloc(
+        self: TestManifest,
+        allocator: Allocator,
+        key: []const u8,
+        comptime T: type,
+    ) error{OutOfMemory}![]const T {
+        var out = std.ArrayList(T).init(allocator);
+        defer out.deinit();
+        var it = self.getConfigForKey(key, T);
+        while (it.next()) |item| {
+            try out.append(item);
+        }
+        return out.toOwnedSlice();
+    }
+
     fn getConfigForKeyAssertSingle(self: TestManifest, key: []const u8, comptime T: type) T {
         var it = self.getConfigForKey(key, T);
         const res = it.next().?;
@@ -360,8 +375,9 @@ const TestManifest = struct {
         };
     }
 
-    fn trailingAlloc(self: TestManifest, arena: Allocator) ![]const []const u8 {
-        var out = std.ArrayList([]const u8).init(arena);
+    fn trailingAlloc(self: TestManifest, allocator: Allocator) error{OutOfMemory}![]const []const u8 {
+        var out = std.ArrayList([]const u8).init(allocator);
+        defer out.deinit();
         var it = self.trailing();
         while (it.next()) |line| {
             try out.append(line);
@@ -1068,8 +1084,8 @@ pub const TestContext = struct {
             var manifest = try TestManifest.parse(ctx.arena, src);
 
             if (cases.items.len == 0) {
-                var backends = manifest.getConfigForKey("backend", Backend);
-                var targets = manifest.getConfigForKey("target", CrossTarget);
+                const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
+                const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", CrossTarget);
                 const is_test = manifest.getConfigForKeyAssertSingle("is_test", bool);
                 const output_mode = manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
 
@@ -1081,10 +1097,11 @@ pub const TestContext = struct {
                 };
 
                 // Cross-product to get all possible test combinations
-                while (backends.next()) |backend| {
-                    while (targets.next()) |target| {
-                        const name = try std.fmt.allocPrint(ctx.arena, "{s} ({s})", .{
+                for (backends) |backend| {
+                    for (targets) |target| {
+                        const name = try std.fmt.allocPrint(ctx.arena, "{s} ({s}, {s})", .{
                             name_prefix,
+                            @tagName(backend),
                             try target.zigTriple(ctx.arena),
                         });
                         const next = ctx.cases.items.len;
@@ -1095,6 +1112,7 @@ pub const TestContext = struct {
                             .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
                             .is_test = is_test,
                             .output_mode = output_mode,
+                            .link_libc = backend == .llvm,
                             .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
                         });
                         try cases.append(next);
