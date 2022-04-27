@@ -233,7 +233,7 @@ const TestManifest = struct {
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
-            return std.mem.trim(u8, next_inner, " \t");
+            return std.mem.trim(u8, next_inner[2..], " \t");
         }
     };
 
@@ -1033,31 +1033,25 @@ pub const TestContext = struct {
         for (filenames.items) |filename| {
             current_file.* = filename;
 
-            { // First, check if this file is part of an incremental update sequence
+            // First, check if this file is part of an incremental update sequence
+            // Split filename into "<base_name>.<index>.<file_ext>"
+            const prev_parts = getTestFileNameParts(prev_filename);
+            const new_parts = getTestFileNameParts(filename);
 
-                // Split filename into "<base_name>.<index>.<file_ext>"
-                const prev_parts = getTestFileNameParts(prev_filename);
-                const new_parts = getTestFileNameParts(filename);
-
-                // If base_name and file_ext match, these files are in the same test sequence
-                // and the new one should be the incremented version of the previous test
-                if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
-                    std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
-                {
-
-                    // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
-                    if (prev_parts.test_index == null) return error.InvalidIncrementalTestIndex;
-                    if (new_parts.test_index == null) return error.InvalidIncrementalTestIndex;
-                    if (new_parts.test_index.? != prev_parts.test_index.? + 1) return error.InvalidIncrementalTestIndex;
-                } else {
-
-                    // This is not the same test sequence, so the new file must be the first file
-                    // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
-                    if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
-
-                    if (strategy == .independent)
-                        cases.clearRetainingCapacity(); // Generate a new independent test case for this update
-                }
+            // If base_name and file_ext match, these files are in the same test sequence
+            // and the new one should be the incremented version of the previous test
+            if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
+                std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
+            {
+                // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
+                if (prev_parts.test_index == null) return error.InvalidIncrementalTestIndex;
+                if (new_parts.test_index == null) return error.InvalidIncrementalTestIndex;
+                if (new_parts.test_index.? != prev_parts.test_index.? + 1) return error.InvalidIncrementalTestIndex;
+            } else {
+                // This is not the same test sequence, so the new file must be the first file
+                // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
+                if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
+                cases.clearRetainingCapacity();
             }
             prev_filename = filename;
 
@@ -1073,12 +1067,23 @@ pub const TestContext = struct {
                 const is_test = manifest.getConfigForKeyAssertSingle("is_test", bool);
                 const output_mode = manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
 
+                const name_prefix = blk: {
+                    const ext_index = std.mem.lastIndexOfScalar(u8, current_file.*, '.') orelse
+                        return error.InvalidFilename;
+                    const index = std.mem.lastIndexOfScalar(u8, current_file.*[0..ext_index], '.') orelse ext_index;
+                    break :blk current_file.*[0..index];
+                };
+
                 // Cross-product to get all possible test combinations
                 while (backends.next()) |backend| {
                     while (targets.next()) |target| {
+                        const name = try std.fmt.allocPrint(ctx.arena, "{s} ({s})", .{
+                            name_prefix,
+                            try target.zigTriple(ctx.arena),
+                        });
                         const case = try ctx.cases.addOne();
                         case.* = .{
-                            .name = "none",
+                            .name = name,
                             .target = target,
                             .backend = backend,
                             .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
@@ -1109,6 +1114,10 @@ pub const TestContext = struct {
                         var trailing_it = manifest.trailing();
                         while (trailing_it.next()) |line| {
                             try output.appendSlice(line);
+                            try output.append('\n');
+                        }
+                        if (output.items.len > 0) {
+                            try output.resize(output.items.len - 1);
                         }
                         case.addCompareOutput(src, output.toOwnedSlice());
                     },
