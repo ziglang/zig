@@ -165,6 +165,12 @@ const ErrorMsg = union(enum) {
     }
 };
 
+/// Default config values for known test manifest key-value pairings.
+/// Currently handled defaults are:
+/// * backend
+/// * target
+/// * output_mode
+/// * is_test
 const TestManifestConfigDefaults = struct {
     /// Asserts if the key doesn't exist - yep, it's an oversight alright.
     fn get(@"type": TestManifest.Type, key: []const u8) []const u8 {
@@ -186,7 +192,7 @@ const TestManifestConfigDefaults = struct {
                 }
                 // Wasm
                 defaults = defaults ++ "wasm32-wasi";
-                return defaults[0 .. defaults.len - 2];
+                return defaults;
             }
         } else if (std.mem.eql(u8, key, "output_mode")) {
             return switch (@"type") {
