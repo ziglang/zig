@@ -147,21 +147,24 @@ const FutexImpl = struct {
         // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
         if (comptime builtin.target.cpu.arch.isX86()) {
-            const old_locked_bit = asm volatile ("lock btsl $0, %[ptr]"
-                // LLVM doesn't support u1 flag register return values
-                : [result] "={@ccc}" (-> u8),
-                : [ptr] "*m" (&self.state),
-                : "cc", "memory"
-            );
+            // TODO: stage2 currently doesn't like this inline asm
+            if (builtin.zig_backend == .stage1) {
+                const old_locked_bit = asm volatile ("lock btsl $0, %[ptr]"
+                    // LLVM doesn't support u1 flag register return values
+                    : [result] "={@ccc}" (-> u8),
+                    : [ptr] "*m" (&self.state),
+                    : "cc", "memory"
+                );
 
-            // When the lock is acquired, make sure to emit an Acquire barrier when under ThreadSanitizer.
-            // TSan is unaware of inline asm barriers + doesn't work with fence() hence the use of a dummy load.
-            const acquired = old_locked_bit == 0;
-            if (builtin.sanitize_thread and acquired) {
-                _ = @atomicLoad(u32, &self.state, .Acquire);
+                // When the lock is acquired, make sure to emit an Acquire barrier when under ThreadSanitizer.
+                // TSan is unaware of inline asm barriers + doesn't work with fence() hence the use of a dummy load.
+                const acquired = old_locked_bit == 0;
+                if (builtin.sanitize_thread and acquired) {
+                    _ = @atomicLoad(u32, &self.state, .Acquire);
+                }
+
+                return acquired;
             }
-
-            return acquired;
         }
 
         // On other architectures, use the better CAS builtin.
