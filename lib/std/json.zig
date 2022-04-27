@@ -1915,6 +1915,12 @@ fn parseInternal(
                 .ArrayBegin => {
                     var vec = std.meta.Vector(vectorInfo.len, vectorInfo.child){};
                     var idx: usize = 0;
+                    errdefer while (idx > 0) {
+                        idx -= 1;
+                        if (idx < vectorInfo.len) {
+                            parseFree(vectorInfo.child, vec[idx], options);
+                        }
+                    };
                     while (true) : (idx += 1) {
                         const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
                         switch (tok) {
@@ -2034,6 +2040,36 @@ test "parse into vector" {
     try testing.expectEqual(std.meta.Vector(3, u8){102, 103, 111}, try parse(std.meta.Vector(3, u8), &TokenStream.init("[102, 103, 111]"), ParseOptions{}));
     try testing.expectError(error.VectorLengthMismatch, parse(std.meta.Vector(3, u8), &TokenStream.init("[5, 6, 7, 8]"), ParseOptions{}));
     try testing.expectError(error.VectorLengthMismatch, parse(std.meta.Vector(3, u8), &TokenStream.init("[5, 6]"), ParseOptions{}));
+
+    const options = ParseOptions{ .allocator = testing.allocator };
+    {
+        const V = std.meta.Vector(2, i32);
+        const r = try parse([]V, &TokenStream.init("[[-1, 8], [0, -10000]]"), options);
+        defer parseFree([]V, r, options);
+        try testing.expectEqualSlices(V, &.{V{-1, 8}, V{0, -10000}}, r);
+    }
+    {
+        const V = std.meta.Vector(1, u16);
+        const r = try parse([]V, &TokenStream.init("[[12], [10000]]"), options);
+        defer parseFree([]V, r, options);
+        try testing.expectEqualSlices(V, &.{V{12}, V{10000}}, r);
+    }
+    {
+        const V = std.meta.Vector(3, *u8);
+        var values = [_]u8{102, 103, 111};
+        const r = try parse(V, &TokenStream.init("[102, 103, 111]"), options);
+        defer parseFree(V, r, options);
+
+        //note that testing.expectEqual() for vectors does std.meta.eql() which for pointers compares the pointer values instead of their contents
+        //so we cannot use that here as the pointers returned by parse() will be newly allocated memory
+        var i: usize = 0;
+        while (i < 3) : (i += 1) {
+            if (values[i] != r[i].*) {
+                std.debug.print("index {} incorrect. expected {}, found {}\n", .{ i, values[i], r[i].* });
+                return error.TestExpectedEqual;
+            }
+        }
+    }
 }
 
 test "parse into enum" {
