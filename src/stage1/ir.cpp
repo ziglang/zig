@@ -24132,6 +24132,9 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdCos:
             out_val->data.x_f16 = zig_double_to_f16(cos(zig_f16_to_double(op->data.x_f16)));
             break;
+        case BuiltinFnIdTan:
+            out_val->data.x_f16 = zig_double_to_f16(tan(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdExp:
             out_val->data.x_f16 = zig_double_to_f16(exp(zig_f16_to_double(op->data.x_f16)));
             break;
@@ -24181,6 +24184,9 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdCos:
             out_val->data.x_f32 = cosf(op->data.x_f32);
             break;
+        case BuiltinFnIdTan:
+            out_val->data.x_f32 = tanf(op->data.x_f32);
+            break;
         case BuiltinFnIdExp:
             out_val->data.x_f32 = expf(op->data.x_f32);
             break;
@@ -24229,6 +24235,9 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
             break;
         case BuiltinFnIdCos:
             out_val->data.x_f64 = cos(op->data.x_f64);
+            break;
+        case BuiltinFnIdTan:
+            out_val->data.x_f64 = tan(op->data.x_f64);
             break;
         case BuiltinFnIdExp:
             out_val->data.x_f64 = exp(op->data.x_f64);
@@ -24293,6 +24302,7 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdNearbyInt:
         case BuiltinFnIdSin:
         case BuiltinFnIdCos:
+        case BuiltinFnIdTan:
         case BuiltinFnIdExp:
         case BuiltinFnIdExp2:
         case BuiltinFnIdLog:
@@ -24337,6 +24347,7 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdNearbyInt:
         case BuiltinFnIdSin:
         case BuiltinFnIdCos:
+        case BuiltinFnIdTan:
         case BuiltinFnIdExp:
         case BuiltinFnIdExp2:
         case BuiltinFnIdLog:

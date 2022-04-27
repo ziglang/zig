@@ -2237,7 +2237,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .field_call_bind,
             .field_ptr_named,
             .field_val_named,
-            .field_call_bind_named,
             .func,
             .func_inferred,
             .int,
@@ -2329,6 +2328,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .sqrt,
             .sin,
             .cos,
+            .tan,
             .exp,
             .exp2,
             .log,
@@ -7259,6 +7259,7 @@ fn builtinCall(
         .sqrt                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .sqrt),
         .sin                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .sin),
         .cos                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .cos),
+        .tan                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .tan),
         .exp                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .exp),
         .exp2                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .exp2),
         .log                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .log),
@@ -7947,7 +7948,8 @@ fn calleeExpr(
             if (std.mem.eql(u8, builtin_name, "@field") and params.len == 2) {
                 const lhs = try expr(gz, scope, .ref, params[0]);
                 const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
-                return gz.addPlNode(.field_call_bind_named, node, Zir.Inst.FieldNamed{
+                return gz.addExtendedPayload(.field_call_bind_named, Zir.Inst.FieldNamedNode{
+                    .node = gz.nodeIndexToRelative(node),
                     .lhs = lhs,
                     .field_name = field_name,
                 });

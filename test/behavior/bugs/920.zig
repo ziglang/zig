@@ -1,5 +1,4 @@
 const std = @import("std");
-const math = std.math;
 const Random = std.rand.Random;
 
 const ZigTable = struct {
@@ -40,10 +39,10 @@ const norm_r = 3.6541528853610088;
 const norm_v = 0.00492867323399;
 
 fn norm_f(x: f64) f64 {
-    return math.exp(-x * x / 2.0);
+    return @exp(-x * x / 2.0);
 }
 fn norm_f_inv(y: f64) f64 {
-    return math.sqrt(-2.0 * math.ln(y));
+    return @sqrt(-2.0 * @log(y));
 }
 fn norm_zero_case(random: *Random, u: f64) f64 {
     _ = random;

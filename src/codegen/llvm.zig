@@ -3521,6 +3521,7 @@ pub const FuncGen = struct {
                 .sqrt         => try self.airUnaryOp(inst, .sqrt),
                 .sin          => try self.airUnaryOp(inst, .sin),
                 .cos          => try self.airUnaryOp(inst, .cos),
+                .tan          => try self.airUnaryOp(inst, .tan),
                 .exp          => try self.airUnaryOp(inst, .exp),
                 .exp2         => try self.airUnaryOp(inst, .exp2),
                 .log          => try self.airUnaryOp(inst, .log),
@@ -5553,7 +5554,7 @@ pub const FuncGen = struct {
     fn libcFloatSuffix(float_bits: u16) []const u8 {
         return switch (float_bits) {
             16 => "h", // Non-standard
-            32 => "s",
+            32 => "f",
             64 => "",
             80 => "x", // Non-standard
             128 => "q", // Non-standard (mimics convention in GCC libquadmath)
@@ -5661,6 +5662,7 @@ pub const FuncGen = struct {
         sin,
         sqrt,
         sub,
+        tan,
         trunc,
     };
 
@@ -5684,7 +5686,7 @@ pub const FuncGen = struct {
         const llvm_ty = try self.dg.llvmType(ty);
         const scalar_llvm_ty = try self.dg.llvmType(scalar_ty);
 
-        const intrinsics_allowed = intrinsicsAllowed(scalar_ty, target);
+        const intrinsics_allowed = op != .tan and intrinsicsAllowed(scalar_ty, target);
         var fn_name_buf: [64]u8 = undefined;
         const strat: FloatOpStrat = if (intrinsics_allowed) switch (op) {
             // Some operations are dedicated LLVM instructions, not available as intrinsics
@@ -5720,6 +5722,7 @@ pub const FuncGen = struct {
                 .round,
                 .sin,
                 .sqrt,
+                .tan,
                 .trunc,
                 => FloatOpStrat{
                     .libc = std.fmt.bufPrintZ(&fn_name_buf, "{s}{s}{s}", .{

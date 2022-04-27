@@ -1629,11 +1629,28 @@ static const char *get_compiler_rt_type_abbrev(ZigType *type) {
     }
 }
 
-static const char *get_math_h_type_abbrev(CodeGen *g, ZigType *float_type) {
+static const char *libc_float_prefix(CodeGen *g, ZigType *float_type) {
+    if (float_type == g->builtin_types.entry_f16)
+        return "__";
+    else if (float_type == g->builtin_types.entry_f32)
+        return "";
+    else if (float_type == g->builtin_types.entry_f64)
+        return "";
+    else if (float_type == g->builtin_types.entry_f80)
+        return "__";
+    else if (float_type == g->builtin_types.entry_c_longdouble)
+        return "l";
+    else if (float_type == g->builtin_types.entry_f128)
+        return "";
+    else
+        zig_unreachable();
+}
+
+static const char *libc_float_suffix(CodeGen *g, ZigType *float_type) {
     if (float_type == g->builtin_types.entry_f16)
         return "h"; // Non-standard
     else if (float_type == g->builtin_types.entry_f32)
-        return "s";
+        return "f";
     else if (float_type == g->builtin_types.entry_f64)
         return "";
     else if (float_type == g->builtin_types.entry_f80)
@@ -2992,10 +3009,12 @@ static LLVMValueRef get_soft_float_fn(CodeGen *g, const char *name, int param_co
 
 static LLVMValueRef gen_soft_float_un_op(CodeGen *g, LLVMValueRef op, ZigType *operand_type, BuiltinFnId op_id) {
     uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
+    ZigType *scalar_type = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.elem_type : operand_type;
 
     char fn_name[64];
-    sprintf(fn_name, "%s%s", float_un_op_to_name(op_id), get_math_h_type_abbrev(g, operand_type));
-    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, 1, operand_type->llvm_type, operand_type->llvm_type);
+    sprintf(fn_name, "%s%s%s", libc_float_prefix(g, scalar_type),
+            float_un_op_to_name(op_id), libc_float_suffix(g, scalar_type));
+    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, 1, scalar_type->llvm_type, scalar_type->llvm_type);
 
     LLVMValueRef result;
     if (vector_len == 0) {
@@ -3018,7 +3037,9 @@ static LLVMValueRef gen_float_un_op(CodeGen *g, LLVMValueRef operand, ZigType *o
     assert(operand_type->id == ZigTypeIdFloat || operand_type->id == ZigTypeIdVector);
     ZigType *elem_type = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.elem_type : operand_type;
     if ((elem_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
-        (elem_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+        (elem_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target)) ||
+        op == BuiltinFnIdTan)
+    {
         return gen_soft_float_un_op(g, operand, operand_type, op);
     }
     LLVMValueRef float_op_fn = get_float_fn(g, operand_type, ZigLLVMFnIdFloatOp, op);
@@ -3466,7 +3487,8 @@ static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LL
     int param_count = 2;
 
     const char *compiler_rt_type_abbrev = get_compiler_rt_type_abbrev(operand_type);
-    const char *math_h_type_abbrev = get_math_h_type_abbrev(g, operand_type);
+    const char *math_float_prefix = libc_float_prefix(g, operand_type);
+    const char *math_float_suffix = libc_float_suffix(g, operand_type);
 
     char fn_name[64];
     Icmp res_icmp = NONE;
@@ -3523,10 +3545,10 @@ static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LL
             res_icmp = EQ_ONE;
             break;
         case IrBinOpMaximum:
-            sprintf(fn_name, "fmax%s", math_h_type_abbrev);
+            sprintf(fn_name, "%sfmax%s", math_float_prefix, math_float_suffix);
             break;
         case IrBinOpMinimum:
-            sprintf(fn_name, "fmin%s", math_h_type_abbrev);
+            sprintf(fn_name, "%sfmin%s", math_float_prefix, math_float_suffix);
             break;
         case IrBinOpMult:
             sprintf(fn_name, "__mul%sf3", compiler_rt_type_abbrev);
@@ -3545,7 +3567,7 @@ static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LL
             break;
         case IrBinOpRemRem:
         case IrBinOpRemMod:
-            sprintf(fn_name, "fmod%s", math_h_type_abbrev);
+            sprintf(fn_name, "%sfmod%s", math_float_prefix, math_float_suffix);
             break;
         default:
             zig_unreachable();
@@ -9810,6 +9832,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSqrt, "sqrt", 1);
     create_builtin_fn(g, BuiltinFnIdSin, "sin", 1);
     create_builtin_fn(g, BuiltinFnIdCos, "cos", 1);
+    create_builtin_fn(g, BuiltinFnIdTan, "tan", 1);
     create_builtin_fn(g, BuiltinFnIdExp, "exp", 1);
     create_builtin_fn(g, BuiltinFnIdExp2, "exp2", 1);
     create_builtin_fn(g, BuiltinFnIdLog, "log", 1);

@@ -1749,6 +1749,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .sqrt,
             .sin,
             .cos,
+            .tan,
             .exp,
             .exp2,
             .log,

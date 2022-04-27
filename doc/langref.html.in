@@ -8026,7 +8026,7 @@ fn func(y: *i32) void {
       only rounds once, and is thus more accurate.
       </p>
       <p>
-      Supports Floats and Vectors of floats.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
@@ -9440,6 +9440,7 @@ fn doTheTest() !void {
       <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
+
       {#header_open|@cos#}
       <pre>{#syntax#}@cos(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
@@ -9451,6 +9452,19 @@ fn doTheTest() !void {
       <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
+
+      {#header_open|@tan#}
+      <pre>{#syntax#}@tan(value: anytype) @TypeOf(value){#endsyntax#}</pre>
+      <p>
+      Tangent trigonometric function on a floating point number.
+      Uses a dedicated hardware instruction when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      </p>
+      {#header_close#}
+
       {#header_open|@exp#}
       <pre>{#syntax#}@exp(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>

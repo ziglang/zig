@@ -407,15 +407,6 @@ pub const Inst = struct {
         /// The field name is a comptime instruction. Used by @field.
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
         field_val_named,
-        /// Given a pointer to a struct or object that contains virtual fields, returns the
-        /// named field.  If there is no named field, searches in the type for a decl that
-        /// matches the field name.  The decl is resolved and we ensure that it's a function
-        /// which can accept the object as the first parameter, with one pointer fixup.  If
-        /// all of that works, this instruction produces a special "bound function" value
-        /// which contains both the function and the saved first parameter value.
-        /// Bound functions may only be used as the function parameter to a `call` or
-        /// `builtin_call` instruction.  Any other use is invalid zir and may crash the compiler.
-        field_call_bind_named,
         /// Returns a function type, or a function instance, depending on whether
         /// the body_len is 0. Calling convention is auto.
         /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
@@ -797,6 +788,8 @@ pub const Inst = struct {
         sin,
         /// Implement builtin `@cos`. Uses `un_node`.
         cos,
+        /// Implement builtin `@tan`. Uses `un_node`.
+        tan,
         /// Implement builtin `@exp`. Uses `un_node`.
         exp,
         /// Implement builtin `@exp2`. Uses `un_node`.
@@ -1069,7 +1062,6 @@ pub const Inst = struct {
                 .field_call_bind,
                 .field_ptr_named,
                 .field_val_named,
-                .field_call_bind_named,
                 .func,
                 .func_inferred,
                 .has_decl,
@@ -1179,6 +1171,7 @@ pub const Inst = struct {
                 .sqrt,
                 .sin,
                 .cos,
+                .tan,
                 .exp,
                 .exp2,
                 .log,
@@ -1358,7 +1351,6 @@ pub const Inst = struct {
                 .field_call_bind,
                 .field_ptr_named,
                 .field_val_named,
-                .field_call_bind_named,
                 .func,
                 .func_inferred,
                 .has_decl,
@@ -1451,6 +1443,7 @@ pub const Inst = struct {
                 .sqrt,
                 .sin,
                 .cos,
+                .tan,
                 .exp,
                 .exp2,
                 .log,
@@ -1607,7 +1600,6 @@ pub const Inst = struct {
                 .field_ptr_named = .pl_node,
                 .field_val_named = .pl_node,
                 .field_call_bind = .pl_node,
-                .field_call_bind_named = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
                 .import = .str_tok,
@@ -1713,6 +1705,7 @@ pub const Inst = struct {
                 .sqrt = .un_node,
                 .sin = .un_node,
                 .cos = .un_node,
+                .tan = .un_node,
                 .exp = .un_node,
                 .exp2 = .un_node,
                 .log = .un_node,
@@ -1928,6 +1921,16 @@ pub const Inst = struct {
         dbg_block_begin,
         /// Marks the end of a semantic scope for debug info variables.
         dbg_block_end,
+        /// Given a pointer to a struct or object that contains virtual fields, returns the
+        /// named field.  If there is no named field, searches in the type for a decl that
+        /// matches the field name.  The decl is resolved and we ensure that it's a function
+        /// which can accept the object as the first parameter, with one pointer fixup.  If
+        /// all of that works, this instruction produces a special "bound function" value
+        /// which contains both the function and the saved first parameter value.
+        /// Bound functions may only be used as the function parameter to a `call` or
+        /// `builtin_call` instruction.  Any other use is invalid zir and may crash the compiler.
+        /// Uses `pl_node` field. The AST node is the `@field` builtin. Payload is FieldNamedNode.
+        field_call_bind_named,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2959,6 +2962,12 @@ pub const Inst = struct {
     };
 
     pub const FieldNamed = struct {
+        lhs: Ref,
+        field_name: Ref,
+    };
+
+    pub const FieldNamedNode = struct {
+        node: i32,
         lhs: Ref,
         field_name: Ref,
     };

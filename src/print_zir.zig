@@ -207,6 +207,7 @@ const Writer = struct {
             .sqrt,
             .sin,
             .cos,
+            .tan,
             .exp,
             .exp2,
             .log,
@@ -400,7 +401,6 @@ const Writer = struct {
 
             .field_ptr_named,
             .field_val_named,
-            .field_call_bind_named,
             => try self.writePlNodeFieldNamed(stream, inst),
 
             .as_node => try self.writeAs(stream, inst),
@@ -507,6 +507,16 @@ const Writer = struct {
                 try stream.writeAll(", ");
                 try self.writeInstRef(stream, inst_data.rhs);
                 try stream.writeAll(")) ");
+                try self.writeSrc(stream, src);
+            },
+
+            .field_call_bind_named => {
+                const extra = self.code.extraData(Zir.Inst.FieldNamedNode, extended.operand).data;
+                const src: LazySrcLoc = .{ .node_offset = extra.node };
+                try self.writeInstRef(stream, extra.lhs);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.field_name);
+                try stream.writeAll(") ");
                 try self.writeSrc(stream, src);
             },
         }

@@ -249,12 +249,15 @@ pub const Inst = struct {
         /// Square root of a floating point number.
         /// Uses the `un_op` field.
         sqrt,
-        /// Sine a floating point number.
+        /// Sine function on a floating point number.
         /// Uses the `un_op` field.
         sin,
-        /// Cosine a floating point number.
+        /// Cosine function on a floating point number.
         /// Uses the `un_op` field.
         cos,
+        /// Tangent function on a floating point number.
+        /// Uses the `un_op` field.
+        tan,
         /// Base e exponential of a floating point number.
         /// Uses the `un_op` field.
         exp,
@@ -921,6 +924,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .sqrt,
         .sin,
         .cos,
+        .tan,
         .exp,
         .exp2,
         .log,

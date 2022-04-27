@@ -743,7 +743,6 @@ fn analyzeBodyInner(
             .field_val                    => try sema.zirFieldVal(block, inst),
             .field_val_named              => try sema.zirFieldValNamed(block, inst),
             .field_call_bind              => try sema.zirFieldCallBind(block, inst),
-            .field_call_bind_named        => try sema.zirFieldCallBindNamed(block, inst),
             .func                         => try sema.zirFunc(block, inst, false),
             .func_inferred                => try sema.zirFunc(block, inst, true),
             .import                       => try sema.zirImport(block, inst),
@@ -855,6 +854,7 @@ fn analyzeBodyInner(
             .sqrt  => try sema.zirUnaryMath(block, inst, .sqrt, Value.sqrt),
             .sin   => try sema.zirUnaryMath(block, inst, .sin, Value.sin),
             .cos   => try sema.zirUnaryMath(block, inst, .cos, Value.cos),
+            .tan   => try sema.zirUnaryMath(block, inst, .tan, Value.tan),
             .exp   => try sema.zirUnaryMath(block, inst, .exp, Value.exp),
             .exp2  => try sema.zirUnaryMath(block, inst, .exp2, Value.exp2),
             .log   => try sema.zirUnaryMath(block, inst, .log, Value.log),
@@ -910,35 +910,36 @@ fn analyzeBodyInner(
                 const extended = datas[inst].extended;
                 break :ext switch (extended.opcode) {
                     // zig fmt: off
-                    .func               => try sema.zirFuncExtended(      block, extended, inst),
-                    .variable           => try sema.zirVarExtended(       block, extended),
-                    .struct_decl        => try sema.zirStructDecl(        block, extended, inst),
-                    .enum_decl          => try sema.zirEnumDecl(          block, extended),
-                    .union_decl         => try sema.zirUnionDecl(         block, extended, inst),
-                    .opaque_decl        => try sema.zirOpaqueDecl(        block, extended),
-                    .ret_ptr            => try sema.zirRetPtr(            block, extended),
-                    .ret_type           => try sema.zirRetType(           block, extended),
-                    .this               => try sema.zirThis(              block, extended),
-                    .ret_addr           => try sema.zirRetAddr(           block, extended),
-                    .builtin_src        => try sema.zirBuiltinSrc(        block, extended),
-                    .error_return_trace => try sema.zirErrorReturnTrace(  block, extended),
-                    .frame              => try sema.zirFrame(             block, extended),
-                    .frame_address      => try sema.zirFrameAddress(      block, extended),
-                    .alloc              => try sema.zirAllocExtended(     block, extended),
-                    .builtin_extern     => try sema.zirBuiltinExtern(     block, extended),
-                    .@"asm"             => try sema.zirAsm(               block, extended),
-                    .typeof_peer        => try sema.zirTypeofPeer(        block, extended),
-                    .compile_log        => try sema.zirCompileLog(        block, extended),
-                    .add_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
-                    .sub_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
-                    .mul_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
-                    .shl_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
-                    .c_undef            => try sema.zirCUndef(            block, extended),
-                    .c_include          => try sema.zirCInclude(          block, extended),
-                    .c_define           => try sema.zirCDefine(           block, extended),
-                    .wasm_memory_size   => try sema.zirWasmMemorySize(    block, extended),
-                    .wasm_memory_grow   => try sema.zirWasmMemoryGrow(    block, extended),
-                    .prefetch           => try sema.zirPrefetch(          block, extended),
+                    .func                  => try sema.zirFuncExtended(      block, extended, inst),
+                    .variable              => try sema.zirVarExtended(       block, extended),
+                    .struct_decl           => try sema.zirStructDecl(        block, extended, inst),
+                    .enum_decl             => try sema.zirEnumDecl(          block, extended),
+                    .union_decl            => try sema.zirUnionDecl(         block, extended, inst),
+                    .opaque_decl           => try sema.zirOpaqueDecl(        block, extended),
+                    .ret_ptr               => try sema.zirRetPtr(            block, extended),
+                    .ret_type              => try sema.zirRetType(           block, extended),
+                    .this                  => try sema.zirThis(              block, extended),
+                    .ret_addr              => try sema.zirRetAddr(           block, extended),
+                    .builtin_src           => try sema.zirBuiltinSrc(        block, extended),
+                    .error_return_trace    => try sema.zirErrorReturnTrace(  block, extended),
+                    .frame                 => try sema.zirFrame(             block, extended),
+                    .frame_address         => try sema.zirFrameAddress(      block, extended),
+                    .alloc                 => try sema.zirAllocExtended(     block, extended),
+                    .builtin_extern        => try sema.zirBuiltinExtern(     block, extended),
+                    .@"asm"                => try sema.zirAsm(               block, extended),
+                    .typeof_peer           => try sema.zirTypeofPeer(        block, extended),
+                    .compile_log           => try sema.zirCompileLog(        block, extended),
+                    .add_with_overflow     => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
+                    .sub_with_overflow     => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
+                    .mul_with_overflow     => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
+                    .shl_with_overflow     => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
+                    .c_undef               => try sema.zirCUndef(            block, extended),
+                    .c_include             => try sema.zirCInclude(          block, extended),
+                    .c_define              => try sema.zirCDefine(           block, extended),
+                    .wasm_memory_size      => try sema.zirWasmMemorySize(    block, extended),
+                    .wasm_memory_grow      => try sema.zirWasmMemoryGrow(    block, extended),
+                    .prefetch              => try sema.zirPrefetch(          block, extended),
+                    .field_call_bind_named => try sema.zirFieldCallBindNamed(block, extended),
                     // zig fmt: on
                     .dbg_block_begin => {
                         dbg_block_begins += 1;
@@ -6938,14 +6939,13 @@ fn zirFieldPtrNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     return sema.fieldPtr(block, src, object_ptr, field_name, field_name_src);
 }
 
-fn zirFieldCallBindNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirFieldCallBindNamed(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const field_name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.FieldNamed, inst_data.payload_index).data;
+    const extra = sema.code.extraData(Zir.Inst.FieldNamedNode, extended.operand).data;
+    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const field_name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
     const object_ptr = sema.resolveInst(extra.lhs);
     const field_name = try sema.resolveConstString(block, field_name_src, extra.field_name);
     return sema.fieldCallBind(block, src, object_ptr, field_name, field_name_src);

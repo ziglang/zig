@@ -49,7 +49,7 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
     }
 
     // Kahan's algorithm
-    const t = math.tan(y);
+    const t = @tan(y);
     const beta = 1.0 + t * t;
     const s = math.sinh(x);
     const rho = @sqrt(1 + s * s);
@@ -92,7 +92,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     }
 
     // Kahan's algorithm
-    const t = math.tan(y);
+    const t = @tan(y);
     const beta = 1.0 + t * t;
     const s = math.sinh(x);
     const rho = @sqrt(1 + s * s);

@@ -158,6 +158,7 @@ const Writer = struct {
             .sqrt,
             .sin,
             .cos,
+            .tan,
             .exp,
             .exp2,
             .log,

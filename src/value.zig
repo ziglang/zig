@@ -4473,6 +4473,44 @@ pub const Value = extern union {
         }
     }
 
+    pub fn tan(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try tanScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return tanScalar(val, float_type, arena, target);
+    }
+
+    pub fn tanScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @tan(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @tan(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @tan(f));
+            },
+            80 => {
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @tan(f));
+            },
+            128 => {
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @tan(f));
+            },
+            else => unreachable,
+        }
+    }
+
+
     pub fn exp(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         if (float_type.zigTypeTag() == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen());

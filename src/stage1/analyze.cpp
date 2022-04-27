@@ -10383,6 +10383,8 @@ const char *float_un_op_to_name(BuiltinFnId op) {
         return "sin";
     case BuiltinFnIdCos:
         return "cos";
+    case BuiltinFnIdTan:
+        return "tan";
     case BuiltinFnIdExp:
         return "exp";
     case BuiltinFnIdExp2:
