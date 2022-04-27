@@ -1143,7 +1143,7 @@ fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const w
     wr.* = wr_h;
 }
 
-var pipe_name_counter = std.atomic.Atomic(u32).init(1);
+var pipe_name_counter: u32 = 1;
 
 fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
     var tmp_bufw: [128]u16 = undefined;
@@ -1158,7 +1158,10 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
         const pipe_path = std.fmt.bufPrintZ(
             &tmp_buf,
             "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
-            .{ windows.kernel32.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .Monotonic) },
+            .{
+                windows.kernel32.GetCurrentProcessId(),
+                @atomicRmw(u32, &pipe_name_counter, .Add, 1, .Monotonic),
+            },
         ) catch unreachable;
         const len = std.unicode.utf8ToUtf16Le(&tmp_bufw, pipe_path) catch unreachable;
         tmp_bufw[len] = 0;

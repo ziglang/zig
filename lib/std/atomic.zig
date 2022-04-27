@@ -5,37 +5,10 @@ pub const Ordering = std.builtin.AtomicOrder;
 
 pub const Stack = @import("atomic/stack.zig").Stack;
 pub const Queue = @import("atomic/queue.zig").Queue;
-pub const Atomic = @import("atomic/Atomic.zig").Atomic;
 
 test "std.atomic" {
     _ = @import("atomic/stack.zig");
     _ = @import("atomic/queue.zig");
-    _ = @import("atomic/Atomic.zig");
-}
-
-pub inline fn fence(comptime ordering: Ordering) void {
-    switch (ordering) {
-        .Acquire, .Release, .AcqRel, .SeqCst => {
-            @fence(ordering);
-        },
-        else => {
-            @compileLog(ordering, " only applies to a given memory location");
-        },
-    }
-}
-
-pub inline fn compilerFence(comptime ordering: Ordering) void {
-    switch (ordering) {
-        .Acquire, .Release, .AcqRel, .SeqCst => asm volatile ("" ::: "memory"),
-        else => @compileLog(ordering, " only applies to a given memory location"),
-    }
-}
-
-test "fence/compilerFence" {
-    inline for (.{ .Acquire, .Release, .AcqRel, .SeqCst }) |ordering| {
-        compilerFence(ordering);
-        fence(ordering);
-    }
 }
 
 /// Signals to the processor that the caller is inside a busy-wait spin-loop.

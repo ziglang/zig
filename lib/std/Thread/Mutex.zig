@@ -26,7 +26,6 @@ const Mutex = @This();
 const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
-const Atomic = std.atomic.Atomic;
 const Futex = std.Thread.Futex;
 
 impl: Impl = .{},
@@ -117,36 +116,59 @@ const DarwinImpl = struct {
 };
 
 const FutexImpl = struct {
-    state: Atomic(u32) = Atomic(u32).init(unlocked),
+    state: u32 = unlocked,
 
     const unlocked = 0b00;
     const locked = 0b01;
     const contended = 0b11; // must contain the `locked` bit for x86 optimization below
 
     fn tryLock(self: *Impl) bool {
-        // Lock with compareAndSwap instead of tryCompareAndSwap to avoid reporting spurious CAS failure.
-        return self.lockFast("compareAndSwap");
+        // Lock with .strict instead of .spurious to avoid reporting spurious CAS failure.
+        return self.lockFast(.strict);
     }
 
     fn lock(self: *Impl) void {
-        // Lock with tryCompareAndSwap instead of compareAndSwap due to being more inline-able on LL/SC archs like ARM.
-        if (!self.lockFast("tryCompareAndSwap")) {
+        // Lock with .spurious instead of .strict due to being more inline-able by avoiding CAS loop
+        if (!self.lockFast(.spurious)) {
             self.lockSlow();
         }
     }
 
-    inline fn lockFast(self: *Impl, comptime casFn: []const u8) bool {
+    const LockFastCheck = enum {
+        strict, // return false only if we really cannot acquire the lock.
+        spurious, // can return false even if we technically could acquire the lock.
+    };
+
+    inline fn lockFast(self: *Impl, comptime check: LockFastCheck) bool {
+        // Acquire barrier ensures grabbing the lock happens before the critical section
+        // and that the previous lock holder's critical section happens before we grab the lock.
+
         // On x86, use `lock bts` instead of `lock cmpxchg` as:
         // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
         if (comptime builtin.target.cpu.arch.isX86()) {
-            const locked_bit = @ctz(u32, @as(u32, locked));
-            return self.state.bitSet(locked_bit, .Acquire) == 0;
+            const old_locked_bit = asm volatile ("lock btsl $0, %[ptr]"
+                // LLVM doesn't support u1 flag register return values
+                : [result] "={@ccc}" (-> u8),
+                : [ptr] "*m" (&self.state),
+                : "cc", "memory"
+            );
+
+            // When the lock is acquired, make sure to emit an Acquire barrier when under ThreadSanitizer.
+            // TSan is unaware of inline asm barriers + doesn't work with fence() hence the use of a dummy load.
+            const acquired = old_locked_bit == 0;
+            if (builtin.sanitize_thread and acquired) {
+                _ = @atomicLoad(u32, &self.state, .Acquire);
+            }
+
+            return acquired;
         }
 
-        // Acquire barrier ensures grabbing the lock happens before the critical section
-        // and that the previous lock holder's critical section happens before we grab the lock.
-        return @field(self.state, casFn)(unlocked, locked, .Acquire, .Monotonic) == null;
+        // On other architectures, use the better CAS builtin.
+        return switch (check) {
+            .strict => @cmpxchgStrong(u32, &self.state, unlocked, locked, .Acquire, .Monotonic) == null,
+            .spurious => @cmpxchgWeak(u32, &self.state, unlocked, locked, .Acquire, .Monotonic) == null,
+        };
     }
 
     fn lockSlow(self: *Impl) void {
@@ -154,7 +176,7 @@ const FutexImpl = struct {
 
         // Avoid doing an atomic swap below if we already know the state is contended.
         // An atomic swap unconditionally stores which marks the cache-line as modified unnecessarily.
-        if (self.state.load(.Monotonic) == contended) {
+        if (@atomicLoad(u32, &self.state, .Monotonic) == contended) {
             Futex.wait(&self.state, contended);
         }
 
@@ -167,7 +189,7 @@ const FutexImpl = struct {
         //
         // Acquire barrier ensures grabbing the lock happens before the critical section
         // and that the previous lock holder's critical section happens before we grab the lock.
-        while (self.state.swap(contended, .Acquire) != unlocked) {
+        while (@atomicRmw(u32, &self.state, .Xchg, contended, .Acquire) != unlocked) {
             Futex.wait(&self.state, contended);
         }
     }
@@ -180,7 +202,7 @@ const FutexImpl = struct {
         //
         // Release barrier ensures the critical section happens before we let go of the lock
         // and that our critical section happens before the next lock holder grabs the lock.
-        const state = self.state.swap(unlocked, .Release);
+        const state = @atomicRmw(u32, &self.state, .Xchg, unlocked, .Release);
         assert(state != unlocked);
 
         if (state == contended) {

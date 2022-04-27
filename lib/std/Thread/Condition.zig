@@ -49,7 +49,6 @@ const Mutex = std.Thread.Mutex;
 const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
-const Atomic = std.atomic.Atomic;
 const Futex = std.Thread.Futex;
 
 impl: Impl = .{},
@@ -184,8 +183,8 @@ const WindowsImpl = struct {
 };
 
 const FutexImpl = struct {
-    state: Atomic(u32) = Atomic(u32).init(0),
-    epoch: Atomic(u32) = Atomic(u32).init(0),
+    state: u32 = 0,
+    epoch: u32 = 0,
 
     const one_waiter = 1;
     const waiter_mask = 0xffff;
@@ -197,7 +196,7 @@ const FutexImpl = struct {
         // Register that we're waiting on the state by incrementing the wait count.
         // This assumes that there can be at most ((1<<16)-1) or 65,355 threads concurrently waiting on the same Condvar.
         // If this is hit in practice, then this condvar not working is the least of your concerns.
-        var state = self.state.fetchAdd(one_waiter, .Monotonic);
+        var state = @atomicRmw(u32, &self.state, .Add, one_waiter, .Monotonic);
         assert(state & waiter_mask != waiter_mask);
         state += one_waiter;
 
@@ -211,7 +210,7 @@ const FutexImpl = struct {
             // Acquire barrier ensures code before the wake() which added the signal happens before we decrement it and return.
             while (state & signal_mask != 0) {
                 const new_state = state - one_waiter - one_signal;
-                state = self.state.tryCompareAndSwap(state, new_state, .Acquire, .Monotonic) orelse return;
+                state = @cmpxchgWeak(u32, &self.state, state, new_state, .Acquire, .Monotonic) orelse return;
             }
 
             // Observe the epoch, then check the state again to see if we should wake up.
@@ -224,8 +223,8 @@ const FutexImpl = struct {
             // - T1: s & signals == 0 -> FUTEX_WAIT(&epoch, e) (missed the state update + the epoch change)
             //
             // Acquire barrier to ensure the epoch load happens before the state load.
-            const epoch = self.epoch.load(.Acquire);
-            state = self.state.load(.Monotonic);
+            const epoch = @atomicLoad(u32, &self.epoch, .Acquire);
+            state = @atomicLoad(u32, &self.state, .Monotonic);
             if (state & signal_mask != 0) {
                 continue;
             }
@@ -238,12 +237,12 @@ const FutexImpl = struct {
                         // Acquire barrier ensures code before the wake() which added the signal happens before we decrement it and return.
                         while (state & signal_mask != 0) {
                             const new_state = state - one_waiter - one_signal;
-                            state = self.state.tryCompareAndSwap(state, new_state, .Acquire, .Monotonic) orelse return;
+                            state = @cmpxchgWeak(u32, &self.state, state, new_state, .Acquire, .Monotonic) orelse return;
                         }
 
                         // Remove the waiter we added and officially return timed out.
                         const new_state = state - one_waiter;
-                        state = self.state.tryCompareAndSwap(state, new_state, .Monotonic, .Monotonic) orelse return err;
+                        state = @cmpxchgWeak(u32, &self.state, state, new_state, .Monotonic, .Monotonic) orelse return err;
                     }
                 },
             };
@@ -251,7 +250,7 @@ const FutexImpl = struct {
     }
 
     fn wake(self: *Impl, comptime notify: Notify) void {
-        var state = self.state.load(.Monotonic);
+        var state = @atomicLoad(u32, &self.state, .Monotonic);
         while (true) {
             const waiters = (state & waiter_mask) / one_waiter;
             const signals = (state & signal_mask) / one_signal;
@@ -272,7 +271,7 @@ const FutexImpl = struct {
             // Reserve the amount of waiters to wake by incrementing the signals count.
             // Release barrier ensures code before the wake() happens before the signal it posted and consumed by the wait() threads.
             const new_state = state + (one_signal * to_wake);
-            state = self.state.tryCompareAndSwap(state, new_state, .Release, .Monotonic) orelse {
+            state = @cmpxchgWeak(u32, &self.state, state, new_state, .Release, .Monotonic) orelse {
                 // Wake up the waiting threads we reserved above by changing the epoch value.
                 // NOTE: a waiting thread could miss a wake up if *exactly* ((1<<32)-1) wake()s happen between it observing the epoch and sleeping on it.
                 // This is very unlikely due to how many precise amount of Futex.wake() calls that would be between the waiting thread's potential preemption.
@@ -285,7 +284,7 @@ const FutexImpl = struct {
                 // - T1: s = LOAD(&state)
                 // - T2: UPDATE(&state, signal) + FUTEX_WAKE(&epoch)
                 // - T1: s & signals == 0 -> FUTEX_WAIT(&epoch, e) (missed both epoch change and state change)
-                _ = self.epoch.fetchAdd(1, .Release);
+                _ = @atomicRmw(u32, &self.epoch, .Add, 1, .Release);
                 Futex.wake(&self.epoch, to_wake);
                 return;
             };

@@ -6185,7 +6185,7 @@ pub const CopyFileRangeError = error{
     FileBusy,
 } || PReadError || PWriteError || UnexpectedError;
 
-var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
+var has_copy_file_range_syscall = true;
 
 /// Transfer data between file descriptors at specified offsets.
 /// Returns the number of bytes written, which can less than requested.
@@ -6221,7 +6221,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
     else
         builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
 
-    if (call_cfr and has_copy_file_range_syscall.load(.Monotonic)) {
+    if (call_cfr and @atomicLoad(bool, &has_copy_file_range_syscall, .Monotonic)) {
         var off_in_copy = @bitCast(i64, off_in);
         var off_out_copy = @bitCast(i64, off_out);
 
@@ -6243,7 +6243,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             .XDEV => {},
             // syscall added in Linux 4.5, use fallback
             .NOSYS => {
-                has_copy_file_range_syscall.store(false, .Monotonic);
+                @atomicStore(bool, &has_copy_file_range_syscall, false, .Monotonic);
             },
             else => |err| return unexpectedErrno(err),
         }

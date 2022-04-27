@@ -8,7 +8,6 @@ const os = std.os;
 const windows = os.windows;
 const maxInt = std.math.maxInt;
 const Thread = std.Thread;
-const Atomic = std.atomic.Atomic;
 
 const is_windows = builtin.os.tag == .windows;
 
@@ -848,7 +847,7 @@ pub const Loop = struct {
         waiters: Waiters,
         thread: std.Thread,
         event: std.Thread.ResetEvent,
-        is_running: Atomic(bool),
+        is_running: bool,
 
         /// Initialize the delay queue by spawning the timer thread
         /// and starting any timer resources.
@@ -860,7 +859,7 @@ pub const Loop = struct {
                 },
                 .thread = undefined,
                 .event = .{},
-                .is_running = Atomic(bool).init(true),
+                .is_running = true,
             };
 
             // Must be after init so that it can read the other state, such as `is_running`.
@@ -868,7 +867,7 @@ pub const Loop = struct {
         }
 
         fn deinit(self: *DelayQueue) void {
-            self.is_running.store(false, .SeqCst);
+            @atomicStore(bool, &self.is_running, false, .SeqCst);
             self.event.set();
             self.thread.join();
         }
@@ -878,7 +877,7 @@ pub const Loop = struct {
         fn run(self: *DelayQueue) void {
             const loop = @fieldParentPtr(Loop, "delay_queue", self);
 
-            while (self.is_running.load(.SeqCst)) {
+            while (@atomicLoad(bool, &self.is_running, .SeqCst)) {
                 self.event.reset();
                 const now = self.timer.read();
 

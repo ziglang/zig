@@ -8,7 +8,6 @@ const math = std.math;
 const os = std.os;
 const assert = std.debug.assert;
 const target = builtin.target;
-const Atomic = std.atomic.Atomic;
 
 pub const Futex = @import("Thread/Futex.zig");
 pub const ResetEvent = @import("Thread/ResetEvent.zig");
@@ -369,11 +368,11 @@ pub fn yield() YieldError!void {
 }
 
 /// State to synchronize detachment of spawner thread to spawned thread
-const Completion = Atomic(enum(u8) {
+const Completion = enum(u8) {
     running,
     detached,
     completed,
-});
+};
 
 /// Used by the Thread implementations to call the spawned function with the arguments.
 fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
@@ -498,7 +497,7 @@ const WindowsThreadImpl = struct {
 
             fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
                 const self = @ptrCast(*@This(), @alignCast(@alignOf(@This()), raw_ptr));
-                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
+                defer switch (@atomicRmw(Completion, &self.thread.completion, .Xchg, .completed, .SeqCst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => self.thread.free(),
@@ -550,7 +549,7 @@ const WindowsThreadImpl = struct {
 
     fn detach(self: Impl) void {
         windows.CloseHandle(self.thread.thread_handle);
-        switch (self.thread.completion.swap(.detached, .SeqCst)) {
+        switch (@atomicRmw(Completion, &self.thread.completion, .Xchg, .detached, .SeqCst)) {
             .running => {},
             .completed => self.thread.free(),
             .detached => unreachable,
@@ -560,7 +559,7 @@ const WindowsThreadImpl = struct {
     fn join(self: Impl) void {
         windows.WaitForSingleObjectEx(self.thread.thread_handle, windows.INFINITE, false) catch unreachable;
         windows.CloseHandle(self.thread.thread_handle);
-        assert(self.thread.completion.load(.SeqCst) == .completed);
+        assert(@atomicLoad(Completion, &self.thread.completion, .SeqCst) == .completed);
         self.thread.free();
     }
 };
@@ -743,8 +742,8 @@ const LinuxThreadImpl = struct {
     thread: *ThreadCompletion,
 
     const ThreadCompletion = struct {
-        completion: Completion = Completion.init(.running),
-        child_tid: Atomic(i32) = Atomic(i32).init(1),
+        completion: Completion = .running,
+        child_tid: i32 = 1,
         parent_tid: i32 = undefined,
         mapped: []align(std.mem.page_size) u8,
 
@@ -900,7 +899,7 @@ const LinuxThreadImpl = struct {
 
             fn entryFn(raw_arg: usize) callconv(.C) u8 {
                 const self = @intToPtr(*@This(), raw_arg);
-                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
+                defer switch (@atomicRmw(Completion, &self.thread.completion, .Xchg, .completed, .SeqCst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => self.thread.freeAndExit(),
@@ -997,7 +996,7 @@ const LinuxThreadImpl = struct {
             @ptrToInt(instance),
             &instance.thread.parent_tid,
             tls_ptr,
-            &instance.thread.child_tid.value,
+            &instance.thread.child_tid,
         ))) {
             .SUCCESS => return Impl{ .thread = &instance.thread },
             .AGAIN => return error.ThreadQuotaExceeded,
@@ -1015,7 +1014,7 @@ const LinuxThreadImpl = struct {
     }
 
     fn detach(self: Impl) void {
-        switch (self.thread.completion.swap(.detached, .SeqCst)) {
+        switch (@atomicRmw(Completion, &self.thread.completion, .Xchg, .detached, .SeqCst)) {
             .running => {},
             .completed => self.join(),
             .detached => unreachable,
@@ -1027,7 +1026,7 @@ const LinuxThreadImpl = struct {
 
         var spin: u8 = 10;
         while (true) {
-            const tid = self.thread.child_tid.load(.SeqCst);
+            const tid = @atomicLoad(i32, &self.thread.child_tid, .SeqCst);
             if (tid == 0) {
                 break;
             }
@@ -1039,7 +1038,7 @@ const LinuxThreadImpl = struct {
             }
 
             switch (linux.getErrno(linux.futex_wait(
-                &self.thread.child_tid.value,
+                &self.thread.child_tid,
                 linux.FUTEX.WAIT,
                 tid,
                 null,
@@ -1080,7 +1079,6 @@ test "setName, getName" {
         test_done_event: ResetEvent = .{},
         thread_done_event: ResetEvent = .{},
 
-        done: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(false),
         thread: Thread = undefined,
 
         pub fn run(ctx: *@This()) !void {

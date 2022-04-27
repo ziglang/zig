@@ -292,7 +292,7 @@ pub fn panicExtra(
 
 /// Non-zero whenever the program triggered a panic.
 /// The counter is incremented/decremented atomically.
-var panicking = std.atomic.Atomic(u8).init(0);
+var panicking: u8 = 0;
 
 // Locked to avoid interleaving panic messages from multiple threads.
 var panic_mutex = std.Thread.Mutex{};
@@ -316,7 +316,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
         0 => {
             panic_stage = 1;
 
-            _ = panicking.fetchAdd(1, .SeqCst);
+            _ = @atomicRmw(u8, &panicking, .Add, 1, .SeqCst);
 
             // Make sure to release the mutex when done
             {
@@ -337,12 +337,12 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
                 dumpCurrentStackTrace(first_trace_addr);
             }
 
-            if (panicking.fetchSub(1, .SeqCst) != 1) {
+            if (@atomicRmw(u8, &panicking, .Sub, 1, .SeqCst) != 1) {
                 // Another thread is panicking, wait for the last one to finish
                 // and call abort()
 
                 // Sleep forever without hammering the CPU
-                var futex = std.atomic.Atomic(u32).init(0);
+                var futex: u32 = 0;
                 while (true) std.Thread.Futex.wait(&futex, 0);
                 unreachable;
             }

@@ -10,7 +10,6 @@ const Futex = @This();
 const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
-const Atomic = std.atomic.Atomic;
 
 /// Checks if `ptr` still contains the value `expect` and, if so, blocks the caller until either:
 /// - The value at `ptr` is no longer equal to `expect`.
@@ -19,7 +18,7 @@ const Atomic = std.atomic.Atomic;
 ///
 /// The checking of `ptr` and `expect`, along with blocking the caller, is done atomically
 /// and totally ordered (sequentially consistent) with respect to other wait()/wake() calls on the same `ptr`.
-pub fn wait(ptr: *const Atomic(u32), expect: u32) void {
+pub fn wait(ptr: *const u32, expect: u32) void {
     @setCold(true);
 
     Impl.wait(ptr, expect, null) catch |err| switch (err) {
@@ -35,12 +34,12 @@ pub fn wait(ptr: *const Atomic(u32), expect: u32) void {
 ///
 /// The checking of `ptr` and `expect`, along with blocking the caller, is done atomically
 /// and totally ordered (sequentially consistent) with respect to other wait()/wake() calls on the same `ptr`.
-pub fn timedWait(ptr: *const Atomic(u32), expect: u32, timeout_ns: u64) error{Timeout}!void {
+pub fn timedWait(ptr: *const u32, expect: u32, timeout_ns: u64) error{Timeout}!void {
     @setCold(true);
 
     // Avoid calling into the OS for no-op timeouts.
     if (timeout_ns == 0) {
-        if (ptr.load(.SeqCst) != expect) return;
+        if (@atomicLoad(u32, ptr, .SeqCst) != expect) return;
         return error.Timeout;
     }
 
@@ -48,7 +47,7 @@ pub fn timedWait(ptr: *const Atomic(u32), expect: u32, timeout_ns: u64) error{Ti
 }
 
 /// Unblocks at most `max_waiters` callers blocked in a `wait()` call on `ptr`.
-pub fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+pub fn wake(ptr: *const u32, max_waiters: u32) void {
     @setCold(true);
 
     // Avoid calling into the OS if there's nothing to wake up.
@@ -81,11 +80,11 @@ else
 /// We can't do @compileError() in the `Impl` switch statement above as its eagerly evaluated.
 /// So instead, we @compileError() on the methods themselves for platforms which don't support futex.
 const UnsupportedImpl = struct {
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+    fn wait(ptr: *const u32, expect: u32, timeout: ?u64) error{Timeout}!void {
         return unsupported(.{ ptr, expect, timeout });
     }
 
-    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+    fn wake(ptr: *const u32, max_waiters: u32) void {
         return unsupported(.{ ptr, max_waiters });
     }
 
@@ -96,8 +95,8 @@ const UnsupportedImpl = struct {
 };
 
 const SingleThreadedImpl = struct {
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
-        if (ptr.loadUnchecked() != expect) {
+    fn wait(ptr: *const u32, expect: u32, timeout: ?u64) error{Timeout}!void {
+        if (ptr.* != expect) {
             return;
         }
 
@@ -111,7 +110,7 @@ const SingleThreadedImpl = struct {
         return error.Timeout;
     }
 
-    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+    fn wake(ptr: *const u32, max_waiters: u32) void {
         // There are no other threads to possibly wake up
         _ = ptr;
         _ = max_waiters;
@@ -121,7 +120,7 @@ const SingleThreadedImpl = struct {
 // We use WaitOnAddress through NtDll instead of API-MS-Win-Core-Synch-l1-2-0.dll
 // as it's generally already a linked target and is autoloaded into all processes anyway.
 const WindowsImpl = struct {
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+    fn wait(ptr: *const u32, expect: u32, timeout: ?u64) error{Timeout}!void {
         var timeout_value: os.windows.LARGE_INTEGER = undefined;
         var timeout_ptr: ?*const os.windows.LARGE_INTEGER = null;
 
@@ -150,7 +149,7 @@ const WindowsImpl = struct {
         }
     }
 
-    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+    fn wake(ptr: *const u32, max_waiters: u32) void {
         const address = @ptrCast(?*const anyopaque, ptr);
         assert(max_waiters != 0);
 
@@ -162,7 +161,7 @@ const WindowsImpl = struct {
 };
 
 const DarwinImpl = struct {
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+    fn wait(ptr: *const u32, expect: u32, timeout: ?u64) error{Timeout}!void {
         // Darwin XNU 7195.50.7.100.1 introduced __ulock_wait2 and migrated code paths (notably pthread_cond_t) towards it:
         // https://github.com/apple/darwin-xnu/commit/d4061fb0260b3ed486147341b72468f836ed6c8f#diff-08f993cc40af475663274687b7c326cc6c3031e0db3ac8de7b24624610616be6
         //
@@ -218,7 +217,7 @@ const DarwinImpl = struct {
         }
     }
 
-    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+    fn wake(ptr: *const u32, max_waiters: u32) void {
         var flags: u32 = os.darwin.UL_COMPARE_AND_WAIT | os.darwin.ULF_NO_ERRNO;
         if (max_waiters > 1) {
             flags |= os.darwin.ULF_WAKE_ALL;
@@ -242,7 +241,7 @@ const DarwinImpl = struct {
 
 // https://man7.org/linux/man-pages/man2/futex.2.html
 const LinuxImpl = struct {
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+    fn wait(ptr: *const u32, expect: u32, timeout: ?u64) error{Timeout}!void {
         var ts: os.timespec = undefined;
         if (timeout) |timeout_ns| {
             ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
@@ -250,7 +249,7 @@ const LinuxImpl = struct {
         }
 
         const rc = os.linux.futex_wait(
-            @ptrCast(*const i32, &ptr.value),
+            @ptrCast(*const i32, ptr),
             os.linux.FUTEX.PRIVATE_FLAG | os.linux.FUTEX.WAIT,
             @bitCast(i32, expect),
             if (timeout != null) &ts else null,
@@ -270,9 +269,9 @@ const LinuxImpl = struct {
         }
     }
 
-    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+    fn wake(ptr: *const u32, max_waiters: u32) void {
         const rc = os.linux.futex_wake(
-            @ptrCast(*const i32, &ptr.value),
+            @ptrCast(*const i32, ptr),
             os.linux.FUTEX.PRIVATE_FLAG | os.linux.FUTEX.WAKE,
             std.math.cast(i32, max_waiters) catch std.math.maxInt(i32),
         );
@@ -288,7 +287,7 @@ const LinuxImpl = struct {
 
 // https://www.freebsd.org/cgi/man.cgi?query=_umtx_op&sektion=2&n=1
 const FreebsdImpl = struct {
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+    fn wait(ptr: *const u32, expect: u32, timeout: ?u64) error{Timeout}!void {
         var tm_size: usize = 0;
         var tm: os.freebsd._umtx_time = undefined;
         var tm_ptr: ?*const os.freebsd._umtx_time = null;
@@ -304,7 +303,7 @@ const FreebsdImpl = struct {
         }
 
         const rc = os.freebsd._umtx_op(
-            @ptrToInt(&ptr.value),
+            @ptrToInt(ptr),
             @enumToInt(os.freebsd.UMTX_OP.WAIT_UINT_PRIVATE),
             @as(c_ulong, expect),
             tm_size,
@@ -324,9 +323,9 @@ const FreebsdImpl = struct {
         }
     }
 
-    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+    fn wake(ptr: *const u32, max_waiters: u32) void {
         const rc = os.freebsd._umtx_op(
-            @ptrToInt(&ptr.value),
+            @ptrToInt(ptr),
             @enumToInt(os.freebsd.UMTX_OP.WAKE_PRIVATE),
             @as(c_ulong, max_waiters),
             0, // there is no timeout struct
@@ -344,7 +343,7 @@ const FreebsdImpl = struct {
 
 // https://man.openbsd.org/futex.2
 const OpenbsdImpl = struct {
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+    fn wait(ptr: *const u32, expect: u32, timeout: ?u64) error{Timeout}!void {
         var ts: os.timespec = undefined;
         if (timeout) |timeout_ns| {
             ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
@@ -352,7 +351,7 @@ const OpenbsdImpl = struct {
         }
 
         const rc = os.openbsd.futex(
-            @ptrCast(*const volatile u32, &ptr.value),
+            @ptrCast(*const volatile u32, ptr),
             os.openbsd.FUTEX_WAIT | os.openbsd.FUTEX_PRIVATE_FLAG,
             @bitCast(c_int, expect),
             if (timeout != null) &ts else null,
@@ -375,9 +374,9 @@ const OpenbsdImpl = struct {
         }
     }
 
-    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+    fn wake(ptr: *const u32, max_waiters: u32) void {
         const rc = os.openbsd.futex(
-            @ptrCast(*const volatile u32, &ptr.value),
+            @ptrCast(*const volatile u32, ptr),
             os.openbsd.FUTEX_WAKE | os.openbsd.FUTEX_PRIVATE_FLAG,
             std.math.cast(c_int, max_waiters) catch std.math.maxInt(c_int),
             null, // FUTEX_WAKE takes no timeout ptr
@@ -391,7 +390,7 @@ const OpenbsdImpl = struct {
 
 // https://man.dragonflybsd.org/?command=umtx&section=2
 const DragonflyImpl = struct {
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+    fn wait(ptr: *const u32, expect: u32, timeout: ?u64) error{Timeout}!void {
         // Dragonfly uses a scheme where 0 timeout means wait until signaled or spurious wake.
         // It's reporting of timeout's is also unrealiable so we use an external timing source (Timer) instead.
         var timeout_us: c_int = 0;
@@ -412,7 +411,7 @@ const DragonflyImpl = struct {
         }
 
         const value = @bitCast(c_int, expect);
-        const addr = @ptrCast(*const volatile c_int, &ptr.value);
+        const addr = @ptrCast(*const volatile c_int, ptr);
         const rc = os.dragonfly.umtx_sleep(addr, value, timeout_us);
 
         switch (os.errno(rc)) {
@@ -433,7 +432,7 @@ const DragonflyImpl = struct {
         }
     }
 
-    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+    fn wake(ptr: *const u32, max_waiters: u32) void {
         // A count of zero means wake all waiters.
         assert(max_waiters != 0);
         const to_wake = std.math.cast(c_int, max_waiters) catch 0;
@@ -441,7 +440,7 @@ const DragonflyImpl = struct {
         // https://man.dragonflybsd.org/?command=umtx&section=2
         // > umtx_wakeup() will generally return 0 unless the address is bad.
         // We are fine with the address being bad (e.g. for Semaphore.post() where Semaphore.wait() frees the Semaphore)
-        const addr = @ptrCast(*const volatile c_int, &ptr.value);
+        const addr = @ptrCast(*const volatile c_int, ptr);
         _ = os.dragonfly.umtx_wakeup(addr, to_wake);
     }
 };
@@ -688,7 +687,7 @@ const PosixImpl = struct {
 
     const Bucket = struct {
         mutex: std.c.pthread_mutex_t align(std.atomic.cache_line) = .{},
-        pending: Atomic(usize) = Atomic(usize).init(0),
+        pending: usize = 0,
         treap: Treap = .{},
 
         // Global array of buckets that addresses map to.
@@ -712,9 +711,9 @@ const PosixImpl = struct {
     };
 
     const Address = struct {
-        fn from(ptr: *const Atomic(u32)) usize {
+        fn from(ptr: *const u32) usize {
             // Get the alignment of the pointer.
-            const alignment = @alignOf(Atomic(u32));
+            const alignment = @alignOf(u32);
             comptime assert(std.math.isPowerOfTwo(alignment));
 
             // Make sure the pointer is aligned,
@@ -725,7 +724,7 @@ const PosixImpl = struct {
         }
     };
 
-    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+    fn wait(ptr: *const u32, expect: u32, timeout: ?u64) error{Timeout}!void {
         const address = Address.from(ptr);
         const bucket = Bucket.from(address);
 
@@ -740,14 +739,14 @@ const PosixImpl = struct {
         //
         // SeqCst as Acquire barrier to ensure the announcement happens before the ptr check below.
         // SeqCst as shared modification order to form a happens-before edge with the fence(.SeqCst)+load() in wake().
-        var pending = bucket.pending.fetchAdd(1, .SeqCst);
+        var pending = @atomicRmw(usize, &bucket.pending, .Add, 1, .SeqCst);
         assert(pending < std.math.maxInt(usize));
 
         // If the wait gets cancelled, remove the pending count we previously added.
         // This is done outside the mutex lock to keep the critical section short in case of contention.
         var cancelled = false;
         defer if (cancelled) {
-            pending = bucket.pending.fetchSub(1, .Monotonic);
+            pending = @atomicRmw(usize, &bucket.pending, .Sub, 1, .Monotonic);
             assert(pending > 0);
         };
 
@@ -756,7 +755,7 @@ const PosixImpl = struct {
             assert(std.c.pthread_mutex_lock(&bucket.mutex) == .SUCCESS);
             defer assert(std.c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
-            cancelled = ptr.load(.Monotonic) != expect;
+            cancelled = @atomicLoad(u32, &ptr, .Monotonic) != expect;
             if (cancelled) {
                 return;
             }
@@ -786,7 +785,7 @@ const PosixImpl = struct {
         };
     }
 
-    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+    fn wake(ptr: *const u32, max_waiters: u32) void {
         const address = Address.from(ptr);
         const bucket = Bucket.from(address);
 
@@ -809,15 +808,24 @@ const PosixImpl = struct {
         //
         // The pending count increment in wait() must also now use SeqCst for the update + this pending load
         // to be in the same modification order as our load isn't using Release/Acquire to guarantee it.
-        bucket.pending.fence(.SeqCst);
-        if (bucket.pending.load(.Monotonic) == 0) {
+        //
+        // Use an dummy RMW to issue the Store-Load barrier while loading the value when under ThreadSanitizer as it doesn't support fences.
+        var pending: usize = undefined;
+        if (builtin.sanitize_thread) {
+            pending = @atomicRmw(usize, &bucket.pending, .Add, 0, .SeqCst);
+        } else {
+            @fence(.SeqCst);
+            pending = @atomicLoad(usize, &bucket.pending, .Monotonic);
+        }
+
+        if (pending == 0) {
             return;
         }
 
         // Keep a list of all the waiters notified and wake then up outside the mutex critical section.
         var notified = WaitList{};
         defer if (notified.len > 0) {
-            const pending = bucket.pending.fetchSub(notified.len, .Monotonic);
+            pending = @atomicRmw(usize, &bucket.pending, .Sub, notified.len, .Monotonic);
             assert(pending >= notified.len);
 
             while (notified.pop()) |waiter| {
@@ -837,7 +845,7 @@ const PosixImpl = struct {
 };
 
 test "Futex - smoke test" {
-    var value = Atomic(u32).init(0);
+    var value: u32 = 0;
 
     // Try waits with invalid values.
     Futex.wait(&value, 0xdeadbeef);
@@ -863,11 +871,11 @@ test "Futex - signaling" {
     const num_iterations = 4;
 
     const Paddle = struct {
-        value: Atomic(u32) = Atomic(u32).init(0),
+        value: u32 = 0,
         current: u32 = 0,
 
         fn hit(self: *@This()) void {
-            _ = self.value.fetchAdd(1, .Release);
+            _ = @atomicRmw(u32, &self.value, .Add, 1, .Release);
             Futex.wake(&self.value, 1);
         }
 
@@ -876,7 +884,7 @@ test "Futex - signaling" {
                 // Wait for the value to change from hit()
                 var new_value: u32 = undefined;
                 while (true) {
-                    new_value = self.value.load(.Acquire);
+                    new_value = @atomicLoad(u32, &self.value, .Acquire);
                     if (new_value != self.current) break;
                     Futex.wait(&self.value, self.current);
                 }
@@ -917,29 +925,28 @@ test "Futex - broadcasting" {
     const num_iterations = 4;
 
     const Barrier = struct {
-        count: Atomic(u32) = Atomic(u32).init(num_threads),
-        futex: Atomic(u32) = Atomic(u32).init(0),
+        count: u32 = num_threads,
+        futex: u32 = 0,
 
         fn wait(self: *@This()) !void {
             // Decrement the counter.
-            // Release ensures stuff before this barrier.wait() happens before the last one.
-            const count = self.count.fetchSub(1, .Release);
+            // AcqRel as Release ensures stuff before this barrier.wait() happens before the last one.
+            // AcqREl as Acquire for the last counter ensures stuff before previous barrier.wait()s happened before it.
+            const count = @atomicRmw(u32, &self.count, .Sub, 1, .AcqRel);
             try testing.expect(count <= num_threads);
             try testing.expect(count > 0);
 
             // First counter to reach zero wakes all other threads.
-            // Acquire for the last counter ensures stuff before previous barrier.wait()s happened before it.
             // Release on futex update ensures stuff before all barrier.wait()'s happens before they all return.
             if (count - 1 == 0) {
-                _ = self.count.load(.Acquire); // TODO: could be fence(Acquire) if not for TSAN
-                self.futex.store(1, .Release);
+                @atomicStore(u32, &self.futex, 1, .Release);
                 Futex.wake(&self.futex, num_threads - 1);
                 return;
             }
 
             // Other threads wait until last counter wakes them up.
             // Acquire on futex synchronizes with last barrier count to ensure stuff before all barrier.wait()'s happen before us.
-            while (self.futex.load(.Acquire) == 0) {
+            while (@atomicLoad(u32, &self.futex, .Acquire) == 0) {
                 Futex.wait(&self.futex, 0);
             }
         }
@@ -991,7 +998,7 @@ pub const Deadline = struct {
     /// - `Futex.wake()` is called on the `ptr`.
     /// - A spurious wake occurs.
     /// - The deadline expires; In which case `error.Timeout` is returned.
-    pub fn wait(self: *Deadline, ptr: *const Atomic(u32), expect: u32) error{Timeout}!void {
+    pub fn wait(self: *Deadline, ptr: *const u32, expect: u32) error{Timeout}!void {
         @setCold(true);
 
         // Check if we actually have a timeout to wait until.
@@ -1011,7 +1018,7 @@ pub const Deadline = struct {
 
 test "Futex - Deadline" {
     var deadline = Deadline.init(100 * std.time.ns_per_ms);
-    var futex_word = Atomic(u32).init(0);
+    var futex_word: u32 = 0;
 
     while (true) {
         deadline.wait(&futex_word, 0) catch break;
