@@ -1012,18 +1012,18 @@ pub const TestContext = struct {
     ) !void {
         var cases = std.ArrayList(usize).init(ctx.arena);
 
-        var it = dir.iterate();
+        var it = try dir.walk(ctx.arena);
         var filenames = std.ArrayList([]const u8).init(ctx.arena);
 
         while (try it.next()) |entry| {
             if (entry.kind != .File) continue;
 
             // Ignore stuff such as .swp files
-            switch (Compilation.classifyFileExt(entry.name)) {
+            switch (Compilation.classifyFileExt(entry.basename)) {
                 .unknown => continue,
                 else => {},
             }
-            try filenames.append(try ctx.arena.dupe(u8, entry.name));
+            try filenames.append(try ctx.arena.dupe(u8, entry.path));
         }
 
         // Sort filenames, so that incremental tests are contiguous and in-order

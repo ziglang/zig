@@ -1,4 +1,11 @@
-pub fn main() void {
+const std = @import("std");
+const builtin = @import("builtin");
+
+test "registers get overwritten when ignoring return" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.cpu.arch != .x86_64 or builtin.os.tag != .linux) return error.SkipZigTest;
+
     const fd = open();
     _ = write(fd, "a", 1);
     _ = close(fd);
@@ -25,7 +32,3 @@ fn close(fd: usize) usize {
         unreachable;
     return 0;
 }
-
-// run
-// target=x86_64-linux
-//

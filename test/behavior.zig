@@ -69,8 +69,10 @@ test {
     _ = @import("behavior/bugs/7003.zig");
     _ = @import("behavior/bugs/7027.zig");
     _ = @import("behavior/bugs/7047.zig");
+    _ = @import("behavior/bugs/7187.zig");
     _ = @import("behavior/bugs/7250.zig");
     _ = @import("behavior/bugs/9584.zig");
+    _ = @import("behavior/bugs/10138.zig");
     _ = @import("behavior/bugs/10147.zig");
     _ = @import("behavior/bugs/10970.zig");
     _ = @import("behavior/bugs/11046.zig");
