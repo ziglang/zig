@@ -33,4 +33,4 @@ pub fn assert(ok: bool) void {
 
 // error
 //
-// :3:21: error: unable to resolve comptime value
+// :7:21: error: unable to resolve comptime value
