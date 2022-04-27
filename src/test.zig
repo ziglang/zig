@@ -1010,7 +1010,7 @@ pub const TestContext = struct {
         /// that if any errors occur the caller knows it happened during this file.
         current_file: *[]const u8,
     ) !void {
-        var cases = std.ArrayList(*Case).init(ctx.arena);
+        var cases = std.ArrayList(usize).init(ctx.arena);
 
         var it = dir.iterate();
         var filenames = std.ArrayList([]const u8).init(ctx.arena);
@@ -1081,8 +1081,8 @@ pub const TestContext = struct {
                             name_prefix,
                             try target.zigTriple(ctx.arena),
                         });
-                        const case = try ctx.cases.addOne();
-                        case.* = .{
+                        const next = ctx.cases.items.len;
+                        try ctx.cases.append(.{
                             .name = name,
                             .target = target,
                             .backend = backend,
@@ -1090,13 +1090,14 @@ pub const TestContext = struct {
                             .is_test = is_test,
                             .output_mode = output_mode,
                             .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
-                        };
-                        try cases.append(case);
+                        });
+                        try cases.append(next);
                     }
                 }
             }
 
-            for (cases.items) |case| {
+            for (cases.items) |case_index| {
+                const case = &ctx.cases.items[case_index];
                 switch (manifest.@"type") {
                     .@"error" => {
                         const errors = try manifest.trailingAlloc(ctx.arena);
