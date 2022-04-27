@@ -1,7 +1,7 @@
 const math = @import("../math.zig");
 
 /// Returns the nan representation for type T.
-pub fn nan(comptime T: type) T {
+pub inline fn nan(comptime T: type) T {
     return switch (@typeInfo(T).Float.bits) {
         16 => math.nan_f16,
         32 => math.nan_f32,
@@ -13,15 +13,8 @@ pub fn nan(comptime T: type) T {
 }
 
 /// Returns the signalling nan representation for type T.
-pub fn snan(comptime T: type) T {
-    // Note: A signalling nan is identical to a standard right now by may have a different bit
-    // representation in the future when required.
-    return switch (@typeInfo(T).Float.bits) {
-        16 => math.nan_u16,
-        32 => math.nan_u32,
-        64 => math.nan_u64,
-        80 => math.nan_u80,
-        128 => math.nan_u128,
-        else => @compileError("unreachable"),
-    };
+/// Note: A signalling nan is identical to a standard right now by may have a different bit
+/// representation in the future when required.
+pub inline fn snan(comptime T: type) T {
+    return nan(T);
 }
