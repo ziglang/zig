@@ -174,11 +174,11 @@ const TestManifestConfigDefaults = struct {
             comptime {
                 var defaults: []const u8 = "";
                 // TODO should we only return "mainstream" targets by default here?
+                // TODO we should also specify ABIs explicitly as the backends are
+                // getting more and more complete
                 // Linux
                 inline for (&[_][]const u8{ "x86_64", "arm", "aarch64" }) |arch| {
-                    inline for (&[_][]const u8{ "gnu", "musl" }) |abi| {
-                        defaults = defaults ++ arch ++ "-linux-" ++ abi ++ ",";
-                    }
+                    defaults = defaults ++ arch ++ "-linux-" ++ ",";
                 }
                 // macOS
                 inline for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
