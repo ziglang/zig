@@ -8,5 +8,5 @@ fn assert(a: u32, b: u32) void {
 
 // run
 // backend=llvm
-// target=x86_64-linux
+// target=x86_64-linux,x86_64-macos
 //

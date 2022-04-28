@@ -3,25 +3,23 @@ const builtin = @import("builtin");
 extern "c" fn write(usize, usize, usize) usize;
 
 pub fn main() void {
-    comptime var i: u64 = 2;
-    inline while (i < 6) : (i += 1) {
-        print(i);
-    }
+    for ("hello") |_| print();
 }
-fn print(len: usize) void {
+
+fn print() void {
     switch (builtin.os.tag) {
         .linux => {
             asm volatile ("syscall"
                 :
                 : [number] "{rax}" (1),
                   [arg1] "{rdi}" (1),
-                  [arg2] "{rsi}" (@ptrToInt("Hello")),
-                  [arg3] "{rdx}" (len),
+                  [arg2] "{rsi}" (@ptrToInt("hello\n")),
+                  [arg3] "{rdx}" (6),
                 : "rcx", "r11", "memory"
             );
         },
         .macos => {
-            _ = write(1, @ptrToInt("Hello"), len);
+            _ = write(1, @ptrToInt("hello\n"), 6);
         },
         else => unreachable,
     }
@@ -29,4 +27,9 @@ fn print(len: usize) void {
 
 // run
 //
-// HeHelHellHello
+// hello
+// hello
+// hello
+// hello
+// hello
+//

@@ -6,7 +6,7 @@ pub fn main() void {
 
 // error
 // output_mode=Exe
-// target=x86_64-linux,x86_64-macos
+// target=x86_64-linux
 //
 // :4:21: error: store to comptime variable depends on runtime condition
 // :4:11: note: runtime condition here

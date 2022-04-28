@@ -11,5 +11,5 @@ pub fn assert(ok: bool) void {
 }
 
 // run
-// target=x86_64-linux,x86_64-macos
+// target=x86_64-macos
 //
