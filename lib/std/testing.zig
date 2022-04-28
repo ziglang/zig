@@ -487,6 +487,36 @@ pub fn buildExe(zigexec: []const u8, zigfile: []const u8, binfile: []const u8) !
     try expectEqual(ret_val, .{ .Exited = 0 });
 }
 
+/// Spawns a zig build runner process 'zigexec build subcmd' and
+/// expects success
+/// If specified, runs zig build in the cwd path
+/// If specified, uses the specified lib_dir for zig standard library
+/// instead of compiler's default library directory
+pub fn runZigBuild(zigexec: []const u8, options: struct {
+    subcmd: ?[]const u8 = null,
+    cwd: ?[]const u8 = null,
+    lib_dir: ?[]const u8 = null,
+}) !std.ChildProcess.ExecResult {
+    var args = std.ArrayList([]const u8).init(allocator);
+    defer args.deinit();
+
+    try args.appendSlice(&.{ zigexec, "build" });
+    if (options.subcmd) |subcmd| try args.append(subcmd);
+    if (options.lib_dir) |lib_dir| try args.append(lib_dir);
+
+    var result = try std.ChildProcess.exec(.{
+        .allocator = allocator,
+        .argv = args.items,
+        .cwd = if (options.cwd) |c| c else null,
+    });
+    errdefer {
+        allocator.free(result.stdout);
+        allocator.free(result.stderr);
+    }
+
+    return result;
+}
+
 test "expectEqual nested array" {
     const a = [2][2]f32{
         [_]f32{ 1.0, 0.0 },
