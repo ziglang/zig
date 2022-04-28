@@ -1630,37 +1630,28 @@ static const char *get_compiler_rt_type_abbrev(ZigType *type) {
 }
 
 static const char *libc_float_prefix(CodeGen *g, ZigType *float_type) {
-    if (float_type == g->builtin_types.entry_f16)
-        return "__";
-    else if (float_type == g->builtin_types.entry_f32)
-        return "";
-    else if (float_type == g->builtin_types.entry_f64)
-        return "";
-    else if (float_type == g->builtin_types.entry_f80)
-        return "__";
-    else if (float_type == g->builtin_types.entry_c_longdouble)
-        return "l";
-    else if (float_type == g->builtin_types.entry_f128)
-        return "";
-    else
-        zig_unreachable();
+    switch (float_type->data.floating.bit_count) {
+        case 16:
+        case 80:
+            return "__";
+        case 32:
+        case 64:
+        case 128:
+            return "";
+        default:
+            zig_unreachable();
+    }
 }
 
 static const char *libc_float_suffix(CodeGen *g, ZigType *float_type) {
-    if (float_type == g->builtin_types.entry_f16)
-        return "h"; // Non-standard
-    else if (float_type == g->builtin_types.entry_f32)
-        return "f";
-    else if (float_type == g->builtin_types.entry_f64)
-        return "";
-    else if (float_type == g->builtin_types.entry_f80)
-        return "x"; // Non-standard
-    else if (float_type == g->builtin_types.entry_c_longdouble)
-        return "l";
-    else if (float_type == g->builtin_types.entry_f128)
-        return "q"; // Non-standard 
-    else
-        zig_unreachable();
+    switch (float_type->size_in_bits) {
+        case 16: return "h"; // Non-standard
+        case 32: return "f";
+        case 64: return "";
+        case 80: return "x"; // Non-standard
+        case 128: return "q"; // Non-standard
+        default: zig_unreachable();
+    }
 }
 
 static LLVMValueRef gen_soft_float_widen_or_shorten(CodeGen *g, ZigType *actual_type,
