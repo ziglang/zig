@@ -8,7 +8,7 @@ const std = @import("std");
 const math = std.math;
 const expect = std.testing.expect;
 
-const kernel = @import("trig.zig");
+const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 
@@ -34,27 +34,27 @@ pub fn sinf(x: f32) callconv(.C) f32 {
             math.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
-        return kernel.__sindf(x);
+        return trig.__sindf(x);
     }
     if (ix <= 0x407b53d1) { // |x| ~<= 5*pi/4
         if (ix <= 0x4016cbe3) { // |x| ~<= 3pi/4
             if (sign) {
-                return -kernel.__cosdf(x + s1pio2);
+                return -trig.__cosdf(x + s1pio2);
             } else {
-                return kernel.__cosdf(x - s1pio2);
+                return trig.__cosdf(x - s1pio2);
             }
         }
-        return kernel.__sindf(if (sign) -(x + s2pio2) else -(x - s2pio2));
+        return trig.__sindf(if (sign) -(x + s2pio2) else -(x - s2pio2));
     }
     if (ix <= 0x40e231d5) { // |x| ~<= 9*pi/4
         if (ix <= 0x40afeddf) { // |x| ~<= 7*pi/4
             if (sign) {
-                return kernel.__cosdf(x + s3pio2);
+                return trig.__cosdf(x + s3pio2);
             } else {
-                return -kernel.__cosdf(x - s3pio2);
+                return -trig.__cosdf(x - s3pio2);
             }
         }
-        return kernel.__sindf(if (sign) x + s4pio2 else x - s4pio2);
+        return trig.__sindf(if (sign) x + s4pio2 else x - s4pio2);
     }
 
     // sin(Inf or NaN) is NaN
@@ -65,10 +65,10 @@ pub fn sinf(x: f32) callconv(.C) f32 {
     var y: f64 = undefined;
     const n = rem_pio2f(x, &y);
     return switch (n & 3) {
-        0 => kernel.__sindf(y),
-        1 => kernel.__cosdf(y),
-        2 => kernel.__sindf(-y),
-        else => -kernel.__cosdf(y),
+        0 => trig.__sindf(y),
+        1 => trig.__cosdf(y),
+        2 => trig.__sindf(-y),
+        else => -trig.__cosdf(y),
     };
 }
 
@@ -83,7 +83,7 @@ pub fn sin(x: f64) callconv(.C) f64 {
             math.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
-        return kernel.__sin(x, 0.0, 0);
+        return trig.__sin(x, 0.0, 0);
     }
 
     // sin(Inf or NaN) is NaN
@@ -94,10 +94,10 @@ pub fn sin(x: f64) callconv(.C) f64 {
     var y: [2]f64 = undefined;
     const n = rem_pio2(x, &y);
     return switch (n & 3) {
-        0 => kernel.__sin(y[0], y[1], 1),
-        1 => kernel.__cos(y[0], y[1]),
-        2 => -kernel.__sin(y[0], y[1], 1),
-        else => -kernel.__cos(y[0], y[1]),
+        0 => trig.__sin(y[0], y[1], 1),
+        1 => trig.__cos(y[0], y[1]),
+        2 => -trig.__sin(y[0], y[1], 1),
+        else => -trig.__cos(y[0], y[1]),
     };
 }
 
