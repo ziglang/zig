@@ -209,7 +209,7 @@ pub fn main() !void {
             error.InvalidStepName => {
                 return usageAndErr(builder, true, stderr_stream);
             },
-            error.UnexpectedExitCode, error.UncleanExit => process.exit(1),
+            error.UncleanExit => process.exit(1),
             else => return err,
         }
     };
