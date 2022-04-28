@@ -146,7 +146,8 @@ pub fn print(
             if (ty.zigTypeTag() == .Struct) {
                 try writer.writeAll(".{ ");
                 const struct_fields = ty.structFields();
-                const max_len = std.math.min(struct_fields.count(), max_aggregate_items);
+                const len = struct_fields.count();
+                const max_len = std.math.min(len, max_aggregate_items);
 
                 const field_names = struct_fields.keys();
                 const fields = struct_fields.values();
@@ -160,11 +161,15 @@ pub fn print(
                         .val = vals[i],
                     }, writer, level - 1, mod);
                 }
+                if (len > max_aggregate_items) {
+                    try writer.writeAll(", ...");
+                }
                 return writer.writeAll(" }");
             } else {
                 try writer.writeAll(".{ ");
                 const elem_ty = ty.elemType2();
-                const max_len = std.math.min(ty.arrayLen(), max_aggregate_items);
+                const len = ty.arrayLen();
+                const max_len = std.math.min(len, max_aggregate_items);
 
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
@@ -173,6 +178,9 @@ pub fn print(
                         .ty = elem_ty,
                         .val = vals[i],
                     }, writer, level - 1, mod);
+                }
+                if (len > max_aggregate_items) {
+                    try writer.writeAll(", ...");
                 }
                 return writer.writeAll(" }");
             }
@@ -292,9 +300,14 @@ pub fn print(
                 .ty = ty.elemType2(),
                 .val = val.castTag(.repeated).?.data,
             };
-            while (i < max_aggregate_items) : (i += 1) {
+            const len = ty.arrayLen();
+            const max_len = std.math.min(len, max_aggregate_items);
+            while (i < max_len) : (i += 1) {
                 if (i != 0) try writer.writeAll(", ");
                 try print(elem_tv, writer, level - 1, mod);
+            }
+            if (len > max_aggregate_items) {
+                try writer.writeAll(", ...");
             }
             return writer.writeAll(" }");
         },
@@ -309,7 +322,27 @@ pub fn print(
             }, writer, level - 1, mod);
             return writer.writeAll(" }");
         },
-        .slice => return writer.writeAll("(slice)"),
+        .slice => {
+            const payload = val.castTag(.slice).?.data;
+            try writer.writeAll(".{ ");
+            const elem_ty = ty.elemType2();
+            const len = payload.len.toUnsignedInt(target);
+            const max_len = std.math.min(len, max_aggregate_items);
+
+            var i: u32 = 0;
+            while (i < max_len) : (i += 1) {
+                if (i != 0) try writer.writeAll(", ");
+                var buf: Value.ElemValueBuffer = undefined;
+                try print(.{
+                    .ty = elem_ty,
+                    .val = payload.ptr.elemValueBuffer(mod, i, &buf),
+                }, writer, level - 1, mod);
+            }
+            if (len > max_aggregate_items) {
+                try writer.writeAll(", ...");
+            }
+            return writer.writeAll(" }");
+        },
         .float_16 => return writer.print("{}", .{val.castTag(.float_16).?.data}),
         .float_32 => return writer.print("{}", .{val.castTag(.float_32).?.data}),
         .float_64 => return writer.print("{}", .{val.castTag(.float_64).?.data}),
