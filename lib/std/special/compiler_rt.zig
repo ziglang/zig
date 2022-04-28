@@ -8,6 +8,7 @@ const abi = builtin.abi;
 const is_gnu = abi.isGnu();
 const is_mingw = os_tag == .windows and is_gnu;
 const is_darwin = std.Target.Os.Tag.isDarwin(os_tag);
+const is_ppc = arch.isPPC() or arch.isPPC64();
 
 const linkage = if (is_test)
     std.builtin.GlobalLinkage.Internal
@@ -795,7 +796,7 @@ comptime {
         @export(_Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
     }
 
-    if ((arch.isPPC() or arch.isPPC64()) and !is_test) {
+    if (is_ppc and !is_test) {
         @export(__addtf3, .{ .name = "__addkf3", .linkage = linkage });
         @export(__subtf3, .{ .name = "__subkf3", .linkage = linkage });
         @export(__multf3, .{ .name = "__mulkf3", .linkage = linkage });
@@ -820,10 +821,6 @@ comptime {
         @export(__letf2, .{ .name = "__lekf2", .linkage = linkage });
         @export(__getf2, .{ .name = "__gtkf2", .linkage = linkage });
         @export(__unordtf2, .{ .name = "__unordkf2", .linkage = linkage });
-
-        // LLVM PPC backend lowers f128 fma to `fmaf128`.
-        const fmaq = @import("./compiler_rt/fma.zig").fmaq;
-        @export(fmaq, .{ .name = "fmaf128", .linkage = linkage });
     }
 }
 
@@ -845,6 +842,8 @@ inline fn mathExport(double_name: []const u8, comptime import: type, is_standard
     @export(xf80_fn, .{ .name = xf80_name, .linkage = linkage });
     @export(quad_fn, .{ .name = quad_name, .linkage = linkage });
 
+    if (is_test) return;
+
     const pairs = .{
         .{ f16, half_fn },
         .{ f32, float_fn },
@@ -863,6 +862,11 @@ inline fn mathExport(double_name: []const u8, comptime import: type, is_standard
                 @export(func, .{ .name = long_double_name, .linkage = linkage });
             }
         }
+    }
+
+    if (is_ppc and is_standard) {
+        // LLVM PPC backend lowers f128 ops with the suffix `f128` instead of `l`.
+        @export(quad_fn, .{ .name = double_name ++ "f128", .linkage = linkage });
     }
 }
 
