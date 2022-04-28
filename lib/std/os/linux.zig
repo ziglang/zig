@@ -91,6 +91,7 @@ pub const tls = @import("linux/tls.zig");
 pub const pie = @import("linux/start_pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
+pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const MAP = struct {
     pub usingnamespace arch_bits.MAP;
@@ -1689,6 +1690,10 @@ pub fn perf_event_open(
         @bitCast(usize, @as(isize, group_fd)),
         flags,
     );
+}
+
+pub fn seccomp(operation: u32, flags: u32, args: ?*const anyopaque) usize {
+    return syscall3(.seccomp, operation, flags, @ptrToInt(args));
 }
 
 pub const E = switch (native_arch) {
@@ -5408,4 +5413,56 @@ pub const PERF = struct {
     };
 
     pub const IOC_FLAG_GROUP = 1;
+};
+
+// TODO: Add the rest of the AUDIT defines?
+pub const AUDIT = struct {
+    pub const ARCH = enum(u32) {
+        const _64BIT = 0x80000000;
+        const _LE = 0x40000000;
+
+        pub const current = switch (native_arch) {
+            .i386 => .I386,
+            .x86_64 => .X86_64,
+            .aarch64 => .AARCH64,
+            .arm, .thumb => .ARM,
+            .riscv64 => .RISCV64,
+            .sparcv9 => .SPARC64,
+            .mips => .MIPS,
+            .mipsel => .MIPSEL,
+            .powerpc => .PPC,
+            .powerpc64 => .PPC64,
+            .powerpc64le => .PPC64LE,
+            else => undefined,
+        };
+
+        AARCH64 = toAudit(.aarch64),
+        ARM = toAudit(.arm),
+        ARMEB = toAudit(.armeb),
+        CSKY = toAudit(.csky),
+        HEXAGON = @enumToInt(std.elf.EM._HEXAGON),
+        I386 = toAudit(.i386),
+        M68K = toAudit(.m68k),
+        MIPS = toAudit(.mips),
+        MIPSEL = toAudit(.mips) | _LE,
+        MIPS64 = toAudit(.mips64),
+        MIPSEL64 = toAudit(.mips64) | _LE,
+        PPC = toAudit(.powerpc),
+        PPC64 = toAudit(.powerpc64),
+        PPC64LE = toAudit(.powerpc64le),
+        RISCV32 = toAudit(.riscv32),
+        RISCV64 = toAudit(.riscv64),
+        S390X = toAudit(.s390x),
+        SPARC = toAudit(.sparc),
+        SPARC64 = toAudit(.sparcv9),
+        X86_64 = toAudit(.x86_64),
+
+        fn toAudit(arch: std.Target.Cpu.Arch) u32 {
+            var res: u32 = @enumToInt(arch.toElfMachine());
+            if (arch.endian() == .Little) res |= _LE;
+            if (arch.ptrBitWidth() == 64) res |= _64BIT;
+
+            return res;
+        }
+    };
 };
