@@ -63,6 +63,13 @@ test "bug 920 fixed" {
     };
 
     for (NormalDist1.f) |_, i| {
-        try std.testing.expectEqual(NormalDist1.f[i], NormalDist.f[i]);
+        // Here we use `expectApproxEqAbs` instead of `expectEqual` to account for the small
+        // differences in math functions of different libcs. For example, if the compiler
+        // links against glibc, but the target is musl libc, then these values might be
+        // slightly different.
+        // Arguably, this is a bug in the compiler because comptime should emulate the target,
+        // including rounding errors in libc math functions. However that behavior is not
+        // what this particular test is intended to cover.
+        try std.testing.expectApproxEqAbs(NormalDist1.f[i], NormalDist.f[i], @sqrt(std.math.floatEps(f64)));
     }
 }
