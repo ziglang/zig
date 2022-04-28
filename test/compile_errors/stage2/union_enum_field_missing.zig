@@ -13,7 +13,7 @@ export fn entry() usize {
     return @sizeOf(U);
 }
 
-// enum field missing in union
+// error
 //
 // :7:1: error: enum field(s) missing in union
 // :4:5: note: field 'c' missing, declared here

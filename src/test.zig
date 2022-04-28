@@ -42,12 +42,12 @@ test {
     defer compile_errors_dir.close();
 
     {
-        var stage2_dir = try compile_errors_dir.openDir("stage2", .{ .iterate = true });
-        defer stage2_dir.close();
+        var dir = try compile_errors_dir.openDir("stage2", .{ .iterate = true });
+        defer dir.close();
 
         // TODO make this incremental once the bug is solved that it triggers
         // See: https://github.com/ziglang/zig/issues/11344
-        ctx.addErrorCasesFromDir("stage2", stage2_dir, .stage2, .Obj, false, .independent);
+        ctx.addTestCasesFromDir(dir, .independent);
     }
 
     if (!skip_stage1) {

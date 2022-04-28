@@ -3,12 +3,12 @@ const U = union {
     b: u64,
 };
 comptime {
-    var u: U = .{.a = {}};
+    var u: U = .{ .a = {} };
     const v = u.b;
     _ = v;
 }
 
-// access of inactive union field
+// error
 //
 // :7:16: error: access of union field 'b' while field 'a' is active
 // :1:11: note: union declared here

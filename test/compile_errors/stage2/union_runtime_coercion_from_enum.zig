@@ -14,7 +14,7 @@ export fn doTheTest() u64 {
     return u.b;
 }
 
-// runtime coercion from enum to union
+// error
 //
 // :13:19: error: runtime coercion from enum 'tmp.E' to union 'tmp.U' which has non-void fields
 // :6:5: note: field 'a' has type 'u32'

@@ -13,7 +13,7 @@ export fn entry() usize {
     return @sizeOf(U);
 }
 
-// union extra field
+// error
 //
 // :6:1: error: enum 'tmp.E' has no field named 'd'
 // :1:11: note: enum declared here

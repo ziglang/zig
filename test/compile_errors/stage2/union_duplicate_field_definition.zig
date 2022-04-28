@@ -8,7 +8,7 @@ export fn entry() void {
     _ = u;
 }
 
-// duplicate union field name
+// error
 //
 // :3:5: error: duplicate union field: 'foo'
 // :2:5: note: other field here
