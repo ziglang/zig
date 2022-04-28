@@ -111,12 +111,6 @@ pub fn sinq(x: f128) callconv(.C) f128 {
     return sin(@floatCast(f64, x));
 }
 
-test "sin" {
-    try expect(sin(@as(f32, 0.0)) == sinf(0.0));
-    try expect(sin(@as(f64, 0.0)) == sin(0.0));
-    try expect(comptime (math.sin(@as(f64, 2))) == math.sin(@as(f64, 2)));
-}
-
 test "sin32" {
     const epsilon = 0.00001;
 
