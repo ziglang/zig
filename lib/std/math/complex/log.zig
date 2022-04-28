@@ -10,7 +10,7 @@ pub fn log(z: anytype) Complex(@TypeOf(z.re)) {
     const r = cmath.abs(z);
     const phi = cmath.arg(z);
 
-    return Complex(T).init(math.ln(r), phi);
+    return Complex(T).init(@log(r), phi);
 }
 
 const epsilon = 0.0001;

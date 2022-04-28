@@ -8,6 +8,7 @@ const abi = builtin.abi;
 const is_gnu = abi.isGnu();
 const is_mingw = os_tag == .windows and is_gnu;
 const is_darwin = std.Target.Os.Tag.isDarwin(os_tag);
+const is_ppc = arch.isPPC() or arch.isPPC64();
 
 const linkage = if (is_test)
     std.builtin.GlobalLinkage.Internal
@@ -18,9 +19,6 @@ const strong_linkage = if (is_test)
     std.builtin.GlobalLinkage.Internal
 else
     std.builtin.GlobalLinkage.Strong;
-
-const long_double_is_f80 = builtin.target.longDoubleIs(f80);
-const long_double_is_f128 = builtin.target.longDoubleIs(f128);
 
 comptime {
     // These files do their own comptime exporting logic.
@@ -726,42 +724,25 @@ comptime {
         @export(_aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
-    if (!is_test) {
-        if (long_double_is_f80) {
-            @export(fmodx, .{ .name = "fmodl", .linkage = linkage });
-        } else if (long_double_is_f128) {
-            @export(fmodq, .{ .name = "fmodl", .linkage = linkage });
-        } else {
-            @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
-        }
-        if (long_double_is_f80 or builtin.zig_backend == .stage1) {
-            // TODO: https://github.com/ziglang/zig/issues/11161
-            @export(fmodx, .{ .name = "fmodx", .linkage = linkage });
-        }
-        @export(fmodq, .{ .name = "fmodq", .linkage = linkage });
-
-        @export(floorf, .{ .name = "floorf", .linkage = linkage });
-        @export(floor, .{ .name = "floor", .linkage = linkage });
-        @export(floorl, .{ .name = "floorl", .linkage = linkage });
-
-        @export(ceilf, .{ .name = "ceilf", .linkage = linkage });
-        @export(ceil, .{ .name = "ceil", .linkage = linkage });
-        @export(ceill, .{ .name = "ceill", .linkage = linkage });
-
-        @export(fma, .{ .name = "fma", .linkage = linkage });
-        @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
-        @export(fmal, .{ .name = "fmal", .linkage = linkage });
-        if (long_double_is_f80) {
-            @export(fmal, .{ .name = "__fmax", .linkage = linkage });
-        } else {
-            @export(__fmax, .{ .name = "__fmax", .linkage = linkage });
-        }
-        if (long_double_is_f128) {
-            @export(fmal, .{ .name = "fmaq", .linkage = linkage });
-        } else {
-            @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
-        }
-    }
+    mathExport("ceil", @import("./compiler_rt/ceil.zig"), true);
+    mathExport("cos", @import("./compiler_rt/cos.zig"), true);
+    mathExport("exp", @import("./compiler_rt/exp.zig"), true);
+    mathExport("exp2", @import("./compiler_rt/exp2.zig"), true);
+    mathExport("fabs", @import("./compiler_rt/fabs.zig"), true);
+    mathExport("floor", @import("./compiler_rt/floor.zig"), true);
+    mathExport("fma", @import("./compiler_rt/fma.zig"), true);
+    mathExport("fmax", @import("./compiler_rt/fmax.zig"), true);
+    mathExport("fmin", @import("./compiler_rt/fmin.zig"), true);
+    mathExport("fmod", @import("./compiler_rt/fmod.zig"), true);
+    mathExport("log", @import("./compiler_rt/log.zig"), true);
+    mathExport("log10", @import("./compiler_rt/log10.zig"), true);
+    mathExport("log2", @import("./compiler_rt/log2.zig"), true);
+    mathExport("round", @import("./compiler_rt/round.zig"), true);
+    mathExport("sin", @import("./compiler_rt/sin.zig"), true);
+    mathExport("sincos", @import("./compiler_rt/sincos.zig"), true);
+    mathExport("sqrt", @import("./compiler_rt/sqrt.zig"), true);
+    mathExport("tan", @import("./compiler_rt/tan.zig"), false);
+    mathExport("trunc", @import("./compiler_rt/trunc.zig"), true);
 
     if (arch.isSPARC()) {
         // SPARC systems use a different naming scheme
@@ -815,7 +796,7 @@ comptime {
         @export(_Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
     }
 
-    if ((arch.isPPC() or arch.isPPC64()) and !is_test) {
+    if (is_ppc and !is_test) {
         @export(__addtf3, .{ .name = "__addkf3", .linkage = linkage });
         @export(__subtf3, .{ .name = "__subkf3", .linkage = linkage });
         @export(__multf3, .{ .name = "__mulkf3", .linkage = linkage });
@@ -840,65 +821,53 @@ comptime {
         @export(__letf2, .{ .name = "__lekf2", .linkage = linkage });
         @export(__getf2, .{ .name = "__gtkf2", .linkage = linkage });
         @export(__unordtf2, .{ .name = "__unordkf2", .linkage = linkage });
-
-        // LLVM PPC backend lowers f128 fma to `fmaf128`.
-        @export(fmal, .{ .name = "fmaf128", .linkage = linkage });
     }
 }
 
-const math = std.math;
+inline fn mathExport(double_name: []const u8, comptime import: type, is_standard: bool) void {
+    const half_name = "__" ++ double_name ++ "h";
+    const half_fn = @field(import, half_name);
+    const float_name = double_name ++ "f";
+    const float_fn = @field(import, float_name);
+    const double_fn = @field(import, double_name);
+    const long_double_name = double_name ++ "l";
+    const xf80_name = "__" ++ double_name ++ "x";
+    const xf80_fn = @field(import, xf80_name);
+    const quad_name = double_name ++ "q";
+    const quad_fn = @field(import, quad_name);
 
-fn fmaf(a: f32, b: f32, c: f32) callconv(.C) f32 {
-    return math.fma(f32, a, b, c);
-}
-fn fma(a: f64, b: f64, c: f64) callconv(.C) f64 {
-    return math.fma(f64, a, b, c);
-}
-fn __fmax(a: f80, b: f80, c: f80) callconv(.C) f80 {
-    return math.fma(f80, a, b, c);
-}
-fn fmaq(a: f128, b: f128, c: f128) callconv(.C) f128 {
-    return math.fma(f128, a, b, c);
-}
-fn fmal(a: c_longdouble, b: c_longdouble, c: c_longdouble) callconv(.C) c_longdouble {
-    return math.fma(c_longdouble, a, b, c);
-}
+    @export(half_fn, .{ .name = half_name, .linkage = linkage });
+    @export(float_fn, .{ .name = float_name, .linkage = linkage });
+    @export(double_fn, .{ .name = double_name, .linkage = linkage });
+    @export(xf80_fn, .{ .name = xf80_name, .linkage = linkage });
+    @export(quad_fn, .{ .name = quad_name, .linkage = linkage });
 
-// TODO add intrinsics for these (and probably the double version too)
-// and have the math stuff use the intrinsic. same as @mod and @rem
-fn floorf(x: f32) callconv(.C) f32 {
-    return math.floor(x);
-}
-fn floor(x: f64) callconv(.C) f64 {
-    return math.floor(x);
-}
-fn floorl(x: c_longdouble) callconv(.C) c_longdouble {
-    if (!long_double_is_f128) {
-        @panic("TODO implement this");
+    if (is_test) return;
+
+    const pairs = .{
+        .{ f16, half_fn },
+        .{ f32, float_fn },
+        .{ f64, double_fn },
+        .{ f80, xf80_fn },
+        .{ f128, quad_fn },
+    };
+
+    // Weak aliases don't work on Windows, so we avoid exporting the `l` alias
+    // on this platform for functions we know will collide.
+    if (builtin.os.tag != .windows or !builtin.link_libc or !is_standard) {
+        inline for (pairs) |pair| {
+            const F = pair[0];
+            const func = pair[1];
+            if (builtin.target.longDoubleIs(F)) {
+                @export(func, .{ .name = long_double_name, .linkage = linkage });
+            }
+        }
     }
-    return math.floor(x);
-}
 
-fn ceilf(x: f32) callconv(.C) f32 {
-    return math.ceil(x);
-}
-fn ceil(x: f64) callconv(.C) f64 {
-    return math.ceil(x);
-}
-fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
-    if (!long_double_is_f128) {
-        @panic("TODO implement this");
+    if (is_ppc and is_standard) {
+        // LLVM PPC backend lowers f128 ops with the suffix `f128` instead of `l`.
+        @export(quad_fn, .{ .name = double_name ++ "f128", .linkage = linkage });
     }
-    return math.ceil(x);
-}
-
-const fmodq = @import("compiler_rt/fmodq.zig").fmodq;
-const fmodx = @import("compiler_rt/fmodx.zig").fmodx;
-fn fmodl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {
-    if (!long_double_is_f128) {
-        @panic("TODO implement this");
-    }
-    return @floatCast(c_longdouble, fmodq(x, y));
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,

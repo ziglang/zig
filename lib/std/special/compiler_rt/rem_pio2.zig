@@ -3,8 +3,8 @@
 //
 // https://git.musl-libc.org/cgit/musl/tree/src/math/__rem_pio2.c
 
-const std = @import("../std.zig");
-const __rem_pio2_large = @import("__rem_pio2_large.zig").__rem_pio2_large;
+const std = @import("std");
+const rem_pio2_large = @import("rem_pio2_large.zig").rem_pio2_large;
 const math = std.math;
 
 const toint = 1.5 / math.floatEps(f64);
@@ -82,10 +82,10 @@ fn medium(ix: u32, x: f64, y: *[2]f64) i32 {
 
 // Returns the remainder of x rem pi/2 in y[0]+y[1]
 //
-// use __rem_pio2_large() for large x
+// use rem_pio2_large() for large x
 //
 // caller must handle the case when reduction is not needed: |x| ~<= pi/4 */
-pub fn __rem_pio2(x: f64, y: *[2]f64) i32 {
+pub fn rem_pio2(x: f64, y: *[2]f64) i32 {
     var z: f64 = undefined;
     var tx: [3]f64 = undefined;
     var ty: [2]f64 = undefined;
@@ -186,7 +186,7 @@ pub fn __rem_pio2(x: f64, y: *[2]f64) i32 {
     while (tx[U(i)] == 0.0) {
         i -= 1;
     }
-    n = __rem_pio2_large(tx[0..], ty[0..], @intCast(i32, (ix >> 20)) - (0x3ff + 23), i + 1, 1);
+    n = rem_pio2_large(tx[0..], ty[0..], @intCast(i32, (ix >> 20)) - (0x3ff + 23), i + 1, 1);
     if (sign) {
         y[0] = -ty[0];
         y[1] = -ty[1];

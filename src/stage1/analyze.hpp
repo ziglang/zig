@@ -307,7 +307,7 @@ void copy_const_val(CodeGen *g, ZigValue *dest, ZigValue *src);
 bool type_has_optional_repr(ZigType *ty);
 bool is_opt_err_set(ZigType *ty);
 bool type_is_numeric(ZigType *ty);
-const char *float_op_to_name(BuiltinFnId op);
+const char *float_un_op_to_name(BuiltinFnId op);
 
 #define src_assert(OK, SOURCE_NODE) src_assert_impl((OK), (SOURCE_NODE), __FILE__, __LINE__)
 

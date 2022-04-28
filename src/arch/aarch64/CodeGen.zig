@@ -533,6 +533,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sqrt,
             .sin,
             .cos,
+            .tan,
             .exp,
             .exp2,
             .log,

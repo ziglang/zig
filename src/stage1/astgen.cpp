@@ -4497,6 +4497,7 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
         case BuiltinFnIdSqrt:
         case BuiltinFnIdSin:
         case BuiltinFnIdCos:
+        case BuiltinFnIdTan:
         case BuiltinFnIdExp:
         case BuiltinFnIdExp2:
         case BuiltinFnIdLog:

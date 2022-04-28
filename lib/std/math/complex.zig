@@ -115,7 +115,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the magnitude of a complex number.
         pub fn magnitude(self: Self) T {
-            return math.sqrt(self.re * self.re + self.im * self.im);
+            return @sqrt(self.re * self.re + self.im * self.im);
         }
     };
 }

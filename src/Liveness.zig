@@ -422,6 +422,7 @@ fn analyzeInst(
         .sqrt,
         .sin,
         .cos,
+        .tan,
         .exp,
         .exp2,
         .log,

@@ -869,7 +869,7 @@ static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn
         name = "fma";
         num_args = 3;
     } else if (fn_id == ZigLLVMFnIdFloatOp) {
-        name = float_op_to_name(op);
+        name = float_un_op_to_name(op);
         num_args = 1;
     } else {
         zig_unreachable();
@@ -1604,8 +1604,57 @@ static LLVMValueRef gen_assert_zero(CodeGen *g, LLVMValueRef expr_val, ZigType *
     return nullptr;
 }
 
+static const char *get_compiler_rt_type_abbrev(ZigType *type) {
+    uint16_t bits;
+    if (type->id == ZigTypeIdFloat) {
+        bits = type->data.floating.bit_count;
+    } else if (type->id == ZigTypeIdInt) {
+        bits = type->data.integral.bit_count;
+    } else {
+        zig_unreachable();
+    }
+    switch (bits) {
+        case 16:
+            return "h";
+        case 32:
+            return "s";
+        case 64:
+            return "d";
+        case 80:
+            return "x";
+        case 128:
+            return "t";
+        default:
+            zig_unreachable();
+    }
+}
 
-static LLVMValueRef gen_soft_f80_widen_or_shorten(CodeGen *g, ZigType *actual_type,
+static const char *libc_float_prefix(CodeGen *g, ZigType *float_type) {
+    switch (float_type->data.floating.bit_count) {
+        case 16:
+        case 80:
+            return "__";
+        case 32:
+        case 64:
+        case 128:
+            return "";
+        default:
+            zig_unreachable();
+    }
+}
+
+static const char *libc_float_suffix(CodeGen *g, ZigType *float_type) {
+    switch (float_type->size_in_bits) {
+        case 16: return "h"; // Non-standard
+        case 32: return "f";
+        case 64: return "";
+        case 80: return "x"; // Non-standard
+        case 128: return "q"; // Non-standard
+        default: zig_unreachable();
+    }
+}
+
+static LLVMValueRef gen_soft_float_widen_or_shorten(CodeGen *g, ZigType *actual_type,
         ZigType *wanted_type, LLVMValueRef expr_val)
 {
     ZigType *scalar_actual_type = (actual_type->id == ZigTypeIdVector) ?
@@ -1615,87 +1664,47 @@ static LLVMValueRef gen_soft_f80_widen_or_shorten(CodeGen *g, ZigType *actual_ty
     uint64_t actual_bits = scalar_actual_type->data.floating.bit_count;
     uint64_t wanted_bits = scalar_wanted_type->data.floating.bit_count;
 
-
-    LLVMTypeRef param_type;
-    LLVMTypeRef return_type;
-    const char *func_name;
+    if (actual_bits == wanted_bits)
+        return expr_val;
 
     LLVMValueRef result;
     bool castTruncatedToF16 = false;
 
-    if (actual_bits == wanted_bits) {
-        return expr_val;
-    } else if (actual_bits == 80) {
-        param_type = g->builtin_types.entry_f80->llvm_type;
-        switch (wanted_bits) {
-            case 16:
-                // Only Arm has a native f16 type, other platforms soft-implement it
-                // using u16 instead.
-                if (target_is_arm(g->zig_target)) {
-                    return_type = g->builtin_types.entry_f16->llvm_type;
-                } else {
-                    return_type = g->builtin_types.entry_u16->llvm_type;
-                    castTruncatedToF16 = true;
-                }
-                func_name = "__truncxfhf2";
-                break;
-            case 32:
-                return_type = g->builtin_types.entry_f32->llvm_type;
-                func_name = "__truncxfsf2";
-                break;
-            case 64:
-                return_type = g->builtin_types.entry_f64->llvm_type;
-                func_name = "__truncxfdf2";
-                break;
-            case 128:
-                return_type = g->builtin_types.entry_f128->llvm_type;
-                func_name = "__extendxftf2";
-                break;
-            default:
-                zig_unreachable();
-        }
-    } else if (wanted_bits == 80) {
-        return_type = g->builtin_types.entry_f80->llvm_type;
-        switch (actual_bits) {
-            case 16:
-                // Only Arm has a native f16 type, other platforms soft-implement it
-                // using u16 instead.
-                if (target_is_arm(g->zig_target)) {
-                    param_type = g->builtin_types.entry_f16->llvm_type;
-                } else {
-                    param_type = g->builtin_types.entry_u16->llvm_type;
-                    expr_val = LLVMBuildBitCast(g->builder, expr_val, param_type, "");
-                }
-                func_name = "__extendhfxf2";
-                break;
-            case 32:
-                param_type = g->builtin_types.entry_f32->llvm_type;
-                func_name = "__extendsfxf2";
-                break;
-            case 64:
-                param_type = g->builtin_types.entry_f64->llvm_type;
-                func_name = "__extenddfxf2";
-                break;
-            case 128:
-                param_type = g->builtin_types.entry_f128->llvm_type;
-                func_name = "__trunctfxf2";
-                break;
-            default:
-                zig_unreachable();
-        }
+    char fn_name[64];
+    if (wanted_bits < actual_bits) {
+        sprintf(fn_name, "__trunc%sf%sf2",
+            get_compiler_rt_type_abbrev(scalar_actual_type),
+            get_compiler_rt_type_abbrev(scalar_wanted_type));
     } else {
-        zig_unreachable();
+        sprintf(fn_name, "__extend%sf%sf2",
+            get_compiler_rt_type_abbrev(scalar_actual_type),
+            get_compiler_rt_type_abbrev(scalar_wanted_type));
     }
 
-    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, func_name);
+    LLVMTypeRef return_type = scalar_wanted_type->llvm_type;
+    LLVMTypeRef param_type = scalar_actual_type->llvm_type;
+
+    if (!target_is_arm(g->zig_target)) {
+        // Only Arm has a native f16 type, other platforms soft-implement it using u16 instead.
+        if (scalar_wanted_type == g->builtin_types.entry_f16) {
+            return_type = g->builtin_types.entry_u16->llvm_type;
+            castTruncatedToF16 = true;
+        }
+        if (scalar_actual_type == g->builtin_types.entry_f16) {
+            param_type = g->builtin_types.entry_u16->llvm_type;
+            expr_val = LLVMBuildBitCast(g->builder, expr_val, param_type, "");
+        }
+    }
+
+    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, fn_name);
     if (func_ref == nullptr) {
         LLVMTypeRef fn_type = LLVMFunctionType(return_type, &param_type, 1, false);
-        func_ref = LLVMAddFunction(g->module, func_name, fn_type);
+        func_ref = LLVMAddFunction(g->module, fn_name, fn_type);
     }
 
     result = LLVMBuildCall(g->builder, func_ref, &expr_val, 1, "");
 
-    // On non-Arm platforms we need to bitcast __truncxfhf2 result back to f16
+    // On non-Arm platforms we need to bitcast __trunc<>fhf2 result back to f16
     if (castTruncatedToF16) {
         result = LLVMBuildBitCast(g->builder, result, g->builtin_types.entry_f16->llvm_type, "");
     }
@@ -1721,7 +1730,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
             || scalar_wanted_type == g->builtin_types.entry_f80)
          && !target_has_f80(g->zig_target))
         {
-            return gen_soft_f80_widen_or_shorten(g, actual_type, wanted_type, expr_val);
+            return gen_soft_float_widen_or_shorten(g, actual_type, wanted_type, expr_val);
         }
         actual_bits = scalar_actual_type->data.floating.bit_count;
         wanted_bits = scalar_wanted_type->data.floating.bit_count;
@@ -2978,10 +2987,54 @@ static LLVMValueRef gen_overflow_shr_op(CodeGen *g, ZigType *operand_type,
     return result;
 }
 
-static LLVMValueRef gen_float_op(CodeGen *g, LLVMValueRef val, ZigType *type_entry, BuiltinFnId op) {
-    assert(type_entry->id == ZigTypeIdFloat || type_entry->id == ZigTypeIdVector);
-    LLVMValueRef floor_fn = get_float_fn(g, type_entry, ZigLLVMFnIdFloatOp, op);
-    return LLVMBuildCall(g->builder, floor_fn, &val, 1, "");
+static LLVMValueRef get_soft_float_fn(CodeGen *g, const char *name, int param_count, LLVMTypeRef param_type, LLVMTypeRef return_type) {
+    LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, name);
+    if (existing_llvm_fn != nullptr) return existing_llvm_fn;
+    LLVMValueRef existing_llvm_alias = LLVMGetNamedGlobalAlias(g->module, name, strlen(name));
+    if (existing_llvm_alias != nullptr) return LLVMAliasGetAliasee(existing_llvm_alias);
+
+    LLVMTypeRef param_types[3] = { param_type, param_type, param_type };
+    LLVMTypeRef fn_type = LLVMFunctionType(return_type, param_types, param_count, false);
+    return LLVMAddFunction(g->module, name, fn_type);
+}
+
+static LLVMValueRef gen_soft_float_un_op(CodeGen *g, LLVMValueRef op, ZigType *operand_type, BuiltinFnId op_id) {
+    uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
+    ZigType *scalar_type = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.elem_type : operand_type;
+
+    char fn_name[64];
+    sprintf(fn_name, "%s%s%s", libc_float_prefix(g, scalar_type),
+            float_un_op_to_name(op_id), libc_float_suffix(g, scalar_type));
+    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, 1, scalar_type->llvm_type, scalar_type->llvm_type);
+
+    LLVMValueRef result;
+    if (vector_len == 0) {
+        return LLVMBuildCall(g->builder, func_ref, &op, 1, "");
+    } else {
+        result = build_alloca(g, operand_type, "", 0);
+        LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
+        for (uint32_t i = 0; i < vector_len; i++) {
+            LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
+            LLVMValueRef param = LLVMBuildExtractElement(g->builder, op, index_value, "");
+            LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, &param, 1, "");
+            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
+                call_result, index_value, "");
+        }
+        return LLVMBuildLoad(g->builder, result, "");
+    }
+}
+
+static LLVMValueRef gen_float_un_op(CodeGen *g, LLVMValueRef operand, ZigType *operand_type, BuiltinFnId op) {
+    assert(operand_type->id == ZigTypeIdFloat || operand_type->id == ZigTypeIdVector);
+    ZigType *elem_type = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.elem_type : operand_type;
+    if ((elem_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
+        (elem_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target)) ||
+        op == BuiltinFnIdTan)
+    {
+        return gen_soft_float_un_op(g, operand, operand_type, op);
+    }
+    LLVMValueRef float_op_fn = get_float_fn(g, operand_type, ZigLLVMFnIdFloatOp, op);
+    return LLVMBuildCall(g->builder, float_op_fn, &operand, 1, "");
 }
 
 enum DivKind {
@@ -3088,7 +3141,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_runtime_safety, bool want_fast
             case DivKindExact:
                 if (want_runtime_safety) {
                     // Safety check: a / b == floor(a / b)
-                    LLVMValueRef floored = gen_float_op(g, result, operand_type, BuiltinFnIdFloor);
+                    LLVMValueRef floored = gen_float_un_op(g, result, operand_type, BuiltinFnIdFloor);
 
                     LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactOk");
                     LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactFail");
@@ -3105,9 +3158,9 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_runtime_safety, bool want_fast
                 }
                 return result;
             case DivKindTrunc:
-                return gen_float_op(g, result, operand_type, BuiltinFnIdTrunc);
+                return gen_float_un_op(g, result, operand_type, BuiltinFnIdTrunc);
             case DivKindFloor:
-                return gen_float_op(g, result, operand_type, BuiltinFnIdFloor);
+                return gen_float_un_op(g, result, operand_type, BuiltinFnIdFloor);
         }
         zig_unreachable();
     }
@@ -3269,17 +3322,7 @@ static void gen_shift_rhs_check(CodeGen *g, ZigType *lhs_type, ZigType *rhs_type
     }
 }
 
-static LLVMValueRef get_soft_f80_bin_op_func(CodeGen *g, const char *name, int param_count, LLVMTypeRef return_type) {
-    LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, name);
-    if (existing_llvm_fn != nullptr) return existing_llvm_fn;
-
-    LLVMTypeRef float_type_ref = g->builtin_types.entry_f80->llvm_type;
-    LLVMTypeRef param_types[2] = { float_type_ref, float_type_ref };
-    LLVMTypeRef fn_type = LLVMFunctionType(return_type, param_types, param_count, false);
-    return LLVMAddFunction(g->module, name, fn_type);
-}
-
-enum SoftF80Icmp {
+enum Icmp {
     NONE,
     EQ_ZERO,
     NE_ZERO,
@@ -3289,7 +3332,7 @@ enum SoftF80Icmp {
     EQ_ONE,
 };
 
-static LLVMValueRef add_f80_icmp(CodeGen *g, LLVMValueRef val, SoftF80Icmp kind) {
+static LLVMValueRef add_icmp(CodeGen *g, LLVMValueRef val, Icmp kind) {
     switch (kind) {
         case NONE:
             return val;
@@ -3322,22 +3365,124 @@ static LLVMValueRef add_f80_icmp(CodeGen *g, LLVMValueRef val, SoftF80Icmp kind)
     }
 }
 
-static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
-        Stage1AirInstBinOp *bin_op_instruction)
-{
-    IrBinOp op_id = bin_op_instruction->op_id;
-    Stage1AirInst *op1 = bin_op_instruction->op1;
-    Stage1AirInst *op2 = bin_op_instruction->op2;
-    uint32_t vector_len = op1->value->type->id == ZigTypeIdVector ? op1->value->type->data.vector.len : 0;
+static LLVMValueRef gen_soft_int_to_float_op(CodeGen *g, LLVMValueRef value_ref, ZigType *operand_type, ZigType *result_type) {
+    uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
 
-    LLVMValueRef op1_value = ir_llvm_value(g, op1);
-    LLVMValueRef op2_value = ir_llvm_value(g, op2);
+    // Handle integers of non-pot bitsize by widening them.
+    const size_t bitsize = operand_type->data.integral.bit_count;
+    const bool is_signed = operand_type->data.integral.is_signed;
+    if (bitsize < 32 || !is_power_of_2(bitsize)) {
+        const size_t wider_bitsize = bitsize < 32 ? 32 : round_to_next_power_of_2(bitsize);
+        ZigType *const wider_type = get_int_type(g, is_signed, wider_bitsize);
+        value_ref = gen_widen_or_shorten(g, false, operand_type, wider_type, value_ref);
+        operand_type = wider_type;
+    }
+    assert(bitsize <= 128);
 
-    bool div_exact_safety_check = false;
-    LLVMTypeRef return_type = g->builtin_types.entry_f80->llvm_type;
+    const char *int_compiler_rt_type_abbrev = get_compiler_rt_type_abbrev(operand_type);
+    const char *float_compiler_rt_type_abbrev = get_compiler_rt_type_abbrev(result_type);
+
+    char fn_name[64];
+    if (is_signed) {
+        sprintf(fn_name, "__float%si%sf", int_compiler_rt_type_abbrev, float_compiler_rt_type_abbrev);
+    } else {
+        sprintf(fn_name, "__floatun%si%sf", int_compiler_rt_type_abbrev, float_compiler_rt_type_abbrev);
+    }
+
+    int param_count = 1;
+    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, param_count, operand_type->llvm_type, result_type->llvm_type);
+
+    LLVMValueRef result;
+    if (vector_len == 0) {
+        LLVMValueRef params[1] = {value_ref};
+        result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+    } else {
+        ZigType *alloca_ty = operand_type;
+        result = build_alloca(g, alloca_ty, "", 0);
+
+        LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
+        for (uint32_t i = 0; i < vector_len; i++) {
+            LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
+            LLVMValueRef params[1] = {
+                LLVMBuildExtractElement(g->builder, value_ref, index_value, ""),
+            };
+            LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
+                call_result, index_value, "");
+        }
+
+        result = LLVMBuildLoad(g->builder, result, "");
+    }
+    return result;
+}
+
+static LLVMValueRef gen_soft_float_to_int_op(CodeGen *g, LLVMValueRef value_ref, ZigType *operand_type, ZigType *result_type) {
+    uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
+
+    // Handle integers of non-pot bitsize by truncating a sufficiently wide pot integer
+    const size_t bitsize = result_type->data.integral.bit_count;
+    const bool is_signed = result_type->data.integral.is_signed;
+    ZigType * wider_type = result_type;
+    if (bitsize < 32 || !is_power_of_2(bitsize)) {
+        const size_t wider_bitsize = bitsize < 32 ? 32 : round_to_next_power_of_2(bitsize);
+        wider_type = get_int_type(g, is_signed, wider_bitsize);
+    }
+    assert(bitsize <= 128);
+
+    const char *float_compiler_rt_type_abbrev = get_compiler_rt_type_abbrev(operand_type);
+    const char *int_compiler_rt_type_abbrev = get_compiler_rt_type_abbrev(wider_type);
+
+    char fn_name[64];
+    if (is_signed) {
+        sprintf(fn_name, "__fix%sf%si", float_compiler_rt_type_abbrev, int_compiler_rt_type_abbrev);
+    } else {
+        sprintf(fn_name, "__fixuns%sf%si", float_compiler_rt_type_abbrev, int_compiler_rt_type_abbrev);
+    }
+
+    int param_count = 1;
+    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, param_count, operand_type->llvm_type, wider_type->llvm_type);
+
+    LLVMValueRef result;
+    if (vector_len == 0) {
+        LLVMValueRef params[1] = {value_ref};
+        result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+    } else {
+        ZigType *alloca_ty = operand_type;
+        result = build_alloca(g, alloca_ty, "", 0);
+
+        LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
+        for (uint32_t i = 0; i < vector_len; i++) {
+            LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
+            LLVMValueRef params[1] = {
+                LLVMBuildExtractElement(g->builder, value_ref, index_value, ""),
+            };
+            LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
+                call_result, index_value, "");
+        }
+
+        result = LLVMBuildLoad(g->builder, result, "");
+    }
+
+    // Handle integers of non-pot bitsize by shortening them on the output
+    if (result_type != wider_type) {
+        return gen_widen_or_shorten(g, false, wider_type, result_type, result);
+    }
+    return result;
+}
+
+static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LLVMValueRef op2_value, ZigType *operand_type, IrBinOp op_id) {
+    uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
+
+    LLVMTypeRef return_type = operand_type->llvm_type;
     int param_count = 2;
-    const char *func_name;
-    SoftF80Icmp res_icmp = NONE;
+
+    const char *compiler_rt_type_abbrev = get_compiler_rt_type_abbrev(operand_type);
+    const char *math_float_prefix = libc_float_prefix(g, operand_type);
+    const char *math_float_suffix = libc_float_suffix(g, operand_type);
+
+    char fn_name[64];
+    Icmp res_icmp = NONE;
     switch (op_id) {
         case IrBinOpInvalid:
         case IrBinOpArrayCat:
@@ -3362,152 +3507,129 @@ static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
             zig_unreachable();
         case IrBinOpCmpEq:
             return_type = g->builtin_types.entry_i32->llvm_type;
-            func_name = "__eqxf2";
+            sprintf(fn_name, "__eq%sf2", compiler_rt_type_abbrev);
             res_icmp = EQ_ZERO;
             break;
         case IrBinOpCmpNotEq:
             return_type = g->builtin_types.entry_i32->llvm_type;
-            func_name = "__nexf2";
+            sprintf(fn_name, "__ne%sf2", compiler_rt_type_abbrev);
             res_icmp = NE_ZERO;
             break;
         case IrBinOpCmpLessOrEq:
             return_type = g->builtin_types.entry_i32->llvm_type;
-            func_name = "__lexf2";
+            sprintf(fn_name, "__le%sf2", compiler_rt_type_abbrev);
             res_icmp = LE_ZERO;
             break;
         case IrBinOpCmpLessThan:
             return_type = g->builtin_types.entry_i32->llvm_type;
-            func_name = "__lexf2";
+            sprintf(fn_name, "__le%sf2", compiler_rt_type_abbrev);
             res_icmp = EQ_NEG;
             break;
         case IrBinOpCmpGreaterOrEq:
             return_type = g->builtin_types.entry_i32->llvm_type;
-            func_name = "__gexf2";
+            sprintf(fn_name, "__ge%sf2", compiler_rt_type_abbrev);
             res_icmp = GE_ZERO;
             break;
         case IrBinOpCmpGreaterThan:
             return_type = g->builtin_types.entry_i32->llvm_type;
-            func_name = "__gexf2";
+            sprintf(fn_name, "__ge%sf2", compiler_rt_type_abbrev);
             res_icmp = EQ_ONE;
             break;
         case IrBinOpMaximum:
-            func_name = "__fmaxx";
+            sprintf(fn_name, "%sfmax%s", math_float_prefix, math_float_suffix);
             break;
         case IrBinOpMinimum:
-            func_name = "__fminx";
+            sprintf(fn_name, "%sfmin%s", math_float_prefix, math_float_suffix);
             break;
         case IrBinOpMult:
-            func_name = "__mulxf3";
+            sprintf(fn_name, "__mul%sf3", compiler_rt_type_abbrev);
             break;
         case IrBinOpAdd:
-            func_name = "__addxf3";
+            sprintf(fn_name, "__add%sf3", compiler_rt_type_abbrev);
             break;
         case IrBinOpSub:
-            func_name = "__subxf3";
+            sprintf(fn_name, "__sub%sf3", compiler_rt_type_abbrev);
             break;
         case IrBinOpDivUnspecified:
-            func_name = "__divxf3";
-            break;
         case IrBinOpDivExact:
-            func_name = "__divxf3";
-            div_exact_safety_check = bin_op_instruction->safety_check_on &&
-                ir_want_runtime_safety(g, &bin_op_instruction->base);
-            break;
         case IrBinOpDivTrunc:
-            param_count = 1;
-            func_name = "__truncx";
-            break;
         case IrBinOpDivFloor:
-            param_count = 1;
-            func_name = "__floorx";
+            sprintf(fn_name, "__div%sf3", compiler_rt_type_abbrev);
             break;
         case IrBinOpRemRem:
-            param_count = 1;
-            func_name = "__remx";
-            break;
         case IrBinOpRemMod:
-            param_count = 1;
-            func_name = "__modx";
+            sprintf(fn_name, "%sfmod%s", math_float_prefix, math_float_suffix);
             break;
         default:
             zig_unreachable();
     }
 
-    LLVMValueRef func_ref = get_soft_f80_bin_op_func(g, func_name, param_count, return_type);
+    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, param_count, operand_type->llvm_type, return_type);
 
     LLVMValueRef result;
     if (vector_len == 0) {
         LLVMValueRef params[2] = {op1_value, op2_value};
         result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
-        result = add_f80_icmp(g, result, res_icmp);
+        result = add_icmp(g, result, res_icmp);
     } else {
-        ZigType *alloca_ty = op1->value->type;
+        ZigType *alloca_ty = operand_type;
         if (res_icmp != NONE) alloca_ty = get_vector_type(g, vector_len, g->builtin_types.entry_bool);
         result = build_alloca(g, alloca_ty, "", 0);
-    }
 
-    LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
-    for (uint32_t i = 0; i < vector_len; i++) {
-        LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
-        LLVMValueRef params[2] = {
-            LLVMBuildExtractElement(g->builder, op1_value, index_value, ""),
-            LLVMBuildExtractElement(g->builder, op2_value, index_value, ""),
-        };
-        LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
-        call_result = add_f80_icmp(g, call_result, res_icmp);
-        LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
-            call_result, index_value, "");
-    }
-
-    if (div_exact_safety_check) {
-        // Safety check: a / b == floor(a / b)
-        LLVMValueRef floor_func = get_soft_f80_bin_op_func(g, "__floorx", 1, return_type);
-        LLVMValueRef eq_func = get_soft_f80_bin_op_func(g, "__eqxf2", 2, g->builtin_types.entry_i32->llvm_type);
-
-        LLVMValueRef ok_bit;
-        if (vector_len == 0) {
-            LLVMValueRef floored = LLVMBuildCall(g->builder, floor_func, &result, 1, "");
-
-            LLVMValueRef params[2] = {result, floored};
-            ok_bit = LLVMBuildCall(g->builder, eq_func, params, 2, "");
-        } else {
-            ZigType *bool_vec_ty = get_vector_type(g, vector_len, g->builtin_types.entry_bool);
-            ok_bit = build_alloca(g, bool_vec_ty, "", 0);
-        }
-
+        LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
         for (uint32_t i = 0; i < vector_len; i++) {
             LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
-            LLVMValueRef div_res = LLVMBuildExtractElement(g->builder,
-                LLVMBuildLoad(g->builder, result, ""), index_value, "");
-
             LLVMValueRef params[2] = {
-                div_res,
-                LLVMBuildCall(g->builder, floor_func, &div_res, 1, ""),
+                LLVMBuildExtractElement(g->builder, op1_value, index_value, ""),
+                LLVMBuildExtractElement(g->builder, op2_value, index_value, ""),
             };
-            LLVMValueRef cmp_res = LLVMBuildCall(g->builder, eq_func, params, 2, "");
-            cmp_res = LLVMBuildTrunc(g->builder, cmp_res, g->builtin_types.entry_bool->llvm_type, "");
-            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, ok_bit, ""),
-                cmp_res, index_value, "");
+            LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+            call_result = add_icmp(g, call_result, res_icmp);
+            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
+                call_result, index_value, "");
         }
 
-        if (vector_len != 0) {
-            ok_bit = ZigLLVMBuildAndReduce(g->builder, LLVMBuildLoad(g->builder, ok_bit, ""));
-        }
-        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactOk");
-        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactFail");
-
-        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
-
-        LLVMPositionBuilderAtEnd(g->builder, fail_block);
-        gen_safety_crash(g, PanicMsgIdExactDivisionRemainder);
-
-        LLVMPositionBuilderAtEnd(g->builder, ok_block);
-    }
-
-    if (vector_len != 0) {
         result = LLVMBuildLoad(g->builder, result, "");
     }
-    return result;
+
+    // Some operations are implemented as compound ops and require us to perform some 
+    // more operations before we obtain the final result
+    switch (op_id) {
+        case IrBinOpDivTrunc:
+            return gen_float_un_op(g, result, operand_type, BuiltinFnIdTrunc);
+        case IrBinOpDivFloor:
+            return gen_float_un_op(g, result, operand_type, BuiltinFnIdFloor);
+        case IrBinOpRemMod:
+            {
+                LLVMValueRef b = gen_soft_float_bin_op(g, result, op2_value, operand_type, IrBinOpAdd);
+                LLVMValueRef wrapped_result = gen_soft_float_bin_op(g, b, op2_value, operand_type, IrBinOpRemRem);
+                LLVMValueRef zero = LLVMConstNull(operand_type->llvm_type);
+                LLVMValueRef ltz = gen_soft_float_bin_op(g, op1_value, zero, operand_type, IrBinOpCmpLessThan);
+
+                return LLVMBuildSelect(g->builder, ltz, wrapped_result, result, "");
+            }
+        case IrBinOpDivExact:
+            {
+                LLVMValueRef floored = gen_float_un_op(g, result, operand_type, BuiltinFnIdFloor);
+                LLVMValueRef ok_bit = gen_soft_float_bin_op(g, result, floored, operand_type, IrBinOpCmpEq);
+                if (vector_len != 0) {
+                    ok_bit = ZigLLVMBuildAndReduce(g->builder, ok_bit);
+                }
+
+                LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactOk");
+                LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactFail");
+                LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+                LLVMPositionBuilderAtEnd(g->builder, fail_block);
+                gen_safety_crash(g, PanicMsgIdExactDivisionRemainder);
+
+                LLVMPositionBuilderAtEnd(g->builder, ok_block);
+            }
+            return result;
+        default:
+            return result;
+    }
+    zig_unreachable();
 }
 
 static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
@@ -3519,8 +3641,13 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
 
     ZigType *operand_type = op1->value->type;
     ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
-    if (scalar_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) {
-        return ir_render_soft_f80_bin_op(g, executable, bin_op_instruction);
+    if ((scalar_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
+        (scalar_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+        // LLVM incorrectly lowers the soft float calls for f128 as if they operated on `long double`.
+        // On some targets this will be incorrect, so we manually lower the call ourselves.
+        LLVMValueRef op1_value = ir_llvm_value(g, op1);
+        LLVMValueRef op2_value = ir_llvm_value(g, op2);
+        return gen_soft_float_bin_op(g, op1_value, op2_value, operand_type, op_id);
     }
 
 
@@ -3828,10 +3955,17 @@ static LLVMValueRef ir_render_cast(CodeGen *g, Stage1Air *executable,
             }
         case CastOpIntToFloat:
             assert(actual_type->id == ZigTypeIdInt);
-            if (actual_type->data.integral.is_signed) {
-                return LLVMBuildSIToFP(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
-            } else {
-                return LLVMBuildUIToFP(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
+            {
+                if ((wanted_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
+                    (wanted_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+                    return gen_soft_int_to_float_op(g, expr_val, actual_type, wanted_type);
+                } else {
+                    if (actual_type->data.integral.is_signed) {
+                        return LLVMBuildSIToFP(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
+                    } else {
+                        return LLVMBuildUIToFP(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
+                    }
+                }
             }
         case CastOpFloatToInt: {
             assert(wanted_type->id == ZigTypeIdInt);
@@ -3840,18 +3974,28 @@ static LLVMValueRef ir_render_cast(CodeGen *g, Stage1Air *executable,
             bool want_safety = ir_want_runtime_safety(g, &cast_instruction->base);
 
             LLVMValueRef result;
-            if (wanted_type->data.integral.is_signed) {
-                result = LLVMBuildFPToSI(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
+            if ((actual_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
+                (actual_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+                result = gen_soft_float_to_int_op(g, expr_val, actual_type, wanted_type);
             } else {
-                result = LLVMBuildFPToUI(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
+                if (wanted_type->data.integral.is_signed) {
+                    result = LLVMBuildFPToSI(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
+                } else {
+                    result = LLVMBuildFPToUI(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
+                }
             }
 
             if (want_safety) {
                 LLVMValueRef back_to_float;
-                if (wanted_type->data.integral.is_signed) {
-                    back_to_float = LLVMBuildSIToFP(g->builder, result, LLVMTypeOf(expr_val), "");
+                if ((actual_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
+                    (actual_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+                    back_to_float = gen_soft_int_to_float_op(g, result, wanted_type, actual_type);
                 } else {
-                    back_to_float = LLVMBuildUIToFP(g->builder, result, LLVMTypeOf(expr_val), "");
+                    if (wanted_type->data.integral.is_signed) {
+                        back_to_float = LLVMBuildSIToFP(g->builder, result, LLVMTypeOf(expr_val), "");
+                    } else {
+                        back_to_float = LLVMBuildUIToFP(g->builder, result, LLVMTypeOf(expr_val), "");
+                    }
                 }
                 LLVMValueRef difference = LLVMBuildFSub(g->builder, expr_val, back_to_float, "");
                 LLVMValueRef one_pos = LLVMConstReal(LLVMTypeOf(expr_val), 1.0f);
@@ -4151,42 +4295,46 @@ static LLVMValueRef ir_render_binary_not(CodeGen *g, Stage1Air *executable,
     return LLVMBuildNot(g->builder, operand, "");
 }
 
-static LLVMValueRef ir_gen_soft_f80_neg(CodeGen *g, ZigType *op_type, LLVMValueRef operand) {
-    uint32_t vector_len = op_type->id == ZigTypeIdVector ? op_type->data.vector.len : 0;
+static LLVMValueRef gen_soft_float_neg(CodeGen *g, ZigType *operand_type, LLVMValueRef operand) {
+    uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
+    uint16_t num_bits = operand_type->data.floating.bit_count;
 
-    LLVMTypeRef llvm_i80 = LLVMIntType(80);
-    LLVMValueRef sign_mask = LLVMConstInt(llvm_i80, 1, false);
-    sign_mask = LLVMConstShl(sign_mask, LLVMConstInt(llvm_i80, 79, false));
+    ZigType *iX_type = get_int_type(g, true, num_bits);
+    LLVMValueRef sign_mask = LLVMConstInt(iX_type->llvm_type, 1, false);
+    sign_mask = LLVMConstShl(sign_mask, LLVMConstInt(iX_type->llvm_type, num_bits - 1, false));
 
-    LLVMValueRef result;
     if (vector_len == 0) {
-        result = LLVMBuildXor(g->builder, operand, sign_mask, "");
-    } else {
-        result = build_alloca(g, op_type, "", 0);
-    }
+        LLVMValueRef bitcasted_operand = LLVMBuildBitCast(g->builder, operand, iX_type->llvm_type, "");
+        LLVMValueRef result = LLVMBuildXor(g->builder, bitcasted_operand, sign_mask, "");
 
-    LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
-    for (uint32_t i = 0; i < vector_len; i++) {
-        LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
-        LLVMValueRef xor_operand = LLVMBuildExtractElement(g->builder, operand, index_value, "");
-        LLVMValueRef xor_result = LLVMBuildXor(g->builder, xor_operand, sign_mask, "");
-        LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
-            xor_result, index_value, "");
+        return LLVMBuildBitCast(g->builder, result, operand_type->llvm_type, "");
+    } else {
+        LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
+        ZigType *iX_vector_type = get_vector_type(g, vector_len, iX_type);
+
+        LLVMValueRef result = build_alloca(g, iX_vector_type, "", 0);
+        LLVMValueRef bitcasted_operand = LLVMBuildBitCast(g->builder, operand, iX_vector_type->llvm_type, "");
+        for (uint32_t i = 0; i < vector_len; i++) {
+            LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
+            LLVMValueRef elem = LLVMBuildExtractElement(g->builder, bitcasted_operand, index_value, "");
+            LLVMValueRef result_elem = LLVMBuildXor(g->builder, elem, sign_mask, "");
+            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
+                result_elem, index_value, "");
+        }
+        return LLVMBuildBitCast(g->builder, LLVMBuildLoad(g->builder, result, ""), operand_type->llvm_type, "");
     }
-    if (vector_len != 0) {
-        result = LLVMBuildLoad(g->builder, result, "");
-    }
-    return result;
 }
 
-static LLVMValueRef ir_gen_negation(CodeGen *g, Stage1AirInst *inst, Stage1AirInst *operand, bool wrapping) {
+static LLVMValueRef gen_negation(CodeGen *g, Stage1AirInst *inst, Stage1AirInst *operand, bool wrapping) {
     LLVMValueRef llvm_operand = ir_llvm_value(g, operand);
     ZigType *operand_type = operand->value->type;
     ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ?
         operand_type->data.vector.elem_type : operand_type;
 
-    if (scalar_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target))
-        return ir_gen_soft_f80_neg(g, operand_type, llvm_operand);
+    if ((scalar_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
+        (scalar_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+        return gen_soft_float_neg(g, operand_type, llvm_operand);
+    }
 
     if (scalar_type->id == ZigTypeIdFloat) {
         ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, inst));
@@ -4210,7 +4358,7 @@ static LLVMValueRef ir_gen_negation(CodeGen *g, Stage1AirInst *inst, Stage1AirIn
 static LLVMValueRef ir_render_negation(CodeGen *g, Stage1Air *executable,
         Stage1AirInstNegation *inst)
 {
-    return ir_gen_negation(g, &inst->base, inst->operand, inst->wrapping);
+    return gen_negation(g, &inst->base, inst->operand, inst->wrapping);
 }
 
 static LLVMValueRef ir_render_bool_not(CodeGen *g, Stage1Air *executable, Stage1AirInstBoolNot *instruction) {
@@ -7024,110 +7172,34 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, Stage1Air *executable,
     return nullptr;
 }
 
-static LLVMValueRef ir_render_soft_f80_float_op(CodeGen *g, Stage1Air *executable, Stage1AirInstFloatOp *instruction) {
-    ZigType *op_type = instruction->operand->value->type;
-    uint32_t vector_len = op_type->id == ZigTypeIdVector ? op_type->data.vector.len : 0;
-
-    const char *func_name;
-    switch (instruction->fn_id) {
-        case BuiltinFnIdSqrt:
-            func_name = "__sqrtx";
-            break;
-        case BuiltinFnIdSin:
-            func_name = "__sinx";
-            break;
-        case BuiltinFnIdCos:
-            func_name = "__cosx";
-            break;
-        case BuiltinFnIdExp:
-            func_name = "__expx";
-            break;
-        case BuiltinFnIdExp2:
-            func_name = "__exp2x";
-            break;
-        case BuiltinFnIdLog:
-            func_name = "__logx";
-            break;
-        case BuiltinFnIdLog2:
-            func_name = "__log2x";
-            break;
-        case BuiltinFnIdLog10:
-            func_name = "__log10x";
-            break;
-        case BuiltinFnIdFabs:
-            func_name = "__fabsx";
-            break;
-        case BuiltinFnIdFloor:
-            func_name = "__floorx";
-            break;
-        case BuiltinFnIdCeil:
-            func_name = "__ceilx";
-            break;
-        case BuiltinFnIdTrunc:
-            func_name = "__truncx";
-            break;
-        case BuiltinFnIdNearbyInt:
-            func_name = "__nearbyintx";
-            break;
-        case BuiltinFnIdRound:
-            func_name = "__roundx";
-            break;
-        default:
-            zig_unreachable();
-    }
-
-
-    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, func_name);
-    if (func_ref == nullptr) {
-        LLVMTypeRef f80_ref = g->builtin_types.entry_f80->llvm_type;
-        LLVMTypeRef fn_type = LLVMFunctionType(f80_ref, &f80_ref, 1, false);
-        func_ref = LLVMAddFunction(g->module, func_name, fn_type);
-    }
-
-    LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
-    LLVMValueRef result;
-    if (vector_len == 0) {
-        result = LLVMBuildCall(g->builder, func_ref, &operand, 1, "");
-    } else {
-        result = build_alloca(g, instruction->operand->value->type, "", 0);
-    }
-
-    LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
-    for (uint32_t i = 0; i < vector_len; i++) {
-        LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
-        LLVMValueRef param = LLVMBuildExtractElement(g->builder, operand, index_value, "");
-        LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, &param, 1, "");
-        LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
-            call_result, index_value, "");
-    }
-    if (vector_len != 0) {
-        result = LLVMBuildLoad(g->builder, result, "");
-    }
-    return result;
-}
-
 static LLVMValueRef ir_render_float_op(CodeGen *g, Stage1Air *executable, Stage1AirInstFloatOp *instruction) {
-    ZigType *op_type = instruction->operand->value->type;
-    op_type = op_type->id == ZigTypeIdVector ? op_type->data.vector.elem_type : op_type;
-    if (op_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) {
-        return ir_render_soft_f80_float_op(g, executable, instruction);
-    }
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
-    LLVMValueRef fn_val = get_float_fn(g, instruction->base.value->type, ZigLLVMFnIdFloatOp, instruction->fn_id);
-    return LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
+    ZigType *operand_type = instruction->operand->value->type;
+    return gen_float_un_op(g, operand, operand_type, instruction->fn_id);
 }
 
-static LLVMValueRef ir_render_soft_f80_mul_add(CodeGen *g, Stage1Air *executable, Stage1AirInstMulAdd *instruction) {
-    ZigType *op_type = instruction->op1->value->type;
-    uint32_t vector_len = op_type->id == ZigTypeIdVector ? op_type->data.vector.len : 0;
+static LLVMValueRef ir_render_soft_mul_add(CodeGen *g, Stage1Air *executable, Stage1AirInstMulAdd *instruction, ZigType *float_type) {
+    ZigType *operand_type = instruction->op1->value->type;
+    uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
 
-    const char *func_name = "__fmax";
-    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, func_name);
+    const char *fn_name;
+    if (float_type == g->builtin_types.entry_f32)
+        fn_name = "fmaf";
+    else if (float_type == g->builtin_types.entry_f64)
+        fn_name = "fma";
+    else if (float_type == g->builtin_types.entry_f80)
+        fn_name = "__fmax";
+    else if (float_type == g->builtin_types.entry_f128)
+        fn_name = "fmaq";
+    else
+        zig_unreachable();
+
+    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, fn_name);
     if (func_ref == nullptr) {
-        LLVMTypeRef f80_ref = g->builtin_types.entry_f80->llvm_type;
-        LLVMTypeRef params[3] = { f80_ref, f80_ref, f80_ref };
-        LLVMTypeRef fn_type = LLVMFunctionType(f80_ref, params, 3, false);
-        func_ref = LLVMAddFunction(g->module, func_name, fn_type);
+        LLVMTypeRef float_type_ref = float_type->llvm_type;
+        LLVMTypeRef params[3] = { float_type_ref, float_type_ref, float_type_ref };
+        LLVMTypeRef fn_type = LLVMFunctionType(float_type_ref, params, 3, false);
+        func_ref = LLVMAddFunction(g->module, fn_name, fn_type);
     }
 
     LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
@@ -7161,10 +7233,11 @@ static LLVMValueRef ir_render_soft_f80_mul_add(CodeGen *g, Stage1Air *executable
 }
 
 static LLVMValueRef ir_render_mul_add(CodeGen *g, Stage1Air *executable, Stage1AirInstMulAdd *instruction) {
-    ZigType *op_type = instruction->op1->value->type;
-    op_type = op_type->id == ZigTypeIdVector ? op_type->data.vector.elem_type : op_type;
-    if (op_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) {
-        return ir_render_soft_f80_mul_add(g, executable, instruction);
+    ZigType *operand_type = instruction->op1->value->type;
+    operand_type = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.elem_type : operand_type;
+    if ((operand_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) ||
+        (operand_type == g->builtin_types.entry_f128 && !target_long_double_is_f128(g->zig_target))) {
+        return ir_render_soft_mul_add(g, executable, instruction, operand_type);
     }
     LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
     LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
@@ -9513,10 +9586,13 @@ static void define_builtin_types(CodeGen *g) {
     switch (g->zig_target->arch) {
         case ZigLLVM_x86:
         case ZigLLVM_x86_64:
-            if (g->zig_target->abi != ZigLLVM_MSVC)
+            if (g->zig_target->abi != ZigLLVM_MSVC) {
                 add_fp_entry(g, "c_longdouble", 80, LLVMX86FP80Type(), &g->builtin_types.entry_c_longdouble);
-            else
+                g->builtin_types.entry_c_longdouble->abi_size = g->builtin_types.entry_f80->abi_size;
+                g->builtin_types.entry_c_longdouble->abi_align = g->builtin_types.entry_f80->abi_align;
+            } else {
                 add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            }
             break;
         case ZigLLVM_arm:
         case ZigLLVM_armeb:
@@ -9750,6 +9826,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSqrt, "sqrt", 1);
     create_builtin_fn(g, BuiltinFnIdSin, "sin", 1);
     create_builtin_fn(g, BuiltinFnIdCos, "cos", 1);
+    create_builtin_fn(g, BuiltinFnIdTan, "tan", 1);
     create_builtin_fn(g, BuiltinFnIdExp, "exp", 1);
     create_builtin_fn(g, BuiltinFnIdExp2, "exp2", 1);
     create_builtin_fn(g, BuiltinFnIdLog, "log", 1);

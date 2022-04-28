@@ -8928,7 +8928,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
             assert(next_offset >= llvm_next_offset);
             if (next_offset > llvm_next_offset) {
-                size_t pad_bytes = next_offset - (field->offset + LLVMStoreSizeOfType(g->target_data_ref, llvm_type));
+                size_t pad_bytes = next_offset - (field->offset + LLVMABISizeOfType(g->target_data_ref, llvm_type));
                 if (pad_bytes != 0) {
                     LLVMTypeRef pad_llvm_type = LLVMArrayType(LLVMInt8Type(), pad_bytes);
                     element_types[gen_field_index] = pad_llvm_type;
@@ -10375,7 +10375,7 @@ void ZigValue::dump() {
 
 // float ops that take a single argument
 //TODO Powi, Pow, minnum, maxnum, maximum, minimum, copysign, lround, llround, lrint, llrint
-const char *float_op_to_name(BuiltinFnId op) {
+const char *float_un_op_to_name(BuiltinFnId op) {
     switch (op) {
     case BuiltinFnIdSqrt:
         return "sqrt";
@@ -10383,6 +10383,8 @@ const char *float_op_to_name(BuiltinFnId op) {
         return "sin";
     case BuiltinFnIdCos:
         return "cos";
+    case BuiltinFnIdTan:
+        return "tan";
     case BuiltinFnIdExp:
         return "exp";
     case BuiltinFnIdExp2:
@@ -10405,6 +10407,8 @@ const char *float_op_to_name(BuiltinFnId op) {
         return "nearbyint";
     case BuiltinFnIdRound:
         return "round";
+    case BuiltinFnIdMulAdd:
+        return "fma";
     default:
         zig_unreachable();
     }

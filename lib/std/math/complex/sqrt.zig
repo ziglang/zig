@@ -43,7 +43,7 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f32).init(math.fabs(x - y), math.copysign(f32, x, y));
+            return Complex(f32).init(@fabs(x - y), math.copysign(f32, x, y));
         } else {
             return Complex(f32).init(x, math.copysign(f32, y - y, y));
         }
@@ -56,15 +56,15 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
     const dy = @as(f64, y);
 
     if (dx >= 0) {
-        const t = math.sqrt((dx + math.hypot(f64, dx, dy)) * 0.5);
+        const t = @sqrt((dx + math.hypot(f64, dx, dy)) * 0.5);
         return Complex(f32).init(
             @floatCast(f32, t),
             @floatCast(f32, dy / (2.0 * t)),
         );
     } else {
-        const t = math.sqrt((-dx + math.hypot(f64, dx, dy)) * 0.5);
+        const t = @sqrt((-dx + math.hypot(f64, dx, dy)) * 0.5);
         return Complex(f32).init(
-            @floatCast(f32, math.fabs(y) / (2.0 * t)),
+            @floatCast(f32, @fabs(y) / (2.0 * t)),
             @floatCast(f32, math.copysign(f64, t, y)),
         );
     }
@@ -94,7 +94,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f64).init(math.fabs(x - y), math.copysign(f64, x, y));
+            return Complex(f64).init(@fabs(x - y), math.copysign(f64, x, y));
         } else {
             return Complex(f64).init(x, math.copysign(f64, y - y, y));
         }
@@ -104,7 +104,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
 
     // scale to avoid overflow
     var scale = false;
-    if (math.fabs(x) >= threshold or math.fabs(y) >= threshold) {
+    if (@fabs(x) >= threshold or @fabs(y) >= threshold) {
         x *= 0.25;
         y *= 0.25;
         scale = true;
@@ -112,11 +112,11 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
 
     var result: Complex(f64) = undefined;
     if (x >= 0) {
-        const t = math.sqrt((x + math.hypot(f64, x, y)) * 0.5);
+        const t = @sqrt((x + math.hypot(f64, x, y)) * 0.5);
         result = Complex(f64).init(t, y / (2.0 * t));
     } else {
-        const t = math.sqrt((-x + math.hypot(f64, x, y)) * 0.5);
-        result = Complex(f64).init(math.fabs(y) / (2.0 * t), math.copysign(f64, t, y));
+        const t = @sqrt((-x + math.hypot(f64, x, y)) * 0.5);
+        result = Complex(f64).init(@fabs(y) / (2.0 * t), math.copysign(f64, t, y));
     }
 
     if (scale) {

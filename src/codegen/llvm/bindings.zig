@@ -675,6 +675,14 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
+    pub const buildVectorSplat = LLVMBuildVectorSplat;
+    extern fn LLVMBuildVectorSplat(
+        *const Builder,
+        ElementCount: c_uint,
+        EltVal: *const Value,
+        Name: [*:0]const u8,
+    ) *const Value;
+
     pub const buildPtrToInt = LLVMBuildPtrToInt;
     extern fn LLVMBuildPtrToInt(
         *const Builder,

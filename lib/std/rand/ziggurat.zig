@@ -33,7 +33,7 @@ pub fn next_f64(random: Random, comptime tables: ZigTable) f64 {
         };
 
         const x = u * tables.x[i];
-        const test_x = if (tables.is_symmetric) math.fabs(x) else x;
+        const test_x = if (tables.is_symmetric) @fabs(x) else x;
 
         // equivalent to |u| < tables.x[i+1] / tables.x[i] (or u < tables.x[i+1] / tables.x[i])
         if (test_x < tables.x[i + 1]) {
@@ -106,18 +106,18 @@ const norm_r = 3.6541528853610088;
 const norm_v = 0.00492867323399;
 
 fn norm_f(x: f64) f64 {
-    return math.exp(-x * x / 2.0);
+    return @exp(-x * x / 2.0);
 }
 fn norm_f_inv(y: f64) f64 {
-    return math.sqrt(-2.0 * math.ln(y));
+    return @sqrt(-2.0 * @log(y));
 }
 fn norm_zero_case(random: Random, u: f64) f64 {
     var x: f64 = 1;
     var y: f64 = 0;
 
     while (-2.0 * y < x * x) {
-        x = math.ln(random.float(f64)) / norm_r;
-        y = math.ln(random.float(f64));
+        x = @log(random.float(f64)) / norm_r;
+        y = @log(random.float(f64));
     }
 
     if (u < 0) {
@@ -151,13 +151,13 @@ const exp_r = 7.69711747013104972;
 const exp_v = 0.0039496598225815571993;
 
 fn exp_f(x: f64) f64 {
-    return math.exp(-x);
+    return @exp(-x);
 }
 fn exp_f_inv(y: f64) f64 {
-    return -math.ln(y);
+    return -@log(y);
 }
 fn exp_zero_case(random: Random, _: f64) f64 {
-    return exp_r - math.ln(random.float(f64));
+    return exp_r - @log(random.float(f64));
 }
 
 test "exp dist sanity" {

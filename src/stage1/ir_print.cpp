@@ -2558,13 +2558,13 @@ static void ir_print_add_implicit_return_type(IrPrintSrc *irp, Stage1ZirInstAddI
 }
 
 static void ir_print_float_op(IrPrintSrc *irp, Stage1ZirInstFloatOp *instruction) {
-    fprintf(irp->f, "@%s(", float_op_to_name(instruction->fn_id));
+    fprintf(irp->f, "@%s(", float_un_op_to_name(instruction->fn_id));
     ir_print_other_inst_src(irp, instruction->operand);
     fprintf(irp->f, ")");
 }
 
 static void ir_print_float_op(IrPrintGen *irp, Stage1AirInstFloatOp *instruction) {
-    fprintf(irp->f, "@%s(", float_op_to_name(instruction->fn_id));
+    fprintf(irp->f, "@%s(", float_un_op_to_name(instruction->fn_id));
     ir_print_other_inst_gen(irp, instruction->operand);
     fprintf(irp->f, ")");
 }

@@ -1559,6 +1559,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .sqrt,
         .sin,
         .cos,
+        .tan,
         .exp,
         .exp2,
         .log,

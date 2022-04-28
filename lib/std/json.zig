@@ -1655,7 +1655,7 @@ fn parseInternal(
             if (numberToken.is_integer)
                 return try std.fmt.parseInt(T, numberToken.slice(tokens.slice, tokens.i - 1), 10);
             const float = try std.fmt.parseFloat(f128, numberToken.slice(tokens.slice, tokens.i - 1));
-            if (std.math.round(float) != float) return error.InvalidNumber;
+            if (@round(float) != float) return error.InvalidNumber;
             if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
             return @floatToInt(T, float);
         },

@@ -24132,6 +24132,9 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdCos:
             out_val->data.x_f16 = zig_double_to_f16(cos(zig_f16_to_double(op->data.x_f16)));
             break;
+        case BuiltinFnIdTan:
+            out_val->data.x_f16 = zig_double_to_f16(tan(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdExp:
             out_val->data.x_f16 = zig_double_to_f16(exp(zig_f16_to_double(op->data.x_f16)));
             break;
@@ -24181,6 +24184,9 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdCos:
             out_val->data.x_f32 = cosf(op->data.x_f32);
             break;
+        case BuiltinFnIdTan:
+            out_val->data.x_f32 = tanf(op->data.x_f32);
+            break;
         case BuiltinFnIdExp:
             out_val->data.x_f32 = expf(op->data.x_f32);
             break;
@@ -24229,6 +24235,9 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
             break;
         case BuiltinFnIdCos:
             out_val->data.x_f64 = cos(op->data.x_f64);
+            break;
+        case BuiltinFnIdTan:
+            out_val->data.x_f64 = tan(op->data.x_f64);
             break;
         case BuiltinFnIdExp:
             out_val->data.x_f64 = exp(op->data.x_f64);
@@ -24293,6 +24302,7 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdNearbyInt:
         case BuiltinFnIdSin:
         case BuiltinFnIdCos:
+        case BuiltinFnIdTan:
         case BuiltinFnIdExp:
         case BuiltinFnIdExp2:
         case BuiltinFnIdLog:
@@ -24300,7 +24310,7 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
         case BuiltinFnIdLog2:
             return ir_add_error_node(ira, source_node,
                 buf_sprintf("compiler bug: TODO: implement '%s' for type '%s'. See https://github.com/ziglang/zig/issues/4026",
-                    float_op_to_name(fop), buf_ptr(&float_type->name)));
+                    float_un_op_to_name(fop), buf_ptr(&float_type->name)));
         default:
             zig_unreachable();
         }
@@ -24327,24 +24337,94 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, Scope *scope, AstNode *source_
             break;
         case BuiltinFnIdCeil:
             f128M_roundToInt(in, softfloat_round_max, false, out);
-        break;
+            break;
         case BuiltinFnIdTrunc:
             f128M_trunc(in, out);
             break;
         case BuiltinFnIdRound:
             f128M_roundToInt(in, softfloat_round_near_maxMag, false, out);
             break;
-        case BuiltinFnIdNearbyInt:
-        case BuiltinFnIdSin:
-        case BuiltinFnIdCos:
-        case BuiltinFnIdExp:
-        case BuiltinFnIdExp2:
-        case BuiltinFnIdLog:
-        case BuiltinFnIdLog10:
-        case BuiltinFnIdLog2:
-            return ir_add_error_node(ira, source_node,
-                buf_sprintf("compiler bug: TODO: implement '%s' for type '%s'. See https://github.com/ziglang/zig/issues/4026",
-                    float_op_to_name(fop), buf_ptr(&float_type->name)));
+        case BuiltinFnIdNearbyInt: {
+            float64_t f64_value = f128M_to_f64(in);
+            double double_value;
+            memcpy(&double_value, &f64_value, sizeof(double));
+            double_value = nearbyint(double_value);
+            memcpy(&f64_value, &double_value, sizeof(double));
+            f64_to_f128M(f64_value, out);
+            break;
+        }
+        case BuiltinFnIdSin: {
+            float64_t f64_value = f128M_to_f64(in);
+            double double_value;
+            memcpy(&double_value, &f64_value, sizeof(double));
+            double_value = sin(double_value);
+            memcpy(&f64_value, &double_value, sizeof(double));
+            f64_to_f128M(f64_value, out);
+            break;
+        }
+        case BuiltinFnIdCos: {
+            float64_t f64_value = f128M_to_f64(in);
+            double double_value;
+            memcpy(&double_value, &f64_value, sizeof(double));
+            double_value = cos(double_value);
+            memcpy(&f64_value, &double_value, sizeof(double));
+            f64_to_f128M(f64_value, out);
+            break;
+        }
+        case BuiltinFnIdTan: {
+            float64_t f64_value = f128M_to_f64(in);
+            double double_value;
+            memcpy(&double_value, &f64_value, sizeof(double));
+            double_value = tan(double_value);
+            memcpy(&f64_value, &double_value, sizeof(double));
+            f64_to_f128M(f64_value, out);
+            break;
+        }
+        case BuiltinFnIdExp: {
+            float64_t f64_value = f128M_to_f64(in);
+            double double_value;
+            memcpy(&double_value, &f64_value, sizeof(double));
+            double_value = exp(double_value);
+            memcpy(&f64_value, &double_value, sizeof(double));
+            f64_to_f128M(f64_value, out);
+            break;
+        }
+        case BuiltinFnIdExp2: {
+            float64_t f64_value = f128M_to_f64(in);
+            double double_value;
+            memcpy(&double_value, &f64_value, sizeof(double));
+            double_value = exp2(double_value);
+            memcpy(&f64_value, &double_value, sizeof(double));
+            f64_to_f128M(f64_value, out);
+            break;
+        }
+        case BuiltinFnIdLog: {
+            float64_t f64_value = f128M_to_f64(in);
+            double double_value;
+            memcpy(&double_value, &f64_value, sizeof(double));
+            double_value = log(double_value);
+            memcpy(&f64_value, &double_value, sizeof(double));
+            f64_to_f128M(f64_value, out);
+            break;
+        }
+        case BuiltinFnIdLog10: {
+            float64_t f64_value = f128M_to_f64(in);
+            double double_value;
+            memcpy(&double_value, &f64_value, sizeof(double));
+            double_value = log10(double_value);
+            memcpy(&f64_value, &double_value, sizeof(double));
+            f64_to_f128M(f64_value, out);
+            break;
+        }
+        case BuiltinFnIdLog2: {
+            float64_t f64_value = f128M_to_f64(in);
+            double double_value;
+            memcpy(&double_value, &f64_value, sizeof(double));
+            double_value = log2(double_value);
+            memcpy(&f64_value, &double_value, sizeof(double));
+            f64_to_f128M(f64_value, out);
+            break;
+        }
         default:
             zig_unreachable();
         }

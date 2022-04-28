@@ -1768,6 +1768,7 @@ enum BuiltinFnId {
     BuiltinFnIdSqrt,
     BuiltinFnIdSin,
     BuiltinFnIdCos,
+    BuiltinFnIdTan,
     BuiltinFnIdExp,
     BuiltinFnIdExp2,
     BuiltinFnIdLog,

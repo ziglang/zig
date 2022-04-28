@@ -4,25 +4,16 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/expf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/exp.c
 
-const std = @import("../std.zig");
+const std = @import("std");
 const math = std.math;
 const expect = std.testing.expect;
 
-/// Returns e raised to the power of x (e^x).
-///
-/// Special Cases:
-///  - exp(+inf) = +inf
-///  - exp(nan)  = nan
-pub fn exp(x: anytype) @TypeOf(x) {
-    const T = @TypeOf(x);
-    return switch (T) {
-        f32 => exp32(x),
-        f64 => exp64(x),
-        else => @compileError("exp not implemented for " ++ @typeName(T)),
-    };
+pub fn __exph(a: f16) callconv(.C) f16 {
+    // TODO: more efficient implementation
+    return @floatCast(f16, expf(a));
 }
 
-fn exp32(x_: f32) f32 {
+pub fn expf(x_: f32) callconv(.C) f32 {
     const half = [_]f32{ 0.5, -0.5 };
     const ln2hi = 6.9314575195e-1;
     const ln2lo = 1.4286067653e-6;
@@ -97,7 +88,7 @@ fn exp32(x_: f32) f32 {
     }
 }
 
-fn exp64(x_: f64) f64 {
+pub fn exp(x_: f64) callconv(.C) f64 {
     const half = [_]f64{ 0.5, -0.5 };
     const ln2hi: f64 = 6.93147180369123816490e-01;
     const ln2lo: f64 = 1.90821492927058770002e-10;
@@ -181,37 +172,42 @@ fn exp64(x_: f64) f64 {
     }
 }
 
-test "math.exp" {
-    try expect(exp(@as(f32, 0.0)) == exp32(0.0));
-    try expect(exp(@as(f64, 0.0)) == exp64(0.0));
+pub fn __expx(a: f80) callconv(.C) f80 {
+    // TODO: more efficient implementation
+    return @floatCast(f80, expq(a));
 }
 
-test "math.exp32" {
+pub fn expq(a: f128) callconv(.C) f128 {
+    // TODO: more correct implementation
+    return exp(@floatCast(f64, a));
+}
+
+test "exp32" {
     const epsilon = 0.000001;
 
-    try expect(exp32(0.0) == 1.0);
-    try expect(math.approxEqAbs(f32, exp32(0.0), 1.0, epsilon));
-    try expect(math.approxEqAbs(f32, exp32(0.2), 1.221403, epsilon));
-    try expect(math.approxEqAbs(f32, exp32(0.8923), 2.440737, epsilon));
-    try expect(math.approxEqAbs(f32, exp32(1.5), 4.481689, epsilon));
+    try expect(expf(0.0) == 1.0);
+    try expect(math.approxEqAbs(f32, expf(0.0), 1.0, epsilon));
+    try expect(math.approxEqAbs(f32, expf(0.2), 1.221403, epsilon));
+    try expect(math.approxEqAbs(f32, expf(0.8923), 2.440737, epsilon));
+    try expect(math.approxEqAbs(f32, expf(1.5), 4.481689, epsilon));
 }
 
-test "math.exp64" {
+test "exp64" {
     const epsilon = 0.000001;
 
-    try expect(exp64(0.0) == 1.0);
-    try expect(math.approxEqAbs(f64, exp64(0.0), 1.0, epsilon));
-    try expect(math.approxEqAbs(f64, exp64(0.2), 1.221403, epsilon));
-    try expect(math.approxEqAbs(f64, exp64(0.8923), 2.440737, epsilon));
-    try expect(math.approxEqAbs(f64, exp64(1.5), 4.481689, epsilon));
+    try expect(exp(0.0) == 1.0);
+    try expect(math.approxEqAbs(f64, exp(0.0), 1.0, epsilon));
+    try expect(math.approxEqAbs(f64, exp(0.2), 1.221403, epsilon));
+    try expect(math.approxEqAbs(f64, exp(0.8923), 2.440737, epsilon));
+    try expect(math.approxEqAbs(f64, exp(1.5), 4.481689, epsilon));
 }
 
-test "math.exp32.special" {
-    try expect(math.isPositiveInf(exp32(math.inf(f32))));
-    try expect(math.isNan(exp32(math.nan(f32))));
+test "exp32.special" {
+    try expect(math.isPositiveInf(expf(math.inf(f32))));
+    try expect(math.isNan(expf(math.nan(f32))));
 }
 
-test "math.exp64.special" {
-    try expect(math.isPositiveInf(exp64(math.inf(f64))));
-    try expect(math.isNan(exp64(math.nan(f64))));
+test "exp64.special" {
+    try expect(math.isPositiveInf(exp(math.inf(f64))));
+    try expect(math.isNan(exp(math.nan(f64))));
 }

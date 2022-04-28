@@ -3998,7 +3998,7 @@ fn transFloatingLiteral(c: *Context, scope: *Scope, expr: *const clang.FloatingL
     var dbl = expr.getValueAsApproximateDouble();
     const is_negative = dbl < 0;
     if (is_negative) dbl = -dbl;
-    const str = if (dbl == std.math.floor(dbl))
+    const str = if (dbl == @floor(dbl))
         try std.fmt.allocPrint(c.arena, "{d}.0", .{dbl})
     else
         try std.fmt.allocPrint(c.arena, "{d}", .{dbl});

@@ -8,41 +8,41 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/__tand.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/__tandf.c
 
-// kernel cos function on [-pi/4, pi/4], pi/4 ~ 0.785398164
-// Input x is assumed to be bounded by ~pi/4 in magnitude.
-// Input y is the tail of x.
-//
-// Algorithm
-//      1. Since cos(-x) = cos(x), we need only to consider positive x.
-//      2. if x < 2^-27 (hx<0x3e400000 0), return 1 with inexact if x!=0.
-//      3. cos(x) is approximated by a polynomial of degree 14 on
-//         [0,pi/4]
-//                                       4            14
-//              cos(x) ~ 1 - x*x/2 + C1*x + ... + C6*x
-//         where the remez error is
-//
-//      |              2     4     6     8     10    12     14 |     -58
-//      |cos(x)-(1-.5*x +C1*x +C2*x +C3*x +C4*x +C5*x  +C6*x  )| <= 2
-//      |                                                      |
-//
-//                     4     6     8     10    12     14
-//      4. let r = C1*x +C2*x +C3*x +C4*x +C5*x  +C6*x  , then
-//             cos(x) ~ 1 - x*x/2 + r
-//         since cos(x+y) ~ cos(x) - sin(x)*y
-//                        ~ cos(x) - x*y,
-//         a correction term is necessary in cos(x) and hence
-//              cos(x+y) = 1 - (x*x/2 - (r - x*y))
-//         For better accuracy, rearrange to
-//              cos(x+y) ~ w + (tmp + (r-x*y))
-//         where w = 1 - x*x/2 and tmp is a tiny correction term
-//         (1 - x*x/2 == w + tmp exactly in infinite precision).
-//         The exactness of w + tmp in infinite precision depends on w
-//         and tmp having the same precision as x.  If they have extra
-//         precision due to compiler bugs, then the extra precision is
-//         only good provided it is retained in all terms of the final
-//         expression for cos().  Retention happens in all cases tested
-//         under FreeBSD, so don't pessimize things by forcibly clipping
-//         any extra precision in w.
+/// kernel cos function on [-pi/4, pi/4], pi/4 ~ 0.785398164
+/// Input x is assumed to be bounded by ~pi/4 in magnitude.
+/// Input y is the tail of x.
+///
+/// Algorithm
+///      1. Since cos(-x) = cos(x), we need only to consider positive x.
+///      2. if x < 2^-27 (hx<0x3e400000 0), return 1 with inexact if x!=0.
+///      3. cos(x) is approximated by a polynomial of degree 14 on
+///         [0,pi/4]
+///                                       4            14
+///              cos(x) ~ 1 - x*x/2 + C1*x + ... + C6*x
+///         where the remez error is
+///
+///      |              2     4     6     8     10    12     14 |     -58
+///      |cos(x)-(1-.5*x +C1*x +C2*x +C3*x +C4*x +C5*x  +C6*x  )| <= 2
+///      |                                                      |
+///
+///                     4     6     8     10    12     14
+///      4. let r = C1*x +C2*x +C3*x +C4*x +C5*x  +C6*x  , then
+///             cos(x) ~ 1 - x*x/2 + r
+///         since cos(x+y) ~ cos(x) - sin(x)*y
+///                        ~ cos(x) - x*y,
+///         a correction term is necessary in cos(x) and hence
+///              cos(x+y) = 1 - (x*x/2 - (r - x*y))
+///         For better accuracy, rearrange to
+///              cos(x+y) ~ w + (tmp + (r-x*y))
+///         where w = 1 - x*x/2 and tmp is a tiny correction term
+///         (1 - x*x/2 == w + tmp exactly in infinite precision).
+///         The exactness of w + tmp in infinite precision depends on w
+///         and tmp having the same precision as x.  If they have extra
+///         precision due to compiler bugs, then the extra precision is
+///         only good provided it is retained in all terms of the final
+///         expression for cos().  Retention happens in all cases tested
+///         under FreeBSD, so don't pessimize things by forcibly clipping
+///         any extra precision in w.
 pub fn __cos(x: f64, y: f64) f64 {
     const C1 = 4.16666666666666019037e-02; // 0x3FA55555, 0x5555554C
     const C2 = -1.38888888888741095749e-03; // 0xBF56C16C, 0x16C15177
@@ -73,33 +73,33 @@ pub fn __cosdf(x: f64) f32 {
     return @floatCast(f32, ((1.0 + z * C0) + w * C1) + (w * z) * r);
 }
 
-// kernel sin function on ~[-pi/4, pi/4] (except on -0), pi/4 ~ 0.7854
-// Input x is assumed to be bounded by ~pi/4 in magnitude.
-// Input y is the tail of x.
-// Input iy indicates whether y is 0. (if iy=0, y assume to be 0).
-//
-// Algorithm
-//      1. Since sin(-x) = -sin(x), we need only to consider positive x.
-//      2. Callers must return sin(-0) = -0 without calling here since our
-//         odd polynomial is not evaluated in a way that preserves -0.
-//         Callers may do the optimization sin(x) ~ x for tiny x.
-//      3. sin(x) is approximated by a polynomial of degree 13 on
-//         [0,pi/4]
-//                               3            13
-//              sin(x) ~ x + S1*x + ... + S6*x
-//         where
-//
-//      |sin(x)         2     4     6     8     10     12  |     -58
-//      |----- - (1+S1*x +S2*x +S3*x +S4*x +S5*x  +S6*x   )| <= 2
-//      |  x                                               |
-//
-//      4. sin(x+y) = sin(x) + sin'(x')*y
-//                  ~ sin(x) + (1-x*x/2)*y
-//         For better accuracy, let
-//                   3      2      2      2      2
-//              r = x *(S2+x *(S3+x *(S4+x *(S5+x *S6))))
-//         then                   3    2
-//              sin(x) = x + (S1*x + (x *(r-y/2)+y))
+/// kernel sin function on ~[-pi/4, pi/4] (except on -0), pi/4 ~ 0.7854
+/// Input x is assumed to be bounded by ~pi/4 in magnitude.
+/// Input y is the tail of x.
+/// Input iy indicates whether y is 0. (if iy=0, y assume to be 0).
+///
+/// Algorithm
+///      1. Since sin(-x) = -sin(x), we need only to consider positive x.
+///      2. Callers must return sin(-0) = -0 without calling here since our
+///         odd polynomial is not evaluated in a way that preserves -0.
+///         Callers may do the optimization sin(x) ~ x for tiny x.
+///      3. sin(x) is approximated by a polynomial of degree 13 on
+///         [0,pi/4]
+///                               3            13
+///              sin(x) ~ x + S1*x + ... + S6*x
+///         where
+///
+///      |sin(x)         2     4     6     8     10     12  |     -58
+///      |----- - (1+S1*x +S2*x +S3*x +S4*x +S5*x  +S6*x   )| <= 2
+///      |  x                                               |
+///
+///      4. sin(x+y) = sin(x) + sin'(x')*y
+///                  ~ sin(x) + (1-x*x/2)*y
+///         For better accuracy, let
+///                   3      2      2      2      2
+///              r = x *(S2+x *(S3+x *(S4+x *(S5+x *S6))))
+///         then                   3    2
+///              sin(x) = x + (S1*x + (x *(r-y/2)+y))
 pub fn __sin(x: f64, y: f64, iy: i32) f64 {
     const S1 = -1.66666666666666324348e-01; // 0xBFC55555, 0x55555549
     const S2 = 8.33333333332248946124e-03; // 0x3F811111, 0x1110F8A6
@@ -134,38 +134,38 @@ pub fn __sindf(x: f64) f32 {
     return @floatCast(f32, (x + s * (S1 + z * S2)) + s * w * r);
 }
 
-// kernel tan function on ~[-pi/4, pi/4] (except on -0), pi/4 ~ 0.7854
-// Input x is assumed to be bounded by ~pi/4 in magnitude.
-// Input y is the tail of x.
-// Input odd indicates whether tan (if odd = 0) or -1/tan (if odd = 1) is returned.
-//
-// Algorithm
-//      1. Since tan(-x) = -tan(x), we need only to consider positive x.
-//      2. Callers must return tan(-0) = -0 without calling here since our
-//         odd polynomial is not evaluated in a way that preserves -0.
-//         Callers may do the optimization tan(x) ~ x for tiny x.
-//      3. tan(x) is approximated by a odd polynomial of degree 27 on
-//         [0,0.67434]
-//                               3             27
-//              tan(x) ~ x + T1*x + ... + T13*x
-//         where
-//
-//              |tan(x)         2     4            26   |     -59.2
-//              |----- - (1+T1*x +T2*x +.... +T13*x    )| <= 2
-//              |  x                                    |
-//
-//         Note: tan(x+y) = tan(x) + tan'(x)*y
-//                        ~ tan(x) + (1+x*x)*y
-//         Therefore, for better accuracy in computing tan(x+y), let
-//                   3      2      2       2       2
-//              r = x *(T2+x *(T3+x *(...+x *(T12+x *T13))))
-//         then
-//                                  3    2
-//              tan(x+y) = x + (T1*x + (x *(r+y)+y))
-//
-//      4. For x in [0.67434,pi/4],  let y = pi/4 - x, then
-//              tan(x) = tan(pi/4-y) = (1-tan(y))/(1+tan(y))
-//                     = 1 - 2*(tan(y) - (tan(y)^2)/(1+tan(y)))
+/// kernel tan function on ~[-pi/4, pi/4] (except on -0), pi/4 ~ 0.7854
+/// Input x is assumed to be bounded by ~pi/4 in magnitude.
+/// Input y is the tail of x.
+/// Input odd indicates whether tan (if odd = 0) or -1/tan (if odd = 1) is returned.
+///
+/// Algorithm
+///      1. Since tan(-x) = -tan(x), we need only to consider positive x.
+///      2. Callers must return tan(-0) = -0 without calling here since our
+///         odd polynomial is not evaluated in a way that preserves -0.
+///         Callers may do the optimization tan(x) ~ x for tiny x.
+///      3. tan(x) is approximated by a odd polynomial of degree 27 on
+///         [0,0.67434]
+///                               3             27
+///              tan(x) ~ x + T1*x + ... + T13*x
+///         where
+///
+///              |tan(x)         2     4            26   |     -59.2
+///              |----- - (1+T1*x +T2*x +.... +T13*x    )| <= 2
+///              |  x                                    |
+///
+///         Note: tan(x+y) = tan(x) + tan'(x)*y
+///                        ~ tan(x) + (1+x*x)*y
+///         Therefore, for better accuracy in computing tan(x+y), let
+///                   3      2      2       2       2
+///              r = x *(T2+x *(T3+x *(...+x *(T12+x *T13))))
+///         then
+///                                  3    2
+///              tan(x+y) = x + (T1*x + (x *(r+y)+y))
+///
+///      4. For x in [0.67434,pi/4],  let y = pi/4 - x, then
+///              tan(x) = tan(pi/4-y) = (1-tan(y))/(1+tan(y))
+///                     = 1 - 2*(tan(y) - (tan(y)^2)/(1+tan(y)))
 pub fn __tan(x_: f64, y_: f64, odd: bool) f64 {
     var x = x_;
     var y = y_;

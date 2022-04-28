@@ -32,6 +32,7 @@ test "@mulAdd f16" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     comptime try testMulAdd16();
     try testMulAdd16();
 }
@@ -44,10 +45,12 @@ fn testMulAdd16() !void {
 }
 
 test "@mulAdd f80" {
-    if (true) {
-        // https://github.com/ziglang/zig/issues/11030
-        return error.SkipZigTest;
-    }
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     comptime try testMulAdd80();
     try testMulAdd80();
@@ -173,10 +176,12 @@ fn vector80() !void {
 }
 
 test "vector f80" {
-    if (true) {
-        // https://github.com/ziglang/zig/issues/11030
-        return error.SkipZigTest;
-    }
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     comptime try vector80();
     try vector80();
