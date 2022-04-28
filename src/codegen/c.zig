@@ -821,12 +821,14 @@ pub const DeclGen = struct {
                 try dg.renderTypecast(writer, ty);
                 try writer.writeAll("){");
 
-                for (field_vals) |field_val, i| {
-                    const field_ty = ty.structFieldType(i);
+                var i: usize = 0;
+                for (field_vals) |field_val, field_index| {
+                    const field_ty = ty.structFieldType(field_index);
                     if (!field_ty.hasRuntimeBits()) continue;
 
                     if (i != 0) try writer.writeAll(",");
                     try dg.renderValue(writer, field_ty, field_val, location);
+                    i += 1;
                 }
 
                 try writer.writeAll("}");
