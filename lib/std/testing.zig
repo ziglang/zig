@@ -374,43 +374,6 @@ pub const TmpDir = struct {
         self.parent_dir.close();
         self.* = undefined;
     }
-
-    /// Writes program string as zig file into tmp directory
-    /// Caller owns memory
-    ///
-    /// ```
-    /// const progstr = "pub fn main() void {}\n";
-    /// var it = try std.process.argsWithAllocator(std.testing.allocator);
-    /// defer it.deinit(); // no-op unless WASI or Windows
-    /// const testargs = try std.testing.getTestArgs(&it);
-    /// var tmp = std.testing.tmpDir(.{ .no_follow = true }); // ie zig-cache/tmp/8DLgoSEqz593PAEE
-    /// defer tmp.cleanup();
-    /// const zigfile_path = try tmp.writeZigFile(std.testing.allocator, progstr, "bruh");
-    /// defer std.testing.allocator.free(zigfile_path);
-    /// const binary = zigfile_path[0 .. zigfile_path.len - 4]; // '.zig' is 4 characters
-    /// try std.testing.buildExe(testargs.zigexec, zigfile_path, binary);
-    /// ```
-    pub fn writeZigFile(
-        self: *TmpDir,
-        alloc: std.mem.Allocator,
-        progstr: []const u8,
-        filename: []const u8,
-    ) ![]const u8 {
-        const tmpdir_path = try self.getFullPath(alloc);
-        defer alloc.free(tmpdir_path);
-        const suffix_zig = ".zig";
-        const zigfile_path = try std.mem.concat(alloc, u8, &[_][]const u8{
-            tmpdir_path,
-            std.fs.path.sep_str,
-            filename,
-            suffix_zig,
-        });
-        errdefer alloc.free(zigfile_path);
-        const zigfile = try std.mem.concat(alloc, u8, &[_][]const u8{ filename, suffix_zig });
-        defer alloc.free(zigfile);
-        try self.dir.writeFile(zigfile, progstr);
-        return zigfile_path;
-    }
 };
 
 fn getCwdOrWasiPreopen() std.fs.Dir {

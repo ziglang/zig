@@ -1357,16 +1357,23 @@ test "build and call child_process" {
     var it = try std.process.argsWithAllocator(allocator);
     defer it.deinit(); // no-op unless WASI or Windows
     const testargs = try testing.getTestArgs(&it);
+
     var tmp = testing.tmpDir(.{ .no_follow = true }); // ie zig-cache/tmp/8DLgoSEqz593PAEE
     defer tmp.cleanup();
+    const tmpdirpath = try tmp.getFullPath(allocator);
+    defer allocator.free(tmpdirpath);
     const child_name = "child"; // no need for suffixes (.exe, .wasm) due to '-femit-bin'
-    const zigfile_path = try tmp.writeZigFile(allocator, childstr, child_name);
-    defer allocator.free(zigfile_path);
+    const suffix_zig = ".zig";
+    const child_path = try fs.path.join(allocator, &[_][]const u8{ tmpdirpath, child_name });
+    defer allocator.free(child_path);
+    const child_zig = try mem.concat(allocator, u8, &[_][]const u8{ child_path, suffix_zig });
+    defer allocator.free(child_zig);
 
-    const binary = zigfile_path[0 .. zigfile_path.len - 4]; // '.zig' is 4 characters
-    try testing.buildExe(testargs.zigexec, zigfile_path, binary);
+    try tmp.dir.writeFile("child.zig", childstr);
+    try testing.buildExe(testargs.zigexec, child_zig, child_path);
+
     // spawn compiled file as child_process with argument 'hello world' + expect success
-    const args = [_][]const u8{ binary, "hello world" };
+    const args = [_][]const u8{ child_path, "hello world" };
     var child_proc = try ChildProcess.init(&args, allocator);
     defer child_proc.deinit();
     const ret_val = try child_proc.spawnAndWait();
