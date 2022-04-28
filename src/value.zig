@@ -2542,6 +2542,15 @@ pub const Value = extern union {
                     return 1;
                 }
             },
+            .decl_ref_mut => {
+                const decl_index = val.castTag(.decl_ref_mut).?.data.decl_index;
+                const decl = mod.declPtr(decl_index);
+                if (decl.ty.zigTypeTag() == .Array) {
+                    return decl.ty.arrayLen();
+                } else {
+                    return 1;
+                }
+            },
             else => unreachable,
         };
     }
@@ -5116,6 +5125,9 @@ pub const Value = extern union {
                 ptr: Value,
                 len: Value,
             },
+
+            pub const ptr_index = 0;
+            pub const len_index = 1;
         };
 
         pub const Ty = struct {

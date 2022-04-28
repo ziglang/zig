@@ -682,3 +682,14 @@ test "slicing slice with sentinel as end index" {
     try S.do();
     comptime try S.do();
 }
+
+test "slice len modification at comptime" {
+    comptime {
+        var buf: [10]u8 = .{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+        var items: []u8 = buf[0..0];
+        items.len += 2;
+        try expect(items.len == 2);
+        try expect(items[0] == 0);
+        try expect(items[1] == 1);
+    }
+}
