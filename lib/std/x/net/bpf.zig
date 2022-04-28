@@ -105,7 +105,7 @@
 //! (010) ret   #262144         ; copy 0x40000
 //! (011) ret   #0              ; skip packet
 //! ```
-//! 
+//!
 //! Here we can make a few observations:
 //!
 //! - The problem "filter only tcp packets" has essentially been transformed
@@ -248,7 +248,7 @@ pub const JGT = 0x20;
 /// jge     x, Lt, Lf: pc += (a >= x)    ? jt : jf.
 pub const JGE = 0x30;
 /// jset   #k, Lt, Lf: pc += (a & k > 0) ? jt : jf.
-/// jset    x, Lt, Lf: pc += (a & x > 0) ? jt : jf. 
+/// jset    x, Lt, Lf: pc += (a & x > 0) ? jt : jf.
 pub const JSET = 0x40;
 
 // Miscellaneous operations/register copy.
