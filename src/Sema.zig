@@ -16979,43 +16979,43 @@ fn fieldPtr(
                 const buf = try sema.arena.create(Type.SlicePtrFieldTypeBuffer);
                 const slice_ptr_ty = inner_ty.slicePtrFieldType(buf);
 
-                if (try sema.resolveDefinedValue(block, object_ptr_src, inner_ptr)) |val| {
-                    var anon_decl = try block.startAnonDecl(src);
-                    defer anon_decl.deinit();
-
-                    return sema.analyzeDeclRef(try anon_decl.finish(
-                        try slice_ptr_ty.copy(anon_decl.arena()),
-                        try val.slicePtr().copy(anon_decl.arena()),
-                        0, // default alignment
-                    ));
-                }
-                try sema.requireRuntimeBlock(block, src);
-
                 const result_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = slice_ptr_ty,
                     .mutable = object_ptr_ty.ptrIsMutable(),
                     .@"addrspace" = object_ptr_ty.ptrAddressSpace(),
                 });
 
-                return block.addTyOp(.ptr_slice_ptr_ptr, result_ty, inner_ptr);
-            } else if (mem.eql(u8, field_name, "len")) {
                 if (try sema.resolveDefinedValue(block, object_ptr_src, inner_ptr)) |val| {
-                    var anon_decl = try block.startAnonDecl(src);
-                    defer anon_decl.deinit();
-
-                    return sema.analyzeDeclRef(try anon_decl.finish(
-                        Type.usize,
-                        try Value.Tag.int_u64.create(anon_decl.arena(), val.sliceLen(sema.mod)),
-                        0, // default alignment
-                    ));
+                    return sema.addConstant(
+                        result_ty,
+                        try Value.Tag.field_ptr.create(sema.arena, .{
+                            .container_ptr = val,
+                            .container_ty = inner_ty,
+                            .field_index = Value.Payload.Slice.ptr_index,
+                        }),
+                    );
                 }
                 try sema.requireRuntimeBlock(block, src);
 
+                return block.addTyOp(.ptr_slice_ptr_ptr, result_ty, inner_ptr);
+            } else if (mem.eql(u8, field_name, "len")) {
                 const result_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = Type.usize,
                     .mutable = object_ptr_ty.ptrIsMutable(),
                     .@"addrspace" = object_ptr_ty.ptrAddressSpace(),
                 });
+
+                if (try sema.resolveDefinedValue(block, object_ptr_src, inner_ptr)) |val| {
+                    return sema.addConstant(
+                        result_ty,
+                        try Value.Tag.field_ptr.create(sema.arena, .{
+                            .container_ptr = val,
+                            .container_ty = inner_ty,
+                            .field_index = Value.Payload.Slice.len_index,
+                        }),
+                    );
+                }
+                try sema.requireRuntimeBlock(block, src);
 
                 return block.addTyOp(.ptr_slice_len_ptr, result_ty, inner_ptr);
             } else {
@@ -19297,7 +19297,6 @@ fn beginComptimePtrMutation(
             const field_ptr = ptr_val.castTag(.field_ptr).?.data;
             var parent = try beginComptimePtrMutation(sema, block, src, field_ptr.container_ptr);
             const field_index = @intCast(u32, field_ptr.field_index);
-            const field_ty = parent.ty.structFieldType(field_index);
             switch (parent.val.tag()) {
                 .undef => {
                     // A struct or union has been initialized to undefined at comptime and now we
@@ -19316,7 +19315,7 @@ fn beginComptimePtrMutation(
                             return ComptimePtrMutationKit{
                                 .decl_ref_mut = parent.decl_ref_mut,
                                 .val = &fields[field_index],
-                                .ty = field_ty,
+                                .ty = parent.ty.structFieldType(field_index),
                             };
                         },
                         .Union => {
@@ -19331,8 +19330,29 @@ fn beginComptimePtrMutation(
                             return ComptimePtrMutationKit{
                                 .decl_ref_mut = parent.decl_ref_mut,
                                 .val = &payload.data.val,
-                                .ty = field_ty,
+                                .ty = parent.ty.structFieldType(field_index),
                             };
+                        },
+                        .Pointer => {
+                            assert(parent.ty.isSlice());
+                            parent.val.* = try Value.Tag.slice.create(arena, .{
+                                .ptr = Value.undef,
+                                .len = Value.undef,
+                            });
+
+                            switch (field_index) {
+                                Value.Payload.Slice.ptr_index => return ComptimePtrMutationKit{
+                                    .decl_ref_mut = parent.decl_ref_mut,
+                                    .val = &parent.val.castTag(.slice).?.data.ptr,
+                                    .ty = parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
+                                },
+                                Value.Payload.Slice.len_index => return ComptimePtrMutationKit{
+                                    .decl_ref_mut = parent.decl_ref_mut,
+                                    .val = &parent.val.castTag(.slice).?.data.len,
+                                    .ty = Type.usize,
+                                },
+                                else => unreachable,
+                            }
                         },
                         else => unreachable,
                     }
@@ -19340,7 +19360,7 @@ fn beginComptimePtrMutation(
                 .aggregate => return ComptimePtrMutationKit{
                     .decl_ref_mut = parent.decl_ref_mut,
                     .val = &parent.val.castTag(.aggregate).?.data[field_index],
-                    .ty = field_ty,
+                    .ty = parent.ty.structFieldType(field_index),
                 },
                 .@"union" => {
                     // We need to set the active field of the union.
@@ -19353,8 +19373,21 @@ fn beginComptimePtrMutation(
                     return ComptimePtrMutationKit{
                         .decl_ref_mut = parent.decl_ref_mut,
                         .val = &payload.val,
-                        .ty = field_ty,
+                        .ty = parent.ty.structFieldType(field_index),
                     };
+                },
+                .slice => switch (field_index) {
+                    Value.Payload.Slice.ptr_index => return ComptimePtrMutationKit{
+                        .decl_ref_mut = parent.decl_ref_mut,
+                        .val = &parent.val.castTag(.slice).?.data.ptr,
+                        .ty = parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
+                    },
+                    Value.Payload.Slice.len_index => return ComptimePtrMutationKit{
+                        .decl_ref_mut = parent.decl_ref_mut,
+                        .val = &parent.val.castTag(.slice).?.data.len,
+                        .ty = Type.usize,
+                    },
+                    else => unreachable,
                 },
 
                 else => unreachable,
@@ -19555,7 +19588,6 @@ fn beginComptimePtrLoad(
         .field_ptr => blk: {
             const field_ptr = ptr_val.castTag(.field_ptr).?.data;
             const field_index = @intCast(u32, field_ptr.field_index);
-            const field_ty = field_ptr.container_ty.structFieldType(field_index);
             var deref = try beginComptimePtrLoad(sema, block, src, field_ptr.container_ptr, field_ptr.container_ty);
 
             if (field_ptr.container_ty.hasWellDefinedLayout()) {
@@ -19570,19 +19602,38 @@ fn beginComptimePtrLoad(
                 deref.ty_without_well_defined_layout = field_ptr.container_ty;
             }
 
-            if (deref.pointee) |*tv| {
-                const coerce_in_mem_ok =
-                    (try sema.coerceInMemoryAllowed(block, field_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
-                    (try sema.coerceInMemoryAllowed(block, tv.ty, field_ptr.container_ty, false, target, src, src)) == .ok;
-                if (coerce_in_mem_ok) {
-                    deref.pointee = TypedValue{
-                        .ty = field_ty,
-                        .val = tv.val.fieldValue(tv.ty, field_index),
-                    };
-                    break :blk deref;
-                }
+            const tv = &(deref.pointee orelse {
+                deref.pointee = null;
+                break :blk deref;
+            });
+            const coerce_in_mem_ok =
+                (try sema.coerceInMemoryAllowed(block, field_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
+                (try sema.coerceInMemoryAllowed(block, tv.ty, field_ptr.container_ty, false, target, src, src)) == .ok;
+            if (!coerce_in_mem_ok) {
+                deref.pointee = null;
+                break :blk deref;
             }
-            deref.pointee = null;
+
+            if (field_ptr.container_ty.isSlice()) {
+                const slice_val = tv.val.castTag(.slice).?.data;
+                deref.pointee = switch (field_index) {
+                    Value.Payload.Slice.ptr_index => TypedValue{
+                        .ty = field_ptr.container_ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
+                        .val = slice_val.ptr,
+                    },
+                    Value.Payload.Slice.len_index => TypedValue{
+                        .ty = Type.usize,
+                        .val = slice_val.len,
+                    },
+                    else => unreachable,
+                };
+            } else {
+                const field_ty = field_ptr.container_ty.structFieldType(field_index);
+                deref.pointee = TypedValue{
+                    .ty = field_ty,
+                    .val = tv.val.fieldValue(tv.ty, field_index),
+                };
+            }
             break :blk deref;
         },
 
