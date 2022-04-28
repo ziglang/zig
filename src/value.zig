@@ -4510,7 +4510,6 @@ pub const Value = extern union {
         }
     }
 
-
     pub fn exp(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
         if (float_type.zigTypeTag() == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen());

@@ -609,16 +609,11 @@ test "negation f64" {
 }
 
 test "negation f80" {
-    if (builtin.zig_backend != .stage1) {
-        // This test case exercises @intToFloat f80 in the compiler implementation.
-        // https://github.com/ziglang/zig/issues/11030
-        return error.SkipZigTest;
-    }
-
-    if (builtin.os.tag == .freebsd) {
-        // TODO file issue to track this failure
-        return error.SkipZigTest;
-    }
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -640,11 +635,6 @@ test "negation f128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-
-    if (builtin.os.tag == .freebsd) {
-        // TODO file issue to track this failure
-        return error.SkipZigTest;
-    }
 
     const S = struct {
         fn doTheTest() !void {
