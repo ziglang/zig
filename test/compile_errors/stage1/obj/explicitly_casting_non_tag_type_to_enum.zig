@@ -11,6 +11,8 @@ export fn entry() void {
     _ = x;
 }
 
-// explicitly casting non tag type to enum
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:10:31: error: expected integer type, found 'f32'

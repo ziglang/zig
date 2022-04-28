@@ -10,6 +10,8 @@ export fn entry() void {
     _ = Untagged{};
 }
 
-// @Type for union with zero fields
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:25: error: unions must have 1 or more fields

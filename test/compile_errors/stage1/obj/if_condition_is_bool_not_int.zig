@@ -2,6 +2,8 @@ export fn f() void {
     if (0) {}
 }
 
-// if condition is bool, not int
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:9: error: expected type 'bool', found 'comptime_int'

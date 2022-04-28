@@ -27,7 +27,9 @@ fn rangeSumIndirect(x: i32) i32 {
     return child + 1;
 }
 
-// indirect recursion of async functions detected
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:8:1: error: '@Frame(rangeSum)' depends on itself
 // tmp.zig:15:33: note: when analyzing type '@Frame(rangeSum)' here

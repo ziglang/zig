@@ -8,7 +8,9 @@ export fn b() void {
     _ = ptr;
 }
 
-// implicit casting too big integers to C pointers
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:33: error: integer value 18446744073709551617 cannot be coerced to type 'usize'
 // tmp.zig:7:23: error: integer type 'u65' too big for implicit @intToPtr to type '[*c]u8'

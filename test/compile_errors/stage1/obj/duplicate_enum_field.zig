@@ -8,7 +8,9 @@ export fn entry() void {
     _ = a;
 }
 
-// duplicate enum field
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:5: error: duplicate enum field: 'Bar'
 // tmp.zig:2:5: note: other field here

@@ -7,6 +7,8 @@ pub fn main() void {
   _ = y;
 }
 
-// overflow in enum value allocation
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:5: error: enumeration value 256 too large for type 'u8'

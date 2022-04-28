@@ -3,6 +3,9 @@ pub export fn entry() void {
     @call(.{ .modifier = .always_inline }, call_me, .{});
 }
 
-// @call rejects non comptime-known fn - always_inline
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:3:5: error: the specified modifier requires a comptime-known function

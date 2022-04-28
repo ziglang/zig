@@ -3,6 +3,8 @@ export fn entry() void {
     _ = b;
 }
 
-// @ptrToInt 0 to non optional pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:13: error: pointer type '*i32' does not allow address zero

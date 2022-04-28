@@ -15,7 +15,9 @@ export fn entry4() u8 {
     return @truncate(u8, x);
 }
 
-// truncate sign mismatch
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:26: error: expected signed integer type, found 'u32'
 // tmp.zig:7:26: error: expected unsigned integer type, found 'i32'

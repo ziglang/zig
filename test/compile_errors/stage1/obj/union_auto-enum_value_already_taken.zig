@@ -10,7 +10,9 @@ export fn entry() void {
     _ = x;
 }
 
-// union auto-enum value already taken
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:9: error: enum tag value 60 already taken
 // tmp.zig:4:9: note: other occurrence here

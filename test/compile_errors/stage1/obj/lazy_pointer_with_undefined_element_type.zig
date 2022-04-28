@@ -5,6 +5,8 @@ export fn foo() void {
     _ = I;
 }
 
-// lazy pointer with undefined element type
+// error
+// backend=stage1
+// target=native
 //
 // :3:28: error: use of undefined value here causes undefined behavior

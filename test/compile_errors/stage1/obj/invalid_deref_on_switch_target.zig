@@ -10,6 +10,8 @@ const Tile = enum {
     Filled,
 };
 
-// invalid deref on switch target
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:17: error: attempt to dereference non-pointer type 'Tile'

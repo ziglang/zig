@@ -7,6 +7,8 @@ export fn entry() void {
     _ = s;
 }
 
-// extern struct with non-extern-compatible integer tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:5: error: extern structs cannot contain fields of type 'E'

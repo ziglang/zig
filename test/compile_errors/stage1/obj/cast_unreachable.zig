@@ -3,7 +3,9 @@ fn f() i32 {
 }
 export fn entry() void { _ = f(); }
 
-// cast unreachable
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:12: error: unreachable code
 // tmp.zig:2:21: note: control flow is diverted here

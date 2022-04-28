@@ -6,6 +6,8 @@ export fn entry() void {
     _ = x;
 }
 
-// non-enum tag type passed to union
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:19: error: expected enum tag type, found 'u32'

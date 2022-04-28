@@ -9,7 +9,9 @@ export fn entry1() void {
     _ = unsigned;
 }
 
-// cast negative value to unsigned integer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:22: error: attempt to cast negative value to unsigned integer
 // tmp.zig:8:27: error: cannot cast negative value -1 to unsigned integer type 'u32'

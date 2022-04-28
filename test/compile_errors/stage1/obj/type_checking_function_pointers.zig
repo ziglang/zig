@@ -6,6 +6,8 @@ export fn entry() void {
     a(c);
 }
 
-// type checking function pointers
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'

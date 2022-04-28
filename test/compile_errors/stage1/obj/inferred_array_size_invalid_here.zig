@@ -8,7 +8,9 @@ export fn entry2() void {
     _ = a;
 }
 
-// inferred array size invalid here
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:16: error: unable to infer array size
 // tmp.zig:6:35: error: unable to infer array size

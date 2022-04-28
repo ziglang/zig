@@ -54,7 +54,9 @@ export fn foo_slice() void {
     }
 }
 
-// comptime slice-sentinel is out of bounds (terminated)
+// error
+// backend=stage1
+// target=native
 //
 // :4:29: error: out of bounds slice
 // :12:29: error: out of bounds slice

@@ -3,6 +3,8 @@ export fn entry() void {
     _ = z;
 }
 
-// @truncate undefined value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:27: error: use of undefined value here causes undefined behavior

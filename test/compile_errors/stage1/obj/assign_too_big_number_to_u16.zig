@@ -3,6 +3,8 @@ export fn foo() void {
     _ = vga_mem;
 }
 
-// assign too big number to u16
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:24: error: integer value 753664 cannot be coerced to type 'u16'

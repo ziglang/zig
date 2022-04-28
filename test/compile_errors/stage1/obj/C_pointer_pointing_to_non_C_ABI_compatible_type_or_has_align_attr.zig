@@ -5,6 +5,8 @@ export fn a() void {
     _ = t;
 }
 
-// C pointer pointing to non C ABI compatible type or has align attr
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:19: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'

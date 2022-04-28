@@ -3,6 +3,8 @@ export fn entry() void {
     _ = @cmpxchgWeak(f32, &x, 1, 2, .SeqCst, .SeqCst);
 }
 
-// cmpxchg with float
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:22: error: expected bool, integer, enum or pointer type, found 'f32'

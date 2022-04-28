@@ -6,6 +6,8 @@ export fn foo() void {
     }
 }
 
-// cannot continue out of defer expression
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:13: error: cannot continue out of defer expression

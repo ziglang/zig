@@ -4,6 +4,8 @@ comptime {
     _ = b;
 }
 
-// comptime slice of an undefined slice
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:14: error: slice of undefined

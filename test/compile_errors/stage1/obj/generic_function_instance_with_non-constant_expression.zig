@@ -5,6 +5,8 @@ fn test1(a: i32, b: i32) i32 {
 
 export fn entry() usize { return @sizeOf(@TypeOf(test1)); }
 
-// generic function instance with non-constant expression
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:16: error: runtime value cannot be passed to comptime arg

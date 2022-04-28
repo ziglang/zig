@@ -4,6 +4,8 @@ export fn a() void {
     _ = y;
 }
 
-// bad alignment in implicit cast from array pointer to slice
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:30: error: expected type '[]align(16) u8', found '*[10]u8'

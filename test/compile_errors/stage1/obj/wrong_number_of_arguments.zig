@@ -3,6 +3,8 @@ export fn a() void {
 }
 fn c(d: i32, e: i32, f: i32) void { _ = d; _ = e; _ = f; }
 
-// wrong number of arguments
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:6: error: expected 3 argument(s), found 1

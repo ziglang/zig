@@ -5,6 +5,8 @@ fn foo(x: u32) u32 {
 
 export fn entry() usize { return @sizeOf(@TypeOf(y)); }
 
-// compile time division by zero
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:14: error: division by zero

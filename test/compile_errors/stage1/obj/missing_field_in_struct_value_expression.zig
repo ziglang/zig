@@ -13,6 +13,8 @@ export fn f() void {
     _ = a;
 }
 
-// missing field in struct value expression
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:17: error: missing field: 'x'

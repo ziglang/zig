@@ -8,6 +8,8 @@ comptime {
     _ = bar_val;
 }
 
-// invalid union field access in comptime
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:7:24: error: accessing union field 'Bar' while field 'Baz' is set

@@ -14,6 +14,8 @@
      unreachable;
  }
 
-// incorrect return type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:8:16: error: expected type 'A', found 'B'

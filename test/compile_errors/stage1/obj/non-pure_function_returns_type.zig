@@ -17,6 +17,8 @@ export fn function_with_return_type_type() void {
     list.length = 10;
 }
 
-// non-pure function returns type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:7: error: unable to evaluate constant expression

@@ -19,7 +19,9 @@ fn bar() callconv(.Inline) void {}
 fn baz1() void {}
 fn baz2() void {}
 
-// bad usage of @call
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:21: error: expected tuple or struct, found 'void'
 // tmp.zig:5:14: error: unable to perform 'never_inline' call at compile-time

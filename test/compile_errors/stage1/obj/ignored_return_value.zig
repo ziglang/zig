@@ -3,6 +3,8 @@ export fn foo() void {
 }
 fn bar() i32 { return 0; }
 
-// ignored return value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:8: error: expression value is ignored

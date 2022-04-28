@@ -10,7 +10,10 @@ const B = enum {
 };
 comptime { _ = A; _ = B; }
 
-// non-exhaustive enum marker assigned a value
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:4:9: error: '_' is used to mark an enum as non-exhaustive and cannot be assigned a value
 // tmp.zig:6:11: error: non-exhaustive enum missing integer tag type

@@ -4,6 +4,8 @@ comptime {
     _ = zig_ptr;
 }
 
-// implicit casting null c pointer to zig pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:24: error: null pointer casted to type '*u8'

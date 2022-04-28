@@ -3,6 +3,8 @@ export fn f() void {
     _ = s;
 }
 
-// aligned variable of zero-bit type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: variable 's' of zero-bit type 'struct:2:12' has no in-memory representation, it cannot be aligned

@@ -15,7 +15,9 @@ export fn c() void {
 }
 fn func() void {}
 
-// prevent bad implicit casting of anyframe types
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:28: error: expected type 'anyframe->i32', found 'anyframe'
 // tmp.zig:8:28: error: expected type 'anyframe->i32', found 'i32'

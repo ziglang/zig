@@ -5,6 +5,8 @@ fn foo() void {
 }
 comptime { foo(); }
 
-// comptime ptrcast of zero-sized type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:21: error: '*const struct:2:17' and '[*]const u8' do not have the same in-memory representation

@@ -4,6 +4,8 @@ export fn entry() void {
     _ = arr;
 }
 
-// use invalid number literal as array index
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:1: error: unable to infer variable type

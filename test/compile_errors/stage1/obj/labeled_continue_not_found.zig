@@ -7,6 +7,8 @@ export fn entry() void {
     }
 }
 
-// labeled continue not found
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:23: error: label not found: 'outer'

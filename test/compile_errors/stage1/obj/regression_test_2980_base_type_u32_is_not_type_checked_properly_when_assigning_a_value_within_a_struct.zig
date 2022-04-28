@@ -14,6 +14,8 @@ export fn entry() void {
     _ = afoo;
 }
 
-// regression test #2980: base type u32 is not type checked properly when assigning a value within a struct
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:12:25: error: cannot convert error union to payload type. consider using `try`, `catch`, or `if`. expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(get_uval)).Fn.return_type.?).ErrorUnion.error_set!u32'

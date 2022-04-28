@@ -5,6 +5,8 @@ export fn foo(a: i32) *Foo {
     return @fieldParentPtr(Foo, "a", a);
 }
 
-// @fieldParentPtr - field pointer is not pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:38: error: expected pointer, found 'i32'

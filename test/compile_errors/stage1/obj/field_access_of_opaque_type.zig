@@ -9,6 +9,8 @@ fn bar(x: *MyType) bool {
     return x.blah;
 }
 
-// field access of opaque type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:13: error: no member named 'blah' in opaque type 'MyType'

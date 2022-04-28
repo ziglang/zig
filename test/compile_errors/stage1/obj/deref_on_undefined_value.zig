@@ -3,6 +3,8 @@ comptime {
     _ = a.*;
 }
 
-// deref on undefined value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:9: error: attempt to dereference undefined value

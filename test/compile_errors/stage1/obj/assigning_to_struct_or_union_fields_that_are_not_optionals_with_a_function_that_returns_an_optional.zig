@@ -14,6 +14,8 @@ export fn entry() void {
     _ = s;
 }
 
-// assigning to struct or union fields that are not optionals with a function that returns an optional
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:11:27: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type 'u8', found '?u8'

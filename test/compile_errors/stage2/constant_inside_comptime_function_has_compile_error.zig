@@ -15,6 +15,7 @@ export fn entry() void {
 }
 
 // error
+// target=native
 //
 // :4:5: error: unreachable code
 // :4:25: note: control flow is diverted here

@@ -9,6 +9,8 @@ fn bar() void {
     suspend {}
 }
 
-// wrong frame type used for async call
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:13: error: expected type '*@Frame(bar)', found '*@Frame(foo)'

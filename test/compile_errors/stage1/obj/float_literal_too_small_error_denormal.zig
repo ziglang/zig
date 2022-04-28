@@ -3,6 +3,8 @@ comptime {
     _ = a;
 }
 
-// float literal too small error (denormal)
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:15: error: float literal out of range of any type

@@ -4,6 +4,8 @@ export fn entry() void {
     _ = y;
 }
 
-// @ptrCast discards const qualifier
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:15: error: cast discards const qualifier

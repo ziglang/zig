@@ -7,6 +7,8 @@ export fn entry() void {
     _ = a;
 }
 
-// invalid type used in array type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:12: error: use of undeclared identifier 'SomeNonexistentType'

@@ -11,6 +11,8 @@ export fn entry() void {
     _ = @intToEnum(Tag, 0);
 }
 
-// @Type for exhaustive enum with undefined tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:20: error: use of undefined value here causes undefined behavior

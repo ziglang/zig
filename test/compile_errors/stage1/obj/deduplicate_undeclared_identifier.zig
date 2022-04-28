@@ -5,6 +5,8 @@ export fn b() void {
     x += 1;
 }
 
-// deduplicate undeclared identifier
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: use of undeclared identifier 'x'

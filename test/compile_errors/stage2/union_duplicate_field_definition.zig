@@ -9,6 +9,7 @@ export fn entry() void {
 }
 
 // error
+// target=native
 //
 // :3:5: error: duplicate union field: 'foo'
 // :2:5: note: other field here

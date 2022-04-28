@@ -5,6 +5,8 @@ export fn foo() void {
     _ = z;
 }
 
-// pointer arithmetic on pointer-to-array
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:17: error: integer value 1 cannot be coerced to type '*[10]u8'

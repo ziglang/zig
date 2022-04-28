@@ -3,6 +3,9 @@ test "Crash" {
     _ = @typeInfo(@This()).Struct.decls[0];
 }
 
-// access invalid @typeInfo decl
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:1:11: error: use of undeclared identifier 'B'

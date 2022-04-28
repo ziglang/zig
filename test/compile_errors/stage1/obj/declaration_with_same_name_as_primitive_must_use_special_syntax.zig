@@ -4,7 +4,9 @@ export fn entry() void {
     _ = a;
 }
 
-// declaration with same name as primitive must use special syntax
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:7: error: name shadows primitive 'u8'
 // tmp.zig:1:7: note: consider using @"u8" to disambiguate

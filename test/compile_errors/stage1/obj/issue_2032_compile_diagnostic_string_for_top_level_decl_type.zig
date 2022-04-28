@@ -3,6 +3,8 @@ export fn entry() void {
     _ = foo;
 }
 
-// compile diagnostic string for top level decl type (issue 2032)
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:27: error: type 'u32' does not support array initialization

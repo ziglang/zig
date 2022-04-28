@@ -7,7 +7,9 @@ fn bar(a: i32, b: []const u8) void {
     @compileLog("end",);
 }
 
-// compile log
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:5: error: found compile log statement
 // tmp.zig:6:5: error: found compile log statement

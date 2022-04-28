@@ -8,7 +8,9 @@ export fn foo() void {
     comptime ignore(@typeInfo(MyStruct).Struct.fields[0]);
 }
 
-// issue #5221: invalid struct init type referenced by @typeInfo and passed into function
+// error
+// backend=stage1
+// target=native
 //
 // :5:28: error: cannot cast pointer to array literal to slice type '[]u8'
 // :5:28: note: cast discards const qualifier

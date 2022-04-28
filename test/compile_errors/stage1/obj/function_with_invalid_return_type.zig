@@ -1,5 +1,7 @@
 export fn foo() boid {}
 
-// function with invalid return type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:17: error: use of undeclared identifier 'boid'

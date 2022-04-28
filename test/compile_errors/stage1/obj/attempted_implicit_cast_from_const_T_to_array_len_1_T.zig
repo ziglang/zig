@@ -6,7 +6,9 @@ export fn entry(byte: u8) void {
     _ = byte;
 }
 
-// attempted implicit cast from *const T to *[1]T
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:22: error: expected type '*[1]i32', found '*const i32'
 // tmp.zig:4:22: note: cast discards const qualifier

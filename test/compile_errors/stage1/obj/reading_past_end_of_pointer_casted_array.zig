@@ -6,6 +6,8 @@ comptime {
     _ = deref;
 }
 
-// reading past end of pointer casted array
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:26: error: attempt to read 4 bytes from [4]u8 at index 1 which is 3 bytes

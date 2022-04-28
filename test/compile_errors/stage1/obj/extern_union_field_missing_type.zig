@@ -6,6 +6,8 @@ export fn entry() void {
     _ = a;
 }
 
-// extern union field missing type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: union field missing type

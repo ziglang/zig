@@ -4,6 +4,8 @@ fn f() i32 {
 }
 export fn entry() usize { return @sizeOf(@TypeOf(f)); }
 
-// extern function with comptime parameter
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'C'

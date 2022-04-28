@@ -13,6 +13,8 @@ export fn f() void {
     _ = a;
 }
 
-// duplicate field in struct value expression
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:11:9: error: duplicate field

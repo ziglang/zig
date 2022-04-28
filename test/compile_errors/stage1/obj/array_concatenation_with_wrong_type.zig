@@ -4,6 +4,8 @@ const a = derp ++ "foo";
 
 export fn entry() usize { return @sizeOf(@TypeOf(a)); }
 
-// array concatenation with wrong type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:11: error: expected array, found 'usize'

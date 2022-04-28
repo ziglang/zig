@@ -3,6 +3,8 @@ export fn entry() void {
     _ = x;
 }
 
-// out of range comptime_int passed to @floatToInt
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:31: error: integer value 200 cannot be coerced to type 'i8'

@@ -3,6 +3,9 @@ test "enum" {
     _ = @tagName(@intToEnum(E, 5));
 }
 
-// @tagName on invalid value of non-exhaustive enum
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:3:18: error: no tag by value 5

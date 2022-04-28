@@ -3,6 +3,8 @@ export fn entry() void {
     _ = x;
 }
 
-// slice passed as array init type with elems
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:15: error: array literal requires address-of operator (&) to coerce to slice type '[]u8'

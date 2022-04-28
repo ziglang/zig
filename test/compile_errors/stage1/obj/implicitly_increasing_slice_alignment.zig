@@ -13,7 +13,9 @@ fn bar(x: []u32) void {
     x[0] += 1;
 }
 
-// implicitly increasing slice alignment
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:26: error: cast increases pointer alignment
 // tmp.zig:9:26: note: '*align(1) u32' has alignment 1

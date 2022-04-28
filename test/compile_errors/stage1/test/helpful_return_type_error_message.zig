@@ -15,7 +15,10 @@ export fn quux() u32 {
     buf = bar();
 }
 
-// helpful return type error message
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:2:17: error: expected type 'u32', found 'error{Ohno}'
 // tmp.zig:1:17: note: function cannot return an error

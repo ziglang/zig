@@ -12,6 +12,8 @@ fn foo(x: i32) !void {
     }
 }
 
-// range operator in switch used on error set
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:17: error: operator not allowed for errors

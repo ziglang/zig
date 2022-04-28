@@ -2,6 +2,8 @@ comptime {
     @setAlignStack(16);
 }
 
-// @setAlignStack outside function
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: @setAlignStack outside function

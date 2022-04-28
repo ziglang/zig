@@ -3,7 +3,9 @@ fn main() void {
     _ = bad;
 }
 
-// invalid exponent in float literal - 1
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:21: error: expected expression, found 'invalid bytes'
 // tmp.zig:2:28: note: invalid byte: 'a'

@@ -1,5 +1,7 @@
 const Foo = union {};
 
-// union with 0 fields
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:13: error: union declarations must have at least one tag

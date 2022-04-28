@@ -10,7 +10,10 @@ export fn entry4() void {
     2 + 2 = 3;
 }
 
-// invalid assignments
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:3:6: error: invalid left-hand side to assignment
 // tmp.zig:7:7: error: invalid left-hand side to assignment

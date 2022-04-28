@@ -7,7 +7,9 @@ export fn g() void {
     _ = bad[0];
 }
 
-// array access of non array
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:8: error: array access of non-array type 'bool'
 // tmp.zig:7:12: error: array access of non-array type 'bool'

@@ -6,6 +6,8 @@ export fn entry() void {
     _ = a;
 }
 
-// struct field missing type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: struct field missing type

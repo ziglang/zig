@@ -4,6 +4,8 @@ export fn entry() void {
     _ = x;
 }
 
-// attempted implicit cast from *const T to []T
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:23: error: expected type '[]u32', found '*const u32'

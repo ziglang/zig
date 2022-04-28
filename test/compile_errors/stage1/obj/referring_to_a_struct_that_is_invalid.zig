@@ -10,6 +10,8 @@ fn assert(ok: bool) void {
     if (!ok) unreachable;
 }
 
-// referring to a struct that is invalid
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:10:14: error: reached unreachable code

@@ -10,6 +10,8 @@ fn ptrEql(a: *[]const u8, b: *[]const u8) bool {
 
 export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
 
-// pass const ptr to mutable ptr fn
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:19: error: expected type '*[]const u8', found '*const []const u8'

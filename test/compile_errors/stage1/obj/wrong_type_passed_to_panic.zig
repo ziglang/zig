@@ -3,6 +3,8 @@ export fn entry() void {
     @panic(e);
 }
 
-// wrong type passed to @panic
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:12: error: expected type '[]const u8', found 'error{Foo}'

@@ -5,7 +5,10 @@ export fn entry() void {
     _ = ok;
 }
 
-// comparison of non-tagged union and enum literal
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:4:16: error: comparison of union and enum literal is only valid for tagged union types
 // tmp.zig:2:15: note: type U is not a tagged union

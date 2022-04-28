@@ -10,6 +10,8 @@ const Foo = @Type(.{
 });
 comptime { _ = Foo; }
 
-// @Type(.Fn) with return_type = null
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:20: error: Type.Fn.return_type must be non-null for @Type

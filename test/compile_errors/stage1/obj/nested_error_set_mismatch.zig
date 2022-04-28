@@ -10,7 +10,9 @@ fn foo() ?OtherError!i32 {
     return null;
 }
 
-// nested error set mismatch
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:34: error: expected type '?NextError!i32', found '?OtherError!i32'
 // tmp.zig:5:34: note: optional type child 'OtherError!i32' cannot cast into optional type child 'NextError!i32'

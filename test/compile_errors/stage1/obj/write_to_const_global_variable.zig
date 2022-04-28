@@ -4,6 +4,8 @@ fn f() void {
 }
 export fn entry() void { f(); }
 
-// write to const global variable
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:9: error: cannot assign to constant

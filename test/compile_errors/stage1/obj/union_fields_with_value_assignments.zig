@@ -6,7 +6,9 @@ export fn entry() void {
     _ = x;
 }
 
-// union fields with value assignments
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:24: error: explicitly valued tagged union missing integer tag type
 // tmp.zig:2:14: note: tag value specified here

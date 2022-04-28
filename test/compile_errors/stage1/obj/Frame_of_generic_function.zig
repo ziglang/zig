@@ -7,6 +7,8 @@ fn func(comptime T: type) void {
     _ = x;
 }
 
-// @Frame() of generic function
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:16: error: @Frame() of generic function

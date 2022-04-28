@@ -3,6 +3,8 @@ export fn entry() foo {
     return 1;
 }
 
-// type variables must be constant
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:1: error: variable of type 'type' must be constant

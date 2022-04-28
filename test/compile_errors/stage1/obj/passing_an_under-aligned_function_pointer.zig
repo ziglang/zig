@@ -6,6 +6,8 @@ fn testImplicitlyDecreaseFnAlign(ptr: fn () align(8) i32, answer: i32) void {
 }
 fn alignedSmall() align(4) i32 { return 1234; }
 
-// passing an under-aligned function pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:35: error: expected type 'fn() align(8) i32', found 'fn() align(4) i32'

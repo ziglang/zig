@@ -3,6 +3,8 @@ export fn f() void {
 }
 fn something() anyerror!void { }
 
-// try in function with non error return type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: expected type 'void', found 'anyerror'

@@ -7,7 +7,9 @@ fn func() void {
     suspend {}
 }
 
-// invalid suspend in exported function
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:1: error: function with calling convention 'C' cannot be async
 // tmp.zig:3:18: note: await here is a suspend point

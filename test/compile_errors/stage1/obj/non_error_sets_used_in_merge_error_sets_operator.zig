@@ -7,7 +7,9 @@ export fn bar() void {
     _ = Errors;
 }
 
-// non error sets used in merge error sets operator
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:20: error: expected error set type, found type 'u8'
 // tmp.zig:2:23: note: `||` merges error sets; `or` performs boolean OR

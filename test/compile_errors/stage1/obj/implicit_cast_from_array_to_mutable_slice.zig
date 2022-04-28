@@ -4,6 +4,8 @@ export fn entry() void {
     foo(global_array);
 }
 
-// implicit cast from array to mutable slice
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:9: error: expected type '[]i32', found '[10]i32'

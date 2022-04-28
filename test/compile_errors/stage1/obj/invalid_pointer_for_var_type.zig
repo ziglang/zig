@@ -6,6 +6,8 @@ export fn f() void {
     }
 }
 
-// invalid pointer for var type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:13: error: unable to evaluate constant expression

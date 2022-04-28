@@ -16,7 +16,9 @@ export fn entry1() void {
     baz = bar(42);
 }
 
-// call assigned to constant
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:12:14: error: cannot assign to constant
 // tmp.zig:16:14: error: cannot assign to constant

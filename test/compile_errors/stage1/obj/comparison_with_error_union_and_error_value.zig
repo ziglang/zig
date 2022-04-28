@@ -3,6 +3,8 @@ export fn entry() void {
     _ = number_or_error == error.SomethingAwful;
 }
 
-// comparison with error union and error value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:25: error: operator not allowed for type 'anyerror!i32'

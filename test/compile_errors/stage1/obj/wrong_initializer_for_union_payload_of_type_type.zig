@@ -9,6 +9,8 @@ export fn entry() void {
     v.u.A = U{ .A = i32 };
 }
 
-// wrong initializer for union payload of type 'type'
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:8: error: use of undefined value here causes undefined behavior

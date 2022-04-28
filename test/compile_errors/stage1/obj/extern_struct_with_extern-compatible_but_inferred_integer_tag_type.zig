@@ -36,6 +36,8 @@ export fn entry() void {
     _ = s;
 }
 
-// extern struct with extern-compatible but inferred integer tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:31:5: error: extern structs cannot contain fields of type 'E'

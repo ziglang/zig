@@ -54,7 +54,9 @@ export fn foo_slice() void {
     }
 }
 
-// comptime slice-sentinel does not match target-sentinel
+// error
+// backend=stage1
+// target=native
 //
 // :4:29: error: slice-sentinel does not match target-sentinel
 // :12:29: error: slice-sentinel does not match target-sentinel

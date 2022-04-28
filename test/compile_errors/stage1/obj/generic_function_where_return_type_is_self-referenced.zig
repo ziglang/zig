@@ -8,6 +8,8 @@ export fn entry() void {
     _ = t;
 }
 
-// generic function where return type is self-referenced
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:29: error: evaluation exceeded 1000 backwards branches

@@ -4,6 +4,8 @@ export fn a() void {
     _ = y;
 }
 
-// C pointer to anyopaque
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:16: error: C pointers cannot point to opaque types

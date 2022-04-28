@@ -6,6 +6,8 @@ fn myAlloc(comptime arg: type) anyerror!arg{
     unreachable;
 }
 
-// generic function call assigned to incorrect type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:18: error: expected type '[]i32', found 'anyerror!i32

@@ -3,6 +3,8 @@ export fn entry() void {
     _ = a;
 }
 
-// use anyopaque as return type of fn ptr
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:20: error: return type cannot be opaque

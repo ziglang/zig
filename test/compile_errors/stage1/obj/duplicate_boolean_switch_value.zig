@@ -15,7 +15,9 @@ comptime {
     _ = x;
 }
 
-// duplicate boolean switch value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:9: error: duplicate switch value
 // tmp.zig:13:9: error: duplicate switch value

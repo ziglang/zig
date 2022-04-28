@@ -11,6 +11,9 @@ pub export fn entry() void {
     }
 }
 
-// switching with exhaustive enum has '_' prong 
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:7:5: error: switch on exhaustive enum has `_` prong

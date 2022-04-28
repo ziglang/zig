@@ -6,6 +6,8 @@ export fn foo() void {
     _ = fieldOffset;
 }
 
-// taking byte offset of void field in struct
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset

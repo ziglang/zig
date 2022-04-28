@@ -3,6 +3,8 @@ export fn entry() void {
     _ = x;
 }
 
-// non float passed to @floatToInt
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:32: error: expected float type, found 'i32'

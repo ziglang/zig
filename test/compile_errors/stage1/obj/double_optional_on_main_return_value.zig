@@ -1,6 +1,8 @@
 pub fn main() ??void {
 }
 
-// double ?? on main return value
+// error
+// backend=stage1
+// target=native
 //
 // error: expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'

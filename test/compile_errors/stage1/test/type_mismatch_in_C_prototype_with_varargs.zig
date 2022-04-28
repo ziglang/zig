@@ -6,6 +6,9 @@ export fn main() void {
     _ = x;
 }
 
-// type mismatch in C prototype with varargs
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:5:22: error: expected type 'fn([*c]u8, ...) callconv(.C) void', found 'fn([*:0]u8, ...) callconv(.C) void'

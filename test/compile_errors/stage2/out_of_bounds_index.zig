@@ -21,6 +21,7 @@ comptime {
 }
 
 // error
+// target=native
 //
 // :4:26: error: end index 6 out of bounds for slice of length 4 +1 (sentinel)
 // :9:22: error: end index 6 out of bounds for array of length 4 +1 (sentinel)

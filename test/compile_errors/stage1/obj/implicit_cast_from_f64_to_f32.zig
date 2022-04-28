@@ -3,6 +3,8 @@ var y: f32 = x;
 
 export fn entry() usize { return @sizeOf(@TypeOf(y)); }
 
-// implicit cast from f64 to f32
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:14: error: expected type 'f32', found 'f64'

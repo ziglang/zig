@@ -3,6 +3,8 @@ export fn entry() void {
 }
 pub extern fn foo(format: *const u8, ...) void;
 
-// calling var args extern function, passing array instead of pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:16: error: expected type '*const u8', found '[5:0]u8'

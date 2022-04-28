@@ -8,7 +8,9 @@ fn bad() !void {
     return error.Bad;
 }
 
-// comptime continue inside runtime catch
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:21: error: comptime control flow inside runtime block
 // tmp.zig:4:15: note: runtime block created here

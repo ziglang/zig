@@ -3,6 +3,8 @@ export fn f() i32 {
     return a;
 }
 
-// variable has wrong type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:12: error: expected type 'i32', found '*const [1:0]u8'

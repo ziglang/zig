@@ -6,6 +6,8 @@ export fn entry1() void {
     _ = foo;
 }
 
-// undefined as field type is rejected
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:8: error: use of undefined value here causes undefined behavior

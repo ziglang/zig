@@ -11,6 +11,8 @@ export fn entry() void {
     _ = geo_data;
 }
 
-// missing const in slice with nested array type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:30: error: array literal requires address-of operator (&) to coerce to slice type '[][2]f32'

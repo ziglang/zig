@@ -11,6 +11,8 @@ export fn entry() void {
     _ = @intToEnum(Tag, 0);
 }
 
-// @Type for exhaustive enum with zero fields
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:20: error: enums must have 1 or more fields

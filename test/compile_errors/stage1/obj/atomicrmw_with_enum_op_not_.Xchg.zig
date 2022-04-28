@@ -9,6 +9,8 @@ export fn entry() void {
     _ = @atomicRmw(E, &x, .Add, .b, .SeqCst);
 }
 
-// atomicrmw with enum op not .Xchg
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:27: error: @atomicRmw with enum only allowed with .Xchg

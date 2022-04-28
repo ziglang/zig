@@ -10,6 +10,8 @@ var global_side_effect = false;
 
 export fn entry() usize { return @sizeOf(@TypeOf(a)); }
 
-// non-const expression function call with struct return value outside function
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:26: error: unable to evaluate constant expression

@@ -7,6 +7,9 @@ pub export fn entry() void {
     _ = a;
 }
 
-// error in struct initializer doesn't crash the compiler
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:4:9: error: duplicate struct field: 'e'

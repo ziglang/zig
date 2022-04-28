@@ -4,6 +4,8 @@ export fn entry() void {
     func(MenuEffect.ThisDoesNotExist);
 }
 
-// using invalid types in function call raises an error
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:20: error: enum declarations must have at least one tag

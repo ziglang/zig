@@ -34,42 +34,17 @@ test {
     var ctx = TestContext.init(std.testing.allocator, arena);
     defer ctx.deinit();
 
-    const compile_errors_dir_path = try std.fs.path.join(arena, &.{
-        std.fs.path.dirname(@src().file).?, "..", "test", "compile_errors",
-    });
-
-    var compile_errors_dir = try std.fs.cwd().openDir(compile_errors_dir_path, .{});
-    defer compile_errors_dir.close();
-
     {
-        var dir = try compile_errors_dir.openDir("stage2", .{ .iterate = true });
+        const dir_path = try std.fs.path.join(arena, &.{
+            std.fs.path.dirname(@src().file).?, "..", "test", "compile_errors",
+        });
+
+        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
         defer dir.close();
 
         // TODO make this incremental once the bug is solved that it triggers
         // See: https://github.com/ziglang/zig/issues/11344
         ctx.addTestCasesFromDir(dir, .independent);
-    }
-
-    if (!skip_stage1) {
-        var stage1_dir = try compile_errors_dir.openDir("stage1", .{});
-        defer stage1_dir.close();
-
-        const Config = struct {
-            name: []const u8,
-            is_test: bool,
-            output_mode: std.builtin.OutputMode,
-        };
-
-        for ([_]Config{
-            .{ .name = "obj", .is_test = false, .output_mode = .Obj },
-            .{ .name = "exe", .is_test = false, .output_mode = .Exe },
-            .{ .name = "test", .is_test = true, .output_mode = .Exe },
-        }) |config| {
-            var dir = try stage1_dir.openDir(config.name, .{ .iterate = true });
-            defer dir.close();
-
-            ctx.addErrorCasesFromDir("stage1", dir, .stage1, config.output_mode, config.is_test, .independent);
-        }
     }
 
     {

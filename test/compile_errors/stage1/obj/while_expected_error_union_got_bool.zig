@@ -3,6 +3,8 @@ export fn foo() void {
 }
 fn bar() bool { return true; }
 
-// while expected error union, got bool
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:15: error: expected error union type, found 'bool'

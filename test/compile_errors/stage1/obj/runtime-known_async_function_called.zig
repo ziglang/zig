@@ -7,6 +7,8 @@ fn amain() void {
 }
 fn afunc() callconv(.Async) void {}
 
-// runtime-known async function called
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:12: error: function is not comptime-known; @asyncCall required

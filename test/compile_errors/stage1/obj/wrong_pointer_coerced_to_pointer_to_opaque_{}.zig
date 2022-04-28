@@ -5,6 +5,8 @@ export fn foo() void {
     bar(@ptrCast(*anyopaque, &x));
 }
 
-// wrong pointer coerced to pointer to opaque {}
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:9: error: expected type '*Derp', found '*anyopaque'

@@ -9,6 +9,8 @@ export fn entry() void {
     _ = x;
 }
 
-// compile error in struct init expression
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:14: error: use of undeclared identifier 'crap'

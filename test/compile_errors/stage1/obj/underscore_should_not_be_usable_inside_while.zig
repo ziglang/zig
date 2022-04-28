@@ -9,6 +9,8 @@ fn optionalReturn() ?u32 {
     return 1;
 }
 
-// `_` should not be usable inside while
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:20: error: '_' used as an identifier without @"_" syntax

@@ -16,7 +16,9 @@ fn f(n: Number) i32 {
 
 export fn entry() usize { return @sizeOf(@TypeOf(f)); }
 
-// switch expression - duplicate enumeration prong
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:13:15: error: duplicate switch value
 // tmp.zig:10:15: note: other value here

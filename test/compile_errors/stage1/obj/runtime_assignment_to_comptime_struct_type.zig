@@ -8,6 +8,8 @@ export fn f() void {
     _ = foo;
 }
 
-// runtime assignment to comptime struct type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:7:23: error: unable to evaluate constant expression

@@ -3,6 +3,8 @@ comptime {
     _ = array;
 }
 
-// wrong size to an array literal
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:31: error: index 2 outside array of size 2

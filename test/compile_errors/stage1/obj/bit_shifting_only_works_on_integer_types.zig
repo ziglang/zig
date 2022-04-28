@@ -3,6 +3,8 @@ export fn entry() void {
     _ = x;
 }
 
-// bit shifting only works on integer types
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:16: error: bit shifting operation expected integer type, found '*const u8'

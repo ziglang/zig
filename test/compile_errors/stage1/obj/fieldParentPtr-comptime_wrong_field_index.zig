@@ -9,6 +9,8 @@ comptime {
     _ = another_foo_ptr;
 }
 
-// @fieldParentPtr - comptime wrong field index
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:8:29: error: field 'b' has index 1 but pointer value is index 0 of struct 'Foo'

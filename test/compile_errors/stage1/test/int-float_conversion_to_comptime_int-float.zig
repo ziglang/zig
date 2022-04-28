@@ -7,7 +7,10 @@ export fn bar() void {
     _ = @intToFloat(comptime_float, a);
 }
 
-// int/float conversion to comptime_int/float
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:3:35: error: unable to evaluate constant expression
 // tmp.zig:7:37: error: unable to evaluate constant expression

@@ -3,6 +3,8 @@ export fn f() void {
   cstr[0] = 'W';
 }
 
-// assign through constant pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:13: error: cannot assign to constant

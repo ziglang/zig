@@ -4,6 +4,8 @@ comptime {
     _ = aligned;
 }
 
-// bad @alignCast at comptime
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:35: error: pointer address 0x1 is not aligned to 4 bytes

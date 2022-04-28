@@ -6,6 +6,8 @@ export fn entry() void {
     command.exec();
 }
 
-// use of comptime-known undefined function value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:12: error: use of undefined value here causes undefined behavior

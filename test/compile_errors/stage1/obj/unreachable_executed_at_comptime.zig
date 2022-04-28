@@ -8,7 +8,9 @@ export fn entry() void {
     _ = foo(-42);
 }
 
-// unreachable executed at comptime
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:9: error: reached unreachable code
 // tmp.zig:8:12: note: called from here

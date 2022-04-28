@@ -4,6 +4,8 @@ var block_aligned_stuff: usize = (4 + TINY_QUANTUM_SIZE) & ~(TINY_QUANTUM_SIZE -
 
 export fn entry() usize { return @sizeOf(@TypeOf(block_aligned_stuff)); }
 
-// binary not on number literal
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:60: error: unable to perform binary not operation on type 'comptime_int'

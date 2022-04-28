@@ -5,6 +5,8 @@ comptime {
     _ = c;
 }
 
-// compile-time division by zero
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:17: error: division by zero

@@ -7,6 +7,8 @@ export fn entry() void {
     for (xx) |f| { _ = f;}
 }
 
-// non-inline for loop on a type that requires comptime
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:7:5: error: values of type 'Foo' must be comptime known, but index value is runtime known

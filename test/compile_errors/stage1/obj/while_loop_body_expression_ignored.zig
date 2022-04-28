@@ -13,7 +13,9 @@ export fn f3() void {
     while (x) |_| returns() else |_| unreachable;
 }
 
-// while loop body expression ignored
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:25: error: expression value is ignored
 // tmp.zig:9:26: error: expression value is ignored

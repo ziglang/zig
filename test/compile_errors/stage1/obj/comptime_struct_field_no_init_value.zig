@@ -6,6 +6,8 @@ export fn entry() void {
     _ = f;
 }
 
-// comptime struct field, no init value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: comptime field without default initialization value

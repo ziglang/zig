@@ -11,6 +11,8 @@ export fn entry() void {
     _ = x;
 }
 
-// specify enum tag type that is too small
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:5: error: enumeration value 4 too large for type 'u2'

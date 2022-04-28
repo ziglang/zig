@@ -5,7 +5,9 @@ export fn entry(a: bool, b: bool) i32 {
     return 5678;
 }
 
-// attempted `||` on boolean values
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:9: error: expected error set type, found 'bool'
 // tmp.zig:2:11: note: `||` merges error sets; `or` performs boolean OR

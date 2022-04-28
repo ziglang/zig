@@ -19,7 +19,9 @@ export fn entry4() void {
     _ = unsigned;
 }
 
-// integer cast truncates bits
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:18: error: cast from 'u16' to 'u8' truncates bits
 // tmp.zig:8:22: error: integer value 300 cannot be coerced to type 'u8'

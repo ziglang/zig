@@ -11,7 +11,9 @@ export fn entry() usize {
     return @sizeOf(Payload);
 }
 
-// union with specified enum omits field
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:17: error: enum field missing: 'C'
 // tmp.zig:4:5: note: declared here

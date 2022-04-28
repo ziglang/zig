@@ -13,6 +13,8 @@ export fn entry() void {
     _ = a;
 }
 
-// packed union given enum tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:30: error: packed union does not support enum tag type

@@ -3,6 +3,8 @@ export fn foo() void {
     return;
 }
 
-// wasmMemoryGrow is a compile error in non-Wasm targets
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:9: error: @wasmMemoryGrow is a wasm32 feature only

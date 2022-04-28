@@ -7,6 +7,8 @@ fn inner(comptime n: usize) void {
     inline while (i < n) : (i += 1) { @compileLog("!@#$"); }
 }
 
-// compile log statement warning deduplication in generic fn
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:7:39: error: found compile log statement

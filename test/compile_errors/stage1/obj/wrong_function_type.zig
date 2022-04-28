@@ -4,6 +4,8 @@ fn b() i32 {return 1;}
 fn c() i32 {return 2;}
 export fn entry() usize { return @sizeOf(@TypeOf(fns)); }
 
-// wrong function type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:28: error: expected type 'fn() void', found 'fn() i32'

@@ -5,6 +5,8 @@ pub fn main() void {
     _ = puts(no_zero_ptr);
 }
 
-// disallow coercion from non-null-terminated pointer to null-terminated pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:14: error: expected type '[*:0]const u8', found '[*]const u8'

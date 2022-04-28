@@ -7,6 +7,8 @@ export fn entry() void {
     _ = @typeName(Foo(i32));
 }
 
-// compile log statement inside function which must be comptime evaluated
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: found compile log statement

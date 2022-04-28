@@ -54,7 +54,9 @@ export fn foo_slice() void {
     }
 }
 
-// comptime slice-sentinel does not match memory at target index (unterminated)
+// error
+// backend=stage1
+// target=native
 //
 // :4:29: error: slice-sentinel does not match memory at target index
 // :12:29: error: slice-sentinel does not match memory at target index

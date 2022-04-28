@@ -7,6 +7,8 @@ export fn entry1() void {
     _ = x;
 }
 
-// alignment of enum field specified
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:7: error: expected ',' after field

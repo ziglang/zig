@@ -11,7 +11,9 @@ comptime {
     _ = x;
 }
 
-// missing boolean switch value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:15: error: switch must handle all possibilities
 // tmp.zig:8:15: error: switch must handle all possibilities

@@ -3,6 +3,8 @@ pub export fn entry() void {
     foo;
 }
 
-// extern variable has no type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:8: error: unable to infer variable type

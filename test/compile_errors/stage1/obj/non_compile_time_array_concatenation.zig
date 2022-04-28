@@ -4,6 +4,8 @@ fn f() []u8 {
 var s: [10]u8 = undefined;
 export fn entry() usize { return @sizeOf(@TypeOf(f)); }
 
-// non compile time array concatenation
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:12: error: unable to evaluate constant expression

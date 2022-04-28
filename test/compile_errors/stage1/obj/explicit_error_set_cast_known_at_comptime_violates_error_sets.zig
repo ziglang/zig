@@ -6,6 +6,8 @@ comptime {
     _ = y;
 }
 
-// explicit error set cast known at comptime violates error sets
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:13: error: error.B not a member of error set 'Set2'

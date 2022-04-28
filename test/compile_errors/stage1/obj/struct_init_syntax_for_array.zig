@@ -3,6 +3,8 @@ comptime {
     _ = foo;
 }
 
-// struct init syntax for array
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:13: error: initializing array with struct syntax

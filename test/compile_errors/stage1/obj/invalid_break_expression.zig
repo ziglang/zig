@@ -2,6 +2,8 @@ export fn f() void {
     break;
 }
 
-// invalid break expression
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: break expression outside loop

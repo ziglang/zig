@@ -10,6 +10,8 @@ fn foo(x: usize) void {
     }
 }
 
-// invalid cast from integral type to enum
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:10: error: expected type 'usize', found 'E'

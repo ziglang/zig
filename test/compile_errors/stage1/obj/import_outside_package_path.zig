@@ -2,6 +2,8 @@ comptime{
     _ = @import("../a.zig");
 }
 
-// import outside package path
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:9: error: import of file outside package path: '../a.zig'

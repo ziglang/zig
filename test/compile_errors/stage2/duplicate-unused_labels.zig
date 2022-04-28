@@ -18,6 +18,7 @@ comptime {
 }
 
 // error
+// target=native
 //
 // :2:12: error: redefinition of label 'blk'
 // :2:5: note: previous definition here

@@ -3,6 +3,8 @@ export fn entry() void {
     switch(x) {}
 }
 
-// empty switch on an integer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:5: error: switch must handle all possibilities

@@ -3,6 +3,8 @@ export fn entry() void {
     _ = @atomicRmw(f32, &x, .And, 2, .SeqCst);
 }
 
-// atomicrmw with float op not .Xchg, .Add or .Sub
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:29: error: @atomicRmw with float only allowed with .Xchg, .Add and .Sub

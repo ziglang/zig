@@ -12,7 +12,9 @@ export fn entry() void {
     _ = x;
 }
 
-// accessing runtime parameter from outer function
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:24: error: 'y' not accessible from inner function
 // tmp.zig:3:28: note: crossed function definition here

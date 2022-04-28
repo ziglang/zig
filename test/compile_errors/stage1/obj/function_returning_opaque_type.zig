@@ -9,7 +9,9 @@ export fn baz() !@TypeOf(undefined) {
     return error.InvalidValue;
 }
 
-// function returning opaque type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:18: error: Opaque return type 'FooType' not allowed
 // tmp.zig:1:1: note: type declared here

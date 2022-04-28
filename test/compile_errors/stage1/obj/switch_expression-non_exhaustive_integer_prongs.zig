@@ -5,6 +5,8 @@ fn foo(x: u8) void {
 }
 export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
 
-// switch expression - non exhaustive integer prongs
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: switch must handle all possibilities

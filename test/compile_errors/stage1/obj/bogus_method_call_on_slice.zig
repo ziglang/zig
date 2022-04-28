@@ -4,6 +4,8 @@ fn f(m: []const u8) void {
 }
 export fn entry() usize { return @sizeOf(@TypeOf(f)); }
 
-// bogus method call on slice
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:6: error: no member named 'copy' in '[]const u8'

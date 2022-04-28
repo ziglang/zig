@@ -7,7 +7,9 @@ export fn entry() void {
     _ = x;
 }
 
-// cast enum literal to enum but it doesn't match
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:20: error: enum 'Foo' has no field named 'c'
 // tmp.zig:1:13: note: 'Foo' declared here

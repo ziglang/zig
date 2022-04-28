@@ -20,7 +20,9 @@ export fn c() void {
     _ = qux;
 }
 
-// directly embedding opaque type in struct and union
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:5: error: opaque types have unknown size and therefore cannot be directly embedded in structs
 // tmp.zig:7:5: error: opaque types have unknown size and therefore cannot be directly embedded in unions

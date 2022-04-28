@@ -12,6 +12,9 @@ const Error = union(enum) {
 const InvalidToken = struct {};
 const ExpectedVarDeclOrFn = struct {};
 
-// not an enum type
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:4:9: error: expected type '@typeInfo(Error).Union.tag_type.?', found 'type'

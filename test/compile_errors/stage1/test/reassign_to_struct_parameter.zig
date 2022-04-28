@@ -8,6 +8,9 @@ export fn entry() void {
     reassign(S{.x = 3});
 }
 
-// reassign to struct parameter
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:5:10: error: cannot assign to constant

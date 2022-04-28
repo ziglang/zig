@@ -3,6 +3,8 @@ export fn entry() void {
     _ = x;
 }
 
-// vector index out of bounds
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:62: error: index 3 outside vector of size 3

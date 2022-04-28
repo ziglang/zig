@@ -12,6 +12,8 @@ fn bar(x: *u32) void {
     x.* += 1;
 }
 
-// implicitly increasing pointer alignment
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:8:13: error: expected type '*u32', found '*align(1) u32'
