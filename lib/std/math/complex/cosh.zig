@@ -38,14 +38,14 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         }
         // small x: normal case
         if (ix < 0x41100000) {
-            return Complex(f32).init(math.cosh(x) * math.cos(y), math.sinh(x) * math.sin(y));
+            return Complex(f32).init(math.cosh(x) * @cos(y), math.sinh(x) * @sin(y));
         }
 
         // |x|>= 9, so cosh(x) ~= exp(|x|)
         if (ix < 0x42b17218) {
             // x < 88.7: exp(|x|) won't overflow
             const h = @exp(@fabs(x)) * 0.5;
-            return Complex(f32).init(math.copysign(f32, h, x) * math.cos(y), h * math.sin(y));
+            return Complex(f32).init(math.copysign(f32, h, x) * @cos(y), h * @sin(y));
         }
         // x < 192.7: scale to avoid overflow
         else if (ix < 0x4340b1e7) {
@@ -56,7 +56,7 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         // x >= 192.7: result always overflows
         else {
             const h = 0x1p127 * x;
-            return Complex(f32).init(h * h * math.cos(y), h * math.sin(y));
+            return Complex(f32).init(h * h * @cos(y), h * @sin(y));
         }
     }
 
@@ -79,7 +79,7 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         if (iy >= 0x7f800000) {
             return Complex(f32).init(x * x, x * (y - y));
         }
-        return Complex(f32).init((x * x) * math.cos(y), x * math.sin(y));
+        return Complex(f32).init((x * x) * @cos(y), x * @sin(y));
     }
 
     return Complex(f32).init((x * x) * (y - y), (x + x) * (y - y));
@@ -106,14 +106,14 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
         }
         // small x: normal case
         if (ix < 0x40360000) {
-            return Complex(f64).init(math.cosh(x) * math.cos(y), math.sinh(x) * math.sin(y));
+            return Complex(f64).init(math.cosh(x) * @cos(y), math.sinh(x) * @sin(y));
         }
 
         // |x|>= 22, so cosh(x) ~= exp(|x|)
         if (ix < 0x40862e42) {
             // x < 710: exp(|x|) won't overflow
             const h = @exp(@fabs(x)) * 0.5;
-            return Complex(f64).init(h * math.cos(y), math.copysign(f64, h, x) * math.sin(y));
+            return Complex(f64).init(h * @cos(y), math.copysign(f64, h, x) * @sin(y));
         }
         // x < 1455: scale to avoid overflow
         else if (ix < 0x4096bbaa) {
@@ -124,7 +124,7 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
         // x >= 1455: result always overflows
         else {
             const h = 0x1p1023;
-            return Complex(f64).init(h * h * math.cos(y), h * math.sin(y));
+            return Complex(f64).init(h * h * @cos(y), h * @sin(y));
         }
     }
 
@@ -147,7 +147,7 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
         if (iy >= 0x7ff00000) {
             return Complex(f64).init(x * x, x * (y - y));
         }
-        return Complex(f64).init(x * x * math.cos(y), x * math.sin(y));
+        return Complex(f64).init(x * x * @cos(y), x * @sin(y));
     }
 
     return Complex(f64).init((x * x) * (y - y), (x + x) * (y - y));

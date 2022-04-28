@@ -39,7 +39,7 @@ fn exp32(z: Complex(f32)) Complex(f32) {
     const hx = @bitCast(u32, x);
     // cexp(0 + iy) = cos(y) + isin(y)
     if ((hx & 0x7fffffff) == 0) {
-        return Complex(f32).init(math.cos(y), math.sin(y));
+        return Complex(f32).init(@cos(y), @sin(y));
     }
 
     if (hy >= 0x7f800000) {
@@ -64,7 +64,7 @@ fn exp32(z: Complex(f32)) Complex(f32) {
     // - x = nan
     else {
         const exp_x = @exp(x);
-        return Complex(f32).init(exp_x * math.cos(y), exp_x * math.sin(y));
+        return Complex(f32).init(exp_x * @cos(y), exp_x * @sin(y));
     }
 }
 
@@ -90,7 +90,7 @@ fn exp64(z: Complex(f64)) Complex(f64) {
 
     // cexp(0 + iy) = cos(y) + isin(y)
     if ((hx & 0x7fffffff) | lx == 0) {
-        return Complex(f64).init(math.cos(y), math.sin(y));
+        return Complex(f64).init(@cos(y), @sin(y));
     }
 
     if (hy >= 0x7ff00000) {
@@ -115,7 +115,7 @@ fn exp64(z: Complex(f64)) Complex(f64) {
     // - x = nan
     else {
         const exp_x = @exp(x);
-        return Complex(f64).init(exp_x * math.cos(y), exp_x * math.sin(y));
+        return Complex(f64).init(exp_x * @cos(y), exp_x * @sin(y));
     }
 }
 
