@@ -1416,12 +1416,6 @@ test "fabs" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage1 and builtin.os.tag == .windows and
-        builtin.cpu.arch == .i386)
-    {
-        return error.SkipZigTest;
-    }
-
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // normals
         try expect(@fabs(@as(T, 1.0)) == 1.0);

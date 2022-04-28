@@ -9586,10 +9586,13 @@ static void define_builtin_types(CodeGen *g) {
     switch (g->zig_target->arch) {
         case ZigLLVM_x86:
         case ZigLLVM_x86_64:
-            if (g->zig_target->abi != ZigLLVM_MSVC)
+            if (g->zig_target->abi != ZigLLVM_MSVC) {
                 add_fp_entry(g, "c_longdouble", 80, LLVMX86FP80Type(), &g->builtin_types.entry_c_longdouble);
-            else
+                g->builtin_types.entry_c_longdouble->abi_size = g->builtin_types.entry_f80->abi_size;
+                g->builtin_types.entry_c_longdouble->abi_align = g->builtin_types.entry_f80->abi_align;
+            } else {
                 add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            }
             break;
         case ZigLLVM_arm:
         case ZigLLVM_armeb:
