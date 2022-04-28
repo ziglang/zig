@@ -904,32 +904,12 @@ pub const TestContext = struct {
         incremental,
     };
 
-    /// Adds a compile-error test for each file in the provided directory, using the
-    /// selected backend and output mode. If `one_test_case_per_file` is true, a new
-    /// test case is created for each file. Otherwise, a single test case is used for
-    /// all tests.
+    /// Adds a test for each file in the provided directory, using the selected strategy.
+    /// Recurses nested directories.
     ///
     /// Each file should include a test manifest as a contiguous block of comments at
-    /// the end of the file. The first line should be the test case name, followed by
-    /// a blank line, then one expected errors on each line in the form
-    /// `:line:column: error: message`
-    pub fn addErrorCasesFromDir(
-        ctx: *TestContext,
-        name: []const u8,
-        dir: std.fs.Dir,
-        backend: Backend,
-        output_mode: std.builtin.OutputMode,
-        is_test: bool,
-        strategy: Strategy,
-    ) void {
-        var current_file: []const u8 = "none";
-        addErrorCasesFromDirInner(ctx, name, dir, backend, output_mode, is_test, strategy, &current_file) catch |err| {
-            std.debug.panic("test harness failed to process file '{s}': {s}\n", .{
-                current_file, @errorName(err),
-            });
-        };
-    }
-
+    /// the end of the file. The first line should be the test type, followed by a set of
+    /// key-value config values, followed by a blank line, then the expected output.
     pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.Dir, strategy: Strategy) void {
         var current_file: []const u8 = "none";
         ctx.addTestCasesFromDirInner(dir, strategy, &current_file) catch |err| {
@@ -1123,148 +1103,6 @@ pub const TestContext = struct {
                     },
                     .cli => @panic("TODO cli tests"),
                 }
-            }
-        }
-    }
-
-    fn addErrorCasesFromDirInner(
-        ctx: *TestContext,
-        name: []const u8,
-        dir: std.fs.Dir,
-        backend: Backend,
-        output_mode: std.builtin.OutputMode,
-        is_test: bool,
-        strategy: Strategy,
-        /// This is kept up to date with the currently being processed file so
-        /// that if any errors occur the caller knows it happened during this file.
-        current_file: *[]const u8,
-    ) !void {
-        var opt_case: ?*Case = null;
-
-        var it = dir.iterate();
-        var filenames = std.ArrayList([]const u8).init(ctx.arena);
-        defer filenames.deinit();
-
-        while (try it.next()) |entry| {
-            if (entry.kind != .File) continue;
-
-            // Ignore stuff such as .swp files
-            switch (Compilation.classifyFileExt(entry.name)) {
-                .unknown => continue,
-                else => {},
-            }
-            try filenames.append(try ctx.arena.dupe(u8, entry.name));
-        }
-
-        // Sort filenames, so that incremental tests are contiguous and in-order
-        sortTestFilenames(filenames.items);
-
-        var prev_filename: []const u8 = "";
-        for (filenames.items) |filename| {
-            current_file.* = filename;
-
-            { // First, check if this file is part of an incremental update sequence
-
-                // Split filename into "<base_name>.<index>.<file_ext>"
-                const prev_parts = getTestFileNameParts(prev_filename);
-                const new_parts = getTestFileNameParts(filename);
-
-                // If base_name and file_ext match, these files are in the same test sequence
-                // and the new one should be the incremented version of the previous test
-                if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
-                    std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
-                {
-
-                    // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
-                    if (prev_parts.test_index == null) return error.InvalidIncrementalTestIndex;
-                    if (new_parts.test_index == null) return error.InvalidIncrementalTestIndex;
-                    if (new_parts.test_index.? != prev_parts.test_index.? + 1) return error.InvalidIncrementalTestIndex;
-                } else {
-
-                    // This is not the same test sequence, so the new file must be the first file
-                    // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
-                    if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
-
-                    if (strategy == .independent)
-                        opt_case = null; // Generate a new independent test case for this update
-                }
-            }
-            prev_filename = filename;
-
-            const max_file_size = 10 * 1024 * 1024;
-            const src = try dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
-
-            // The manifest is the last contiguous block of comments in the file
-            // We scan for the beginning by searching backward for the first non-empty line that does not start with "//"
-            var manifest_start: ?usize = null;
-            var manifest_end: usize = src.len;
-            if (src.len > 0) {
-                var cursor: usize = src.len - 1;
-                while (true) {
-                    // Move to beginning of line
-                    while (cursor > 0 and src[cursor - 1] != '\n') cursor -= 1;
-
-                    if (std.mem.startsWith(u8, src[cursor..], "//")) {
-                        manifest_start = cursor; // Contiguous comment line, include in manifest
-                    } else {
-                        if (manifest_start != null) break; // Encountered non-comment line, end of manifest
-
-                        // We ignore all-whitespace lines following the comment block, but anything else
-                        // means that there is no manifest present.
-                        if (std.mem.trim(u8, src[cursor..manifest_end], " \r\n\t").len == 0) {
-                            manifest_end = cursor;
-                        } else break; // If it's not whitespace, there is no manifest
-                    }
-
-                    // Move to previous line
-                    if (cursor != 0) cursor -= 1 else break;
-                }
-            }
-
-            var errors = std.ArrayList([]const u8).init(ctx.arena);
-
-            if (manifest_start) |start| {
-                // Due to the above processing, we know that this is a contiguous block of comments
-                // and do not need to re-validate the leading "//" on each line
-                var manifest_it = std.mem.tokenize(u8, src[start..manifest_end], "\r\n");
-
-                // First line is the test case name
-                const first_line = manifest_it.next() orelse return error.MissingTestCaseName;
-                const case_name = try std.mem.concat(ctx.arena, u8, &.{ name, ": ", std.mem.trim(u8, first_line[2..], " \t") });
-
-                // If the second line is present, it should be blank
-                if (manifest_it.next()) |second_line| {
-                    if (std.mem.trim(u8, second_line[2..], " \t").len != 0) return error.SecondLineNotBlank;
-                }
-
-                // All following lines are expected error messages
-                while (manifest_it.next()) |line| try errors.append(try ctx.arena.dupe(u8, std.mem.trim(u8, line[2..], " \t")));
-
-                const case = opt_case orelse case: {
-                    ctx.cases.append(TestContext.Case{
-                        .name = name,
-                        .target = .{},
-                        .backend = backend,
-                        .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
-                        .is_test = is_test,
-                        .output_mode = output_mode,
-                        .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
-                    }) catch @panic("out of memory");
-                    const case = &ctx.cases.items[ctx.cases.items.len - 1];
-                    opt_case = case;
-                    break :case case;
-                };
-                switch (strategy) {
-                    .independent => {
-                        case.name = case_name;
-                        case.addError(src, errors.items);
-                    },
-                    .incremental => {
-                        case.addErrorNamed(case_name, src, errors.items);
-                    },
-                }
-            } else {
-                return error.MissingManifest;
             }
         }
     }
