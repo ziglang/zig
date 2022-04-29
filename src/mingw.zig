@@ -369,9 +369,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     }
 
     if (std.process.can_spawn) {
-        const child = try std.ChildProcess.init(&args, arena);
-        defer child.deinit();
-
+        var child = std.ChildProcess.init(&args, arena);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;

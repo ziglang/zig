@@ -1754,9 +1754,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             // If possible, we run LLD as a child process because it does not always
             // behave properly as a library, unfortunately.
             // https://github.com/ziglang/zig/issues/3825
-            const child = try std.ChildProcess.init(argv.items, arena);
-            defer child.deinit();
-
+            var child = std.ChildProcess.init(argv.items, arena);
             if (comp.clang_passthrough_mode) {
                 child.stdin_behavior = .Inherit;
                 child.stdout_behavior = .Inherit;

@@ -731,9 +731,7 @@ pub const StackTracesContext = struct {
                 return ExecError.ExecNotSupported;
             }
 
-            const child = std.ChildProcess.init(args.items, b.allocator) catch unreachable;
-            defer child.deinit();
-
+            var child = std.ChildProcess.init(args.items, b.allocator);
             child.stdin_behavior = .Ignore;
             child.stdout_behavior = .Pipe;
             child.stderr_behavior = .Pipe;
