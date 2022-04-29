@@ -745,6 +745,7 @@ fn analyzeBodyInner(
             .field_call_bind              => try sema.zirFieldCallBind(block, inst),
             .func                         => try sema.zirFunc(block, inst, false),
             .func_inferred                => try sema.zirFunc(block, inst, true),
+            .func_extended                => try sema.zirFuncExtended(block, inst),
             .import                       => try sema.zirImport(block, inst),
             .indexable_ptr_len            => try sema.zirIndexablePtrLen(block, inst),
             .int                          => try sema.zirInt(block, inst),
@@ -911,7 +912,6 @@ fn analyzeBodyInner(
                 const extended = datas[inst].extended;
                 break :ext switch (extended.opcode) {
                     // zig fmt: off
-                    .func                  => try sema.zirFuncExtended(      block, extended, inst),
                     .variable              => try sema.zirVarExtended(       block, extended),
                     .struct_decl           => try sema.zirStructDecl(        block, extended, inst),
                     .enum_decl             => try sema.zirEnumDecl(          block, extended),
@@ -16099,37 +16099,33 @@ fn zirVarExtended(
     return result;
 }
 
-fn zirFuncExtended(
-    sema: *Sema,
-    block: *Block,
-    extended: Zir.Inst.Extended.InstData,
-    inst: Zir.Inst.Index,
-) CompileError!Air.Inst.Ref {
+fn zirFuncExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const extra = sema.code.extraData(Zir.Inst.ExtendedFunc, extended.operand);
-    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
-    const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = extra.data.src_node };
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+
+    const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = inst_data.src_node };
     const align_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at align
-    const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
 
     var extra_index: usize = extra.end;
 
-    const lib_name: ?[]const u8 = if (small.has_lib_name) blk: {
+    const lib_name: ?[]const u8 = if (extra.data.bits.has_lib_name) blk: {
         const lib_name = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
         extra_index += 1;
         break :blk lib_name;
     } else null;
 
-    const cc: std.builtin.CallingConvention = if (small.has_cc) blk: {
+    const cc: std.builtin.CallingConvention = if (extra.data.bits.has_cc) blk: {
         const cc_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
         const cc_tv = try sema.resolveInstConst(block, cc_src, cc_ref);
         break :blk cc_tv.val.toEnum(std.builtin.CallingConvention);
     } else .Unspecified;
 
-    const align_val: Value = if (small.has_align) blk: {
+    const align_val: Value = if (extra.data.bits.has_align) blk: {
         const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
         const align_tv = try sema.resolveInstConst(block, align_src, align_ref);
@@ -16146,13 +16142,13 @@ fn zirFuncExtended(
         src_locs = sema.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
     }
 
-    const is_var_args = small.is_var_args;
-    const is_inferred_error = small.is_inferred_error;
-    const is_extern = small.is_extern;
+    const is_var_args = extra.data.bits.is_var_args;
+    const is_inferred_error = extra.data.bits.is_inferred_error;
+    const is_extern = extra.data.bits.is_extern;
 
     return sema.funcCommon(
         block,
-        extra.data.src_node,
+        inst_data.src_node,
         inst,
         ret_ty_body,
         cc,

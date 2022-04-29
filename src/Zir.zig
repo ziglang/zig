@@ -73,6 +73,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
             i32 => @bitCast(i32, code.extra[i]),
             Inst.Call.Flags => @bitCast(Inst.Call.Flags, code.extra[i]),
             Inst.SwitchBlock.Bits => @bitCast(Inst.SwitchBlock.Bits, code.extra[i]),
+            Inst.ExtendedFunc.Bits => @bitCast(Inst.ExtendedFunc.Bits, code.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -415,6 +416,10 @@ pub const Inst = struct {
         func,
         /// Same as `func` but has an inferred error set.
         func_inferred,
+        /// Represents a function declaration or function prototype, depending on
+        /// whether body_len is 0.
+        /// Uses the `pl_node` union field. `payload_index` points to a `ExtendedFunc`.
+        func_extended,
         /// Implements the `@import` builtin.
         /// Uses the `str_tok` field.
         import,
@@ -1062,6 +1067,7 @@ pub const Inst = struct {
                 .field_val_named,
                 .func,
                 .func_inferred,
+                .func_extended,
                 .has_decl,
                 .int,
                 .int_big,
@@ -1347,6 +1353,7 @@ pub const Inst = struct {
                 .field_val_named,
                 .func,
                 .func_inferred,
+                .func_extended,
                 .has_decl,
                 .int,
                 .int_big,
@@ -1601,6 +1608,7 @@ pub const Inst = struct {
                 .field_call_bind = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
+                .func_extended = .pl_node,
                 .import = .str_tok,
                 .int = .int,
                 .int_big = .str,
@@ -1802,11 +1810,6 @@ pub const Inst = struct {
     /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.
     /// `noreturn` instructions may not go here; they must be part of the main `Tag` enum.
     pub const Extended = enum(u16) {
-        /// Represents a function declaration or function prototype, depending on
-        /// whether body_len is 0.
-        /// `operand` is payload index to `ExtendedFunc`.
-        /// `small` is `ExtendedFunc.Small`.
-        func,
         /// Declares a global variable.
         /// `operand` is payload index to `ExtendedVar`.
         /// `small` is `ExtendedVar.Small`.
@@ -2621,14 +2624,14 @@ pub const Inst = struct {
     /// 4. body: Index // for each body_len
     /// 5. src_locs: Func.SrcLocs // if body_len != 0
     pub const ExtendedFunc = struct {
-        src_node: i32,
         /// If this is 0 it means a void return type.
         ret_body_len: u32,
         /// Points to the block that contains the param instructions for this function.
         param_block: Index,
         body_len: u32,
+        bits: Bits,
 
-        pub const Small = packed struct {
+        pub const Bits = packed struct {
             is_var_args: bool,
             is_inferred_error: bool,
             has_lib_name: bool,
@@ -2636,7 +2639,7 @@ pub const Inst = struct {
             has_align: bool,
             is_test: bool,
             is_extern: bool,
-            _: u9 = undefined,
+            _: u25 = undefined,
         };
     };
 
@@ -3460,14 +3463,11 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
     switch (tags[decl_inst]) {
         // Functions are allowed and yield no iterations.
         // There is one case matching this in the extended instruction set below.
-        .func,
-        .func_inferred,
-        => return declIteratorInner(zir, 0, 0),
+        .func, .func_inferred, .func_extended => return declIteratorInner(zir, 0, 0),
 
         .extended => {
             const extended = datas[decl_inst].extended;
             switch (extended.opcode) {
-                .func => return declIteratorInner(zir, 0, 0),
                 .struct_decl => {
                     const small = @bitCast(Inst.StructDecl.Small, extended.small);
                     var extra_index: usize = extended.operand;
@@ -3572,21 +3572,21 @@ fn findDeclsInner(
             const body = zir.extra[extra.end..][0..extra.data.body_len];
             return zir.findDeclsBody(list, body);
         },
+        .func_extended => {
+            try list.append(inst);
+
+            const inst_data = datas[inst].pl_node;
+            const extra = zir.extraData(Inst.ExtendedFunc, inst_data.payload_index);
+            var extra_index: usize = extra.end;
+            extra_index += @boolToInt(extra.data.bits.has_lib_name);
+            extra_index += @boolToInt(extra.data.bits.has_cc);
+            extra_index += @boolToInt(extra.data.bits.has_align);
+            const body = zir.extra[extra_index..][0..extra.data.body_len];
+            return zir.findDeclsBody(list, body);
+        },
         .extended => {
             const extended = datas[inst].extended;
             switch (extended.opcode) {
-                .func => {
-                    try list.append(inst);
-
-                    const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
-                    const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
-                    var extra_index: usize = extra.end;
-                    extra_index += @boolToInt(small.has_lib_name);
-                    extra_index += @boolToInt(small.has_cc);
-                    extra_index += @boolToInt(small.has_align);
-                    const body = zir.extra[extra_index..][0..extra.data.body_len];
-                    return zir.findDeclsBody(list, body);
-                },
 
                 // Decl instructions are interesting but have no body.
                 // TODO yes they do have a body actually. recurse over them just like block instructions.
@@ -3733,15 +3733,13 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 .body = body,
             };
         },
-        .extended => blk: {
-            const extended = datas[fn_inst].extended;
-            assert(extended.opcode == .func);
-            const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
-            const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
+        .func_extended => blk: {
+            const inst_data = datas[fn_inst].pl_node;
+            const extra = zir.extraData(Inst.ExtendedFunc, inst_data.payload_index);
             var extra_index: usize = extra.end;
-            extra_index += @boolToInt(small.has_lib_name);
-            extra_index += @boolToInt(small.has_cc);
-            extra_index += @boolToInt(small.has_align);
+            extra_index += @boolToInt(extra.data.bits.has_lib_name);
+            extra_index += @boolToInt(extra.data.bits.has_cc);
+            extra_index += @boolToInt(extra.data.bits.has_align);
             const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
             extra_index += ret_ty_body.len;
             const body = zir.extra[extra_index..][0..extra.data.body_len];

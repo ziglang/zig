@@ -72,6 +72,7 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
             i32 => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.Call.Flags => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.SwitchBlock.Bits => @bitCast(u32, @field(extra, field.name)),
+            Zir.Inst.ExtendedFunc.Bits => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -2245,6 +2246,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .field_val_named,
             .func,
             .func_inferred,
+            .func_extended,
             .int,
             .int_big,
             .float,
@@ -10023,10 +10025,18 @@ const GenZir = struct {
                     @boolToInt(args.cc != .none),
             );
             const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.ExtendedFunc{
-                .src_node = gz.nodeIndexToRelative(args.src_node),
                 .param_block = args.param_block,
                 .ret_body_len = @intCast(u32, ret_ty.len),
                 .body_len = @intCast(u32, body.len),
+                .bits = .{
+                    .is_var_args = args.is_var_args,
+                    .is_inferred_error = args.is_inferred_error,
+                    .has_lib_name = args.lib_name != 0,
+                    .has_cc = args.cc != .none,
+                    .has_align = args.align_inst != .none,
+                    .is_test = args.is_test,
+                    .is_extern = args.is_extern,
+                },
             });
             if (args.lib_name != 0) {
                 astgen.extra.appendAssumeCapacity(args.lib_name);
@@ -10050,19 +10060,10 @@ const GenZir = struct {
                 astgen.instructions.items(.data)[args.ret_br].@"break".block_inst = new_index;
             }
             astgen.instructions.appendAssumeCapacity(.{
-                .tag = .extended,
-                .data = .{ .extended = .{
-                    .opcode = .func,
-                    .small = @bitCast(u16, Zir.Inst.ExtendedFunc.Small{
-                        .is_var_args = args.is_var_args,
-                        .is_inferred_error = args.is_inferred_error,
-                        .has_lib_name = args.lib_name != 0,
-                        .has_cc = args.cc != .none,
-                        .has_align = args.align_inst != .none,
-                        .is_test = args.is_test,
-                        .is_extern = args.is_extern,
-                    }),
-                    .operand = payload_index,
+                .tag = .func_extended,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.nodeIndexToRelative(args.src_node),
+                    .payload_index = payload_index,
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);

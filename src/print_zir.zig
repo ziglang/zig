@@ -429,6 +429,7 @@ const Writer = struct {
 
             .func => try self.writeFunc(stream, inst, false),
             .func_inferred => try self.writeFunc(stream, inst, true),
+            .func_extended => try self.writeFuncExtended(stream, inst),
 
             .@"unreachable" => try self.writeUnreachable(stream, inst),
 
@@ -469,7 +470,6 @@ const Writer = struct {
             },
 
             .@"asm" => try self.writeAsm(stream, extended),
-            .func => try self.writeFuncExtended(stream, extended),
             .variable => try self.writeVarExtended(stream, extended),
             .alloc => try self.writeAllocExtended(stream, extended),
 
@@ -1920,24 +1920,24 @@ const Writer = struct {
         );
     }
 
-    fn writeFuncExtended(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const extra = self.code.extraData(Zir.Inst.ExtendedFunc, extended.operand);
-        const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
-        const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
+    fn writeFuncExtended(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+        const src = inst_data.src();
 
         var extra_index: usize = extra.end;
-        if (small.has_lib_name) {
+        if (extra.data.bits.has_lib_name) {
             const lib_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
             extra_index += 1;
             try stream.print("lib_name=\"{}\", ", .{std.zig.fmtEscapes(lib_name)});
         }
-        try self.writeFlag(stream, "test, ", small.is_test);
-        const cc: Zir.Inst.Ref = if (!small.has_cc) .none else blk: {
+        try self.writeFlag(stream, "test, ", extra.data.bits.is_test);
+        const cc: Zir.Inst.Ref = if (!extra.data.bits.has_cc) .none else blk: {
             const cc = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
             extra_index += 1;
             break :blk cc;
         };
-        const align_inst: Zir.Inst.Ref = if (!small.has_align) .none else blk: {
+        const align_inst: Zir.Inst.Ref = if (!extra.data.bits.has_align) .none else blk: {
             const align_inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
             extra_index += 1;
             break :blk align_inst;
@@ -1956,9 +1956,9 @@ const Writer = struct {
         return self.writeFuncCommon(
             stream,
             ret_ty_body,
-            small.is_inferred_error,
-            small.is_var_args,
-            small.is_extern,
+            extra.data.bits.is_inferred_error,
+            extra.data.bits.is_var_args,
+            extra.data.bits.is_extern,
             cc,
             align_inst,
             body,
