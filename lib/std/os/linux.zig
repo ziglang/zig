@@ -5421,7 +5421,7 @@ pub const AUDIT = struct {
         const _64BIT = 0x80000000;
         const _LE = 0x40000000;
 
-        pub const current = switch (native_arch) {
+        pub const current: AUDIT.ARCH = switch (native_arch) {
             .i386 => .I386,
             .x86_64 => .X86_64,
             .aarch64 => .AARCH64,
@@ -5433,7 +5433,7 @@ pub const AUDIT = struct {
             .powerpc => .PPC,
             .powerpc64 => .PPC64,
             .powerpc64le => .PPC64LE,
-            else => undefined,
+            else => @compileError("unsupported architecture"),
         };
 
         AARCH64 = toAudit(.aarch64),
