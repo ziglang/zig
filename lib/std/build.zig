@@ -971,9 +971,7 @@ pub const Builder = struct {
         if (!std.process.can_spawn)
             return error.ExecNotSupported;
 
-        const child = std.ChildProcess.init(argv, self.allocator) catch unreachable;
-        defer child.deinit();
-
+        var child = std.ChildProcess.init(argv, self.allocator);
         child.cwd = cwd;
         child.env_map = env_map;
 
@@ -1187,9 +1185,7 @@ pub const Builder = struct {
             return error.ExecNotSupported;
 
         const max_output_size = 400 * 1024;
-        const child = try std.ChildProcess.init(argv, self.allocator);
-        defer child.deinit();
-
+        var child = std.ChildProcess.init(argv, self.allocator);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = stderr_behavior;

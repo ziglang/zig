@@ -184,9 +184,7 @@ fn make(step: *Step) !void {
         return ExecError.ExecNotSupported;
     }
 
-    const child = std.ChildProcess.init(argv, self.builder.allocator) catch unreachable;
-    defer child.deinit();
-
+    var child = std.ChildProcess.init(argv, self.builder.allocator);
     child.cwd = cwd;
     child.env_map = self.env_map orelse self.builder.env_map;
 

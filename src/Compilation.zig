@@ -3611,9 +3611,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         }
 
         if (std.process.can_spawn) {
-            const child = try std.ChildProcess.init(argv.items, arena);
-            defer child.deinit();
-
+            var child = std.ChildProcess.init(argv.items, arena);
             if (comp.clang_passthrough_mode) {
                 child.stdin_behavior = .Inherit;
                 child.stdout_behavior = .Inherit;

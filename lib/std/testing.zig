@@ -442,10 +442,11 @@ pub fn buildExe(zigexec: []const u8, zigfile: []const u8, binfile: []const u8) !
     const flag_emit = "-femit-bin=";
     const cmd_emit = try std.mem.concat(allocator, u8, &[_][]const u8{ flag_emit, binfile });
     defer allocator.free(cmd_emit);
+
     const args = [_][]const u8{ zigexec, "build-exe", zigfile, cmd_emit };
-    var procCompileChild = try std.ChildProcess.init(&args, allocator);
-    defer procCompileChild.deinit();
+    var procCompileChild = std.ChildProcess.init(&args, allocator);
     try procCompileChild.spawn();
+
     const ret_val = try procCompileChild.wait();
     try expectEqual(ret_val, .{ .Exited = 0 });
 }
