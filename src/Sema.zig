@@ -12337,14 +12337,15 @@ fn addRuntimeBreak(sema: *Sema, child_block: *Block, break_data: BreakData) !voi
 }
 
 fn zirUnreachable(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const inst_data = sema.code.instructions.items(.data)[inst].@"unreachable";
     const src = inst_data.src();
+
+    if (block.is_comptime or inst_data.force_comptime) {
+        return sema.fail(block, src, "reached unreachable code", .{});
+    }
     try sema.requireRuntimeBlock(block, src);
     // TODO Add compile error for @optimizeFor occurring too late in a scope.
-    try block.addUnreachable(src, inst_data.safety);
+    try block.addUnreachable(src, true);
     return always_noreturn;
 }
 

@@ -2091,8 +2091,6 @@ const Writer = struct {
 
     fn writeUnreachable(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].@"unreachable";
-        const safety_str = if (inst_data.safety) "safe" else "unsafe";
-        try stream.print("{s}) ", .{safety_str});
         try self.writeSrc(stream, inst_data.src());
     }
 

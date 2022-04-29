@@ -2502,11 +2502,7 @@ pub const Inst = struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
             src_node: i32,
-            /// `false`: Not safety checked - the compiler will assume the
-            /// correctness of this instruction.
-            /// `true`: In safety-checked modes, this will generate a call
-            /// to the panic function unless it can be proven unreachable by the compiler.
-            safety: bool,
+            force_comptime: bool,
 
             pub fn src(self: @This()) LazySrcLoc {
                 return .{ .node_offset = self.src_node };

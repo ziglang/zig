@@ -740,7 +740,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
             _ = try gz.addAsIndex(.{
                 .tag = .@"unreachable",
                 .data = .{ .@"unreachable" = .{
-                    .safety = true,
+                    .force_comptime = gz.force_comptime,
                     .src_node = gz.nodeIndexToRelative(node),
                 } },
             });

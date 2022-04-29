@@ -7,4 +7,4 @@ pub fn main() void {}
 
 // error
 //
-// :4:17: error: unable to resolve comptime value
+// :4:17: error: reached unreachable code
