@@ -3,20 +3,24 @@ const clz = @import("count0bits.zig");
 const testing = @import("std").testing;
 
 fn test__clzsi2(a: u32, expected: i32) !void {
-    const nakedClzsi2 = clz.__clzsi2;
-    const fnProto = fn (a: i32) callconv(.C) i32;
-    const fnProtoPtr = switch (builtin.zig_backend) {
-        .stage1 => fnProto,
-        else => *const fnProto,
-    };
-    const fn_ptr = switch (builtin.zig_backend) {
-        .stage1 => nakedClzsi2,
-        else => &nakedClzsi2,
-    };
-    const actualClzsi2 = @ptrCast(fnProtoPtr, fn_ptr);
-    const x = @bitCast(i32, a);
-    const result = actualClzsi2(x);
-    try testing.expectEqual(expected, result);
+    // stage1 and stage2 diverge on function pointer semantics
+    switch (builtin.zig_backend) {
+        .stage1 => {
+            // Use of `var` here is working around a stage1 bug.
+            var nakedClzsi2 = clz.__clzsi2;
+            var actualClzsi2 = @ptrCast(fn (a: i32) callconv(.C) i32, nakedClzsi2);
+            var x = @bitCast(i32, a);
+            var result = actualClzsi2(x);
+            try testing.expectEqual(expected, result);
+        },
+        else => {
+            const nakedClzsi2 = clz.__clzsi2;
+            const actualClzsi2 = @ptrCast(*const fn (a: i32) callconv(.C) i32, &nakedClzsi2);
+            const x = @bitCast(i32, a);
+            const result = actualClzsi2(x);
+            try testing.expectEqual(expected, result);
+        },
+    }
 }
 
 test "clzsi2" {
