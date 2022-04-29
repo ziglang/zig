@@ -3,6 +3,8 @@ export fn entry() void {
     while (!@cmpxchgWeak(i32, &x, 1234, 5678, @as(u32, 1234), @as(u32, 1234))) {}
 }
 
-// wrong types given to atomic order args in cmpxchg
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:47: error: expected type 'std.builtin.AtomicOrder', found 'u32'

@@ -1,5 +1,8 @@
 test "example" { return 1; }
 
-// return invalid type from test
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:1:25: error: expected type 'void', found 'comptime_int'

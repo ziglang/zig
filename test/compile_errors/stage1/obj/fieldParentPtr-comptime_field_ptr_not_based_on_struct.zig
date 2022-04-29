@@ -10,6 +10,8 @@ comptime {
     _ = another_foo_ptr;
 }
 
-// @fieldParentPtr - comptime field ptr not based on struct
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:55: error: pointer value not based on parent struct

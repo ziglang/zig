@@ -7,6 +7,8 @@ export fn foo_slice_len_increment_beyond_bounds() void {
     }
 }
 
-// comptime slice-len increment beyond bounds
+// error
+// backend=stage1
+// target=native
 //
 // :6:12: error: out of bounds slice

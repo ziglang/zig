@@ -6,6 +6,8 @@ export fn entry() void {
     _ = x;
 }
 
-// non-integer tag type to automatic union enum
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:24: error: expected integer tag type, found 'f32'

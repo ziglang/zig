@@ -4,6 +4,8 @@ export fn foo() void {
     _ = value;
 }
 
-// slice cannot have its bytes reinterpreted
+// error
+// backend=stage1
+// target=native
 //
 // :3:52: error: slice '[]const u8' cannot have its bytes reinterpreted

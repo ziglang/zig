@@ -5,6 +5,8 @@ export fn entry() void {
 
 fn afunc() callconv(.Async) void { }
 
-// runtime-known function called with async keyword
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:15: error: function is not comptime-known; @asyncCall required

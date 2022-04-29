@@ -4,6 +4,8 @@ export fn entry() void {
     _ = foo;
 }
 
-// opaque type with field
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:25: error: opaque types cannot have fields

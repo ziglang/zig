@@ -29,7 +29,9 @@ export fn f() void {
     _ = x;
 }
 
-// implicit cast between C pointer and Zig pointer - bad const/align/child
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:27: error: cast increases pointer alignment
 // tmp.zig:8:18: error: cast discards const qualifier

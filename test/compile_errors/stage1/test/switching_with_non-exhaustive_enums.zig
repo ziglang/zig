@@ -25,7 +25,10 @@ pub export fn entry() void {
     }
 }
 
-// switching with non-exhaustive enums
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:12:5: error: enumeration value 'E.b' not handled in switch
 // tmp.zig:16:5: error: switch on non-exhaustive enum must include `else` or `_` prong

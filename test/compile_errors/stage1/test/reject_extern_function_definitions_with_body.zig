@@ -2,6 +2,9 @@ extern "c" fn definitelyNotInLibC(a: i32, b: i32) i32 {
     return a + b;
 }
 
-// reject extern function definitions with body
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:1:1: error: extern functions have no body

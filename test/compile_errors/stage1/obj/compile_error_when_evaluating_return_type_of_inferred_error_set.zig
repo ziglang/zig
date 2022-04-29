@@ -7,6 +7,8 @@ export fn entry() void {
     _ = car;
 }
 
-// compile error when evaluating return type of inferred error set
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:11: error: use of undeclared identifier 'SymbolThatDoesNotExist'

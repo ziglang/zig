@@ -10,6 +10,8 @@ export fn entry() void {
     _ = x;
 }
 
-// implicitly casting enum to tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:22: error: expected type 'u2', found 'Small'

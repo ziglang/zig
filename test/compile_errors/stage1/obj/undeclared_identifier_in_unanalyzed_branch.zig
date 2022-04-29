@@ -4,6 +4,8 @@ export fn a() void {
     }
 }
 
-// undeclared identifier in unanalyzed branch
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:9: error: use of undeclared identifier 'lol_this_doesnt_exist'

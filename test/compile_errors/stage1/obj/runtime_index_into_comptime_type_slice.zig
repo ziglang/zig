@@ -10,6 +10,8 @@ export fn entry() void {
     _ = field;
 }
 
-// runtime index into comptime type slice
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:51: error: values of type 'std.builtin.Type.StructField' must be comptime known, but index value is runtime known

@@ -30,6 +30,8 @@ fn foo() void {
 
 export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
 
-// misspelled type with pointer only reference
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:16: error: use of undeclared identifier 'JsonList'

@@ -19,7 +19,10 @@ export fn qux() void {
     ptr.x = 2;
 }
 
-// reference to const data
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:3:14: error: cannot assign to constant
 // tmp.zig:7:13: error: cannot assign to constant

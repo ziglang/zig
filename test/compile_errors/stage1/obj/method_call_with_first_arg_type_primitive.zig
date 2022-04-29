@@ -14,6 +14,8 @@ export fn f() void {
     derp.init();
 }
 
-// method call with first arg type primitive
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:14:5: error: expected type 'i32', found 'Foo'

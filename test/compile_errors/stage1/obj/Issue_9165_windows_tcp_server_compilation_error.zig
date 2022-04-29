@@ -9,6 +9,8 @@ pub fn main() !void {
     }
 }
 
-// Issue #9165: windows tcp server compilation error
+// error
+// backend=stage1
+// target=native
 //
 // error: Unsupported OS

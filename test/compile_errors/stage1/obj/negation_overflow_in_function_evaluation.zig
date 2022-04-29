@@ -5,6 +5,8 @@ fn neg(x: i8) i8 {
 
 export fn entry() usize { return @sizeOf(@TypeOf(y)); }
 
-// negation overflow in function evaluation
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:12: error: negation caused overflow

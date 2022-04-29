@@ -6,6 +6,8 @@ export fn returns() void {
     }
 }
 
-// `_` should not be usable inside for
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:20: error: '_' used as an identifier without @"_" syntax

@@ -3,6 +3,8 @@ export fn f() void {
     _ = a;
 }
 
-// unreachable variable
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:25: error: expected type 'noreturn', found 'void'

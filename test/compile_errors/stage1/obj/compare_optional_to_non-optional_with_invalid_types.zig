@@ -22,7 +22,9 @@ export fn invalidChildType() void {
     _ = (x == y);
 }
 
-// compare optional to non-optional with invalid types
+// error
+// backend=stage1
+// target=native
 //
 // :4:12: error: cannot compare types '?i32' and 'comptime_int'
 // :4:12: note: optional child type 'i32' must be the same as non-optional type 'comptime_int'

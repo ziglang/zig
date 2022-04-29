@@ -10,6 +10,8 @@ fn loadv(ptr: anytype) i32 {
     return ptr.*;
 }
 
-// load vector pointer with unknown runtime index
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:10:12: error: unable to determine vector element index of type '*align(16:0:4:?) i32

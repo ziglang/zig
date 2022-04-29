@@ -13,6 +13,8 @@ export fn entry() void {
     _ = a;
 }
 
-// extern union given enum tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:30: error: extern union does not support enum tag type

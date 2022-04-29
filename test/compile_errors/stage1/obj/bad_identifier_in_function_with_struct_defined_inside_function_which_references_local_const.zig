@@ -10,6 +10,8 @@ export fn entry() void {
     _ = Block;
 }
 
-// bad identifier in function with struct defined inside function which references local const
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:8:5: error: use of undeclared identifier 'bogus'

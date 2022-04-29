@@ -7,6 +7,8 @@ pub fn pass(in: []u8) []u8 {
 
 export fn entry() usize { return @sizeOf(@TypeOf(pass)); }
 
-// dereference an array
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:10: error: attempt to dereference non-pointer type '[10]u8'

@@ -6,6 +6,8 @@ export fn entry(foo: [*]Foo) void {
     foo.a += 1;
 }
 
-// field access of unknown length pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:8: error: type '[*]Foo' does not support field access

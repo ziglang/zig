@@ -5,6 +5,8 @@ export fn a() void {
   }
 }
 
-// saturating shl assign does not allow negative rhs at comptime
+// error
+// backend=stage1
+// target=native
 //
 // error: shift by negative value -2

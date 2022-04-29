@@ -14,7 +14,9 @@ export fn entry2() void {
     _ = c_ptr;
 }
 
-// implicit casting C pointers which would mess up null semantics
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:24: error: expected type '*const [*]const u8', found '[*c]const [*c]const u8'
 // tmp.zig:6:24: note: pointer type child '[*c]const u8' cannot cast into pointer type child '[*]const u8'

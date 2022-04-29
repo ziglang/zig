@@ -10,6 +10,8 @@ const Foo = @Type(.{
 });
 comptime { _ = Foo; }
 
-// @Type(.Fn) with is_generic = true
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:20: error: Type.Fn.is_generic must be false for @Type

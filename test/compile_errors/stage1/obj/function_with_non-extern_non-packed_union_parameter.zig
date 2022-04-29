@@ -5,6 +5,8 @@ const Foo = union {
 };
 export fn entry(foo: Foo) void { _ = foo; }
 
-// function with non-extern non-packed union parameter
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'C'

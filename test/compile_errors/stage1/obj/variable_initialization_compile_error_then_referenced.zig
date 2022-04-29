@@ -12,6 +12,8 @@ export fn entry() void {
     _ = S;
 }
 
-// variable initialization compile error then referenced
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:12: error: use of undeclared identifier 'T'

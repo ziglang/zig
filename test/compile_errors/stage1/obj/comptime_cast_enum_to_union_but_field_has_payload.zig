@@ -9,7 +9,9 @@ export fn entry() void {
     _ = x;
 }
 
-// comptime cast enum to union but field has payload
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:8:26: error: cast to union 'Value' must initialize 'i32' field 'A'
 // tmp.zig:3:5: note: field 'A' declared here

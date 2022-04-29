@@ -6,6 +6,8 @@ export fn entry() void {
     });
 }
 
-// @Type with Type.Int
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:31: error: expected type 'std.builtin.Type', found 'std.builtin.Type.Int'

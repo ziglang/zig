@@ -14,7 +14,8 @@ export fn entry() void {
     _ = allocator;
 }
 
-// constant inside comptime function has compile error
+// error
+// target=native
 //
 // :4:5: error: unreachable code
 // :4:25: note: control flow is diverted here

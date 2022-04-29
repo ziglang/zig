@@ -15,7 +15,9 @@ comptime {
     _ = S;
 }
 
-// declaration between fields
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:5: error: declarations are not allowed between container fields
 // tmp.zig:5:5: note: field before declarations here

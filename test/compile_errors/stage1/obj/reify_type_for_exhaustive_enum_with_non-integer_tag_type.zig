@@ -11,6 +11,8 @@ export fn entry() void {
     _ = @intToEnum(Tag, 0);
 }
 
-// @Type for exhaustive enum with non-integer tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:20: error: Type.Enum.tag_type must be an integer type, not 'bool'

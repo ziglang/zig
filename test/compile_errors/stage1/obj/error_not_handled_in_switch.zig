@@ -12,7 +12,9 @@ fn foo(x: i32) !void {
     }
 }
 
-// error not handled in switch
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:26: error: error.Baz not handled in switch
 // tmp.zig:2:26: error: error.Bar not handled in switch

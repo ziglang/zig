@@ -3,6 +3,8 @@ export fn entry() void {
     _ = slice;
 }
 
-// comptime slice of undefined pointer non-zero len
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:41: error: non-zero length slice of undefined pointer

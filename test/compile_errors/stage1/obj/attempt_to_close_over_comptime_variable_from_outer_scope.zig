@@ -5,7 +5,9 @@ fn SimpleList(comptime L: usize) type {
     };
 }
 
-// attempt to close over comptime variable from outer scope
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:19: error: mutable 'T' not accessible from here
 // tmp.zig:2:9: note: declared mutable here

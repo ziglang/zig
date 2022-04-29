@@ -5,6 +5,9 @@ export fn entry() void {
     _ = x;
 }
 
-// binary OR operator on error sets
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:2:18: error: invalid operands to binary expression: 'error{A}' and 'error{B}'

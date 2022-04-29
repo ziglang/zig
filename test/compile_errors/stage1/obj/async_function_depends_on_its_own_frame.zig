@@ -6,6 +6,8 @@ fn amain() callconv(.Async) void {
     _ = x;
 }
 
-// async function depends on its own frame
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:1: error: cannot resolve '@Frame(amain)': function not fully analyzed yet

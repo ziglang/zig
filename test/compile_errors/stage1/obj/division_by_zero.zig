@@ -8,7 +8,9 @@ export fn entry2() usize { return @sizeOf(@TypeOf(lit_float_x)); }
 export fn entry3() usize { return @sizeOf(@TypeOf(int_x)); }
 export fn entry4() usize { return @sizeOf(@TypeOf(float_x)); }
 
-// division by zero
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:21: error: division by zero
 // tmp.zig:2:25: error: division by zero

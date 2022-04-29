@@ -12,6 +12,8 @@ comptime {
     _ = y;
 }
 
-// int to err non global invalid number
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:11:13: error: error.B not a member of error set 'Set2'

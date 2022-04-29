@@ -3,6 +3,8 @@ comptime {
     _ = z;
 }
 
-// only equality binary operator allowed for error sets
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:23: error: operator not allowed for errors

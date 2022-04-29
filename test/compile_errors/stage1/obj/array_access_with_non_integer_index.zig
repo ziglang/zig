@@ -9,7 +9,9 @@ export fn g() void {
     _ = array[bad];
 }
 
-// array access with non integer index
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:11: error: expected type 'usize', found 'bool'
 // tmp.zig:9:15: error: expected type 'usize', found 'bool'

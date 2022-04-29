@@ -3,6 +3,9 @@ pub export fn entry() void {
     for (arr) |bits| _ = @popCount(bits);
 }
 
-// errors in for loop bodies are propagated
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:3:26: error: expected 2 arguments, found 1

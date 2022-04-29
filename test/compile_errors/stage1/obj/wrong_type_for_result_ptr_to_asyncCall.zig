@@ -9,6 +9,8 @@ fn foo() i32 {
     return 1234;
 }
 
-// wrong type for result ptr to @asyncCall
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:37: error: expected type '*i32', found 'bool'

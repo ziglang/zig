@@ -9,6 +9,8 @@ fn foo(x: Set1) void {
     }
 }
 
-// error equality but sets have no common members
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:7:11: error: error sets 'Set1' and 'Set2' have no common errors

@@ -5,6 +5,8 @@ export fn entry(a: bool, b: bool) i32 {
     return 5678;
 }
 
-// attempted `&&`
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:11: error: ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND

@@ -6,6 +6,9 @@ test "1" {
     _ = A().a;
 }
 
-// repeated invalid field access to generic function returning type crashes compiler. #2655
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:2:12: error: use of undeclared identifier 'Q'

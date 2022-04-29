@@ -3,6 +3,8 @@ export fn entry() void {
     _ = &x == null;
 }
 
-// comparing a non-optional pointer against null
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:12: error: comparison of '*i32' with null

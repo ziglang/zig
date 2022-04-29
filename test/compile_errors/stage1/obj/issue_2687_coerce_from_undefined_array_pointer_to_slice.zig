@@ -18,7 +18,9 @@ export fn foo3() void {
     }
 }
 
-// issue #2687: coerce from undefined array pointer to slice
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:19: error: use of undefined value here causes undefined behavior
 // tmp.zig:9:23: error: use of undefined value here causes undefined behavior

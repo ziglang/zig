@@ -11,7 +11,9 @@ pub const Box = struct {
     field: i32,
 };
 
-// invalid multiple dereferences
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:8: error: attempt to dereference non-pointer type 'Box'
 // tmp.zig:8:13: error: attempt to dereference non-pointer type 'Box'

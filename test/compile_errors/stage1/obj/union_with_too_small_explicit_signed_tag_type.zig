@@ -8,7 +8,9 @@ export fn entry() void {
     _ = U{ .D = 1 };
 }
 
-// union with too small explicit signed tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:22: error: specified integer tag type cannot represent every field
 // tmp.zig:1:22: note: type i2 cannot fit values in range 0...3

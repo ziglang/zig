@@ -5,7 +5,10 @@ comptime {
     _ = x;
 }
 
-// comptime vector overflow shows the index
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:4:15: error: operation caused overflow
 // tmp.zig:4:15: note: when computing vector element at index 2

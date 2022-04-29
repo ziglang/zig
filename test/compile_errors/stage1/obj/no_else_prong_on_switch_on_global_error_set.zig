@@ -7,6 +7,8 @@ fn foo(a: anyerror) void {
     }
 }
 
-// no else prong on switch on global error set
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:5: error: else prong required when switching on type 'anyerror'

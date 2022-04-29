@@ -19,7 +19,9 @@ export fn entry4() void {
     _ = bar;
 }
 
-// function parameter is opaque
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:28: error: parameter of opaque type 'FooType' not allowed
 // tmp.zig:8:28: error: parameter of type '@Type(.Null)' not allowed

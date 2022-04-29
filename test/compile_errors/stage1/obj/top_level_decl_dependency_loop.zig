@@ -5,6 +5,8 @@ export fn entry() void {
     _ = c;
 }
 
-// top level decl dependency loop
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:19: error: dependency loop detected

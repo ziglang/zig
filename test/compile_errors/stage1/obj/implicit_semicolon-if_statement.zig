@@ -5,6 +5,8 @@ export fn entry() void {
     var bad = {};
 }
 
-// implicit semicolon - if statement
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:18: error: expected ';' or 'else' after statement

@@ -6,7 +6,9 @@ fn func() void {
     suspend {}
 }
 
-// non-async function pointer eventually is inferred to become async
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:1: error: 'func' cannot be async
 // tmp.zig:3:20: note: required to be non-async here

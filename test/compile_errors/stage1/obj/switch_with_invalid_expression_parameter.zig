@@ -10,6 +10,8 @@ fn Test(comptime T: type) void {
     _ = x;
 }
 
-// switch with invalid expression parameter
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:7:17: error: switch on type 'type' provides no expression parameter

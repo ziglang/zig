@@ -3,6 +3,8 @@ export fn entry() void {
     _ = buf[0..1];
 }
 
-// slicing of global undefined pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:12: error: non-zero length slice of undefined pointer

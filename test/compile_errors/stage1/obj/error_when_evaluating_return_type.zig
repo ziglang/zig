@@ -10,6 +10,8 @@ export fn entry() void {
     _ = rule_set;
 }
 
-// error when evaluating return type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:19: error: expected type 'i32', found 'type'

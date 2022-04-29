@@ -4,6 +4,8 @@ export fn entry() void {
     dump(a);
 }
 
-// missing parameter name of generic function
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:9: error: missing parameter name

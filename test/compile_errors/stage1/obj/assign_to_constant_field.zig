@@ -6,6 +6,8 @@ export fn derp() void {
     f.field = 0;
 }
 
-// assign to constant field
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:15: error: cannot assign to constant

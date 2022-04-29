@@ -2,6 +2,8 @@ export fn foo() void {
     defer {1;}
 }
 
-// ignored deferred statement value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:12: error: expression value is ignored

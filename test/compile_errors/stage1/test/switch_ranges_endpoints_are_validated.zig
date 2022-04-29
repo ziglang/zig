@@ -7,7 +7,10 @@ pub export fn entry() void {
     }
 }
 
-// switch ranges endpoints are validated
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:4:9: error: range start value is greater than the end value
 // tmp.zig:5:9: error: range start value is greater than the end value

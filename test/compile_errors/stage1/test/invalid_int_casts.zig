@@ -15,7 +15,10 @@ export fn qux() void {
     _ = @intCast(u32, a);
 }
 
-// invalid int casts
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:3:32: error: unable to evaluate constant expression
 // tmp.zig:7:21: error: expected float type, found 'u32'

@@ -12,6 +12,8 @@ export fn entry() void {
     _ = Untagged{};
 }
 
-// @Type for union with opaque field
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:25: error: opaque types have unknown size and therefore cannot be directly embedded in unions

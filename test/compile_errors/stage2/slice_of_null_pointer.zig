@@ -5,6 +5,7 @@ comptime {
     _ = y;
 }
 
-// slice of null C pointer
+// error
+// target=native
 //
 // :4:14: error: slice of null pointer

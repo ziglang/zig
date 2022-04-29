@@ -9,7 +9,9 @@ fn foo(comptime T: type, x: T) u8 {
 }
 export fn entry() usize { return @sizeOf(@TypeOf(foo(u32, 0))); }
 
-// switch expression - duplicate type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:9: error: duplicate switch value
 // tmp.zig:4:9: note: previous value here

@@ -10,7 +10,9 @@ export fn f2() void {
     _ = x;
 }
 
-// for loop body expression ignored
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:30: error: expression value is ignored
 // tmp.zig:9:30: error: expression value is ignored

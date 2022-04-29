@@ -10,6 +10,8 @@ fn bar() i32 {
     return 2;
 }
 
-// non-const switch number literal
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:17: error: cannot store runtime value in type 'comptime_int'

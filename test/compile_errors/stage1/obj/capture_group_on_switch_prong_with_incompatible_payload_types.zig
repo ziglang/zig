@@ -12,7 +12,9 @@ comptime {
     }
 }
 
-// capture group on switch prong with incompatible payload types
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:8:20: error: capture group with incompatible types
 // tmp.zig:8:9: note: type 'usize' here

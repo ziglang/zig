@@ -2,6 +2,8 @@ export fn entry() callconv(.Naked) void {
     @setAlignStack(16);
 }
 
-// @setAlignStack in naked function
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: @setAlignStack in naked function

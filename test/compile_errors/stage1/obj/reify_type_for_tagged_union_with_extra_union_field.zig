@@ -27,7 +27,9 @@ export fn entry() void {
     tagged = .{ .unsigned = 1 };
 }
 
-// @Type for tagged union with extra union field
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:13:23: error: enum field not found: 'arst'
 // tmp.zig:1:20: note: enum declared here

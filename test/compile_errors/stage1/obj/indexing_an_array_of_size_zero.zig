@@ -4,6 +4,8 @@ export fn foo() void {
     _ = pointer;
 }
 
-// indexing an array of size zero
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:27: error: accessing a zero length array is not allowed

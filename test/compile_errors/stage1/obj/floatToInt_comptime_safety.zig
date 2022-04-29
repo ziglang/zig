@@ -8,7 +8,9 @@ comptime {
     _ = @floatToInt(u8, @as(f32, 256.1));
 }
 
-// @floatToInt comptime safety
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:9: error: integer value '-129' cannot be stored in type 'i8'
 // tmp.zig:5:9: error: integer value '-1' cannot be stored in type 'u8'

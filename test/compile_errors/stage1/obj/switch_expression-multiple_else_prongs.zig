@@ -9,6 +9,8 @@ export fn entry() void {
     f(1234);
 }
 
-// switch expression - multiple else prongs
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:9: error: multiple else prongs in switch expression

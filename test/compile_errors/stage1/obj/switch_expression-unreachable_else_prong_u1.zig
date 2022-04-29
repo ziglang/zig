@@ -7,6 +7,8 @@ fn foo(x: u1) void {
 }
 export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
 
-// switch expression - unreachable else prong (u1)
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:9: error: unreachable else prong, all cases already handled

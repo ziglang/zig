@@ -4,6 +4,8 @@ export fn entry() void {
     _ = info;
 }
 
-// field access of slices
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:32: error: type 'type' does not support field access

@@ -3,6 +3,8 @@ export fn foo() void {
 }
 fn bar() anyerror!i32 { return 0; }
 
-// ignored deferred function call
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:14: error: error is ignored. consider using `try`, `catch`, or `if`

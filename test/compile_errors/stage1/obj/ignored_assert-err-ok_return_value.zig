@@ -3,6 +3,8 @@ export fn foo() void {
 }
 fn bar() anyerror!i32 { return 0; }
 
-// ignored assert-err-ok return value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:11: error: expression value is ignored

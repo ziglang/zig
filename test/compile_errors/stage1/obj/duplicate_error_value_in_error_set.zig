@@ -7,7 +7,9 @@ export fn entry() void {
     _ = a;
 }
 
-// duplicate error value in error set
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:5: error: duplicate error set field 'Bar'
 // tmp.zig:2:5: note: previous declaration here

@@ -9,6 +9,8 @@ export fn entry() void {
     _ = x;
 }
 
-// specify non-integer enum tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:21: error: expected integer, found 'f32'

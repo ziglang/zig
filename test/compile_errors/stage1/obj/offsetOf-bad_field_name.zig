@@ -5,6 +5,8 @@ export fn foo() usize {
     return @offsetOf(Foo, "a",);
 }
 
-// @offsetOf - bad field name
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:27: error: struct 'Foo' has no field 'a'

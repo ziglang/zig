@@ -9,7 +9,9 @@ export fn entry() void {
     _ = U{ .E = 1 };
 }
 
-// union with too small explicit unsigned tag type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:22: error: specified integer tag type cannot represent every field
 // tmp.zig:1:22: note: type u2 cannot fit values in range 0...4

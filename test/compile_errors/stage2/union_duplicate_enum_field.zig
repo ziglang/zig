@@ -1,4 +1,4 @@
-const E = enum {a, b};
+const E = enum { a, b };
 const U = union(E) {
     a: u32,
     a: u32,
@@ -9,7 +9,8 @@ export fn foo() void {
     _ = u;
 }
 
-// union with enum and duplicate fields
+// error
+// target=native
 //
 // :4:5: error: duplicate union field: 'a'
 // :3:5: note: other field here

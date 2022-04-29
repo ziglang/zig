@@ -14,6 +14,8 @@ fn bar(x: *const u3) u3 {
 
 export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
 
-// casting bit offset pointer to regular pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:8:26: error: expected type '*const u3', found '*align(:3:1) const u3'

@@ -4,6 +4,9 @@ export fn entry() void {
     _ = @TypeOf(var_1, var_2);
 }
 
-// @TypeOf with incompatible arguments
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:4:9: error: incompatible types: 'f32' and 'u32'

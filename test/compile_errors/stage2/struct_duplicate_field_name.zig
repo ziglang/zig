@@ -8,7 +8,8 @@ export fn entry() void {
     _ = s;
 }
 
-// duplicate struct field name
+// error
+// target=native
 //
 // :3:5: error: duplicate struct field: 'foo'
 // :2:5: note: other field here

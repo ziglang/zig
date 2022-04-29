@@ -7,6 +7,8 @@ export fn entry() i32 {
     return bar;
 }
 
-// @compileError shows traceback of references that caused it
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:13: error: aoeu

@@ -3,6 +3,8 @@ export fn entry() void {
     _ = x;
 }
 
-// shift amount has to be an integer type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:21: error: shift amount has to be an integer type, but found '*const u8'

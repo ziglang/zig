@@ -14,6 +14,8 @@ pub fn maybeInt() ?i32 {
 
 export fn entry() usize { return @sizeOf(@TypeOf(testTrickyDefer)); }
 
-// return from defer expression
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:11: error: 'try' not allowed inside defer expression

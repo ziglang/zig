@@ -3,6 +3,8 @@ comptime {
     _ = a;
 }
 
-// shift by negative comptime integer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:18: error: shift by negative value -1

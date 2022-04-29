@@ -7,6 +7,8 @@ fn f(foo: *const Foo) void {
 }
 export fn entry() usize { return @sizeOf(@TypeOf(f)); }
 
-// wrong number of arguments for method fn call
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:15: error: expected 2 argument(s), found 3

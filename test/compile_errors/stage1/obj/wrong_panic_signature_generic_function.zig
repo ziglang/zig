@@ -4,7 +4,9 @@ pub fn panic(comptime msg: []const u8, error_return_trace: ?*builtin.StackTrace)
 }
 const builtin = @import("std").builtin;
 
-// wrong panic signature, generic function
+// error
+// backend=stage1
+// target=native
 //
 // error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,anytype) anytype'
 // note: only one of the functions is generic

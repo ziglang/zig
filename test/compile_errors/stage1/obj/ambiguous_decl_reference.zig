@@ -12,7 +12,9 @@ export fn entry() void {
     bar();
 }
 
-// ambiguous decl reference
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:13: error: ambiguous reference
 // tmp.zig:7:9: note: declared here

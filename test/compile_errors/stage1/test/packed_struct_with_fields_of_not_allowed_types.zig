@@ -59,7 +59,10 @@ const Enum = enum {
     B,
 };
 
-// packed struct with fields of not allowed types
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:2:5: error: type 'anyerror' not allowed in packed struct; no guaranteed in-memory representation
 // tmp.zig:5:5: error: array of 'u24' not allowed in packed struct due to padding bits (must be padded from 48 to 64 bits)

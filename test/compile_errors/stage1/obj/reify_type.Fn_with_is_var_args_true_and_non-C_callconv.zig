@@ -10,6 +10,8 @@ const Foo = @Type(.{
 });
 comptime { _ = Foo; }
 
-// @Type(.Fn) with is_var_args = true and non-C callconv
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:20: error: varargs functions must have C calling convention

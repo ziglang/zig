@@ -7,6 +7,8 @@ export fn entry() void {
     _ = x;
 }
 
-// attempt to negate a non-integer, non-float or non-vector type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:15: error: negation of type 'anyerror!u32'

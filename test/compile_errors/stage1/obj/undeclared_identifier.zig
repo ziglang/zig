@@ -4,6 +4,8 @@ export fn a() void {
     c;
 }
 
-// undeclared identifier
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:5: error: use of undeclared identifier 'b'

@@ -6,6 +6,8 @@ export fn entry() void {
     _ = ptr2;
 }
 
-// don't implicit cast double pointer to *anyopaque
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:29: error: expected type '*anyopaque', found '**u32'

@@ -13,7 +13,9 @@ fn bad() anyerror!void {
     return error.Bad;
 }
 
-// ignored expression in while continuation
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:24: error: error is ignored. consider using `try`, `catch`, or `if`
 // tmp.zig:6:25: error: error is ignored. consider using `try`, `catch`, or `if`

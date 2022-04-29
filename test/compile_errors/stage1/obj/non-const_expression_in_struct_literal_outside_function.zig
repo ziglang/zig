@@ -6,6 +6,8 @@ extern fn get_it() i32;
 
 export fn entry() usize { return @sizeOf(@TypeOf(a)); }
 
-// non-const expression in struct literal outside function
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:21: error: unable to evaluate constant expression

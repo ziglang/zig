@@ -3,6 +3,8 @@ export fn entry(ptr: *i32) void {
     _ = slice;
 }
 
-// slicing single-item pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:22: error: slice of single-item pointer

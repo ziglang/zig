@@ -10,7 +10,10 @@ export fn entry() void {
     _ = anon;
 }
 
-// duplicate field in anonymous struct literal
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:7:13: error: duplicate field
 // tmp.zig:4:13: note: other field here

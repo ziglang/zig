@@ -8,7 +8,9 @@ export fn entry() void {
     _ = tagName;
 }
 
-// @tagName used on union with no associated enum tag
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:7:19: error: union has no associated enum
 // tmp.zig:1:18: note: declared here

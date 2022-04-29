@@ -1,5 +1,7 @@
 pub fn main(args: [][]bogus) !void {_ = args;}
 
-// main function with bogus args type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:23: error: use of undeclared identifier 'bogus'

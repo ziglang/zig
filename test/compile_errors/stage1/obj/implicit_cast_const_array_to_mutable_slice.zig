@@ -4,7 +4,9 @@ export fn entry() void {
     _ = sliceA;
 }
 
-// implicit cast const array to mutable slice
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:27: error: cannot cast pointer to array literal to slice type '[]u8'
 // tmp.zig:3:27: note: cast discards const qualifier

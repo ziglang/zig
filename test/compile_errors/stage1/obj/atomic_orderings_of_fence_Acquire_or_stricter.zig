@@ -2,6 +2,8 @@ export fn entry() void {
     @fence(.Monotonic);
 }
 
-// atomic orderings of fence Acquire or stricter
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:12: error: atomic ordering must be Acquire or stricter

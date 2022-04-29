@@ -7,7 +7,9 @@ export fn entry() void {
     }
 }
 
-// comptime continue inside runtime while bool
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:25: error: comptime control flow inside runtime block
 // tmp.zig:5:9: note: runtime block created here

@@ -5,6 +5,8 @@ export fn entry() void {
 }
 fn afunc() void { }
 
-// non async function pointer passed to @asyncCall
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:32: error: expected async function, found 'fn() void'

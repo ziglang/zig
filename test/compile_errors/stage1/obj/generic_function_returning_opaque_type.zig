@@ -12,7 +12,9 @@ export fn baz() void {
     _ = generic(@TypeOf(undefined));
 }
 
-// generic function returning opaque type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:16: error: call to generic function with Opaque return type 'FooType' not allowed
 // tmp.zig:2:1: note: function declared here

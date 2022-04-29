@@ -42,6 +42,8 @@ export fn entry() void {
     }
 }
 
-// storing runtime value in compile time variable then using it
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:38:29: error: cannot store runtime value in compile time variable

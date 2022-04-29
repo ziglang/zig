@@ -4,6 +4,8 @@ export fn entry() void {
     _ = foo;
 }
 
-// invalid member of builtin enum
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:29: error: container 'std.builtin.Mode' has no member called 'x86'

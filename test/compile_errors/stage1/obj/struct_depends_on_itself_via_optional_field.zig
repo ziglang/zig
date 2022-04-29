@@ -10,7 +10,9 @@ export fn entry() void {
     _ = obj;
 }
 
-// struct depends on itself via optional field
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:17: error: struct 'LhsExpr' depends on itself
 // tmp.zig:5:5: note: while checking this field

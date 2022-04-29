@@ -34,42 +34,28 @@ test {
     var ctx = TestContext.init(std.testing.allocator, arena);
     defer ctx.deinit();
 
-    const compile_errors_dir_path = try std.fs.path.join(arena, &.{
-        std.fs.path.dirname(@src().file).?, "..", "test", "compile_errors",
-    });
-
-    var compile_errors_dir = try std.fs.cwd().openDir(compile_errors_dir_path, .{});
-    defer compile_errors_dir.close();
-
     {
-        var stage2_dir = try compile_errors_dir.openDir("stage2", .{ .iterate = true });
-        defer stage2_dir.close();
+        const dir_path = try std.fs.path.join(arena, &.{
+            std.fs.path.dirname(@src().file).?, "..", "test", "compile_errors",
+        });
+
+        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+        defer dir.close();
 
         // TODO make this incremental once the bug is solved that it triggers
         // See: https://github.com/ziglang/zig/issues/11344
-        ctx.addErrorCasesFromDir("stage2", stage2_dir, .stage2, .Obj, false, .independent);
+        ctx.addTestCasesFromDir(dir, .independent);
     }
 
-    if (!skip_stage1) {
-        var stage1_dir = try compile_errors_dir.openDir("stage1", .{});
-        defer stage1_dir.close();
+    {
+        const dir_path = try std.fs.path.join(arena, &.{
+            std.fs.path.dirname(@src().file).?, "..", "test", "incremental",
+        });
 
-        const Config = struct {
-            name: []const u8,
-            is_test: bool,
-            output_mode: std.builtin.OutputMode,
-        };
+        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+        defer dir.close();
 
-        for ([_]Config{
-            .{ .name = "obj", .is_test = false, .output_mode = .Obj },
-            .{ .name = "exe", .is_test = false, .output_mode = .Exe },
-            .{ .name = "test", .is_test = true, .output_mode = .Exe },
-        }) |config| {
-            var dir = try stage1_dir.openDir(config.name, .{ .iterate = true });
-            defer dir.close();
-
-            ctx.addErrorCasesFromDir("stage1", dir, .stage1, config.output_mode, config.is_test, .independent);
-        }
+        ctx.addTestCasesFromDir(dir, .incremental);
     }
 
     try @import("test_cases").addCases(&ctx);
@@ -150,6 +136,261 @@ const ErrorMsg = union(enum) {
             .plain => |plain| {
                 return writer.print("{s}: {s}", .{ @tagName(plain.kind), plain.msg });
             },
+        }
+    }
+};
+
+/// Default config values for known test manifest key-value pairings.
+/// Currently handled defaults are:
+/// * backend
+/// * target
+/// * output_mode
+/// * is_test
+const TestManifestConfigDefaults = struct {
+    /// Asserts if the key doesn't exist - yep, it's an oversight alright.
+    fn get(@"type": TestManifest.Type, key: []const u8) []const u8 {
+        if (std.mem.eql(u8, key, "backend")) {
+            return "stage2";
+        } else if (std.mem.eql(u8, key, "target")) {
+            comptime {
+                var defaults: []const u8 = "";
+                // TODO should we only return "mainstream" targets by default here?
+                // TODO we should also specify ABIs explicitly as the backends are
+                // getting more and more complete
+                // Linux
+                inline for (&[_][]const u8{ "x86_64", "arm", "aarch64" }) |arch| {
+                    defaults = defaults ++ arch ++ "-linux" ++ ",";
+                }
+                // macOS
+                inline for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
+                    defaults = defaults ++ arch ++ "-macos" ++ ",";
+                }
+                // Wasm
+                defaults = defaults ++ "wasm32-wasi";
+                return defaults;
+            }
+        } else if (std.mem.eql(u8, key, "output_mode")) {
+            return switch (@"type") {
+                .@"error" => "Obj",
+                .run => "Exe",
+                .cli => @panic("TODO test harness for CLI tests"),
+            };
+        } else if (std.mem.eql(u8, key, "is_test")) {
+            return "0";
+        } else unreachable;
+    }
+};
+
+/// Manifest syntax example:
+/// (see https://github.com/ziglang/zig/issues/11288)
+///
+/// error
+/// backend=stage1,stage2
+/// output_mode=exe
+///
+/// :3:19: error: foo
+///
+/// run
+/// target=x86_64-linux,aarch64-macos
+///
+/// I am expected stdout! Hello!
+///
+/// cli
+///
+/// build test
+const TestManifest = struct {
+    @"type": Type,
+    config_map: std.StringHashMap([]const u8),
+    trailing_bytes: []const u8 = "",
+
+    const Type = enum {
+        @"error",
+        run,
+        cli,
+    };
+
+    const TrailingIterator = struct {
+        inner: std.mem.TokenIterator(u8),
+
+        fn next(self: *TrailingIterator) ?[]const u8 {
+            const next_inner = self.inner.next() orelse return null;
+            return std.mem.trim(u8, next_inner[2..], " \t");
+        }
+    };
+
+    fn ConfigValueIterator(comptime T: type) type {
+        return struct {
+            inner: std.mem.SplitIterator(u8),
+            parse_fn: ParseFn(T),
+
+            fn next(self: *@This()) ?T {
+                const next_raw = self.inner.next() orelse return null;
+                return self.parse_fn(next_raw);
+            }
+        };
+    }
+
+    fn parse(arena: Allocator, bytes: []const u8) !TestManifest {
+        // The manifest is the last contiguous block of comments in the file
+        // We scan for the beginning by searching backward for the first non-empty line that does not start with "//"
+        var start: ?usize = null;
+        var end: usize = bytes.len;
+        if (bytes.len > 0) {
+            var cursor: usize = bytes.len - 1;
+            while (true) {
+                // Move to beginning of line
+                while (cursor > 0 and bytes[cursor - 1] != '\n') cursor -= 1;
+
+                if (std.mem.startsWith(u8, bytes[cursor..], "//")) {
+                    start = cursor; // Contiguous comment line, include in manifest
+                } else {
+                    if (start != null) break; // Encountered non-comment line, end of manifest
+
+                    // We ignore all-whitespace lines following the comment block, but anything else
+                    // means that there is no manifest present.
+                    if (std.mem.trim(u8, bytes[cursor..end], " \r\n\t").len == 0) {
+                        end = cursor;
+                    } else break; // If it's not whitespace, there is no manifest
+                }
+
+                // Move to previous line
+                if (cursor != 0) cursor -= 1 else break;
+            }
+        }
+
+        const actual_start = start orelse return error.MissingTestManifest;
+        const manifest_bytes = bytes[actual_start..end];
+
+        var it = std.mem.tokenize(u8, manifest_bytes, "\r\n");
+
+        // First line is the test type
+        const tt: Type = blk: {
+            const line = it.next() orelse return error.MissingTestCaseType;
+            const raw = std.mem.trim(u8, line[2..], " \t");
+            if (std.mem.eql(u8, raw, "error")) {
+                break :blk .@"error";
+            } else if (std.mem.eql(u8, raw, "run")) {
+                break :blk .run;
+            } else if (std.mem.eql(u8, raw, "cli")) {
+                break :blk .cli;
+            } else {
+                std.log.warn("unknown test case type requested: {s}", .{raw});
+                return error.UnknownTestCaseType;
+            }
+        };
+
+        var manifest: TestManifest = .{
+            .@"type" = tt,
+            .config_map = std.StringHashMap([]const u8).init(arena),
+        };
+
+        // Any subsequent line until a blank comment line is key=value(s) pair
+        while (it.next()) |line| {
+            const trimmed = std.mem.trim(u8, line[2..], " \t");
+            if (trimmed.len == 0) break;
+
+            // Parse key=value(s)
+            var kv_it = std.mem.split(u8, trimmed, "=");
+            const key = kv_it.next() orelse return error.MissingKeyForConfig;
+            try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
+        }
+
+        // Finally, trailing is expected output
+        manifest.trailing_bytes = manifest_bytes[it.index..];
+
+        return manifest;
+    }
+
+    fn getConfigForKeyCustomParser(
+        self: TestManifest,
+        key: []const u8,
+        comptime T: type,
+        parse_fn: ParseFn(T),
+    ) ConfigValueIterator(T) {
+        const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.@"type", key);
+        return ConfigValueIterator(T){
+            .inner = std.mem.split(u8, bytes, ","),
+            .parse_fn = parse_fn,
+        };
+    }
+
+    fn getConfigForKey(
+        self: TestManifest,
+        key: []const u8,
+        comptime T: type,
+    ) ConfigValueIterator(T) {
+        return self.getConfigForKeyCustomParser(key, T, getDefaultParser(T));
+    }
+
+    fn getConfigForKeyAlloc(
+        self: TestManifest,
+        allocator: Allocator,
+        key: []const u8,
+        comptime T: type,
+    ) error{OutOfMemory}![]const T {
+        var out = std.ArrayList(T).init(allocator);
+        defer out.deinit();
+        var it = self.getConfigForKey(key, T);
+        while (it.next()) |item| {
+            try out.append(item);
+        }
+        return out.toOwnedSlice();
+    }
+
+    fn getConfigForKeyAssertSingle(self: TestManifest, key: []const u8, comptime T: type) T {
+        var it = self.getConfigForKey(key, T);
+        const res = it.next().?;
+        assert(it.next() == null);
+        return res;
+    }
+
+    fn trailing(self: TestManifest) TrailingIterator {
+        return .{
+            .inner = std.mem.tokenize(u8, self.trailing_bytes, "\r\n"),
+        };
+    }
+
+    fn trailingAlloc(self: TestManifest, allocator: Allocator) error{OutOfMemory}![]const []const u8 {
+        var out = std.ArrayList([]const u8).init(allocator);
+        defer out.deinit();
+        var it = self.trailing();
+        while (it.next()) |line| {
+            try out.append(line);
+        }
+        return out.toOwnedSlice();
+    }
+
+    fn ParseFn(comptime T: type) type {
+        return fn ([]const u8) ?T;
+    }
+
+    fn getDefaultParser(comptime T: type) ParseFn(T) {
+        switch (@typeInfo(T)) {
+            .Int => return struct {
+                fn parse(str: []const u8) ?T {
+                    return std.fmt.parseInt(T, str, 0) catch null;
+                }
+            }.parse,
+            .Bool => return struct {
+                fn parse(str: []const u8) ?T {
+                    const as_int = std.fmt.parseInt(u1, str, 0) catch return null;
+                    return as_int > 0;
+                }
+            }.parse,
+            .Enum => return struct {
+                fn parse(str: []const u8) ?T {
+                    return std.meta.stringToEnum(T, str);
+                }
+            }.parse,
+            .Struct => if (comptime std.mem.eql(u8, @typeName(T), "CrossTarget")) return struct {
+                fn parse(str: []const u8) ?T {
+                    var opts = CrossTarget.ParseOptions{
+                        .arch_os_abi = str,
+                    };
+                    return CrossTarget.parse(opts) catch null;
+                }
+            }.parse else @compileError("no default parser for " ++ @typeName(T)),
+            else => @compileError("no default parser for " ++ @typeName(T)),
         }
     }
 };
@@ -663,26 +904,15 @@ pub const TestContext = struct {
         incremental,
     };
 
-    /// Adds a compile-error test for each file in the provided directory, using the
-    /// selected backend and output mode. If `one_test_case_per_file` is true, a new
-    /// test case is created for each file. Otherwise, a single test case is used for
-    /// all tests.
+    /// Adds a test for each file in the provided directory, using the selected strategy.
+    /// Recurses nested directories.
     ///
     /// Each file should include a test manifest as a contiguous block of comments at
-    /// the end of the file. The first line should be the test case name, followed by
-    /// a blank line, then one expected errors on each line in the form
-    /// `:line:column: error: message`
-    pub fn addErrorCasesFromDir(
-        ctx: *TestContext,
-        name: []const u8,
-        dir: std.fs.Dir,
-        backend: Backend,
-        output_mode: std.builtin.OutputMode,
-        is_test: bool,
-        strategy: Strategy,
-    ) void {
+    /// the end of the file. The first line should be the test type, followed by a set of
+    /// key-value config values, followed by a blank line, then the expected output.
+    pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.Dir, strategy: Strategy) void {
         var current_file: []const u8 = "none";
-        addErrorCasesFromDirInner(ctx, name, dir, backend, output_mode, is_test, strategy, &current_file) catch |err| {
+        ctx.addTestCasesFromDirInner(dir, strategy, &current_file) catch |err| {
             std.debug.panic("test harness failed to process file '{s}': {s}\n", .{
                 current_file, @errorName(err),
             });
@@ -749,33 +979,28 @@ pub const TestContext = struct {
         std.sort.sort([]const u8, filenames, Context{}, Context.lessThan);
     }
 
-    fn addErrorCasesFromDirInner(
+    fn addTestCasesFromDirInner(
         ctx: *TestContext,
-        name: []const u8,
         dir: std.fs.Dir,
-        backend: Backend,
-        output_mode: std.builtin.OutputMode,
-        is_test: bool,
         strategy: Strategy,
         /// This is kept up to date with the currently being processed file so
         /// that if any errors occur the caller knows it happened during this file.
         current_file: *[]const u8,
     ) !void {
-        var opt_case: ?*Case = null;
+        var cases = std.ArrayList(usize).init(ctx.arena);
 
-        var it = dir.iterate();
+        var it = try dir.walk(ctx.arena);
         var filenames = std.ArrayList([]const u8).init(ctx.arena);
-        defer filenames.deinit();
 
         while (try it.next()) |entry| {
             if (entry.kind != .File) continue;
 
             // Ignore stuff such as .swp files
-            switch (Compilation.classifyFileExt(entry.name)) {
+            switch (Compilation.classifyFileExt(entry.basename)) {
                 .unknown => continue,
                 else => {},
             }
-            try filenames.append(try ctx.arena.dupe(u8, entry.name));
+            try filenames.append(try ctx.arena.dupe(u8, entry.path));
         }
 
         // Sort filenames, so that incremental tests are contiguous and in-order
@@ -785,108 +1010,99 @@ pub const TestContext = struct {
         for (filenames.items) |filename| {
             current_file.* = filename;
 
-            { // First, check if this file is part of an incremental update sequence
+            // First, check if this file is part of an incremental update sequence
+            // Split filename into "<base_name>.<index>.<file_ext>"
+            const prev_parts = getTestFileNameParts(prev_filename);
+            const new_parts = getTestFileNameParts(filename);
 
-                // Split filename into "<base_name>.<index>.<file_ext>"
-                const prev_parts = getTestFileNameParts(prev_filename);
-                const new_parts = getTestFileNameParts(filename);
-
-                // If base_name and file_ext match, these files are in the same test sequence
-                // and the new one should be the incremented version of the previous test
-                if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
-                    std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
-                {
-
-                    // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
-                    if (prev_parts.test_index == null) return error.InvalidIncrementalTestIndex;
-                    if (new_parts.test_index == null) return error.InvalidIncrementalTestIndex;
-                    if (new_parts.test_index.? != prev_parts.test_index.? + 1) return error.InvalidIncrementalTestIndex;
-                } else {
-
-                    // This is not the same test sequence, so the new file must be the first file
-                    // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
-                    if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
-
-                    if (strategy == .independent)
-                        opt_case = null; // Generate a new independent test case for this update
-                }
+            // If base_name and file_ext match, these files are in the same test sequence
+            // and the new one should be the incremented version of the previous test
+            if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
+                std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
+            {
+                // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
+                if (prev_parts.test_index == null) return error.InvalidIncrementalTestIndex;
+                if (new_parts.test_index == null) return error.InvalidIncrementalTestIndex;
+                if (new_parts.test_index.? != prev_parts.test_index.? + 1) return error.InvalidIncrementalTestIndex;
+            } else {
+                // This is not the same test sequence, so the new file must be the first file
+                // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
+                if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
+                cases.clearRetainingCapacity();
             }
             prev_filename = filename;
 
             const max_file_size = 10 * 1024 * 1024;
             const src = try dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
 
-            // The manifest is the last contiguous block of comments in the file
-            // We scan for the beginning by searching backward for the first non-empty line that does not start with "//"
-            var manifest_start: ?usize = null;
-            var manifest_end: usize = src.len;
-            if (src.len > 0) {
-                var cursor: usize = src.len - 1;
-                while (true) {
-                    // Move to beginning of line
-                    while (cursor > 0 and src[cursor - 1] != '\n') cursor -= 1;
+            // Parse the manifest
+            var manifest = try TestManifest.parse(ctx.arena, src);
 
-                    if (std.mem.startsWith(u8, src[cursor..], "//")) {
-                        manifest_start = cursor; // Contiguous comment line, include in manifest
-                    } else {
-                        if (manifest_start != null) break; // Encountered non-comment line, end of manifest
+            if (cases.items.len == 0) {
+                const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
+                const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", CrossTarget);
+                const is_test = manifest.getConfigForKeyAssertSingle("is_test", bool);
+                const output_mode = manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
 
-                        // We ignore all-whitespace lines following the comment block, but anything else
-                        // means that there is no manifest present.
-                        if (std.mem.trim(u8, src[cursor..manifest_end], " \r\n\t").len == 0) {
-                            manifest_end = cursor;
-                        } else break; // If it's not whitespace, there is no manifest
+                const name_prefix = blk: {
+                    const ext_index = std.mem.lastIndexOfScalar(u8, current_file.*, '.') orelse
+                        return error.InvalidFilename;
+                    const index = std.mem.lastIndexOfScalar(u8, current_file.*[0..ext_index], '.') orelse ext_index;
+                    break :blk current_file.*[0..index];
+                };
+
+                // Cross-product to get all possible test combinations
+                for (backends) |backend| {
+                    for (targets) |target| {
+                        const name = try std.fmt.allocPrint(ctx.arena, "{s} ({s}, {s})", .{
+                            name_prefix,
+                            @tagName(backend),
+                            try target.zigTriple(ctx.arena),
+                        });
+                        const next = ctx.cases.items.len;
+                        try ctx.cases.append(.{
+                            .name = name,
+                            .target = target,
+                            .backend = backend,
+                            .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
+                            .is_test = is_test,
+                            .output_mode = output_mode,
+                            .link_libc = backend == .llvm,
+                            .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
+                        });
+                        try cases.append(next);
                     }
-
-                    // Move to previous line
-                    if (cursor != 0) cursor -= 1 else break;
                 }
             }
 
-            var errors = std.ArrayList([]const u8).init(ctx.arena);
-
-            if (manifest_start) |start| {
-                // Due to the above processing, we know that this is a contiguous block of comments
-                // and do not need to re-validate the leading "//" on each line
-                var manifest_it = std.mem.tokenize(u8, src[start..manifest_end], "\r\n");
-
-                // First line is the test case name
-                const first_line = manifest_it.next() orelse return error.MissingTestCaseName;
-                const case_name = try std.mem.concat(ctx.arena, u8, &.{ name, ": ", std.mem.trim(u8, first_line[2..], " \t") });
-
-                // If the second line is present, it should be blank
-                if (manifest_it.next()) |second_line| {
-                    if (std.mem.trim(u8, second_line[2..], " \t").len != 0) return error.SecondLineNotBlank;
-                }
-
-                // All following lines are expected error messages
-                while (manifest_it.next()) |line| try errors.append(try ctx.arena.dupe(u8, std.mem.trim(u8, line[2..], " \t")));
-
-                const case = opt_case orelse case: {
-                    ctx.cases.append(TestContext.Case{
-                        .name = name,
-                        .target = .{},
-                        .backend = backend,
-                        .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
-                        .is_test = is_test,
-                        .output_mode = output_mode,
-                        .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
-                    }) catch @panic("out of memory");
-                    const case = &ctx.cases.items[ctx.cases.items.len - 1];
-                    opt_case = case;
-                    break :case case;
-                };
-                switch (strategy) {
-                    .independent => {
-                        case.name = case_name;
-                        case.addError(src, errors.items);
+            for (cases.items) |case_index| {
+                const case = &ctx.cases.items[case_index];
+                switch (manifest.@"type") {
+                    .@"error" => {
+                        const errors = try manifest.trailingAlloc(ctx.arena);
+                        switch (strategy) {
+                            .independent => {
+                                case.addError(src, errors);
+                            },
+                            .incremental => {
+                                case.addErrorNamed("update", src, errors);
+                            },
+                        }
                     },
-                    .incremental => {
-                        case.addErrorNamed(case_name, src, errors.items);
+                    .run => {
+                        var output = std.ArrayList(u8).init(ctx.arena);
+                        var trailing_it = manifest.trailing();
+                        while (trailing_it.next()) |line| {
+                            try output.appendSlice(line);
+                            try output.append('\n');
+                        }
+                        if (output.items.len > 0) {
+                            try output.resize(output.items.len - 1);
+                        }
+                        case.addCompareOutput(src, output.toOwnedSlice());
                     },
+                    .cli => @panic("TODO cli tests"),
                 }
-            } else {
-                return error.MissingManifest;
             }
         }
     }

@@ -4,6 +4,8 @@ export fn entry() void {
     _ = y;
 }
 
-// comptime implicit cast f64 to f32
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:20: error: cast of value 16777217.000000 to type 'f32' loses information

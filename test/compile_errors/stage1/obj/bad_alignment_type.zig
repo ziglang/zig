@@ -7,7 +7,9 @@ export fn entry2() void {
     _ = x;
 }
 
-// bad alignment type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:20: error: expected type 'u29', found 'bool'
 // tmp.zig:6:19: error: fractional component prevents float value 12.340000 from being casted to type 'u29'

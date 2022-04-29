@@ -5,6 +5,8 @@ fn mul(a: u16, b: u16) u16 {
 
 export fn entry() usize { return @sizeOf(@TypeOf(y)); }
 
-// mul overflow in function evaluation
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:14: error: operation caused overflow

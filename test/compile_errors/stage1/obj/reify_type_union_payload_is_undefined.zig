@@ -3,6 +3,8 @@ const Foo = @Type(.{
 });
 comptime { _ = Foo; }
 
-// @Type() union payload is undefined
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:20: error: use of undefined value here causes undefined behavior

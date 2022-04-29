@@ -23,6 +23,8 @@ export fn entry() void {
     _ = a;
 }
 
-// struct with invalid field
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:14:17: error: use of undeclared identifier 'HeaderValue'

@@ -7,6 +7,8 @@ export fn entry() void {
     _ = y;
 }
 
-// use implicit casts to assign null to non-nullable pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:23: error: expected type '*?*i32', found '**i32'

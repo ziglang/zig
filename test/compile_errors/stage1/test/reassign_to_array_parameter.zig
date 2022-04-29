@@ -5,6 +5,9 @@ export fn entry() void {
     reassign(.{1, 2, 3});
 }
 
-// reassign to array parameter
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:2:15: error: cannot assign to constant

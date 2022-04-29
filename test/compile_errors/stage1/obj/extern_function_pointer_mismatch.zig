@@ -5,6 +5,8 @@ export fn c(x: i32) i32 {return x + 2;}
 
 export fn entry() usize { return @sizeOf(@TypeOf(fns)); }
 
-// extern function pointer mismatch
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:37: error: expected type 'fn(i32) i32', found 'fn(i32) callconv(.C) i32'

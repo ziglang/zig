@@ -3,6 +3,8 @@ export fn foo(a: *i32) *Foo {
     return @fieldParentPtr(Foo, "a", a);
 }
 
-// @fieldParentPtr - non struct
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:28: error: expected struct type, found 'i32'

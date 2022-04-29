@@ -3,6 +3,8 @@ export fn entry() void {
     _ = y;
 }
 
-// slice sentinel mismatch - 1
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:37: error: expected type '[:1]const u8', found '*const [2:2]u8'

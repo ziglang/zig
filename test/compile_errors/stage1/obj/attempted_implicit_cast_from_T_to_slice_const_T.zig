@@ -3,6 +3,8 @@ export fn entry() void {
     _ = x;
 }
 
-// attempted implicit cast from T to [*]const T
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:30: error: expected type '[*]const bool', found 'bool'

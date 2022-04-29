@@ -6,6 +6,8 @@ fn concat() [16]f32 {
     return [1]f32{0}**16;
 }
 
-// function call assigned to incorrect type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:17: error: expected type '[4]f32', found '[16]f32'

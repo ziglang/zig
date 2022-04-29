@@ -3,6 +3,8 @@ comptime {
     _ = x;
 }
 
-// @shlExact shifts out 1 bits
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:15: error: operation caused overflow

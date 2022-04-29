@@ -11,7 +11,9 @@ fn func() void {
     suspend {}
 }
 
-// const frame cast to anyframe
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:12: error: expected type 'anyframe', found '*const @Frame(func)'
 // tmp.zig:7:24: error: expected type 'anyframe', found '*const @Frame(func)'

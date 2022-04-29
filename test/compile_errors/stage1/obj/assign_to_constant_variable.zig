@@ -3,6 +3,8 @@ export fn f() void {
     a = 4;
 }
 
-// assign to constant variable
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:9: error: cannot assign to constant

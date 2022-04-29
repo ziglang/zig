@@ -5,6 +5,9 @@ export fn entry() void {
     reassign("foo");
 }
 
-// reassign to slice parameter
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:2:10: error: cannot assign to constant

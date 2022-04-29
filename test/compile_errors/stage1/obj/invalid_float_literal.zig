@@ -6,6 +6,8 @@ pub fn main() void {
     std.debug.assert(bad_float < 1.0);
 }
 
-// invalid float literal
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:29: error: expected expression, found '.'

@@ -11,6 +11,8 @@ export fn entry() void {
     }});
 }
 
-// @Type(.Pointer) with invalid address space 
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:16: error: address space 'gs' not available in stage 1 compiler, must be .generic

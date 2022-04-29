@@ -12,6 +12,8 @@ export fn f() void {
     _ = a;
 }
 
-// invalid field in struct value expression
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:10:9: error: no member named 'foo' in struct 'A'

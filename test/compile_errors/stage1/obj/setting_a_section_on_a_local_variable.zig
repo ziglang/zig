@@ -3,6 +3,8 @@ export fn entry() i32 {
     return foo;
 }
 
-// setting a section on a local variable
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:30: error: cannot set section of local variable 'foo'

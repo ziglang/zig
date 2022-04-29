@@ -35,7 +35,9 @@ const Foo = struct {
     fn bar(self: *const Foo) void {_ = self;}
 };
 
-// non-const variables of things that require const variables
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:4: error: variable of type '*const comptime_int' must be const or comptime
 // tmp.zig:6:4: error: variable of type '@Type(.Undefined)' must be const or comptime

@@ -24,6 +24,8 @@ fn f(foo: *const Foo, index: usize) void {
 
 export fn entry() usize { return @sizeOf(@TypeOf(f)); }
 
-// missing function call param
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:20:34: error: expected 1 argument(s), found 0

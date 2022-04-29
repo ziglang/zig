@@ -4,6 +4,8 @@ export fn entry() void {
     f(i32);
 }
 
-// refer to the type of a generic function
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:5: error: use of undefined value here causes undefined behavior

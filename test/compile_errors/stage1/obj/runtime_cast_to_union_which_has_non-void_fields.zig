@@ -12,7 +12,9 @@ fn foo(l: Letter) void {
     _ = x;
 }
 
-// runtime cast to union which has non-void fields
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:11:20: error: runtime cast to union 'Value' which has non-void fields
 // tmp.zig:3:5: note: field 'A' has type 'i32'

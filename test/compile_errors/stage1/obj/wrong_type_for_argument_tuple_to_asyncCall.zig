@@ -7,6 +7,8 @@ fn foo() i32 {
     return 0;
 }
 
-// wrong type for argument tuple to @asyncCall
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:33: error: expected tuple or struct, found 'void'

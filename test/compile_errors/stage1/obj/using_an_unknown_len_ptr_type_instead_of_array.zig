@@ -6,6 +6,8 @@ comptime {
     _ = resolutions;
 }
 
-// using an unknown len ptr type instead of array
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:21: error: expected array type or [_], found '[*][*]const u8'

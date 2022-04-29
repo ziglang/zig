@@ -3,6 +3,8 @@ export fn foo() void {
     _ = b;
 }
 
-// array access of type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:14: error: array access of non-array type 'type'

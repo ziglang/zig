@@ -8,6 +8,8 @@ export fn entry() void {
 }
 const D = 1;
 
-// enum field value references enum
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:17: error: enum 'Foo' depends on itself

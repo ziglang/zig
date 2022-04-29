@@ -7,6 +7,8 @@ const Bar = extern struct {
 };
 export fn entry(bar: *Bar) void {_ = bar;}
 
-// optional pointer to void in extern struct
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:5: error: extern structs cannot contain fields of type '?*const void'

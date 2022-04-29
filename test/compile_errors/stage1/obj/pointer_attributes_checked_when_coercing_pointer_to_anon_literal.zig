@@ -12,7 +12,9 @@ comptime {
     _ = c;
 }
 
-// pointer attributes checked when coercing pointer to anon literal
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:31: error: cannot cast pointer to array literal to slice type '[][]const u8'
 // tmp.zig:2:31: note: cast discards const qualifier

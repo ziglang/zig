@@ -3,7 +3,9 @@ export fn f() void {
     var a = 0;
 }
 
-// local variable redeclaration
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:9: error: redeclaration of local constant 'a'
 // tmp.zig:2:11: note: previous declaration here

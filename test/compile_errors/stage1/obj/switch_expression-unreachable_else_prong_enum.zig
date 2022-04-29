@@ -17,6 +17,8 @@ fn foo(x: u8) void {
 
 export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
 
-// switch expression - unreachable else prong (enum)
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:14:9: error: unreachable else prong, all cases already handled

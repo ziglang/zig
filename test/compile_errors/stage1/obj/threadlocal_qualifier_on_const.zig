@@ -3,6 +3,8 @@ export fn entry() i32 {
     return x;
 }
 
-// threadlocal qualifier on const
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:1: error: threadlocal variable cannot be constant

@@ -18,7 +18,10 @@ export fn bar() void {
     _ = u;
 }
 
-// invalid non-exhaustive enum to union
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:12:16: error: runtime cast to union 'U' from non-exhaustive enum
 // tmp.zig:17:16: error: no tag by value 15

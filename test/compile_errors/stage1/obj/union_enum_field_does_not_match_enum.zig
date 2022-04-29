@@ -14,7 +14,9 @@ export fn entry() void {
     _ = a;
 }
 
-// union enum field does not match enum
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:10:5: error: enum field not found: 'D'
 // tmp.zig:1:16: note: enum declared here

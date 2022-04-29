@@ -11,6 +11,8 @@ export fn entry() void {
     _ = a;
 }
 
-// packed union with automatic layout field
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:5: error: non-packed, non-extern struct 'Foo' not allowed in packed union; no guaranteed in-memory representation

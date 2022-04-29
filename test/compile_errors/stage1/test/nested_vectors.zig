@@ -5,6 +5,9 @@ export fn entry() void {
     _ = v;
 }
 
-// nested vectors
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:3:23: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid

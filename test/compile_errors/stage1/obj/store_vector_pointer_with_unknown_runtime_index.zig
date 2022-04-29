@@ -9,6 +9,8 @@ fn storev(ptr: anytype, val: i32) void {
     ptr.* = val;
 }
 
-// store vector pointer with unknown runtime index
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:9:8: error: unable to determine vector element index of type '*align(16:0:4:?) i32

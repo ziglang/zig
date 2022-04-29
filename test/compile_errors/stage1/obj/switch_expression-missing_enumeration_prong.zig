@@ -14,6 +14,8 @@ fn f(n: Number) i32 {
 
 export fn entry() usize { return @sizeOf(@TypeOf(f)); }
 
-// switch expression - missing enumeration prong
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:8:5: error: enumeration value 'Number.Four' not handled in switch

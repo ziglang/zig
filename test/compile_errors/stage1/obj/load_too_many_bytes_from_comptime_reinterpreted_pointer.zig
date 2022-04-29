@@ -6,6 +6,8 @@ export fn entry() void {
     _ = int_val;
 }
 
-// load too many bytes from comptime reinterpreted pointer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:28: error: attempt to read 8 bytes from pointer to f32 which is 4 bytes

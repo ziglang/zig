@@ -23,7 +23,10 @@ export fn entry() void {
     S.d();
 }
 
-// shift on type with non-power-of-two size
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:5:19: error: RHS of shift is too large for LHS type
 // tmp.zig:9:19: error: RHS of shift is too large for LHS type

@@ -23,6 +23,8 @@ export fn foo() void {
     x.init();
 }
 
-// method call with first arg type wrong container
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:23:5: error: expected type '*Allocator', found '*List'

@@ -1,6 +1,8 @@
 const A = struct { a : A, };
 export fn entry() usize { return @sizeOf(A); }
 
-// direct struct loop
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:11: error: struct 'A' depends on itself

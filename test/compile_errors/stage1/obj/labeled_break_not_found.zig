@@ -6,6 +6,8 @@ export fn entry() void {
     }
 }
 
-// labeled break not found
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:20: error: label not found: 'outer'

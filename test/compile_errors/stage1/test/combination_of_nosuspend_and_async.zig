@@ -7,7 +7,10 @@ export fn entry() void {
 }
 fn foo() void {}
 
-// combination of nosuspend and async
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:4:9: error: suspend inside nosuspend block
 // tmp.zig:2:5: note: nosuspend block here

@@ -7,6 +7,8 @@ pub fn main() !void {
     foos[0](true);
 }
 
-// calling a generic function only known at runtime
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:7:9: error: calling a generic function requires compile-time known function value

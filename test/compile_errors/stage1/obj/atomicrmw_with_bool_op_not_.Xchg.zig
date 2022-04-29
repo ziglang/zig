@@ -3,6 +3,8 @@ export fn entry() void {
     _ = @atomicRmw(bool, &x, .Add, true, .SeqCst);
 }
 
-// atomicrmw with bool op not .Xchg
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:30: error: @atomicRmw with bool only allowed with .Xchg

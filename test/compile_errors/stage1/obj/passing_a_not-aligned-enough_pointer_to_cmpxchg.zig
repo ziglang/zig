@@ -5,6 +5,8 @@ export fn entry() bool {
     return x == 5678;
 }
 
-// passing a not-aligned-enough pointer to cmpxchg
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:4:32: error: expected type '*i32', found '*align(1) i32'

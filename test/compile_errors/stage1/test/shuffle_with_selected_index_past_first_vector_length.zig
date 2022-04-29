@@ -5,7 +5,10 @@ export fn entry() void {
     _ = z;
 }
 
-// @shuffle with selected index past first vector length
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:4:39: error: mask index '4' has out-of-bounds selection
 // tmp.zig:4:27: note: selected index '7' out of bounds of @Vector(4, u32)

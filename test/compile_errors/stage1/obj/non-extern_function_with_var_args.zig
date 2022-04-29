@@ -3,6 +3,8 @@ export fn entry() void {
     foo();
 }
 
-// non-extern function with var args
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:1:14: error: expected type expression, found '...'

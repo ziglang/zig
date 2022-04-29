@@ -3,6 +3,8 @@ export fn entry() void {
     _ = x;
 }
 
-// non int passed to @intToFloat
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:32: error: expected int type, found 'comptime_float'

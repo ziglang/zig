@@ -4,6 +4,8 @@ fn f() u16 {
 }
 export fn entry() u16 { return f(); }
 
-// invalid shift amount error
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:17: error: integer value 8 cannot be coerced to type 'u3'

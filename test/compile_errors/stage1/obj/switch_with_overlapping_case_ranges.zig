@@ -6,6 +6,8 @@ export fn entry() void {
     }
 }
 
-// switch with overlapping case ranges
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:5:9: error: duplicate switch value

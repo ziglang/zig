@@ -11,6 +11,9 @@ export fn entry() void {
     }});
 }
 
-// invalid pointer with @Type
+// error
+// backend=stage1
+// target=native
+// is_test=1
 //
 // tmp.zig:2:16: error: sentinels are only allowed on slices and unknown-length pointers

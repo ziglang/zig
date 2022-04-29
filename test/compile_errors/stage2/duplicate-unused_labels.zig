@@ -17,7 +17,8 @@ comptime {
     blk: for(@as([0]void, undefined)) |_| {}
 }
 
-// duplicate/unused labels
+// error
+// target=native
 //
 // :2:12: error: redefinition of label 'blk'
 // :2:5: note: previous definition here

@@ -8,7 +8,9 @@ fn g(b: bool) void {
 }
 export fn entry() void { f(true); g(true); }
 
-// missing else clause
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:21: error: expected type 'i32', found 'void'
 // tmp.zig:6:15: error: incompatible types: 'i32' and 'void'

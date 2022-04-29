@@ -8,7 +8,9 @@ fn foo(x: u8) u8 {
 }
 export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
 
-// switch expression - duplicate or overlapping integer value
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:9: error: duplicate switch value
 // tmp.zig:5:14: note: previous value here

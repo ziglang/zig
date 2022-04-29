@@ -8,7 +8,9 @@ export fn f2(x: V(4, u32)) V(4, u32) {
     return -y;
 }
 
-// Issue #5586: Make unary minus for unsigned types a compile error
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:3:12: error: negation of type 'u32'
 // tmp.zig:8:12: error: negation of type 'u32'

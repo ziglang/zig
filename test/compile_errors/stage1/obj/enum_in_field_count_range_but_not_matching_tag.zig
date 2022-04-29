@@ -7,7 +7,9 @@ export fn entry() void {
     _ = x;
 }
 
-// enum in field count range but not matching tag
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:13: error: enum 'Foo' has no tag matching integer value 0
 // tmp.zig:1:13: note: 'Foo' declared here

@@ -3,6 +3,8 @@ fn foo() void {
     _ = sequence;
 }
 
-// Issue #6823: don't allow .* to be followed by **
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:28: error: '.*' cannot be followed by '*'. Are you missing a space?

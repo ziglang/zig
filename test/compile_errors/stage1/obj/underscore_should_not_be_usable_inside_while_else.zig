@@ -11,6 +11,8 @@ fn optionalReturnError() !?u32 {
     return error.optionalReturnError;
 }
 
-// `_` should not be usable inside while else
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:6:17: error: '_' used as an identifier without @"_" syntax

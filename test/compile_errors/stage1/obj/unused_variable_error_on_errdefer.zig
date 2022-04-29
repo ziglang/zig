@@ -6,6 +6,8 @@ export fn entry() void {
     foo() catch unreachable;
 }
 
-// unused variable error on errdefer
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:15: error: unused variable: 'a'

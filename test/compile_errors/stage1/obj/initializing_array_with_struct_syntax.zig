@@ -3,6 +3,8 @@ export fn entry() void {
     _ = x;
 }
 
-// initializing array with struct syntax
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:15: error: initializing array with struct syntax

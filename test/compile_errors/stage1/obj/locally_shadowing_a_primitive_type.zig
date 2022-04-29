@@ -4,7 +4,9 @@ export fn foo() void {
     _ = a;
 }
 
-// locally shadowing a primitive type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:11: error: name shadows primitive 'u8'
 // tmp.zig:2:11: note: consider using @"u8" to disambiguate

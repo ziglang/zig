@@ -3,6 +3,8 @@ export fn entry() void {
     _ = y;
 }
 
-// bitCast to enum type
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:24: error: cannot cast a value of type 'y'

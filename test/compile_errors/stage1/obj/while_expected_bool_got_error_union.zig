@@ -3,6 +3,8 @@ export fn foo() void {
 }
 fn bar() anyerror!i32 { return 1; }
 
-// while expected bool, got error union
+// error
+// backend=stage1
+// target=native
 //
 // tmp.zig:2:15: error: expected type 'bool', found 'anyerror!i32'
