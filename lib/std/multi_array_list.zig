@@ -198,7 +198,7 @@ pub fn MultiArrayList(comptime S: type) type {
 
         /// Remove and return the last element from the list.
         /// Asserts the list has at least one item.
-        /// Invalidates pointers to the removed element.
+        /// Invalidates pointers to fields of the removed element.
         pub fn pop(self: *Self) S {
             const val = self.get(self.len - 1);
             self.len -= 1;
@@ -207,7 +207,7 @@ pub fn MultiArrayList(comptime S: type) type {
 
         /// Remove and return the last element from the list, or
         /// return `null` if list is empty.
-        /// Invalidates pointers to the removed element, if any.
+        /// Invalidates pointers to fields of the removed element, if any.
         pub fn popOrNull(self: *Self) ?S {
             if (self.len == 0) return null;
             return self.pop();
