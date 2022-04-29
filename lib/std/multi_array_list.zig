@@ -178,6 +178,14 @@ pub fn MultiArrayList(comptime S: type) type {
             self.set(self.len - 1, elem);
         }
 
+        /// Extend the list by 1 element, returning the newly reserved
+        /// index with uninitialized data.
+        /// Allocates more memory as necesasry.
+        pub fn addOne(self: *Self, allocator: Allocator) Allocator.Error!usize {
+            try self.ensureUnusedCapacity(allocator, 1);
+            return self.addOneAssumeCapacity();
+        }
+
         /// Extend the list by 1 element, asserting `self.capacity`
         /// is sufficient to hold an additional item.  Returns the
         /// newly reserved index with uninitialized data.
@@ -186,6 +194,23 @@ pub fn MultiArrayList(comptime S: type) type {
             const index = self.len;
             self.len += 1;
             return index;
+        }
+
+        /// Remove and return the last element from the list.
+        /// Asserts the list has at least one item.
+        /// Invalidates pointers to the removed element.
+        pub fn pop(self: *Self) S {
+            const val = self.get(self.len - 1);
+            self.len -= 1;
+            return val;
+        }
+
+        /// Remove and return the last element from the list, or
+        /// return `null` if list is empty.
+        /// Invalidates pointers to the removed element, if any.
+        pub fn popOrNull(self: *Self) ?S {
+            if (self.len == 0) return null;
+            return self.pop();
         }
 
         /// Inserts an item into an ordered list.  Shifts all elements
@@ -532,6 +557,17 @@ test "basic usage" {
     try testing.expectEqualStrings("foobar", list.items(.b)[0]);
     try testing.expectEqualStrings("zigzag", list.items(.b)[1]);
     try testing.expectEqualStrings("fizzbuzz", list.items(.b)[2]);
+
+    list.set(try list.addOne(ally), .{
+        .a = 4,
+        .b = "xnopyt",
+        .c = 'd',
+    });
+    try testing.expectEqualStrings("xnopyt", list.pop().b);
+    try testing.expectEqual(@as(?u8, 'c'), if (list.popOrNull()) |elem| elem.c else null);
+    try testing.expectEqual(@as(u32, 2), list.pop().a);
+    try testing.expectEqual(@as(u8, 'a'), list.pop().c);
+    try testing.expectEqual(@as(?Foo, null), list.popOrNull());
 }
 
 // This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes
