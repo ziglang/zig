@@ -4,6 +4,8 @@ const native_arch = builtin.cpu.arch;
 
 // AArch64 is the only ABI (at the moment) to support f16 arguments without the
 // need for extending them to wider fp types.
+// TODO remove this; do this type selection in the language rather than
+// here in compiler-rt.
 pub const F16T = if (native_arch.isAARCH64()) f16 else u16;
 
 pub fn __truncsfhf2(a: f32) callconv(.C) F16T {
@@ -140,7 +142,8 @@ inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
         }
     }
 
-    const result: dst_rep_t align(@alignOf(dst_t)) = absResult | @truncate(dst_rep_t, sign >> @intCast(SrcShift, srcBits - dstBits));
+    const result: dst_rep_t align(@alignOf(dst_t)) = absResult |
+        @truncate(dst_rep_t, sign >> @intCast(SrcShift, srcBits - dstBits));
     return @bitCast(dst_t, result);
 }
 

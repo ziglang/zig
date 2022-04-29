@@ -1,13 +1,21 @@
+const builtin = @import("builtin");
 const clz = @import("count0bits.zig");
 const testing = @import("std").testing;
 
 fn test__clzsi2(a: u32, expected: i32) !void {
-    // XXX At high optimization levels this test may be horribly miscompiled if
-    // one of the naked implementations is selected.
-    var nakedClzsi2 = clz.__clzsi2;
-    var actualClzsi2 = @ptrCast(fn (a: i32) callconv(.C) i32, nakedClzsi2);
-    var x = @bitCast(i32, a);
-    var result = actualClzsi2(x);
+    const nakedClzsi2 = clz.__clzsi2;
+    const fnProto = fn (a: i32) callconv(.C) i32;
+    const fnProtoPtr = switch (builtin.zig_backend) {
+        .stage1 => fnProto,
+        else => *const fnProto,
+    };
+    const fn_ptr = switch (builtin.zig_backend) {
+        .stage1 => nakedClzsi2,
+        else => &nakedClzsi2,
+    };
+    const actualClzsi2 = @ptrCast(fnProtoPtr, fn_ptr);
+    const x = @bitCast(i32, a);
+    const result = actualClzsi2(x);
     try testing.expectEqual(expected, result);
 }
 
