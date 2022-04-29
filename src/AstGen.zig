@@ -1078,8 +1078,14 @@ fn awaitExpr(
         });
     }
     const operand = try expr(gz, scope, .none, rhs_node);
-    const tag: Zir.Inst.Tag = if (gz.nosuspend_node != 0) .await_nosuspend else .@"await";
-    const result = try gz.addUnNode(tag, operand, node);
+    const result = if (gz.nosuspend_node != 0)
+        try gz.addExtendedPayload(.await_nosuspend, Zir.Inst.UnNode{
+            .node = gz.nodeIndexToRelative(node),
+            .operand = operand,
+        })
+    else
+        try gz.addUnNode(.@"await", operand, node);
+
     return rvalue(gz, rl, result, node);
 }
 
@@ -2349,7 +2355,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .int_to_ptr,
             .float_cast,
             .int_cast,
-            .err_set_cast,
             .ptr_cast,
             .truncate,
             .align_cast,
@@ -2386,14 +2391,23 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .c_import,
             .@"resume",
             .@"await",
-            .await_nosuspend,
             .ret_err_value_code,
-            .extended,
             .closure_get,
             .array_base_ptr,
             .field_base_ptr,
             .param_type,
+            .ret_ptr,
+            .ret_type,
             => break :b false,
+
+            .extended => switch (gz.astgen.instructions.items(.data)[inst].extended.opcode) {
+                .breakpoint,
+                .fence,
+                .set_align_stack,
+                .set_float_mode,
+                => break :b true,
+                else => break :b false,
+            },
 
             // ZIR instructions that are always `noreturn`.
             .@"break",
@@ -2415,11 +2429,11 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             },
 
             // ZIR instructions that are always `void`.
-            .breakpoint,
-            .fence,
             .dbg_stmt,
             .dbg_var_ptr,
             .dbg_var_val,
+            .dbg_block_begin,
+            .dbg_block_end,
             .ensure_result_used,
             .ensure_result_non_error,
             .@"export",
@@ -2436,9 +2450,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .validate_struct_init_comptime,
             .validate_array_init,
             .validate_array_init_comptime,
-            .set_align_stack,
             .set_cold,
-            .set_float_mode,
             .set_runtime_safety,
             .closure_capture,
             .memcpy,
@@ -6310,9 +6322,9 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     }
 
     const rl: ResultLoc = if (nodeMayNeedMemoryLocation(tree, operand_node, true)) .{
-        .ptr = try gz.addNodeExtended(.ret_ptr, node),
+        .ptr = try gz.addNode(.ret_ptr, node),
     } else .{
-        .ty = try gz.addNodeExtended(.ret_type, node),
+        .ty = try gz.addNode(.ret_type, node),
     };
     const prev_anon_name_strategy = gz.anon_name_strategy;
     gz.anon_name_strategy = .func;
@@ -7183,7 +7195,26 @@ fn builtinCall(
         },
         .fence => {
             const order = try expr(gz, scope, .{ .coerced_ty = .atomic_order_type }, params[0]);
-            const result = try gz.addUnNode(.fence, order, node);
+            const result = try gz.addExtendedPayload(.fence, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = order,
+            });
+            return rvalue(gz, rl, result, node);
+        },
+        .set_float_mode => {
+            const order = try expr(gz, scope, .{ .coerced_ty = .float_mode_type }, params[0]);
+            const result = try gz.addExtendedPayload(.set_float_mode, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = order,
+            });
+            return rvalue(gz, rl, result, node);
+        },
+        .set_align_stack => {
+            const order = try expr(gz, scope, align_rl, params[0]);
+            const result = try gz.addExtendedPayload(.set_align_stack, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = order,
+            });
             return rvalue(gz, rl, result, node);
         },
 
@@ -7198,14 +7229,13 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
 
-        .breakpoint => return simpleNoOpVoid(gz, rl, node, .breakpoint),
-
         // zig fmt: off
         .This               => return rvalue(gz, rl, try gz.addNodeExtended(.this,               node), node),
         .return_address     => return rvalue(gz, rl, try gz.addNodeExtended(.ret_addr,           node), node),
         .error_return_trace => return rvalue(gz, rl, try gz.addNodeExtended(.error_return_trace, node), node),
         .frame              => return rvalue(gz, rl, try gz.addNodeExtended(.frame,              node), node),
         .frame_address      => return rvalue(gz, rl, try gz.addNodeExtended(.frame_address,      node), node),
+        .breakpoint         => return rvalue(gz, rl, try gz.addNodeExtended(.breakpoint, node), node),
 
         .type_info   => return simpleUnOpType(gz, scope, rl, node, params[0], .type_info),
         .size_of     => return simpleUnOpType(gz, scope, rl, node, params[0], .size_of),
@@ -7222,9 +7252,7 @@ fn builtinCall(
         .embed_file            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .embed_file),
         .error_name            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .anyerror_type },           params[0], .error_name),
         .panic                 => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .panic),
-        .set_align_stack       => return simpleUnOp(gz, scope, rl, node, align_rl,                            params[0], .set_align_stack),
         .set_cold              => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .set_cold),
-        .set_float_mode        => return simpleUnOp(gz, scope, rl, node, .{ .coerced_ty = .float_mode_type }, params[0], .set_float_mode),
         .set_runtime_safety    => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .set_runtime_safety),
         .sqrt                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .sqrt),
         .sin                   => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .sin),
@@ -7252,7 +7280,6 @@ fn builtinCall(
         .int_to_enum  => return typeCast(gz, scope, rl, node, params[0], params[1], .int_to_enum),
         .float_cast   => return typeCast(gz, scope, rl, node, params[0], params[1], .float_cast),
         .int_cast     => return typeCast(gz, scope, rl, node, params[0], params[1], .int_cast),
-        .err_set_cast => return typeCast(gz, scope, rl, node, params[0], params[1], .err_set_cast),
         .ptr_cast     => return typeCast(gz, scope, rl, node, params[0], params[1], .ptr_cast),
         .truncate     => return typeCast(gz, scope, rl, node, params[0], params[1], .truncate),
         // zig fmt: on
@@ -7263,6 +7290,14 @@ fn builtinCall(
             const result = try gz.addPlNode(.align_cast, node, Zir.Inst.Bin{
                 .lhs = dest_align,
                 .rhs = rhs,
+            });
+            return rvalue(gz, rl, result, node);
+        },
+        .err_set_cast => {
+            const result = try gz.addExtendedPayload(.err_set_cast, Zir.Inst.BinNode{
+                .lhs = try typeExpr(gz, scope, params[0]),
+                .rhs = try expr(gz, scope, .none, params[1]),
+                .node = gz.nodeIndexToRelative(node),
             });
             return rvalue(gz, rl, result, node);
         },
@@ -8940,7 +8975,8 @@ fn rvalue(
     const result = r: {
         if (refToIndex(raw_result)) |result_index| {
             const zir_tags = gz.astgen.instructions.items(.tag);
-            if (zir_tags[result_index].isAlwaysVoid()) {
+            const data = gz.astgen.instructions.items(.data)[result_index];
+            if (zir_tags[result_index].isAlwaysVoid(data)) {
                 break :r Zir.Inst.Ref.void_value;
             }
         }
@@ -10893,9 +10929,7 @@ const GenZir = struct {
     fn addDbgBlockBegin(gz: *GenZir) !void {
         if (gz.force_comptime) return;
 
-        _ = try gz.add(.{ .tag = .extended, .data = .{
-            .extended = .{ .opcode = .dbg_block_begin, .small = undefined, .operand = undefined },
-        } });
+        _ = try gz.add(.{ .tag = .dbg_block_begin, .data = undefined });
     }
 
     fn addDbgBlockEnd(gz: *GenZir) !void {
@@ -10903,18 +10937,15 @@ const GenZir = struct {
         const gpa = gz.astgen.gpa;
 
         const tags = gz.astgen.instructions.items(.tag);
-        const data = gz.astgen.instructions.items(.data);
         const last_inst = gz.instructions.items[gz.instructions.items.len - 1];
         // remove dbg_block_begin immediately followed by dbg_block_end
-        if (tags[last_inst] == .extended and data[last_inst].extended.opcode == .dbg_block_begin) {
+        if (tags[last_inst] == .dbg_block_begin) {
             _ = gz.instructions.pop();
             return;
         }
 
         const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
-        try gz.astgen.instructions.append(gpa, .{ .tag = .extended, .data = .{
-            .extended = .{ .opcode = .dbg_block_end, .small = undefined, .operand = undefined },
-        } });
+        try gz.astgen.instructions.append(gpa, .{ .tag = .dbg_block_end, .data = undefined });
         try gz.instructions.insert(gpa, gz.instructions.items.len - 1, new_index);
     }
 

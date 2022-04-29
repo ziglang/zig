@@ -200,9 +200,7 @@ const Writer = struct {
             .embed_file,
             .error_name,
             .panic,
-            .set_align_stack,
             .set_cold,
-            .set_float_mode,
             .set_runtime_safety,
             .sqrt,
             .sin,
@@ -231,8 +229,6 @@ const Writer = struct {
             .elem_type,
             .@"resume",
             .@"await",
-            .await_nosuspend,
-            .fence,
             .switch_cond,
             .switch_cond_ref,
             .array_base_ptr,
@@ -343,7 +339,6 @@ const Writer = struct {
             .int_to_enum,
             .float_cast,
             .int_cast,
-            .err_set_cast,
             .ptr_cast,
             .truncate,
             .align_cast,
@@ -405,13 +400,14 @@ const Writer = struct {
 
             .as_node => try self.writeAs(stream, inst),
 
-            .breakpoint,
             .repeat,
             .repeat_inline,
             .alloc_inferred,
             .alloc_inferred_mut,
             .alloc_inferred_comptime,
             .alloc_inferred_comptime_mut,
+            .ret_ptr,
+            .ret_type,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -444,6 +440,10 @@ const Writer = struct {
 
             .dbg_stmt => try self.writeDbgStmt(stream, inst),
 
+            .dbg_block_begin,
+            .dbg_block_end,
+            => try stream.writeAll("))"),
+
             .closure_get => try self.writeInstNode(stream, inst),
 
             .extended => try self.writeExtended(stream, inst),
@@ -454,13 +454,12 @@ const Writer = struct {
         const extended = self.code.instructions.items(.data)[inst].extended;
         try stream.print("{s}(", .{@tagName(extended.opcode)});
         switch (extended.opcode) {
-            .ret_ptr,
-            .ret_type,
             .this,
             .ret_addr,
             .error_return_trace,
             .frame,
             .frame_address,
+            .breakpoint,
             => try self.writeExtNode(stream, extended),
 
             .builtin_src => {
@@ -468,10 +467,6 @@ const Writer = struct {
                 const inst_data = self.code.extraData(Zir.Inst.LineColumn, extended.operand).data;
                 try stream.print(":{d}:{d}", .{ inst_data.line + 1, inst_data.column + 1 });
             },
-
-            .dbg_block_begin,
-            .dbg_block_end,
-            => try stream.writeAll("))"),
 
             .@"asm" => try self.writeAsm(stream, extended),
             .func => try self.writeFuncExtended(stream, extended),
@@ -492,7 +487,14 @@ const Writer = struct {
             .enum_decl => try self.writeEnumDecl(stream, extended),
             .opaque_decl => try self.writeOpaqueDecl(stream, extended),
 
-            .c_undef, .c_include, .wasm_memory_size => {
+            .await_nosuspend,
+            .c_undef,
+            .c_include,
+            .fence,
+            .set_float_mode,
+            .set_align_stack,
+            .wasm_memory_size,
+            => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src: LazySrcLoc = .{ .node_offset = inst_data.node };
                 try self.writeInstRef(stream, inst_data.operand);
@@ -500,7 +502,12 @@ const Writer = struct {
                 try self.writeSrc(stream, src);
             },
 
-            .builtin_extern, .c_define, .wasm_memory_grow, .prefetch => {
+            .builtin_extern,
+            .c_define,
+            .err_set_cast,
+            .wasm_memory_grow,
+            .prefetch,
+            => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 const src: LazySrcLoc = .{ .node_offset = inst_data.node };
                 try self.writeInstRef(stream, inst_data.lhs);
