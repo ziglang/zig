@@ -2668,7 +2668,7 @@ fn emitSegmentInfo(self: *Wasm, file: fs.File, arena: Allocator) !void {
     try file.writevAll(&iovecs);
 }
 
-fn getULEB128Size(uint_value: anytype) u32 {
+pub fn getULEB128Size(uint_value: anytype) u32 {
     const T = @TypeOf(uint_value);
     const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
     var value = @intCast(U, uint_value);
