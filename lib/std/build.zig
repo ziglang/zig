@@ -3544,9 +3544,9 @@ test "Builder.dupePkg()" {
     // the same as those in stack allocated package's fields
     try std.testing.expect(dupe_deps.ptr != original_deps.ptr);
     try std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
-    try std.testing.expect(dupe.path.path.ptr != pkg_top.path.path.ptr);
+    try std.testing.expect(dupe.source.path.ptr != pkg_top.source.path.ptr);
     try std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
-    try std.testing.expect(dupe_deps[0].path.path.ptr != pkg_dep.path.path.ptr);
+    try std.testing.expect(dupe_deps[0].source.path.ptr != pkg_dep.source.path.ptr);
 }
 
 test "LibExeObjStep.addPackage" {
