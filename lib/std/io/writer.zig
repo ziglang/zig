@@ -82,6 +82,16 @@ pub fn Writer(
             return self.writeAll(&bytes);
         }
 
+        /// Writes a LEB128 (Little Endian Base 128) value.
+        ///
+        /// See also: `std.leb` and https://en.wikipedia.org/wiki/LEB128
+        pub fn writeLEB128(self: Self, comptime T: type) Error!void {
+            if (comptime std.meta.trait.isUnsignedInt(T))
+                return std.leb.writeULEB128(self, T)
+            else
+                return std.leb.writeILEB128(self, T);
+        }
+
         pub fn writeStruct(self: Self, value: anytype) Error!void {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(@TypeOf(value)).Struct.layout != .Auto);
