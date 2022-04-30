@@ -9106,8 +9106,8 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const rhs_len = try sema.usizeCast(block, lhs_src, rhs_info.len);
             const final_len = lhs_len + rhs_len;
             const final_len_including_sent = final_len + @boolToInt(res_sent != null);
-            const lhs_single_ptr = lhs_ty.zigTypeTag() == .Pointer and !lhs_ty.isSlice();
-            const rhs_single_ptr = rhs_ty.zigTypeTag() == .Pointer and !rhs_ty.isSlice();
+            const lhs_single_ptr = lhs_ty.isSinglePointer();
+            const rhs_single_ptr = rhs_ty.isSinglePointer();
             const lhs_sub_val = if (lhs_single_ptr) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
             const rhs_sub_val = if (rhs_single_ptr) (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)).? else rhs_val;
             var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
@@ -9160,17 +9160,21 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, inst: Air.Inst.R
         .Array => t.arrayInfo(),
         .Pointer => blk: {
             const ptrinfo = t.ptrInfo().data;
-            if (ptrinfo.size == .Slice) {
-                const val = try sema.resolveConstValue(block, src, inst);
-                return Type.ArrayInfo{
-                    .elem_type = t.childType(),
-                    .sentinel = t.sentinel(),
-                    .len = val.sliceLen(sema.mod),
-                };
+            switch (ptrinfo.size) {
+                .Slice, .Many => {
+                    const val = try sema.resolveConstValue(block, src, inst);
+                    return Type.ArrayInfo{
+                        .elem_type = t.childType(),
+                        .sentinel = t.sentinel(),
+                        .len = val.sliceLen(sema.mod),
+                    };
+                },
+                .One => {
+                    if (ptrinfo.pointee_type.zigTypeTag() != .Array) return null;
+                    break :blk ptrinfo.pointee_type.arrayInfo();
+                },
+                .C => return null,
             }
-            if (ptrinfo.pointee_type.zigTypeTag() != .Array) return null;
-            if (ptrinfo.size != .One) return null;
-            break :blk ptrinfo.pointee_type.arrayInfo();
         },
         else => null,
     };
