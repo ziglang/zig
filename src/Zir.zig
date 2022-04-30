@@ -73,6 +73,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
             i32 => @bitCast(i32, code.extra[i]),
             Inst.Call.Flags => @bitCast(Inst.Call.Flags, code.extra[i]),
             Inst.SwitchBlock.Bits => @bitCast(Inst.SwitchBlock.Bits, code.extra[i]),
+            Inst.ExtendedFunc.Bits => @bitCast(Inst.ExtendedFunc.Bits, code.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -278,8 +279,6 @@ pub const Inst = struct {
         /// break instruction in a block, and the target block is the parent.
         /// Uses the `break` union field.
         break_inline,
-        /// Uses the `node` union field.
-        breakpoint,
         /// Function call.
         /// Uses `pl_node`. AST node is the function call. Payload is `Call`.
         call,
@@ -331,6 +330,10 @@ pub const Inst = struct {
         /// Same as `dbg_var_ptr` but the local is always a const and the operand
         /// is the local's value.
         dbg_var_val,
+        /// Marks the beginning of a semantic scope for debug info variables.
+        dbg_block_begin,
+        /// Marks the end of a semantic scope for debug info variables.
+        dbg_block_end,
         /// Uses a name to identify a Decl and takes a pointer to it.
         /// Uses the `str_tok` union field.
         decl_ref,
@@ -413,6 +416,10 @@ pub const Inst = struct {
         func,
         /// Same as `func` but has an inferred error set.
         func_inferred,
+        /// Represents a function declaration or function prototype, depending on
+        /// whether body_len is 0.
+        /// Uses the `pl_node` union field. `payload_index` points to a `ExtendedFunc`.
+        func_extended,
         /// Implements the `@import` builtin.
         /// Uses the `str_tok` field.
         import,
@@ -499,6 +506,12 @@ pub const Inst = struct {
         /// this instruction; a following 'ret' instruction will do the diversion.
         /// Uses the `str_tok` union field.
         ret_err_value_code,
+        /// Obtains a pointer to the return value.
+        /// Uses the `node` union field.
+        ret_ptr,
+        /// Obtains the return type of the in-scope function.
+        /// Uses the `node` union field.
+        ret_type,
         /// Create a pointer type that does not have a sentinel, alignment, address space, or bit range specified.
         /// Uses the `ptr_type_simple` union field.
         ptr_type_simple,
@@ -744,8 +757,6 @@ pub const Inst = struct {
         size_of,
         /// Implements the `@bitSizeOf` builtin. Uses `un_node`.
         bit_size_of,
-        /// Implements the `@fence` builtin. Uses `un_node`.
-        fence,
 
         /// Implement builtin `@ptrToInt`. Uses `un_node`.
         /// Convert a pointer to a `usize` integer.
@@ -774,12 +785,8 @@ pub const Inst = struct {
         error_name,
         /// Implement builtin `@panic`. Uses `un_node`.
         panic,
-        /// Implement builtin `@setAlignStack`. Uses `un_node`.
-        set_align_stack,
         /// Implement builtin `@setCold`. Uses `un_node`.
         set_cold,
-        /// Implement builtin `@setFloatMode`. Uses `un_node`.
-        set_float_mode,
         /// Implement builtin `@setRuntimeSafety`. Uses `un_node`.
         set_runtime_safety,
         /// Implement builtin `@sqrt`. Uses `un_node`.
@@ -843,9 +850,6 @@ pub const Inst = struct {
         /// Convert an integer value to another integer type, asserting that the destination type
         /// can hold the same mathematical value.
         int_cast,
-        /// Implements the `@errSetCast` builtin.
-        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
-        err_set_cast,
         /// Implements the `@ptrCast` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
         ptr_cast,
@@ -972,7 +976,6 @@ pub const Inst = struct {
         /// Implements `resume` syntax. Uses `un_node` field.
         @"resume",
         @"await",
-        await_nosuspend,
 
         /// When a type or function refers to a comptime value from an outer
         /// scope, that forms a closure over comptime value.  The outer scope
@@ -1028,8 +1031,6 @@ pub const Inst = struct {
                 .bool_br_and,
                 .bool_br_or,
                 .bool_not,
-                .breakpoint,
-                .fence,
                 .call,
                 .cmp_lt,
                 .cmp_lte,
@@ -1044,6 +1045,8 @@ pub const Inst = struct {
                 .dbg_stmt,
                 .dbg_var_ptr,
                 .dbg_var_val,
+                .dbg_block_begin,
+                .dbg_block_end,
                 .decl_ref,
                 .decl_val,
                 .load,
@@ -1064,6 +1067,7 @@ pub const Inst = struct {
                 .field_val_named,
                 .func,
                 .func_inferred,
+                .func_extended,
                 .has_decl,
                 .int,
                 .int_big,
@@ -1164,9 +1168,7 @@ pub const Inst = struct {
                 .bool_to_int,
                 .embed_file,
                 .error_name,
-                .set_align_stack,
                 .set_cold,
-                .set_float_mode,
                 .set_runtime_safety,
                 .sqrt,
                 .sin,
@@ -1192,7 +1194,6 @@ pub const Inst = struct {
                 .int_to_ptr,
                 .float_cast,
                 .int_cast,
-                .err_set_cast,
                 .ptr_cast,
                 .truncate,
                 .align_cast,
@@ -1231,11 +1232,12 @@ pub const Inst = struct {
                 .c_import,
                 .@"resume",
                 .@"await",
-                .await_nosuspend,
                 .ret_err_value_code,
                 .extended,
                 .closure_get,
                 .closure_capture,
+                .ret_ptr,
+                .ret_type,
                 => false,
 
                 .@"break",
@@ -1258,13 +1260,13 @@ pub const Inst = struct {
         /// AstGen uses this to find out if `Ref.void_value` should be used in place
         /// of the result of a given instruction. This allows Sema to forego adding
         /// the instruction to the map after analysis.
-        pub fn isAlwaysVoid(tag: Tag) bool {
+        pub fn isAlwaysVoid(tag: Tag, data: Data) bool {
             return switch (tag) {
-                .breakpoint,
-                .fence,
                 .dbg_stmt,
                 .dbg_var_ptr,
                 .dbg_var_val,
+                .dbg_block_begin,
+                .dbg_block_end,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .ensure_err_payload_void,
@@ -1283,9 +1285,7 @@ pub const Inst = struct {
                 .validate_array_init_comptime,
                 .@"export",
                 .export_value,
-                .set_align_stack,
                 .set_cold,
-                .set_float_mode,
                 .set_runtime_safety,
                 .memcpy,
                 .memset,
@@ -1353,6 +1353,7 @@ pub const Inst = struct {
                 .field_val_named,
                 .func,
                 .func_inferred,
+                .func_extended,
                 .has_decl,
                 .int,
                 .int_big,
@@ -1464,7 +1465,6 @@ pub const Inst = struct {
                 .int_to_ptr,
                 .float_cast,
                 .int_cast,
-                .err_set_cast,
                 .ptr_cast,
                 .truncate,
                 .align_cast,
@@ -1500,9 +1500,7 @@ pub const Inst = struct {
                 .c_import,
                 .@"resume",
                 .@"await",
-                .await_nosuspend,
                 .ret_err_value_code,
-                .extended,
                 .closure_get,
                 .closure_capture,
                 .@"break",
@@ -1514,11 +1512,18 @@ pub const Inst = struct {
                 .ret_load,
                 .ret_tok,
                 .ret_err_value,
+                .ret_ptr,
+                .ret_type,
                 .@"unreachable",
                 .repeat,
                 .repeat_inline,
                 .panic,
                 => false,
+
+                .extended => switch (data.extended.opcode) {
+                    .breakpoint, .fence => true,
+                    else => false,
+                },
             };
         }
 
@@ -1563,7 +1568,6 @@ pub const Inst = struct {
                 .bool_br_or = .bool_br,
                 .@"break" = .@"break",
                 .break_inline = .@"break",
-                .breakpoint = .node,
                 .call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,
@@ -1580,6 +1584,8 @@ pub const Inst = struct {
                 .dbg_stmt = .dbg_stmt,
                 .dbg_var_ptr = .str_op,
                 .dbg_var_val = .str_op,
+                .dbg_block_begin = .tok,
+                .dbg_block_end = .tok,
                 .decl_ref = .str_tok,
                 .decl_val = .str_tok,
                 .load = .un_node,
@@ -1602,6 +1608,7 @@ pub const Inst = struct {
                 .field_call_bind = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
+                .func_extended = .pl_node,
                 .import = .str_tok,
                 .int = .int,
                 .int_big = .str,
@@ -1623,6 +1630,8 @@ pub const Inst = struct {
                 .ret_tok = .un_tok,
                 .ret_err_value = .str_tok,
                 .ret_err_value_code = .str_tok,
+                .ret_ptr = .node,
+                .ret_type = .node,
                 .ptr_type_simple = .ptr_type_simple,
                 .ptr_type = .ptr_type,
                 .slice_start = .pl_node,
@@ -1685,7 +1694,6 @@ pub const Inst = struct {
                 .type_info = .un_node,
                 .size_of = .un_node,
                 .bit_size_of = .un_node,
-                .fence = .un_node,
 
                 .ptr_to_int = .un_node,
                 .error_to_int = .un_node,
@@ -1698,9 +1706,7 @@ pub const Inst = struct {
                 .embed_file = .un_node,
                 .error_name = .un_node,
                 .panic = .un_node,
-                .set_align_stack = .un_node,
                 .set_cold = .un_node,
-                .set_float_mode = .un_node,
                 .set_runtime_safety = .un_node,
                 .sqrt = .un_node,
                 .sin = .un_node,
@@ -1728,7 +1734,6 @@ pub const Inst = struct {
                 .int_to_enum = .pl_node,
                 .float_cast = .pl_node,
                 .int_cast = .pl_node,
-                .err_set_cast = .pl_node,
                 .ptr_cast = .pl_node,
                 .truncate = .pl_node,
                 .align_cast = .pl_node,
@@ -1788,7 +1793,6 @@ pub const Inst = struct {
 
                 .@"resume" = .un_node,
                 .@"await" = .un_node,
-                .await_nosuspend = .un_node,
 
                 .closure_capture = .un_tok,
                 .closure_get = .inst_node,
@@ -1806,11 +1810,6 @@ pub const Inst = struct {
     /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.
     /// `noreturn` instructions may not go here; they must be part of the main `Tag` enum.
     pub const Extended = enum(u16) {
-        /// Represents a function declaration or function prototype, depending on
-        /// whether body_len is 0.
-        /// `operand` is payload index to `ExtendedFunc`.
-        /// `small` is `ExtendedFunc.Small`.
-        func,
         /// Declares a global variable.
         /// `operand` is payload index to `ExtendedVar`.
         /// `small` is `ExtendedVar.Small`.
@@ -1834,12 +1833,6 @@ pub const Inst = struct {
         /// `operand` is payload index to `OpaqueDecl`.
         /// `small` is `OpaqueDecl.Small`.
         opaque_decl,
-        /// Obtains a pointer to the return value.
-        /// `operand` is `src_node: i32`.
-        ret_ptr,
-        /// Obtains the return type of the in-scope function.
-        /// `operand` is `src_node: i32`.
-        ret_type,
         /// Implements the `@This` builtin.
         /// `operand` is `src_node: i32`.
         this,
@@ -1917,10 +1910,6 @@ pub const Inst = struct {
         /// The `@prefetch` builtin.
         /// `operand` is payload index to `BinNode`.
         prefetch,
-        /// Marks the beginning of a semantic scope for debug info variables.
-        dbg_block_begin,
-        /// Marks the end of a semantic scope for debug info variables.
-        dbg_block_end,
         /// Given a pointer to a struct or object that contains virtual fields, returns the
         /// named field.  If there is no named field, searches in the type for a decl that
         /// matches the field name.  The decl is resolved and we ensure that it's a function
@@ -1931,6 +1920,22 @@ pub const Inst = struct {
         /// `builtin_call` instruction.  Any other use is invalid zir and may crash the compiler.
         /// Uses `pl_node` field. The AST node is the `@field` builtin. Payload is FieldNamedNode.
         field_call_bind_named,
+        /// Implements the `@fence` builtin.
+        /// `operand` is payload index to `UnNode`.
+        fence,
+        /// Implement builtin `@setFloatMode`.
+        /// `operand` is payload index to `UnNode`.
+        set_float_mode,
+        /// Implement builtin `@setAlignStack`.
+        /// `operand` is payload index to `UnNode`.
+        set_align_stack,
+        /// Implements the `@errSetCast` builtin.
+        /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
+        err_set_cast,
+        /// `operand` is payload index to `UnNode`.
+        await_nosuspend,
+        /// `operand` is `src_node: i32`.
+        breakpoint,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2502,11 +2507,7 @@ pub const Inst = struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
             src_node: i32,
-            /// `false`: Not safety checked - the compiler will assume the
-            /// correctness of this instruction.
-            /// `true`: In safety-checked modes, this will generate a call
-            /// to the panic function unless it can be proven unreachable by the compiler.
-            safety: bool,
+            force_comptime: bool,
 
             pub fn src(self: @This()) LazySrcLoc {
                 return .{ .node_offset = self.src_node };
@@ -2623,14 +2624,14 @@ pub const Inst = struct {
     /// 4. body: Index // for each body_len
     /// 5. src_locs: Func.SrcLocs // if body_len != 0
     pub const ExtendedFunc = struct {
-        src_node: i32,
         /// If this is 0 it means a void return type.
         ret_body_len: u32,
         /// Points to the block that contains the param instructions for this function.
         param_block: Index,
         body_len: u32,
+        bits: Bits,
 
-        pub const Small = packed struct {
+        pub const Bits = packed struct {
             is_var_args: bool,
             is_inferred_error: bool,
             has_lib_name: bool,
@@ -2638,7 +2639,7 @@ pub const Inst = struct {
             has_align: bool,
             is_test: bool,
             is_extern: bool,
-            _: u9 = undefined,
+            _: u25 = undefined,
         };
     };
 
@@ -3462,14 +3463,11 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
     switch (tags[decl_inst]) {
         // Functions are allowed and yield no iterations.
         // There is one case matching this in the extended instruction set below.
-        .func,
-        .func_inferred,
-        => return declIteratorInner(zir, 0, 0),
+        .func, .func_inferred, .func_extended => return declIteratorInner(zir, 0, 0),
 
         .extended => {
             const extended = datas[decl_inst].extended;
             switch (extended.opcode) {
-                .func => return declIteratorInner(zir, 0, 0),
                 .struct_decl => {
                     const small = @bitCast(Inst.StructDecl.Small, extended.small);
                     var extra_index: usize = extended.operand;
@@ -3574,21 +3572,21 @@ fn findDeclsInner(
             const body = zir.extra[extra.end..][0..extra.data.body_len];
             return zir.findDeclsBody(list, body);
         },
+        .func_extended => {
+            try list.append(inst);
+
+            const inst_data = datas[inst].pl_node;
+            const extra = zir.extraData(Inst.ExtendedFunc, inst_data.payload_index);
+            var extra_index: usize = extra.end;
+            extra_index += @boolToInt(extra.data.bits.has_lib_name);
+            extra_index += @boolToInt(extra.data.bits.has_cc);
+            extra_index += @boolToInt(extra.data.bits.has_align);
+            const body = zir.extra[extra_index..][0..extra.data.body_len];
+            return zir.findDeclsBody(list, body);
+        },
         .extended => {
             const extended = datas[inst].extended;
             switch (extended.opcode) {
-                .func => {
-                    try list.append(inst);
-
-                    const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
-                    const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
-                    var extra_index: usize = extra.end;
-                    extra_index += @boolToInt(small.has_lib_name);
-                    extra_index += @boolToInt(small.has_cc);
-                    extra_index += @boolToInt(small.has_align);
-                    const body = zir.extra[extra_index..][0..extra.data.body_len];
-                    return zir.findDeclsBody(list, body);
-                },
 
                 // Decl instructions are interesting but have no body.
                 // TODO yes they do have a body actually. recurse over them just like block instructions.
@@ -3735,15 +3733,13 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 .body = body,
             };
         },
-        .extended => blk: {
-            const extended = datas[fn_inst].extended;
-            assert(extended.opcode == .func);
-            const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
-            const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
+        .func_extended => blk: {
+            const inst_data = datas[fn_inst].pl_node;
+            const extra = zir.extraData(Inst.ExtendedFunc, inst_data.payload_index);
             var extra_index: usize = extra.end;
-            extra_index += @boolToInt(small.has_lib_name);
-            extra_index += @boolToInt(small.has_cc);
-            extra_index += @boolToInt(small.has_align);
+            extra_index += @boolToInt(extra.data.bits.has_lib_name);
+            extra_index += @boolToInt(extra.data.bits.has_cc);
+            extra_index += @boolToInt(extra.data.bits.has_align);
             const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
             extra_index += ret_ty_body.len;
             const body = zir.extra[extra_index..][0..extra.data.body_len];

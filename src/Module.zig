@@ -1532,10 +1532,10 @@ pub const Fn = struct {
         switch (zir_tags[func.zir_body_inst]) {
             .func => return false,
             .func_inferred => return true,
-            .extended => {
-                const extended = zir.instructions.items(.data)[func.zir_body_inst].extended;
-                const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
-                return small.is_inferred_error;
+            .func_extended => {
+                const inst_data = zir.instructions.items(.data)[func.zir_body_inst].pl_node;
+                const extra = zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+                return extra.data.bits.is_inferred_error;
             },
             else => unreachable,
         }

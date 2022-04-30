@@ -200,9 +200,7 @@ const Writer = struct {
             .embed_file,
             .error_name,
             .panic,
-            .set_align_stack,
             .set_cold,
-            .set_float_mode,
             .set_runtime_safety,
             .sqrt,
             .sin,
@@ -231,8 +229,6 @@ const Writer = struct {
             .elem_type,
             .@"resume",
             .@"await",
-            .await_nosuspend,
-            .fence,
             .switch_cond,
             .switch_cond_ref,
             .array_base_ptr,
@@ -343,7 +339,6 @@ const Writer = struct {
             .int_to_enum,
             .float_cast,
             .int_cast,
-            .err_set_cast,
             .ptr_cast,
             .truncate,
             .align_cast,
@@ -405,13 +400,14 @@ const Writer = struct {
 
             .as_node => try self.writeAs(stream, inst),
 
-            .breakpoint,
             .repeat,
             .repeat_inline,
             .alloc_inferred,
             .alloc_inferred_mut,
             .alloc_inferred_comptime,
             .alloc_inferred_comptime_mut,
+            .ret_ptr,
+            .ret_type,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -433,6 +429,7 @@ const Writer = struct {
 
             .func => try self.writeFunc(stream, inst, false),
             .func_inferred => try self.writeFunc(stream, inst, true),
+            .func_extended => try self.writeFuncExtended(stream, inst),
 
             .@"unreachable" => try self.writeUnreachable(stream, inst),
 
@@ -444,6 +441,10 @@ const Writer = struct {
 
             .dbg_stmt => try self.writeDbgStmt(stream, inst),
 
+            .dbg_block_begin,
+            .dbg_block_end,
+            => try stream.writeAll("))"),
+
             .closure_get => try self.writeInstNode(stream, inst),
 
             .extended => try self.writeExtended(stream, inst),
@@ -454,13 +455,12 @@ const Writer = struct {
         const extended = self.code.instructions.items(.data)[inst].extended;
         try stream.print("{s}(", .{@tagName(extended.opcode)});
         switch (extended.opcode) {
-            .ret_ptr,
-            .ret_type,
             .this,
             .ret_addr,
             .error_return_trace,
             .frame,
             .frame_address,
+            .breakpoint,
             => try self.writeExtNode(stream, extended),
 
             .builtin_src => {
@@ -469,12 +469,7 @@ const Writer = struct {
                 try stream.print(":{d}:{d}", .{ inst_data.line + 1, inst_data.column + 1 });
             },
 
-            .dbg_block_begin,
-            .dbg_block_end,
-            => try stream.writeAll("))"),
-
             .@"asm" => try self.writeAsm(stream, extended),
-            .func => try self.writeFuncExtended(stream, extended),
             .variable => try self.writeVarExtended(stream, extended),
             .alloc => try self.writeAllocExtended(stream, extended),
 
@@ -492,7 +487,14 @@ const Writer = struct {
             .enum_decl => try self.writeEnumDecl(stream, extended),
             .opaque_decl => try self.writeOpaqueDecl(stream, extended),
 
-            .c_undef, .c_include, .wasm_memory_size => {
+            .await_nosuspend,
+            .c_undef,
+            .c_include,
+            .fence,
+            .set_float_mode,
+            .set_align_stack,
+            .wasm_memory_size,
+            => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src: LazySrcLoc = .{ .node_offset = inst_data.node };
                 try self.writeInstRef(stream, inst_data.operand);
@@ -500,7 +502,12 @@ const Writer = struct {
                 try self.writeSrc(stream, src);
             },
 
-            .builtin_extern, .c_define, .wasm_memory_grow, .prefetch => {
+            .builtin_extern,
+            .c_define,
+            .err_set_cast,
+            .wasm_memory_grow,
+            .prefetch,
+            => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 const src: LazySrcLoc = .{ .node_offset = inst_data.node };
                 try self.writeInstRef(stream, inst_data.lhs);
@@ -1913,24 +1920,24 @@ const Writer = struct {
         );
     }
 
-    fn writeFuncExtended(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const extra = self.code.extraData(Zir.Inst.ExtendedFunc, extended.operand);
-        const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
-        const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
+    fn writeFuncExtended(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+        const src = inst_data.src();
 
         var extra_index: usize = extra.end;
-        if (small.has_lib_name) {
+        if (extra.data.bits.has_lib_name) {
             const lib_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
             extra_index += 1;
             try stream.print("lib_name=\"{}\", ", .{std.zig.fmtEscapes(lib_name)});
         }
-        try self.writeFlag(stream, "test, ", small.is_test);
-        const cc: Zir.Inst.Ref = if (!small.has_cc) .none else blk: {
+        try self.writeFlag(stream, "test, ", extra.data.bits.is_test);
+        const cc: Zir.Inst.Ref = if (!extra.data.bits.has_cc) .none else blk: {
             const cc = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
             extra_index += 1;
             break :blk cc;
         };
-        const align_inst: Zir.Inst.Ref = if (!small.has_align) .none else blk: {
+        const align_inst: Zir.Inst.Ref = if (!extra.data.bits.has_align) .none else blk: {
             const align_inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
             extra_index += 1;
             break :blk align_inst;
@@ -1949,9 +1956,9 @@ const Writer = struct {
         return self.writeFuncCommon(
             stream,
             ret_ty_body,
-            small.is_inferred_error,
-            small.is_var_args,
-            small.is_extern,
+            extra.data.bits.is_inferred_error,
+            extra.data.bits.is_var_args,
+            extra.data.bits.is_extern,
             cc,
             align_inst,
             body,
@@ -2091,8 +2098,6 @@ const Writer = struct {
 
     fn writeUnreachable(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].@"unreachable";
-        const safety_str = if (inst_data.safety) "safe" else "unsafe";
-        try stream.print("{s}) ", .{safety_str});
         try self.writeSrc(stream, inst_data.src());
     }
 
