@@ -81,6 +81,7 @@ pub fn emitMir(
             .stx => try emit.mirArithmetic3Op(inst),
 
             .sub => try emit.mirArithmetic3Op(inst),
+            .subcc => @panic("TODO implement sparcv9 subcc"),
 
             .tcc => try emit.mirTrap(inst),
         }
