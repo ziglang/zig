@@ -580,7 +580,7 @@ pub const DeclGen = struct {
                     64 => return writer.writeAll("(void *)0xaaaaaaaaaaaaaaaa"),
                     else => unreachable,
                 },
-                .Struct => {
+                .Struct, .ErrorUnion => {
                     try writer.writeByte('(');
                     try dg.renderTypecast(writer, ty);
                     return writer.writeAll("){0xaa}");
