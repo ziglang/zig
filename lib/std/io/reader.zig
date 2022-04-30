@@ -274,6 +274,16 @@ pub fn Reader(
             return mem.readInt(T, &bytes, endian);
         }
 
+        /// Reads a LEB128 (Little Endian Base 128) value.
+        ///
+        /// See also: `std.leb` and https://en.wikipedia.org/wiki/LEB128
+        pub fn readLEB128(self: Self, comptime T: type) !T {
+            if (comptime std.meta.trait.isUnsignedInt(T))
+                return std.leb.readULEB128(T, self)
+            else
+                return std.leb.readILEB128(T, self);
+        }
+
         pub fn readVarInt(self: Self, comptime ReturnType: type, endian: std.builtin.Endian, size: usize) !ReturnType {
             assert(size <= @sizeOf(ReturnType));
             var bytes_buf: [@sizeOf(ReturnType)]u8 = undefined;
