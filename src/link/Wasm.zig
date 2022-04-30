@@ -11,6 +11,7 @@ const log = std.log.scoped(.link);
 const wasm = std.wasm;
 
 const Atom = @import("Wasm/Atom.zig");
+const Dwarf = @import("Dwarf.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
@@ -82,6 +83,8 @@ data_segments: std.StringArrayHashMapUnmanaged(u32) = .{},
 segment_info: std.ArrayListUnmanaged(types.Segment) = .{},
 /// Deduplicated string table for strings used by symbols, imports and exports.
 string_table: StringTable = .{},
+/// Debug information for wasm
+dwarf: ?Dwarf = null,
 
 // Output sections
 /// Output type section
@@ -137,10 +140,15 @@ pub const Segment = struct {
 };
 
 pub const FnData = struct {
+    /// Reference to the wasm type that represents this function.
     type_index: u32,
+    /// Contains debug information related to this function.
+    /// For Wasm, the offset is relative to the code-section.
+    src_fn: Dwarf.SrcFn,
 
     pub const empty: FnData = .{
         .type_index = undefined,
+        .src_fn = Dwarf.SrcFn.empty,
     };
 };
 
@@ -318,6 +326,11 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
         },
         .name = undefined,
     };
+
+    if (!options.strip and options.module != null) {
+        self.dwarf = Dwarf.init(gpa, .wasm, options.target);
+    }
+
     const use_llvm = build_options.have_llvm and options.use_llvm;
     const use_stage1 = build_options.is_stage1 and options.use_stage1;
     if (use_llvm and !use_stage1) {
@@ -479,6 +492,10 @@ pub fn deinit(self: *Wasm) void {
     self.exports.deinit(gpa);
 
     self.string_table.deinit(gpa);
+
+    if (self.dwarf) |*dwarf| {
+        dwarf.deinit();
+    }
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl_index: Module.Decl.Index) !void {
@@ -515,11 +532,18 @@ pub fn updateFunc(self: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func, air, liveness);
     }
+
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
     decl.link.wasm.clear();
+
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dwarf| try dwarf.initDeclState(mod, decl) else null;
+    defer if (decl_state) |*ds| ds.deinit();
 
     var code_writer = std.ArrayList(u8).init(self.base.allocator);
     defer code_writer.deinit();
@@ -530,7 +554,7 @@ pub fn updateFunc(self: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
         air,
         liveness,
         &code_writer,
-        .none,
+        if (decl_state) |*ds| .{ .dwarf = ds } else .none,
     );
 
     const code = switch (result) {
@@ -554,6 +578,9 @@ pub fn updateDecl(self: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
     }
+
+    const tracy = trace(@src());
+    defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
@@ -594,6 +621,20 @@ pub fn updateDecl(self: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     };
 
     return self.finishUpdateDecl(decl, code);
+}
+
+pub fn updateDeclLineNumber(self: *Wasm, mod: *Module, decl: *const Module.Decl) !void {
+    if (self.llvm_object) |_| return;
+    if (self.dwarf) |*dw| {
+        const tracy = trace(@src());
+        defer tracy.end();
+
+        const decl_name = try decl.getFullyQualifiedName(mod);
+        defer self.base.allocator.free(decl_name);
+
+        log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
+        try dw.updateDeclLineNumber(&self.base, decl);
+    }
 }
 
 fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
@@ -852,6 +893,12 @@ pub fn freeDecl(self: *Wasm, decl_index: Module.Decl.Index) void {
     }
     _ = self.resolved_symbols.swapRemove(atom.symbolLoc());
     _ = self.symbol_atom.remove(atom.symbolLoc());
+
+    if (self.dwarf) |*dwarf| {
+        dwarf.freeDecl(decl);
+        dwarf.freeAtom(&atom.dbg_info_atom);
+    }
+
     atom.deinit(self.base.allocator);
 }
 
