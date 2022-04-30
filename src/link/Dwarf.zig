@@ -735,6 +735,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl: *Module.Decl) !DeclState 
                 const atom = switch (self.tag) {
                     .elf => &decl.link.elf.dbg_info_atom,
                     .macho => &decl.link.macho.dbg_info_atom,
+                    .wasm => &decl.link.wasm.dbg_info_atom,
                     else => unreachable,
                 };
                 try decl_state.addTypeReloc(
@@ -1250,6 +1251,10 @@ pub fn updateDeclLineNumber(self: *Dwarf, file: *File, decl: *const Module.Decl)
             const file_pos = sect.offset + decl.fn_link.macho.off + self.getRelocDbgLineOff();
             try d_sym.file.pwriteAll(&data, file_pos);
         },
+        .wasm => {
+            const wasm_file = file.cast(File.Wasm).?;
+            _ = wasm_file; // TODO, update .debug_line
+        },
         else => unreachable,
     }
 }
@@ -1285,6 +1290,7 @@ pub fn freeDecl(self: *Dwarf, decl: *Module.Decl) void {
     const fn_link = switch (self.tag) {
         .elf => &decl.fn_link.elf,
         .macho => &decl.fn_link.macho,
+        .wasm => &decl.fn_link.wasm.src_fn,
         else => unreachable,
     };
     _ = self.dbg_line_fn_free_list.remove(fn_link);
