@@ -125,6 +125,12 @@ const MCValue = union(enum) {
     stack_offset: u32,
     /// The value is a pointer to one of the stack variables (payload is stack offset).
     ptr_stack_offset: u32,
+    /// The value is in the compare flags assuming an unsigned operation,
+    /// with this operator applied on top of it.
+    compare_flags_unsigned: math.CompareOperator,
+    /// The value is in the compare flags assuming a signed operation,
+    /// with this operator applied on top of it.
+    compare_flags_signed: math.CompareOperator,
 
     fn isMemory(mcv: MCValue) bool {
         return switch (mcv) {
@@ -536,9 +542,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_non_null_ptr => @panic("TODO try self.airIsNonNullPtr(inst)"),
             .is_null         => @panic("TODO try self.airIsNull(inst)"),
             .is_null_ptr     => @panic("TODO try self.airIsNullPtr(inst)"),
-            .is_non_err      => @panic("TODO try self.airIsNonErr(inst)"),
+            .is_non_err      => try self.airIsNonErr(inst),
             .is_non_err_ptr  => @panic("TODO try self.airIsNonErrPtr(inst)"),
-            .is_err          => @panic("TODO try self.airIsErr(inst)"),
+            .is_err          => try self.airIsErr(inst),
             .is_err_ptr      => @panic("TODO try self.airIsErrPtr(inst)"),
             .load            => @panic("TODO try self.airLoad(inst)"),
             .loop            => @panic("TODO try self.airLoop(inst)"),
@@ -872,6 +878,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             .unreach => unreachable,
             .dead => unreachable,
             .memory => unreachable,
+            .compare_flags_signed => unreachable,
+            .compare_flags_unsigned => unreachable,
             .register => |reg| {
                 try self.register_manager.getReg(reg, null);
                 try self.genSetReg(arg_ty, reg, arg_mcv);
@@ -1002,6 +1010,26 @@ fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement div for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(un_op);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isErr(ty, operand);
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airIsNonErr(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(un_op);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNonErr(ty, operand);
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
@@ -1259,6 +1287,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
     switch (mcv) {
         .dead => unreachable,
         .unreach, .none => return, // Nothing to do.
+        .compare_flags_signed => return self.fail("TODO: genSetReg for compare_flags_signed", .{}),
+        .compare_flags_unsigned => return self.fail("TODO: genSetReg for compare_flags_unsigned", .{}),
         .undef => {
             if (!self.wantSafety())
                 return; // The already existing value will do just fine.
@@ -1426,6 +1456,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 else => return self.fail("TODO implement memset", .{}),
             }
         },
+        .compare_flags_unsigned,
+        .compare_flags_signed,
         .immediate,
         .ptr_stack_offset,
         => {
@@ -1519,6 +1551,54 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
             assert(mcv != .dead);
             return mcv;
         }
+    }
+}
+
+fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    const error_type = ty.errorUnionSet();
+    const payload_type = ty.errorUnionPayload();
+
+    if (!error_type.hasRuntimeBits()) {
+        return MCValue{ .immediate = 0 }; // always false
+    } else if (!payload_type.hasRuntimeBits()) {
+        if (error_type.abiSize(self.target.*) <= 8) {
+            const reg_mcv: MCValue = switch (operand) {
+                .register => operand,
+                else => .{ .register = try self.copyToTmpRegister(error_type, operand) },
+            };
+
+            _ = try self.addInst(.{
+                .tag = .subcc,
+                .data = .{ .arithmetic_3op = .{
+                    .is_imm = true,
+                    .rs1 = reg_mcv.register,
+                    .rs2_or_imm = .{ .imm = 0 },
+                    .rd = .g0,
+                } },
+            });
+
+            return MCValue{ .compare_flags_unsigned = .gt };
+        } else {
+            return self.fail("TODO isErr for errors with size > 8", .{});
+        }
+    } else {
+        return self.fail("TODO isErr for non-empty payloads", .{});
+    }
+}
+
+fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    // Call isErr, then negate the result.
+    const is_err_result = try self.isErr(ty, operand);
+    switch (is_err_result) {
+        .compare_flags_unsigned => |op| {
+            assert(op == .gt);
+            return MCValue{ .compare_flags_unsigned = .lte };
+        },
+        .immediate => |imm| {
+            assert(imm == 0);
+            return MCValue{ .immediate = 1 };
+        },
+        else => unreachable,
     }
 }
 

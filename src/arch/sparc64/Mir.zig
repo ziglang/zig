@@ -106,6 +106,7 @@ pub const Inst = struct {
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
         sub,
+        subcc,
 
         /// A.61 Trap on Integer Condition Codes (Tcc)
         /// This uses the trap field.
