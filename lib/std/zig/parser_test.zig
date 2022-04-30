@@ -131,25 +131,25 @@ test "zig fmt: respect line breaks after var declarations" {
 test "zig fmt: multiline string mixed with comments" {
     try testCanonical(
         \\const s1 =
-        \\    //\\one
+        \\    // \\one
         \\    \\two)
         \\    \\three
         \\;
         \\const s2 =
         \\    \\one
         \\    \\two)
-        \\    //\\three
+        \\    // \\three
         \\;
         \\const s3 =
         \\    \\one
-        \\    //\\two)
+        \\    // \\two)
         \\    \\three
         \\;
         \\const s4 =
         \\    \\one
-        \\    //\\two
+        \\    // \\two
         \\    \\three
-        \\    //\\four
+        \\    // \\four
         \\    \\five
         \\;
         \\const a =
@@ -168,7 +168,7 @@ test "zig fmt: file ends in comment" {
     try testTransform(
         \\     //foobar
     ,
-        \\//foobar
+        \\// foobar
         \\
     );
 }
@@ -179,7 +179,7 @@ test "zig fmt: file ends in comment after var decl" {
         \\     //foobar
     ,
         \\const x = 42;
-        \\//foobar
+        \\// foobar
         \\
     );
 }
@@ -2407,7 +2407,7 @@ test "zig fmt: add comma on last switch prong" {
         \\    }
         \\    switch (self.init_arg_expr) {
         \\        InitArg.Type => |t| {},
-        \\        InitArg.None, InitArg.Enum => {}, //line comment
+        \\        InitArg.None, InitArg.Enum => {}, // line comment
         \\    }
         \\}
         \\
@@ -3972,7 +3972,7 @@ test "zig fmt: comment after empty comment" {
         \\const x = true; //
         \\//
         \\//
-        \\//a
+        \\// a
         \\
     );
 }
@@ -4038,33 +4038,33 @@ test "zig fmt: comment after params" {
 test "zig fmt: comment in array initializer/access" {
     try testCanonical(
         \\test "a" {
-        \\    var a = x{ //aa
-        \\        //bb
+        \\    var a = x{ // aa
+        \\        // bb
         \\    };
-        \\    var a = []x{ //aa
-        \\        //bb
+        \\    var a = []x{ // aa
+        \\        // bb
         \\    };
-        \\    var b = [ //aa
+        \\    var b = [ // aa
         \\        _
-        \\    ]x{ //aa
-        \\        //bb
+        \\    ]x{ // aa
+        \\        // bb
         \\        9,
         \\    };
-        \\    var c = b[ //aa
+        \\    var c = b[ // aa
         \\        0
         \\    ];
         \\    var d = [
         \\        _
-        \\        //aa
+        \\        // aa
         \\        :
         \\        0
-        \\    ]x{ //aa
-        \\        //bb
+        \\    ]x{ // aa
+        \\        // bb
         \\        9,
         \\    };
         \\    var e = d[
         \\        0
-        \\        //aa
+        \\        // aa
         \\    ];
         \\}
         \\
@@ -4526,7 +4526,7 @@ test "zig fmt: allow trailing line comments to do manual array formatting" {
         \\        0x55, // push rbp
         \\        0x48, 0x89, 0xe5, // mov rbp, rsp
         \\        // How do we handle this?
-        \\        //0x48, 0x81, 0xec, // sub rsp, imm32 (with reloc)
+        \\        // 0x48, 0x81, 0xec, // sub rsp, imm32 (with reloc)
         \\        // Here's a blank line, should that be allowed?
         \\
         \\        0x48, 0x89, 0xe5,
@@ -4550,26 +4550,26 @@ test "zig fmt: multiline string literals should play nice with array initializer
         \\        "dddd",                              ("eee"),  ("fff"),
         \\        ("gggg"),
         \\        // Line comment
-        \\        \\Multiline String Literals can be quite long
+        \\        \\ Multiline String Literals can be quite long
         \\        ,
-        \\        \\Multiline String Literals can be quite long
-        \\        \\Multiline String Literals can be quite long
+        \\        \\ Multiline String Literals can be quite long
+        \\        \\ Multiline String Literals can be quite long
         \\        ,
-        \\        \\Multiline String Literals can be quite long
-        \\        \\Multiline String Literals can be quite long
-        \\        \\Multiline String Literals can be quite long
-        \\        \\Multiline String Literals can be quite long
+        \\        \\ Multiline String Literals can be quite long
+        \\        \\ Multiline String Literals can be quite long
+        \\        \\ Multiline String Literals can be quite long
+        \\        \\ Multiline String Literals can be quite long
         \\        ,
         \\        (
-        \\            \\Multiline String Literals can be quite long
+        \\            \\ Multiline String Literals can be quite long
         \\        ),
         \\        .{
-        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\            \\ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\            \\ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\            \\ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
         \\        },
         \\        .{(
-        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\            \\ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
         \\        )},
         \\        .{
         \\            "xxxxxxx", "xxx",
@@ -4593,12 +4593,12 @@ test "zig fmt: multiline string literals should play nice with array initializer
         \\        },
         \\        .{
         \\            (
-        \\                \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\                \\ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
         \\            ),
-        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\            \\ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
         \\        },
-        \\        \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-        \\        \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\        \\ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\        \\ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
         \\    });
         \\}
         \\
@@ -4730,6 +4730,80 @@ test "zig fmt: remove trailing whitespace after doc comment" {
     ,
         \\/// doc comment
         \\a = 0,
+        \\
+    );
+}
+
+test "zig fmt: remove trailing whitespace after comment" {
+    try testTransform(
+        \\// comment 
+        \\
+    ,
+        \\// comment
+        \\
+    );
+}
+
+test "zig fmt: ensure space before comment content" {
+    try testTransform(
+        \\//!top level doc comment
+        \\//! top level doc comment
+        \\//!  top level doc comment
+        \\//!
+        \\//! hello world
+        \\
+        \\/////
+        \\
+        \\/// doc comment
+        \\///            doc comment
+        \\///doc comment
+        \\///
+        \\/// hello world
+        \\a = 0,
+        \\
+        \\//////////
+        \\
+        \\//comment
+        \\// comment
+        \\//  comment
+        \\// comment
+        \\//comment
+        \\//
+        \\// hello world
+        \\
+        \\test {
+        \\    //a = 1;
+        \\}
+        \\
+    ,
+        \\//! top level doc comment
+        \\//! top level doc comment
+        \\//!  top level doc comment
+        \\//!
+        \\//! hello world
+        \\
+        \\/////
+        \\
+        \\/// doc comment
+        \\///            doc comment
+        \\/// doc comment
+        \\///
+        \\/// hello world
+        \\a = 0,
+        \\
+        \\//////////
+        \\
+        \\// comment
+        \\// comment
+        \\//  comment
+        \\// comment
+        \\// comment
+        \\//
+        \\// hello world
+        \\
+        \\test {
+        \\    // a = 1;
+        \\}
         \\
     );
 }
@@ -5399,8 +5473,8 @@ test "recovery: eof in c pointer" {
 
 test "matching whitespace on minus op" {
     try testError(
-        \\ _ = 2 -1, 
-        \\ _ = 2- 1, 
+        \\ _ = 2 -1,
+        \\ _ = 2- 1,
         \\ _ = 2-
         \\     2,
         \\ _ = 2
@@ -5417,7 +5491,7 @@ test "matching whitespace on minus op" {
         \\ _ = -1,
         \\ _ = 2 - -1,
         \\ _ = 2 - 1,
-        \\ _ = 2-1, 
+        \\ _ = 2-1,
         \\ _ = 2 -
         \\1,
         \\ _ = 2
@@ -5428,8 +5502,8 @@ test "matching whitespace on minus op" {
 test "ampersand" {
     try testError(
         \\ _ = bar && foo,
-        \\ _ = bar&&foo, 
-        \\ _ = bar& & foo, 
+        \\ _ = bar&&foo,
+        \\ _ = bar& & foo,
         \\ _ = bar& &foo,
     , &.{
         .invalid_ampersand_ampersand,
@@ -5439,9 +5513,9 @@ test "ampersand" {
     });
 
     try testError(
-        \\ _ = bar & &foo, 
-        \\ _ = bar & &&foo, 
-        \\ _ = &&foo, 
+        \\ _ = bar & &foo,
+        \\ _ = bar & &&foo,
+        \\ _ = &&foo,
     , &.{});
 }
 

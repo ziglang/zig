@@ -2427,8 +2427,13 @@ fn renderComments(ais: *Ais, tree: Ast, start: usize, end: usize) Error!bool {
             try ais.writer().writeAll("// zig fmt: off\n");
             ais.disabled_offset = index;
         } else {
-            // Write the comment minus trailing whitespace.
-            try ais.writer().print("{s}\n", .{trimmed_comment});
+            // Write the comment minus trailing whitespace
+            // and ensure that a space comes before the comment content.
+            if (mem.startsWith(u8, trimmed_comment, "// ") or mem.startsWith(u8, trimmed_comment, "///") or comment_content.len == 0) {
+                try ais.writer().print("{s}\n", .{trimmed_comment});
+            } else {
+                try ais.writer().print("// {s}\n", .{comment_content});
+            }
         }
     }
 
@@ -2485,7 +2490,16 @@ fn renderDocComments(ais: *Ais, tree: Ast, end_token: Ast.TokenIndex) Error!void
     try renderExtraNewlineToken(ais, tree, first_tok);
 
     while (token_tags[tok] == .doc_comment) : (tok += 1) {
-        try renderToken(ais, tree, tok, .newline);
+        // Write the comment minus trailing whitespace
+        // and ensure that a space comes before the comment content.
+        const token_slice = tokenSliceForRender(tree, tok);
+        const comment_content = token_slice["///".len..];
+        if (mem.startsWith(u8, token_slice, "/// ") or mem.startsWith(u8, token_slice, "////") or comment_content.len == 0) {
+            try renderToken(ais, tree, tok, .newline);
+        } else {
+            try ais.writer().print("/// {s}", .{comment_content});
+            try renderSpace(ais, tree, tok, token_slice.len, .newline);
+        }
     }
 }
 
@@ -2494,7 +2508,16 @@ fn renderContainerDocComments(ais: *Ais, tree: Ast, start_token: Ast.TokenIndex)
     const token_tags = tree.tokens.items(.tag);
     var tok = start_token;
     while (token_tags[tok] == .container_doc_comment) : (tok += 1) {
-        try renderToken(ais, tree, tok, .newline);
+        // Write the comment minus trailing whitespace
+        // and ensure that a space comes before the comment content.
+        const token_slice = tokenSliceForRender(tree, tok);
+        const comment_content = token_slice["//!".len..];
+        if (mem.startsWith(u8, token_slice, "//! ") or comment_content.len == 0) {
+            try renderToken(ais, tree, tok, .newline);
+        } else {
+            try ais.writer().print("//! {s}", .{comment_content});
+            try renderSpace(ais, tree, tok, token_slice.len, .newline);
+        }
     }
     // Render extra newline if there is one between final container doc comment and
     // the next token. If the next token is a doc comment, that code path
