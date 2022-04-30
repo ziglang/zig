@@ -205,3 +205,9 @@ pub const HP_unmod_range = 0xe5;
 pub const HP_tls = 0xe6;
 // PGI (STMicroelectronics) extensions.
 pub const PGI_omp_thread_num = 0xf8;
+// Wasm extensions.
+pub const WASM_location = 0xed;
+pub const WASM_local = 0x00;
+pub const WASM_global = 0x01;
+pub const WASM_global_u32 = 0x03;
+pub const WASM_operand_stack = 0x02;
