@@ -999,3 +999,25 @@ test "access smoke test" {
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
     try os.access(file_path, os.F_OK);
 }
+
+test "timerfd" {
+    if (native_os != .linux)
+        return error.SkipZigTest;
+
+
+    const linux = os.linux;
+    var tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, linux.TFD.CLOEXEC);
+    defer os.close(tfd);
+
+    var sit: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 10*(1000*1000) } };
+    try os.timerfd_settime(tfd, 0, &sit, null);
+
+
+    var fds: [1]os.pollfd = .{.{.fd = tfd, .events = os.linux.POLL.IN, .revents = 0}};
+    try expectEqual(try os.poll(&fds, -1), 1);
+    var git = try os.timerfd_gettime(tfd) ;
+    try expectEqual(git, .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } });
+
+    try os.timerfd_settime(tfd, 0, &sit, null);
+    try expectEqual(try os.poll(&fds, 5), 0);
+}
