@@ -144,10 +144,10 @@ pub fn NoOpFree(comptime AllocatorType: type) type {
     };
 }
 
-/// Set freeFn to `PanicFree(AllocatorType).noOpFree` if free is not a supported operation.
+/// Set freeFn to `PanicFree(AllocatorType).panicFree` if free is not a supported operation.
 pub fn PanicFree(comptime AllocatorType: type) type {
     return struct {
-        pub fn noOpFree(
+        pub fn panicFree(
             self: *AllocatorType,
             buf: []u8,
             buf_align: u29,
