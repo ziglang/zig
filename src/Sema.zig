@@ -9847,25 +9847,37 @@ fn analyzeArithmetic(
                 // TODO: emit runtime safety for division by zero
                 //
                 // For floats:
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
+                // If the rhs is zero:
+                //  * comptime_float: compile error for division by zero.
+                //  * other float type:
+                //    * if the lhs is zero: QNaN
+                //    * otherwise: +Inf or -Inf depending on lhs sign
+                // If the rhs is undefined:
+                //  * comptime_float: compile error because there is a possible
+                //    value (zero) for which the division would be illegal behavior.
+                //  * other float type: result is undefined
                 // If the lhs is undefined, result is undefined.
-                if (maybe_lhs_val) |lhs_val| {
-                    if (!lhs_val.isUndef()) {
-                        if (lhs_val.compareWithZero(.eq)) {
-                            return sema.addConstant(resolved_type, Value.zero);
+                switch (scalar_tag) {
+                    .Int, .ComptimeInt, .ComptimeFloat => {
+                        if (maybe_lhs_val) |lhs_val| {
+                            if (!lhs_val.isUndef()) {
+                                if (lhs_val.compareWithZero(.eq)) {
+                                    return sema.addConstant(resolved_type, Value.zero);
+                                }
+                            }
                         }
-                    }
+                        if (maybe_rhs_val) |rhs_val| {
+                            if (rhs_val.isUndef()) {
+                                return sema.failWithUseOfUndef(block, rhs_src);
+                            }
+                            if (rhs_val.compareWithZero(.eq)) {
+                                return sema.failWithDivideByZero(block, rhs_src);
+                            }
+                        }
+                    },
+                    else => {},
                 }
-                if (maybe_rhs_val) |rhs_val| {
-                    if (rhs_val.isUndef()) {
-                        return sema.failWithUseOfUndef(block, rhs_src);
-                    }
-                    if (rhs_val.compareWithZero(.eq)) {
-                        return sema.failWithDivideByZero(block, rhs_src);
-                    }
-                }
+
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef()) {
                         if (lhs_scalar_ty.isSignedInt() and rhs_scalar_ty.isSignedInt()) {

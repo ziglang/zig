@@ -687,3 +687,24 @@ test "f128 at compile time is lossy" {
 
     try expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
 }
+
+test "comptime fixed-width float zero divided by zero produces NaN" {
+    inline for (.{ f16, f32, f64, f80, f128 }) |F| {
+        try expect(math.isNan(@as(F, 0) / @as(F, 0)));
+    }
+}
+
+test "comptime fixed-width float non-zero divided by zero produces signed Inf" {
+    inline for (.{ f16, f32, f64, f80, f128 }) |F| {
+        const pos = @as(F, 1) / @as(F, 0);
+        const neg = @as(F, -1) / @as(F, 0);
+        try expect(math.isInf(pos));
+        try expect(math.isInf(neg));
+        try expect(pos > 0);
+        try expect(neg < 0);
+    }
+}
+
+test "comptime_float zero divided by zero produces zero" {
+    try expect((0.0 / 0.0) == 0.0);
+}

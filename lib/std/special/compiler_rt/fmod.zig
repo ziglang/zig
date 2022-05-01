@@ -324,25 +324,42 @@ inline fn generic_fmod(comptime T: type, x: T, y: T) T {
     return @bitCast(T, ux);
 }
 
-test "fmod, fmodf" {
-    inline for ([_]type{ f32, f64 }) |T| {
-        const nan_val = math.nan(T);
-        const inf_val = math.inf(T);
+test "fmodf" {
+    const nan_val = math.nan(f32);
+    const inf_val = math.inf(f32);
 
-        try std.testing.expect(math.isNan(generic_fmod(T, nan_val, 1.0)));
-        try std.testing.expect(math.isNan(generic_fmod(T, 1.0, nan_val)));
-        try std.testing.expect(math.isNan(generic_fmod(T, inf_val, 1.0)));
-        try std.testing.expect(math.isNan(generic_fmod(T, 0.0, 0.0)));
-        try std.testing.expect(math.isNan(generic_fmod(T, 1.0, 0.0)));
+    try std.testing.expect(math.isNan(fmodf(nan_val, 1.0)));
+    try std.testing.expect(math.isNan(fmodf(1.0, nan_val)));
+    try std.testing.expect(math.isNan(fmodf(inf_val, 1.0)));
+    try std.testing.expect(math.isNan(fmodf(0.0, 0.0)));
+    try std.testing.expect(math.isNan(fmodf(1.0, 0.0)));
 
-        try std.testing.expectEqual(@as(T, 0.0), generic_fmod(T, 0.0, 2.0));
-        try std.testing.expectEqual(@as(T, -0.0), generic_fmod(T, -0.0, 2.0));
+    try std.testing.expectEqual(@as(f32, 0.0), fmodf(0.0, 2.0));
+    try std.testing.expectEqual(@as(f32, -0.0), fmodf(-0.0, 2.0));
 
-        try std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, 10.0));
-        try std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, -10.0));
-        try std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, 10.0));
-        try std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, -10.0));
-    }
+    try std.testing.expectEqual(@as(f32, -2.0), fmodf(-32.0, 10.0));
+    try std.testing.expectEqual(@as(f32, -2.0), fmodf(-32.0, -10.0));
+    try std.testing.expectEqual(@as(f32, 2.0), fmodf(32.0, 10.0));
+    try std.testing.expectEqual(@as(f32, 2.0), fmodf(32.0, -10.0));
+}
+
+test "fmod" {
+    const nan_val = math.nan(f64);
+    const inf_val = math.inf(f64);
+
+    try std.testing.expect(math.isNan(fmod(nan_val, 1.0)));
+    try std.testing.expect(math.isNan(fmod(1.0, nan_val)));
+    try std.testing.expect(math.isNan(fmod(inf_val, 1.0)));
+    try std.testing.expect(math.isNan(fmod(0.0, 0.0)));
+    try std.testing.expect(math.isNan(fmod(1.0, 0.0)));
+
+    try std.testing.expectEqual(@as(f64, 0.0), fmod(0.0, 2.0));
+    try std.testing.expectEqual(@as(f64, -0.0), fmod(-0.0, 2.0));
+
+    try std.testing.expectEqual(@as(f64, -2.0), fmod(-32.0, 10.0));
+    try std.testing.expectEqual(@as(f64, -2.0), fmod(-32.0, -10.0));
+    try std.testing.expectEqual(@as(f64, 2.0), fmod(32.0, 10.0));
+    try std.testing.expectEqual(@as(f64, 2.0), fmod(32.0, -10.0));
 }
 
 test {
