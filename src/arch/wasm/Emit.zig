@@ -6,6 +6,7 @@ const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;
 
 /// Contains our list of instructions
@@ -21,6 +22,16 @@ code: *std.ArrayList(u8),
 locals: []const u8,
 /// The declaration that code is being generated for.
 decl: *Module.Decl,
+
+// Debug information
+/// Holds the debug information for this emission
+dbg_output: codegen.DebugInfoOutput,
+/// Previous debug info line
+prev_di_line: u32,
+/// Previous debug info column
+prev_di_column: u32,
+/// Previous offset relative to code section
+prev_di_offset: u32,
 
 const InnerError = error{
     OutOfMemory,
@@ -39,6 +50,10 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             // block instructions
             .block => try emit.emitBlock(tag, inst),
             .loop => try emit.emitBlock(tag, inst),
+
+            .dbg_line => try emit.emitDbgLine(inst),
+            .dbg_epilogue_begin => try emit.emitDbgEpilogueBegin(),
+            .dbg_prologue_end => try emit.emitDbgPrologueEnd(),
 
             // branch instructions
             .br_if => try emit.emitLabel(tag, inst),
@@ -418,4 +433,44 @@ fn emitMemFill(emit: *Emit) !void {
     // can emit a different memory index here.
     // For now we will always emit index 0.
     try leb128.writeULEB128(emit.code.writer(), @as(u32, 0));
+}
+
+fn emitDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const dbg_line = emit.mir.extraData(Mir.DbgLineColumn, extra_index).data;
+    try emit.dbgAdvancePCAndLine(dbg_line.line, dbg_line.column);
+}
+
+fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
+    if (emit.dbg_output != .dwarf) return;
+
+    const dbg_line = &emit.dbg_output.dwarf.dbg_line;
+    try dbg_line.ensureUnusedCapacity(11);
+    dbg_line.appendAssumeCapacity(std.dwarf.LNS.advance_pc);
+    // TODO: This must emit a relocation to calculate the offset relative
+    // to the code section start.
+    leb128.writeULEB128(dbg_line.writer(), emit.offset() - emit.prev_di_offset) catch unreachable;
+    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
+    if (delta_line != 0) {
+        dbg_line.appendAssumeCapacity(std.dwarf.LNS.advance_line);
+        leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
+    }
+    dbg_line.appendAssumeCapacity(std.dwarf.LNS.copy);
+    emit.prev_di_line = line;
+    emit.prev_di_column = column;
+    emit.prev_di_offset = emit.offset();
+}
+
+fn emitDbgPrologueEnd(emit: *Emit) !void {
+    if (emit.dbg_output != .dwarf) return;
+
+    try emit.dbg_output.dwarf.dbg_line.append(std.dwarf.LNS.set_prologue_end);
+    try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+}
+
+fn emitDbgEpilogueBegin(emit: *Emit) !void {
+    if (emit.dbg_output != .dwarf) return;
+
+    try emit.dbg_output.dwarf.dbg_line.append(std.dwarf.LNS.set_epilogue_begin);
+    try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
 }

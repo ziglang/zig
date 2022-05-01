@@ -47,6 +47,19 @@ pub const Inst = struct {
         ///
         /// Type of the loop is given in data `block_type`
         loop = 0x03,
+        /// Inserts debug information about the current line and column
+        /// of the source code
+        ///
+        /// Uses `payload` of which the payload type is `DbgLineColumn`
+        dbg_line = 0x06,
+        /// Emits epilogue begin debug information
+        ///
+        /// Uses `nop`
+        dbg_epilogue_begin = 0x07,
+        /// Emits prologue end debug information
+        ///
+        /// Uses `nop`
+        dbg_prologue_end = 0x08,
         /// Represents the end of a function body or an initialization expression
         ///
         /// Payload is `nop`
@@ -644,4 +657,10 @@ pub const MemArg = struct {
 pub const Memory = struct {
     pointer: u32,
     offset: u32,
+};
+
+/// Maps a source line with wasm bytecode
+pub const DbgLineColumn = struct {
+    line: u32,
+    column: u32,
 };
