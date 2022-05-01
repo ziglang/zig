@@ -282,7 +282,7 @@ const PageAllocator = struct {
                 return @ptrCast([*]u8, addr)[0..alignPageAllocLen(aligned_len, n, len_align)];
             }
 
-            // If it wasn't, actually do an explicitely aligned allocation.
+            // If it wasn't, actually do an explicitly aligned allocation.
             w.VirtualFree(addr, 0, w.MEM_RELEASE);
             const alloc_size = n + alignment - mem.page_size;
 
