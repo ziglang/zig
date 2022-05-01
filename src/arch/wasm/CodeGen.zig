@@ -1478,14 +1478,16 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .get_union_tag => self.airGetUnionTag(inst),
 
         // TODO
-        .dbg_stmt,
         .dbg_inline_begin,
         .dbg_inline_end,
         .dbg_block_begin,
         .dbg_block_end,
-        .dbg_var_ptr,
-        .dbg_var_val,
         => WValue.none,
+
+        .dbg_var_ptr => self.airDbgVar(inst, true),
+        .dbg_var_val => self.airDbgVar(inst, false),
+
+        .dbg_stmt => self.airDbgStmt(inst),
 
         .call => self.airCall(inst, .auto),
         .call_always_tail => self.airCall(inst, .always_tail),
@@ -4276,4 +4278,58 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const result = try self.allocLocal(result_ty);
     try self.addLabel(.local_set, result.local);
     return result;
+}
+
+fn airDbgVar(self: *Self, inst: Air.Inst.Index, is_ptr: bool) !WValue {
+    if (self.debug_output != .dwarf) return WValue{ .none = {} };
+
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const ty = self.air.typeOf(pl_op.operand);
+    const operand = try self.resolveInst(pl_op.operand);
+    const op_ty = if (is_ptr) ty.childType() else ty;
+
+    log.debug("airDbgVar: %{d}: {}, {}", .{ inst, op_ty.fmtDebug(), operand });
+
+    const name = self.air.nullTerminatedString(pl_op.payload);
+    log.debug(" var name = ({s})", .{name});
+
+    const dbg_info = &self.debug_output.dwarf.dbg_info;
+    try dbg_info.append(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
+    switch (operand) {
+        .local => |local| {
+            const leb_size = link.File.Wasm.getULEB128Size(local);
+            try dbg_info.ensureUnusedCapacity(2 + leb_size);
+            // wasm locals are encoded as follow:
+            // DW_OP_WASM_location wasm-op
+            // where wasm-op is defined as
+            // wasm-op := wasm-local | wasm-global | wasm-operand_stack
+            // where wasm-local is encoded as
+            // wasm-local := 0x00 i:uleb128
+            dbg_info.appendSliceAssumeCapacity(&.{
+                std.dwarf.OP.WASM_location,
+                std.dwarf.OP.WASM_local,
+            });
+            leb.writeULEB128(dbg_info.writer(), local) catch unreachable;
+        },
+        else => {}, // TODO
+    }
+
+    try dbg_info.ensureUnusedCapacity(5 + name.len + 1);
+    try self.addDbgInfoTypeReloc(op_ty);
+    dbg_info.appendSliceAssumeCapacity(name);
+    dbg_info.appendAssumeCapacity(0);
+    try return WValue{ .none = {} };
+}
+
+fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !WValue {
+    if (self.debug_output != .dwarf) return WValue{ .none = {} };
+
+    const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
+    try self.addInst(.{ .tag = .dbg_line, .data = .{
+        .payload = try self.addExtra(Mir.DbgLineColumn{
+            .line = dbg_stmt.line,
+            .column = dbg_stmt.column,
+        }),
+    } });
+    return WValue{ .none = {} };
 }
