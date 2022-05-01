@@ -882,6 +882,8 @@ fn genFunc(self: *Self) InnerError!void {
     self.args = cc_result.args;
     self.return_value = cc_result.return_value;
 
+    try self.addTag(.dbg_prologue_end);
+
     // Generate MIR for function body
     try self.genBody(self.air.getMainBody());
     // In case we have a return value, but the last instruction is a noreturn (such as a while loop)
@@ -895,6 +897,8 @@ fn genFunc(self: *Self) InnerError!void {
     }
     // End of function body
     try self.addTag(.end);
+
+    try self.addTag(.dbg_epilogue_begin);
 
     // check if we have to initialize and allocate anything into the stack frame.
     // If so, create enough stack space and insert the instructions at the front of the list.
@@ -942,6 +946,10 @@ fn genFunc(self: *Self) InnerError!void {
         .code = self.code,
         .locals = self.locals.items,
         .decl = self.decl,
+        .dbg_output = self.debug_output,
+        .prev_di_line = 0,
+        .prev_di_column = 0,
+        .prev_di_offset = 0,
     };
 
     emit.emitMir() catch |err| switch (err) {
