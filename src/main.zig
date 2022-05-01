@@ -3677,6 +3677,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
             .use_stage1 = use_stage1,
+            .cache_mode = .whole,
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };
