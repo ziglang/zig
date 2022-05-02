@@ -62,6 +62,10 @@ managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
 /// Represents the index into `segments` where the 'code' section
 /// lives.
 code_section_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_info' section.
+debug_info_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_line' section.
+debug_line_index: ?u32 = null,
 /// The count of imported functions. This number will be appended
 /// to the function indexes as their index starts at the lowest non-extern function.
 imported_functions_count: u32 = 0,
@@ -311,6 +315,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .init = .{ .i32_const = 0 },
         };
     }
+
     return wasm_bin;
 }
 
@@ -566,6 +571,17 @@ pub fn updateFunc(self: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
         },
     };
 
+    if (self.dwarf) |*dwarf| {
+        try dwarf.commitDeclState(
+            &self.base,
+            mod,
+            decl,
+            // Actual value will be written after relocation
+            0,
+            code.len,
+            &decl_state.?,
+        );
+    }
     return self.finishUpdateDecl(decl, code);
 }
 
@@ -1517,6 +1533,35 @@ fn populateErrorNameTable(self: *Wasm) !void {
     try self.parseAtom(names_atom, .data);
 }
 
+pub fn getDebugInfoIndex(self: *Wasm) !u32 {
+    assert(self.dwarf != null);
+    return self.debug_info_index orelse {
+        self.debug_info_index = @intCast(u32, self.segments.items.len);
+        const segment = try self.segments.addOne(self.base.allocator);
+        segment.* = .{
+            .size = 0,
+            .offset = 0,
+            // debug sections always have alignment '1'
+            .alignment = 1,
+        };
+        return self.debug_info_index.?;
+    };
+}
+
+pub fn getDebugLineIndex(self: *Wasm) !u32 {
+    assert(self.dwarf != null);
+    return self.debug_line_index orelse {
+        self.debug_line_index = @intCast(u32, self.segments.items.len);
+        const segment = try self.segments.addOne(self.base.allocator);
+        segment.* = .{
+            .size = 0,
+            .offset = 0,
+            .alignment = 1,
+        };
+        return self.debug_line_index.?;
+    };
+}
+
 fn resetState(self: *Wasm) void {
     for (self.segment_info.items) |*segment_info| {
         self.base.allocator.free(segment_info.name);
@@ -1542,6 +1587,7 @@ fn resetState(self: *Wasm) void {
     self.atoms.clearRetainingCapacity();
     self.symbol_atom.clearRetainingCapacity();
     self.code_section_index = null;
+    self.debug_info_index = null;
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -1636,6 +1682,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         try self.objects.items[object_index].parseIntoAtoms(self.base.allocator, object_index, self);
     }
 
+    if (self.dwarf) |*dwarf| {
+        try dwarf.flushModule(&self.base, self.base.options.module.?);
+    }
     try self.allocateAtoms();
     try self.setupMemory();
     self.mapFunctionTable();
