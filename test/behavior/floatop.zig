@@ -689,6 +689,7 @@ test "f128 at compile time is lossy" {
 }
 
 test "comptime fixed-width float zero divided by zero produces NaN" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -701,6 +702,7 @@ test "comptime fixed-width float zero divided by zero produces NaN" {
 }
 
 test "comptime fixed-width float non-zero divided by zero produces signed Inf" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -718,5 +720,7 @@ test "comptime fixed-width float non-zero divided by zero produces signed Inf" {
 }
 
 test "comptime_float zero divided by zero produces zero" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     try expect((0.0 / 0.0) == 0.0);
 }
