@@ -28,6 +28,7 @@ const build_options = @import("build_options");
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
+const Instruction = bits.Instruction;
 const Register = bits.Register;
 
 const Self = @This();
@@ -89,6 +90,9 @@ register_manager: RegisterManager = .{},
 
 /// Maps offset to what is stored there.
 stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
+
+/// Tracks the current instruction allocated to the compare flags
+compare_flags_inst: ?Air.Inst.Index = null,
 
 /// Offset from the stack base, representing the end of the stack frame.
 max_end_stack: u32 = 0,
@@ -373,18 +377,31 @@ fn gen(self: *Self) !void {
 
         // exitlude jumps
         if (self.exitlude_jump_relocs.items.len > 0 and
-            self.exitlude_jump_relocs.items[self.exitlude_jump_relocs.items.len - 1] == self.mir_instructions.len - 2)
+            self.exitlude_jump_relocs.items[self.exitlude_jump_relocs.items.len - 1] == self.mir_instructions.len - 3)
         {
             // If the last Mir instruction (apart from the
             // dbg_epilogue_begin) is the last exitlude jump
-            // relocation (which would just jump one instruction
+            // relocation (which would just jump two instructions
             // further), it can be safely removed
-            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop());
+            const index = self.exitlude_jump_relocs.pop();
+
+            // First, remove the delay slot, then remove
+            // the branch instruction itself.
+            self.mir_instructions.orderedRemove(index + 1);
+            self.mir_instructions.orderedRemove(index);
         }
 
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {
-            _ = jmp_reloc;
-            return self.fail("TODO add branches in sparc64", .{});
+            self.mir_instructions.set(jmp_reloc, .{
+                .tag = .bpcc,
+                .data = .{
+                    .branch_predict_int = .{
+                        .ccr = .xcc,
+                        .cond = .al,
+                        .inst = @intCast(u32, self.mir_instructions.len),
+                    },
+                },
+            });
         }
 
         // Backpatch stack offset
@@ -531,7 +548,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ret_addr        => @panic("TODO try self.airRetAddr(inst)"),
             .frame_addr      => @panic("TODO try self.airFrameAddress(inst)"),
             .fence           => @panic("TODO try self.airFence()"),
-            .cond_br         => @panic("TODO try self.airCondBr(inst)"),
+            .cond_br         => try self.airCondBr(inst),
             .dbg_stmt        => try self.airDbgStmt(inst),
             .fptrunc         => @panic("TODO try self.airFptrunc(inst)"),
             .fpext           => @panic("TODO try self.airFpext(inst)"),
@@ -966,6 +983,188 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     }
 
     @panic("TODO handle return value with BigTomb");
+}
+
+fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const cond = try self.resolveInst(pl_op.operand);
+    const extra = self.air.extraData(Air.CondBr, pl_op.payload);
+    const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
+    const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+    const liveness_condbr = self.liveness.getCondBr(inst);
+
+    // Here we either emit a BPcc for branching on CCR content,
+    // or emit a BPr to branch on register content.
+    const reloc: Mir.Inst.Index = switch (cond) {
+        .compare_flags_signed,
+        .compare_flags_unsigned,
+        => try self.addInst(.{
+            .tag = .bpcc,
+            .data = .{
+                .branch_predict_int = .{
+                    .ccr = .xcc,
+                    .cond = switch (cond) {
+                        .compare_flags_signed => |cmp_op| blk: {
+                            // Here we map to the opposite condition because the jump is to the false branch.
+                            const condition = Instruction.ICondition.fromCompareOperatorSigned(cmp_op);
+                            break :blk condition.negate();
+                        },
+                        .compare_flags_unsigned => |cmp_op| blk: {
+                            // Here we map to the opposite condition because the jump is to the false branch.
+                            const condition = Instruction.ICondition.fromCompareOperatorUnsigned(cmp_op);
+                            break :blk condition.negate();
+                        },
+                        else => unreachable,
+                    },
+                    .inst = undefined, // Will be filled by performReloc
+                },
+            },
+        }),
+        else => return self.fail("TODO branch on register content (BPr)", .{}),
+    };
+
+    // Regardless of the branch type that's emitted, we need to reserve
+    // a space for the delay slot.
+    // TODO Find a way to fill this delay slot
+    _ = try self.addInst(.{
+        .tag = .nop,
+        .data = .{ .nop = {} },
+    });
+
+    // If the condition dies here in this condbr instruction, process
+    // that death now instead of later as this has an effect on
+    // whether it needs to be spilled in the branches
+    if (self.liveness.operandDies(inst, 0)) {
+        const op_int = @enumToInt(pl_op.operand);
+        if (op_int >= Air.Inst.Ref.typed_value_map.len) {
+            const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
+            self.processDeath(op_index);
+        }
+    }
+
+    // Capture the state of register and stack allocation state so that we can revert to it.
+    const parent_next_stack_offset = self.next_stack_offset;
+    const parent_free_registers = self.register_manager.free_registers;
+    var parent_stack = try self.stack.clone(self.gpa);
+    defer parent_stack.deinit(self.gpa);
+    const parent_registers = self.register_manager.registers;
+    const parent_compare_flags_inst = self.compare_flags_inst;
+
+    try self.branch_stack.append(.{});
+    errdefer {
+        _ = self.branch_stack.pop();
+    }
+
+    try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
+    for (liveness_condbr.then_deaths) |operand| {
+        self.processDeath(operand);
+    }
+    try self.genBody(then_body);
+
+    // Revert to the previous register and stack allocation state.
+
+    var saved_then_branch = self.branch_stack.pop();
+    defer saved_then_branch.deinit(self.gpa);
+
+    self.register_manager.registers = parent_registers;
+    self.compare_flags_inst = parent_compare_flags_inst;
+
+    self.stack.deinit(self.gpa);
+    self.stack = parent_stack;
+    parent_stack = .{};
+
+    self.next_stack_offset = parent_next_stack_offset;
+    self.register_manager.free_registers = parent_free_registers;
+
+    try self.performReloc(reloc);
+    const else_branch = self.branch_stack.addOneAssumeCapacity();
+    else_branch.* = .{};
+
+    try self.ensureProcessDeathCapacity(liveness_condbr.else_deaths.len);
+    for (liveness_condbr.else_deaths) |operand| {
+        self.processDeath(operand);
+    }
+    try self.genBody(else_body);
+
+    // At this point, each branch will possibly have conflicting values for where
+    // each instruction is stored. They agree, however, on which instructions are alive/dead.
+    // We use the first ("then") branch as canonical, and here emit
+    // instructions into the second ("else") branch to make it conform.
+    // We continue respect the data structure semantic guarantees of the else_branch so
+    // that we can use all the code emitting abstractions. This is why at the bottom we
+    // assert that parent_branch.free_registers equals the saved_then_branch.free_registers
+    // rather than assigning it.
+    const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 2];
+    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, else_branch.inst_table.count());
+
+    const else_slice = else_branch.inst_table.entries.slice();
+    const else_keys = else_slice.items(.key);
+    const else_values = else_slice.items(.value);
+    for (else_keys) |else_key, else_idx| {
+        const else_value = else_values[else_idx];
+        const canon_mcv = if (saved_then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
+            // The instruction's MCValue is overridden in both branches.
+            parent_branch.inst_table.putAssumeCapacity(else_key, then_entry.value);
+            if (else_value == .dead) {
+                assert(then_entry.value == .dead);
+                continue;
+            }
+            break :blk then_entry.value;
+        } else blk: {
+            if (else_value == .dead)
+                continue;
+            // The instruction is only overridden in the else branch.
+            var i: usize = self.branch_stack.items.len - 2;
+            while (true) {
+                i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
+                if (self.branch_stack.items[i].inst_table.get(else_key)) |mcv| {
+                    assert(mcv != .dead);
+                    break :blk mcv;
+                }
+            }
+        };
+        log.debug("consolidating else_entry {d} {}=>{}", .{ else_key, else_value, canon_mcv });
+        // TODO make sure the destination stack offset / register does not already have something
+        // going on there.
+        try self.setRegOrMem(self.air.typeOfIndex(else_key), canon_mcv, else_value);
+        // TODO track the new register / stack allocation
+    }
+    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, saved_then_branch.inst_table.count());
+    const then_slice = saved_then_branch.inst_table.entries.slice();
+    const then_keys = then_slice.items(.key);
+    const then_values = then_slice.items(.value);
+    for (then_keys) |then_key, then_idx| {
+        const then_value = then_values[then_idx];
+        // We already deleted the items from this table that matched the else_branch.
+        // So these are all instructions that are only overridden in the then branch.
+        parent_branch.inst_table.putAssumeCapacity(then_key, then_value);
+        if (then_value == .dead)
+            continue;
+        const parent_mcv = blk: {
+            var i: usize = self.branch_stack.items.len - 2;
+            while (true) {
+                i -= 1;
+                if (self.branch_stack.items[i].inst_table.get(then_key)) |mcv| {
+                    assert(mcv != .dead);
+                    break :blk mcv;
+                }
+            }
+        };
+        log.debug("consolidating then_entry {d} {}=>{}", .{ then_key, parent_mcv, then_value });
+        // TODO make sure the destination stack offset / register does not already have something
+        // going on there.
+        try self.setRegOrMem(self.air.typeOfIndex(then_key), parent_mcv, then_value);
+        // TODO track the new register / stack allocation
+    }
+
+    {
+        var item = self.branch_stack.pop();
+        item.deinit(self.gpa);
+    }
+
+    // We already took care of pl_op.operand earlier, so we're going
+    // to pass .none here
+    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
 fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
@@ -1798,8 +1997,15 @@ fn ret(self: *Self, mcv: MCValue) !void {
     const ret_ty = self.fn_type.fnReturnType();
     try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
 
-    // Just add space for an instruction, patch this later
+    // Just add space for a branch instruction, patch this later
     const index = try self.addInst(.{
+        .tag = .nop,
+        .data = .{ .nop = {} },
+    });
+
+    // Reserve space for the delay slot too
+    // TODO find out a way to fill this
+    _ = try self.addInst(.{
         .tag = .nop,
         .data = .{ .nop = {} },
     });
