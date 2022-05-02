@@ -149,6 +149,9 @@ pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAt
 
 pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 
+pub const copy = @import("io/copy.zig").copy;
+pub const copyUsingBuffer = @import("io/copy.zig").copyUsingBuffer;
+
 /// A Writer that doesn't write to anything.
 pub const null_writer = @as(NullWriter, .{ .context = {} });
 
@@ -177,5 +180,6 @@ test {
     _ = @import("io/peek_stream.zig");
     _ = @import("io/seekable_stream.zig");
     _ = @import("io/stream_source.zig");
+    _ = @import("io/copy.zig");
     _ = @import("io/test.zig");
 }
