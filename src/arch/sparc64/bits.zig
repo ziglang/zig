@@ -1261,6 +1261,14 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn subcc(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b10, 0b01_0100, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b01_0100, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
     pub fn trap(comptime s2: type, cond: ICondition, ccr: CCR, rs1: Register, rs2: s2) Instruction {
         // Tcc instructions abuse the rd field to store the conditionals.
         return switch (s2) {

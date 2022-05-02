@@ -81,7 +81,7 @@ pub fn emitMir(
             .stx => try emit.mirArithmetic3Op(inst),
 
             .sub => try emit.mirArithmetic3Op(inst),
-            .subcc => @panic("TODO implement sparcv9 subcc"),
+            .subcc => try emit.mirArithmetic3Op(inst),
 
             .tcc => try emit.mirTrap(inst),
         }
@@ -169,6 +169,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .stw => try emit.writeInstruction(Instruction.stw(i13, rs1, imm, rd)),
             .stx => try emit.writeInstruction(Instruction.stx(i13, rs1, imm, rd)),
             .sub => try emit.writeInstruction(Instruction.sub(i13, rs1, imm, rd)),
+            .subcc => try emit.writeInstruction(Instruction.subcc(i13, rs1, imm, rd)),
             else => unreachable,
         }
     } else {
@@ -188,6 +189,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .stw => try emit.writeInstruction(Instruction.stw(Register, rs1, rs2, rd)),
             .stx => try emit.writeInstruction(Instruction.stx(Register, rs1, rs2, rd)),
             .sub => try emit.writeInstruction(Instruction.sub(Register, rs1, rs2, rd)),
+            .subcc => try emit.writeInstruction(Instruction.subcc(Register, rs1, rs2, rd)),
             else => unreachable,
         }
     }
