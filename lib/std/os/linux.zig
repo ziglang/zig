@@ -5418,8 +5418,8 @@ pub const PERF = struct {
 // TODO: Add the rest of the AUDIT defines?
 pub const AUDIT = struct {
     pub const ARCH = enum(u32) {
-        const _64BIT = 0x80000000;
-        const _LE = 0x40000000;
+        const @"64BIT" = 0x80000000;
+        const LE = 0x40000000;
 
         pub const current: AUDIT.ARCH = switch (native_arch) {
             .i386 => .I386,
@@ -5440,13 +5440,13 @@ pub const AUDIT = struct {
         ARM = toAudit(.arm),
         ARMEB = toAudit(.armeb),
         CSKY = toAudit(.csky),
-        HEXAGON = @enumToInt(std.elf.EM._HEXAGON),
+        HEXAGON = @enumToInt(std.elf.EM.HEXAGON),
         I386 = toAudit(.i386),
         M68K = toAudit(.m68k),
         MIPS = toAudit(.mips),
-        MIPSEL = toAudit(.mips) | _LE,
+        MIPSEL = toAudit(.mips) | LE,
         MIPS64 = toAudit(.mips64),
-        MIPSEL64 = toAudit(.mips64) | _LE,
+        MIPSEL64 = toAudit(.mips64) | LE,
         PPC = toAudit(.powerpc),
         PPC64 = toAudit(.powerpc64),
         PPC64LE = toAudit(.powerpc64le),
@@ -5459,8 +5459,8 @@ pub const AUDIT = struct {
 
         fn toAudit(arch: std.Target.Cpu.Arch) u32 {
             var res: u32 = @enumToInt(arch.toElfMachine());
-            if (arch.endian() == .Little) res |= _LE;
-            if (arch.ptrBitWidth() == 64) res |= _64BIT;
+            if (arch.endian() == .Little) res |= LE;
+            if (arch.ptrBitWidth() == 64) res |= @"64BIT";
 
             return res;
         }
