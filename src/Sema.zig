@@ -20787,14 +20787,14 @@ fn cmpNumeric(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    lhs: Air.Inst.Ref,
-    rhs: Air.Inst.Ref,
+    uncasted_lhs: Air.Inst.Ref,
+    uncasted_rhs: Air.Inst.Ref,
     op: std.math.CompareOperator,
     lhs_src: LazySrcLoc,
     rhs_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    const lhs_ty = sema.typeOf(lhs);
-    const rhs_ty = sema.typeOf(rhs);
+    const lhs_ty = sema.typeOf(uncasted_lhs);
+    const rhs_ty = sema.typeOf(uncasted_rhs);
 
     assert(lhs_ty.isNumeric());
     assert(rhs_ty.isNumeric());
@@ -20802,6 +20802,19 @@ fn cmpNumeric(
     const lhs_ty_tag = lhs_ty.zigTypeTag();
     const rhs_ty_tag = rhs_ty.zigTypeTag();
     const target = sema.mod.getTarget();
+
+    // One exception to heterogeneous comparison: comptime_float needs to
+    // coerce to fixed-width float.
+
+    const lhs = if (lhs_ty_tag == .ComptimeFloat and rhs_ty_tag == .Float)
+        try sema.coerce(block, rhs_ty, uncasted_lhs, lhs_src)
+    else
+        uncasted_lhs;
+
+    const rhs = if (lhs_ty_tag == .Float and rhs_ty_tag == .ComptimeFloat)
+        try sema.coerce(block, lhs_ty, uncasted_rhs, rhs_src)
+    else
+        uncasted_rhs;
 
     const runtime_src: LazySrcLoc = src: {
         if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
@@ -20845,8 +20858,10 @@ fn cmpNumeric(
         .Float, .ComptimeFloat => true,
         else => false,
     };
+
     if (lhs_is_float and rhs_is_float) {
-        // Implicit cast the smaller one to the larger one.
+        // Smaller fixed-width floats coerce to larger fixed-width floats.
+        // comptime_float coerces to fixed-width float.
         const dest_ty = x: {
             if (lhs_ty_tag == .ComptimeFloat) {
                 break :x rhs_ty;
