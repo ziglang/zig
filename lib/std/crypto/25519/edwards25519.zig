@@ -147,7 +147,7 @@ pub const Edwards25519 = struct {
     }
 
     fn slide(s: [32]u8) [2 * 32]i8 {
-        const reduced = if ((s[s.len - 1] & 0x80) != 0) s else scalar.reduce(s);
+        const reduced = if ((s[s.len - 1] & 0x80) == 0) s else scalar.reduce(s);
         var e: [2 * 32]i8 = undefined;
         for (reduced) |x, i| {
             e[i * 2 + 0] = @as(i8, @truncate(u4, x));
