@@ -1053,6 +1053,8 @@ pub const TestContext = struct {
 
                 // Cross-product to get all possible test combinations
                 for (backends) |backend| {
+                    if (backend == .stage1 and skip_stage1) continue;
+
                     for (targets) |target| {
                         const name = try std.fmt.allocPrint(ctx.arena, "{s} ({s}, {s})", .{
                             name_prefix,
