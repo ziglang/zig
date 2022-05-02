@@ -512,10 +512,172 @@ pub const Instruction = union(enum) {
         lookaside: bool = false,
     };
 
-    // TODO: Need to define an enum for `cond` values
-    // This is kinda challenging since the cond values have different meanings
-    // depending on whether it's operating on integer or FP CCR.
-    pub const Condition = u4;
+    // In SPARCv9, FP and integer comparison operations
+    // are encoded differently.
+
+    pub const FCondition = enum(u4) {
+        /// Branch Never
+        nv,
+        /// Branch on Not Equal
+        ne,
+        /// Branch on Less or Greater
+        lg,
+        /// Branch on Unordered or Less
+        ul,
+        /// Branch on Less
+        lt,
+        /// Branch on Unordered or Greater
+        ug,
+        /// Branch on Greater
+        gt,
+        /// Branch on Unordered
+        un,
+        /// Branch Always
+        al,
+        /// Branch on Equal
+        eq,
+        /// Branch on Unordered or Equal
+        ue,
+        /// Branch on Greater or Equal
+        ge,
+        /// Branch on Unordered or Greater or Equal
+        uge,
+        /// Branch on Less or Equal
+        le,
+        /// Branch on Unordered or Less or Equal
+        ule,
+        /// Branch on Ordered
+        ord,
+
+        /// Converts a std.math.CompareOperator into a condition flag,
+        /// i.e. returns the condition that is true iff the result of the
+        /// comparison is true.
+        pub fn fromCompareOperator(op: std.math.CompareOperator) FCondition {
+            return switch (op) {
+                .gte => .ge,
+                .gt => .gt,
+                .neq => .ne,
+                .lt => .lt,
+                .lte => .le,
+                .eq => .eq,
+            };
+        }
+
+        /// Returns the condition which is true iff the given condition is
+        /// false (if such a condition exists).
+        pub fn negate(cond: FCondition) FCondition {
+            return switch (cond) {
+                .eq => .ne,
+                .ne => .eq,
+                .ge => .ul,
+                .ul => .ge,
+                .le => .ug,
+                .ug => .le,
+                .lt => .uge,
+                .uge => .lt,
+                .gt => .ule,
+                .ule => .gt,
+                .ue => .lg,
+                .lg => .ue,
+                .ord => .un,
+                .un => .ord,
+                .al => unreachable,
+                .nv => unreachable,
+            };
+        }
+    };
+
+    pub const ICondition = enum(u4) {
+        /// Branch Never
+        nv,
+        /// Branch on Equal
+        eq,
+        /// Branch on Less or Equal
+        le,
+        /// Branch on Less
+        lt,
+        /// Branch on Less or Equal Unsigned
+        leu,
+        /// Branch on Carry Set (Less than, Unsigned)
+        cs,
+        /// Branch on Negative
+        neg,
+        /// Branch on Overflow Set
+        vs,
+        /// Branch Always
+        al,
+        /// Branch on Not Equal
+        ne,
+        /// Branch on Greater
+        gt,
+        /// Branch on Greater or Equal
+        ge,
+        /// Branch on Greater Unsigned
+        gu,
+        /// Branch on Carry Clear (Greater Than or Equal, Unsigned)
+        cc,
+        /// Branch on Positive
+        pos,
+        /// Branch on Overflow Clear
+        vc,
+
+        /// Converts a std.math.CompareOperator into a condition flag,
+        /// i.e. returns the condition that is true iff the result of the
+        /// comparison is true. Assumes signed comparison.
+        pub fn fromCompareOperatorSigned(op: std.math.CompareOperator) ICondition {
+            return switch (op) {
+                .gte => .ge,
+                .gt => .gt,
+                .neq => .ne,
+                .lt => .lt,
+                .lte => .le,
+                .eq => .eq,
+            };
+        }
+
+        /// Converts a std.math.CompareOperator into a condition flag,
+        /// i.e. returns the condition that is true iff the result of the
+        /// comparison is true. Assumes unsigned comparison.
+        pub fn fromCompareOperatorUnsigned(op: std.math.CompareOperator) ICondition {
+            return switch (op) {
+                .gte => .cc,
+                .gt => .gu,
+                .neq => .ne,
+                .lt => .cs,
+                .lte => .le,
+                .eq => .eq,
+            };
+        }
+
+        /// Returns the condition which is true iff the given condition is
+        /// false (if such a condition exists).
+        pub fn negate(cond: ICondition) ICondition {
+            return switch (cond) {
+                .eq => .ne,
+                .ne => .eq,
+                .cs => .cc,
+                .cc => .cs,
+                .neg => .pos,
+                .pos => .neg,
+                .vs => .vc,
+                .vc => .vs,
+                .gu => .leu,
+                .leu => .gu,
+                .ge => .lt,
+                .lt => .ge,
+                .gt => .le,
+                .le => .gt,
+                .al => unreachable,
+                .nv => unreachable,
+            };
+        }
+    };
+
+    pub const Condition = packed union {
+        fcond: FCondition,
+        icond: ICondition,
+        encoded: u4,
+    };
 
     pub fn toU32(self: Instruction) u32 {
         // TODO: Remove this once packed structs work.
@@ -593,7 +755,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .format_2b = .{
                 .a = @boolToInt(annul),
-                .cond = cond,
+                .cond = cond.encoded,
                 .op2 = op2,
                 .disp22 = udisp_truncated,
             },
@@ -614,7 +776,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .format_2c = .{
                 .a = @boolToInt(annul),
-                .cond = cond,
+                .cond = cond.encoded,
                 .op2 = op2,
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
@@ -895,7 +1057,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .cc2 = ccr_cc2,
-                .cond = cond,
+                .cond = cond.encoded,
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
                 .rs2 = rs2.enc(),
@@ -912,7 +1074,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .cc2 = ccr_cc2,
-                .cond = cond,
+                .cond = cond.encoded,
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
                 .simm11 = @bitCast(u11, imm),
@@ -960,7 +1122,7 @@ pub const Instruction = union(enum) {
             .format_4g = .{
                 .rd = rd.enc(),
                 .op3 = op3,
-                .cond = cond,
+                .cond = cond.encoded,
                 .opf_cc = opf_cc,
                 .opf_low = opf_low,
                 .rs2 = rs2.enc(),
@@ -1099,11 +1261,11 @@ pub const Instruction = union(enum) {
         };
     }
 
-    pub fn trap(comptime s2: type, cond: Condition, ccr: CCR, rs1: Register, rs2: s2) Instruction {
+    pub fn trap(comptime s2: type, cond: ICondition, ccr: CCR, rs1: Register, rs2: s2) Instruction {
         // Tcc instructions abuse the rd field to store the conditionals.
         return switch (s2) {
-            Register => format4a(0b11_1010, ccr, rs1, rs2, @intToEnum(Register, cond)),
-            u7 => format4e(0b11_1010, ccr, rs1, @intToEnum(Register, cond), rs2),
+            Register => format4a(0b11_1010, ccr, rs1, rs2, @intToEnum(Register, @enumToInt(cond))),
+            u7 => format4e(0b11_1010, ccr, rs1, @intToEnum(Register, @enumToInt(cond)), rs2),
             else => unreachable,
         };
     }
@@ -1128,11 +1290,11 @@ test "Serialize formats" {
             .expected = 0b00_00000_100_0000000000000000000000,
         },
         .{
-            .inst = Instruction.format2b(6, 3, true, -4),
+            .inst = Instruction.format2b(6, .{ .icond = .lt }, true, -4),
             .expected = 0b00_1_0011_110_1111111111111111111111,
         },
         .{
-            .inst = Instruction.format2c(3, 0, false, true, .xcc, 8),
+            .inst = Instruction.format2c(3, .{ .icond = .nv }, false, true, .xcc, 8),
             .expected = 0b00_0_0000_011_1_0_1_0000000000000000010,
         },
         .{
@@ -1224,11 +1386,11 @@ test "Serialize formats" {
             .expected = 0b10_10010_001000_00000_1_1_0_11111111111,
         },
         .{
-            .inst = Instruction.format4c(8, 0, .xcc, .g0, .o1),
+            .inst = Instruction.format4c(8, .{ .icond = .nv }, .xcc, .g0, .o1),
             .expected = 0b10_01001_001000_1_0000_0_1_0_000000_00000,
         },
         .{
-            .inst = Instruction.format4d(8, 0, .xcc, 0, .l2),
+            .inst = Instruction.format4d(8, .{ .icond = .nv }, .xcc, 0, .l2),
             .expected = 0b10_10010_001000_1_0000_1_1_0_00000000000,
         },
         .{
@@ -1240,7 +1402,7 @@ test "Serialize formats" {
             .expected = 0b10_10010_001000_00000_0_001_00100_01001,
         },
         .{
-            .inst = Instruction.format4g(8, 4, 2, 0, .o1, .l2),
+            .inst = Instruction.format4g(8, 4, 2, .{ .icond = .nv }, .o1, .l2),
             .expected = 0b10_10010_001000_0_0000_010_000100_01001,
         },
     };
