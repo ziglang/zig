@@ -818,6 +818,7 @@ pub fn commitDeclState(
             const src_fn = switch (self.tag) {
                 .elf => &decl.fn_link.elf,
                 .macho => &decl.fn_link.macho,
+                .wasm => &decl.fn_link.wasm.src_fn,
                 else => unreachable, // TODO
             };
             src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
@@ -958,6 +959,26 @@ pub fn commitDeclState(
                         next_padding_size,
                     );
                 },
+                .wasm => {
+                    const wasm_file = file.cast(File.Wasm).?;
+                    const segment_index = try wasm_file.getDebugLineIndex();
+                    const segment = &wasm_file.segments.items[segment_index];
+                    const debug_atom = wasm_file.atoms.get(segment_index).?;
+                    if (needed_size != segment.size) {
+                        log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
+                        if (needed_size > segment.size) {
+                            log.debug("  allocating {d} bytes for debug line information", .{needed_size - segment.size});
+                            try debug_atom.code.resize(self.allocator, needed_size);
+                            std.mem.set(u8, debug_atom.code.items[segment.size..], 0);
+                        }
+                        debug_atom.size = needed_size;
+                        segment.size = needed_size;
+                    }
+                    // since we can tighly pack the debug lines, wasm does not require
+                    // us to pad with Nops.
+                    const offset = segment.offset + src_fn.off;
+                    std.mem.copy(u8, debug_atom.code.items[offset..], dbg_line_buffer.items);
+                },
                 else => unreachable,
             }
 
@@ -973,6 +994,7 @@ pub fn commitDeclState(
     const atom = switch (self.tag) {
         .elf => &decl.link.elf.dbg_info_atom,
         .macho => &decl.link.macho.dbg_info_atom,
+        .wasm => &decl.link.wasm.dbg_info_atom,
         else => unreachable,
     };
 
@@ -1094,6 +1116,7 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *Atom, len: u3
                         const file_pos = debug_info_sect.offset + atom.off;
                         try pwriteDbgInfoNops(d_sym.file, file_pos, 0, &[0]u8{}, atom.len, false);
                     },
+                    .wasm => {},
                     else => unreachable,
                 }
                 // TODO Look at the free list before appending at the end.
@@ -1253,7 +1276,11 @@ pub fn updateDeclLineNumber(self: *Dwarf, file: *File, decl: *const Module.Decl)
         },
         .wasm => {
             const wasm_file = file.cast(File.Wasm).?;
-            _ = wasm_file; // TODO, update .debug_line
+            const segment_index = wasm_file.getDebugLineIndex() catch unreachable;
+            const segment = wasm_file.segments.items[segment_index];
+            const offset = segment.offset + decl.fn_link.wasm.src_fn.off + self.getRelocDbgLineOff();
+            const debug_atom = wasm_file.atoms.get(segment_index).?;
+            std.mem.copy(u8, debug_atom.code.items[offset..], &data);
         },
         else => unreachable,
     }
