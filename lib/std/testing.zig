@@ -347,6 +347,10 @@ pub fn expect(ok: bool) !void {
     if (!ok) return error.TestUnexpectedResult;
 }
 
+/// assume: user does not change cwd
+/// For relative paths, use
+/// `std.fs.path.join(alloc, &[_][]const u8{ "zig-cache", "tmp", &tmp_dir.sub_path, ..});`
+/// Use file handles, if possible.
 pub const TmpDir = struct {
     dir: std.fs.Dir,
     parent_dir: std.fs.Dir,
