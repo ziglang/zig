@@ -543,7 +543,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .assembly        => try self.airAsm(inst),
             .bitcast         => @panic("TODO try self.airBitCast(inst)"),
             .block           => try self.airBlock(inst),
-            .br              => @panic("TODO try self.airBr(inst)"),
+            .br              => try self.airBr(inst),
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => @panic("TODO try self.airRetAddr(inst)"),
             .frame_addr      => @panic("TODO try self.airFrameAddress(inst)"),
@@ -850,6 +850,12 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
 
     const result = self.blocks.getPtr(inst).?.mcv;
     return self.finishAir(inst, result, .{ .none, .none, .none });
+}
+
+fn airBr(self: *Self, inst: Air.Inst.Index) !void {
+    const branch = self.air.instructions.items(.data)[inst].br;
+    try self.br(branch.block_inst, branch.operand);
+    return self.finishAir(inst, .dead, .{ branch.operand, .none, .none });
 }
 
 fn airBreakpoint(self: *Self) !void {
@@ -1363,6 +1369,56 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     }
     const stack_offset = try self.allocMem(inst, abi_size, abi_align);
     return MCValue{ .stack_offset = stack_offset };
+}
+
+fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
+    const block_data = self.blocks.getPtr(block).?;
+
+    if (self.air.typeOf(operand).hasRuntimeBits()) {
+        const operand_mcv = try self.resolveInst(operand);
+        const block_mcv = block_data.mcv;
+        if (block_mcv == .none) {
+            block_data.mcv = switch (operand_mcv) {
+                .none, .dead, .unreach => unreachable,
+                .register, .stack_offset, .memory => operand_mcv,
+                .immediate => blk: {
+                    const new_mcv = try self.allocRegOrMem(block, true);
+                    try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
+                    break :blk new_mcv;
+                },
+                else => return self.fail("TODO implement block_data.mcv = operand_mcv for {}", .{operand_mcv}),
+            };
+        } else {
+            try self.setRegOrMem(self.air.typeOfIndex(block), block_mcv, operand_mcv);
+        }
+    }
+    return self.brVoid(block);
+}
+
+fn brVoid(self: *Self, block: Air.Inst.Index) !void {
+    const block_data = self.blocks.getPtr(block).?;
+
+    // Emit a jump with a relocation. It will be patched up after the block ends.
+    try block_data.relocs.ensureUnusedCapacity(self.gpa, 1);
+
+    const br_index = try self.addInst(.{
+        .tag = .bpcc,
+        .data = .{
+            .branch_predict_int = .{
+                .ccr = .xcc,
+                .cond = .al,
+                .inst = undefined, // Will be filled by performReloc
+            },
+        },
+    });
+
+    // TODO Find a way to fill this delay slot
+    _ = try self.addInst(.{
+        .tag = .nop,
+        .data = .{ .nop = {} },
+    });
+
+    block_data.relocs.appendAssumeCapacity(br_index);
 }
 
 /// Copies a value to a register without tracking the register. The register is not considered
