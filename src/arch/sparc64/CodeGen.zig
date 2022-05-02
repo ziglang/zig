@@ -725,7 +725,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                 .data = .{
                     .trap = .{
                         .is_imm = true,
-                        .cond = 0b1000, // TODO need to look into changing this into an enum
+                        .cond = .al,
                         .rs2_or_imm = .{ .imm = 0x6d },
                     },
                 },
@@ -842,7 +842,7 @@ fn airBreakpoint(self: *Self) !void {
         .data = .{
             .trap = .{
                 .is_imm = true,
-                .cond = 0b1000, // TODO need to look into changing this into an enum
+                .cond = .al,
                 .rs2_or_imm = .{ .imm = 0x01 },
             },
         },
@@ -1648,7 +1648,7 @@ fn parseRegName(name: []const u8) ?Register {
 fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
     const tag = self.mir_instructions.items(.tag)[inst];
     switch (tag) {
-        .bpcc => self.mir_instructions.items(.data)[inst].branch_predict.inst = @intCast(Mir.Inst.Index, self.mir_instructions.len),
+        .bpcc => self.mir_instructions.items(.data)[inst].branch_predict_int.inst = @intCast(Mir.Inst.Index, self.mir_instructions.len),
         else => unreachable,
     }
 }

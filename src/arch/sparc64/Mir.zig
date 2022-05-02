@@ -44,7 +44,7 @@ pub const Inst = struct {
         add,
 
         /// A.7 Branch on Integer Condition Codes with Prediction (BPcc)
-        /// This uses the branch_predict field.
+        /// This uses the branch_predict_int field.
         bpcc,
 
         /// A.8 Call and Link
@@ -165,13 +165,13 @@ pub const Inst = struct {
             link: Register = .o7,
         },
 
-        /// Branch with prediction.
+        /// Branch with prediction, checking the integer status code
         /// Used by e.g. bpcc
-        branch_predict: struct {
+        branch_predict_int: struct {
             annul: bool = false,
             pt: bool = true,
             ccr: Instruction.CCR,
-            cond: Instruction.Condition,
+            cond: Instruction.ICondition,
             inst: Index,
         },
 
@@ -211,7 +211,7 @@ pub const Inst = struct {
         /// Used by e.g. tcc
         trap: struct {
             is_imm: bool = true,
-            cond: Instruction.Condition,
+            cond: Instruction.ICondition,
             ccr: Instruction.CCR = .icc,
             rs1: Register = .g0,
             rs2_or_imm: union {
