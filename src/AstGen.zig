@@ -6715,13 +6715,7 @@ fn floatLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index, sign: Sign) In
 
     const main_token = main_tokens[node];
     const bytes = tree.tokenSlice(main_token);
-    const unsigned_float_number: f128 = if (bytes.len > 2 and bytes[1] == 'x') hex: {
-        assert(bytes[0] == '0'); // validated by tokenizer
-        break :hex std.fmt.parseHexFloat(f128, bytes) catch |err| switch (err) {
-            error.InvalidCharacter => unreachable, // validated by tokenizer
-            error.Overflow => return astgen.failNode(node, "number literal cannot be represented in a 128-bit floating point", .{}),
-        };
-    } else std.fmt.parseFloat(f128, bytes) catch |err| switch (err) {
+    const unsigned_float_number = std.fmt.parseFloat(f128, bytes) catch |err| switch (err) {
         error.InvalidCharacter => unreachable, // validated by tokenizer
     };
     const float_number = switch (sign) {
