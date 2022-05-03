@@ -1930,6 +1930,8 @@ fn parseInternal(
 
                         if (idx < vectorInfo.len) {
                             vec[idx] = try parseInternal(vectorInfo.child, tok, tokens, options);
+                        } else {
+                            return error.VectorLengthMismatch;
                         }
                     }
                     if (idx != vectorInfo.len) {
@@ -1995,8 +1997,8 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
             }
         },
         .Vector => |vectorInfo| {
-            comptime var idx: usize = 0;
-            inline while (idx < vectorInfo.len) : (idx += 1) {
+            var idx: usize = 0;
+            while (idx < vectorInfo.len) : (idx += 1) {
                 parseFree(vectorInfo.child, value[idx], options);
             }
         },
