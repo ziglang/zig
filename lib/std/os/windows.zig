@@ -2693,7 +2693,10 @@ pub const MEM_RESERVE_PLACEHOLDERS = 0x2;
 pub const MEM_DECOMMIT = 0x4000;
 pub const MEM_RELEASE = 0x8000;
 
-pub const PTHREAD_START_ROUTINE = fn (LPVOID) callconv(.C) DWORD;
+pub const PTHREAD_START_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => fn (LPVOID) callconv(.C) DWORD,
+    else => *const fn (LPVOID) callconv(.C) DWORD,
+};
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
 pub const WIN32_FIND_DATAW = extern struct {
@@ -2866,7 +2869,10 @@ pub const IMAGE_TLS_DIRECTORY = extern struct {
 pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
 pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
 
-pub const PIMAGE_TLS_CALLBACK = ?fn (PVOID, DWORD, PVOID) callconv(.C) void;
+pub const PIMAGE_TLS_CALLBACK = switch (builtin.zig_backend) {
+    .stage1 => ?fn (PVOID, DWORD, PVOID) callconv(.C) void,
+    else => ?*const fn (PVOID, DWORD, PVOID) callconv(.C) void,
+};
 
 pub const PROV_RSA_FULL = 1;
 
@@ -2892,7 +2898,10 @@ pub const FILE_ACTION_MODIFIED = 0x00000003;
 pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
 pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void;
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => ?fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void,
+    else => ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void,
+};
 
 pub const FILE_NOTIFY_CHANGE_CREATION = 64;
 pub const FILE_NOTIFY_CHANGE_SIZE = 8;
@@ -2945,7 +2954,10 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
 pub const INIT_ONCE = RTL_RUN_ONCE;
 pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
-pub const INIT_ONCE_FN = fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.C) BOOL;
+pub const INIT_ONCE_FN = switch (builtin.zig_backend) {
+    .stage1 => fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.C) BOOL,
+    else => *const fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.C) BOOL,
+};
 
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: ?*anyopaque,
@@ -3230,7 +3242,10 @@ pub const EXCEPTION_POINTERS = extern struct {
     ContextRecord: *std.os.windows.CONTEXT,
 };
 
-pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;
+pub const VECTORED_EXCEPTION_HANDLER = switch (builtin.zig_backend) {
+    .stage1 => fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long,
+    else => *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long,
+};
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,
@@ -3506,7 +3521,10 @@ pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
     DosPath: UNICODE_STRING,
 };
 
-pub const PPS_POST_PROCESS_INIT_ROUTINE = ?fn () callconv(.C) void;
+pub const PPS_POST_PROCESS_INIT_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => ?fn () callconv(.C) void,
+    else => ?*const fn () callconv(.C) void,
+};
 
 pub const FILE_BOTH_DIR_INFORMATION = extern struct {
     NextEntryOffset: ULONG,
@@ -3526,7 +3544,10 @@ pub const FILE_BOTH_DIR_INFORMATION = extern struct {
 };
 pub const FILE_BOTH_DIRECTORY_INFORMATION = FILE_BOTH_DIR_INFORMATION;
 
-pub const IO_APC_ROUTINE = fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void;
+pub const IO_APC_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void,
+    else => *const fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void,
+};
 
 pub const CURDIR = extern struct {
     DosPath: UNICODE_STRING,
@@ -3598,8 +3619,14 @@ pub const ENUM_PAGE_FILE_INFORMATION = extern struct {
     PeakUsage: SIZE_T,
 };
 
-pub const PENUM_PAGE_FILE_CALLBACKW = ?fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL;
-pub const PENUM_PAGE_FILE_CALLBACKA = ?fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL;
+pub const PENUM_PAGE_FILE_CALLBACKW = switch (builtin.zig_backend) {
+    .stage1 => ?fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL,
+    else => ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL,
+};
+pub const PENUM_PAGE_FILE_CALLBACKA = switch (builtin.zig_backend) {
+    .stage1 => ?fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL,
+    else => ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL,
+};
 
 pub const PSAPI_WS_WATCH_INFORMATION_EX = extern struct {
     BasicInfo: PSAPI_WS_WATCH_INFORMATION,
@@ -3699,4 +3726,7 @@ pub const CTRL_CLOSE_EVENT: DWORD = 2;
 pub const CTRL_LOGOFF_EVENT: DWORD = 5;
 pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
 
-pub const HANDLER_ROUTINE = fn (dwCtrlType: DWORD) callconv(.C) BOOL;
+pub const HANDLER_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => fn (dwCtrlType: DWORD) callconv(.C) BOOL,
+    else => *const fn (dwCtrlType: DWORD) callconv(.C) BOOL,
+};
