@@ -549,3 +549,17 @@ test "edwards25519 hash-to-curve operation" {
     p = Edwards25519.fromString(false, "QUUX-V01-CS02-with-edwards25519_XMD:SHA-512_ELL2_NU_", "abc");
     try htest.assertEqual("42fa27c8f5a1ae0aa38bb59d5938e5145622ba5dedd11d11736fa2f9502d7367", p.toBytes()[0..]);
 }
+
+test "edwards25519 implicit reduction of invalid scalars" {
+    const s = [_]u8{0} ** 31 ++ [_]u8{255};
+    const p1 = try Edwards25519.basePoint.mulPublic(s);
+    const p2 = try Edwards25519.basePoint.mul(s);
+    const p3 = try p1.mulPublic(s);
+    const p4 = try p1.mul(s);
+
+    try std.testing.expectEqualSlices(u8, p1.toBytes()[0..], p2.toBytes()[0..]);
+    try std.testing.expectEqualSlices(u8, p3.toBytes()[0..], p4.toBytes()[0..]);
+
+    try htest.assertEqual("339f189ecc5fbebe9895345c72dc07bda6e615f8a40e768441b6f529cd6c671a", p1.toBytes()[0..]);
+    try htest.assertEqual("a501e4c595a3686d8bee7058c7e6af7fd237f945c47546910e37e0e79b1bafb0", p3.toBytes()[0..]);
+}
