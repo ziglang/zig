@@ -44,7 +44,7 @@ test {
 
         // TODO make this incremental once the bug is solved that it triggers
         // See: https://github.com/ziglang/zig/issues/11344
-        ctx.addTestCasesFromDir(dir, .independent);
+        ctx.addTestCasesFromDir(dir);
     }
 
     {
@@ -55,7 +55,7 @@ test {
         var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
         defer dir.close();
 
-        ctx.addTestCasesFromDir(dir, .incremental);
+        ctx.addTestCasesFromDir(dir);
     }
 
     try @import("test_cases").addCases(&ctx);
@@ -394,6 +394,134 @@ const TestManifest = struct {
         }
     }
 };
+
+const TestStrategy = enum {
+    /// Execute tests as independent compilations, unless they are explicitly
+    /// incremental ("foo.0.zig", "foo.1.zig", etc.)
+    independent,
+    /// Execute all tests as incremental updates to a single compilation. Explicitly
+    /// incremental tests ("foo.0.zig", "foo.1.zig", etc.) still execute in order
+    incremental,
+};
+
+/// Iterates a set of filenames extracting batches that are either incremental
+/// ("foo.0.zig", "foo.1.zig", etc.) or independent ("foo.zig", "bar.zig", etc.).
+/// Assumes filenames are sorted.
+const TestIterator = struct {
+    start: usize = 0,
+    end: usize = 0,
+    filenames: []const []const u8,
+
+    const Error = error{InvalidIncrementalTestIndex};
+
+    fn next(it: *TestIterator) Error!?[]const []const u8 {
+        try it.nextInner();
+        if (it.start == it.end) return null;
+        return it.filenames[it.start..it.end];
+    }
+
+    fn nextInner(it: *TestIterator) Error!void {
+        it.start = it.end;
+        if (it.end == it.filenames.len) return;
+        if (it.end + 1 == it.filenames.len) {
+            it.end += 1;
+            return;
+        }
+
+        const remaining = it.filenames[it.end..];
+        var i: usize = 0;
+        while (i < remaining.len - 1) : (i += 1) {
+            // First, check if this file is part of an incremental update sequence
+            // Split filename into "<base_name>.<index>.<file_ext>"
+            const prev_parts = getTestFileNameParts(remaining[i]);
+            const new_parts = getTestFileNameParts(remaining[i + 1]);
+
+            // If base_name and file_ext match, these files are in the same test sequence
+            // and the new one should be the incremented version of the previous test
+            if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
+                std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
+            {
+                // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
+                if (prev_parts.test_index == null)
+                    return error.InvalidIncrementalTestIndex;
+                if (new_parts.test_index == null)
+                    return error.InvalidIncrementalTestIndex;
+                if (new_parts.test_index.? != prev_parts.test_index.? + 1)
+                    return error.InvalidIncrementalTestIndex;
+            } else {
+                // This is not the same test sequence, so the new file must be the first file
+                // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
+                if (new_parts.test_index != null and new_parts.test_index.? != 0)
+                    return error.InvalidIncrementalTestIndex;
+
+                it.end += i + 1;
+                break;
+            }
+        } else {
+            it.end += remaining.len;
+        }
+    }
+};
+
+/// For a filename in the format "<filename>.X.<ext>" or "<filename>.<ext>", returns
+/// "<filename>", "<ext>" and X parsed as a decimal number. If X is not present, or
+/// cannot be parsed as a decimal number, it is treated as part of <filename>
+fn getTestFileNameParts(name: []const u8) struct {
+    base_name: []const u8,
+    file_ext: []const u8,
+    test_index: ?usize,
+} {
+    const file_ext = std.fs.path.extension(name);
+    const trimmed = name[0 .. name.len - file_ext.len]; // Trim off ".<ext>"
+    const maybe_index = std.fs.path.extension(trimmed); // Extract ".X"
+
+    // Attempt to parse index
+    const index: ?usize = if (maybe_index.len > 0)
+        std.fmt.parseInt(usize, maybe_index[1..], 10) catch null
+    else
+        null;
+
+    // Adjust "<filename>" extent based on parsing success
+    const base_name_end = trimmed.len - if (index != null) maybe_index.len else 0;
+    return .{
+        .base_name = name[0..base_name_end],
+        .file_ext = if (file_ext.len > 0) file_ext[1..] else file_ext,
+        .test_index = index,
+    };
+}
+
+/// Sort test filenames in-place, so that incremental test cases ("foo.0.zig",
+/// "foo.1.zig", etc.) are contiguous and appear in numerical order.
+fn sortTestFilenames(
+    filenames: [][]const u8,
+) void {
+    const Context = struct {
+        pub fn lessThan(_: @This(), a: []const u8, b: []const u8) bool {
+            const a_parts = getTestFileNameParts(a);
+            const b_parts = getTestFileNameParts(b);
+
+            // Sort "<base_name>.X.<file_ext>" based on "<base_name>" and "<file_ext>" first
+            return switch (std.mem.order(u8, a_parts.base_name, b_parts.base_name)) {
+                .lt => true,
+                .gt => false,
+                .eq => switch (std.mem.order(u8, a_parts.file_ext, b_parts.file_ext)) {
+                    .lt => true,
+                    .gt => false,
+                    .eq => b: { // a and b differ only in their ".X" part
+
+                        // Sort "<base_name>.<file_ext>" before any "<base_name>.X.<file_ext>"
+                        if (a_parts.test_index == null) break :b true;
+                        if (b_parts.test_index == null) break :b false;
+
+                        // Make sure that incremental tests appear in linear order
+                        return a_parts.test_index.? < b_parts.test_index.?;
+                    },
+                },
+            };
+        }
+    };
+    std.sort.sort([]const u8, filenames, Context{}, Context.lessThan);
+}
 
 pub const TestContext = struct {
     arena: Allocator,
@@ -895,100 +1023,29 @@ pub const TestContext = struct {
         case.compiles(fixed_src);
     }
 
-    const Strategy = enum {
-        /// Execute tests as independent compilations, unless they are explicitly
-        /// incremental ("foo.0.zig", "foo.1.zig", etc.)
-        independent,
-        /// Execute all tests as incremental updates to a single compilation. Explicitly
-        /// incremental tests ("foo.0.zig", "foo.1.zig", etc.) still execute in order
-        incremental,
-    };
-
-    /// Adds a test for each file in the provided directory, using the selected strategy.
+    /// Adds a test for each file in the provided directory.
+    /// Testing strategy (TestStrategy) is inferred automatically from filenames.
     /// Recurses nested directories.
     ///
     /// Each file should include a test manifest as a contiguous block of comments at
     /// the end of the file. The first line should be the test type, followed by a set of
     /// key-value config values, followed by a blank line, then the expected output.
-    pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.Dir, strategy: Strategy) void {
+    pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.Dir) void {
         var current_file: []const u8 = "none";
-        ctx.addTestCasesFromDirInner(dir, strategy, &current_file) catch |err| {
+        ctx.addTestCasesFromDirInner(dir, &current_file) catch |err| {
             std.debug.panic("test harness failed to process file '{s}': {s}\n", .{
                 current_file, @errorName(err),
             });
         };
     }
 
-    /// For a filename in the format "<filename>.X.<ext>" or "<filename>.<ext>", returns
-    /// "<filename>", "<ext>" and X parsed as a decimal number. If X is not present, or
-    /// cannot be parsed as a decimal number, it is treated as part of <filename>
-    fn getTestFileNameParts(name: []const u8) struct {
-        base_name: []const u8,
-        file_ext: []const u8,
-        test_index: ?usize,
-    } {
-        const file_ext = std.fs.path.extension(name);
-        const trimmed = name[0 .. name.len - file_ext.len]; // Trim off ".<ext>"
-        const maybe_index = std.fs.path.extension(trimmed); // Extract ".X"
-
-        // Attempt to parse index
-        const index: ?usize = if (maybe_index.len > 0)
-            std.fmt.parseInt(usize, maybe_index[1..], 10) catch null
-        else
-            null;
-
-        // Adjust "<filename>" extent based on parsing success
-        const base_name_end = trimmed.len - if (index != null) maybe_index.len else 0;
-        return .{
-            .base_name = name[0..base_name_end],
-            .file_ext = if (file_ext.len > 0) file_ext[1..] else file_ext,
-            .test_index = index,
-        };
-    }
-
-    /// Sort test filenames in-place, so that incremental test cases ("foo.0.zig",
-    /// "foo.1.zig", etc.) are contiguous and appear in numerical order.
-    fn sortTestFilenames(
-        filenames: [][]const u8,
-    ) void {
-        const Context = struct {
-            pub fn lessThan(_: @This(), a: []const u8, b: []const u8) bool {
-                const a_parts = getTestFileNameParts(a);
-                const b_parts = getTestFileNameParts(b);
-
-                // Sort "<base_name>.X.<file_ext>" based on "<base_name>" and "<file_ext>" first
-                return switch (std.mem.order(u8, a_parts.base_name, b_parts.base_name)) {
-                    .lt => true,
-                    .gt => false,
-                    .eq => switch (std.mem.order(u8, a_parts.file_ext, b_parts.file_ext)) {
-                        .lt => true,
-                        .gt => false,
-                        .eq => b: { // a and b differ only in their ".X" part
-
-                            // Sort "<base_name>.<file_ext>" before any "<base_name>.X.<file_ext>"
-                            if (a_parts.test_index == null) break :b true;
-                            if (b_parts.test_index == null) break :b false;
-
-                            // Make sure that incremental tests appear in linear order
-                            return a_parts.test_index.? < b_parts.test_index.?;
-                        },
-                    },
-                };
-            }
-        };
-        std.sort.sort([]const u8, filenames, Context{}, Context.lessThan);
-    }
-
     fn addTestCasesFromDirInner(
         ctx: *TestContext,
         dir: std.fs.Dir,
-        strategy: Strategy,
         /// This is kept up to date with the currently being processed file so
         /// that if any errors occur the caller knows it happened during this file.
         current_file: *[]const u8,
     ) !void {
-        var cases = std.ArrayList(usize).init(ctx.arena);
-
         var it = try dir.walk(ctx.arena);
         var filenames = std.ArrayList([]const u8).init(ctx.arena);
 
@@ -1006,104 +1063,87 @@ pub const TestContext = struct {
         // Sort filenames, so that incremental tests are contiguous and in-order
         sortTestFilenames(filenames.items);
 
-        var prev_filename: []const u8 = "";
-        for (filenames.items) |filename| {
-            current_file.* = filename;
+        var test_it = TestIterator{ .filenames = filenames.items };
+        while (try test_it.next()) |batch| {
+            const strategy: TestStrategy = if (batch.len > 1) .incremental else .independent;
+            var cases = std.ArrayList(usize).init(ctx.arena);
 
-            // First, check if this file is part of an incremental update sequence
-            // Split filename into "<base_name>.<index>.<file_ext>"
-            const prev_parts = getTestFileNameParts(prev_filename);
-            const new_parts = getTestFileNameParts(filename);
+            for (batch) |filename| {
+                current_file.* = filename;
 
-            // If base_name and file_ext match, these files are in the same test sequence
-            // and the new one should be the incremented version of the previous test
-            if (std.mem.eql(u8, prev_parts.base_name, new_parts.base_name) and
-                std.mem.eql(u8, prev_parts.file_ext, new_parts.file_ext))
-            {
-                // This is "foo.X.zig" followed by "foo.Y.zig". Make sure that X = Y + 1
-                if (prev_parts.test_index == null) return error.InvalidIncrementalTestIndex;
-                if (new_parts.test_index == null) return error.InvalidIncrementalTestIndex;
-                if (new_parts.test_index.? != prev_parts.test_index.? + 1) return error.InvalidIncrementalTestIndex;
-            } else {
-                // This is not the same test sequence, so the new file must be the first file
-                // in a new sequence ("*.0.zig") or an independent test file ("*.zig")
-                if (new_parts.test_index != null and new_parts.test_index.? != 0) return error.InvalidIncrementalTestIndex;
-                cases.clearRetainingCapacity();
-            }
-            prev_filename = filename;
+                const max_file_size = 10 * 1024 * 1024;
+                const src = try dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
 
-            const max_file_size = 10 * 1024 * 1024;
-            const src = try dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
+                // Parse the manifest
+                var manifest = try TestManifest.parse(ctx.arena, src);
 
-            // Parse the manifest
-            var manifest = try TestManifest.parse(ctx.arena, src);
+                if (cases.items.len == 0) {
+                    const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
+                    const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", CrossTarget);
+                    const is_test = manifest.getConfigForKeyAssertSingle("is_test", bool);
+                    const output_mode = manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
 
-            if (cases.items.len == 0) {
-                const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
-                const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", CrossTarget);
-                const is_test = manifest.getConfigForKeyAssertSingle("is_test", bool);
-                const output_mode = manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+                    const name_prefix = blk: {
+                        const ext_index = std.mem.lastIndexOfScalar(u8, current_file.*, '.') orelse
+                            return error.InvalidFilename;
+                        const index = std.mem.lastIndexOfScalar(u8, current_file.*[0..ext_index], '.') orelse ext_index;
+                        break :blk current_file.*[0..index];
+                    };
 
-                const name_prefix = blk: {
-                    const ext_index = std.mem.lastIndexOfScalar(u8, current_file.*, '.') orelse
-                        return error.InvalidFilename;
-                    const index = std.mem.lastIndexOfScalar(u8, current_file.*[0..ext_index], '.') orelse ext_index;
-                    break :blk current_file.*[0..index];
-                };
+                    // Cross-product to get all possible test combinations
+                    for (backends) |backend| {
+                        if (backend == .stage1 and skip_stage1) continue;
 
-                // Cross-product to get all possible test combinations
-                for (backends) |backend| {
-                    if (backend == .stage1 and skip_stage1) continue;
-
-                    for (targets) |target| {
-                        const name = try std.fmt.allocPrint(ctx.arena, "{s} ({s}, {s})", .{
-                            name_prefix,
-                            @tagName(backend),
-                            try target.zigTriple(ctx.arena),
-                        });
-                        const next = ctx.cases.items.len;
-                        try ctx.cases.append(.{
-                            .name = name,
-                            .target = target,
-                            .backend = backend,
-                            .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
-                            .is_test = is_test,
-                            .output_mode = output_mode,
-                            .link_libc = backend == .llvm,
-                            .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
-                        });
-                        try cases.append(next);
+                        for (targets) |target| {
+                            const name = try std.fmt.allocPrint(ctx.arena, "{s} ({s}, {s})", .{
+                                name_prefix,
+                                @tagName(backend),
+                                try target.zigTriple(ctx.arena),
+                            });
+                            const next = ctx.cases.items.len;
+                            try ctx.cases.append(.{
+                                .name = name,
+                                .target = target,
+                                .backend = backend,
+                                .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
+                                .is_test = is_test,
+                                .output_mode = output_mode,
+                                .link_libc = backend == .llvm,
+                                .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
+                            });
+                            try cases.append(next);
+                        }
                     }
                 }
-            }
 
-            for (cases.items) |case_index| {
-                const case = &ctx.cases.items[case_index];
-                switch (manifest.@"type") {
-                    .@"error" => {
-                        const errors = try manifest.trailingAlloc(ctx.arena);
-                        switch (strategy) {
-                            .independent => {
-                                case.addError(src, errors);
-                            },
-                            .incremental => {
-                                case.addErrorNamed("update", src, errors);
-                            },
-                        }
-                    },
-                    .run => {
-                        var output = std.ArrayList(u8).init(ctx.arena);
-                        var trailing_it = manifest.trailing();
-                        while (trailing_it.next()) |line| {
-                            try output.appendSlice(line);
-                            try output.append('\n');
-                        }
-                        if (output.items.len > 0) {
-                            try output.resize(output.items.len - 1);
-                        }
-                        case.addCompareOutput(src, output.toOwnedSlice());
-                    },
-                    .cli => @panic("TODO cli tests"),
+                for (cases.items) |case_index| {
+                    const case = &ctx.cases.items[case_index];
+                    switch (manifest.@"type") {
+                        .@"error" => {
+                            const errors = try manifest.trailingAlloc(ctx.arena);
+                            switch (strategy) {
+                                .independent => {
+                                    case.addError(src, errors);
+                                },
+                                .incremental => {
+                                    case.addErrorNamed("update", src, errors);
+                                },
+                            }
+                        },
+                        .run => {
+                            var output = std.ArrayList(u8).init(ctx.arena);
+                            var trailing_it = manifest.trailing();
+                            while (trailing_it.next()) |line| {
+                                try output.appendSlice(line);
+                                try output.append('\n');
+                            }
+                            if (output.items.len > 0) {
+                                try output.resize(output.items.len - 1);
+                            }
+                            case.addCompareOutput(src, output.toOwnedSlice());
+                        },
+                        .cli => @panic("TODO cli tests"),
+                    }
                 }
             }
         }
