@@ -356,6 +356,12 @@
 #define __NR_openat2		437
 #define __NR_pidfd_getfd	438
 #define __NR_faccessat2		439
+#define __NR_process_madvise	440
+#define __NR_epoll_pwait2	441
+#define __NR_mount_setattr	442
+#define __NR_landlock_create_ruleset	444
+#define __NR_landlock_add_rule	445
+#define __NR_landlock_restrict_self	446
 
 #define SYS_exit                         1
 #define SYS_fork                         2
@@ -715,3 +721,9 @@
 #define SYS_openat2		437
 #define SYS_pidfd_getfd	438
 #define SYS_faccessat2		439
+#define SYS_process_madvise	440
+#define SYS_epoll_pwait2	441
+#define SYS_mount_setattr	442
+#define SYS_landlock_create_ruleset	444
+#define SYS_landlock_add_rule	445
+#define SYS_landlock_restrict_self	446

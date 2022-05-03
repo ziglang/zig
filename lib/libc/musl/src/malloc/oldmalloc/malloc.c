@@ -11,7 +11,7 @@
 #include "malloc_impl.h"
 #include "fork_impl.h"
 
-#define malloc __libc_malloc
+#define malloc __libc_malloc_impl
 #define realloc __libc_realloc
 #define free __libc_free
 
@@ -481,12 +481,14 @@ void __bin_chunk(struct chunk *self)
 	if (size > RECLAIM && (size^(size-osize)) > size-osize) {
 		uintptr_t a = (uintptr_t)self + SIZE_ALIGN+PAGE_SIZE-1 & -PAGE_SIZE;
 		uintptr_t b = (uintptr_t)next - SIZE_ALIGN & -PAGE_SIZE;
+		int e = errno;
 #if 1
 		__madvise((void *)a, b-a, MADV_DONTNEED);
 #else
 		__mmap((void *)a, b-a, PROT_READ|PROT_WRITE,
 			MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
 #endif
+		errno = e;
 	}
 
 	unlock_bin(i);
@@ -499,7 +501,9 @@ static void unmap_chunk(struct chunk *self)
 	size_t len = CHUNK_SIZE(self) + extra;
 	/* Crash on double free */
 	if (extra & 1) a_crash();
+	int e = errno;
 	__munmap(base, len);
+	errno = e;
 }
 
 void free(void *p)

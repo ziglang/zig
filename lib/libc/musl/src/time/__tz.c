@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <ctype.h>
 #include "libc.h"
 #include "lock.h"
 #include "fork_impl.h"
@@ -154,10 +155,21 @@ static void do_tzset()
 	}
 	if (old_tz) memcpy(old_tz, s, i+1);
 
+	int posix_form = 0;
+	if (*s != ':') {
+		p = s;
+		char dummy_name[TZNAME_MAX+1];
+		getname(dummy_name, &p);
+		if (p!=s && (*p == '+' || *p == '-' || isdigit(*p)
+		             || !strcmp(dummy_name, "UTC")
+		             || !strcmp(dummy_name, "GMT")))
+			posix_form = 1;
+	}	
+
 	/* Non-suid can use an absolute tzfile pathname or a relative
 	 * pathame beginning with "."; in secure mode, only the
 	 * standard path will be searched. */
-	if (*s == ':' || ((p=strchr(s, '/')) && !memchr(s, ',', p-s))) {
+	if (!posix_form) {
 		if (*s == ':') s++;
 		if (*s == '/' || *s == '.') {
 			if (!libc.secure || !strcmp(s, "/etc/localtime"))
@@ -281,22 +293,20 @@ static size_t scan_trans(long long t, int local, size_t *alt)
 	n = (index-trans)>>scale;
 	if (a == n-1) return -1;
 	if (a == 0) {
-		x = zi_read32(trans + (a<<scale));
-		if (scale == 3) x = x<<32 | zi_read32(trans + (a<<scale) + 4);
+		x = zi_read32(trans);
+		if (scale == 3) x = x<<32 | zi_read32(trans + 4);
 		else x = (int32_t)x;
-		if (local) off = (int32_t)zi_read32(types + 6 * index[a-1]);
+		/* Find the lowest non-DST type, or 0 if none. */
+		size_t j = 0;
+		for (size_t i=abbrevs-types; i; i-=6) {
+			if (!types[i-6+4]) j = i-6;
+		}
+		if (local) off = (int32_t)zi_read32(types + j);
+		/* If t is before first transition, use the above-found type
+		 * and the index-zero (after transition) type as the alt. */
 		if (t - off < (int64_t)x) {
-			for (a=0; a<(abbrevs-types)/6; a++) {
-				if (types[6*a+4] != types[4]) break;
-			}
-			if (a == (abbrevs-types)/6) a = 0;
-			if (types[6*a+4]) {
-				*alt = a;
-				return 0;
-			} else {
-				*alt = 0;
-				return a;
-			}
+			if (alt) *alt = index[0];
+			return j/6;
 		}
 	}
 

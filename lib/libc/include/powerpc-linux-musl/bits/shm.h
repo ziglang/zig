@@ -8,11 +8,11 @@ struct shmid_ds {
 	unsigned long __shm_dtime_lo;
 	unsigned long __shm_ctime_hi;
 	unsigned long __shm_ctime_lo;
+	unsigned long __pad1;
 	size_t shm_segsz;
 	pid_t shm_cpid;
 	pid_t shm_lpid;
 	unsigned long shm_nattch;
-	unsigned long __pad1;
 	unsigned long __pad2;
 	time_t shm_atime;
 	time_t shm_dtime;

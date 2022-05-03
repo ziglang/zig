@@ -6,6 +6,7 @@
 
 int posix_spawn_file_actions_addfchdir_np(posix_spawn_file_actions_t *fa, int fd)
 {
+	if (fd < 0) return EBADF;
 	struct fdop *op = malloc(sizeof *op);
 	if (!op) return ENOMEM;
 	op->cmd = FDOP_FCHDIR;

@@ -80,6 +80,8 @@ enum {
 	TCP_NLA_SRTT,
 	TCP_NLA_TIMEOUT_REHASH,
 	TCP_NLA_BYTES_NOTSENT,
+	TCP_NLA_EDT,
+	TCP_NLA_TTL,
 };
 
 #if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
@@ -281,12 +283,21 @@ struct tcp_repair_window {
 	uint32_t rcv_wup;
 };
 
+#define TCP_RECEIVE_ZEROCOPY_FLAG_TLB_CLEAN_HINT 0x1
+
 struct tcp_zerocopy_receive {
 	uint64_t address;
 	uint32_t length;
 	uint32_t recv_skip_hint;
 	uint32_t inq;
 	int32_t err;
+	uint64_t copybuf_address;
+	int32_t copybuf_len;
+	uint32_t flags;
+	uint64_t msg_control;
+	uint64_t msg_controllen;
+	uint32_t msg_flags;
+	uint32_t reserved;
 };
 
 #endif

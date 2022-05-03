@@ -61,13 +61,15 @@ static const double DP1 = 3.140625;
 static const double DP2 = 9.67502593994140625E-4;
 static const double DP3 = 1.509957990978376432E-7;
 
+static const float float_pi = M_PI;
+
 static float _redupif(float xx)
 {
 	float x, t;
 	long i;
 
 	x = xx;
-	t = x/(float)M_PI;
+	t = x/float_pi;
 	if (t >= 0.0f)
 		t += 0.5f;
 	else
