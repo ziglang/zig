@@ -1,0 +1,7 @@
+contact_links:
+  - name: Language Proposal
+    about: Propose to improve the Zig language
+    url: https://github.com/ziglang/zig/wiki/Language-Proposals
+  - name: Question
+    about: Please use one of the community spaces for questions or general discussions.
+    url: https://github.com/ziglang/zig/wiki/Community
