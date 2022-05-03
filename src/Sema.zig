@@ -10535,7 +10535,11 @@ fn zirAsm(
     var output_type_bits = extra.data.output_type_bits;
     var needed_capacity: usize = @typeInfo(Air.Asm).Struct.fields.len + outputs_len + inputs_len;
 
-    const Output = struct { constraint: []const u8, ty: Type };
+    const Output = struct {
+        constraint: []const u8,
+        name: []const u8,
+        ty: Type,
+    };
     const output: ?Output = if (outputs_len == 0) null else blk: {
         const output = sema.code.extraData(Zir.Inst.Asm.Output, extra_i);
         extra_i = output.end;
@@ -10548,10 +10552,12 @@ fn zirAsm(
         }
 
         const constraint = sema.code.nullTerminatedString(output.data.constraint);
-        needed_capacity += constraint.len / 4 + 1;
+        const name = sema.code.nullTerminatedString(output.data.name);
+        needed_capacity += (constraint.len + name.len + (2 + 3)) / 4;
 
         break :blk Output{
             .constraint = constraint,
+            .name = name,
             .ty = try sema.resolveType(block, ret_ty_src, output.data.operand),
         };
     };
@@ -10573,7 +10579,7 @@ fn zirAsm(
 
         const constraint = sema.code.nullTerminatedString(input.data.constraint);
         const name = sema.code.nullTerminatedString(input.data.name);
-        needed_capacity += (constraint.len + name.len + 1) / 4 + 1;
+        needed_capacity += (constraint.len + name.len + (2 + 3)) / 4;
         inputs[arg_i] = .{ .c = constraint, .n = name };
     }
 
@@ -10611,7 +10617,9 @@ fn zirAsm(
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
         mem.copy(u8, buffer, o.constraint);
         buffer[o.constraint.len] = 0;
-        sema.air_extra.items.len += o.constraint.len / 4 + 1;
+        mem.copy(u8, buffer[o.constraint.len + 1 ..], o.name);
+        buffer[o.constraint.len + 1 + o.name.len] = 0;
+        sema.air_extra.items.len += (o.constraint.len + o.name.len + (2 + 3)) / 4;
     }
     for (inputs) |input| {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
@@ -10619,7 +10627,7 @@ fn zirAsm(
         buffer[input.c.len] = 0;
         mem.copy(u8, buffer[input.c.len + 1 ..], input.n);
         buffer[input.c.len + 1 + input.n.len] = 0;
-        sema.air_extra.items.len += (input.c.len + input.n.len + 1) / 4 + 1;
+        sema.air_extra.items.len += (input.c.len + input.n.len + (2 + 3)) / 4;
     }
     for (clobbers) |clobber| {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());

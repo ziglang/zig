@@ -542,15 +542,19 @@ const Writer = struct {
         extra_i += inputs.len;
 
         for (outputs) |output| {
-            const constraint = w.air.nullTerminatedString(extra_i);
+            const extra_bytes = std.mem.sliceAsBytes(w.air.extra[extra_i..]);
+            const constraint = std.mem.sliceTo(extra_bytes, 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+
             // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += constraint.len / 4 + 1;
+            // for the strings and their null terminators, we still use the next u32
+            // for the null terminator.
+            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             if (output == .none) {
-                try s.print(", -> {s}", .{constraint});
+                try s.print(", [{s}] -> {s}", .{ name, constraint });
             } else {
-                try s.print(", out {s} = (", .{constraint});
+                try s.print(", [{s}] out {s} = (", .{ name, constraint });
                 try w.writeOperand(s, inst, op_index, output);
                 op_index += 1;
                 try s.writeByte(')');
@@ -558,12 +562,15 @@ const Writer = struct {
         }
 
         for (inputs) |input| {
-            const constraint = w.air.nullTerminatedString(extra_i);
+            const extra_bytes = std.mem.sliceAsBytes(w.air.extra[extra_i..]);
+            const constraint = std.mem.sliceTo(extra_bytes, 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += constraint.len / 4 + 1;
+            // for the strings and their null terminators, we still use the next u32
+            // for the null terminator.
+            extra_i += (constraint.len + name.len + 1) / 4 + 1;
 
-            try s.print(", in {s} = (", .{constraint});
+            try s.print(", [{s}] in {s} = (", .{ name, constraint });
             try w.writeOperand(s, inst, op_index, input);
             op_index += 1;
             try s.writeByte(')');
@@ -572,7 +579,8 @@ const Writer = struct {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = w.air.nullTerminatedString(extra_i);
+                const extra_bytes = std.mem.sliceAsBytes(w.air.extra[extra_i..]);
+                const clobber = std.mem.sliceTo(extra_bytes, 0);
                 // This equation accounts for the fact that even if we have exactly 4 bytes
                 // for the string, we still use the next u32 for the null terminator.
                 extra_i += clobber.len / 4 + 1;

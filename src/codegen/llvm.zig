@@ -4638,14 +4638,19 @@ pub const FuncGen = struct {
         var llvm_param_i: usize = 0;
         var total_i: usize = 0;
 
+        var name_map: std.StringArrayHashMapUnmanaged(void) = .{};
+        try name_map.ensureUnusedCapacity(arena, outputs.len + inputs.len);
+
         for (outputs) |output| {
             if (output != .none) {
                 return self.todo("implement inline asm with non-returned output", .{});
             }
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
-            extra_i += constraint.len / 4 + 1;
+            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 1);
             if (total_i != 0) {
@@ -4654,17 +4659,17 @@ pub const FuncGen = struct {
             llvm_constraints.appendAssumeCapacity('=');
             llvm_constraints.appendSliceAssumeCapacity(constraint[1..]);
 
+            name_map.putAssumeCapacityNoClobber(name, {});
             total_i += 1;
         }
 
-        const input_start_extra_i = extra_i;
         for (inputs) |input| {
-            const input_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(input_bytes, 0);
-            const input_name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const constraint = std.mem.sliceTo(extra_bytes, 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + input_name.len + 1) / 4 + 1;
+            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             const arg_llvm_value = try self.resolveInst(input);
 
@@ -4677,6 +4682,7 @@ pub const FuncGen = struct {
             }
             llvm_constraints.appendSliceAssumeCapacity(constraint);
 
+            name_map.putAssumeCapacityNoClobber(name, {});
             llvm_param_i += 1;
             total_i += 1;
         }
@@ -4739,20 +4745,11 @@ pub const FuncGen = struct {
                         const name = asm_source[name_start..i];
                         state = .start;
 
-                        extra_i = input_start_extra_i;
-                        for (inputs) |_, input_i| {
-                            const input_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-                            const constraint = std.mem.sliceTo(input_bytes, 0);
-                            const input_name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
-                            extra_i += (constraint.len + input_name.len + 1) / 4 + 1;
-
-                            if (std.mem.eql(u8, name, input_name)) {
-                                try rendered_template.writer().print("{d}", .{input_i});
-                                break;
-                            }
-                        } else {
-                            return self.todo("TODO validate asm in Sema", .{});
-                        }
+                        const index = name_map.getIndex(name) orelse {
+                            // we should validate the assembly in Sema; by now it is too late
+                            return self.todo("unknown input or output name: '{s}'", .{name});
+                        };
+                        try rendered_template.writer().print("{d}", .{index});
                     },
                     else => {},
                 },

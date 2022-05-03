@@ -3018,10 +3018,12 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         if (output != .none) {
             return f.fail("TODO implement codegen for non-expr asm", .{});
         }
+        const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
         const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
         // for the string, we still use the next u32 for the null terminator.
-        extra_i += constraint.len / 4 + 1;
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
         break constraint;
     } else null;
@@ -3031,10 +3033,12 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const inputs_extra_begin = extra_i;
     for (inputs) |input, i| {
-        const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+        const input_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
+        const constraint = std.mem.sliceTo(input_bytes, 0);
+        const name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
         // for the string, we still use the next u32 for the null terminator.
-        extra_i += constraint.len / 4 + 1;
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
         if (constraint[0] == '{' and constraint[constraint.len - 1] == '}') {
             const reg = constraint[1 .. constraint.len - 1];
