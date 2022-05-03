@@ -340,6 +340,10 @@ pub const Object = struct {
 
         llvm_module.setModuleDataLayout(target_data);
 
+        if (options.pic) llvm_module.setModulePICLevel();
+        if (options.pie) llvm_module.setModulePIELevel();
+        if (code_model != .Default) llvm_module.setModuleCodeModel(code_model);
+
         return Object{
             .gpa = gpa,
             .module = options.module.?,

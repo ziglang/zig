@@ -310,6 +310,15 @@ pub const Module = opaque {
     pub const setModuleDataLayout = LLVMSetModuleDataLayout;
     extern fn LLVMSetModuleDataLayout(*const Module, *const TargetData) void;
 
+    pub const setModulePICLevel = ZigLLVMSetModulePICLevel;
+    extern fn ZigLLVMSetModulePICLevel(module: *const Module) void;
+
+    pub const setModulePIELevel = ZigLLVMSetModulePIELevel;
+    extern fn ZigLLVMSetModulePIELevel(module: *const Module) void;
+
+    pub const setModuleCodeModel = ZigLLVMSetModuleCodeModel;
+    extern fn ZigLLVMSetModuleCodeModel(module: *const Module, code_model: CodeModel) void;
+
     pub const addFunction = LLVMAddFunction;
     extern fn LLVMAddFunction(*const Module, Name: [*:0]const u8, FunctionTy: *const Type) *const Value;
 
