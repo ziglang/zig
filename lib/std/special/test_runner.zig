@@ -28,7 +28,7 @@ pub fn main() void {
     {
         return main2() catch @panic("test failure");
     }
-    if (builtin.zig_backend == .stage1) processArgs();
+    processArgs();
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;

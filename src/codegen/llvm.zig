@@ -340,6 +340,10 @@ pub const Object = struct {
 
         llvm_module.setModuleDataLayout(target_data);
 
+        if (options.pic) llvm_module.setModulePICLevel();
+        if (options.pie) llvm_module.setModulePIELevel();
+        if (code_model != .Default) llvm_module.setModuleCodeModel(code_model);
+
         return Object{
             .gpa = gpa,
             .module = options.module.?,
@@ -4577,6 +4581,10 @@ pub const FuncGen = struct {
         const operand_ty = self.air.typeOf(pl_op.operand);
         const name = self.air.nullTerminatedString(pl_op.payload);
 
+        if (needDbgVarWorkaround(self.dg, operand_ty)) {
+            return null;
+        }
+
         const di_local_var = dib.createAutoVariable(
             self.di_scope.?,
             name.ptr,
@@ -4638,14 +4646,19 @@ pub const FuncGen = struct {
         var llvm_param_i: usize = 0;
         var total_i: usize = 0;
 
+        var name_map: std.StringArrayHashMapUnmanaged(void) = .{};
+        try name_map.ensureUnusedCapacity(arena, outputs.len + inputs.len);
+
         for (outputs) |output| {
             if (output != .none) {
                 return self.todo("implement inline asm with non-returned output", .{});
             }
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
-            extra_i += constraint.len / 4 + 1;
+            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 1);
             if (total_i != 0) {
@@ -4654,17 +4667,17 @@ pub const FuncGen = struct {
             llvm_constraints.appendAssumeCapacity('=');
             llvm_constraints.appendSliceAssumeCapacity(constraint[1..]);
 
+            name_map.putAssumeCapacityNoClobber(name, {});
             total_i += 1;
         }
 
-        const input_start_extra_i = extra_i;
         for (inputs) |input| {
-            const input_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(input_bytes, 0);
-            const input_name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const constraint = std.mem.sliceTo(extra_bytes, 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + input_name.len + 1) / 4 + 1;
+            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             const arg_llvm_value = try self.resolveInst(input);
 
@@ -4677,6 +4690,7 @@ pub const FuncGen = struct {
             }
             llvm_constraints.appendSliceAssumeCapacity(constraint);
 
+            name_map.putAssumeCapacityNoClobber(name, {});
             llvm_param_i += 1;
             total_i += 1;
         }
@@ -4739,20 +4753,11 @@ pub const FuncGen = struct {
                         const name = asm_source[name_start..i];
                         state = .start;
 
-                        extra_i = input_start_extra_i;
-                        for (inputs) |_, input_i| {
-                            const input_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-                            const constraint = std.mem.sliceTo(input_bytes, 0);
-                            const input_name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
-                            extra_i += (constraint.len + input_name.len + 1) / 4 + 1;
-
-                            if (std.mem.eql(u8, name, input_name)) {
-                                try rendered_template.writer().print("{d}", .{input_i});
-                                break;
-                            }
-                        } else {
-                            return self.todo("TODO validate asm in Sema", .{});
-                        }
+                        const index = name_map.getIndex(name) orelse {
+                            // we should validate the assembly in Sema; by now it is too late
+                            return self.todo("unknown input or output name: '{s}'", .{name});
+                        };
+                        try rendered_template.writer().print("{d}", .{index});
                     },
                     else => {},
                 },
@@ -6150,6 +6155,10 @@ pub const FuncGen = struct {
 
         const inst_ty = self.air.typeOfIndex(inst);
         if (self.dg.object.di_builder) |dib| {
+            if (needDbgVarWorkaround(self.dg, inst_ty)) {
+                return arg_val;
+            }
+
             const src_index = self.getSrcArgIndex(self.arg_index - 1);
             const func = self.dg.decl.getFunction().?;
             const lbrace_line = self.dg.module.declPtr(func.owner_decl).src_line + func.lbrace_line + 1;
@@ -8251,3 +8260,15 @@ const AnnotatedDITypePtr = enum(usize) {
 };
 
 const lt_errors_fn_name = "__zig_lt_errors_len";
+
+/// Without this workaround, LLVM crashes with "unknown codeview register H1"
+/// TODO use llvm-reduce and file upstream LLVM bug for this.
+fn needDbgVarWorkaround(dg: *DeclGen, ty: Type) bool {
+    if (ty.tag() == .f16) {
+        const target = dg.module.getTarget();
+        if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
+            return true;
+        }
+    }
+    return false;
+}

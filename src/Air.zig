@@ -815,6 +815,8 @@ pub const VectorCmp = struct {
 /// 1. `Inst.Ref` for every inputs_len
 /// 2. for every outputs_len
 ///    - constraint: memory at this position is reinterpreted as a null
+///      terminated string.
+///    - name: memory at this position is reinterpreted as a null
 ///      terminated string. pad to the next u32 after the null byte.
 /// 3. for every inputs_len
 ///    - constraint: memory at this position is reinterpreted as a null
