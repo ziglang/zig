@@ -240,14 +240,15 @@ pub fn parseNumber(comptime T: type, s: []const u8, negative: bool) ?Number(T) {
     return null;
 }
 
-fn parsePartialInfOrNan(comptime T: type, s: []const u8, n: *usize) ?T {
+fn parsePartialInfOrNan(comptime T: type, s: []const u8, negative: bool, n: *usize) ?T {
     // inf/infinity; infxxx should only consume inf.
     if (std.ascii.startsWithIgnoreCase(s, "inf")) {
         n.* = 3;
         if (std.ascii.startsWithIgnoreCase(s[3..], "inity")) {
             n.* = 8;
         }
-        return std.math.inf(T);
+
+        return if (!negative) std.math.inf(T) else -std.math.inf(T);
     }
 
     if (std.ascii.startsWithIgnoreCase(s, "nan")) {
@@ -260,11 +261,8 @@ fn parsePartialInfOrNan(comptime T: type, s: []const u8, n: *usize) ?T {
 
 pub fn parseInfOrNan(comptime T: type, s: []const u8, negative: bool) ?T {
     var consumed: usize = 0;
-    if (parsePartialInfOrNan(T, s, &consumed)) |special| {
+    if (parsePartialInfOrNan(T, s, negative, &consumed)) |special| {
         if (s.len == consumed) {
-            if (negative) {
-                return -1 * special;
-            }
             return special;
         }
     }
