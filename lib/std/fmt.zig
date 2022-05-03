@@ -1842,7 +1842,6 @@ pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
 
 test {
     _ = parseFloat;
-    _ = parseHexFloat;
 }
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {

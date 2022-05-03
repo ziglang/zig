@@ -778,8 +778,14 @@ test "quad hex float literal parsing accurate" {
                 try expect(@bitCast(u128, f) == 0x40042eab345678439abcdefea5678234);
             }
             {
-                var f: f128 = 0x1.edcb34a235253948765432134674fp-1;
-                try expect(@bitCast(u128, f) == 0x3ffeedcb34a235253948765432134674);
+                // TODO: modify stage1/parse_f128.c to use round-to-even
+                if (builtin.zig_backend == .stage1) {
+                    var f: f128 = 0x1.edcb34a235253948765432134674fp-1;
+                    try expect(@bitCast(u128, f) == 0x3ffeedcb34a235253948765432134674); // round-down
+                } else {
+                    var f: f128 = 0x1.edcb34a235253948765432134674fp-1;
+                    try expect(@bitCast(u128, f) == 0x3ffeedcb34a235253948765432134675); // round-to-even
+                }
             }
             {
                 var f: f128 = 0x1.353e45674d89abacc3a2ebf3ff4ffp-50;
