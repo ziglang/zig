@@ -106,6 +106,7 @@ pub fn emitMir(
             .call_extern => try emit.mirCallExtern(inst),
 
             .eor_immediate => try emit.mirLogicalImmediate(inst),
+            .tst_immediate => try emit.mirLogicalImmediate(inst),
 
             .add_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
             .adds_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
@@ -166,6 +167,8 @@ pub fn emitMir(
             .movz => try emit.mirMoveWideImmediate(inst),
 
             .mul => try emit.mirDataProcessing3Source(inst),
+            .smull => try emit.mirDataProcessing3Source(inst),
+            .umull => try emit.mirDataProcessing3Source(inst),
 
             .nop => try emit.mirNop(),
 
@@ -674,6 +677,7 @@ fn mirLogicalImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .eor_immediate => try emit.writeInstruction(Instruction.eorImmediate(rd, rn, imms, immr, n)),
+        .tst_immediate => try emit.writeInstruction(Instruction.tstImmediate(rn, imms, immr, n)),
         else => unreachable,
     }
 }
@@ -1000,6 +1004,8 @@ fn mirDataProcessing3Source(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
+        .smull => try emit.writeInstruction(Instruction.smull(rrr.rd, rrr.rn, rrr.rm)),
+        .umull => try emit.writeInstruction(Instruction.umull(rrr.rd, rrr.rn, rrr.rm)),
         else => unreachable,
     }
 }

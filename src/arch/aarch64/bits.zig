@@ -1409,6 +1409,10 @@ pub const Instruction = union(enum) {
         return logicalImmediate(0b11, rd, rn, imms, immr, n);
     }
 
+    pub fn tstImmediate(rn: Register, imms: u6, immr: u6, n: u1) Instruction {
+        return andsImmediate(.xzr, rn, imms, immr, n);
+    }
+
     // Bitfield
 
     pub fn sbfm(rd: Register, rn: Register, immr: u6, imms: u6) Instruction {
@@ -1564,12 +1568,29 @@ pub const Instruction = union(enum) {
         return dataProcessing3Source(0b00, 0b000, 0b0, rd, rn, rm, ra);
     }
 
+    pub fn smaddl(rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
+        return dataProcessing3Source(0b00, 0b001, 0b0, rd, rn, rm, ra);
+    }
+
+    pub fn umaddl(rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
+        assert(rd.size() == 64);
+        return dataProcessing3Source(0b00, 0b101, 0b0, rd, rn, rm, ra);
+    }
+
     pub fn msub(rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
         return dataProcessing3Source(0b00, 0b000, 0b1, rd, rn, rm, ra);
     }
 
     pub fn mul(rd: Register, rn: Register, rm: Register) Instruction {
         return madd(rd, rn, rm, .xzr);
+    }
+
+    pub fn smull(rd: Register, rn: Register, rm: Register) Instruction {
+        return smaddl(rd, rn, rm, .xzr);
+    }
+
+    pub fn umull(rd: Register, rn: Register, rm: Register) Instruction {
+        return umaddl(rd, rn, rm, .xzr);
     }
 
     pub fn mneg(rd: Register, rn: Register, rm: Register) Instruction {
@@ -1789,6 +1810,18 @@ test "serialize instructions" {
         .{ // lsr x4, x2, #63
             .inst = Instruction.lsrImmediate(.x4, .x2, 63),
             .expected = 0b1_10_100110_1_111111_111111_00010_00100,
+        },
+        .{ // umull x0, w0, w1
+            .inst = Instruction.umull(.x0, .w0, .w1),
+            .expected = 0b1_00_11011_1_01_00001_0_11111_00000_00000,
+        },
+        .{ // smull x0, w0, w1
+            .inst = Instruction.smull(.x0, .w0, .w1),
+            .expected = 0b1_00_11011_0_01_00001_0_11111_00000_00000,
+        },
+        .{ // tst x0, #0xffffffff00000000
+            .inst = Instruction.tstImmediate(.x0, 0b011111, 0b100000, 0b1),
+            .expected = 0b1_11_100100_1_100000_011111_00000_11111,
         },
     };
 

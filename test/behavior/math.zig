@@ -666,7 +666,6 @@ test "small int addition" {
 
 test "@mulWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var result: u8 = undefined;
     try expect(@mulWithOverflow(u8, 86, 3, &result));

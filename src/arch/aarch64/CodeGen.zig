@@ -1296,6 +1296,11 @@ fn binOpRegister(
 
     const dest_reg = switch (mir_tag) {
         .cmp_shifted_register => undefined, // cmp has no destination register
+        .smull, .umull => blk: {
+            // TODO can we reuse anything for smull and umull?
+            const raw_reg = try self.register_manager.allocReg(null);
+            break :blk raw_reg.to64();
+        },
         else => if (maybe_inst) |inst| blk: {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
@@ -1335,6 +1340,8 @@ fn binOpRegister(
             .shift = .lsl,
         } },
         .mul,
+        .smull,
+        .umull,
         .lsl_register,
         .asr_register,
         .lsr_register,
@@ -1883,8 +1890,69 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airMulWithOverflow for {}", .{self.target.cpu.arch});
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    if (self.liveness.isUnused(inst)) return self.finishAir(inst, .dead, .{ extra.lhs, extra.rhs, .none });
+    const result: MCValue = result: {
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+        const rhs_ty = self.air.typeOf(extra.rhs);
+
+        const tuple_ty = self.air.typeOfIndex(inst);
+        const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
+        const tuple_align = tuple_ty.abiAlignment(self.target.*);
+        const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, self.target.*));
+
+        switch (lhs_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
+            .Int => {
+                const int_info = lhs_ty.intInfo(self.target.*);
+
+                if (int_info.bits <= 32) {
+                    const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
+
+                    try self.spillCompareFlagsIfOccupied();
+                    self.compare_flags_inst = null;
+
+                    const base_tag: Mir.Inst.Tag = switch (int_info.signedness) {
+                        .signed => .smull,
+                        .unsigned => .umull,
+                    };
+
+                    const dest = try self.binOpRegister(base_tag, null, lhs, rhs, lhs_ty, rhs_ty);
+                    const dest_reg = dest.register;
+                    self.register_manager.freezeRegs(&.{dest_reg});
+                    defer self.register_manager.unfreezeRegs(&.{dest_reg});
+
+                    const truncated_reg = try self.register_manager.allocReg(null);
+                    self.register_manager.freezeRegs(&.{truncated_reg});
+                    defer self.register_manager.unfreezeRegs(&.{truncated_reg});
+
+                    try self.truncRegister(dest_reg, truncated_reg, int_info.signedness, int_info.bits);
+                    _ = try self.binOp(
+                        .cmp_eq,
+                        null,
+                        dest,
+                        .{ .register = truncated_reg },
+                        Type.usize,
+                        Type.usize,
+                    );
+
+                    try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
+                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{
+                        .compare_flags_unsigned = .neq,
+                    });
+
+                    break :result MCValue{ .stack_offset = stack_offset };
+                } else if (int_info.bits <= 64) {
+                    return self.fail("TODO implement mul_with_overflow for ints", .{});
+                } else return self.fail("TODO implmenet mul_with_overflow for integers > u64/i64", .{});
+            },
+            else => unreachable,
+        }
+    };
+    return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
 fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {

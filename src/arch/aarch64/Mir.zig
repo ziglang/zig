@@ -146,6 +146,8 @@ pub const Inst = struct {
         ret,
         /// Signed bitfield extract
         sbfx,
+        /// Signed multiply long
+        smull,
         /// Signed extend byte
         sxtb,
         /// Signed extend halfword
@@ -182,8 +184,12 @@ pub const Inst = struct {
         subs_shifted_register,
         /// Supervisor Call
         svc,
+        /// Test bits (immediate)
+        tst_immediate,
         /// Unsigned bitfield extract
         ubfx,
+        /// Unsigned multiply long
+        umull,
         /// Unsigned extend byte
         uxtb,
         /// Unsigned extend halfword
