@@ -813,6 +813,7 @@ comptime {
         @export(__floatditf, .{ .name = "__floatdikf", .linkage = linkage });
         @export(__floatunditf, .{ .name = "__floatundikf", .linkage = linkage });
         @export(__floatunsitf, .{ .name = "__floatunsikf", .linkage = linkage });
+        @export(__floatuntitf, .{ .name = "__floatuntikf", .linkage = linkage });
 
         @export(__letf2, .{ .name = "__eqkf2", .linkage = linkage });
         @export(__letf2, .{ .name = "__nekf2", .linkage = linkage });
