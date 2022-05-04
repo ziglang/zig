@@ -12,6 +12,7 @@ find_path(LLVM_INCLUDE_DIRS NAMES llvm/IR/IRBuilder.h
     /usr/lib/llvm/13/include
     /usr/lib/llvm-13/include
     /usr/lib/llvm-13.0/include
+    /usr/lib/llvm13/include
     /usr/local/llvm13/include
     /usr/local/llvm130/include
     /usr/local/opt/llvm@13/include
@@ -31,6 +32,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       /usr/lib/llvm/13/lib
       /usr/lib/llvm/13/lib64
       /usr/lib/llvm-13/lib
+      /usr/lib/llvm13/lib
       /usr/local/llvm13/lib
       /usr/local/llvm130/lib
       /usr/local/opt/llvm@13/lib
