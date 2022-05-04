@@ -14715,51 +14715,64 @@ fn checkNumericType(
     }
 }
 
-fn checkAtomicOperandType(
+/// Returns the casted pointer.
+fn checkAtomicPtrOperand(
     sema: *Sema,
     block: *Block,
-    ty_src: LazySrcLoc,
-    ty: Type,
-) CompileError!void {
-    var buffer: Type.Payload.Bits = undefined;
+    elem_ty: Type,
+    elem_ty_src: LazySrcLoc,
+    ptr: Air.Inst.Ref,
+    ptr_src: LazySrcLoc,
+    ptr_const: bool,
+) CompileError!Air.Inst.Ref {
     const target = sema.mod.getTarget();
-    const max_atomic_bits = target_util.largestAtomicBits(target);
-    const int_ty = switch (ty.zigTypeTag()) {
-        .Int => ty,
-        .Enum => ty.intTagType(&buffer),
-        .Float => {
-            const bit_count = ty.floatBits(target);
-            if (bit_count > max_atomic_bits) {
-                return sema.fail(
-                    block,
-                    ty_src,
-                    "expected {d}-bit float type or smaller; found {d}-bit float type",
-                    .{ max_atomic_bits, bit_count },
-                );
-            }
-            return;
-        },
-        .Bool => return, // Will be treated as `u8`.
-        else => {
-            if (ty.isPtrAtRuntime()) return;
+    var diag: target_util.AtomicPtrAlignmentDiagnostics = .{};
+    const alignment = target_util.atomicPtrAlignment(target, elem_ty, &diag) catch |err| switch (err) {
+        error.FloatTooBig => return sema.fail(
+            block,
+            elem_ty_src,
+            "expected {d}-bit float type or smaller; found {d}-bit float type",
+            .{ diag.max_bits, diag.bits },
+        ),
+        error.IntTooBig => return sema.fail(
+            block,
+            elem_ty_src,
+            "expected {d}-bit integer type or smaller; found {d}-bit integer type",
+            .{ diag.max_bits, diag.bits },
+        ),
+        error.BadType => return sema.fail(
+            block,
+            elem_ty_src,
+            "expected bool, integer, float, enum, or pointer type; found {}",
+            .{elem_ty.fmt(sema.mod)},
+        ),
+    };
 
-            return sema.fail(
-                block,
-                ty_src,
-                "expected bool, integer, float, enum, or pointer type; found {}",
-                .{ty.fmt(sema.mod)},
-            );
+    var wanted_ptr_data: Type.Payload.Pointer.Data = .{
+        .pointee_type = elem_ty,
+        .@"align" = alignment,
+        .@"addrspace" = .generic,
+        .mutable = !ptr_const,
+    };
+
+    const ptr_ty = sema.typeOf(ptr);
+    const ptr_data = switch (try ptr_ty.zigTypeTagOrPoison()) {
+        .Pointer => ptr_ty.ptrInfo().data,
+        else => {
+            const wanted_ptr_ty = try Type.ptr(sema.arena, sema.mod, wanted_ptr_data);
+            _ = try sema.coerce(block, wanted_ptr_ty, ptr, ptr_src);
+            unreachable;
         },
     };
-    const bit_count = int_ty.intInfo(target).bits;
-    if (bit_count > max_atomic_bits) {
-        return sema.fail(
-            block,
-            ty_src,
-            "expected {d}-bit integer type or smaller; found {d}-bit integer type",
-            .{ max_atomic_bits, bit_count },
-        );
-    }
+
+    wanted_ptr_data.@"addrspace" = ptr_data.@"addrspace";
+    wanted_ptr_data.@"allowzero" = ptr_data.@"allowzero";
+    wanted_ptr_data.@"volatile" = ptr_data.@"volatile";
+
+    const wanted_ptr_ty = try Type.ptr(sema.arena, sema.mod, wanted_ptr_data);
+    const casted_ptr = try sema.coerce(block, wanted_ptr_ty, ptr, ptr_src);
+
+    return casted_ptr;
 }
 
 fn checkPtrIsNotComptimeMutable(
@@ -15036,10 +15049,8 @@ fn zirCmpxchg(
     const success_order_src: LazySrcLoc = .{ .node_offset_builtin_call_arg4 = inst_data.src_node };
     const failure_order_src: LazySrcLoc = .{ .node_offset_builtin_call_arg5 = inst_data.src_node };
     // zig fmt: on
-    const ptr = sema.resolveInst(extra.ptr);
-    const ptr_ty = sema.typeOf(ptr);
-    const elem_ty = ptr_ty.elemType();
-    try sema.checkAtomicOperandType(block, elem_ty_src, elem_ty);
+    const expected_value = sema.resolveInst(extra.expected_value);
+    const elem_ty = sema.typeOf(expected_value);
     if (elem_ty.zigTypeTag() == .Float) {
         return sema.fail(
             block,
@@ -15048,7 +15059,8 @@ fn zirCmpxchg(
             .{elem_ty.fmt(sema.mod)},
         );
     }
-    const expected_value = try sema.coerce(block, elem_ty, sema.resolveInst(extra.expected_value), expected_src);
+    const uncasted_ptr = sema.resolveInst(extra.ptr);
+    const ptr = try sema.checkAtomicPtrOperand(block, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
     const new_value = try sema.coerce(block, elem_ty, sema.resolveInst(extra.new_value), new_value_src);
     const success_order = try sema.resolveAtomicOrder(block, success_order_src, extra.success_order);
     const failure_order = try sema.resolveAtomicOrder(block, failure_order_src, extra.failure_order);
@@ -15081,6 +15093,7 @@ fn zirCmpxchg(
                     // to become undef as well
                     return sema.addConstUndef(result_ty);
                 }
+                const ptr_ty = sema.typeOf(ptr);
                 const stored_val = (try sema.pointerDeref(block, ptr_src, ptr_val, ptr_ty)) orelse break :rs ptr_src;
                 const result_val = if (stored_val.eql(expected_val, elem_ty, sema.mod)) blk: {
                     try sema.storePtr(block, src, ptr, new_value);
@@ -15487,17 +15500,16 @@ fn zirSelect(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
 fn zirAtomicLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const extra = sema.code.extraData(Zir.Inst.AtomicLoad, inst_data.payload_index).data;
     // zig fmt: off
     const elem_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ptr_src    : LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const order_src  : LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
     // zig fmt: on
-    const ptr = sema.resolveInst(extra.lhs);
-    const ptr_ty = sema.typeOf(ptr);
-    const elem_ty = ptr_ty.elemType();
-    try sema.checkAtomicOperandType(block, elem_ty_src, elem_ty);
-    const order = try sema.resolveAtomicOrder(block, order_src, extra.rhs);
+    const elem_ty = try sema.resolveType(block, elem_ty_src, extra.elem_type);
+    const uncasted_ptr = sema.resolveInst(extra.ptr);
+    const ptr = try sema.checkAtomicPtrOperand(block, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, true);
+    const order = try sema.resolveAtomicOrder(block, order_src, extra.ordering);
 
     switch (order) {
         .Release, .AcqRel => {
@@ -15516,7 +15528,7 @@ fn zirAtomicLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
-        if (try sema.pointerDeref(block, ptr_src, ptr_val, ptr_ty)) |elem_val| {
+        if (try sema.pointerDeref(block, ptr_src, ptr_val, sema.typeOf(ptr))) |elem_val| {
             return sema.addConstant(elem_ty, elem_val);
         }
     }
@@ -15536,19 +15548,19 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const extra = sema.code.extraData(Zir.Inst.AtomicRmw, inst_data.payload_index).data;
     const src = inst_data.src();
     // zig fmt: off
-    const operand_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const elem_ty_src   : LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ptr_src       : LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const op_src        : LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
     const operand_src   : LazySrcLoc = .{ .node_offset_builtin_call_arg3 = inst_data.src_node };
     const order_src     : LazySrcLoc = .{ .node_offset_builtin_call_arg4 = inst_data.src_node };
     // zig fmt: on
-    const ptr = sema.resolveInst(extra.ptr);
-    const ptr_ty = sema.typeOf(ptr);
-    const operand_ty = ptr_ty.elemType();
-    try sema.checkAtomicOperandType(block, operand_ty_src, operand_ty);
+    const operand = sema.resolveInst(extra.operand);
+    const elem_ty = sema.typeOf(operand);
+    const uncasted_ptr = sema.resolveInst(extra.ptr);
+    const ptr = try sema.checkAtomicPtrOperand(block, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
     const op = try sema.resolveAtomicRmwOp(block, op_src, extra.operation);
 
-    switch (operand_ty.zigTypeTag()) {
+    switch (elem_ty.zigTypeTag()) {
         .Enum => if (op != .Xchg) {
             return sema.fail(block, op_src, "@atomicRmw with enum only allowed with .Xchg", .{});
         },
@@ -15561,7 +15573,6 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         },
         else => {},
     }
-    const operand = try sema.coerce(block, operand_ty, sema.resolveInst(extra.operand), operand_src);
     const order = try sema.resolveAtomicOrder(block, order_src, extra.ordering);
 
     if (order == .Unordered) {
@@ -15569,8 +15580,8 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     // special case zero bit types
-    if (try sema.typeHasOnePossibleValue(block, operand_ty_src, operand_ty)) |val| {
-        return sema.addConstant(operand_ty, val);
+    if (try sema.typeHasOnePossibleValue(block, elem_ty_src, elem_ty)) |val| {
+        return sema.addConstant(elem_ty, val);
     }
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
@@ -15581,22 +15592,23 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         };
         if (ptr_val.isComptimeMutablePtr()) {
             const target = sema.mod.getTarget();
+            const ptr_ty = sema.typeOf(ptr);
             const stored_val = (try sema.pointerDeref(block, ptr_src, ptr_val, ptr_ty)) orelse break :rs ptr_src;
             const new_val = switch (op) {
                 // zig fmt: off
                 .Xchg => operand_val,
-                .Add  => try stored_val.numberAddWrap(operand_val, operand_ty, sema.arena, target),
-                .Sub  => try stored_val.numberSubWrap(operand_val, operand_ty, sema.arena, target),
-                .And  => try stored_val.bitwiseAnd   (operand_val, operand_ty, sema.arena, target),
-                .Nand => try stored_val.bitwiseNand  (operand_val, operand_ty, sema.arena, target),
-                .Or   => try stored_val.bitwiseOr    (operand_val, operand_ty, sema.arena, target),
-                .Xor  => try stored_val.bitwiseXor   (operand_val, operand_ty, sema.arena, target),
-                .Max  =>     stored_val.numberMax    (operand_val,                         target),
-                .Min  =>     stored_val.numberMin    (operand_val,                         target),
+                .Add  => try stored_val.numberAddWrap(operand_val, elem_ty, sema.arena, target),
+                .Sub  => try stored_val.numberSubWrap(operand_val, elem_ty, sema.arena, target),
+                .And  => try stored_val.bitwiseAnd   (operand_val, elem_ty, sema.arena, target),
+                .Nand => try stored_val.bitwiseNand  (operand_val, elem_ty, sema.arena, target),
+                .Or   => try stored_val.bitwiseOr    (operand_val, elem_ty, sema.arena, target),
+                .Xor  => try stored_val.bitwiseXor   (operand_val, elem_ty, sema.arena, target),
+                .Max  =>     stored_val.numberMax    (operand_val,                      target),
+                .Min  =>     stored_val.numberMin    (operand_val,                      target),
                 // zig fmt: on
             };
-            try sema.storePtrVal(block, src, ptr_val, new_val, operand_ty);
-            return sema.addConstant(operand_ty, stored_val);
+            try sema.storePtrVal(block, src, ptr_val, new_val, elem_ty);
+            return sema.addConstant(elem_ty, stored_val);
         } else break :rs ptr_src;
     } else ptr_src;
 
@@ -15620,15 +15632,15 @@ fn zirAtomicStore(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const extra = sema.code.extraData(Zir.Inst.AtomicStore, inst_data.payload_index).data;
     const src = inst_data.src();
     // zig fmt: off
-    const operand_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const elem_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ptr_src       : LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const operand_src   : LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
     const order_src     : LazySrcLoc = .{ .node_offset_builtin_call_arg3 = inst_data.src_node };
     // zig fmt: on
-    const ptr = sema.resolveInst(extra.ptr);
-    const operand_ty = sema.typeOf(ptr).elemType();
-    try sema.checkAtomicOperandType(block, operand_ty_src, operand_ty);
-    const operand = try sema.coerce(block, operand_ty, sema.resolveInst(extra.operand), operand_src);
+    const operand = sema.resolveInst(extra.operand);
+    const elem_ty = sema.typeOf(operand);
+    const uncasted_ptr = sema.resolveInst(extra.ptr);
+    const ptr = try sema.checkAtomicPtrOperand(block, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
     const order = try sema.resolveAtomicOrder(block, order_src, extra.ordering);
 
     const air_tag: Air.Inst.Tag = switch (order) {

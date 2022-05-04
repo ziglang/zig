@@ -1,5 +1,6 @@
 const std = @import("std");
 const llvm = @import("codegen/llvm/bindings.zig");
+const Type = @import("type.zig").Type;
 
 pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,
@@ -543,10 +544,28 @@ pub fn needUnwindTables(target: std.Target) bool {
     return target.os.tag == .windows;
 }
 
-/// TODO this was ported from stage1 but it does not take into account CPU features,
-/// which can affect this value. Audit this!
-pub fn largestAtomicBits(target: std.Target) u32 {
-    return switch (target.cpu.arch) {
+pub const AtomicPtrAlignmentError = error{
+    FloatTooBig,
+    IntTooBig,
+    BadType,
+};
+
+pub const AtomicPtrAlignmentDiagnostics = struct {
+    bits: u16 = undefined,
+    max_bits: u16 = undefined,
+};
+
+/// If ABI alignment of `ty` is OK for atomic operations, returs 0.
+/// Otherwise returns the alignment required on a pointer for the target
+/// to perform atomic operations.
+pub fn atomicPtrAlignment(
+    target: std.Target,
+    ty: Type,
+    diags: *AtomicPtrAlignmentDiagnostics,
+) AtomicPtrAlignmentError!u32 {
+    // TODO this was ported from stage1 but it does not take into account CPU features,
+    // which can affect this value. Audit this!
+    const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
         .msp430,
         .spu_2,
@@ -611,6 +630,47 @@ pub fn largestAtomicBits(target: std.Target) u32 {
 
         .x86_64 => 128,
     };
+
+    var buffer: Type.Payload.Bits = undefined;
+
+    const int_ty = switch (ty.zigTypeTag()) {
+        .Int => ty,
+        .Enum => ty.intTagType(&buffer),
+        .Float => {
+            const bit_count = ty.floatBits(target);
+            if (bit_count > max_atomic_bits) {
+                diags.* = .{
+                    .bits = bit_count,
+                    .max_bits = max_atomic_bits,
+                };
+                return error.FloatTooBig;
+            }
+            if (target.cpu.arch == .x86_64 and bit_count > 64) {
+                return 16;
+            }
+            return 0;
+        },
+        .Bool => return 0,
+        else => {
+            if (ty.isPtrAtRuntime()) return 0;
+            return error.BadType;
+        },
+    };
+
+    const bit_count = int_ty.intInfo(target).bits;
+    if (bit_count > max_atomic_bits) {
+        diags.* = .{
+            .bits = bit_count,
+            .max_bits = max_atomic_bits,
+        };
+        return error.IntTooBig;
+    }
+
+    if (target.cpu.arch == .x86_64 and bit_count > 64) {
+        return 16;
+    }
+
+    return 0;
 }
 
 pub fn defaultAddressSpace(
