@@ -5210,6 +5210,32 @@ pub const Type = extern union {
         }
     }
 
+    pub fn enumBackingInt(ty: Type, ally: Allocator) !Type {
+        return switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => ty.cast(Payload.EnumFull).?.data.tag_ty,
+            .enum_numbered => ty.cast(Payload.EnumNumbered).?.data.tag_ty,
+            .enum_simple => ty: {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                const fields_len = enum_simple.fields.count();
+                const bits = std.math.log2_int_ceil(usize, fields_len);
+                break :ty Type.Tag.int_unsigned.create(ally, bits);
+            },
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .prefetch_options,
+            .export_options,
+            .extern_options,
+            => unreachable,
+
+            else => unreachable,
+        };
+    }
+
     pub fn structFields(ty: Type) Module.Struct.Fields {
         switch (ty.tag()) {
             .empty_struct, .empty_struct_literal => return .{},
