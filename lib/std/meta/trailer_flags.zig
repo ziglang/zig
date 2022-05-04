@@ -18,7 +18,8 @@ pub fn TrailerFlags(comptime Fields: type) type {
 
         pub const FieldEnum = std.meta.FieldEnum(Fields);
 
-        pub const InitStruct = blk: {
+        pub const ActiveFields = std.enums.EnumFieldStruct(FieldEnum, bool, false);
+        pub const FieldValues = blk: {
             comptime var fields: [bit_count]Type.StructField = undefined;
             inline for (@typeInfo(Fields).Struct.fields) |struct_field, i| {
                 fields[i] = Type.StructField{
@@ -57,19 +58,18 @@ pub fn TrailerFlags(comptime Fields: type) type {
             self.bits |= 1 << field_index;
         }
 
-        /// `fields` is a struct with each field set to an optional value.
-        /// Only the non-null bits are observed and are used to set the flag bits.
-        pub fn init(fields: InitStruct) Self {
+        /// `fields` is a boolean struct where each active field is set to `true`
+        pub fn init(fields: ActiveFields) Self {
             var self: Self = .{ .bits = 0 };
             inline for (@typeInfo(Fields).Struct.fields) |field, i| {
-                if (@field(fields, field.name)) |_|
+                if (@field(fields, field.name))
                     self.bits |= 1 << i;
             }
             return self;
         }
 
-        /// `fields` is a struct with each field set to an optional value (same as `init`).
-        pub fn setMany(self: Self, p: [*]align(@alignOf(Fields)) u8, fields: InitStruct) void {
+        /// `fields` is a struct with each field set to an optional value
+        pub fn setMany(self: Self, p: [*]align(@alignOf(Fields)) u8, fields: FieldValues) void {
             inline for (@typeInfo(Fields).Struct.fields) |field, i| {
                 if (@field(fields, field.name)) |value|
                     self.set(p, @intToEnum(FieldEnum, i), value);
@@ -142,7 +142,7 @@ test "TrailerFlags" {
 
     var flags = Flags.init(.{
         .b = true,
-        .c = 1234,
+        .c = true,
     });
     const slice = try testing.allocator.allocAdvanced(u8, 8, flags.sizeInBytes(), .exact);
     defer testing.allocator.free(slice);
