@@ -19,7 +19,7 @@ int pthread_setname_np(pthread_t thread, const char *name)
 
 	snprintf(f, sizeof f, "/proc/self/task/%d/comm", thread->tid);
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cs);
-	if ((fd = open(f, O_WRONLY)) < 0 || write(fd, name, len) < 0) status = errno;
+	if ((fd = open(f, O_WRONLY|O_CLOEXEC)) < 0 || write(fd, name, len) < 0) status = errno;
 	if (fd >= 0) close(fd);
 	pthread_setcancelstate(cs, 0);
 	return status;

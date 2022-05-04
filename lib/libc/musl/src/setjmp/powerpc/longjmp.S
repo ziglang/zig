@@ -37,7 +37,37 @@ longjmp:
 	lwz 29, 72(3)
 	lwz 30, 76(3)
 	lwz 31, 80(3)
-#ifndef _SOFT_FLOAT
+#if defined(_SOFT_FLOAT) || defined(__NO_FPRS__)
+	mflr 0
+	bl 1f
+	.hidden __hwcap
+	.long __hwcap-.
+1:	mflr 4
+	lwz 5, 0(4)
+	lwzx 4, 4, 5
+	andis. 4, 4, 0x80
+	beq 1f
+	.long 0x11c35b01 /* evldd 14,88(3) */
+	.long 0x11e36301 /* ... */
+	.long 0x12036b01
+	.long 0x12237301
+	.long 0x12437b01
+	.long 0x12638301
+	.long 0x12838b01
+	.long 0x12a39301
+	.long 0x12c39b01
+	.long 0x12e3a301
+	.long 0x1303ab01
+	.long 0x1323b301
+	.long 0x1343bb01
+	.long 0x1363c301
+	.long 0x1383cb01
+	.long 0x13a3d301
+	.long 0x13c3db01
+	.long 0x13e3e301 /* evldd 31,224(3) */
+	.long 0x11a3eb01 /* evldd 13,232(3) */
+1:	mtlr 0
+#else
 	lfd 14,88(3)
 	lfd 15,96(3)
 	lfd 16,104(3)

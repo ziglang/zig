@@ -31,25 +31,12 @@ FILE *popen(const char *cmd, const char *mode)
 		__syscall(SYS_close, p[1]);
 		return NULL;
 	}
-	FLOCK(f);
-
-	/* If the child's end of the pipe happens to already be on the final
-	 * fd number to which it will be assigned (either 0 or 1), it must
-	 * be moved to a different fd. Otherwise, there is no safe way to
-	 * remove the close-on-exec flag in the child without also creating
-	 * a file descriptor leak race condition in the parent. */
-	if (p[1-op] == 1-op) {
-		int tmp = fcntl(1-op, F_DUPFD_CLOEXEC, 0);
-		if (tmp < 0) {
-			e = errno;
-			goto fail;
-		}
-		__syscall(SYS_close, p[1-op]);
-		p[1-op] = tmp;
-	}
 
 	e = ENOMEM;
 	if (!posix_spawn_file_actions_init(&fa)) {
+		for (FILE *l = *__ofl_lock(); l; l=l->next)
+			if (l->pipe_pid && posix_spawn_file_actions_addclose(&fa, l->fd))
+				goto fail;
 		if (!posix_spawn_file_actions_adddup2(&fa, p[1-op], 1-op)) {
 			if (!(e = posix_spawn(&pid, "/bin/sh", &fa, 0,
 			    (char *[]){ "sh", "-c", (char *)cmd, 0 }, __environ))) {
@@ -58,13 +45,14 @@ FILE *popen(const char *cmd, const char *mode)
 				if (!strchr(mode, 'e'))
 					fcntl(p[op], F_SETFD, 0);
 				__syscall(SYS_close, p[1-op]);
-				FUNLOCK(f);
+				__ofl_unlock();
 				return f;
 			}
 		}
+fail:
+		__ofl_unlock();
 		posix_spawn_file_actions_destroy(&fa);
 	}
-fail:
 	fclose(f);
 	__syscall(SYS_close, p[1-op]);
 

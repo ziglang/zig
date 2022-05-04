@@ -7,7 +7,9 @@ extern "C" {
 
 #include <features.h>
 
-#ifdef __cplusplus
+#if __cplusplus >= 201103L
+#define NULL nullptr
+#elif defined(__cplusplus)
 #define NULL 0L
 #else
 #define NULL ((void*)0)
@@ -146,6 +148,7 @@ int clearenv(void);
 #define WCOREDUMP(s) ((s) & 0x80)
 #define WIFCONTINUED(s) ((s) == 0xffff)
 void *reallocarray (void *, size_t, size_t);
+void qsort_r (void *, size_t, size_t, int (*)(const void *, const void *, void *), void *);
 #endif
 
 #ifdef _GNU_SOURCE
