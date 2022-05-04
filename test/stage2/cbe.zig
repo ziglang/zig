@@ -763,7 +763,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @enumToInt(a);
             \\}
         , &.{
-            ":3:20: error: expected enum or tagged union, found bool",
+            ":3:20: error: expected enum or tagged union, found 'bool'",
         });
 
         case.addError(
@@ -772,7 +772,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToEnum(bool, a);
             \\}
         , &.{
-            ":3:20: error: expected enum, found bool",
+            ":3:20: error: expected enum, found 'bool'",
         });
 
         case.addError(
