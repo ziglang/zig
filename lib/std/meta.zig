@@ -10,6 +10,10 @@ pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
 const Type = std.builtin.Type;
 
+test "std.meta.TrailerFlags" {
+    _ = TrailerFlags;
+}
+
 pub fn tagName(v: anytype) []const u8 {
     const T = @TypeOf(v);
     switch (@typeInfo(T)) {

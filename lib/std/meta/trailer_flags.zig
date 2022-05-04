@@ -24,10 +24,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
                 fields[i] = Type.StructField{
                     .name = struct_field.name,
                     .field_type = ?struct_field.field_type,
-                    .default_value = @as(
-                        ??struct_field.field_type,
-                        @as(?struct_field.field_type, null),
-                    ),
+                    .default_value = &@as(?struct_field.field_type, null),
                     .is_comptime = false,
                     .alignment = @alignOf(?struct_field.field_type),
                 };
