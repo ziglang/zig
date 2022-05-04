@@ -1773,6 +1773,83 @@ pub const Target = struct {
             else => false,
         };
     }
+
+    pub inline fn maxIntAlignment(target: Target) u16 {
+        return switch (target.cpu.arch) {
+            .avr => 1,
+            .msp430 => 2,
+            .xcore => 4,
+
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            .x86_64,
+            .hexagon,
+            .mips,
+            .mipsel,
+            .mips64,
+            .mips64el,
+            .powerpc,
+            .powerpcle,
+            .powerpc64,
+            .powerpc64le,
+            .r600,
+            .amdgcn,
+            .riscv32,
+            .riscv64,
+            .sparc,
+            .sparcv9,
+            .sparcel,
+            .s390x,
+            .lanai,
+            .wasm32,
+            .wasm64,
+            => 8,
+
+            .i386 => return switch (target.os.tag) {
+                .windows => 8,
+                else => 4,
+            },
+            .aarch64,
+            .aarch64_be,
+            .aarch64_32,
+            .bpfel,
+            .bpfeb,
+            .nvptx,
+            .nvptx64,
+            => 16,
+
+            // Below this comment are unverified and I have chosen a number
+            // based on ptrBitWidth.
+
+            .spu_2 => 2,
+
+            .csky,
+            .arc,
+            .m68k,
+            .tce,
+            .tcele,
+            .le32,
+            .amdil,
+            .hsail,
+            .spir,
+            .kalimba,
+            .renderscript32,
+            .spirv32,
+            .shave,
+            => 4,
+
+            .le64,
+            .amdil64,
+            .hsail64,
+            .spir64,
+            .renderscript64,
+            .ve,
+            .spirv64,
+            => 8,
+        };
+    }
 };
 
 test {

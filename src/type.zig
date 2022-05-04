@@ -2788,11 +2788,6 @@ pub const Type = extern union {
                 return AbiAlignmentAdvanced{ .scalar = target_util.defaultFunctionAlignment(target) };
             },
 
-            .i16, .u16 => return AbiAlignmentAdvanced{ .scalar = 2 },
-            .i32, .u32 => return AbiAlignmentAdvanced{ .scalar = 4 },
-            .i64, .u64 => return AbiAlignmentAdvanced{ .scalar = 8 },
-            .u128, .i128 => return AbiAlignmentAdvanced{ .scalar = 16 },
-
             .isize,
             .usize,
             .single_const_pointer_to_comptime_int,
@@ -2865,14 +2860,15 @@ pub const Type = extern union {
             // ABI alignment of vectors?
             .vector => return AbiAlignmentAdvanced{ .scalar = 16 },
 
+            .i16, .u16 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(16, target) },
+            .i32, .u32 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(32, target) },
+            .i64, .u64 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(64, target) },
+            .u128, .i128 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(128, target) },
+
             .int_signed, .int_unsigned => {
                 const bits: u16 = ty.cast(Payload.Bits).?.data;
                 if (bits == 0) return AbiAlignmentAdvanced{ .scalar = 0 };
-                if (bits <= 8) return AbiAlignmentAdvanced{ .scalar = 1 };
-                if (bits <= 16) return AbiAlignmentAdvanced{ .scalar = 2 };
-                if (bits <= 32) return AbiAlignmentAdvanced{ .scalar = 4 };
-                if (bits <= 64) return AbiAlignmentAdvanced{ .scalar = 8 };
-                return AbiAlignmentAdvanced{ .scalar = 16 };
+                return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(bits, target) };
             },
 
             .optional => {
@@ -3113,10 +3109,6 @@ pub const Type = extern union {
                 assert(elem_size >= payload.elem_type.abiAlignment(target));
                 return (payload.len + 1) * elem_size;
             },
-            .i16, .u16 => return 2,
-            .i32, .u32 => return 4,
-            .i64, .u64 => return 8,
-            .u128, .i128 => return 16,
 
             .isize,
             .usize,
@@ -3189,10 +3181,14 @@ pub const Type = extern union {
             .error_set_merged,
             => return 2, // TODO revisit this when we have the concept of the error tag type
 
+            .i16, .u16 => return intAbiSize(16, target),
+            .i32, .u32 => return intAbiSize(32, target),
+            .i64, .u64 => return intAbiSize(64, target),
+            .u128, .i128 => return intAbiSize(128, target),
             .int_signed, .int_unsigned => {
                 const bits: u16 = self.cast(Payload.Bits).?.data;
                 if (bits == 0) return 0;
-                return std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8);
+                return intAbiSize(bits, target);
             },
 
             .optional => {
@@ -3232,6 +3228,18 @@ pub const Type = extern union {
                 return size;
             },
         };
+    }
+
+    fn intAbiSize(bits: u16, target: Target) u64 {
+        const alignment = intAbiAlignment(bits, target);
+        return std.mem.alignForwardGeneric(u64, (bits + 7) / 8, alignment);
+    }
+
+    fn intAbiAlignment(bits: u16, target: Target) u32 {
+        return @minimum(
+            std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8),
+            target.maxIntAlignment(),
+        );
     }
 
     /// Asserts the type has the bit size already resolved.

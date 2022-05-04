@@ -47,41 +47,121 @@ fn expects4(x: *align(4) u32) void {
     x.* += 1;
 }
 
-test "alignment of structs" {
+test "alignment of struct with pointer has same alignment as usize" {
     try expect(@alignOf(struct {
         a: i32,
         b: *i32,
     }) == @alignOf(usize));
 }
 
-test "alignment of >= 128-bit integer type" {
-    try expect(@alignOf(u128) == 16);
-    try expect(@alignOf(u129) == 16);
-}
-
-test "alignment of struct with 128-bit field" {
-    try expect(@alignOf(struct {
+test "alignment and size of structs with 128-bit fields" {
+    const A = struct {
         x: u128,
-    }) == 16);
-
-    comptime {
-        try expect(@alignOf(struct {
-            x: u128,
-        }) == 16);
-    }
-}
-
-test "size of extern struct with 128-bit field" {
-    try expect(@sizeOf(extern struct {
+    };
+    const B = extern struct {
         x: u128,
         y: u8,
-    }) == 32);
+    };
+    const expected = switch (builtin.cpu.arch) {
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .x86_64,
+        .hexagon,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .r600,
+        .amdgcn,
+        .riscv32,
+        .riscv64,
+        .sparc,
+        .sparcv9,
+        .sparcel,
+        .s390x,
+        .lanai,
+        .wasm32,
+        .wasm64,
+        => .{
+            .a_align = 8,
+            .a_size = 16,
 
+            .b_align = 8,
+            .b_size = 24,
+
+            .u128_align = 8,
+            .u128_size = 16,
+            .u129_align = 8,
+            .u129_size = 24,
+        },
+
+        .i386 => switch (builtin.os.tag) {
+            .windows => .{
+                .a_align = 8,
+                .a_size = 16,
+
+                .b_align = 8,
+                .b_size = 24,
+
+                .u128_align = 8,
+                .u128_size = 16,
+                .u129_align = 8,
+                .u129_size = 24,
+            },
+            else => .{
+                .a_align = 4,
+                .a_size = 16,
+
+                .b_align = 4,
+                .b_size = 20,
+
+                .u128_align = 4,
+                .u128_size = 16,
+                .u129_align = 4,
+                .u129_size = 20,
+            },
+        },
+
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        .bpfel,
+        .bpfeb,
+        .nvptx,
+        .nvptx64,
+        => .{
+            .a_align = 16,
+            .a_size = 16,
+
+            .b_align = 16,
+            .b_size = 32,
+
+            .u128_align = 16,
+            .u128_size = 16,
+            .u129_align = 16,
+            .u129_size = 32,
+        },
+
+        else => return error.SkipZigTest,
+    };
     comptime {
-        try expect(@sizeOf(extern struct {
-            x: u128,
-            y: u8,
-        }) == 32);
+        std.debug.assert(@alignOf(A) == expected.a_align);
+        std.debug.assert(@sizeOf(A) == expected.a_size);
+
+        std.debug.assert(@alignOf(B) == expected.b_align);
+        std.debug.assert(@sizeOf(B) == expected.b_size);
+
+        std.debug.assert(@alignOf(u128) == expected.u128_align);
+        std.debug.assert(@sizeOf(u128) == expected.u128_size);
+
+        std.debug.assert(@alignOf(u129) == expected.u129_align);
+        std.debug.assert(@sizeOf(u129) == expected.u129_size);
     }
 }
 
@@ -328,7 +408,6 @@ test "read 128-bit field from default aligned struct in stack memory" {
         .nevermind = 1,
         .badguy = 12,
     };
-    try expect((@ptrToInt(&default_aligned.badguy) % 16) == 0);
     try expect(12 == default_aligned.badguy);
 }
 
@@ -345,7 +424,6 @@ test "read 128-bit field from default aligned struct in global memory" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
-    try expect((@ptrToInt(&default_aligned_global.badguy) % 16) == 0);
     try expect(12 == default_aligned_global.badguy);
 }
 

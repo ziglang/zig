@@ -7583,7 +7583,7 @@ pub const FuncGen = struct {
         const size_bytes = elem_ty.abiSize(target);
         _ = self.builder.buildMemCpy(
             self.builder.buildBitCast(ptr, llvm_ptr_u8, ""),
-            ptr_ty.ptrAlignment(target),
+            ptr_alignment,
             self.builder.buildBitCast(elem, llvm_ptr_u8, ""),
             elem_ty.abiAlignment(target),
             self.context.intType(Type.usize.intInfo(target).bits).constInt(size_bytes, .False),
