@@ -36,20 +36,7 @@ test {
 
     {
         const dir_path = try std.fs.path.join(arena, &.{
-            std.fs.path.dirname(@src().file).?, "..", "test", "compile_errors",
-        });
-
-        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
-        defer dir.close();
-
-        // TODO make this incremental once the bug is solved that it triggers
-        // See: https://github.com/ziglang/zig/issues/11344
-        ctx.addTestCasesFromDir(dir);
-    }
-
-    {
-        const dir_path = try std.fs.path.join(arena, &.{
-            std.fs.path.dirname(@src().file).?, "..", "test", "incremental",
+            std.fs.path.dirname(@src().file).?, "..", "test", "cases",
         });
 
         var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
