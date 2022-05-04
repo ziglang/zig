@@ -24637,7 +24637,7 @@ fn enumHasInt(
     int: Value,
 ) CompileError!bool {
     switch (ty.tag()) {
-        .enum_nonexhaustive => return sema.intFitsInType(block, src, int, ty),
+        .enum_nonexhaustive => return sema.intFitsInType(block, src, int, ty.castTag(.enum_nonexhaustive).?.data.tag_ty),
         .enum_full => {
             const enum_full = ty.castTag(.enum_full).?.data;
             const tag_ty = enum_full.tag_ty;
