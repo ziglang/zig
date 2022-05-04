@@ -5128,6 +5128,15 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts `ty` is an enum with a `ValueMap`.
+    pub fn enumValues(ty: Type) Module.EnumFull.ValueMap {
+        return switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => ty.cast(Payload.EnumFull).?.data.values,
+            .enum_numbered => ty.castTag(.enum_numbered).?.data.values,
+            else => unreachable,
+        };
+    }
+
     pub fn enumFieldCount(ty: Type) usize {
         return ty.enumFields().count();
     }
@@ -5138,6 +5147,11 @@ pub const Type = extern union {
 
     pub fn enumFieldIndex(ty: Type, field_name: []const u8) ?usize {
         return ty.enumFields().getIndex(field_name);
+    }
+
+    /// Asserts `ty` is an enum. Asserts `value_index` is a valid index of `ty`'s values.
+    pub fn enumValue(ty: Type, value_index: usize) Value {
+        return ty.enumValues().keys()[value_index];
     }
 
     /// Asserts `ty` is an enum. `enum_tag` can either be `enum_field_index` or
