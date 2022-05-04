@@ -6009,7 +6009,7 @@ fn zirEnumToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             break :blk try sema.unionToTag(block, tag_ty, operand, operand_src);
         },
         else => {
-            return sema.fail(block, operand_src, "expected enum or tagged union, found {}", .{
+            return sema.fail(block, operand_src, "expected enum or tagged union, found '{}'", .{
                 operand_ty.fmt(sema.mod),
             });
         },
@@ -6041,10 +6041,12 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
 
     if (dest_ty.zigTypeTag() != .Enum) {
-        return sema.fail(block, dest_ty_src, "expected enum, found {}", .{dest_ty.fmt(sema.mod)});
+        return sema.fail(block, dest_ty_src, "expected enum, found '{}'", .{dest_ty.fmt(sema.mod)});
     }
+    _ = try sema.checkIntType(block, operand_src, operand_ty);
 
     if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |int_val| {
         if (int_val.isUndef()) {
@@ -6052,11 +6054,16 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         }
         if (!(try sema.enumHasInt(block, src, dest_ty, int_val))) {
             const msg = msg: {
-                const msg = try sema.errMsg(
+                const msg = if (dest_ty.isNonexhaustiveEnum()) try sema.errMsg(
+                    block,
+                    src,
+                    "non-exhaustive enum '{}' cannot fit value {}",
+                    .{ dest_ty.fmt(sema.mod), int_val.fmtValue(operand_ty, sema.mod) },
+                ) else try sema.errMsg(
                     block,
                     src,
                     "enum '{}' has no tag with value {}",
-                    .{ dest_ty.fmt(sema.mod), int_val.fmtValue(sema.typeOf(operand), sema.mod) },
+                    .{ dest_ty.fmt(sema.mod), int_val.fmtValue(operand_ty, sema.mod) },
                 );
                 errdefer msg.destroy(sema.gpa);
                 try sema.mod.errNoteNonLazy(
