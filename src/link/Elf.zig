@@ -1264,7 +1264,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     const have_dynamic_linker = self.base.options.link_libc and
         self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
     const target = self.base.options.target;
-    const gc_sections = self.base.options.gc_sections orelse !is_obj;
+    const gc_sections = self.base.options.gc_sections orelse false;
     const stack_size = self.base.options.stack_size_override orelse 16777216;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
     const compiler_rt_path: ?[]const u8 = blk: {
