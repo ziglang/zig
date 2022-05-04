@@ -963,21 +963,18 @@ pub fn commitDeclState(
                     const wasm_file = file.cast(File.Wasm).?;
                     const segment_index = try wasm_file.getDebugLineIndex();
                     const segment = &wasm_file.segments.items[segment_index];
-                    const debug_atom = wasm_file.atoms.get(segment_index).?;
+                    const debug_line = &wasm_file.debug_line;
                     if (needed_size != segment.size) {
                         log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
                         if (needed_size > segment.size) {
-                            log.debug("  allocating {d} bytes for debug line information", .{needed_size - segment.size});
-                            try debug_atom.code.resize(self.allocator, needed_size);
-                            std.mem.set(u8, debug_atom.code.items[segment.size..], 0);
+                            log.debug("  allocating {d} bytes for 'debug line' information", .{needed_size - segment.size});
+                            try debug_line.resize(self.allocator, needed_size);
+                            mem.set(u8, debug_line.items[segment.size..], 0);
                         }
-                        debug_atom.size = needed_size;
                         segment.size = needed_size;
                     }
-                    // since we can tighly pack the debug lines, wasm does not require
-                    // us to pad with Nops.
                     const offset = segment.offset + src_fn.off;
-                    std.mem.copy(u8, debug_atom.code.items[offset..], dbg_line_buffer.items);
+                    mem.copy(u8, debug_line.items[offset..], dbg_line_buffer.items);
                 },
                 else => unreachable,
             }
@@ -1116,7 +1113,9 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *Atom, len: u3
                         const file_pos = debug_info_sect.offset + atom.off;
                         try pwriteDbgInfoNops(d_sym.file, file_pos, 0, &[0]u8{}, atom.len, false);
                     },
-                    .wasm => {},
+                    .wasm => {
+                        log.debug(" todo: updateDeclDebugInfoAllocation for Wasm: {d}", .{atom.len});
+                    },
                     else => unreachable,
                 }
                 // TODO Look at the free list before appending at the end.
@@ -1241,6 +1240,23 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                 trailing_zero,
             );
         },
+        .wasm => {
+            const wasm_file = file.cast(File.Wasm).?;
+            const segment_index = try wasm_file.getDebugInfoIndex();
+            const segment = &wasm_file.segments.items[segment_index];
+            const debug_info = &wasm_file.debug_info;
+            if (needed_size != segment.size) {
+                log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
+                if (needed_size > segment.size) {
+                    log.debug("  allocating {d} bytes for 'debug info' information", .{needed_size - segment.size});
+                    try debug_info.resize(self.allocator, needed_size);
+                    mem.set(u8, debug_info.items[segment.size..], 0);
+                }
+                segment.size = needed_size;
+            }
+            const offset = segment.offset + atom.off;
+            mem.copy(u8, debug_info.items[offset..], dbg_info_buf);
+        },
         else => unreachable,
     }
 }
@@ -1279,8 +1295,7 @@ pub fn updateDeclLineNumber(self: *Dwarf, file: *File, decl: *const Module.Decl)
             const segment_index = wasm_file.getDebugLineIndex() catch unreachable;
             const segment = wasm_file.segments.items[segment_index];
             const offset = segment.offset + decl.fn_link.wasm.src_fn.off + self.getRelocDbgLineOff();
-            const debug_atom = wasm_file.atoms.get(segment_index).?;
-            std.mem.copy(u8, debug_atom.code.items[offset..], &data);
+            mem.copy(u8, wasm_file.debug_line.items[offset..], &data);
         },
         else => unreachable,
     }
@@ -1514,6 +1529,11 @@ pub fn writeDbgAbbrev(self: *Dwarf, file: *File) !void {
             const file_pos = debug_abbrev_sect.offset + abbrev_offset;
             try d_sym.file.pwriteAll(&abbrev_buf, file_pos);
         },
+        .wasm => {
+            const wasm_file = file.cast(File.Wasm).?;
+            try wasm_file.debug_abbrev.resize(wasm_file.base.allocator, needed_size);
+            mem.copy(u8, wasm_file.debug_abbrev.items, &abbrev_buf);
+        },
         else => unreachable,
     }
 }
@@ -1620,6 +1640,10 @@ pub fn writeDbgInfoHeader(self: *Dwarf, file: *File, module: *Module, low_pc: u6
             const debug_info_sect = dwarf_seg.sections.items[d_sym.debug_info_section_index.?];
             const file_pos = debug_info_sect.offset;
             try pwriteDbgInfoNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt, false);
+        },
+        .wasm => {
+            const wasm_file = file.cast(File.Wasm).?;
+            mem.copy(u8, wasm_file.debug_info.items, di_buf.items);
         },
         else => unreachable,
     }
@@ -2004,6 +2028,10 @@ pub fn writeDbgLineHeader(self: *Dwarf, file: *File, module: *Module) !void {
             const file_pos = debug_line_sect.offset;
             try pwriteDbgLineNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt);
         },
+        .wasm => {
+            const wasm_file = file.cast(File.Wasm).?;
+            mem.copy(u8, wasm_file.debug_line.items, di_buf.items);
+        },
         else => unreachable,
     }
 }
@@ -2127,6 +2155,8 @@ pub fn flushModule(self: *Dwarf, file: *File, module: *Module) !void {
                     const debug_info_sect = &dwarf_segment.sections.items[d_sym.debug_info_section_index.?];
                     break :blk debug_info_sect.offset;
                 },
+                // for wasm, the offset is always 0 as we write to memory first
+                .wasm => break :blk @as(u32, 0),
                 else => unreachable,
             }
         };
@@ -2144,6 +2174,10 @@ pub fn flushModule(self: *Dwarf, file: *File, module: *Module) !void {
                     const macho_file = file.cast(File.MachO).?;
                     const d_sym = &macho_file.d_sym.?;
                     try d_sym.file.pwriteAll(&buf, file_pos + reloc.atom.off + reloc.offset);
+                },
+                .wasm => {
+                    const wasm_file = file.cast(File.Wasm).?;
+                    mem.copy(u8, wasm_file.debug_info.items[reloc.atom.off + reloc.offset ..], &buf);
                 },
                 else => unreachable,
             }

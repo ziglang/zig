@@ -90,15 +90,6 @@ pub fn getFirst(self: *Atom) *Atom {
     return tmp;
 }
 
-/// Returns the atom for the given `symbol_index`.
-/// This can be either the `Atom` itself, or one of its locals.
-pub fn symbolAtom(self: *Atom, symbol_index: u32) *Atom {
-    if (self.sym_index == symbol_index) return self;
-    return for (self.locals.items) |*local_atom| {
-        if (local_atom.sym_index == symbol_index) break local_atom;
-    } else unreachable; // Used a symbol index not present in this atom or its children.
-}
-
 /// Returns the location of the symbol that represents this `Atom`
 pub fn symbolLoc(self: Atom) Wasm.SymbolLoc {
     return .{ .file = self.file, .index = self.sym_index };

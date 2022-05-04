@@ -90,6 +90,14 @@ string_table: StringTable = .{},
 /// Debug information for wasm
 dwarf: ?Dwarf = null,
 
+// *debug information* //
+/// Contains all bytes for the '.debug_info' section
+debug_info: std.ArrayListUnmanaged(u8) = .{},
+/// Contains all bytes for the '.debug_line' section
+debug_line: std.ArrayListUnmanaged(u8) = .{},
+/// Contains all bytes for the '.debug_abbrev' section
+debug_abbrev: std.ArrayListUnmanaged(u8) = .{},
+
 // Output sections
 /// Output type section
 func_types: std.ArrayListUnmanaged(wasm.Type) = .{},
@@ -501,6 +509,10 @@ pub fn deinit(self: *Wasm) void {
     if (self.dwarf) |*dwarf| {
         dwarf.deinit();
     }
+
+    self.debug_info.deinit(gpa);
+    self.debug_line.deinit(gpa);
+    self.debug_abbrev.deinit(gpa);
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl_index: Module.Decl.Index) !void {
@@ -576,7 +588,9 @@ pub fn updateFunc(self: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
             &self.base,
             mod,
             decl,
-            // Actual value will be written after relocation
+            // Actual value will be written after relocation.
+            // For Wasm, this is the offset relative to the code section
+            // which isn't known until flush().
             0,
             code.len,
             &decl_state.?,
@@ -1016,10 +1030,12 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
                 // segment indexes can be off by 1 due to also containing a segment
                 // for the code section, so we must check if the existing segment
                 // is larger than that of the code section, and substract the index by 1 in such case.
-                const info_add = if (self.code_section_index) |idx| blk: {
+                var info_add = if (self.code_section_index) |idx| blk: {
                     if (idx < index) break :blk @as(u32, 1);
                     break :blk 0;
                 } else @as(u32, 0);
+                if (self.debug_info_index != null) info_add += 1;
+                if (self.debug_line_index != null) info_add += 1;
                 symbol.index = index - info_add;
                 // segment info already exists, so free its memory
                 self.base.allocator.free(segment_name);
@@ -1320,11 +1336,8 @@ fn setupMemory(self: *Wasm) !void {
     }
 
     var offset: u32 = @intCast(u32, memory_ptr);
-    for (self.segments.items) |*segment, i| {
-        // skip 'code' segments
-        if (self.code_section_index) |index| {
-            if (index == i) continue;
-        }
+    for (self.data_segments.values()) |segment_index| {
+        const segment = &self.segments.items[segment_index];
         memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, segment.alignment);
         memory_ptr += segment.size;
         segment.offset = offset;
@@ -1588,6 +1601,7 @@ fn resetState(self: *Wasm) void {
     self.symbol_atom.clearRetainingCapacity();
     self.code_section_index = null;
     self.debug_info_index = null;
+    self.debug_line_index = null;
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -2016,8 +2030,41 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             try self.emitDataRelocations(file, arena, data_index, symbol_table);
         }
     } else if (!self.base.options.strip) {
+        if (self.dwarf) |*dwarf| {
+            if (self.debug_info_index != null) {
+                _ = dwarf;
+                try dwarf.writeDbgAbbrev(&self.base);
+                try dwarf.writeDbgInfoHeader(&self.base, mod, 0, 0);
+                try dwarf.writeDbgLineHeader(&self.base, mod);
+
+                try emitDebugSection(file, self.debug_info.items, ".debug_info");
+                try emitDebugSection(file, self.debug_abbrev.items, ".debug_abbrev"); // TODO
+                try emitDebugSection(file, self.debug_line.items, ".debug_line");
+                try emitDebugSection(file, dwarf.strtab.items, ".debug_str");
+            }
+        }
         try self.emitNameSection(file, arena);
     }
+}
+
+fn emitDebugSection(file: fs.File, data: []const u8, name: []const u8) !void {
+    const header_offset = try reserveCustomSectionHeader(file);
+    const writer = file.writer();
+    try leb.writeULEB128(writer, @intCast(u32, name.len));
+    try writer.writeAll(name);
+
+    try file.writevAll(&[_]std.os.iovec_const{.{
+        .iov_base = data.ptr,
+        .iov_len = data.len,
+    }});
+    const start = header_offset + 6 + name.len + getULEB128Size(@intCast(u32, name.len));
+    log.debug("Emit debug section: '{s}' start=0x{x:0>8} end=0x{x:0>8}", .{ name, start, start + data.len });
+
+    try writeCustomSectionHeader(
+        file,
+        header_offset,
+        @intCast(u32, (try file.getPos()) - header_offset - 6),
+    );
 }
 
 fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
