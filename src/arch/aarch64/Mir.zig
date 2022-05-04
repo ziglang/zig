@@ -146,6 +146,8 @@ pub const Inst = struct {
         ret,
         /// Signed bitfield extract
         sbfx,
+        /// Signed multiply high
+        smulh,
         /// Signed multiply long
         smull,
         /// Signed extend byte
@@ -188,6 +190,8 @@ pub const Inst = struct {
         tst_immediate,
         /// Unsigned bitfield extract
         ubfx,
+        /// Unsigned multiply high
+        umulh,
         /// Unsigned multiply long
         umull,
         /// Unsigned extend byte

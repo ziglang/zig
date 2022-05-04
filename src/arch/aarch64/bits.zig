@@ -1409,10 +1409,6 @@ pub const Instruction = union(enum) {
         return logicalImmediate(0b11, rd, rn, imms, immr, n);
     }
 
-    pub fn tstImmediate(rn: Register, imms: u6, immr: u6, n: u1) Instruction {
-        return andsImmediate(.xzr, rn, imms, immr, n);
-    }
-
     // Bitfield
 
     pub fn sbfm(rd: Register, rn: Register, immr: u6, imms: u6) Instruction {
@@ -1589,8 +1585,18 @@ pub const Instruction = union(enum) {
         return smaddl(rd, rn, rm, .xzr);
     }
 
+    pub fn smulh(rd: Register, rn: Register, rm: Register) Instruction {
+        assert(rd.size() == 64);
+        return dataProcessing3Source(0b00, 0b010, 0b0, rd, rn, rm, .xzr);
+    }
+
     pub fn umull(rd: Register, rn: Register, rm: Register) Instruction {
         return umaddl(rd, rn, rm, .xzr);
+    }
+
+    pub fn umulh(rd: Register, rn: Register, rm: Register) Instruction {
+        assert(rd.size() == 64);
+        return dataProcessing3Source(0b00, 0b110, 0b0, rd, rn, rm, .xzr);
     }
 
     pub fn mneg(rd: Register, rn: Register, rm: Register) Instruction {
@@ -1820,8 +1826,16 @@ test "serialize instructions" {
             .expected = 0b1_00_11011_0_01_00001_0_11111_00000_00000,
         },
         .{ // tst x0, #0xffffffff00000000
-            .inst = Instruction.tstImmediate(.x0, 0b011111, 0b100000, 0b1),
+            .inst = Instruction.andsImmediate(.xzr, .x0, 0b011111, 0b100000, 0b1),
             .expected = 0b1_11_100100_1_100000_011111_00000_11111,
+        },
+        .{ // umulh x0, x1, x2
+            .inst = Instruction.umulh(.x0, .x1, .x2),
+            .expected = 0b1_00_11011_1_10_00010_0_11111_00001_00000,
+        },
+        .{ // smulh x0, x1, x2
+            .inst = Instruction.smulh(.x0, .x1, .x2),
+            .expected = 0b1_00_11011_0_10_00010_0_11111_00001_00000,
         },
     };
 
