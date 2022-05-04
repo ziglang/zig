@@ -236,6 +236,36 @@ pub fn main() !void {
         \\
     );
 
+    // Sort the symbols for deterministic output and cleaner vcs diffs.
+    const SymTableSort = struct {
+        sections: *const std.StringArrayHashMap(void),
+        sym_table: *const std.StringArrayHashMap(MultiSym),
+
+        /// Sort first by section name, then by symbol name
+        pub fn lessThan(ctx: @This(), index_a: usize, index_b: usize) bool {
+            const multi_sym_a = ctx.sym_table.values()[index_a];
+            const multi_sym_b = ctx.sym_table.values()[index_b];
+
+            const section_a = ctx.sections.keys()[multi_sym_a.section];
+            const section_b = ctx.sections.keys()[multi_sym_b.section];
+
+            switch (mem.order(u8, section_a, section_b)) {
+                .lt => return true,
+                .gt => return false,
+                .eq => {},
+            }
+
+            const symbol_a = ctx.sym_table.keys()[index_a];
+            const symbol_b = ctx.sym_table.keys()[index_b];
+
+            switch (mem.order(u8, symbol_a, symbol_b)) {
+                .lt => return true,
+                .gt, .eq => return false,
+            }
+        }
+    };
+    sym_table.sort(SymTableSort{ .sym_table = &sym_table, .sections = &sections });
+
     var prev_section: u16 = std.math.maxInt(u16);
     var prev_pp_state: enum { none, ptr32, special } = .none;
     for (sym_table.values()) |multi_sym, sym_index| {
