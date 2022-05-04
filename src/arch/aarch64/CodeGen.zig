@@ -1294,29 +1294,23 @@ fn binOpRegister(
     };
     defer self.register_manager.unfreezeRegs(&.{rhs_reg});
 
-    const dest_reg: Register = reg: {
-        const dest_reg = switch (mir_tag) {
-            .cmp_shifted_register => undefined, // cmp has no destination register
-            else => if (maybe_inst) |inst| blk: {
-                const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const dest_reg = switch (mir_tag) {
+        .cmp_shifted_register => undefined, // cmp has no destination register
+        else => if (maybe_inst) |inst| blk: {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-                if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
-                    break :blk lhs_reg;
-                } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
-                    break :blk rhs_reg;
-                } else {
-                    const raw_reg = try self.register_manager.allocReg(inst);
-                    break :blk registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
-                }
-            } else blk: {
-                const raw_reg = try self.register_manager.allocReg(null);
+            if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
+                break :blk lhs_reg;
+            } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
+                break :blk rhs_reg;
+            } else {
+                const raw_reg = try self.register_manager.allocReg(inst);
                 break :blk registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
-            },
-        };
-        break :reg switch (mir_tag) {
-            .smull, .umull => dest_reg.to64(),
-            else => dest_reg,
-        };
+            }
+        } else blk: {
+            const raw_reg = try self.register_manager.allocReg(null);
+            break :blk registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
+        },
     };
 
     if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
@@ -1341,9 +1335,7 @@ fn binOpRegister(
             .shift = .lsl,
         } },
         .mul,
-        .smulh,
         .smull,
-        .umulh,
         .umull,
         .lsl_register,
         .asr_register,
@@ -1932,15 +1924,37 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     self.register_manager.freezeRegs(&.{truncated_reg});
                     defer self.register_manager.unfreezeRegs(&.{truncated_reg});
 
-                    try self.truncRegister(dest_reg, truncated_reg, int_info.signedness, int_info.bits);
-                    _ = try self.binOp(
-                        .cmp_eq,
-                        null,
-                        dest,
-                        .{ .register = truncated_reg },
-                        Type.usize,
-                        Type.usize,
+                    try self.truncRegister(
+                        dest_reg.to32(),
+                        truncated_reg.to32(),
+                        int_info.signedness,
+                        int_info.bits,
                     );
+
+                    switch (int_info.signedness) {
+                        .signed => {
+                            _ = try self.addInst(.{
+                                .tag = .cmp_extended_register,
+                                .data = .{ .rr_extend_shift = .{
+                                    .rn = dest_reg.to64(),
+                                    .rm = truncated_reg.to32(),
+                                    .ext_type = .sxtw,
+                                    .imm3 = 0,
+                                } },
+                            });
+                        },
+                        .unsigned => {
+                            _ = try self.addInst(.{
+                                .tag = .cmp_extended_register,
+                                .data = .{ .rr_extend_shift = .{
+                                    .rn = dest_reg.to64(),
+                                    .rm = truncated_reg.to32(),
+                                    .ext_type = .uxtw,
+                                    .imm3 = 0,
+                                } },
+                            });
+                        },
+                    }
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
                     try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{

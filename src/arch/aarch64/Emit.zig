@@ -114,6 +114,12 @@ pub fn emitMir(
             .sub_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
             .subs_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
 
+            .add_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
+            .adds_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
+            .sub_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
+            .subs_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
+            .cmp_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
+
             .cset => try emit.mirConditionalSelect(inst),
 
             .dbg_line => try emit.mirDbgLine(inst),
@@ -732,6 +738,47 @@ fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
+fn mirAddSubtractExtendedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    switch (tag) {
+        .add_extended_register,
+        .adds_extended_register,
+        .sub_extended_register,
+        .subs_extended_register,
+        => {
+            const rrr_extend_shift = emit.mir.instructions.items(.data)[inst].rrr_extend_shift;
+            const rd = rrr_extend_shift.rd;
+            const rn = rrr_extend_shift.rn;
+            const rm = rrr_extend_shift.rm;
+            const ext_type = rrr_extend_shift.ext_type;
+            const imm3 = rrr_extend_shift.imm3;
+
+            switch (tag) {
+                .add_extended_register => try emit.writeInstruction(Instruction.addExtendedRegister(rd, rn, rm, ext_type, imm3)),
+                .adds_extended_register => try emit.writeInstruction(Instruction.addsExtendedRegister(rd, rn, rm, ext_type, imm3)),
+                .sub_extended_register => try emit.writeInstruction(Instruction.subExtendedRegister(rd, rn, rm, ext_type, imm3)),
+                .subs_extended_register => try emit.writeInstruction(Instruction.subsExtendedRegister(rd, rn, rm, ext_type, imm3)),
+                else => unreachable,
+            }
+        },
+        .cmp_extended_register => {
+            const rr_extend_shift = emit.mir.instructions.items(.data)[inst].rr_extend_shift;
+            const rn = rr_extend_shift.rn;
+            const rm = rr_extend_shift.rm;
+            const ext_type = rr_extend_shift.ext_type;
+            const imm3 = rr_extend_shift.imm3;
+            const zr: Register = switch (rn.size()) {
+                32 => .wzr,
+                64 => .xzr,
+                else => unreachable,
+            };
+
+            try emit.writeInstruction(Instruction.subsExtendedRegister(zr, rn, rm, ext_type, imm3));
+        },
+        else => unreachable,
+    }
+}
+
 fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     switch (tag) {
@@ -1013,10 +1060,10 @@ fn mirDataProcessing3Source(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
-        .smulh => try emit.writeInstruction(Instruction.smulh(rrr.rd, rrr.rn, rrr.rm)),
-        .smull => try emit.writeInstruction(Instruction.smull(rrr.rd, rrr.rn, rrr.rm)),
-        .umulh => try emit.writeInstruction(Instruction.umulh(rrr.rd, rrr.rn, rrr.rm)),
-        .umull => try emit.writeInstruction(Instruction.umull(rrr.rd, rrr.rn, rrr.rm)),
+        .smulh => try emit.writeInstruction(Instruction.smulh(rrr.rd.to64(), rrr.rn.to64(), rrr.rm.to64())),
+        .smull => try emit.writeInstruction(Instruction.smull(rrr.rd.to64(), rrr.rn.to32(), rrr.rm.to32())),
+        .umulh => try emit.writeInstruction(Instruction.umulh(rrr.rd.to64(), rrr.rn.to64(), rrr.rm.to64())),
+        .umull => try emit.writeInstruction(Instruction.umull(rrr.rd.to64(), rrr.rn.to32(), rrr.rm.to32())),
         else => unreachable,
     }
 }

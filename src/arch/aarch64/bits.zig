@@ -330,6 +330,17 @@ pub const Instruction = union(enum) {
         op: u1,
         sf: u1,
     },
+    add_subtract_extended_register: packed struct {
+        rd: u5,
+        rn: u5,
+        imm3: u3,
+        option: u3,
+        rm: u5,
+        fixed: u8 = 0b01011_00_1,
+        s: u1,
+        op: u1,
+        sf: u1,
+    },
     conditional_branch: struct {
         cond: u4,
         o0: u1,
@@ -495,6 +506,7 @@ pub const Instruction = union(enum) {
             .logical_immediate => |v| @bitCast(u32, v),
             .bitfield => |v| @bitCast(u32, v),
             .add_subtract_shifted_register => |v| @bitCast(u32, v),
+            .add_subtract_extended_register => |v| @bitCast(u32, v),
             // TODO once packed structs work, this can be refactored
             .conditional_branch => |v| @as(u32, v.cond) | (@as(u32, v.o0) << 4) | (@as(u32, v.imm19) << 5) | (@as(u32, v.o1) << 24) | (@as(u32, v.fixed) << 25),
             .compare_and_branch => |v| @as(u32, v.rt) | (@as(u32, v.imm19) << 5) | (@as(u32, v.op) << 24) | (@as(u32, v.fixed) << 25) | (@as(u32, v.sf) << 31),
@@ -995,6 +1007,44 @@ pub const Instruction = union(enum) {
                 .imm6 = imm6,
                 .rm = rm.enc(),
                 .shift = @enumToInt(shift),
+                .s = s,
+                .op = op,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
+    pub const AddSubtractExtendedRegisterOption = enum(u3) {
+        uxtb,
+        uxth,
+        uxtw,
+        uxtx, // serves also as lsl
+        sxtb,
+        sxth,
+        sxtw,
+        sxtx,
+    };
+
+    fn addSubtractExtendedRegister(
+        op: u1,
+        s: u1,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        extend: AddSubtractExtendedRegisterOption,
+        imm3: u3,
+    ) Instruction {
+        return Instruction{
+            .add_subtract_extended_register = .{
+                .rd = rd.enc(),
+                .rn = rn.enc(),
+                .imm3 = imm3,
+                .option = @enumToInt(extend),
+                .rm = rm.enc(),
                 .s = s,
                 .op = op,
                 .sf = switch (rd.size()) {
@@ -1524,6 +1574,48 @@ pub const Instruction = union(enum) {
         return addSubtractShiftedRegister(0b1, 0b1, shift, rd, rn, rm, imm6);
     }
 
+    // Add/subtract (extended register)
+
+    pub fn addExtendedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        extend: AddSubtractExtendedRegisterOption,
+        imm3: u3,
+    ) Instruction {
+        return addSubtractExtendedRegister(0b0, 0b0, rd, rn, rm, extend, imm3);
+    }
+
+    pub fn addsExtendedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        extend: AddSubtractExtendedRegisterOption,
+        imm3: u3,
+    ) Instruction {
+        return addSubtractExtendedRegister(0b0, 0b1, rd, rn, rm, extend, imm3);
+    }
+
+    pub fn subExtendedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        extend: AddSubtractExtendedRegisterOption,
+        imm3: u3,
+    ) Instruction {
+        return addSubtractExtendedRegister(0b1, 0b0, rd, rn, rm, extend, imm3);
+    }
+
+    pub fn subsExtendedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        extend: AddSubtractExtendedRegisterOption,
+        imm3: u3,
+    ) Instruction {
+        return addSubtractExtendedRegister(0b1, 0b1, rd, rn, rm, extend, imm3);
+    }
+
     // Conditional branch
 
     pub fn bCond(cond: Condition, offset: i21) Instruction {
@@ -1565,11 +1657,12 @@ pub const Instruction = union(enum) {
     }
 
     pub fn smaddl(rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
+        assert(rd.size() == 64 and rn.size() == 32 and rm.size() == 32 and ra.size() == 64);
         return dataProcessing3Source(0b00, 0b001, 0b0, rd, rn, rm, ra);
     }
 
     pub fn umaddl(rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
-        assert(rd.size() == 64);
+        assert(rd.size() == 64 and rn.size() == 32 and rm.size() == 32 and ra.size() == 64);
         return dataProcessing3Source(0b00, 0b101, 0b0, rd, rn, rm, ra);
     }
 
@@ -1836,6 +1929,10 @@ test "serialize instructions" {
         .{ // smulh x0, x1, x2
             .inst = Instruction.smulh(.x0, .x1, .x2),
             .expected = 0b1_00_11011_0_10_00010_0_11111_00001_00000,
+        },
+        .{ // adds x0, x1, x2, sxtx
+            .inst = Instruction.addsExtendedRegister(.x0, .x1, .x2, .sxtx, 0),
+            .expected = 0b1_0_1_01011_00_1_00010_111_000_00001_00000,
         },
     };
 
