@@ -55,6 +55,9 @@ test "alignment of struct with pointer has same alignment as usize" {
 }
 
 test "alignment and size of structs with 128-bit fields" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     const A = struct {
         x: u128,
     };
@@ -67,7 +70,6 @@ test "alignment and size of structs with 128-bit fields" {
         .armeb,
         .thumb,
         .thumbeb,
-        .x86_64,
         .hexagon,
         .mips,
         .mipsel,
@@ -128,6 +130,7 @@ test "alignment and size of structs with 128-bit fields" {
             },
         },
 
+        .x86_64,
         .aarch64,
         .aarch64_be,
         .aarch64_32,

@@ -555,7 +555,7 @@ pub const AtomicPtrAlignmentDiagnostics = struct {
     max_bits: u16 = undefined,
 };
 
-/// If ABI alignment of `ty` is OK for atomic operations, returs 0.
+/// If ABI alignment of `ty` is OK for atomic operations, returns 0.
 /// Otherwise returns the alignment required on a pointer for the target
 /// to perform atomic operations.
 pub fn atomicPtrAlignment(
@@ -645,9 +645,6 @@ pub fn atomicPtrAlignment(
                 };
                 return error.FloatTooBig;
             }
-            if (target.cpu.arch == .x86_64 and bit_count > 64) {
-                return 16;
-            }
             return 0;
         },
         .Bool => return 0,
@@ -664,10 +661,6 @@ pub fn atomicPtrAlignment(
             .max_bits = max_atomic_bits,
         };
         return error.IntTooBig;
-    }
-
-    if (target.cpu.arch == .x86_64 and bit_count > 64) {
-        return 16;
     }
 
     return 0;

@@ -1784,7 +1784,6 @@ pub const Target = struct {
             .armeb,
             .thumb,
             .thumbeb,
-            .x86_64,
             .hexagon,
             .mips,
             .mipsel,
@@ -1811,6 +1810,12 @@ pub const Target = struct {
                 .windows => 8,
                 else => 4,
             },
+
+            // For x86_64, LLVMABIAlignmentOfType(i128) reports 8. However I think 16
+            // is a better number because of two reasons:
+            // 1. Better machine code when loading into SIMD register.
+            // 2. The C ABI wants 16 for extern structs.
+            .x86_64,
             .aarch64,
             .aarch64_be,
             .aarch64_32,
