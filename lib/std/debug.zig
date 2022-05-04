@@ -340,6 +340,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
             if (panicking.fetchSub(1, .SeqCst) != 1) {
                 // Another thread is panicking, wait for the last one to finish
                 // and call abort()
+                if (builtin.single_threaded) unreachable;
 
                 // Sleep forever without hammering the CPU
                 var futex = std.atomic.Atomic(u32).init(0);
