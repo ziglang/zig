@@ -1476,7 +1476,7 @@ pub const Value = extern union {
         while (i != 0) {
             i -= 1;
             const limb: f128 = @intToFloat(f128, limbs[i]);
-            result = @mulAdd(f128, base, limb, result);
+            result = @mulAdd(f128, base, result, limb);
         }
         if (positive) {
             return result;

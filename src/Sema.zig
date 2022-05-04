@@ -19730,8 +19730,8 @@ fn bitCast(
     try sema.resolveTypeLayout(block, inst_src, old_ty);
 
     const target = sema.mod.getTarget();
-    var dest_bits = dest_ty.bitSize(target);
-    var old_bits = old_ty.bitSize(target);
+    const dest_bits = dest_ty.bitSize(target);
+    const old_bits = old_ty.bitSize(target);
 
     if (old_bits != dest_bits) {
         return sema.fail(block, inst_src, "@bitCast size mismatch: destination type '{}' has {d} bits but source type '{}' has {d} bits", .{
