@@ -6047,9 +6047,6 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |int_val| {
-        if (dest_ty.isNonexhaustiveEnum()) {
-            return sema.addConstant(dest_ty, int_val);
-        }
         if (int_val.isUndef()) {
             return sema.failWithUseOfUndef(block, operand_src);
         }
