@@ -6080,7 +6080,31 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     try sema.requireRuntimeBlock(block, src);
-    // TODO insert safety check to make sure the value matches an enum value
+    if (block.wantSafety()) {
+        const dest_int_ty = try dest_ty.enumBackingInt(sema.arena);
+        const casted_operand = try sema.intCast(block, dest_int_ty, dest_ty_src, operand, operand_src, true);
+        switch (dest_ty.tag()) {
+            .enum_nonexhaustive => {},
+            .enum_full, .enum_numbered, .enum_simple => {
+                const field_count = dest_ty.enumFieldCount();
+                if (dest_ty.tag() == .enum_simple or dest_ty.enumValues().count() == 0) {
+                    const field_count_inst = try sema.addIntUnsigned(dest_int_ty, field_count);
+                    const is_in_range = try block.addBinOp(.cmp_lt, casted_operand, field_count_inst);
+                    try sema.addSafetyCheck(block, is_in_range, .invalid_enum_value);
+                } else {
+                    // TODO: Output a switch instead of chained OR's.
+                    var found = sema.resolveInst(.bool_false);
+                    for (dest_ty.enumValues().keys()) |value| {
+                        const tag_val_inst = try sema.addConstant(dest_int_ty, value);
+                        const next_match = try block.addBinOp(.cmp_eq, tag_val_inst, casted_operand);
+                        found = try block.addBinOp(.bool_or, found, next_match);
+                    }
+                    try sema.addSafetyCheck(block, found, .invalid_enum_value);
+                }
+            },
+            else => unreachable,
+        }
+    }
     return block.addTyOp(.intcast, dest_ty, operand);
 }
 
@@ -17025,6 +17049,7 @@ pub const PanicId = enum {
     cast_truncated_data,
     integer_overflow,
     shl_overflow,
+    invalid_enum_value,
 };
 
 fn addSafetyCheck(
@@ -17242,6 +17267,7 @@ fn safetyPanic(
         .cast_truncated_data => "integer cast truncated bits",
         .integer_overflow => "integer overflow",
         .shl_overflow => "left shift overflowed bits",
+        .invalid_enum_value => "invalid enum value",
     };
 
     const msg_inst = msg_inst: {
