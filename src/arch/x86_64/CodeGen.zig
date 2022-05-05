@@ -1496,11 +1496,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             rhs.freezeIfRegister(&self.register_manager);
                             defer rhs.unfreezeIfRegister(&self.register_manager);
 
-                            // TODO check if we could reuse rhs instead, and swap the values out.
                             const dst_reg: Register = blk: {
-                                if (self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
-                                    if (lhs.isRegister()) break :blk lhs.register;
-                                }
+                                if (lhs.isRegister()) break :blk lhs.register;
                                 break :blk try self.copyToTmpRegister(ty, lhs);
                             };
                             self.register_manager.freezeRegs(&.{dst_reg});
