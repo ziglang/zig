@@ -2598,14 +2598,26 @@ pub const Dir = struct {
         return file.stat();
     }
 
-    pub const StatFileError = File.OpenError || StatError;
+    pub const StatFileError = File.OpenError || File.StatError || os.FStatAtError;
 
-    // TODO: improve this to use the fstatat syscall instead of making 2 syscalls here.
-    pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!File.Stat {
-        var file = try self.openFile(sub_path, .{});
-        defer file.close();
+    /// Provides info on a file (File.Stat) for any file in the opened directory,
+    /// with a single syscall (fstatat), except on Windows.
+    /// Currently on Windows, files are opened then closed (implying several syscalls, unfortunately).
+    /// Symlinks are not followed on linux, haiku, solaris and *BSDs.
+    /// Other OSs have a default behavior (they currently lack an os.AT.SYMLINK_NOFOLLOW flag).
+    pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
+        if (builtin.os.tag == .windows) {
+            var file = try self.openFile(sub_path, .{});
+            defer file.close();
+            return file.stat();
+        }
 
-        return file.stat();
+        const flags = switch (builtin.os.tag) {
+            .linux, .haiku, .solaris, .freebsd, .netbsd, .dragonfly, .openbsd => os.AT.SYMLINK_NOFOLLOW,
+            else => 0, // TODO: correct flags not yet implemented
+        };
+
+        return Stat.fromSystemStat(try os.fstatat(self.fd, sub_path, flags));
     }
 
     const Permissions = File.Permissions;

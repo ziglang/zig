@@ -313,6 +313,57 @@ pub const File = struct {
         mtime: i128,
         /// Creation time in nanoseconds, relative to UTC 1970-01-01.
         ctime: i128,
+
+        pub fn systemStatKindToFsKind(st: os.system.Stat) Kind {
+            const kind: File.Kind = if (builtin.os.tag == .wasi and !builtin.link_libc)
+                switch (st.filetype) {
+                    .BLOCK_DEVICE => Kind.BlockDevice,
+                    .CHARACTER_DEVICE => Kind.CharacterDevice,
+                    .DIRECTORY => Kind.Directory,
+                    .SYMBOLIC_LINK => Kind.SymLink,
+                    .REGULAR_FILE => Kind.File,
+                    .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
+                    else => Kind.Unknown,
+                }
+            else blk: {
+                const m = st.mode & os.S.IFMT;
+                switch (m) {
+                    os.S.IFBLK => break :blk Kind.BlockDevice,
+                    os.S.IFCHR => break :blk Kind.CharacterDevice,
+                    os.S.IFDIR => break :blk Kind.Directory,
+                    os.S.IFIFO => break :blk Kind.NamedPipe,
+                    os.S.IFLNK => break :blk Kind.SymLink,
+                    os.S.IFREG => break :blk Kind.File,
+                    os.S.IFSOCK => break :blk Kind.UnixDomainSocket,
+                    else => {},
+                }
+                if (builtin.os.tag == .solaris) switch (m) {
+                    os.S.IFDOOR => break :blk Kind.Door,
+                    os.S.IFPORT => break :blk Kind.EventPort,
+                    else => {},
+                };
+
+                break :blk .Unknown;
+            };
+            return kind;
+        }
+
+        pub fn fromSystemStat(st: os.system.Stat) File.StatError!Stat {
+            const atime = st.atime();
+            const mtime = st.mtime();
+            const ctime = st.ctime();
+            const kind = systemStatKindToFsKind(st);
+
+            return Stat{
+                .inode = st.ino,
+                .size = @bitCast(u64, st.size),
+                .mode = st.mode,
+                .kind = kind,
+                .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+                .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+                .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            };
+        }
     };
 
     pub const StatError = os.FStatError;
