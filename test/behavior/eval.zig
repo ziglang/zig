@@ -999,3 +999,114 @@ test "comptime break operand passing through runtime switch converted to runtime
     try S.doTheTest('b');
     comptime try S.doTheTest('b');
 }
+
+test "no dependency loop for alignment of self struct" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: namespace.A = undefined;
+            a.d = .{ .g = &buf };
+            a.d.g[3] = 42;
+            a.d.g[3] += 1;
+            try expect(a.d.g[3] == 43);
+        }
+
+        var buf: [10]u8 align(@alignOf([*]u8)) = undefined;
+
+        const namespace = struct {
+            const B = struct { a: A };
+            const A = C(B);
+        };
+
+        pub fn C(comptime B: type) type {
+            return struct {
+                d: D(F) = .{},
+
+                const F = struct { b: B };
+            };
+        }
+
+        pub fn D(comptime F: type) type {
+            return struct {
+                g: [*]align(@alignOf(F)) u8 = undefined,
+            };
+        }
+    };
+    try S.doTheTest();
+}
+
+test "no dependency loop for alignment of self bare union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: namespace.A = undefined;
+            a.d = .{ .g = &buf };
+            a.d.g[3] = 42;
+            a.d.g[3] += 1;
+            try expect(a.d.g[3] == 43);
+        }
+
+        var buf: [10]u8 align(@alignOf([*]u8)) = undefined;
+
+        const namespace = struct {
+            const B = union { a: A, b: void };
+            const A = C(B);
+        };
+
+        pub fn C(comptime B: type) type {
+            return struct {
+                d: D(F) = .{},
+
+                const F = struct { b: B };
+            };
+        }
+
+        pub fn D(comptime F: type) type {
+            return struct {
+                g: [*]align(@alignOf(F)) u8 = undefined,
+            };
+        }
+    };
+    try S.doTheTest();
+}
+
+test "no dependency loop for alignment of self tagged union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: namespace.A = undefined;
+            a.d = .{ .g = &buf };
+            a.d.g[3] = 42;
+            a.d.g[3] += 1;
+            try expect(a.d.g[3] == 43);
+        }
+
+        var buf: [10]u8 align(@alignOf([*]u8)) = undefined;
+
+        const namespace = struct {
+            const B = union(enum) { a: A, b: void };
+            const A = C(B);
+        };
+
+        pub fn C(comptime B: type) type {
+            return struct {
+                d: D(F) = .{},
+
+                const F = struct { b: B };
+            };
+        }
+
+        pub fn D(comptime F: type) type {
+            return struct {
+                g: [*]align(@alignOf(F)) u8 = undefined,
+            };
+        }
+    };
+    try S.doTheTest();
+}

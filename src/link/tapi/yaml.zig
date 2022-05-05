@@ -153,7 +153,7 @@ pub const Value = union(ValueType) {
         if (node.cast(Node.Doc)) |doc| {
             const inner = doc.value orelse {
                 // empty doc
-                return Value{ .empty = .{} };
+                return Value{ .empty = {} };
             };
             return Value.fromNode(arena, tree, inner, null);
         } else if (node.cast(Node.Map)) |map| {

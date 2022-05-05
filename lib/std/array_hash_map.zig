@@ -82,10 +82,6 @@ pub fn ArrayHashMap(
         allocator: Allocator,
         ctx: Context,
 
-        comptime {
-            std.hash_map.verifyContext(Context, K, K, u32, true);
-        }
-
         /// The ArrayHashMapUnmanaged type using the same settings as this managed map.
         pub const Unmanaged = ArrayHashMapUnmanaged(K, V, Context, store_hash);
 

@@ -1322,9 +1322,6 @@ pub fn parseDylib(self: *MachO, path: []const u8, opts: DylibCreateOpts) ParseDy
         error.EndOfStream, error.NotDylib => {
             try file.seekTo(0);
 
-            // TODO https://github.com/ziglang/zig/issues/11367
-            if (@import("builtin").zig_backend != .stage1) return error.Unexpected;
-
             var lib_stub = LibStub.loadFromFile(self.base.allocator, file) catch {
                 dylib.deinit(self.base.allocator);
                 return false;
