@@ -77,8 +77,10 @@ pub fn emitMir(
         const inst = @intCast(u32, index);
         switch (tag) {
             .add_immediate => try emit.mirAddSubtractImmediate(inst),
+            .adds_immediate => try emit.mirAddSubtractImmediate(inst),
             .cmp_immediate => try emit.mirAddSubtractImmediate(inst),
             .sub_immediate => try emit.mirAddSubtractImmediate(inst),
+            .subs_immediate => try emit.mirAddSubtractImmediate(inst),
 
             .asr_register => try emit.mirShiftRegister(inst),
             .lsl_register => try emit.mirShiftRegister(inst),
@@ -104,10 +106,19 @@ pub fn emitMir(
             .call_extern => try emit.mirCallExtern(inst),
 
             .eor_immediate => try emit.mirLogicalImmediate(inst),
+            .tst_immediate => try emit.mirLogicalImmediate(inst),
 
             .add_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
+            .adds_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
             .cmp_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
             .sub_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
+            .subs_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
+
+            .add_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
+            .adds_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
+            .sub_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
+            .subs_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
+            .cmp_extended_register => try emit.mirAddSubtractExtendedRegister(inst),
 
             .cset => try emit.mirConditionalSelect(inst),
 
@@ -162,6 +173,10 @@ pub fn emitMir(
             .movz => try emit.mirMoveWideImmediate(inst),
 
             .mul => try emit.mirDataProcessing3Source(inst),
+            .smulh => try emit.mirDataProcessing3Source(inst),
+            .smull => try emit.mirDataProcessing3Source(inst),
+            .umulh => try emit.mirDataProcessing3Source(inst),
+            .umull => try emit.mirDataProcessing3Source(inst),
 
             .nop => try emit.mirNop(),
 
@@ -454,7 +469,9 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     switch (tag) {
         .add_immediate,
+        .adds_immediate,
         .sub_immediate,
+        .subs_immediate,
         => {
             const rr_imm12_sh = emit.mir.instructions.items(.data)[inst].rr_imm12_sh;
             const rd = rr_imm12_sh.rd;
@@ -464,7 +481,9 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
             switch (tag) {
                 .add_immediate => try emit.writeInstruction(Instruction.add(rd, rn, imm12, sh)),
+                .adds_immediate => try emit.writeInstruction(Instruction.adds(rd, rn, imm12, sh)),
                 .sub_immediate => try emit.writeInstruction(Instruction.sub(rd, rn, imm12, sh)),
+                .subs_immediate => try emit.writeInstruction(Instruction.subs(rd, rn, imm12, sh)),
                 else => unreachable,
             }
         },
@@ -666,6 +685,14 @@ fn mirLogicalImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .eor_immediate => try emit.writeInstruction(Instruction.eorImmediate(rd, rn, imms, immr, n)),
+        .tst_immediate => {
+            const zr: Register = switch (rd.size()) {
+                32 => .wzr,
+                64 => .xzr,
+                else => unreachable,
+            };
+            try emit.writeInstruction(Instruction.andsImmediate(zr, rn, imms, immr, n));
+        },
         else => unreachable,
     }
 }
@@ -674,7 +701,9 @@ fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     switch (tag) {
         .add_shifted_register,
+        .adds_shifted_register,
         .sub_shifted_register,
+        .subs_shifted_register,
         => {
             const rrr_imm6_shift = emit.mir.instructions.items(.data)[inst].rrr_imm6_shift;
             const rd = rrr_imm6_shift.rd;
@@ -685,7 +714,9 @@ fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
 
             switch (tag) {
                 .add_shifted_register => try emit.writeInstruction(Instruction.addShiftedRegister(rd, rn, rm, shift, imm6)),
+                .adds_shifted_register => try emit.writeInstruction(Instruction.addsShiftedRegister(rd, rn, rm, shift, imm6)),
                 .sub_shifted_register => try emit.writeInstruction(Instruction.subShiftedRegister(rd, rn, rm, shift, imm6)),
+                .subs_shifted_register => try emit.writeInstruction(Instruction.subsShiftedRegister(rd, rn, rm, shift, imm6)),
                 else => unreachable,
             }
         },
@@ -707,6 +738,47 @@ fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
+fn mirAddSubtractExtendedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    switch (tag) {
+        .add_extended_register,
+        .adds_extended_register,
+        .sub_extended_register,
+        .subs_extended_register,
+        => {
+            const rrr_extend_shift = emit.mir.instructions.items(.data)[inst].rrr_extend_shift;
+            const rd = rrr_extend_shift.rd;
+            const rn = rrr_extend_shift.rn;
+            const rm = rrr_extend_shift.rm;
+            const ext_type = rrr_extend_shift.ext_type;
+            const imm3 = rrr_extend_shift.imm3;
+
+            switch (tag) {
+                .add_extended_register => try emit.writeInstruction(Instruction.addExtendedRegister(rd, rn, rm, ext_type, imm3)),
+                .adds_extended_register => try emit.writeInstruction(Instruction.addsExtendedRegister(rd, rn, rm, ext_type, imm3)),
+                .sub_extended_register => try emit.writeInstruction(Instruction.subExtendedRegister(rd, rn, rm, ext_type, imm3)),
+                .subs_extended_register => try emit.writeInstruction(Instruction.subsExtendedRegister(rd, rn, rm, ext_type, imm3)),
+                else => unreachable,
+            }
+        },
+        .cmp_extended_register => {
+            const rr_extend_shift = emit.mir.instructions.items(.data)[inst].rr_extend_shift;
+            const rn = rr_extend_shift.rn;
+            const rm = rr_extend_shift.rm;
+            const ext_type = rr_extend_shift.ext_type;
+            const imm3 = rr_extend_shift.imm3;
+            const zr: Register = switch (rn.size()) {
+                32 => .wzr,
+                64 => .xzr,
+                else => unreachable,
+            };
+
+            try emit.writeInstruction(Instruction.subsExtendedRegister(zr, rn, rm, ext_type, imm3));
+        },
+        else => unreachable,
+    }
+}
+
 fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     switch (tag) {
@@ -717,7 +789,7 @@ fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
                 64 => .xzr,
                 else => unreachable,
             };
-            try emit.writeInstruction(Instruction.csinc(r_cond.rd, zr, zr, r_cond.cond));
+            try emit.writeInstruction(Instruction.csinc(r_cond.rd, zr, zr, r_cond.cond.negate()));
         },
         else => unreachable,
     }
@@ -988,6 +1060,10 @@ fn mirDataProcessing3Source(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
+        .smulh => try emit.writeInstruction(Instruction.smulh(rrr.rd, rrr.rn, rrr.rm)),
+        .smull => try emit.writeInstruction(Instruction.smull(rrr.rd, rrr.rn, rrr.rm)),
+        .umulh => try emit.writeInstruction(Instruction.umulh(rrr.rd, rrr.rn, rrr.rm)),
+        .umull => try emit.writeInstruction(Instruction.umull(rrr.rd, rrr.rn, rrr.rm)),
         else => unreachable,
     }
 }

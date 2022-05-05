@@ -26,8 +26,16 @@ pub const Inst = struct {
     pub const Tag = enum(u16) {
         /// Add (immediate)
         add_immediate,
+        /// Add, update condition flags (immediate)
+        adds_immediate,
         /// Add (shifted register)
         add_shifted_register,
+        /// Add, update condition flags (shifted register)
+        adds_shifted_register,
+        /// Add (extended register)
+        add_extended_register,
+        /// Add, update condition flags (extended register)
+        adds_extended_register,
         /// Bitwise AND (shifted register)
         and_shifted_register,
         /// Arithmetic Shift Right (immediate)
@@ -52,6 +60,8 @@ pub const Inst = struct {
         cmp_immediate,
         /// Compare (shifted register)
         cmp_shifted_register,
+        /// Compare (extended register)
+        cmp_extended_register,
         /// Conditional set
         cset,
         /// Pseudo-instruction: End of prologue
@@ -142,6 +152,10 @@ pub const Inst = struct {
         ret,
         /// Signed bitfield extract
         sbfx,
+        /// Signed multiply high
+        smulh,
+        /// Signed multiply long
+        smull,
         /// Signed extend byte
         sxtb,
         /// Signed extend halfword
@@ -170,12 +184,26 @@ pub const Inst = struct {
         strh_register,
         /// Subtract (immediate)
         sub_immediate,
+        /// Subtract, update condition flags (immediate)
+        subs_immediate,
         /// Subtract (shifted register)
         sub_shifted_register,
+        /// Subtract, update condition flags (shifted register)
+        subs_shifted_register,
+        /// Subtract (extended register)
+        sub_extended_register,
+        /// Subtract, update condition flags (extended register)
+        subs_extended_register,
         /// Supervisor Call
         svc,
+        /// Test bits (immediate)
+        tst_immediate,
         /// Unsigned bitfield extract
         ubfx,
+        /// Unsigned multiply high
+        umulh,
+        /// Unsigned multiply long
+        umull,
         /// Unsigned extend byte
         uxtb,
         /// Unsigned extend halfword
@@ -282,6 +310,15 @@ pub const Inst = struct {
             imm6: u6,
             shift: bits.Instruction.AddSubtractShiftedRegisterShift,
         },
+        /// Two registers with sign-extension (extension type and 3-bit shift amount)
+        ///
+        /// Used by e.g. cmp_extended_register
+        rr_extend_shift: struct {
+            rn: Register,
+            rm: Register,
+            ext_type: bits.Instruction.AddSubtractExtendedRegisterOption,
+            imm3: u3,
+        },
         /// Two registers and a shift (logical instruction version)
         /// (shift type and 6-bit amount)
         ///
@@ -337,6 +374,16 @@ pub const Inst = struct {
             rm: Register,
             imm6: u6,
             shift: bits.Instruction.AddSubtractShiftedRegisterShift,
+        },
+        /// Three registers with sign-extension (extension type and 3-bit shift amount)
+        ///
+        /// Used by e.g. add_extended_register
+        rrr_extend_shift: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            ext_type: bits.Instruction.AddSubtractExtendedRegisterOption,
+            imm3: u3,
         },
         /// Three registers and a shift (logical instruction version)
         /// (shift type and 6-bit amount)
