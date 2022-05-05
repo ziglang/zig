@@ -691,6 +691,30 @@ test "extensive @mulWithOverflow" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     {
+        var a: u5 = 3;
+        var b: u5 = 10;
+        var res: u5 = undefined;
+        try expect(!@mulWithOverflow(u5, a, b, &res));
+        try expect(res == 30);
+
+        b = 11;
+        try expect(@mulWithOverflow(u5, a, b, &res));
+        try expect(res == 1);
+    }
+
+    {
+        var a: i5 = 3;
+        var b: i5 = -5;
+        var res: i5 = undefined;
+        try expect(!@mulWithOverflow(i5, a, b, &res));
+        try expect(res == -15);
+
+        b = -6;
+        try expect(@mulWithOverflow(i5, a, b, &res));
+        try expect(res == 14);
+    }
+
+    {
         var a: u8 = 3;
         var b: u8 = 85;
         var res: u8 = undefined;
@@ -713,6 +737,30 @@ test "extensive @mulWithOverflow" {
         b = -43;
         try expect(@mulWithOverflow(i8, a, b, &res));
         try expect(res == 127);
+    }
+
+    {
+        var a: u14 = 3;
+        var b: u14 = 0x1555;
+        var res: u14 = undefined;
+        try expect(!@mulWithOverflow(u14, a, b, &res));
+        try expect(res == 0x3fff);
+
+        b = 0x1556;
+        try expect(@mulWithOverflow(u14, a, b, &res));
+        try expect(res == 2);
+    }
+
+    {
+        var a: i14 = 3;
+        var b: i14 = -0xaaa;
+        var res: i14 = undefined;
+        try expect(!@mulWithOverflow(i14, a, b, &res));
+        try expect(res == -0x1ffe);
+
+        b = -0xaab;
+        try expect(@mulWithOverflow(i14, a, b, &res));
+        try expect(res == 0x1fff);
     }
 
     {
