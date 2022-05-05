@@ -10517,14 +10517,33 @@ fn zirAsm(
     const is_volatile = @truncate(u1, extended.small >> 15) != 0;
     const is_global_assembly = sema.func == null;
 
-    if (block.is_comptime and !is_global_assembly) {
-        try sema.requireRuntimeBlock(block, src);
-    }
-
     if (extra.data.asm_source == 0) {
         // This can move to become an AstGen error after inline assembly improvements land
         // and stage1 code matches stage2 code.
         return sema.fail(block, src, "assembly code must use string literal syntax", .{});
+    }
+
+    const asm_source = sema.code.nullTerminatedString(extra.data.asm_source);
+
+    if (is_global_assembly) {
+        if (outputs_len != 0) {
+            return sema.fail(block, src, "module-level assembly does not support outputs", .{});
+        }
+        if (inputs_len != 0) {
+            return sema.fail(block, src, "module-level assembly does not support inputs", .{});
+        }
+        if (clobbers_len != 0) {
+            return sema.fail(block, src, "module-level assembly does not support clobbers", .{});
+        }
+        if (is_volatile) {
+            return sema.fail(block, src, "volatile keyword is redundant on module-level assembly", .{});
+        }
+        try sema.mod.addGlobalAssembly(sema.owner_decl_index, asm_source);
+        return Air.Inst.Ref.void_value;
+    }
+
+    if (block.is_comptime) {
+        try sema.requireRuntimeBlock(block, src);
     }
 
     if (outputs_len > 1) {
@@ -10591,7 +10610,6 @@ fn zirAsm(
         needed_capacity += name.*.len / 4 + 1;
     }
 
-    const asm_source = sema.code.nullTerminatedString(extra.data.asm_source);
     needed_capacity += (asm_source.len + 3) / 4;
 
     const gpa = sema.gpa;

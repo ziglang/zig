@@ -476,6 +476,19 @@ pub const Object = struct {
         _ = builder.buildRet(is_lt);
     }
 
+    fn genModuleLevelAssembly(object: *Object, comp: *Compilation) !void {
+        const mod = comp.bin_file.options.module.?;
+        if (mod.global_assembly.count() == 0) return;
+        var buffer = std.ArrayList(u8).init(comp.gpa);
+        defer buffer.deinit();
+        var it = mod.global_assembly.iterator();
+        while (it.next()) |kv| {
+            try buffer.appendSlice(kv.value_ptr.*);
+            try buffer.append('\n');
+        }
+        object.llvm_module.setModuleInlineAsm2(buffer.items.ptr, buffer.items.len - 1);
+    }
+
     pub fn flushModule(self: *Object, comp: *Compilation, prog_node: *std.Progress.Node) !void {
         var sub_prog_node = prog_node.start("LLVM Emit Object", 0);
         sub_prog_node.activate();
@@ -484,6 +497,7 @@ pub const Object = struct {
 
         try self.genErrorNameTable(comp);
         try self.genCmpLtErrorsLenFunction(comp);
+        try self.genModuleLevelAssembly(comp);
 
         if (self.di_builder) |dib| {
             // When lowering debug info for pointers, we emitted the element types as
