@@ -644,7 +644,17 @@ pub const Object = struct {
             if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             const llvm_arg_i = @intCast(c_uint, args.items.len) + param_offset;
-            try args.append(llvm_func.getParam(llvm_arg_i));
+            const param = llvm_func.getParam(llvm_arg_i);
+            // It is possible for the calling convention to make the argument's by-reference nature
+            // disagree with our canonical value for it, in which case we must dereference here.
+            const need_deref = !param_ty.isPtrAtRuntime() and !isByRef(param_ty) and
+                (param.typeOf().getTypeKind() == .Pointer);
+            const loaded_param = if (!need_deref) param else l: {
+                const load_inst = builder.buildLoad(param, "");
+                load_inst.setAlignment(param_ty.abiAlignment(target));
+                break :l load_inst;
+            };
+            try args.append(loaded_param);
         }
 
         var di_file: ?*llvm.DIFile = null;
@@ -3743,6 +3753,19 @@ pub const FuncGen = struct {
                 arg_ptr.setAlignment(alignment);
                 const store_inst = self.builder.buildStore(llvm_arg, arg_ptr);
                 store_inst.setAlignment(alignment);
+
+                if (abi_llvm_ty.getTypeKind() == .Pointer) {
+                    // In this case, the calling convention wants a pointer, but
+                    // we have a value.
+                    if (arg_ptr.typeOf() == abi_llvm_ty) {
+                        try llvm_args.append(arg_ptr);
+                        continue;
+                    }
+                    const casted_ptr = self.builder.buildBitCast(arg_ptr, abi_llvm_ty, "");
+                    try llvm_args.append(casted_ptr);
+                    continue;
+                }
+
                 break :p self.builder.buildBitCast(arg_ptr, ptr_abi_ty, "");
             };
 
@@ -7931,6 +7954,8 @@ fn llvmFieldIndex(
 }
 
 fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool {
+    if (!fn_info.return_type.hasRuntimeBitsIgnoreComptime()) return false;
+
     switch (fn_info.cc) {
         .Unspecified, .Inline => return isByRef(fn_info.return_type),
         .C => switch (target.cpu.arch) {
