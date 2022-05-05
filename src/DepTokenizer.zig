@@ -15,7 +15,7 @@ pub fn next(self: *Tokenizer) ?Token {
         const char = self.bytes[self.index];
         switch (self.state) {
             .lhs => switch (char) {
-                '\t', '\n', '\r', ' ' => {
+                '\t', '\n', '\r', ' ', 11 => {
                     // silently ignore whitespace
                     self.index += 1;
                 },
@@ -45,10 +45,10 @@ pub fn next(self: *Tokenizer) ?Token {
                 },
             },
             .target_reverse_solidus => switch (char) {
-                '\t', '\n', '\r' => {
+                '\n', '\r' => {
                     return errorIllegalChar(.bad_target_escape, self.index, char);
                 },
-                ' ', '#', '\\' => {
+                '\t', ' ', '#', '\\' => {
                     must_resolve = true;
                     self.state = .target;
                     self.index += 1;
@@ -111,7 +111,7 @@ pub fn next(self: *Tokenizer) ?Token {
                 },
             },
             .rhs => switch (char) {
-                '\t', ' ' => {
+                '\t', ' ', 11 => {
                     // silently ignore horizontal whitespace
                     self.index += 1;
                 },
