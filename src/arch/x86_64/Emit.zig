@@ -1383,7 +1383,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .sub => OpCode.oneByte(if (is_one_byte) 0x2a else 0x2b),
             .xor => OpCode.oneByte(if (is_one_byte) 0x32 else 0x33),
             .@"and" => OpCode.oneByte(if (is_one_byte) 0x22 else 0x23),
-            .@"or" => OpCode.oneByte(if (is_one_byte) 0x0b else 0x0b),
+            .@"or" => OpCode.oneByte(if (is_one_byte) 0x0a else 0x0b),
             .sbb => OpCode.oneByte(if (is_one_byte) 0x1a else 0x1b),
             .cmp => OpCode.oneByte(if (is_one_byte) 0x3a else 0x3b),
             .mov => OpCode.oneByte(if (is_one_byte) 0x8a else 0x8b),
