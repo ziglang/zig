@@ -1414,23 +1414,27 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
 fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const result = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ty = self.air.typeOf(bin_op.lhs);
 
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    }
+        switch (ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement add_with_overflow for Vector type", .{}),
+            .Int => {
+                const int_info = ty.intInfo(self.target.*);
 
-    const ty = self.air.typeOf(bin_op.lhs);
-    const signedness: std.builtin.Signedness = blk: {
-        if (ty.zigTypeTag() != .Int) {
-            return self.fail("TODO implement airAddWithOverflow for type {}", .{ty.fmtDebug()});
+                if (int_info.bits > 64) {
+                    return self.fail("TODO implement add_with_overflow for Ints larger than 64bits", .{});
+                }
+
+                const partial = try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
+                const result: MCValue = switch (int_info.signedness) {
+                    .signed => .{ .register_overflow_signed = partial.register },
+                    .unsigned => .{ .register_overflow_unsigned = partial.register },
+                };
+                break :result result;
+            },
+            else => unreachable,
         }
-        break :blk ty.intInfo(self.target.*).signedness;
-    };
-
-    const partial = try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
-    const result: MCValue = switch (signedness) {
-        .signed => .{ .register_overflow_signed = partial.register },
-        .unsigned => .{ .register_overflow_unsigned = partial.register },
     };
 
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -1439,23 +1443,27 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const result = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ty = self.air.typeOf(bin_op.lhs);
 
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    }
+        switch (ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement sub_with_overflow for Vector type", .{}),
+            .Int => {
+                const int_info = ty.intInfo(self.target.*);
 
-    const ty = self.air.typeOf(bin_op.lhs);
-    const signedness: std.builtin.Signedness = blk: {
-        if (ty.zigTypeTag() != .Int) {
-            return self.fail("TODO implement airSubWithOverflow for type {}", .{ty.fmtDebug()});
+                if (int_info.bits > 64) {
+                    return self.fail("TODO implement sub_with_overflow for Ints larger than 64bits", .{});
+                }
+
+                const partial = try self.genSubOp(inst, bin_op.lhs, bin_op.rhs);
+                const result: MCValue = switch (int_info.signedness) {
+                    .signed => .{ .register_overflow_signed = partial.register },
+                    .unsigned => .{ .register_overflow_unsigned = partial.register },
+                };
+                break :result result;
+            },
+            else => unreachable,
         }
-        break :blk ty.intInfo(self.target.*).signedness;
-    };
-
-    const partial = try self.genSubOp(inst, bin_op.lhs, bin_op.rhs);
-    const result: MCValue = switch (signedness) {
-        .signed => .{ .register_overflow_signed = partial.register },
-        .unsigned => .{ .register_overflow_unsigned = partial.register },
     };
 
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -1466,30 +1474,37 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const result = if (self.liveness.isUnused(inst)) .dead else result: {
         const ty = self.air.typeOf(bin_op.lhs);
-        const signedness: std.builtin.Signedness = blk: {
-            if (ty.zigTypeTag() != .Int) {
-                return self.fail("TODO implement airMulWithOverflow for type {}", .{ty.fmtDebug()});
-            }
-            break :blk ty.intInfo(self.target.*).signedness;
-        };
 
-        // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-        try self.register_manager.getReg(.rax, inst);
-        try self.register_manager.getReg(.rdx, null);
-        self.register_manager.freezeRegs(&.{ .rax, .rdx });
-        defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
+        switch (ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement mul_with_overflow for Vector type", .{}),
+            .Int => {
+                const int_info = ty.intInfo(self.target.*);
 
-        const lhs = try self.resolveInst(bin_op.lhs);
-        const rhs = try self.resolveInst(bin_op.rhs);
+                if (int_info.bits > 64) {
+                    return self.fail("TODO implement mul_with_overflow for Ints larger than 64bits", .{});
+                }
 
-        try self.genIntMulDivOpMir(switch (signedness) {
-            .signed => .imul,
-            .unsigned => .mul,
-        }, ty, signedness, lhs, rhs);
+                // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
+                try self.register_manager.getReg(.rax, inst);
+                try self.register_manager.getReg(.rdx, null);
+                self.register_manager.freezeRegs(&.{ .rax, .rdx });
+                defer self.register_manager.unfreezeRegs(&.{ .rax, .rdx });
 
-        switch (signedness) {
-            .signed => break :result MCValue{ .register_overflow_signed = .rax },
-            .unsigned => break :result MCValue{ .register_overflow_unsigned = .rax },
+                const lhs = try self.resolveInst(bin_op.lhs);
+                const rhs = try self.resolveInst(bin_op.rhs);
+
+                try self.genIntMulDivOpMir(switch (int_info.signedness) {
+                    .signed => .imul,
+                    .unsigned => .mul,
+                }, ty, int_info.signedness, lhs, rhs);
+
+                const result: MCValue = switch (int_info.signedness) {
+                    .signed => .{ .register_overflow_signed = .rax },
+                    .unsigned => .{ .register_overflow_unsigned = .rax },
+                };
+                break :result result;
+            },
+            else => unreachable,
         }
     };
 
