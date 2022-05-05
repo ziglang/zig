@@ -8030,7 +8030,8 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
                             }
                         }
                         if (classes[0] == .integer and classes[1] == .none) {
-                            return llvm_types_buffer[0];
+                            const abi_size = fn_info.return_type.abiSize(target);
+                            return dg.context.intType(@intCast(c_uint, abi_size * 8));
                         }
                         return dg.context.structType(&llvm_types_buffer, llvm_types_index, .False);
                     },
@@ -8124,7 +8125,8 @@ fn lowerFnParamTy(dg: *DeclGen, cc: std.builtin.CallingConvention, ty: Type) !*c
                             }
                         }
                         if (classes[0] == .integer and classes[1] == .none) {
-                            return llvm_types_buffer[0];
+                            const abi_size = ty.abiSize(target);
+                            return dg.context.intType(@intCast(c_uint, abi_size * 8));
                         }
                         return dg.context.structType(&llvm_types_buffer, llvm_types_index, .False);
                     },
