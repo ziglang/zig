@@ -1857,6 +1857,8 @@ pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
     return value;
 }
 
+/// convert a number to ascii char
+/// 1 to '1'
 pub fn digitToChar(digit: u8, case: Case) u8 {
     return switch (digit) {
         0...9 => digit + '0',
