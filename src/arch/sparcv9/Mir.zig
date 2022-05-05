@@ -75,7 +75,7 @@ pub const Inst = struct {
         nop,
 
         /// A.45 RETURN
-        /// This Thisuses the arithmetic_2op field.
+        /// This uses the arithmetic_2op field.
         @"return",
 
         /// A.46 SAVE and RESTORE
