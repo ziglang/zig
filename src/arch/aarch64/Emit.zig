@@ -1060,10 +1060,10 @@ fn mirDataProcessing3Source(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
-        .smulh => try emit.writeInstruction(Instruction.smulh(rrr.rd.to64(), rrr.rn.to64(), rrr.rm.to64())),
-        .smull => try emit.writeInstruction(Instruction.smull(rrr.rd.to64(), rrr.rn.to32(), rrr.rm.to32())),
-        .umulh => try emit.writeInstruction(Instruction.umulh(rrr.rd.to64(), rrr.rn.to64(), rrr.rm.to64())),
-        .umull => try emit.writeInstruction(Instruction.umull(rrr.rd.to64(), rrr.rn.to32(), rrr.rm.to32())),
+        .smulh => try emit.writeInstruction(Instruction.smulh(rrr.rd, rrr.rn, rrr.rm)),
+        .smull => try emit.writeInstruction(Instruction.smull(rrr.rd, rrr.rn, rrr.rm)),
+        .umulh => try emit.writeInstruction(Instruction.umulh(rrr.rd, rrr.rn, rrr.rm)),
+        .umull => try emit.writeInstruction(Instruction.umull(rrr.rd, rrr.rn, rrr.rm)),
         else => unreachable,
     }
 }
