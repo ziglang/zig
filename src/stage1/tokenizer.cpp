@@ -20,7 +20,7 @@
     case '\r': \
     case '\n': \
     case '\t': \
-    case '\v': \
+    case '\v'  \
 
 #define DIGIT_NON_ZERO \
          '1': \
