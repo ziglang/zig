@@ -1487,28 +1487,52 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     break :result result;
                 }
 
-                const lhs = try self.resolveInst(bin_op.lhs);
-                const rhs = try self.resolveInst(bin_op.rhs);
+                const dst_reg: Register = dst_reg: {
+                    switch (int_info.signedness) {
+                        .signed => {
+                            const lhs = try self.resolveInst(bin_op.lhs);
+                            const rhs = try self.resolveInst(bin_op.rhs);
 
-                rhs.freezeIfRegister(&self.register_manager);
-                defer rhs.unfreezeIfRegister(&self.register_manager);
+                            rhs.freezeIfRegister(&self.register_manager);
+                            defer rhs.unfreezeIfRegister(&self.register_manager);
 
-                // TODO check if we could reuse rhs instead, and swap the values out.
-                const dst_mcv = blk: {
-                    if (self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
-                        if (lhs.isRegister()) break :blk lhs;
+                            // TODO check if we could reuse rhs instead, and swap the values out.
+                            const dst_reg: Register = blk: {
+                                if (self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
+                                    if (lhs.isRegister()) break :blk lhs.register;
+                                }
+                                break :blk try self.copyToTmpRegister(ty, lhs);
+                            };
+                            self.register_manager.freezeRegs(&.{dst_reg});
+
+                            const rhs_mcv = blk: {
+                                if (rhs.isRegister() or rhs.isMemory()) break :blk rhs;
+                                break :blk MCValue{ .register = try self.copyToTmpRegister(ty, rhs) };
+                            };
+                            rhs_mcv.freezeIfRegister(&self.register_manager);
+                            defer rhs_mcv.unfreezeIfRegister(&self.register_manager);
+
+                            try self.genIntMulComplexOpMir(Type.isize, .{ .register = dst_reg }, rhs_mcv);
+
+                            break :dst_reg dst_reg;
+                        },
+                        .unsigned => {
+                            // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
+                            try self.register_manager.getReg(.rax, null);
+                            try self.register_manager.getReg(.rdx, null);
+                            self.register_manager.freezeRegs(&.{ .rax, .rdx });
+                            defer self.register_manager.unfreezeRegs(&.{.rdx});
+
+                            const lhs = try self.resolveInst(bin_op.lhs);
+                            const rhs = try self.resolveInst(bin_op.rhs);
+
+                            try self.genIntMulDivOpMir(.mul, ty, .unsigned, lhs, rhs);
+
+                            break :dst_reg registerAlias(.rax, @intCast(u32, ty.abiSize(self.target.*)));
+                        },
                     }
-                    break :blk MCValue{ .register = try self.copyToTmpRegister(ty, lhs) };
                 };
-                dst_mcv.freezeIfRegister(&self.register_manager);
-                defer dst_mcv.unfreezeIfRegister(&self.register_manager);
-
-                const rhs_mcv = blk: {
-                    if (rhs.isRegister() or rhs.isMemory()) break :blk rhs;
-                    break :blk MCValue{ .register = try self.copyToTmpRegister(ty, rhs) };
-                };
-                rhs_mcv.freezeIfRegister(&self.register_manager);
-                defer rhs_mcv.unfreezeIfRegister(&self.register_manager);
+                defer self.register_manager.unfreezeRegs(&.{dst_reg});
 
                 const tuple_ty = self.air.typeOfIndex(inst);
                 const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
@@ -1520,8 +1544,6 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     .signed => Type.isize,
                     .unsigned => ty,
                 };
-
-                try self.genIntMulComplexOpMir(extended_ty, dst_mcv, rhs_mcv);
 
                 const temp_regs = try self.register_manager.allocRegs(3, .{ null, null, null });
                 self.register_manager.freezeRegs(&temp_regs);
@@ -1542,9 +1564,14 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 });
 
                 const scratch_reg = temp_regs[1];
-                try self.genSetReg(extended_ty, scratch_reg, dst_mcv);
+                try self.genSetReg(extended_ty, scratch_reg, .{ .register = dst_reg });
                 try self.truncateRegister(ty, scratch_reg);
-                try self.genBinMathOpMir(.cmp, extended_ty, dst_mcv, .{ .register = scratch_reg });
+                try self.genBinMathOpMir(
+                    .cmp,
+                    extended_ty,
+                    .{ .register = dst_reg },
+                    .{ .register = scratch_reg },
+                );
 
                 const eq_reg = temp_regs[2];
                 _ = try self.addInst(.{
@@ -6626,7 +6653,12 @@ fn truncateRegister(self: *Self, ty: Type, reg: Register) !void {
         .unsigned => {
             const shift = @intCast(u6, max_reg_bit_width - int_info.bits);
             const mask = (~@as(u64, 0)) >> shift;
-            try self.genBinMathOpMir(.@"and", Type.usize, .{ .register = reg }, .{ .immediate = mask });
+            if (int_info.bits <= 32) {
+                try self.genBinMathOpMir(.@"and", Type.usize, .{ .register = reg }, .{ .immediate = mask });
+            } else {
+                const tmp_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = mask });
+                try self.genBinMathOpMir(.@"and", Type.usize, .{ .register = reg }, .{ .register = tmp_reg });
+            }
         },
     }
 }
