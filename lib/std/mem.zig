@@ -1026,6 +1026,7 @@ pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize 
     return indexOfAnyPos(T, slice, 0, values);
 }
 
+/// return the last index of values if any
 pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
     var i: usize = slice.len;
     while (i != 0) {
@@ -1037,6 +1038,7 @@ pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?us
     return null;
 }
 
+/// return the index of values starting from start_index
 pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
     var i: usize = start_index;
     while (i < slice.len) : (i += 1) {
@@ -1047,6 +1049,7 @@ pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, val
     return null;
 }
 
+/// return the index of needle if any
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     return indexOfPos(T, haystack, 0, needle);
 }
