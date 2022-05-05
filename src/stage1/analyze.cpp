@@ -7686,6 +7686,7 @@ ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
             // However for some targets, LLVM incorrectly reports this as 8.
             // See: https://github.com/ziglang/zig/issues/2987
             entry->abi_align = 16;
+            entry->abi_size = align_forward(entry->abi_size, entry->abi_align);
         }
     }
 
