@@ -1787,18 +1787,12 @@ pub const Target = struct {
             .hexagon,
             .mips,
             .mipsel,
-            .mips64,
-            .mips64el,
             .powerpc,
             .powerpcle,
-            .powerpc64,
-            .powerpc64le,
             .r600,
             .amdgcn,
             .riscv32,
-            .riscv64,
             .sparc,
-            .sparcv9,
             .sparcel,
             .s390x,
             .lanai,
@@ -1812,10 +1806,20 @@ pub const Target = struct {
             },
 
             // For x86_64, LLVMABIAlignmentOfType(i128) reports 8. However I think 16
-            // is a better number because of two reasons:
+            // is a better number for two reasons:
             // 1. Better machine code when loading into SIMD register.
             // 2. The C ABI wants 16 for extern structs.
+            // 3. 16-byte cmpxchg needs 16-byte alignment.
+            // Same logic for riscv64, powerpc64, mips64, sparcv9.
             .x86_64,
+            .riscv64,
+            .powerpc64,
+            .powerpc64le,
+            .mips64,
+            .mips64el,
+            .sparcv9,
+
+            // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
             .aarch64,
             .aarch64_be,
             .aarch64_32,
@@ -1825,11 +1829,9 @@ pub const Target = struct {
             .nvptx64,
             => 16,
 
-            // Below this comment are unverified and I have chosen a number
-            // based on ptrBitWidth.
-
-            .spu_2 => 2,
-
+            // Below this comment are unverified but based on the fact that C requires
+            // int128_t to be 16 bytes aligned, it's a safe default.
+            .spu_2,
             .csky,
             .arc,
             .m68k,
@@ -1843,8 +1845,6 @@ pub const Target = struct {
             .renderscript32,
             .spirv32,
             .shave,
-            => 4,
-
             .le64,
             .amdil64,
             .hsail64,
@@ -1852,7 +1852,7 @@ pub const Target = struct {
             .renderscript64,
             .ve,
             .spirv64,
-            => 8,
+            => 16,
         };
     }
 };
