@@ -2118,6 +2118,25 @@ fn buildOutputType(
                 continue :syslib;
             }
 
+            // Unfortunately, in the case of MinGW we also need to look for `libfoo.a`.
+            if (target_info.target.isMinGW()) {
+                for (lib_dirs.items) |lib_dir_path| {
+                    test_path.clearRetainingCapacity();
+                    try test_path.writer().print("{s}" ++ sep ++ "lib{s}.a", .{
+                        lib_dir_path, lib_name,
+                    });
+                    fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+                        error.FileNotFound => continue,
+                        else => |e| fatal("unable to search for static library '{s}': {s}", .{
+                            test_path.items, @errorName(e),
+                        }),
+                    };
+                    try link_objects.append(.{ .path = try arena.dupe(u8, test_path.items) });
+                    system_libs.orderedRemoveAt(i);
+                    continue :syslib;
+                }
+            }
+
             std.log.scoped(.cli).debug("depending on system for -l{s}", .{lib_name});
 
             i += 1;
