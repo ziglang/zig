@@ -381,6 +381,9 @@ pub const Module = opaque {
 
     pub const createDIBuilder = ZigLLVMCreateDIBuilder;
     extern fn ZigLLVMCreateDIBuilder(module: *const Module, allow_unresolved: bool) *DIBuilder;
+
+    pub const setModuleInlineAsm2 = LLVMSetModuleInlineAsm2;
+    extern fn LLVMSetModuleInlineAsm2(M: *const Module, Asm: [*]const u8, Len: usize) void;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;

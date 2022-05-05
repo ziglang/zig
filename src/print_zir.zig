@@ -283,6 +283,7 @@ const Writer = struct {
             => try self.writeStructInit(stream, inst),
 
             .cmpxchg_strong, .cmpxchg_weak => try self.writeCmpxchg(stream, inst),
+            .atomic_load => try self.writeAtomicLoad(stream, inst),
             .atomic_store => try self.writeAtomicStore(stream, inst),
             .atomic_rmw => try self.writeAtomicRmw(stream, inst),
             .memcpy => try self.writeMemcpy(stream, inst),
@@ -351,7 +352,6 @@ const Writer = struct {
             .offset_of,
             .splat,
             .reduce,
-            .atomic_load,
             .bitcast,
             .vector_type,
             .maximum,
@@ -925,6 +925,19 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.success_order);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.failure_order);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeAtomicLoad(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.AtomicLoad, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, extra.elem_type);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.ptr);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.ordering);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

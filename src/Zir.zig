@@ -903,7 +903,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `Select`.
         select,
         /// Implements the `@atomicLoad` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
+        /// Uses the `pl_node` union field with payload `AtomicLoad`.
         atomic_load,
         /// Implements the `@atomicRmw` builtin.
         /// Uses the `pl_node` union field with payload `AtomicRmw`.
@@ -3290,6 +3290,12 @@ pub const Inst = struct {
     pub const AtomicStore = struct {
         ptr: Ref,
         operand: Ref,
+        ordering: Ref,
+    };
+
+    pub const AtomicLoad = struct {
+        elem_type: Ref,
+        ptr: Ref,
         ordering: Ref,
     };
 

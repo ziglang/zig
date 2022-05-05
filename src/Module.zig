@@ -151,6 +151,8 @@ allocated_decls: std.SegmentedList(Decl, 0) = .{},
 /// When a Decl object is freed from `allocated_decls`, it is pushed into this stack.
 decls_free_list: std.ArrayListUnmanaged(Decl.Index) = .{},
 
+global_assembly: std.AutoHashMapUnmanaged(Decl.Index, []u8) = .{},
+
 const MonomorphedFuncsSet = std.HashMapUnmanaged(
     *Fn,
     void,
@@ -2831,6 +2833,7 @@ pub fn deinit(mod: *Module) void {
 
     mod.decls_free_list.deinit(gpa);
     mod.allocated_decls.deinit(gpa);
+    mod.global_assembly.deinit(gpa);
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -2841,6 +2844,9 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
         _ = mod.test_functions.swapRemove(decl_index);
         if (decl.deletion_flag) {
             assert(mod.deletion_set.swapRemove(decl_index));
+        }
+        if (mod.global_assembly.fetchRemove(decl_index)) |kv| {
+            gpa.free(kv.value);
         }
         if (decl.has_tv) {
             if (decl.getInnerNamespace()) |namespace| {
@@ -5713,4 +5719,13 @@ pub fn markDeclAlive(mod: *Module, decl: *Decl) void {
 
 fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) void {
     return mod.markDeclAlive(mod.declPtr(decl_index));
+}
+
+pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {
+    try mod.global_assembly.ensureUnusedCapacity(mod.gpa, 1);
+
+    const duped_source = try mod.gpa.dupe(u8, source);
+    errdefer mod.gpa.free(duped_source);
+
+    mod.global_assembly.putAssumeCapacityNoClobber(decl_index, duped_source);
 }

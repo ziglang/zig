@@ -476,6 +476,19 @@ pub const Object = struct {
         _ = builder.buildRet(is_lt);
     }
 
+    fn genModuleLevelAssembly(object: *Object, comp: *Compilation) !void {
+        const mod = comp.bin_file.options.module.?;
+        if (mod.global_assembly.count() == 0) return;
+        var buffer = std.ArrayList(u8).init(comp.gpa);
+        defer buffer.deinit();
+        var it = mod.global_assembly.iterator();
+        while (it.next()) |kv| {
+            try buffer.appendSlice(kv.value_ptr.*);
+            try buffer.append('\n');
+        }
+        object.llvm_module.setModuleInlineAsm2(buffer.items.ptr, buffer.items.len - 1);
+    }
+
     pub fn flushModule(self: *Object, comp: *Compilation, prog_node: *std.Progress.Node) !void {
         var sub_prog_node = prog_node.start("LLVM Emit Object", 0);
         sub_prog_node.activate();
@@ -484,6 +497,7 @@ pub const Object = struct {
 
         try self.genErrorNameTable(comp);
         try self.genCmpLtErrorsLenFunction(comp);
+        try self.genModuleLevelAssembly(comp);
 
         if (self.di_builder) |dib| {
             // When lowering debug info for pointers, we emitted the element types as
@@ -630,7 +644,17 @@ pub const Object = struct {
             if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             const llvm_arg_i = @intCast(c_uint, args.items.len) + param_offset;
-            try args.append(llvm_func.getParam(llvm_arg_i));
+            const param = llvm_func.getParam(llvm_arg_i);
+            // It is possible for the calling convention to make the argument's by-reference nature
+            // disagree with our canonical value for it, in which case we must dereference here.
+            const need_deref = !param_ty.isPtrAtRuntime() and !isByRef(param_ty) and
+                (param.typeOf().getTypeKind() == .Pointer);
+            const loaded_param = if (!need_deref) param else l: {
+                const load_inst = builder.buildLoad(param, "");
+                load_inst.setAlignment(param_ty.abiAlignment(target));
+                break :l load_inst;
+            };
+            try args.append(loaded_param);
         }
 
         var di_file: ?*llvm.DIFile = null;
@@ -3729,6 +3753,19 @@ pub const FuncGen = struct {
                 arg_ptr.setAlignment(alignment);
                 const store_inst = self.builder.buildStore(llvm_arg, arg_ptr);
                 store_inst.setAlignment(alignment);
+
+                if (abi_llvm_ty.getTypeKind() == .Pointer) {
+                    // In this case, the calling convention wants a pointer, but
+                    // we have a value.
+                    if (arg_ptr.typeOf() == abi_llvm_ty) {
+                        try llvm_args.append(arg_ptr);
+                        continue;
+                    }
+                    const casted_ptr = self.builder.buildBitCast(arg_ptr, abi_llvm_ty, "");
+                    try llvm_args.append(casted_ptr);
+                    continue;
+                }
+
                 break :p self.builder.buildBitCast(arg_ptr, ptr_abi_ty, "");
             };
 
@@ -7583,7 +7620,7 @@ pub const FuncGen = struct {
         const size_bytes = elem_ty.abiSize(target);
         _ = self.builder.buildMemCpy(
             self.builder.buildBitCast(ptr, llvm_ptr_u8, ""),
-            ptr_ty.ptrAlignment(target),
+            ptr_alignment,
             self.builder.buildBitCast(elem, llvm_ptr_u8, ""),
             elem_ty.abiAlignment(target),
             self.context.intType(Type.usize.intInfo(target).bits).constInt(size_bytes, .False),
@@ -7917,6 +7954,8 @@ fn llvmFieldIndex(
 }
 
 fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool {
+    if (!fn_info.return_type.hasRuntimeBitsIgnoreComptime()) return false;
+
     switch (fn_info.cc) {
         .Unspecified, .Inline => return isByRef(fn_info.return_type),
         .C => switch (target.cpu.arch) {
@@ -8016,7 +8055,8 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
                             }
                         }
                         if (classes[0] == .integer and classes[1] == .none) {
-                            return llvm_types_buffer[0];
+                            const abi_size = fn_info.return_type.abiSize(target);
+                            return dg.context.intType(@intCast(c_uint, abi_size * 8));
                         }
                         return dg.context.structType(&llvm_types_buffer, llvm_types_index, .False);
                     },
@@ -8110,7 +8150,8 @@ fn lowerFnParamTy(dg: *DeclGen, cc: std.builtin.CallingConvention, ty: Type) !*c
                             }
                         }
                         if (classes[0] == .integer and classes[1] == .none) {
-                            return llvm_types_buffer[0];
+                            const abi_size = ty.abiSize(target);
+                            return dg.context.intType(@intCast(c_uint, abi_size * 8));
                         }
                         return dg.context.structType(&llvm_types_buffer, llvm_types_index, .False);
                     },

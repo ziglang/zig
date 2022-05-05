@@ -7423,42 +7423,22 @@ fn builtinCall(
         },
 
         .atomic_load => {
-            const int_type = try typeExpr(gz, scope, params[0]);
-            // TODO allow this pointer type to be volatile
-            const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-                .ptr_type_simple = .{
-                    .is_allowzero = false,
-                    .is_mutable = false,
-                    .is_volatile = false,
-                    .size = .One,
-                    .elem_type = int_type,
-                },
-            } });
-            const result = try gz.addPlNode(.atomic_load, node, Zir.Inst.Bin{
+            const result = try gz.addPlNode(.atomic_load, node, Zir.Inst.AtomicLoad{
                 // zig fmt: off
-                .lhs = try expr(gz, scope, .{ .coerced_ty = ptr_type },           params[1]),
-                .rhs = try expr(gz, scope, .{ .coerced_ty = .atomic_order_type }, params[2]),
+                .elem_type = try typeExpr(gz, scope,                                        params[0]),
+                .ptr       = try expr    (gz, scope, .none,                                 params[1]),
+                .ordering  = try expr    (gz, scope, .{ .coerced_ty = .atomic_order_type }, params[2]),
                 // zig fmt: on
             });
             return rvalue(gz, rl, result, node);
         },
         .atomic_rmw => {
             const int_type = try typeExpr(gz, scope, params[0]);
-            // TODO allow this pointer type to be volatile
-            const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-                .ptr_type_simple = .{
-                    .is_allowzero = false,
-                    .is_mutable = true,
-                    .is_volatile = false,
-                    .size = .One,
-                    .elem_type = int_type,
-                },
-            } });
             const result = try gz.addPlNode(.atomic_rmw, node, Zir.Inst.AtomicRmw{
                 // zig fmt: off
-                .ptr       = try expr(gz, scope, .{ .coerced_ty = ptr_type },            params[1]),
+                .ptr       = try expr(gz, scope, .none,                                  params[1]),
                 .operation = try expr(gz, scope, .{ .coerced_ty = .atomic_rmw_op_type }, params[2]),
-                .operand   = try expr(gz, scope, .{ .coerced_ty = int_type },            params[3]),
+                .operand   = try expr(gz, scope, .{ .ty = int_type },                    params[3]),
                 .ordering  = try expr(gz, scope, .{ .coerced_ty = .atomic_order_type },  params[4]),
                 // zig fmt: on
             });
@@ -7466,20 +7446,10 @@ fn builtinCall(
         },
         .atomic_store => {
             const int_type = try typeExpr(gz, scope, params[0]);
-            // TODO allow this pointer type to be volatile
-            const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-                .ptr_type_simple = .{
-                    .is_allowzero = false,
-                    .is_mutable = true,
-                    .is_volatile = false,
-                    .size = .One,
-                    .elem_type = int_type,
-                },
-            } });
             const result = try gz.addPlNode(.atomic_store, node, Zir.Inst.AtomicStore{
                 // zig fmt: off
-                .ptr      = try expr(gz, scope, .{ .coerced_ty = ptr_type },           params[1]),
-                .operand  = try expr(gz, scope, .{ .coerced_ty = int_type },           params[2]),
+                .ptr      = try expr(gz, scope, .none,                                 params[1]),
+                .operand  = try expr(gz, scope, .{ .ty = int_type },                   params[2]),
                 .ordering = try expr(gz, scope, .{ .coerced_ty = .atomic_order_type }, params[3]),
                 // zig fmt: on
             });
@@ -7684,20 +7654,10 @@ fn cmpxchg(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const int_type = try typeExpr(gz, scope, params[0]);
-    // TODO: allow this to be volatile
-    const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-        .ptr_type_simple = .{
-            .is_allowzero = false,
-            .is_mutable = true,
-            .is_volatile = false,
-            .size = .One,
-            .elem_type = int_type,
-        },
-    } });
     const result = try gz.addPlNode(tag, node, Zir.Inst.Cmpxchg{
         // zig fmt: off
-        .ptr            = try expr(gz, scope, .{ .coerced_ty = ptr_type },           params[1]),
-        .expected_value = try expr(gz, scope, .{ .coerced_ty = int_type },           params[2]),
+        .ptr            = try expr(gz, scope, .none,                                 params[1]),
+        .expected_value = try expr(gz, scope, .{ .ty = int_type },                   params[2]),
         .new_value      = try expr(gz, scope, .{ .coerced_ty = int_type },           params[3]),
         .success_order  = try expr(gz, scope, .{ .coerced_ty = .atomic_order_type }, params[4]),
         .failure_order  = try expr(gz, scope, .{ .coerced_ty = .atomic_order_type }, params[5]),

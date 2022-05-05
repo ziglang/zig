@@ -127,7 +127,7 @@ test "128-bit cmpxchg" {
 }
 
 fn test_u128_cmpxchg() !void {
-    var x: u128 = 1234;
+    var x: u128 align(16) = 1234;
     if (@cmpxchgWeak(u128, &x, 99, 5678, .SeqCst, .SeqCst)) |x1| {
         try expect(x1 == 1234);
     } else {

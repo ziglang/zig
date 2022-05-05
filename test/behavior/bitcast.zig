@@ -120,6 +120,10 @@ test "bitcast generates a temporary value" {
 }
 
 test "@bitCast packed structs at runtime and comptime" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the wrong answer for a lot of targets
+        return error.SkipZigTest;
+    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
@@ -138,18 +142,9 @@ test "@bitCast packed structs at runtime and comptime" {
         fn doTheTest() !void {
             var full = Full{ .number = 0x1234 };
             var two_halves = @bitCast(Divided, full);
-            switch (native_endian) {
-                .Big => {
-                    try expect(two_halves.half1 == 0x12);
-                    try expect(two_halves.quarter3 == 0x3);
-                    try expect(two_halves.quarter4 == 0x4);
-                },
-                .Little => {
-                    try expect(two_halves.half1 == 0x34);
-                    try expect(two_halves.quarter3 == 0x2);
-                    try expect(two_halves.quarter4 == 0x1);
-                },
-            }
+            try expect(two_halves.half1 == 0x34);
+            try expect(two_halves.quarter3 == 0x2);
+            try expect(two_halves.quarter4 == 0x1);
         }
     };
     try S.doTheTest();

@@ -12,13 +12,10 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
     // and the registers used for those arguments. Any argument that doesn't fit in 8
     // bytes, or isn't 1, 2, 4, or 8 bytes, must be passed by reference. A single argument
     // is never spread across multiple registers."
+    // "All floating point operations are done using the 16 XMM registers."
     // "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are passed
     // as if they were integers of the same size."
-    switch (ty.abiSize(target)) {
-        1, 2, 4, 8 => {},
-        else => return .memory,
-    }
-    return switch (ty.zigTypeTag()) {
+    switch (ty.zigTypeTag()) {
         .Pointer,
         .Int,
         .Bool,
@@ -33,9 +30,13 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
         .ErrorUnion,
         .AnyFrame,
         .Frame,
-        => .integer,
+        => switch (ty.abiSize(target)) {
+            0 => unreachable,
+            1, 2, 4, 8 => return .integer,
+            else => return .memory,
+        },
 
-        .Float, .Vector => .sse,
+        .Float, .Vector => return .sse,
 
         .Type,
         .ComptimeFloat,
@@ -47,7 +48,7 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
         .Opaque,
         .EnumLiteral,
         => unreachable,
-    };
+    }
 }
 
 /// There are a maximum of 8 possible return slots. Returned values are in

@@ -23,7 +23,6 @@ test "module level assembly" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
 
     if (is_x86_64_linux) {
         try expect(this_is_my_alias() == 1234);

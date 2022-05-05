@@ -1773,6 +1773,88 @@ pub const Target = struct {
             else => false,
         };
     }
+
+    pub inline fn maxIntAlignment(target: Target) u16 {
+        return switch (target.cpu.arch) {
+            .avr => 1,
+            .msp430 => 2,
+            .xcore => 4,
+
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            .hexagon,
+            .mips,
+            .mipsel,
+            .powerpc,
+            .powerpcle,
+            .r600,
+            .amdgcn,
+            .riscv32,
+            .sparc,
+            .sparcel,
+            .s390x,
+            .lanai,
+            .wasm32,
+            .wasm64,
+            => 8,
+
+            .i386 => return switch (target.os.tag) {
+                .windows => 8,
+                else => 4,
+            },
+
+            // For x86_64, LLVMABIAlignmentOfType(i128) reports 8. However I think 16
+            // is a better number for two reasons:
+            // 1. Better machine code when loading into SIMD register.
+            // 2. The C ABI wants 16 for extern structs.
+            // 3. 16-byte cmpxchg needs 16-byte alignment.
+            // Same logic for riscv64, powerpc64, mips64, sparcv9.
+            .x86_64,
+            .riscv64,
+            .powerpc64,
+            .powerpc64le,
+            .mips64,
+            .mips64el,
+            .sparcv9,
+
+            // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
+            .aarch64,
+            .aarch64_be,
+            .aarch64_32,
+            .bpfel,
+            .bpfeb,
+            .nvptx,
+            .nvptx64,
+            => 16,
+
+            // Below this comment are unverified but based on the fact that C requires
+            // int128_t to be 16 bytes aligned, it's a safe default.
+            .spu_2,
+            .csky,
+            .arc,
+            .m68k,
+            .tce,
+            .tcele,
+            .le32,
+            .amdil,
+            .hsail,
+            .spir,
+            .kalimba,
+            .renderscript32,
+            .spirv32,
+            .shave,
+            .le64,
+            .amdil64,
+            .hsail64,
+            .spir64,
+            .renderscript64,
+            .ve,
+            .spirv64,
+            => 16,
+        };
+    }
 };
 
 test {
