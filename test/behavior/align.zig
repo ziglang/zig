@@ -55,6 +55,10 @@ test "alignment of struct with pointer has same alignment as usize" {
 }
 
 test "alignment and size of structs with 128-bit fields" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the wrong answer for a lot of targets
+        return error.SkipZigTest;
+    }
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 

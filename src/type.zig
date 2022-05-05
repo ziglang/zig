@@ -5177,7 +5177,7 @@ pub const Type = extern union {
 
             const field = it.struct_obj.fields.values()[it.field];
             defer it.field += 1;
-            if (!field.ty.hasRuntimeBits())
+            if (!field.ty.hasRuntimeBits() or field.is_comptime)
                 return FieldOffset{ .field = it.field, .offset = it.offset };
 
             const field_align = field.normalAlignment(it.target);
