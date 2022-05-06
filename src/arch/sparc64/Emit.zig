@@ -51,9 +51,11 @@ const InnerError = error{
 
 const BranchType = enum {
     bpcc,
+    bpr,
     fn default(tag: Mir.Inst.Tag) BranchType {
         return switch (tag) {
             .bpcc => .bpcc,
+            .bpr => .bpr,
             else => unreachable,
         };
     }
@@ -78,6 +80,7 @@ pub fn emitMir(
 
             .add => try emit.mirArithmetic3Op(inst),
 
+            .bpr => try emit.mirConditionalBranch(inst),
             .bpcc => try emit.mirConditionalBranch(inst),
 
             .call => @panic("TODO implement sparc64 call"),
@@ -232,15 +235,43 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirConditionalBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const branch_predict_int = emit.mir.instructions.items(.data)[inst].branch_predict_int;
-
-    const offset = @intCast(i64, emit.code_offset_mapping.get(branch_predict_int.inst).?) - @intCast(i64, emit.code.items.len);
     const branch_type = emit.branch_types.get(inst).?;
-    log.debug("mirConditionalBranchImmediate: {} offset={}", .{ inst, offset });
 
     switch (branch_type) {
         .bpcc => switch (tag) {
-            .bpcc => try emit.writeInstruction(Instruction.bpcc(branch_predict_int.cond, branch_predict_int.annul, branch_predict_int.pt, branch_predict_int.ccr, @intCast(i21, offset))),
+            .bpcc => {
+                const branch_predict_int = emit.mir.instructions.items(.data)[inst].branch_predict_int;
+                const offset = @intCast(i64, emit.code_offset_mapping.get(branch_predict_int.inst).?) - @intCast(i64, emit.code.items.len);
+                log.debug("mirConditionalBranch: {} offset={}", .{ inst, offset });
+
+                try emit.writeInstruction(
+                    Instruction.bpcc(
+                        branch_predict_int.cond,
+                        branch_predict_int.annul,
+                        branch_predict_int.pt,
+                        branch_predict_int.ccr,
+                        @intCast(i21, offset),
+                    ),
+                );
+            },
+            else => unreachable,
+        },
+        .bpr => switch (tag) {
+            .bpr => {
+                const branch_predict_reg = emit.mir.instructions.items(.data)[inst].branch_predict_reg;
+                const offset = @intCast(i64, emit.code_offset_mapping.get(branch_predict_reg.inst).?) - @intCast(i64, emit.code.items.len);
+                log.debug("mirConditionalBranch: {} offset={}", .{ inst, offset });
+
+                try emit.writeInstruction(
+                    Instruction.bpr(
+                        branch_predict_reg.cond,
+                        branch_predict_reg.annul,
+                        branch_predict_reg.pt,
+                        branch_predict_reg.rs1,
+                        @intCast(i18, offset),
+                    ),
+                );
+            },
             else => unreachable,
         },
     }
@@ -291,6 +322,7 @@ fn branchTarget(emit: *Emit, inst: Mir.Inst.Index) Mir.Inst.Index {
 
     switch (tag) {
         .bpcc => return emit.mir.instructions.items(.data)[inst].branch_predict_int.inst,
+        .bpr => return emit.mir.instructions.items(.data)[inst].branch_predict_reg.inst,
         else => unreachable,
     }
 }
@@ -343,6 +375,7 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
 fn isBranch(tag: Mir.Inst.Tag) bool {
     return switch (tag) {
         .bpcc => true,
+        .bpr => true,
         else => false,
     };
 }
@@ -459,17 +492,25 @@ fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
     assert(offset & 0b11 == 0);
 
     switch (tag) {
+        // TODO use the following strategy to implement long branches:
+        // - Negate the conditional and target of the original instruction;
+        // - In the space immediately after the branch, load
+        //   the address of the original target, preferrably in
+        //   a PC-relative way, into %o7; and
+        // - jmpl %o7 + %g0, %g0
+
         .bpcc => {
             if (std.math.cast(i21, offset)) |_| {
                 return BranchType.bpcc;
             } else |_| {
-                // TODO use the following strategy to implement long branches:
-                // - Negate the conditional and target of the original BPcc;
-                // - In the space immediately after the branch, load
-                //   the address of the original target, preferrably in
-                //   a PC-relative way, into %o7; and
-                // - jmpl %o7 + %g0, %g0
                 return emit.fail("TODO support BPcc branches larger than +-1 MiB", .{});
+            }
+        },
+        .bpr => {
+            if (std.math.cast(i18, offset)) |_| {
+                return BranchType.bpr;
+            } else |_| {
+                return emit.fail("TODO support BPr branches larger than +-128 KiB", .{});
             }
         },
         else => unreachable,

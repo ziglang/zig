@@ -43,6 +43,10 @@ pub const Inst = struct {
         // TODO add other operations.
         add,
 
+        /// A.3 Branch on Integer Register with Prediction (BPr)
+        /// This uses the branch_predict_reg field.
+        bpr,
+
         /// A.7 Branch on Integer Condition Codes with Prediction (BPcc)
         /// This uses the branch_predict_int field.
         bpcc,
@@ -172,6 +176,16 @@ pub const Inst = struct {
             pt: bool = true,
             ccr: Instruction.CCR,
             cond: Instruction.ICondition,
+            inst: Index,
+        },
+
+        /// Branch with prediction, comparing a register's content with zero
+        /// Used by e.g. bpr
+        branch_predict_reg: struct {
+            annul: bool = false,
+            pt: bool = true,
+            cond: Instruction.RCondition,
+            rs1: Register,
             inst: Index,
         },
 

@@ -1145,6 +1145,10 @@ pub const Instruction = union(enum) {
         return format2c(0b001, .{ .icond = cond }, annul, pt, ccr, disp);
     }
 
+    pub fn bpr(cond: RCondition, annul: bool, pt: bool, rs1: Register, disp: i18) Instruction {
+        return format2d(0b011, cond, annul, pt, rs1, disp);
+    }
+
     pub fn jmpl(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
             Register => format3a(0b10, 0b11_1000, rs1, rs2, rd),
