@@ -58,8 +58,7 @@ make $JOBS install
 # Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
 release/bin/zig build -p stage2 -Denable-llvm
 
-# TODO: enable this
-#stage2/bin/zig build test-behavior
+stage2/bin/zig build test-behavior
 
 # TODO: upgrade these to test stage2 instead of stage1
 # TODO: upgrade these to test stage3 instead of stage2
