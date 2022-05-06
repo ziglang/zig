@@ -519,7 +519,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     var needs_full_relink = true;
 
     cache: {
-        if (use_stage1 and self.base.options.disable_lld_caching) break :cache;
+        if ((use_stage1 and self.base.options.disable_lld_caching) or self.base.options.cache_mode == .whole)
+            break :cache;
 
         man = comp.cache_parent.obtain();
 
@@ -1099,7 +1100,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     }
 
     cache: {
-        if (use_stage1 and self.base.options.disable_lld_caching) break :cache;
+        if ((use_stage1 and self.base.options.disable_lld_caching) or self.base.options.cache_mode == .whole)
+            break :cache;
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(cache_dir_handle, id_symlink_basename, &digest) catch |err| {
