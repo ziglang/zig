@@ -966,14 +966,16 @@ pub fn spillCompareFlagsIfOccupied(self: *Self) !void {
         const mcv = self.getResolvedInstValue(inst_to_save);
         assert(mcv.usesCompareFlags());
 
-        const new_mcv = try self.allocRegOrMem(inst_to_save, true);
+        const new_mcv = try self.allocRegOrMem(inst_to_save, !mcv.isRegister());
         try self.setRegOrMem(self.air.typeOfIndex(inst_to_save), new_mcv, mcv);
         log.debug("spilling {d} to mcv {any}", .{ inst_to_save, new_mcv });
-
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
 
         self.compare_flags_inst = null;
+        // TODO consolidate with register manager and spillInstruction
+        // this call should really belong in the register manager!
+        if (mcv.isRegister()) self.register_manager.freeReg(mcv.asRegister().?);
     }
 }
 
@@ -1404,6 +1406,9 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     return self.fail("TODO implement add_with_overflow for Ints larger than 64bits", .{});
                 }
 
+                try self.spillCompareFlagsIfOccupied();
+                self.compare_flags_inst = inst;
+
                 const partial = try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
                 const result: MCValue = switch (int_info.signedness) {
                     .signed => .{ .register_overflow_signed = partial.register },
@@ -1433,6 +1438,9 @@ fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     return self.fail("TODO implement sub_with_overflow for Ints larger than 64bits", .{});
                 }
 
+                try self.spillCompareFlagsIfOccupied();
+                self.compare_flags_inst = inst;
+
                 const partial = try self.genSubOp(inst, bin_op.lhs, bin_op.rhs);
                 const result: MCValue = switch (int_info.signedness) {
                     .signed => .{ .register_overflow_signed = partial.register },
@@ -1456,9 +1464,6 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         switch (ty.zigTypeTag()) {
             .Vector => return self.fail("TODO implement mul_with_overflow for Vector type", .{}),
             .Int => {
-                try self.spillCompareFlagsIfOccupied();
-                self.compare_flags_inst = null;
-
                 const int_info = ty.intInfo(self.target.*);
 
                 if (int_info.bits > 64) {
@@ -1466,6 +1471,9 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 }
 
                 if (math.isPowerOfTwo(int_info.bits)) {
+                    try self.spillCompareFlagsIfOccupied();
+                    self.compare_flags_inst = inst;
+
                     // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
                     try self.register_manager.getReg(.rax, inst);
                     try self.register_manager.getReg(.rdx, null);
@@ -1486,6 +1494,9 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     };
                     break :result result;
                 }
+
+                try self.spillCompareFlagsIfOccupied();
+                self.compare_flags_inst = null;
 
                 const dst_reg: Register = dst_reg: {
                     switch (int_info.signedness) {
@@ -2783,7 +2794,6 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
 }
 
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
-    _ = ptr_ty;
     const abi_size = value_ty.abiSize(self.target.*);
     switch (ptr) {
         .none => unreachable,
@@ -2986,6 +2996,24 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                             }).encode(),
                             .data = .{ .imm = 0 },
                         });
+                        _ = try self.addInst(.{
+                            .tag = .mov,
+                            .ops = (Mir.Ops{
+                                .reg1 = addr_reg.to64(),
+                                .reg2 = tmp_reg,
+                                .flags = 0b10,
+                            }).encode(),
+                            .data = .{ .imm = 0 },
+                        });
+                        return;
+                    }
+
+                    try self.genInlineMemcpy(.{ .register = addr_reg.to64() }, value, .{ .immediate = abi_size }, .{});
+                },
+                .stack_offset => {
+                    if (abi_size <= 8) {
+                        // TODO this should really be a recursive call
+                        const tmp_reg = try self.copyToTmpRegister(value_ty, value);
                         _ = try self.addInst(.{
                             .tag = .mov,
                             .ops = (Mir.Ops{
