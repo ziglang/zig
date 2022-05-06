@@ -147,6 +147,7 @@ pub const CallingConvention = enum {
     AAPCS,
     AAPCSVFP,
     SysV,
+    Win64,
     PtxKernel,
 };
 
