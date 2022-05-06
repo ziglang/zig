@@ -537,7 +537,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .xor             => @panic("TODO try self.airXor(inst)"),
             .shr, .shr_exact => @panic("TODO try self.airShr(inst)"),
 
-            .alloc           => @panic("TODO try self.airAlloc(inst)"),
+            .alloc           => try self.airAlloc(inst),
             .ret_ptr         => try self.airRetPtr(inst),
             .arg             => try self.airArg(inst),
             .assembly        => try self.airAsm(inst),
@@ -669,6 +669,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             }
         }
     }
+}
+
+fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
+    const stack_offset = try self.allocMemPtr(inst);
+    return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
