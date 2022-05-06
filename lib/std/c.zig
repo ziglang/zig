@@ -59,6 +59,20 @@ pub usingnamespace switch (builtin.os.tag) {
 
 pub const whence_t = if (builtin.os.tag == .wasi) std.os.wasi.whence_t else c_int;
 
+// Unix-like systems
+pub usingnamespace switch (builtin.os.tag) {
+    .netbsd, .windows => struct {},
+    else => struct {
+        pub const DIR = opaque {};
+        pub extern "c" fn opendir(pathname: [*:0]const u8) ?*DIR;
+        pub extern "c" fn fdopendir(fd: c_int) ?*DIR;
+        pub extern "c" fn rewinddir(dp: *DIR) void;
+        pub extern "c" fn closedir(dp: *DIR) c_int;
+        pub extern "c" fn telldir(dp: *DIR) c_long;
+        pub extern "c" fn seekdir(dp: *DIR, loc: c_long) void;
+    },
+};
+
 pub usingnamespace switch (builtin.os.tag) {
     .netbsd, .macos, .ios, .watchos, .tvos, .windows => struct {},
     else => struct {
@@ -76,6 +90,7 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn sigfillset(set: ?*c.sigset_t) void;
         pub extern "c" fn alarm(seconds: c_uint) c_uint;
         pub extern "c" fn sigwait(set: ?*c.sigset_t, sig: ?*c_int) c_int;
+        pub extern "c" fn readdir(dp: *c.DIR) ?*c.dirent;
     },
 };
 
