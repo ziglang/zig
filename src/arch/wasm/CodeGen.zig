@@ -1818,7 +1818,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
         try self.emitWValue(rhs);
     }
     const valtype = typeToValtype(ty, self.target);
-    const abi_size = @intCast(u8, ty.abiSize(self.target));
+    const abi_size = @intCast(u8, ty.bitSize(self.target));
 
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
@@ -1852,21 +1852,13 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     // load local's value from memory by its stack position
     try self.emitWValue(operand);
-    // Build the opcode with the right bitsize
-    const signedness: std.builtin.Signedness = if (ty.isUnsignedInt() or
-        ty.zigTypeTag() == .ErrorSet or
-        ty.zigTypeTag() == .Bool)
-        .unsigned
-    else
-        .signed;
 
-    const abi_size = @intCast(u8, ty.abiSize(self.target));
-
+    const abi_size = @intCast(u8, ty.bitSize(self.target));
     const opcode = buildOpcode(.{
         .valtype1 = typeToValtype(ty, self.target),
         .width = abi_size * 8, // use bitsize instead of byte size
         .op = .load,
-        .signedness = signedness,
+        .signedness = .unsigned,
     });
 
     try self.addMemArg(
@@ -1948,6 +1940,7 @@ fn wrapBinOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError
         .signedness = if (ty.isSignedInt()) .signed else .unsigned,
     });
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+    const bin_local = try self.allocLocal(ty);
 
     const int_info = ty.intInfo(self.target);
     const bitsize = int_info.bits;
@@ -1963,23 +1956,35 @@ fn wrapBinOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError
         } else if (is_signed and bitsize == 16) {
             try self.addTag(.i32_extend16_s);
         } else {
-            const result = (@as(u64, 1) << @intCast(u6, bitsize - @boolToInt(is_signed))) - 1;
-            if (bitsize < 32) {
-                try self.addImm32(@bitCast(i32, @intCast(u32, result)));
-                try self.addTag(.i32_and);
-            } else {
-                try self.addImm64(result);
-                try self.addTag(.i64_and);
-            }
+            try self.addLabel(.local_set, bin_local.local);
+            return self.wrapOperand(bin_local, ty);
         }
     } else if (int_info.bits > 64) {
         return self.fail("TODO wasm: Integer wrapping for bitsizes larger than 64", .{});
     }
 
     // save the result in a temporary
-    const bin_local = try self.allocLocal(ty);
     try self.addLabel(.local_set, bin_local.local);
     return bin_local;
+}
+
+/// Wraps an operand based on a given type's bitsize.
+/// Asserts `Type` is <= 64bits.
+fn wrapOperand(self: *Self, operand: WValue, ty: Type) InnerError!WValue {
+    assert(ty.abiSize(self.target) <= 8);
+    const result_local = try self.allocLocal(ty);
+    const bitsize = ty.intInfo(self.target).bits;
+    const result = @intCast(u64, (@as(u65, 1) << @intCast(u7, bitsize)) - 1);
+    try self.emitWValue(operand);
+    if (bitsize <= 32) {
+        try self.addImm32(@bitCast(i32, @intCast(u32, result)));
+        try self.addTag(.i32_and);
+    } else {
+        try self.addImm64(result);
+        try self.addTag(.i64_and);
+    }
+    try self.addLabel(.local_set, result_local.local);
+    return result_local;
 }
 
 fn lowerParentPtr(self: *Self, ptr_val: Value, ptr_child_ty: Type) InnerError!WValue {
@@ -2098,6 +2103,22 @@ fn lowerDeclRefValue(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index)
     } else return WValue{ .memory = target_sym_index };
 }
 
+/// Converts a signed integer to its 2's complement form and returns
+/// an unsigned integer instead.
+/// Asserts bitsize <= 64
+fn convertTo2Complement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(@TypeOf(value)).Int.bits) {
+    const T = @TypeOf(value);
+    comptime assert(@typeInfo(T) == .Int);
+    comptime assert(@typeInfo(T).Int.signedness == .signed);
+    assert(bits <= 64);
+    const WantedT = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
+    if (value >= 0) return @bitCast(WantedT, value);
+    const max_value = @intCast(u64, (@as(u65, 1) << bits) - 1);
+    const flipped = (~-value) + 1;
+    const result = @bitCast(WantedT, flipped) & max_value;
+    return @intCast(WantedT, result);
+}
+
 fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
     if (val.isUndefDeep()) return self.emitUndefined(ty);
     if (val.castTag(.decl_ref)) |decl_ref| {
@@ -2114,10 +2135,12 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
     switch (ty.zigTypeTag()) {
         .Int => {
             const int_info = ty.intInfo(self.target);
-            // write constant
             switch (int_info.signedness) {
                 .signed => switch (int_info.bits) {
-                    0...32 => return WValue{ .imm32 = @bitCast(u32, @intCast(i32, val.toSignedInt())) },
+                    0...32 => return WValue{ .imm32 = @intCast(u32, convertTo2Complement(
+                        val.toSignedInt(),
+                        @intCast(u6, int_info.bits),
+                    )) },
                     33...64 => return WValue{ .imm64 = @bitCast(u64, val.toSignedInt()) },
                     else => unreachable,
                 },
@@ -4009,22 +4032,33 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
         try self.addLabel(.local_set, tmp_val.local);
         break :blk tmp_val;
     } else if (op == .mul) blk: {
-        const bin_op = try self.wrapBinOp(lhs, rhs, lhs_ty, op);
-        try self.startBlock(.block, wasm.block_empty);
-        // check if 0. true => Break out of block as cannot over -or underflow.
-        try self.emitWValue(lhs);
-        switch (wasm_bits) {
-            32 => try self.addTag(.i32_eqz),
-            64 => try self.addTag(.i64_eqz),
-            else => unreachable,
+        if (int_info.signedness == .signed) {
+            const shift_val = convertTo2Complement(-@intCast(i17, int_info.bits), @intCast(u7, int_info.bits));
+            const shift_imm = if (wasm_bits == 32) WValue{ .imm32 = shift_val } else WValue{ .imm64 = shift_val };
+
+            const lhs_shl = try self.binOp(lhs, shift_imm, lhs_ty, .shl);
+            const lhs_shr = try self.binOp(lhs_shl, shift_imm, lhs_ty, .shr);
+            const rhs_shl = try self.binOp(rhs, shift_imm, lhs_ty, .shl);
+            const rhs_shr = try self.binOp(rhs_shl, shift_imm, lhs_ty, .shr);
+
+            const bin_op = try self.binOp(lhs_shr, rhs_shr, lhs_ty, op);
+            const shl = try self.binOp(bin_op, shift_imm, lhs_ty, .shl);
+            const shr = try self.binOp(shl, shift_imm, lhs_ty, .shr);
+
+            const cmp_op = try self.cmp(shr, bin_op, lhs_ty, .neq);
+            try self.emitWValue(cmp_op);
+            try self.addLabel(.local_set, overflow_bit.local);
+            break :blk try self.wrapOperand(bin_op, lhs_ty);
+        } else {
+            const bin_op = try self.binOp(lhs, rhs, lhs_ty, op);
+            const shift_imm = if (wasm_bits == 32) WValue{ .imm32 = int_info.bits } else WValue{ .imm64 = int_info.bits };
+            // const zero = if (wasm_bits == 32) WValue{ .imm32 = 0 } else WValue{ .imm64 = 0 };
+            const shr = try self.binOp(bin_op, shift_imm, lhs_ty, .shr);
+            const cmp_op = try self.cmp(shr, zero, lhs_ty, .neq);
+            try self.emitWValue(cmp_op);
+            try self.addLabel(.local_set, overflow_bit.local);
+            break :blk try self.wrapOperand(bin_op, lhs_ty);
         }
-        try self.addLabel(.br_if, 0);
-        const div = try self.binOp(bin_op, lhs, lhs_ty, .div);
-        const cmp_res = try self.cmp(div, rhs, lhs_ty, .neq);
-        try self.emitWValue(cmp_res);
-        try self.addLabel(.local_set, overflow_bit.local);
-        try self.endBlock();
-        break :blk bin_op;
     } else try self.wrapBinOp(lhs, rhs, lhs_ty, op);
 
     const result_ptr = try self.allocStack(self.air.typeOfIndex(inst));
