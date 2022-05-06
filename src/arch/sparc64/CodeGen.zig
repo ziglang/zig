@@ -563,7 +563,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_non_err_ptr  => @panic("TODO try self.airIsNonErrPtr(inst)"),
             .is_err          => try self.airIsErr(inst),
             .is_err_ptr      => @panic("TODO try self.airIsErrPtr(inst)"),
-            .load            => @panic("TODO try self.airLoad(inst)"),
+            .load            => try self.airLoad(inst),
             .loop            => @panic("TODO try self.airLoop(inst)"),
             .not             => @panic("TODO try self.airNot(inst)"),
             .ptrtoint        => @panic("TODO try self.airPtrToInt(inst)"),
@@ -1242,6 +1242,36 @@ fn airIsNonErr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
+fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const elem_ty = self.air.typeOfIndex(inst);
+    const elem_size = elem_ty.abiSize(self.target.*);
+    const result: MCValue = result: {
+        if (!elem_ty.hasRuntimeBits())
+            break :result MCValue.none;
+
+        const ptr = try self.resolveInst(ty_op.operand);
+        const is_volatile = self.air.typeOf(ty_op.operand).isVolatilePtr();
+        if (self.liveness.isUnused(inst) and !is_volatile)
+            break :result MCValue.dead;
+
+        const dst_mcv: MCValue = blk: {
+            if (elem_size <= 8 and self.reuseOperand(inst, ty_op.operand, 0, ptr)) {
+                // The MCValue that holds the pointer can be re-used as the value.
+                break :blk switch (ptr) {
+                    .register => |r| MCValue{ .register = r },
+                    else => ptr,
+                };
+            } else {
+                break :blk try self.allocRegOrMem(inst, true);
+            }
+        };
+        try self.load(dst_mcv, ptr, self.air.typeOf(ty_op.operand));
+        break :result dst_mcv;
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = try self.resolveInst(un_op);
@@ -1263,10 +1293,15 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airStore(self: *Self, inst: Air.Inst.Index) !void {
-    _ = self;
-    _ = inst;
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ptr = try self.resolveInst(bin_op.lhs);
+    const value = try self.resolveInst(bin_op.rhs);
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const value_ty = self.air.typeOf(bin_op.rhs);
 
-    return self.fail("TODO implement store for {}", .{self.target.cpu.arch});
+    try self.store(ptr, value, ptr_ty, value_ty);
+
+    return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
@@ -1520,6 +1555,76 @@ fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32
         },
         else => {},
     }
+}
+
+// TODO replace this to call to extern memcpy
+fn genInlineMemcpy(
+    self: *Self,
+    src: Register,
+    dst: Register,
+    len: Register,
+    tmp: Register,
+) !void {
+    // Here we assume that len > 0.
+    // Also we do the copy from end -> start address to save a register.
+
+    // sub len, 1, len
+    _ = try self.addInst(.{
+        .tag = .sub,
+        .data = .{ .arithmetic_3op = .{
+            .is_imm = true,
+            .rs1 = len,
+            .rs2_or_imm = .{ .imm = 1 },
+            .rd = len,
+        } },
+    });
+
+    // loop:
+    // ldub [src + len], tmp
+    _ = try self.addInst(.{
+        .tag = .ldub,
+        .data = .{ .arithmetic_3op = .{
+            .is_imm = false,
+            .rs1 = src,
+            .rs2_or_imm = .{ .rs2 = len },
+            .rd = tmp,
+        } },
+    });
+
+    // stb tmp, [dst + len]
+    _ = try self.addInst(.{
+        .tag = .stb,
+        .data = .{ .arithmetic_3op = .{
+            .is_imm = false,
+            .rs1 = dst,
+            .rs2_or_imm = .{ .rs2 = len },
+            .rd = tmp,
+        } },
+    });
+
+    // brnz len, loop
+    _ = try self.addInst(.{
+        .tag = .bpr,
+        .data = .{ .branch_predict_reg = .{
+            .cond = .ne_zero,
+            .rs1 = len,
+            .inst = @intCast(u32, self.mir_instructions.len - 2),
+        } },
+    });
+
+    // Delay slot:
+    //  sub len, 1, len
+    _ = try self.addInst(.{
+        .tag = .sub,
+        .data = .{ .arithmetic_3op = .{
+            .is_imm = true,
+            .rs1 = len,
+            .rs2_or_imm = .{ .imm = 1 },
+            .rd = len,
+        } },
+    });
+
+    // end:
 }
 
 fn genLoad(self: *Self, value_reg: Register, addr_reg: Register, comptime off_type: type, off: off_type, abi_size: u64) !void {
@@ -1913,6 +2018,66 @@ fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigT
     };
 }
 
+fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
+    const elem_ty = ptr_ty.elemType();
+    const elem_size = elem_ty.abiSize(self.target.*);
+
+    switch (ptr) {
+        .none => unreachable,
+        .undef => unreachable,
+        .unreach => unreachable,
+        .dead => unreachable,
+        .compare_flags_unsigned,
+        .compare_flags_signed,
+        => unreachable, // cannot hold an address
+        .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
+        .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
+        .register => |addr_reg| {
+            self.register_manager.freezeRegs(&.{addr_reg});
+            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+            switch (dst_mcv) {
+                .dead => unreachable,
+                .undef => unreachable,
+                .compare_flags_signed, .compare_flags_unsigned => unreachable,
+                .register => |dst_reg| {
+                    try self.genLoad(dst_reg, addr_reg, i13, 0, elem_size);
+                },
+                .stack_offset => |off| {
+                    if (elem_size <= 8) {
+                        const tmp_reg = try self.register_manager.allocReg(null);
+                        self.register_manager.freezeRegs(&.{tmp_reg});
+                        defer self.register_manager.unfreezeRegs(&.{tmp_reg});
+
+                        try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
+                        try self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
+                    } else {
+                        const regs = try self.register_manager.allocRegs(3, .{ null, null, null });
+                        self.register_manager.freezeRegs(&regs);
+                        defer self.register_manager.unfreezeRegs(&regs);
+
+                        const src_reg = addr_reg;
+                        const dst_reg = regs[0];
+                        const len_reg = regs[1];
+                        const tmp_reg = regs[2];
+
+                        try self.genSetReg(ptr_ty, dst_reg, .{ .ptr_stack_offset = off });
+                        try self.genSetReg(Type.usize, len_reg, .{ .immediate = elem_size });
+                        try self.genInlineMemcpy(src_reg, dst_reg, len_reg, tmp_reg);
+                    }
+                },
+                else => return self.fail("TODO load from register into {}", .{dst_mcv}),
+            }
+        },
+        .memory,
+        .stack_offset,
+        => {
+            const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
+            try self.load(dst_mcv, .{ .register = addr_reg }, ptr_ty);
+        },
+    }
+}
+
 fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) InnerError!MCValue {
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
@@ -2165,6 +2330,45 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     try branch.inst_table.put(self.gpa, inst, stack_mcv);
     try self.genSetStack(self.air.typeOfIndex(inst), stack_mcv.stack_offset, reg_mcv);
+}
+
+fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
+    const abi_size = value_ty.abiSize(self.target.*);
+
+    switch (ptr) {
+        .none => unreachable,
+        .undef => unreachable,
+        .unreach => unreachable,
+        .dead => unreachable,
+        .compare_flags_unsigned,
+        .compare_flags_signed,
+        => unreachable, // cannot hold an address
+        .immediate => |imm| {
+            try self.setRegOrMem(value_ty, .{ .memory = imm }, value);
+        },
+        .ptr_stack_offset => |off| {
+            try self.genSetStack(value_ty, off, value);
+        },
+        .register => |addr_reg| {
+            self.register_manager.freezeRegs(&.{addr_reg});
+            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+            switch (value) {
+                .register => |value_reg| {
+                    try self.genStore(value_reg, addr_reg, i13, 0, abi_size);
+                },
+                else => {
+                    return self.fail("TODO implement copying of memory", .{});
+                },
+            }
+        },
+        .memory,
+        .stack_offset,
+        => {
+            const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
+            try self.store(.{ .register = addr_reg }, value, ptr_ty, value_ty);
+        },
+    }
 }
 
 /// TODO support scope overrides. Also note this logic is duplicated with `Module.wantSafety`.
