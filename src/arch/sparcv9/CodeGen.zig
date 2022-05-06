@@ -1,5 +1,7 @@
 //! SPARCv9 codegen.
 //! This lowers AIR into MIR.
+//! For now this only implements medium/low code model with absolute addressing.
+//! TODO add support for other code models.
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log.scoped(.codegen);
@@ -338,16 +340,15 @@ fn gen(self: *Self) !void {
     if (cc != .Naked) {
         // TODO Finish function prologue and epilogue for sparcv9.
 
-        // TODO Backpatch stack offset
-        // save %sp, -176, %sp
-        _ = try self.addInst(.{
+        // save %sp, stack_save_area, %sp
+        const save_inst = try self.addInst(.{
             .tag = .save,
             .data = .{
                 .arithmetic_3op = .{
                     .is_imm = true,
                     .rd = .sp,
                     .rs1 = .sp,
-                    .rs2_or_imm = .{ .imm = -176 },
+                    .rs2_or_imm = .{ .imm = -abi.stack_save_area },
                 },
             },
         });
@@ -380,6 +381,28 @@ fn gen(self: *Self) !void {
             return self.fail("TODO add branches in sparcv9", .{});
         }
 
+        // Backpatch stack offset
+        const total_stack_size = self.max_end_stack + abi.stack_save_area; // TODO + self.saved_regs_stack_space;
+        const stack_size = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
+        if (math.cast(i13, stack_size)) |size| {
+            self.mir_instructions.set(save_inst, .{
+                .tag = .save,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = true,
+                        .rd = .sp,
+                        .rs1 = .sp,
+                        .rs2_or_imm = .{ .imm = -size },
+                    },
+                },
+            });
+        } else |_| {
+            // TODO for large stacks, replace the prologue with:
+            // setx stack_size, %g1
+            // save %sp, %g1, %sp
+            return self.fail("TODO SPARCv9: allow larger stacks", .{});
+        }
+
         // return %i7 + 8
         _ = try self.addInst(.{
             .tag = .@"return",
@@ -392,7 +415,11 @@ fn gen(self: *Self) !void {
             },
         });
 
-        // TODO Find a way to fill this slot
+        // Branches in SPARC have a delay slot, that is, the instruction
+        // following it will unconditionally be executed.
+        // See: Section 3.2.3 Control Transfer in SPARCv9 manual.
+        // See also: https://arcb.csc.ncsu.edu/~mueller/codeopt/codeopt00/notes/delaybra.html
+        // TODO Find a way to fill this delay slot
         // nop
         _ = try self.addInst(.{
             .tag = .nop,
@@ -753,15 +780,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     // TODO Copy registers to the stack
     const mcv = result;
 
-    _ = try self.addInst(.{
-        .tag = .dbg_arg,
-        .data = .{
-            .dbg_arg_info = .{
-                .air_inst = inst,
-                .arg_index = arg_index,
-            },
-        },
-    });
+    try self.genArgDbgInfo(inst, mcv, @intCast(u32, arg_index));
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
@@ -884,7 +903,20 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
                 _ = try self.addInst(.{
                     .tag = .jmpl,
-                    .data = .{ .branch_link_indirect = .{ .reg = .o7 } },
+                    .data = .{
+                        .arithmetic_3op = .{
+                            .is_imm = false,
+                            .rd = .o7,
+                            .rs1 = .o7,
+                            .rs2_or_imm = .{ .rs2 = .g0 },
+                        },
+                    },
+                });
+
+                // TODO Find a way to fill this delay slot
+                _ = try self.addInst(.{
+                    .tag = .nop,
+                    .data = .{ .nop = {} },
                 });
             } else if (func_value.castTag(.extern_fn)) |_| {
                 return self.fail("TODO implement calling extern functions", .{});
@@ -899,7 +931,20 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
         _ = try self.addInst(.{
             .tag = .jmpl,
-            .data = .{ .branch_link_indirect = .{ .reg = .o7 } },
+            .data = .{
+                .arithmetic_3op = .{
+                    .is_imm = false,
+                    .rd = .o7,
+                    .rs1 = .o7,
+                    .rs2_or_imm = .{ .rs2 = .g0 },
+                },
+            },
+        });
+
+        // TODO Find a way to fill this delay slot
+        _ = try self.addInst(.{
+            .tag = .nop,
+            .data = .{ .nop = {} },
         });
     }
 
@@ -995,11 +1040,29 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
 // Common helper functions
 
+/// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
+/// after codegen for this symbol is done.
+fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
+    switch (self.debug_output) {
+        .dwarf => |dw| {
+            assert(ty.hasRuntimeBits());
+            const dbg_info = &dw.dbg_info;
+            const index = dbg_info.items.len;
+            try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
+            const mod = self.bin_file.options.module.?;
+            const atom = switch (self.bin_file.tag) {
+                .elf => &mod.declPtr(self.mod_fn.owner_decl).link.elf.dbg_info_atom,
+                else => unreachable,
+            };
+            try dw.addTypeReloc(atom, ty, @intCast(u32, index), null);
+        },
+        else => {},
+    }
+}
+
 fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     const gpa = self.gpa;
-
     try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
-
     const result_index = @intCast(Air.Inst.Index, self.mir_instructions.len);
     self.mir_instructions.appendAssumeCapacity(inst);
     return result_index;
@@ -1125,6 +1188,40 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
     self.finishAirBookkeeping();
 }
 
+fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {
+    const ty = self.air.instructions.items(.data)[inst].ty;
+    const name = self.mod_fn.getParamName(arg_index);
+    const name_with_null = name.ptr[0 .. name.len + 1];
+
+    switch (mcv) {
+        .register => |reg| {
+            switch (self.debug_output) {
+                .dwarf => |dw| {
+                    const dbg_info = &dw.dbg_info;
+                    try dbg_info.ensureUnusedCapacity(3);
+                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                        1, // ULEB128 dwarf expression length
+                        reg.dwarfLocOp(),
+                    });
+                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+                },
+                else => {},
+            }
+        },
+        .stack_offset => |offset| {
+            _ = offset;
+            switch (self.debug_output) {
+                .dwarf => {},
+                else => {},
+            }
+        },
+        else => {},
+    }
+}
+
 fn genLoad(self: *Self, value_reg: Register, addr_reg: Register, comptime off_type: type, off: off_type, abi_size: u64) !void {
     assert(off_type == Register or off_type == i13);
 
@@ -1132,48 +1229,17 @@ fn genLoad(self: *Self, value_reg: Register, addr_reg: Register, comptime off_ty
     const rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off };
 
     switch (abi_size) {
-        1 => {
+        1, 2, 4, 8 => {
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .ldub,
+                2 => .lduh,
+                4 => .lduw,
+                8 => .ldx,
+                else => unreachable, // unexpected abi size
+            };
+
             _ = try self.addInst(.{
-                .tag = .ldub,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = is_imm,
-                        .rd = value_reg,
-                        .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
-                    },
-                },
-            });
-        },
-        2 => {
-            _ = try self.addInst(.{
-                .tag = .lduh,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = is_imm,
-                        .rd = value_reg,
-                        .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
-                    },
-                },
-            });
-        },
-        4 => {
-            _ = try self.addInst(.{
-                .tag = .lduw,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = is_imm,
-                        .rd = value_reg,
-                        .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
-                    },
-                },
-            });
-        },
-        8 => {
-            _ = try self.addInst(.{
-                .tag = .ldx,
+                .tag = tag,
                 .data = .{
                     .arithmetic_3op = .{
                         .is_imm = is_imm,
@@ -1335,7 +1401,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             try self.genLoad(reg, reg, i13, 0, ty.abiSize(self.target.*));
         },
         .stack_offset => |off| {
-            const simm13 = math.cast(u12, off) catch
+            const real_offset = off + abi.stack_bias + abi.stack_save_area;
+            const simm13 = math.cast(i13, real_offset) catch
                 return self.fail("TODO larger stack offsets", .{});
             try self.genLoad(reg, .sp, i13, simm13, ty.abiSize(self.target.*));
         },
@@ -1365,8 +1432,46 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
         },
-        .register => return self.fail("TODO implement storing types abi_size={}", .{abi_size}),
+        .register => |reg| {
+            const real_offset = stack_offset + abi.stack_bias + abi.stack_save_area;
+            const simm13 = math.cast(i13, real_offset) catch
+                return self.fail("TODO larger stack offsets", .{});
+            return self.genStore(reg, .sp, i13, simm13, abi_size);
+        },
         .memory, .stack_offset => return self.fail("TODO implement memcpy", .{}),
+    }
+}
+
+fn genStore(self: *Self, value_reg: Register, addr_reg: Register, comptime off_type: type, off: off_type, abi_size: u64) !void {
+    assert(off_type == Register or off_type == i13);
+
+    const is_imm = (off_type == i13);
+    const rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off };
+
+    switch (abi_size) {
+        1, 2, 4, 8 => {
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .stb,
+                2 => .sth,
+                4 => .stw,
+                8 => .stx,
+                else => unreachable, // unexpected abi size
+            };
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = is_imm,
+                        .rd = value_reg,
+                        .rs1 = addr_reg,
+                        .rs2_or_imm = rs2_or_imm,
+                    },
+                },
+            });
+        },
+        3, 5, 6, 7 => return self.fail("TODO: genLoad for more abi_sizes", .{}),
+        else => unreachable,
     }
 }
 

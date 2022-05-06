@@ -28,8 +28,6 @@ pub const Inst = struct {
     data: Data,
 
     pub const Tag = enum(u16) {
-        /// Pseudo-instruction: Argument
-        dbg_arg,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
@@ -41,27 +39,24 @@ pub const Inst = struct {
         // in The SPARC Architecture Manual, Version 9.
 
         /// A.2 Add
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         // TODO add other operations.
         add,
 
         /// A.7 Branch on Integer Condition Codes with Prediction (BPcc)
-        /// It uses the branch_predict field.
+        /// This uses the branch_predict field.
         bpcc,
 
         /// A.8 Call and Link
-        /// It uses the branch_link field.
+        /// This uses the branch_link field.
         call,
 
         /// A.24 Jump and Link
-        /// jmpl (far direct jump) uses the branch_link field,
-        /// while jmpl_i (indirect jump) uses the branch_link_indirect field.
-        /// Those two MIR instructions will be lowered into SPARCv9 jmpl instruction.
+        /// This uses the arithmetic_3op field.
         jmpl,
-        jmpl_i,
 
         /// A.27 Load Integer
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         /// Note that the ldd variant of this instruction is deprecated, so do not emit
         /// it unless specifically requested (e.g. by inline assembly).
         // TODO add other operations.
@@ -71,39 +66,49 @@ pub const Inst = struct {
         ldx,
 
         /// A.31 Logical Operations
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         // TODO add other operations.
         @"or",
 
         /// A.40 No Operation
-        /// It uses the nop field.
+        /// This uses the nop field.
         nop,
 
         /// A.45 RETURN
-        /// It uses the arithmetic_2op field.
+        /// This uses the arithmetic_2op field.
         @"return",
 
         /// A.46 SAVE and RESTORE
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         save,
         restore,
 
         /// A.48 SETHI
-        /// It uses the sethi field.
+        /// This uses the sethi field.
         sethi,
 
         /// A.49 Shift
-        /// Those uses the shift field.
+        /// This uses the shift field.
         // TODO add other operations.
         sllx,
 
+        /// A.54 Store Integer
+        /// This uses the arithmetic_3op field.
+        /// Note that the std variant of this instruction is deprecated, so do not emit
+        /// it unless specifically requested (e.g. by inline assembly).
+        // TODO add other operations.
+        stb,
+        sth,
+        stw,
+        stx,
+
         /// A.56 Subtract
-        /// Those uses the arithmetic_3op field.
+        /// This uses the arithmetic_3op field.
         // TODO add other operations.
         sub,
 
         /// A.61 Trap on Integer Condition Codes (Tcc)
-        /// It uses the trap field.
+        /// This uses the trap field.
         tcc,
     };
 
@@ -115,14 +120,6 @@ pub const Inst = struct {
     /// how to interpret the data within.
     // TODO this is a quick-n-dirty solution that needs to be cleaned up.
     pub const Data = union {
-        /// Debug info: argument
-        ///
-        /// Used by e.g. dbg_arg
-        dbg_arg_info: struct {
-            air_inst: Air.Inst.Index,
-            arg_index: usize,
-        },
-
         /// Debug info: line and column
         ///
         /// Used by e.g. dbg_line
@@ -164,13 +161,6 @@ pub const Inst = struct {
         /// Used by e.g. call
         branch_link: struct {
             inst: Index,
-            link: Register = .o7,
-        },
-
-        /// Indirect branch and link (always unconditional).
-        /// Used by e.g. jmpl_i
-        branch_link_indirect: struct {
-            reg: Register,
             link: Register = .o7,
         },
 
@@ -234,10 +224,7 @@ pub const Inst = struct {
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
     comptime {
         if (builtin.mode != .Debug) {
-            // TODO clean up the definition of Data before enabling this.
-            // I'll do that after the PoC backend can produce usable binaries.
-
-            // assert(@sizeOf(Data) == 8);
+            assert(@sizeOf(Data) == 8);
         }
     }
 };

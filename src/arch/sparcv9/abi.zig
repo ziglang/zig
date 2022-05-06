@@ -1,6 +1,18 @@
 const bits = @import("bits.zig");
 const Register = bits.Register;
 
+// SPARCv9 stack constants.
+// See: Registers and the Stack Frame, page 3P-8, SCD 2.4.1.
+
+// On SPARCv9, %sp points to top of stack + stack bias,
+// and %fp points to top of previous frame + stack bias.
+pub const stack_bias = 2047;
+
+// The first 176 bytes of the stack is reserved for register saving purposes.
+// SPARCv9 requires to reserve space in the stack for the first six arguments,
+// even though they are usually passed in registers.
+pub const stack_save_area = 176;
+
 // There are no callee-preserved registers since the windowing
 // mechanism already takes care of them.
 // We still need to preserve %o0-%o5, %g1, %g4, and %g5 before calling

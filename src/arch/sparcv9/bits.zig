@@ -271,6 +271,8 @@ pub const Instruction = union(enum) {
         rd: u5,
         op3: u6,
         rs1: u5,
+        // See Errata 58 of SPARCv9 specification
+        // https://sparc.org/errata-for-v9/#58
         i: u1 = 0b1,
         reserved: u8 = 0b00000000,
         rs2: u5,
@@ -977,10 +979,10 @@ pub const Instruction = union(enum) {
         };
     }
 
-    pub fn @"or"(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+    pub fn jmpl(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
-            Register => format3a(0b10, 0b00_0010, rs1, rs2, rd),
-            i13 => format3b(0b10, 0b00_0010, rs1, rs2, rd),
+            Register => format3a(0b10, 0b11_1000, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b11_1000, rs1, rs2, rd),
             else => unreachable,
         };
     }
@@ -1017,6 +1019,14 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn @"or"(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b10, 0b00_0010, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b00_0010, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
     pub fn nop() Instruction {
         return sethi(0, .g0);
     }
@@ -1047,6 +1057,38 @@ pub const Instruction = union(enum) {
 
     pub fn sethi(imm: u22, rd: Register) Instruction {
         return format2a(0b100, imm, rd);
+    }
+
+    pub fn stb(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_0101, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_0101, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn sth(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_0110, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_0110, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn stw(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_0100, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_0100, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn stx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b11, 0b00_1110, rs1, rs2, rd),
+            i13 => format3b(0b11, 0b00_1110, rs1, rs2, rd),
+            else => unreachable,
+        };
     }
 
     pub fn sub(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {

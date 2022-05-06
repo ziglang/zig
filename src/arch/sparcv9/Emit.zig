@@ -45,7 +45,6 @@ pub fn emitMir(
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
-            .dbg_arg => try emit.mirDbgArg(inst),
             .dbg_line => try emit.mirDbgLine(inst),
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
@@ -56,8 +55,7 @@ pub fn emitMir(
 
             .call => @panic("TODO implement sparcv9 call"),
 
-            .jmpl => @panic("TODO implement sparcv9 jmpl"),
-            .jmpl_i => @panic("TODO implement sparcv9 jmpl to reg"),
+            .jmpl => try emit.mirArithmetic3Op(inst),
 
             .ldub => try emit.mirArithmetic3Op(inst),
             .lduh => try emit.mirArithmetic3Op(inst),
@@ -77,6 +75,11 @@ pub fn emitMir(
 
             .sllx => @panic("TODO implement sparcv9 sllx"),
 
+            .stb => try emit.mirArithmetic3Op(inst),
+            .sth => try emit.mirArithmetic3Op(inst),
+            .stw => try emit.mirArithmetic3Op(inst),
+            .stx => try emit.mirArithmetic3Op(inst),
+
             .sub => try emit.mirArithmetic3Op(inst),
 
             .tcc => try emit.mirTrap(inst),
@@ -86,17 +89,6 @@ pub fn emitMir(
 
 pub fn deinit(emit: *Emit) void {
     emit.* = undefined;
-}
-
-fn mirDbgArg(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const dbg_arg_info = emit.mir.instructions.items(.data)[inst].dbg_arg_info;
-    _ = dbg_arg_info;
-
-    switch (tag) {
-        .dbg_arg => {}, // TODO try emit.genArgDbgInfo(dbg_arg_info.air_inst, dbg_arg_info.arg_index),
-        else => unreachable,
-    }
 }
 
 fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -109,22 +101,22 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
-fn mirDebugPrologueEnd(self: *Emit) !void {
-    switch (self.debug_output) {
+fn mirDebugPrologueEnd(emit: *Emit) !void {
+    switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
+            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
         .none => {},
     }
 }
 
-fn mirDebugEpilogueBegin(self: *Emit) !void {
-    switch (self.debug_output) {
+fn mirDebugEpilogueBegin(emit: *Emit) !void {
+    switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
+            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
         .none => {},
@@ -163,6 +155,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
         const imm = data.rs2_or_imm.imm;
         switch (tag) {
             .add => try emit.writeInstruction(Instruction.add(i13, rs1, imm, rd)),
+            .jmpl => try emit.writeInstruction(Instruction.jmpl(i13, rs1, imm, rd)),
             .ldub => try emit.writeInstruction(Instruction.ldub(i13, rs1, imm, rd)),
             .lduh => try emit.writeInstruction(Instruction.lduh(i13, rs1, imm, rd)),
             .lduw => try emit.writeInstruction(Instruction.lduw(i13, rs1, imm, rd)),
@@ -170,6 +163,10 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .@"or" => try emit.writeInstruction(Instruction.@"or"(i13, rs1, imm, rd)),
             .save => try emit.writeInstruction(Instruction.save(i13, rs1, imm, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(i13, rs1, imm, rd)),
+            .stb => try emit.writeInstruction(Instruction.stb(i13, rs1, imm, rd)),
+            .sth => try emit.writeInstruction(Instruction.sth(i13, rs1, imm, rd)),
+            .stw => try emit.writeInstruction(Instruction.stw(i13, rs1, imm, rd)),
+            .stx => try emit.writeInstruction(Instruction.stx(i13, rs1, imm, rd)),
             .sub => try emit.writeInstruction(Instruction.sub(i13, rs1, imm, rd)),
             else => unreachable,
         }
@@ -177,6 +174,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
         const rs2 = data.rs2_or_imm.rs2;
         switch (tag) {
             .add => try emit.writeInstruction(Instruction.add(Register, rs1, rs2, rd)),
+            .jmpl => try emit.writeInstruction(Instruction.jmpl(Register, rs1, rs2, rd)),
             .ldub => try emit.writeInstruction(Instruction.ldub(Register, rs1, rs2, rd)),
             .lduh => try emit.writeInstruction(Instruction.lduh(Register, rs1, rs2, rd)),
             .lduw => try emit.writeInstruction(Instruction.lduw(Register, rs1, rs2, rd)),
@@ -184,6 +182,10 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .@"or" => try emit.writeInstruction(Instruction.@"or"(Register, rs1, rs2, rd)),
             .save => try emit.writeInstruction(Instruction.save(Register, rs1, rs2, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(Register, rs1, rs2, rd)),
+            .stb => try emit.writeInstruction(Instruction.stb(Register, rs1, rs2, rd)),
+            .sth => try emit.writeInstruction(Instruction.sth(Register, rs1, rs2, rd)),
+            .stw => try emit.writeInstruction(Instruction.stw(Register, rs1, rs2, rd)),
+            .stx => try emit.writeInstruction(Instruction.stx(Register, rs1, rs2, rd)),
             .sub => try emit.writeInstruction(Instruction.sub(Register, rs1, rs2, rd)),
             else => unreachable,
         }
@@ -230,10 +232,10 @@ fn mirTrap(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 // Common helper functions
 
-fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
-    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
-    const delta_pc: usize = self.code.items.len - self.prev_di_pc;
-    switch (self.debug_output) {
+fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
+    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
+    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             // TODO Look into using the DWARF special opcodes to compress this data.
             // It lets you emit single-byte opcodes that add different numbers to
@@ -246,38 +248,12 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
                 leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
             }
             dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            self.prev_di_pc = self.code.items.len;
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
+            emit.prev_di_pc = emit.code.items.len;
+            emit.prev_di_line = line;
+            emit.prev_di_column = column;
+            emit.prev_di_pc = emit.code.items.len;
         },
-        .plan9 => |dbg_out| {
-            if (delta_pc <= 0) return; // only do this when the pc changes
-            // we have already checked the target in the linker to make sure it is compatable
-            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
-
-            // increasing the line number
-            try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
-            // increasing the pc
-            const d_pc_p9 = @intCast(i64, delta_pc) - quant;
-            if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
-                if (dbg_out.pcop_change_index.*) |pci|
-                    dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index.* = @intCast(u32, dbg_out.dbg_line.items.len - 1);
-            } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the quant does it for us
-            } else unreachable;
-            if (dbg_out.start_line.* == null)
-                dbg_out.start_line.* = self.prev_di_line;
-            dbg_out.end_line.* = line;
-            // only do this if the pc changed
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .none => {},
+        else => {},
     }
 }
 
