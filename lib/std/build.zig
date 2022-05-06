@@ -3009,6 +3009,7 @@ pub const LibExeObjStep = struct {
         // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
         // 2,097,152. If our args exceed 30 KiB, we instead write them to a "response file" and
         // pass that to zig, e.g. via 'zig build-lib @args.rsp'
+        // See @file syntax here: https://gcc.gnu.org/onlinedocs/gcc/Overall-Options.html
         var args_length: usize = 0;
         for (zig_args.items) |arg| {
             args_length += arg.len + 1; // +1 to account for null terminator
@@ -3020,9 +3021,33 @@ pub const LibExeObjStep = struct {
             );
             try std.fs.cwd().makePath(args_dir);
 
+            var args_arena = std.heap.ArenaAllocator.init(builder.allocator);
+            defer args_arena.deinit();
+
+            const args_to_escape = zig_args.items[2..];
+            var escaped_args = try ArrayList([]const u8).initCapacity(args_arena.allocator(), args_to_escape.len);
+
+            arg_blk: for (args_to_escape) |arg| {
+                for (arg) |c, arg_idx| {
+                    if (c == '\\' or c == '"') {
+                        // Slow path for arguments that need to be escaped. We'll need to allocate and copy
+                        var escaped = try ArrayList(u8).initCapacity(args_arena.allocator(), arg.len + 1);
+                        const writer = escaped.writer();
+                        writer.writeAll(arg[0..arg_idx]) catch unreachable;
+                        for (arg[arg_idx..]) |to_escape| {
+                            if (to_escape == '\\' or to_escape == '"') try writer.writeByte('\\');
+                            try writer.writeByte(to_escape);
+                        }
+                        escaped_args.appendAssumeCapacity(escaped.items);
+                        continue :arg_blk;
+                    }
+                }
+                escaped_args.appendAssumeCapacity(arg); // no escaping needed so just use original argument
+            }
+
             // Write the args to zig-cache/args/<SHA256 hash of args> to avoid conflicts with
             // other zig build commands running in parallel.
-            const partially_quoted = try std.mem.join(builder.allocator, "\" \"", zig_args.items[2..]);
+            const partially_quoted = try std.mem.join(builder.allocator, "\" \"", escaped_args.items);
             const args = try std.mem.concat(builder.allocator, u8, &[_][]const u8{ "\"", partially_quoted, "\"" });
 
             var args_hash: [Sha256.digest_length]u8 = undefined;
