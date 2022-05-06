@@ -62,9 +62,13 @@ const private = struct {
     /// force 64bit version.
     /// Note that this is fixed on aarch64 and no longer necessary.
     extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path_name: [*:0]const u8, buf: *Stat, flags: u32) c_int;
+
+    extern "c" fn readdir(dir: *std.c.DIR) ?*dirent;
+    extern "c" fn @"readdir$INODE64"(dir: *std.c.DIR) ?*dirent;
 };
 pub const fstat = if (native_arch == .aarch64) private.fstat else private.@"fstat$INODE64";
 pub const fstatat = if (native_arch == .aarch64) private.fstatat else private.@"fstatat$INODE64";
+pub const readdir = if (native_arch == .aarch64) private.readdir else private.@"readdir$INODE64";
 
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_continuous_time() u64;
