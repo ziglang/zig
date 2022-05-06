@@ -4229,61 +4229,20 @@ pub const FuncGen = struct {
         return self.builder.buildInsertValue(partial, len, 1, "");
     }
 
-    inline fn isPowerOfTwo(bits: u64) bool {
-        return bits != 0 and ((bits & (~bits + 1)) == bits);
-    }
-
-    fn intTypeFromBitsAndSignRounded(self: *FuncGen, bits: u16, signed: bool) error{OutOfMemory}!Type {
-        const next_pow_two = math.log2_int_ceil(u16, bits);
-        const rounded_bits = @as(u32, 1) << next_pow_two;
-        return switch (rounded_bits) {
-            8, 16, 32 => if (signed) Type.initTag(.i32) else Type.initTag(.u32),
-            64 => if (signed) Type.initTag(.i64) else Type.initTag(.u64),
-            128 => if (signed) Type.initTag(.i128) else Type.initTag(.u128),
-            else => |big| if (signed)
-                Type.Tag.int_signed.create(
-                    self.dg.object.type_map_arena.allocator(),
-                    @intCast(u16, big),
-                )
-            else
-                Type.Tag.int_unsigned.create(
-                    self.dg.object.type_map_arena.allocator(),
-                    @intCast(u16, big),
-                ),
-        };
-    }
-
     fn airIntToFloat(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
 
-        const target = self.dg.module.getTarget();
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
-        var operand = try self.resolveInst(ty_op.operand);
-        var operand_ty = self.air.typeOf(ty_op.operand);
-        var operand_scalar_ty = operand_ty.scalarType();
-
-        {
-            const operand_bits = @intCast(u16, operand_scalar_ty.bitSize(target));
-            const is_signed = operand_scalar_ty.isSignedInt();
-
-            if (!isPowerOfTwo(operand_bits) or operand_bits < 32) {
-                const wider_ty = try self.intTypeFromBitsAndSignRounded(operand_bits, is_signed);
-                const wider_llvm_ty = try self.dg.llvmType(wider_ty);
-                if (is_signed) {
-                    operand = self.builder.buildSExt(operand, wider_llvm_ty, "");
-                } else {
-                    operand = self.builder.buildZExt(operand, wider_llvm_ty, "");
-                }
-                operand_ty = wider_ty;
-                operand_scalar_ty = operand_ty.scalarType();
-            }
-        }
+        const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const operand_scalar_ty = operand_ty.scalarType();
 
         const dest_ty = self.air.typeOfIndex(inst);
         const dest_scalar_ty = dest_ty.scalarType();
         const dest_llvm_ty = try self.dg.llvmType(dest_ty);
+        const target = self.dg.module.getTarget();
 
         if (intrinsicsAllowed(dest_scalar_ty, target)) {
             if (operand_scalar_ty.isSignedInt()) {
@@ -4294,27 +4253,28 @@ pub const FuncGen = struct {
         }
 
         const operand_bits = @intCast(u16, operand_scalar_ty.bitSize(target));
-        const compiler_rt_operand_abbrev = compilerRtIntAbbrev(operand_bits);
-
+        const rt_int_bits = compilerRtIntBits(operand_bits);
+        const rt_int_ty = self.context.intType(rt_int_bits);
+        const extended = e: {
+            if (operand_scalar_ty.isSignedInt()) {
+                break :e self.builder.buildSExtOrBitCast(operand, rt_int_ty, "");
+            } else {
+                break :e self.builder.buildZExtOrBitCast(operand, rt_int_ty, "");
+            }
+        };
         const dest_bits = dest_scalar_ty.floatBits(target);
+        const compiler_rt_operand_abbrev = compilerRtIntAbbrev(rt_int_bits);
         const compiler_rt_dest_abbrev = compilerRtFloatAbbrev(dest_bits);
-
+        const sign_prefix = if (operand_scalar_ty.isSignedInt()) "" else "un";
         var fn_name_buf: [64]u8 = undefined;
-        const fn_name = if (operand_scalar_ty.isSignedInt())
-            std.fmt.bufPrintZ(&fn_name_buf, "__float{s}i{s}f", .{
-                compiler_rt_operand_abbrev,
-                compiler_rt_dest_abbrev,
-            }) catch unreachable
-        else
-            std.fmt.bufPrintZ(&fn_name_buf, "__floatun{s}i{s}f", .{
-                compiler_rt_operand_abbrev,
-                compiler_rt_dest_abbrev,
-            }) catch unreachable;
-
-        const operand_llvm_ty = try self.dg.llvmType(operand_ty);
-        const param_types = [1]*const llvm.Type{operand_llvm_ty};
+        const fn_name = std.fmt.bufPrintZ(&fn_name_buf, "__float{s}{s}i{s}f", .{
+            sign_prefix,
+            compiler_rt_operand_abbrev,
+            compiler_rt_dest_abbrev,
+        }) catch unreachable;
+        const param_types = [1]*const llvm.Type{rt_int_ty};
         const libc_fn = self.getLibcFunction(fn_name, &param_types, dest_llvm_ty);
-        const params = [1]*const llvm.Value{operand};
+        const params = [1]*const llvm.Value{extended};
 
         return self.builder.buildCall(libc_fn, &params, params.len, .C, .Auto, "");
     }
@@ -4330,12 +4290,12 @@ pub const FuncGen = struct {
         const operand_ty = self.air.typeOf(ty_op.operand);
         const operand_scalar_ty = operand_ty.scalarType();
 
-        var dest_ty = self.air.typeOfIndex(inst);
-        var dest_scalar_ty = dest_ty.scalarType();
+        const dest_ty = self.air.typeOfIndex(inst);
+        const dest_scalar_ty = dest_ty.scalarType();
+        const dest_llvm_ty = try self.dg.llvmType(dest_ty);
 
         if (intrinsicsAllowed(operand_scalar_ty, target)) {
             // TODO set fast math flag
-            const dest_llvm_ty = try self.dg.llvmType(dest_ty);
             if (dest_scalar_ty.isSignedInt()) {
                 return self.builder.buildFPToSI(operand, dest_llvm_ty, "");
             } else {
@@ -4343,52 +4303,34 @@ pub const FuncGen = struct {
             }
         }
 
-        const needs_truncating = blk: {
-            const dest_bits = @intCast(u16, dest_scalar_ty.bitSize(target));
-
-            if (!isPowerOfTwo(dest_bits) or dest_bits < 32) {
-                dest_ty = try self.intTypeFromBitsAndSignRounded(dest_bits, dest_scalar_ty.isSignedInt());
-                dest_scalar_ty = dest_ty.scalarType();
-                break :blk true;
-            }
-
-            break :blk false;
-        };
-
-        const dest_llvm_ty = try self.dg.llvmType(dest_ty);
+        const rt_int_bits = compilerRtIntBits(@intCast(u16, dest_scalar_ty.bitSize(target)));
+        const libc_ret_ty = self.context.intType(rt_int_bits);
 
         const operand_bits = operand_scalar_ty.floatBits(target);
         const compiler_rt_operand_abbrev = compilerRtFloatAbbrev(operand_bits);
 
-        const dest_bits = @intCast(u16, dest_scalar_ty.bitSize(target));
-        const compiler_rt_dest_abbrev = compilerRtIntAbbrev(dest_bits);
+        const compiler_rt_dest_abbrev = compilerRtIntAbbrev(rt_int_bits);
+        const sign_prefix = if (dest_scalar_ty.isSignedInt()) "" else "un";
 
         var fn_name_buf: [64]u8 = undefined;
-        const fn_name = if (dest_scalar_ty.isSignedInt())
-            std.fmt.bufPrintZ(&fn_name_buf, "__fix{s}f{s}i", .{
-                compiler_rt_operand_abbrev,
-                compiler_rt_dest_abbrev,
-            }) catch unreachable
-        else
-            std.fmt.bufPrintZ(&fn_name_buf, "__fixun{s}f{s}i", .{
-                compiler_rt_operand_abbrev,
-                compiler_rt_dest_abbrev,
-            }) catch unreachable;
+        const fn_name = std.fmt.bufPrintZ(&fn_name_buf, "__fix{s}{s}f{s}i", .{
+            sign_prefix,
+            compiler_rt_operand_abbrev,
+            compiler_rt_dest_abbrev,
+        }) catch unreachable;
 
         const operand_llvm_ty = try self.dg.llvmType(operand_ty);
         const param_types = [1]*const llvm.Type{operand_llvm_ty};
-        const libc_fn = self.getLibcFunction(fn_name, &param_types, dest_llvm_ty);
+        const libc_fn = self.getLibcFunction(fn_name, &param_types, libc_ret_ty);
         const params = [1]*const llvm.Value{operand};
 
         const result = self.builder.buildCall(libc_fn, &params, params.len, .C, .Auto, "");
 
-        if (needs_truncating) {
-            const requested_ty = self.air.typeOfIndex(inst);
-            const requested_llvm_ty = try self.dg.llvmType(requested_ty);
-            return self.builder.buildTrunc(result, requested_llvm_ty, "");
+        if (libc_ret_ty == dest_llvm_ty) {
+            return result;
         }
 
-        return result;
+        return self.builder.buildTrunc(result, dest_llvm_ty, "");
     }
 
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {
@@ -8447,4 +8389,13 @@ fn needDbgVarWorkaround(dg: *DeclGen, ty: Type) bool {
         }
     }
     return false;
+}
+
+fn compilerRtIntBits(bits: u16) u16 {
+    inline for (.{ 8, 16, 32, 64, 128 }) |b| {
+        if (bits <= b) {
+            return b;
+        }
+    }
+    return bits;
 }
