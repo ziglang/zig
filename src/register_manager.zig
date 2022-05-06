@@ -116,21 +116,50 @@ pub fn RegisterManager(
             return self.frozen_registers & mask != 0;
         }
 
-        /// Prevents the registers from being allocated until they are
-        /// unfrozen again
-        pub fn freezeRegs(self: *Self, regs: []const Register) void {
-            for (regs) |reg| {
-                const mask = getRegisterMask(reg) orelse continue;
-                self.frozen_registers |= mask;
+        pub const RegisterLock = struct {
+            register: Register,
+        };
+
+        /// Prevents the register from being allocated until they are
+        /// unfrozen again.
+        /// Returns `RegisterLock` if the register was not already
+        /// frozen, or `null` otherwise.
+        /// Only the owner of the `RegisterLock` can unfreeze the
+        /// register later.
+        pub fn freezeReg(self: *Self, reg: Register) ?RegisterLock {
+            if (self.isRegFrozen(reg)) return null;
+            const mask = getRegisterMask(reg) orelse return null;
+            self.frozen_registers |= mask;
+            return RegisterLock{ .register = reg };
+        }
+
+        /// Like `freezeReg` but asserts the register was unused always
+        /// returning a valid lock.
+        pub fn freezeRegAssumeUnused(self: *Self, reg: Register) RegisterLock {
+            assert(!self.isRegFrozen(reg));
+            const mask = getRegisterMask(reg) orelse unreachable;
+            self.frozen_registers |= mask;
+            return RegisterLock{ .register = reg };
+        }
+
+        /// Like `freezeRegAssumeUnused` but locks multiple registers.
+        pub fn freezeRegsAssumeUnused(
+            self: *Self,
+            comptime count: comptime_int,
+            regs: [count]Register,
+            buf: *[count]RegisterLock,
+        ) void {
+            for (&regs) |reg, i| {
+                buf[i] = self.freezeRegAssumeUnused(reg);
             }
         }
 
-        /// Enables the allocation of the registers
-        pub fn unfreezeRegs(self: *Self, regs: []const Register) void {
-            for (regs) |reg| {
-                const mask = getRegisterMask(reg) orelse continue;
-                self.frozen_registers &= ~mask;
-            }
+        /// Unfreezes the register allowing its re-allocation and re-use.
+        /// Requires `RegisterLock` to unfreeze a register.
+        /// Call `freezeReg` to obtain the lock first.
+        pub fn unfreezeReg(self: *Self, lock: RegisterLock) void {
+            const mask = getRegisterMask(lock.register) orelse return;
+            self.frozen_registers &= ~mask;
         }
 
         /// Returns true when at least one register is frozen
@@ -419,8 +448,8 @@ test "allocReg: spilling" {
     // Frozen registers
     function.register_manager.freeReg(.r3);
     {
-        function.register_manager.freezeRegs(&.{.r2});
-        defer function.register_manager.unfreezeRegs(&.{.r2});
+        const lock = function.register_manager.freezeReg(.r2);
+        defer if (lock) |reg| function.register_manager.unfreezeReg(reg);
 
         try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
     }
@@ -447,8 +476,8 @@ test "tryAllocRegs" {
     function.register_manager.freeReg(.r2);
     function.register_manager.freeReg(.r3);
     {
-        function.register_manager.freezeRegs(&.{.r1});
-        defer function.register_manager.unfreezeRegs(&.{.r1});
+        const lock = function.register_manager.freezeReg(.r1);
+        defer if (lock) |reg| function.register_manager.unfreezeReg(reg);
 
         try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
     }
@@ -486,8 +515,8 @@ test "allocRegs: normal usage" {
         // contain any valuable data anymore and can be reused. For an
         // example of that, see `selectively reducing register
         // pressure`.
-        function.register_manager.freezeRegs(&.{result_reg});
-        defer function.register_manager.unfreezeRegs(&.{result_reg});
+        const lock = function.register_manager.freezeReg(result_reg);
+        defer if (lock) |reg| function.register_manager.unfreezeReg(reg);
 
         const regs = try function.register_manager.allocRegs(2, .{ null, null });
         try function.genAdd(result_reg, regs[0], regs[1]);
@@ -507,16 +536,14 @@ test "allocRegs: selectively reducing register pressure" {
     {
         const result_reg: MockRegister2 = .r1;
 
-        function.register_manager.freezeRegs(&.{result_reg});
-        defer function.register_manager.unfreezeRegs(&.{result_reg});
+        const lock = function.register_manager.freezeReg(result_reg);
 
         // Here, we don't defer unfreeze because we manually unfreeze
         // after genAdd
         const regs = try function.register_manager.allocRegs(2, .{ null, null });
-        function.register_manager.freezeRegs(&.{result_reg});
 
         try function.genAdd(result_reg, regs[0], regs[1]);
-        function.register_manager.unfreezeRegs(&regs);
+        function.register_manager.unfreezeReg(lock.?);
 
         const extra_summand_reg = try function.register_manager.allocReg(null);
         try function.genAdd(result_reg, result_reg, extra_summand_reg);

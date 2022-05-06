@@ -23,6 +23,7 @@ const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const RegisterManager = RegisterManagerFn(Self, Register, &callee_preserved_regs);
+const RegisterLock = RegisterManager.RegisterLock;
 
 const FnResult = @import("../../codegen.zig").FnResult;
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
@@ -937,8 +938,11 @@ fn binOpRegister(
     const lhs_is_register = lhs == .register;
     const rhs_is_register = rhs == .register;
 
-    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
-    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+    const lhs_lock: ?RegisterLock = if (lhs_is_register)
+        self.register_manager.freezeReg(lhs.register)
+    else
+        null;
+    defer if (lhs_lock) |reg| self.register_manager.unfreezeReg(reg);
 
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
 
@@ -949,13 +953,13 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst);
-        self.register_manager.freezeRegs(&.{reg});
 
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
 
         break :blk reg;
     };
-    defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+    const new_lhs_lock = self.register_manager.freezeReg(lhs_reg);
+    defer if (new_lhs_lock) |reg| self.register_manager.unfreezeReg(reg);
 
     const rhs_reg = if (rhs_is_register) rhs.register else blk: {
         const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
@@ -964,13 +968,13 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst);
-        self.register_manager.freezeRegs(&.{reg});
 
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
 
         break :blk reg;
     };
-    defer self.register_manager.unfreezeRegs(&.{rhs_reg});
+    const new_rhs_lock = self.register_manager.freezeReg(rhs_reg);
+    defer if (new_rhs_lock) |reg| self.register_manager.unfreezeReg(reg);
 
     const dest_reg = if (maybe_inst) |inst| blk: {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -1448,8 +1452,8 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .stack_offset,
         => {
             const reg = try self.register_manager.allocReg(null);
-            self.register_manager.freezeRegs(&.{reg});
-            defer self.register_manager.unfreezeRegs(&.{reg});
+            const reg_lock = self.register_manager.freezeRegAssumeUnused(reg);
+            defer self.register_manager.unfreezeReg(reg_lock);
 
             try self.genSetReg(ptr_ty, reg, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
