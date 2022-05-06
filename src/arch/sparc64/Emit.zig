@@ -8,6 +8,7 @@ const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
 const ErrorMsg = Module.ErrorMsg;
 const Liveness = @import("../../Liveness.zig");
+const log = std.log.scoped(.sparcv9_emit);
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const DW = std.dwarf;
 const leb128 = std.leb;
@@ -31,15 +32,41 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
+/// The branch type of every branch
+branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
+/// For every forward branch, maps the target instruction to a list of
+/// branches which branch to this target instruction
+branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .{},
+/// For backward branches: stores the code offset of the target
+/// instruction
+///
+/// For forward branches: stores the code offset of the branch
+/// instruction
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
+
 const InnerError = error{
     OutOfMemory,
     EmitFail,
+};
+
+const BranchType = enum {
+    bpcc,
+    fn default(tag: Mir.Inst.Tag) BranchType {
+        return switch (tag) {
+            .bpcc => .bpcc,
+            else => unreachable,
+        };
+    }
 };
 
 pub fn emitMir(
     emit: *Emit,
 ) InnerError!void {
     const mir_tags = emit.mir.instructions.items(.tag);
+
+    // Convert absolute addresses into offsets and
+    // find smallest lowerings for branch instructions
+    try emit.lowerBranches();
 
     // Emit machine code
     for (mir_tags) |tag, index| {
@@ -51,7 +78,7 @@ pub fn emitMir(
 
             .add => try emit.mirArithmetic3Op(inst),
 
-            .bpcc => @panic("TODO implement sparc64 bpcc"),
+            .bpcc => try emit.mirConditionalBranch(inst),
 
             .call => @panic("TODO implement sparc64 call"),
 
@@ -89,6 +116,14 @@ pub fn emitMir(
 }
 
 pub fn deinit(emit: *Emit) void {
+    var iter = emit.branch_forward_origins.valueIterator();
+    while (iter.next()) |origin_list| {
+        origin_list.deinit(emit.bin_file.allocator);
+    }
+
+    emit.branch_types.deinit(emit.bin_file.allocator);
+    emit.branch_forward_origins.deinit(emit.bin_file.allocator);
+    emit.code_offset_mapping.deinit(emit.bin_file.allocator);
     emit.* = undefined;
 }
 
@@ -195,6 +230,22 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
+fn mirConditionalBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const branch_predict_int = emit.mir.instructions.items(.data)[inst].branch_predict_int;
+
+    const offset = @intCast(i64, emit.code_offset_mapping.get(branch_predict_int.inst).?) - @intCast(i64, emit.code.items.len);
+    const branch_type = emit.branch_types.get(inst).?;
+    log.debug("mirConditionalBranchImmediate: {} offset={}", .{ inst, offset });
+
+    switch (branch_type) {
+        .bpcc => switch (tag) {
+            .bpcc => try emit.writeInstruction(Instruction.bpcc(branch_predict_int.cond, branch_predict_int.annul, branch_predict_int.pt, branch_predict_int.ccr, @intCast(i21, offset))),
+            else => unreachable,
+        },
+    }
+}
+
 fn mirNop(emit: *Emit) !void {
     try emit.writeInstruction(Instruction.nop());
 }
@@ -235,6 +286,15 @@ fn mirTrap(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 // Common helper functions
 
+fn branchTarget(emit: *Emit, inst: Mir.Inst.Index) Mir.Inst.Index {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+
+    switch (tag) {
+        .bpcc => return emit.mir.instructions.items(.data)[inst].branch_predict_int.inst,
+        else => unreachable,
+    }
+}
+
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
     const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
@@ -265,6 +325,155 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     assert(emit.err_msg == null);
     emit.err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
     return error.EmitFail;
+}
+
+fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+
+    switch (tag) {
+        .dbg_line,
+        .dbg_epilogue_begin,
+        .dbg_prologue_end,
+        => return 0,
+        // Currently Mir instructions always map to single machine instruction.
+        else => return 4,
+    }
+}
+
+fn isBranch(tag: Mir.Inst.Tag) bool {
+    return switch (tag) {
+        .bpcc => true,
+        else => false,
+    };
+}
+
+fn lowerBranches(emit: *Emit) !void {
+    const mir_tags = emit.mir.instructions.items(.tag);
+    const allocator = emit.bin_file.allocator;
+
+    // First pass: Note down all branches and their target
+    // instructions, i.e. populate branch_types,
+    // branch_forward_origins, and code_offset_mapping
+    //
+    // TODO optimization opportunity: do this in codegen while
+    // generating MIR
+    for (mir_tags) |tag, index| {
+        const inst = @intCast(u32, index);
+        if (isBranch(tag)) {
+            const target_inst = emit.branchTarget(inst);
+
+            // Remember this branch instruction
+            try emit.branch_types.put(allocator, inst, BranchType.default(tag));
+
+            // Forward branches require some extra stuff: We only
+            // know their offset once we arrive at the target
+            // instruction. Therefore, we need to be able to
+            // access the branch instruction when we visit the
+            // target instruction in order to manipulate its type
+            // etc.
+            if (target_inst > inst) {
+                // Remember the branch instruction index
+                try emit.code_offset_mapping.put(allocator, inst, 0);
+
+                if (emit.branch_forward_origins.getPtr(target_inst)) |origin_list| {
+                    try origin_list.append(allocator, inst);
+                } else {
+                    var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .{};
+                    try origin_list.append(allocator, inst);
+                    try emit.branch_forward_origins.put(allocator, target_inst, origin_list);
+                }
+            }
+
+            // Remember the target instruction index so that we
+            // update the real code offset in all future passes
+            //
+            // putNoClobber may not be used as the put operation
+            // may clobber the entry when multiple branches branch
+            // to the same target instruction
+            try emit.code_offset_mapping.put(allocator, target_inst, 0);
+        }
+    }
+
+    // Further passes: Until all branches are lowered, interate
+    // through all instructions and calculate new offsets and
+    // potentially new branch types
+    var all_branches_lowered = false;
+    while (!all_branches_lowered) {
+        all_branches_lowered = true;
+        var current_code_offset: usize = 0;
+
+        for (mir_tags) |tag, index| {
+            const inst = @intCast(u32, index);
+
+            // If this instruction contained in the code offset
+            // mapping (when it is a target of a branch or if it is a
+            // forward branch), update the code offset
+            if (emit.code_offset_mapping.getPtr(inst)) |offset| {
+                offset.* = current_code_offset;
+            }
+
+            // If this instruction is a backward branch, calculate the
+            // offset, which may potentially update the branch type
+            if (isBranch(tag)) {
+                const target_inst = emit.branchTarget(inst);
+                if (target_inst < inst) {
+                    const target_offset = emit.code_offset_mapping.get(target_inst).?;
+                    const offset = @intCast(i64, target_offset) - @intCast(i64, current_code_offset);
+                    const branch_type = emit.branch_types.getPtr(inst).?;
+                    const optimal_branch_type = try emit.optimalBranchType(tag, offset);
+                    if (branch_type.* != optimal_branch_type) {
+                        branch_type.* = optimal_branch_type;
+                        all_branches_lowered = false;
+                    }
+
+                    log.debug("lowerBranches: branch {} has offset {}", .{ inst, offset });
+                }
+            }
+
+            // If this instruction is the target of one or more
+            // forward branches, calculate the offset, which may
+            // potentially update the branch type
+            if (emit.branch_forward_origins.get(inst)) |origin_list| {
+                for (origin_list.items) |forward_branch_inst| {
+                    const branch_tag = emit.mir.instructions.items(.tag)[forward_branch_inst];
+                    const forward_branch_inst_offset = emit.code_offset_mapping.get(forward_branch_inst).?;
+                    const offset = @intCast(i64, current_code_offset) - @intCast(i64, forward_branch_inst_offset);
+                    const branch_type = emit.branch_types.getPtr(forward_branch_inst).?;
+                    const optimal_branch_type = try emit.optimalBranchType(branch_tag, offset);
+                    if (branch_type.* != optimal_branch_type) {
+                        branch_type.* = optimal_branch_type;
+                        all_branches_lowered = false;
+                    }
+
+                    log.debug("lowerBranches: branch {} has offset {}", .{ forward_branch_inst, offset });
+                }
+            }
+
+            // Increment code offset
+            current_code_offset += emit.instructionSize(inst);
+        }
+    }
+}
+
+fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
+    assert(offset & 0b11 == 0);
+
+    switch (tag) {
+        .bpcc => {
+            if (std.math.cast(i21, offset)) |_| {
+                return BranchType.bpcc;
+            } else |_| {
+                // TODO use the following strategy to implement long branches:
+                // - Negate the conditional and target of the original BPcc;
+                // - In the space immediately after the branch, load
+                //   the address of the original target, preferrably in
+                //   a PC-relative way, into %o7; and
+                // - jmpl %o7 + %g0, %g0
+                return emit.fail("TODO support BPcc branches larger than +-1 MiB", .{});
+            }
+        },
+        else => unreachable,
+    }
 }
 
 fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
