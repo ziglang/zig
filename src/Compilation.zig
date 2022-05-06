@@ -1418,6 +1418,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .gpa = gpa,
                 .comp = comp,
                 .main_pkg = main_pkg,
+                .main_pkg_is_std = try main_pkg.isInsideOf(std_pkg.*),
                 .root_pkg = root_pkg,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,

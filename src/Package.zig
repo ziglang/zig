@@ -124,3 +124,11 @@ pub fn addAndAdopt(parent: *Package, gpa: Allocator, name: []const u8, child: *P
     child.parent = parent;
     return parent.add(gpa, name, child);
 }
+
+pub fn isInsideOf(pkg: Package, another: Package) !bool {
+    var pkg_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var another_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const pkg_path = try pkg.root_src_directory.handle.realpath(pkg.root_src_path, &pkg_buffer);
+    const another_path = try another.root_src_directory.handle.realpath(".", &another_buffer);
+    return mem.startsWith(u8, pkg_path, another_path);
+}
