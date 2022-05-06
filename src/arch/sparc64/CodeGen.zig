@@ -1031,7 +1031,23 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
                 },
             },
         }),
-        else => return self.fail("TODO branch on register content (BPr)", .{}),
+        else => blk: {
+            const reg = switch (cond) {
+                .register => |r| r,
+                else => try self.copyToTmpRegister(Type.bool, cond),
+            };
+
+            break :blk try self.addInst(.{
+                .tag = .bpr,
+                .data = .{
+                    .branch_predict_reg = .{
+                        .cond = .eq_zero,
+                        .rs1 = reg,
+                        .inst = undefined, // populated later through performReloc
+                    },
+                },
+            });
+        },
     };
 
     // Regardless of the branch type that's emitted, we need to reserve
