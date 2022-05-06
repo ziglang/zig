@@ -84,6 +84,7 @@ enum CallingConvention {
     CallingConventionAAPCS,
     CallingConventionAAPCSVFP,
     CallingConventionSysV,
+    CallingConventionWin64,
     CallingConventionPtxKernel
 };
 
