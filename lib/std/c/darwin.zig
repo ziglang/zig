@@ -700,19 +700,6 @@ pub extern "c" fn os_unfair_lock_assert_not_owner(o: os_unfair_lock_t) void;
 
 // XXX: close -> close$NOCANCEL
 // XXX: getdirentries -> _getdirentries64
-pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
-pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
-pub extern "c" fn getrusage(who: c_int, usage: *rusage) c_int;
-pub extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
-pub extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
-pub extern "c" fn sched_yield() c_int;
-pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
-pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
-pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
-pub extern "c" fn sigfillset(set: ?*sigset_t) void;
-pub extern "c" fn alarm(seconds: c_uint) c_uint;
-pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
 
 // See: https://opensource.apple.com/source/xnu/xnu-6153.141.1/bsd/sys/_types.h.auto.html
 // TODO: audit mode_t/pid_t, should likely be u16/i32
