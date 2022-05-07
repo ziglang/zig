@@ -898,16 +898,16 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 fn spillCompareFlagsIfOccupied(self: *Self) !void {
     if (self.compare_flags_inst) |inst_to_save| {
         const mcv = self.getResolvedInstValue(inst_to_save);
-        switch (mcv) {
+        const new_mcv = switch (mcv) {
             .compare_flags_signed,
             .compare_flags_unsigned,
+            => try self.allocRegOrMem(inst_to_save, true),
             .register_c_flag,
             .register_v_flag,
-            => {},
+            => try self.allocRegOrMem(inst_to_save, false),
             else => unreachable, // mcv doesn't occupy the compare flags
-        }
+        };
 
-        const new_mcv = try self.allocRegOrMem(inst_to_save, true);
         try self.setRegOrMem(self.air.typeOfIndex(inst_to_save), new_mcv, mcv);
         log.debug("spilling {d} to mcv {any}", .{ inst_to_save, new_mcv });
 
@@ -915,6 +915,15 @@ fn spillCompareFlagsIfOccupied(self: *Self) !void {
         try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
 
         self.compare_flags_inst = null;
+
+        // TODO consolidate with register manager and spillInstruction
+        // this call should really belong in the register manager!
+        switch (mcv) {
+            .register_c_flag,
+            .register_v_flag,
+            => |reg| self.register_manager.freeReg(reg),
+            else => {},
+        }
     }
 }
 
@@ -1972,8 +1981,8 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                     .register => |reg| reg,
                     else => try self.copyToTmpRegister(Type.usize, index_mcv),
                 };
-                const index_reg_lock = self.register_manager.lockRegAssumeUnused(index_reg);
-                defer self.register_manager.unlockReg(index_reg_lock);
+                const index_reg_lock = self.register_manager.lockReg(index_reg);
+                defer if (index_reg_lock) |lock| self.register_manager.unlockReg(lock);
 
                 const tag: Mir.Inst.Tag = switch (elem_size) {
                     1 => .ldrb,
@@ -3677,6 +3686,9 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const parent_compare_flags_inst = self.compare_flags_inst;
 
     try self.branch_stack.append(.{});
+    errdefer {
+        _ = self.branch_stack.pop();
+    }
 
     try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
     for (liveness_condbr.then_deaths) |operand| {
@@ -4285,8 +4297,36 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
         },
         .register_c_flag,
         .register_v_flag,
-        => {
-            return self.fail("TODO implement genSetStack {}", .{mcv});
+        => |reg| {
+            const reg_lock = self.register_manager.lockReg(reg);
+            defer if (reg_lock) |locked_reg| self.register_manager.unlockReg(locked_reg);
+
+            const wrapped_ty = ty.structFieldType(0);
+            try self.genSetStack(wrapped_ty, stack_offset, .{ .register = reg });
+
+            const overflow_bit_ty = ty.structFieldType(1);
+            const overflow_bit_offset = @intCast(u32, ty.structFieldOffset(1, self.target.*));
+            const cond_reg = try self.register_manager.allocReg(null);
+
+            // C flag: movcs reg, #1
+            // V flag: movvs reg, #1
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .cond = switch (mcv) {
+                    .register_c_flag => .cs,
+                    .register_v_flag => .vs,
+                    else => unreachable,
+                },
+                .data = .{ .rr_op = .{
+                    .rd = cond_reg,
+                    .rn = .r0,
+                    .op = Instruction.Operand.fromU32(1).?,
+                } },
+            });
+
+            try self.genSetStack(overflow_bit_ty, stack_offset - overflow_bit_offset, .{
+                .register = cond_reg,
+            });
         },
         .memory,
         .stack_argument_offset,
