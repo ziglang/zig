@@ -3421,8 +3421,8 @@ pub fn cmdInit(
     const s = fs.path.sep_str;
     const template_sub_path = switch (output_mode) {
         .Obj => unreachable,
-        .Lib => "std" ++ s ++ "special" ++ s ++ "init-lib",
-        .Exe => "std" ++ s ++ "special" ++ s ++ "init-exe",
+        .Lib => "init-lib",
+        .Exe => "init-exe",
     };
     var template_dir = zig_lib_directory.handle.openDir(template_sub_path, .{}) catch |err| {
         fatal("unable to open zig project template directory '{s}{s}{s}': {s}", .{ zig_lib_directory.path, s, template_sub_path, @errorName(err) });
@@ -3571,19 +3571,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         };
         defer zig_lib_directory.handle.close();
 
-        const std_special = "std" ++ fs.path.sep_str ++ "special";
-        const special_dir_path = try zig_lib_directory.join(arena, &[_][]const u8{std_special});
-
         var main_pkg: Package = .{
-            .root_src_directory = .{
-                .path = special_dir_path,
-                .handle = zig_lib_directory.handle.openDir(std_special, .{}) catch |err| {
-                    fatal("unable to open directory '{s}{s}{s}': {s}", .{ override_lib_dir, fs.path.sep_str, std_special, @errorName(err) });
-                },
-            },
+            .root_src_directory = zig_lib_directory,
             .root_src_path = "build_runner.zig",
         };
-        defer main_pkg.root_src_directory.handle.close();
 
         var cleanup_build_dir: ?fs.Dir = null;
         defer if (cleanup_build_dir) |*dir| dir.close();

@@ -28,7 +28,7 @@ case "$1" in
     ./build/zig build $BUILD_FLAGS test-std -Dskip-debug -Dskip-release-safe -Dskip-release-fast
     ;;
   6)
-    ./build/zig build $BUILD_FLAGS test-minilibc
+    ./build/zig build $BUILD_FLAGS test-universal-libc
     ./build/zig build $BUILD_FLAGS test-compare-output
     ./build/zig build $BUILD_FLAGS test-standalone -Dskip-release-safe
     ./build/zig build $BUILD_FLAGS test-stack-traces

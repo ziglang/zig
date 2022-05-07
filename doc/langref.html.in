@@ -1040,7 +1040,7 @@ fn addOne(number: i32) i32 {
       </p>
       <aside>
         This documentation discusses the features of the default test runner as provided by the Zig Standard Library.
-        Its source code is located in <code class="file">lib/std/special/test_runner.zig</code>.
+        Its source code is located in <code class="file">lib/test_runner.zig</code>.
       </aside>
       <p>
         The shell output shown above displays two lines after the <kbd>zig test</kbd> command. These lines are

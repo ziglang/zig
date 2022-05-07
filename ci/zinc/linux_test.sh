@@ -69,7 +69,7 @@ stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target  x86_64-macos --
 $ZIG build test-behavior         -fqemu -fwasmtime
 $ZIG build test-compiler-rt      -fqemu -fwasmtime
 $ZIG build test-std              -fqemu -fwasmtime
-$ZIG build test-minilibc         -fqemu -fwasmtime
+$ZIG build test-universal-libc   -fqemu -fwasmtime
 $ZIG build test-compare-output   -fqemu -fwasmtime
 $ZIG build test-standalone       -fqemu -fwasmtime
 $ZIG build test-stack-traces     -fqemu -fwasmtime

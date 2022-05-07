@@ -229,7 +229,7 @@ pub const Builder = struct {
         self.allocator.destroy(self);
     }
 
-    /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
+    /// This function is intended to be called by lib/build_runner.zig, not a build.zig file.
     pub fn resolveInstallPrefix(self: *Builder, install_prefix: ?[]const u8, dir_list: DirList) void {
         if (self.dest_dir) |dest_dir| {
             self.install_prefix = install_prefix orelse "/usr";

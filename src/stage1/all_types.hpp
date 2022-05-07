@@ -2144,7 +2144,6 @@ struct CodeGen {
     Buf docs_output_path;
 
     Buf *builtin_zig_path;
-    Buf *zig_std_special_dir; // Cannot be overridden; derived from zig_lib_dir.
 
     Stage1ZirInst *invalid_inst_src;
     Stage1AirInst *invalid_inst_gen;
