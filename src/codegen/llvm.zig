@@ -4234,36 +4234,103 @@ pub const FuncGen = struct {
             return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.air.typeOf(ty_op.operand);
         const operand_scalar_ty = operand_ty.scalarType();
-        const dest_ty = self.air.typeOfIndex(inst);
-        const dest_llvm_ty = try self.dg.llvmType(dest_ty);
 
-        if (operand_scalar_ty.isSignedInt()) {
-            return self.builder.buildSIToFP(operand, dest_llvm_ty, "");
-        } else {
-            return self.builder.buildUIToFP(operand, dest_llvm_ty, "");
+        const dest_ty = self.air.typeOfIndex(inst);
+        const dest_scalar_ty = dest_ty.scalarType();
+        const dest_llvm_ty = try self.dg.llvmType(dest_ty);
+        const target = self.dg.module.getTarget();
+
+        if (intrinsicsAllowed(dest_scalar_ty, target)) {
+            if (operand_scalar_ty.isSignedInt()) {
+                return self.builder.buildSIToFP(operand, dest_llvm_ty, "");
+            } else {
+                return self.builder.buildUIToFP(operand, dest_llvm_ty, "");
+            }
         }
+
+        const operand_bits = @intCast(u16, operand_scalar_ty.bitSize(target));
+        const rt_int_bits = compilerRtIntBits(operand_bits);
+        const rt_int_ty = self.context.intType(rt_int_bits);
+        const extended = e: {
+            if (operand_scalar_ty.isSignedInt()) {
+                break :e self.builder.buildSExtOrBitCast(operand, rt_int_ty, "");
+            } else {
+                break :e self.builder.buildZExtOrBitCast(operand, rt_int_ty, "");
+            }
+        };
+        const dest_bits = dest_scalar_ty.floatBits(target);
+        const compiler_rt_operand_abbrev = compilerRtIntAbbrev(rt_int_bits);
+        const compiler_rt_dest_abbrev = compilerRtFloatAbbrev(dest_bits);
+        const sign_prefix = if (operand_scalar_ty.isSignedInt()) "" else "un";
+        var fn_name_buf: [64]u8 = undefined;
+        const fn_name = std.fmt.bufPrintZ(&fn_name_buf, "__float{s}{s}i{s}f", .{
+            sign_prefix,
+            compiler_rt_operand_abbrev,
+            compiler_rt_dest_abbrev,
+        }) catch unreachable;
+        const param_types = [1]*const llvm.Type{rt_int_ty};
+        const libc_fn = self.getLibcFunction(fn_name, &param_types, dest_llvm_ty);
+        const params = [1]*const llvm.Value{extended};
+
+        return self.builder.buildCall(libc_fn, &params, params.len, .C, .Auto, "");
     }
 
     fn airFloatToInt(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
 
+        const target = self.dg.module.getTarget();
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+
         const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const operand_scalar_ty = operand_ty.scalarType();
+
         const dest_ty = self.air.typeOfIndex(inst);
         const dest_scalar_ty = dest_ty.scalarType();
         const dest_llvm_ty = try self.dg.llvmType(dest_ty);
 
-        // TODO set fast math flag
-
-        if (dest_scalar_ty.isSignedInt()) {
-            return self.builder.buildFPToSI(operand, dest_llvm_ty, "");
-        } else {
-            return self.builder.buildFPToUI(operand, dest_llvm_ty, "");
+        if (intrinsicsAllowed(operand_scalar_ty, target)) {
+            // TODO set fast math flag
+            if (dest_scalar_ty.isSignedInt()) {
+                return self.builder.buildFPToSI(operand, dest_llvm_ty, "");
+            } else {
+                return self.builder.buildFPToUI(operand, dest_llvm_ty, "");
+            }
         }
+
+        const rt_int_bits = compilerRtIntBits(@intCast(u16, dest_scalar_ty.bitSize(target)));
+        const libc_ret_ty = self.context.intType(rt_int_bits);
+
+        const operand_bits = operand_scalar_ty.floatBits(target);
+        const compiler_rt_operand_abbrev = compilerRtFloatAbbrev(operand_bits);
+
+        const compiler_rt_dest_abbrev = compilerRtIntAbbrev(rt_int_bits);
+        const sign_prefix = if (dest_scalar_ty.isSignedInt()) "" else "un";
+
+        var fn_name_buf: [64]u8 = undefined;
+        const fn_name = std.fmt.bufPrintZ(&fn_name_buf, "__fix{s}{s}f{s}i", .{
+            sign_prefix,
+            compiler_rt_operand_abbrev,
+            compiler_rt_dest_abbrev,
+        }) catch unreachable;
+
+        const operand_llvm_ty = try self.dg.llvmType(operand_ty);
+        const param_types = [1]*const llvm.Type{operand_llvm_ty};
+        const libc_fn = self.getLibcFunction(fn_name, &param_types, libc_ret_ty);
+        const params = [1]*const llvm.Value{operand};
+
+        const result = self.builder.buildCall(libc_fn, &params, params.len, .C, .Auto, "");
+
+        if (libc_ret_ty == dest_llvm_ty) {
+            return result;
+        }
+
+        return self.builder.buildTrunc(result, dest_llvm_ty, "");
     }
 
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {
@@ -5612,6 +5679,16 @@ pub const FuncGen = struct {
             80 => "x",
             128 => "t",
             else => unreachable,
+        };
+    }
+
+    fn compilerRtIntAbbrev(bits: u16) []const u8 {
+        return switch (bits) {
+            16 => "h",
+            32 => "s",
+            64 => "d",
+            128 => "t",
+            else => "o", // Non-standard
         };
     }
 
@@ -8312,4 +8389,13 @@ fn needDbgVarWorkaround(dg: *DeclGen, ty: Type) bool {
         }
     }
     return false;
+}
+
+fn compilerRtIntBits(bits: u16) u16 {
+    inline for (.{ 8, 16, 32, 64, 128 }) |b| {
+        if (bits <= b) {
+            return b;
+        }
+    }
+    return bits;
 }

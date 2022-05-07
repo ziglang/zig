@@ -392,8 +392,9 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     // Adhoc code signature is required when targeting aarch64-macos either directly or indirectly via the simulator
     // ABI such as aarch64-ios-simulator, etc.
     const requires_adhoc_codesig = cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator);
+    const use_llvm = build_options.have_llvm and options.use_llvm;
     const use_stage1 = build_options.is_stage1 and options.use_stage1;
-    const needs_prealloc = !(use_stage1 or options.cache_mode == .whole);
+    const needs_prealloc = !(use_stage1 or use_llvm or options.cache_mode == .whole);
 
     const self = try gpa.create(MachO);
     errdefer gpa.destroy(self);
@@ -410,7 +411,6 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
         .needs_prealloc = needs_prealloc,
     };
 
-    const use_llvm = build_options.have_llvm and options.use_llvm;
     if (use_llvm and !use_stage1) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
@@ -519,7 +519,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     var needs_full_relink = true;
 
     cache: {
-        if (use_stage1 and self.base.options.disable_lld_caching) break :cache;
+        if ((use_stage1 and self.base.options.disable_lld_caching) or self.base.options.cache_mode == .whole)
+            break :cache;
 
         man = comp.cache_parent.obtain();
 
@@ -571,7 +572,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         if (mem.eql(u8, prev_digest, &digest)) {
             // Hot diggity dog! The output binary is already there.
 
-            if (use_stage1) {
+            const use_llvm = build_options.have_llvm and self.base.options.use_llvm;
+            if (use_llvm or use_stage1) {
                 log.debug("MachO Zld digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
                 self.base.lock = man.toOwnedLock();
                 return;
@@ -1025,7 +1027,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try self.createTentativeDefAtoms();
         try self.parseObjectsIntoAtoms();
 
-        if (use_stage1) {
+        const use_llvm = build_options.have_llvm and self.base.options.use_llvm;
+        if (use_llvm or use_stage1) {
             try self.sortSections();
             try self.allocateTextSegment();
             try self.allocateDataConstSegment();
@@ -1041,7 +1044,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
             self.logSectionOrdinals();
         }
 
-        if (use_stage1) {
+        if (use_llvm or use_stage1) {
             try self.writeAllAtoms();
         } else {
             try self.writeAtoms();
@@ -1097,7 +1100,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     }
 
     cache: {
-        if (use_stage1 and self.base.options.disable_lld_caching) break :cache;
+        if ((use_stage1 and self.base.options.disable_lld_caching) or self.base.options.cache_mode == .whole)
+            break :cache;
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(cache_dir_handle, id_symlink_basename, &digest) catch |err| {
@@ -4930,12 +4934,13 @@ fn allocateSegment(self: *MachO, index: u16, offset: u64) !void {
     var start: u64 = offset;
     for (seg.sections.items) |*sect, sect_id| {
         const is_zerofill = sect.flags == macho.S_ZEROFILL or sect.flags == macho.S_THREAD_LOCAL_ZEROFILL;
+        const use_llvm = build_options.have_llvm and self.base.options.use_llvm;
         const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
         const alignment = try math.powi(u32, 2, sect.@"align");
         const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
 
         // TODO handle zerofill sections in stage2
-        sect.offset = if (is_zerofill and use_stage1) 0 else @intCast(u32, seg.inner.fileoff + start_aligned);
+        sect.offset = if (is_zerofill and (use_stage1 or use_llvm)) 0 else @intCast(u32, seg.inner.fileoff + start_aligned);
         sect.addr = seg.inner.vmaddr + start_aligned;
 
         // Recalculate section size given the allocated start address
@@ -4963,7 +4968,7 @@ fn allocateSegment(self: *MachO, index: u16, offset: u64) !void {
 
         start = start_aligned + sect.size;
 
-        if (!(is_zerofill and use_stage1)) {
+        if (!(is_zerofill and (use_stage1 or use_llvm))) {
             seg.inner.filesize = start;
         }
         seg.inner.vmsize = start;
@@ -5012,10 +5017,11 @@ fn initSection(
         sect.addr = seg.inner.vmaddr + off - seg.inner.fileoff;
 
         const is_zerofill = opts.flags == macho.S_ZEROFILL or opts.flags == macho.S_THREAD_LOCAL_ZEROFILL;
+        const use_llvm = build_options.have_llvm and self.base.options.use_llvm;
         const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
 
         // TODO handle zerofill in stage2
-        if (!(is_zerofill and use_stage1)) {
+        if (!(is_zerofill and (use_stage1 or use_llvm))) {
             sect.offset = @intCast(u32, off);
         }
     }

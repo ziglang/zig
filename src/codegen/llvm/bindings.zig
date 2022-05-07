@@ -476,6 +476,14 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
+    pub const buildSExtOrBitCast = LLVMBuildSExtOrBitCast;
+    extern fn LLVMBuildSExtOrBitCast(
+        *const Builder,
+        Val: *const Value,
+        DestTy: *const Type,
+        Name: [*:0]const u8,
+    ) *const Value;
+
     pub const buildCall = ZigLLVMBuildCall;
     extern fn ZigLLVMBuildCall(
         *const Builder,

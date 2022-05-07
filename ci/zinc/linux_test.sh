@@ -48,25 +48,19 @@ cd $WORKSPACE
 $ZIG fmt --check . --exclude test/cases/
 
 # Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
-$ZIG             build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+$ZIG           build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 
 # Ensure that stage2 can build itself.
-./stage2/bin/zig build -p stage3 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage2/bin/zig build -p stage3 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage2/bin/zig build # test building self-hosted without LLVM
+stage2/bin/zig build -Dtarget=arm-linux-musleabihf # test building self-hosted for 32-bit arm
 
-stage2/bin/zig test test/behavior.zig -I test -fLLVM
-stage2/bin/zig test test/behavior.zig -I test -fno-LLVM
-stage2/bin/zig test test/behavior.zig -I test -fLLVM    -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
-stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target aarch64-linux --test-cmd qemu-aarch64 --test-cmd-bin
-stage2/bin/zig test test/behavior.zig -I test -ofmt=c
-stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target  wasm32-wasi  --test-cmd wasmtime     --test-cmd-bin
-stage2/bin/zig test test/behavior.zig -I test -fLLVM    -target  wasm32-wasi  --test-cmd wasmtime     --test-cmd-bin
-stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target     arm-linux --test-cmd qemu-arm     --test-cmd-bin
-stage2/bin/zig test test/behavior.zig -I test -fLLVM    -target aarch64-macos --test-no-exec
-stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target aarch64-macos --test-no-exec
-stage2/bin/zig test test/behavior.zig -I test -fLLVM    -target  x86_64-macos --test-no-exec
-stage2/bin/zig test test/behavior.zig -I test -fno-LLVM -target  x86_64-macos --test-no-exec
+# Here we use stage2 instead of stage3 because of two bugs remaining:
+# * https://github.com/ziglang/zig/issues/11367 (and corresponding workaround in compiler source)
+# * https://github.com/ziglang/zig/pull/11492#issuecomment-1112871321
+stage2/bin/zig build test-behavior -fqemu -fwasmtime
 
-$ZIG build test-behavior         -fqemu -fwasmtime
+$ZIG build test-behavior         -fqemu -fwasmtime -Domit-stage2
 $ZIG build test-compiler-rt      -fqemu -fwasmtime
 $ZIG build test-std              -fqemu -fwasmtime
 $ZIG build test-minilibc         -fqemu -fwasmtime
@@ -79,8 +73,6 @@ $ZIG build test-runtime-safety   -fqemu -fwasmtime
 $ZIG build test-translate-c      -fqemu -fwasmtime
 $ZIG build test-run-translated-c -fqemu -fwasmtime
 $ZIG build docs                  -fqemu -fwasmtime
-$ZIG build # test building self-hosted without LLVM
-$ZIG build -Dtarget=arm-linux-musleabihf # test building self-hosted for 32-bit arm
 $ZIG build test-fmt              -fqemu -fwasmtime
 $ZIG build test-stage2           -fqemu -fwasmtime
 

@@ -445,6 +445,9 @@ pub fn build(b: *Builder) !void {
         false, // skip_single_threaded
         skip_non_native,
         skip_libc,
+        skip_stage1,
+        omit_stage2,
+        is_stage1,
     ));
 
     toolchain_step.dependOn(tests.addPkgTests(
@@ -457,6 +460,9 @@ pub fn build(b: *Builder) !void {
         true, // skip_single_threaded
         skip_non_native,
         true, // skip_libc
+        skip_stage1,
+        omit_stage2 or true, // TODO get these all passing
+        is_stage1,
     ));
 
     toolchain_step.dependOn(tests.addPkgTests(
@@ -469,6 +475,9 @@ pub fn build(b: *Builder) !void {
         true, // skip_single_threaded
         skip_non_native,
         true, // skip_libc
+        skip_stage1,
+        omit_stage2 or true, // TODO get these all passing
+        is_stage1,
     ));
 
     toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
@@ -494,6 +503,9 @@ pub fn build(b: *Builder) !void {
         false,
         skip_non_native,
         skip_libc,
+        skip_stage1,
+        omit_stage2 or true, // TODO get these all passing
+        is_stage1,
     );
 
     const test_step = b.step("test", "Run all the tests");

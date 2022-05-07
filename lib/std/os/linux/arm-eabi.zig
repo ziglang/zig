@@ -99,7 +99,10 @@ pub fn syscall6(
 
 /// This matches the libc clone function.
 pub extern fn clone(
-    func: fn (arg: usize) callconv(.C) u8,
+    func: switch (@import("builtin").zig_backend) {
+        .stage1 => fn (arg: usize) callconv(.C) u8,
+        else => *const fn (arg: usize) callconv(.C) u8,
+    },
     stack: usize,
     flags: u32,
     arg: usize,

@@ -112,6 +112,42 @@ test "@intToFloat" {
     comptime try S.doTheTest();
 }
 
+test "@intToFloat(f80)" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest(comptime Int: type) !void {
+            try testIntToFloat(Int, -2);
+        }
+
+        fn testIntToFloat(comptime Int: type, k: Int) !void {
+            const f = @intToFloat(f80, k);
+            const i = @floatToInt(Int, f);
+            try expect(i == k);
+        }
+    };
+    try S.doTheTest(i31);
+    try S.doTheTest(i32);
+    try S.doTheTest(i45);
+    try S.doTheTest(i64);
+    try S.doTheTest(i80);
+    try S.doTheTest(i128);
+    // try S.doTheTest(i256); // TODO missing compiler_rt symbols
+    comptime try S.doTheTest(i31);
+    comptime try S.doTheTest(i32);
+    comptime try S.doTheTest(i45);
+    comptime try S.doTheTest(i64);
+    comptime try S.doTheTest(i80);
+    comptime try S.doTheTest(i128);
+    comptime try S.doTheTest(i256);
+}
+
 test "@floatToInt" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
