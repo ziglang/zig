@@ -1377,8 +1377,7 @@ fn airMul(self: *Self, inst: Air.Inst.Index) !void {
         // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
         try self.register_manager.getReg(.rax, inst);
         try self.register_manager.getReg(.rdx, null);
-        var reg_locks: [2]RegisterLock = undefined;
-        self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx }, &reg_locks);
+        const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
         defer for (reg_locks) |reg| {
             self.register_manager.unlockReg(reg);
         };
@@ -1495,8 +1494,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
                     try self.register_manager.getReg(.rax, inst);
                     try self.register_manager.getReg(.rdx, null);
-                    var reg_locks: [2]RegisterLock = undefined;
-                    self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx }, &reg_locks);
+                    const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
                     defer for (reg_locks) |reg| {
                         self.register_manager.unlockReg(reg);
                     };
@@ -1556,8 +1554,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
                             try self.register_manager.getReg(.rax, null);
                             try self.register_manager.getReg(.rdx, null);
-                            var reg_locks: [2]RegisterLock = undefined;
-                            self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx }, &reg_locks);
+                            const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
                             defer for (reg_locks) |reg| {
                                 self.register_manager.unlockReg(reg);
                             };
@@ -1586,8 +1583,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 };
 
                 const temp_regs = try self.register_manager.allocRegs(3, .{ null, null, null });
-                var temp_regs_locks: [3]RegisterLock = undefined;
-                self.register_manager.lockRegsAssumeUnused(3, temp_regs, &temp_regs_locks);
+                const temp_regs_locks = self.register_manager.lockRegsAssumeUnused(3, temp_regs);
                 defer for (temp_regs_locks) |reg| {
                     self.register_manager.unlockReg(reg);
                 };
@@ -1819,8 +1815,7 @@ fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
     };
     try self.register_manager.getReg(.rax, track_rax);
     try self.register_manager.getReg(.rdx, null);
-    var reg_locks: [2]RegisterLock = undefined;
-    self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx }, &reg_locks);
+    const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
     defer for (reg_locks) |reg| {
         self.register_manager.unlockReg(reg);
     };
@@ -1893,8 +1888,7 @@ fn airRem(self: *Self, inst: Air.Inst.Index) !void {
     // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
     try self.register_manager.getReg(.rax, null);
     try self.register_manager.getReg(.rdx, inst);
-    var reg_locks: [2]RegisterLock = undefined;
-    self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx }, &reg_locks);
+    const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
     defer for (reg_locks) |reg| {
         self.register_manager.unlockReg(reg);
     };
@@ -1929,8 +1923,7 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
     try self.register_manager.getReg(.rax, null);
     try self.register_manager.getReg(.rdx, if (signedness == .unsigned) inst else null);
-    var reg_locks: [2]RegisterLock = undefined;
-    self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx }, &reg_locks);
+    const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
     defer for (reg_locks) |reg| {
         self.register_manager.unlockReg(reg);
     };
@@ -5552,8 +5545,7 @@ fn genInlineMemcpy(
     try self.register_manager.getReg(.rax, null);
     try self.register_manager.getReg(.rcx, null);
 
-    var reg_locks: [2]RegisterLock = undefined;
-    self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rcx }, &reg_locks);
+    const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rcx });
     defer for (reg_locks) |lock| {
         self.register_manager.unlockReg(lock);
     };

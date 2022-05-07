@@ -151,11 +151,12 @@ pub fn RegisterManager(
             self: *Self,
             comptime count: comptime_int,
             regs: [count]Register,
-            buf: *[count]RegisterLock,
-        ) void {
+        ) [count]RegisterLock {
+            var buf: [count]RegisterLock = undefined;
             for (regs) |reg, i| {
                 buf[i] = self.lockRegAssumeUnused(reg);
             }
+            return buf;
         }
 
         /// Unlocks the register allowing its re-allocation and re-use.

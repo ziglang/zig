@@ -1548,8 +1548,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
 
                     const dest_regs = try self.register_manager.allocRegs(2, .{ null, null });
-                    var dest_regs_locks: [2]RegisterLock = undefined;
-                    self.register_manager.lockRegsAssumeUnused(2, dest_regs, &dest_regs_locks);
+                    const dest_regs_locks = self.register_manager.lockRegsAssumeUnused(2, dest_regs);
                     defer for (dest_regs_locks) |reg| {
                         self.register_manager.unlockReg(reg);
                     };
@@ -2181,8 +2180,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                     } else {
                         // TODO optimize the register allocation
                         const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null });
-                        var regs_locks: [4]RegisterLock = undefined;
-                        self.register_manager.lockRegsAssumeUnused(4, regs, &regs_locks);
+                        const regs_locks = self.register_manager.lockRegsAssumeUnused(4, regs);
                         defer for (regs_locks) |reg_locked| {
                             self.register_manager.unlockReg(reg_locked);
                         };
@@ -2285,8 +2283,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                     } else {
                         const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null });
-                        var regs_locks: [4]RegisterLock = undefined;
-                        self.register_manager.lockRegsAssumeUnused(4, regs, &regs_locks);
+                        const regs_locks = self.register_manager.lockRegsAssumeUnused(4, regs);
                         defer for (regs_locks) |reg| {
                             self.register_manager.unlockReg(reg);
                         };

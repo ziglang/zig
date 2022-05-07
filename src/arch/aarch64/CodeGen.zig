@@ -2627,8 +2627,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                     } else {
                         // TODO optimize the register allocation
                         const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null });
-                        var regs_locks: [4]RegisterLock = undefined;
-                        self.register_manager.lockRegsAssumeUnused(4, regs, &regs_locks);
+                        const regs_locks = self.register_manager.lockRegsAssumeUnused(4, regs);
                         defer for (regs_locks) |reg| {
                             self.register_manager.unlockReg(reg);
                         };
@@ -4065,8 +4064,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 
                 // TODO call extern memcpy
                 const regs = try self.register_manager.allocRegs(5, .{ null, null, null, null, null });
-                var regs_locks: [5]RegisterLock = undefined;
-                self.register_manager.lockRegsAssumeUnused(5, regs, &regs_locks);
+                const regs_locks = self.register_manager.lockRegsAssumeUnused(5, regs);
                 defer for (regs_locks) |reg| {
                     self.register_manager.unlockReg(reg);
                 };
