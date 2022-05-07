@@ -211,6 +211,16 @@ pub const MCValue = union(enum) {
             else => false,
         };
     }
+
+    fn asRegister(mcv: MCValue) ?Register {
+        return switch (mcv) {
+            .register,
+            .register_overflow_unsigned,
+            .register_overflow_signed,
+            => |reg| reg,
+            else => null,
+        };
+    }
 };
 
 const Branch = struct {
@@ -842,20 +852,15 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
 
-        switch (result) {
-            .register,
-            .register_overflow_signed,
-            .register_overflow_unsigned,
-            => |reg| {
-                // In some cases (such as bitcast), an operand
-                // may be the same MCValue as the result. If
-                // that operand died and was a register, it
-                // was freed by processDeath. We have to
-                // "re-allocate" the register.
-                if (self.register_manager.isRegFree(reg)) {
-                    self.register_manager.getRegAssumeFree(reg, inst);
-                }
-            },
+        if (result.asRegister()) |reg| {
+            // In some cases (such as bitcast), an operand
+            // may be the same MCValue as the result. If
+            // that operand died and was a register, it
+            // was freed by processDeath. We have to
+            // "re-allocate" the register.
+            if (self.register_manager.isRegFree(reg)) {
+                self.register_manager.getRegAssumeFree(reg, inst);
+            }
         }
     }
     self.finishAirBookkeeping();
@@ -4011,12 +4016,6 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
     const ret_ty = self.fn_type.fnReturnType();
     switch (self.ret_mcv) {
         .stack_offset => {
-            var reg_locks: [2]RegisterLock = undefined;
-            self.register_manager.freezeRegsAssumeUnused(2, .{ .rax, .rcx }, &reg_locks);
-            defer for (reg_locks) |reg| {
-                self.register_manager.unfreezeReg(reg);
-            };
-
             const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
             const reg_lock = self.register_manager.freezeRegAssumeUnused(reg);
             defer self.register_manager.unfreezeReg(reg_lock);
@@ -4051,12 +4050,6 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const elem_ty = ptr_ty.elemType();
     switch (self.ret_mcv) {
         .stack_offset => {
-            var reg_locks: [2]RegisterLock = undefined;
-            self.register_manager.freezeRegsAssumeUnused(2, .{ .rax, .rcx }, &reg_locks);
-            defer for (reg_locks) |reg| {
-                self.register_manager.unfreezeReg(reg);
-            };
-
             const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
             const reg_lock = self.register_manager.freezeRegAssumeUnused(reg);
             defer self.register_manager.unfreezeReg(reg_lock);

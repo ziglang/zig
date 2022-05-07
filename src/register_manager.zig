@@ -127,7 +127,11 @@ pub fn RegisterManager(
         /// Only the owner of the `RegisterLock` can unfreeze the
         /// register later.
         pub fn freezeReg(self: *Self, reg: Register) ?RegisterLock {
-            if (self.isRegFrozen(reg)) return null;
+            log.debug("freezing {}", .{reg});
+            if (self.isRegFrozen(reg)) {
+                log.debug("  register already locked", .{});
+                return null;
+            }
             const mask = getRegisterMask(reg) orelse return null;
             self.frozen_registers |= mask;
             return RegisterLock{ .register = reg };
@@ -136,6 +140,7 @@ pub fn RegisterManager(
         /// Like `freezeReg` but asserts the register was unused always
         /// returning a valid lock.
         pub fn freezeRegAssumeUnused(self: *Self, reg: Register) RegisterLock {
+            log.debug("freezing asserting free {}", .{reg});
             assert(!self.isRegFrozen(reg));
             const mask = getRegisterMask(reg) orelse unreachable;
             self.frozen_registers |= mask;
@@ -158,6 +163,7 @@ pub fn RegisterManager(
         /// Requires `RegisterLock` to unfreeze a register.
         /// Call `freezeReg` to obtain the lock first.
         pub fn unfreezeReg(self: *Self, lock: RegisterLock) void {
+            log.debug("unfreezing {}", .{lock.register});
             const mask = getRegisterMask(lock.register) orelse return;
             self.frozen_registers &= ~mask;
         }
