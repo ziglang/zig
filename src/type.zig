@@ -5952,6 +5952,7 @@ pub const Type = extern union {
     pub const @"u64" = initTag(.u64);
 
     pub const @"i32" = initTag(.i32);
+    pub const @"i64" = initTag(.i64);
 
     pub const @"f16" = initTag(.f16);
     pub const @"f32" = initTag(.f32);

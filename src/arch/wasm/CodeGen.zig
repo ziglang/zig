@@ -1818,11 +1818,11 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
         try self.emitWValue(rhs);
     }
     const valtype = typeToValtype(ty, self.target);
-    const abi_size = @intCast(u8, ty.bitSize(self.target));
+    const abi_size = @intCast(u8, ty.abiSize(self.target));
 
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
-        .width = abi_size * 8, // use bitsize instead of byte size
+        .width = abi_size * 8,
         .op = .store,
     });
 
@@ -1853,10 +1853,10 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     // load local's value from memory by its stack position
     try self.emitWValue(operand);
 
-    const abi_size = @intCast(u8, ty.bitSize(self.target));
+    const abi_size = @intCast(u8, ty.abiSize(self.target));
     const opcode = buildOpcode(.{
         .valtype1 = typeToValtype(ty, self.target),
-        .width = abi_size * 8, // use bitsize instead of byte size
+        .width = abi_size * 8,
         .op = .load,
         .signedness = .unsigned,
     });
@@ -2106,7 +2106,7 @@ fn lowerDeclRefValue(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index)
 /// Converts a signed integer to its 2's complement form and returns
 /// an unsigned integer instead.
 /// Asserts bitsize <= 64
-fn convertTo2Complement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(@TypeOf(value)).Int.bits) {
+fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(@TypeOf(value)).Int.bits) {
     const T = @TypeOf(value);
     comptime assert(@typeInfo(T) == .Int);
     comptime assert(@typeInfo(T).Int.signedness == .signed);
@@ -2137,7 +2137,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             const int_info = ty.intInfo(self.target);
             switch (int_info.signedness) {
                 .signed => switch (int_info.bits) {
-                    0...32 => return WValue{ .imm32 = @intCast(u32, convertTo2Complement(
+                    0...32 => return WValue{ .imm32 = @intCast(u32, toTwosComplement(
                         val.toSignedInt(),
                         @intCast(u6, int_info.bits),
                     )) },
@@ -2856,29 +2856,36 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty = self.air.getRefType(ty_op.ty);
     const operand = try self.resolveInst(ty_op.operand);
     const ref_ty = self.air.typeOf(ty_op.operand);
-    const ref_info = ref_ty.intInfo(self.target);
-    const wanted_info = ty.intInfo(self.target);
+    if (ty.abiSize(self.target) > 8 or ref_ty.abiSize(self.target) > 8) {
+        return self.fail("todo Wasm intcast for bitsize > 64", .{});
+    }
+    return self.intcast(operand, ty, ref_ty);
+}
 
-    const op_bits = toWasmBits(ref_info.bits) orelse
-        return self.fail("TODO: Wasm intcast integer types of bitsize: {d}", .{ref_info.bits});
-    const wanted_bits = toWasmBits(wanted_info.bits) orelse
-        return self.fail("TODO: Wasm intcast integer types of bitsize: {d}", .{wanted_info.bits});
+/// Upcasts or downcasts an integer based on the given and wanted types,
+/// and stores the result in a new operand.
+/// Asserts type's bitsize <= 64
+fn intcast(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
+    const given_info = given.intInfo(self.target);
+    const wanted_info = wanted.intInfo(self.target);
+    assert(given_info.bits <= 64);
+    assert(wanted_info.bits <= 64);
 
-    // hot path
+    const op_bits = toWasmBits(given_info.bits).?;
+    const wanted_bits = toWasmBits(wanted_info.bits).?;
     if (op_bits == wanted_bits) return operand;
 
+    try self.emitWValue(operand);
     if (op_bits > 32 and wanted_bits == 32) {
-        try self.emitWValue(operand);
         try self.addTag(.i32_wrap_i64);
     } else if (op_bits == 32 and wanted_bits > 32) {
-        try self.emitWValue(operand);
-        try self.addTag(switch (ref_info.signedness) {
+        try self.addTag(switch (wanted_info.signedness) {
             .signed => .i64_extend_i32_s,
             .unsigned => .i64_extend_i32_u,
         });
     } else unreachable;
 
-    const result = try self.allocLocal(ty);
+    const result = try self.allocLocal(wanted);
     try self.addLabel(.local_set, result.local);
     return result;
 }
@@ -3983,7 +3990,7 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
         const cmp_res = try self.cmp(lhs, rhs, lhs_ty, .lt);
         try self.emitWValue(cmp_res);
         try self.addLabel(.local_set, overflow_bit.local);
-    } else if (int_info.signedness == .signed and op != .shl) {
+    } else if (int_info.signedness == .signed and op != .shl and op != .mul) {
         // for overflow, we first check if lhs is > 0 (or lhs < 0 in case of subtraction). If not, we will not overflow.
         // We first create an outer block, where we handle overflow.
         // Then we create an inner block, where underflow is handled.
@@ -4032,9 +4039,36 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
         try self.addLabel(.local_set, tmp_val.local);
         break :blk tmp_val;
     } else if (op == .mul) blk: {
-        if (int_info.signedness == .signed) {
-            const shift_val = convertTo2Complement(-@intCast(i17, int_info.bits), @intCast(u7, int_info.bits));
-            const shift_imm = if (wasm_bits == 32) WValue{ .imm32 = shift_val } else WValue{ .imm64 = shift_val };
+        // for 32 & 64 bitsize we calculate overflow
+        // differently.
+        if (int_info.bits == 32) {
+            const new_ty = if (int_info.signedness == .signed) Type.i64 else Type.u64;
+            const lhs_upcast = try self.intcast(lhs, lhs_ty, new_ty);
+            const rhs_upcast = try self.intcast(rhs, lhs_ty, new_ty);
+            const bin_op = try self.binOp(lhs_upcast, rhs_upcast, new_ty, op);
+            if (int_info.signedness == .unsigned) {
+                const shr = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
+                const wrap = try self.intcast(shr, new_ty, lhs_ty);
+                const cmp_res = try self.cmp(wrap, zero, lhs_ty, .neq);
+                try self.emitWValue(cmp_res);
+                try self.addLabel(.local_set, overflow_bit.local);
+                break :blk try self.intcast(bin_op, new_ty, lhs_ty);
+            } else {
+                const down_cast = try self.intcast(bin_op, new_ty, lhs_ty);
+                const shr = try self.binOp(down_cast, .{ .imm32 = int_info.bits - 1 }, lhs_ty, .shr);
+
+                const shr_res = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
+                const down_shr_res = try self.intcast(shr_res, new_ty, lhs_ty);
+                const cmp_res = try self.cmp(down_shr_res, shr, lhs_ty, .neq);
+                try self.emitWValue(cmp_res);
+                try self.addLabel(.local_set, overflow_bit.local);
+                break :blk down_cast;
+            }
+        } else if (int_info.signedness == .signed) {
+            const shift_imm = if (wasm_bits == 32)
+                WValue{ .imm32 = wasm_bits - int_info.bits }
+            else
+                WValue{ .imm64 = wasm_bits - int_info.bits };
 
             const lhs_shl = try self.binOp(lhs, shift_imm, lhs_ty, .shl);
             const lhs_shr = try self.binOp(lhs_shl, shift_imm, lhs_ty, .shr);
@@ -4051,8 +4085,10 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
             break :blk try self.wrapOperand(bin_op, lhs_ty);
         } else {
             const bin_op = try self.binOp(lhs, rhs, lhs_ty, op);
-            const shift_imm = if (wasm_bits == 32) WValue{ .imm32 = int_info.bits } else WValue{ .imm64 = int_info.bits };
-            // const zero = if (wasm_bits == 32) WValue{ .imm32 = 0 } else WValue{ .imm64 = 0 };
+            const shift_imm = if (wasm_bits == 32)
+                WValue{ .imm32 = int_info.bits }
+            else
+                WValue{ .imm64 = int_info.bits };
             const shr = try self.binOp(bin_op, shift_imm, lhs_ty, .shr);
             const cmp_op = try self.cmp(shr, zero, lhs_ty, .neq);
             try self.emitWValue(cmp_op);
