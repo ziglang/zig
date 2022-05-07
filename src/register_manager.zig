@@ -153,7 +153,7 @@ pub fn RegisterManager(
             regs: [count]Register,
             buf: *[count]RegisterLock,
         ) void {
-            for (&regs) |reg, i| {
+            for (regs) |reg, i| {
                 buf[i] = self.lockRegAssumeUnused(reg);
             }
         }
