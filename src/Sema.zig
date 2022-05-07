@@ -18073,6 +18073,7 @@ fn elemValSlice(
         const is_in_bounds = try block.addBinOp(cmp_op, elem_index, len_inst);
         try sema.addSafetyCheck(block, is_in_bounds, .index_out_of_bounds);
     }
+    try sema.queueFullTypeResolution(sema.typeOf(slice));
     return block.addBinOp(.slice_elem_val, slice, elem_index);
 }
 

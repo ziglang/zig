@@ -112,7 +112,7 @@ global_error_set: std.StringHashMapUnmanaged(ErrorInt) = .{},
 
 /// ErrorInt -> []const u8 for fast lookups for @intToError at comptime
 /// Corresponds with `global_error_set`.
-error_name_list: ArrayListUnmanaged([]const u8) = .{},
+error_name_list: ArrayListUnmanaged([]const u8),
 
 /// Incrementing integer used to compare against the corresponding Decl
 /// field to determine whether a Decl's status applies to an ongoing update, or a
@@ -130,6 +130,10 @@ stage1_flags: packed struct {
 } = .{},
 
 job_queued_update_builtin_zig: bool = true,
+/// This makes it so that we can run `zig test` on the standard library.
+/// Otherwise, the logic for scanning test decls skips all of them because
+/// `main_pkg != std_pkg`.
+main_pkg_in_std: bool,
 
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
@@ -4528,14 +4532,22 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
                 // test decl with no name. Skip the part where we check against
                 // the test name filter.
                 if (!mod.comp.bin_file.options.is_test) break :blk false;
-                if (decl_pkg != mod.main_pkg) break :blk false;
+                if (decl_pkg != mod.main_pkg) {
+                    if (!mod.main_pkg_in_std) break :blk false;
+                    const std_pkg = mod.main_pkg.table.get("std").?;
+                    if (std_pkg != decl_pkg) break :blk false;
+                }
                 try mod.test_functions.put(gpa, new_decl_index, {});
                 break :blk true;
             },
             else => blk: {
                 if (!is_named_test) break :blk false;
                 if (!mod.comp.bin_file.options.is_test) break :blk false;
-                if (decl_pkg != mod.main_pkg) break :blk false;
+                if (decl_pkg != mod.main_pkg) {
+                    if (!mod.main_pkg_in_std) break :blk false;
+                    const std_pkg = mod.main_pkg.table.get("std").?;
+                    if (std_pkg != decl_pkg) break :blk false;
+                }
                 // TODO check the name against --test-filter
                 try mod.test_functions.put(gpa, new_decl_index, {});
                 break :blk true;

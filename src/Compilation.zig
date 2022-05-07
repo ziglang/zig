@@ -1352,7 +1352,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 const test_pkg = try Package.createWithDir(
                     gpa,
                     options.zig_lib_directory,
-                    "std" ++ std.fs.path.sep_str ++ "special",
+                    null,
                     "test_runner.zig",
                 );
                 errdefer test_pkg.destroy(gpa);
@@ -1381,6 +1381,20 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             try builtin_pkg.add(gpa, "std", std_pkg);
             try builtin_pkg.add(gpa, "builtin", builtin_pkg);
+
+            const main_pkg_in_std = m: {
+                const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                    std_pkg.root_src_directory.path orelse ".",
+                    std.fs.path.dirname(std_pkg.root_src_path) orelse ".",
+                });
+                defer arena.free(std_path);
+                const main_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                    main_pkg.root_src_directory.path orelse ".",
+                    main_pkg.root_src_path,
+                });
+                defer arena.free(main_path);
+                break :m mem.startsWith(u8, main_path, std_path);
+            };
 
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
@@ -1418,14 +1432,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .gpa = gpa,
                 .comp = comp,
                 .main_pkg = main_pkg,
+                .main_pkg_in_std = main_pkg_in_std,
                 .root_pkg = root_pkg,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
-                .error_name_list = try std.ArrayListUnmanaged([]const u8).initCapacity(gpa, 1),
+                .error_name_list = .{},
             };
-            module.error_name_list.appendAssumeCapacity("(no error)");
+            try module.error_name_list.append(gpa, "(no error)");
 
             break :blk module;
         } else blk: {
@@ -4779,18 +4794,9 @@ fn buildOutputFromZig(
     defer tracy_trace.end();
 
     std.debug.assert(output_mode != .Exe);
-    const special_sub = "std" ++ std.fs.path.sep_str ++ "special";
-    const special_path = try comp.zig_lib_directory.join(comp.gpa, &[_][]const u8{special_sub});
-    defer comp.gpa.free(special_path);
-
-    var special_dir = try comp.zig_lib_directory.handle.openDir(special_sub, .{});
-    defer special_dir.close();
 
     var main_pkg: Package = .{
-        .root_src_directory = .{
-            .path = special_path,
-            .handle = special_dir,
-        },
+        .root_src_directory = comp.zig_lib_directory,
         .root_src_path = src_basename,
     };
     defer main_pkg.deinitTable(comp.gpa);

@@ -63,7 +63,7 @@ stage2/bin/zig build test-behavior -fqemu -fwasmtime
 $ZIG build test-behavior         -fqemu -fwasmtime -Domit-stage2
 $ZIG build test-compiler-rt      -fqemu -fwasmtime
 $ZIG build test-std              -fqemu -fwasmtime
-$ZIG build test-minilibc         -fqemu -fwasmtime
+$ZIG build test-universal-libc   -fqemu -fwasmtime
 $ZIG build test-compare-output   -fqemu -fwasmtime
 $ZIG build test-standalone       -fqemu -fwasmtime
 $ZIG build test-stack-traces     -fqemu -fwasmtime

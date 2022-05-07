@@ -453,7 +453,7 @@ pub fn build(b: *Builder) !void {
     toolchain_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
-        "lib/std/special/compiler_rt.zig",
+        "lib/compiler_rt.zig",
         "compiler-rt",
         "Run the compiler_rt tests",
         modes,
@@ -468,9 +468,9 @@ pub fn build(b: *Builder) !void {
     toolchain_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
-        "lib/std/special/c.zig",
-        "minilibc",
-        "Run the mini libc tests",
+        "lib/c.zig",
+        "universal-libc",
+        "Run the universal libc tests",
         modes,
         true, // skip_single_threaded
         skip_non_native,

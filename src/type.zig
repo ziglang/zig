@@ -2394,10 +2394,14 @@ pub const Type = extern union {
                     _ = try sk.sema.typeRequiresComptime(sk.block, sk.src, ty);
                 }
                 switch (struct_obj.requires_comptime) {
-                    .wip => unreachable,
                     .yes => return false,
-                    .no => if (struct_obj.known_non_opv) return true,
+                    .wip, .no => if (struct_obj.known_non_opv) return true,
                     .unknown => {},
+                }
+                if (struct_obj.status == .field_types_wip) {
+                    // In this case, we guess that hasRuntimeBits() for this type is true,
+                    // and then later if our guess was incorrect, we emit a compile error.
+                    return true;
                 }
                 if (sema_kit) |sk| {
                     _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
@@ -2735,6 +2739,12 @@ pub const Type = extern union {
         val: Value,
     };
 
+    const AbiAlignmentAdvancedStrat = union(enum) {
+        eager,
+        lazy: Allocator,
+        sema_kit: Module.WipAnalysis,
+    };
+
     /// If you pass `eager` you will get back `scalar` and assert the type is resolved.
     /// In this case there will be no error, guaranteed.
     /// If you pass `lazy` you may get back `scalar` or `val`.
@@ -2744,11 +2754,7 @@ pub const Type = extern union {
     pub fn abiAlignmentAdvanced(
         ty: Type,
         target: Target,
-        strat: union(enum) {
-            eager,
-            lazy: Allocator,
-            sema_kit: Module.WipAnalysis,
-        },
+        strat: AbiAlignmentAdvancedStrat,
     ) Module.CompileError!AbiAlignmentAdvanced {
         const sema_kit = switch (strat) {
             .sema_kit => |sk| sk,
@@ -2928,21 +2934,24 @@ pub const Type = extern union {
             },
 
             .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
                 if (sema_kit) |sk| {
-                    try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
-                }
-                if (ty.castTag(.@"struct")) |payload| {
-                    const struct_obj = payload.data;
-                    if (!struct_obj.haveLayout()) switch (strat) {
-                        .eager => unreachable, // struct layout not resolved
-                        .sema_kit => unreachable, // handled above
-                        .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
-                    };
-                    if (struct_obj.layout == .Packed) {
-                        var buf: Type.Payload.Bits = undefined;
-                        const int_ty = struct_obj.packedIntegerType(target, &buf);
-                        return AbiAlignmentAdvanced{ .scalar = int_ty.abiAlignment(target) };
+                    if (struct_obj.status == .field_types_wip) {
+                        // We'll guess "pointer-aligned" and if we guess wrong, emit
+                        // a compile error later.
+                        return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
                     }
+                    _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+                }
+                if (!struct_obj.haveFieldTypes()) switch (strat) {
+                    .eager => unreachable, // struct layout not resolved
+                    .sema_kit => unreachable, // handled above
+                    .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                };
+                if (struct_obj.layout == .Packed) {
+                    var buf: Type.Payload.Bits = undefined;
+                    const int_ty = struct_obj.packedIntegerType(target, &buf);
+                    return AbiAlignmentAdvanced{ .scalar = int_ty.abiAlignment(target) };
                 }
 
                 const fields = ty.structFields();
@@ -2950,7 +2959,16 @@ pub const Type = extern union {
                 for (fields.values()) |field| {
                     if (!(try field.ty.hasRuntimeBitsAdvanced(false, sema_kit))) continue;
 
-                    const field_align = field.normalAlignment(target);
+                    const field_align = if (field.abi_align != 0)
+                        field.abi_align
+                    else switch (try field.ty.abiAlignmentAdvanced(target, strat)) {
+                        .scalar => |a| a,
+                        .val => switch (strat) {
+                            .eager => unreachable, // struct layout not resolved
+                            .sema_kit => unreachable, // handled above
+                            .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                        },
+                    };
                     big_align = @maximum(big_align, field_align);
                 }
                 return AbiAlignmentAdvanced{ .scalar = big_align };
@@ -2980,24 +2998,14 @@ pub const Type = extern union {
                 const int_tag_ty = ty.intTagType(&buffer);
                 return AbiAlignmentAdvanced{ .scalar = int_tag_ty.abiAlignment(target) };
             },
-            .@"union" => switch (strat) {
-                .eager, .sema_kit => {
-                    if (sema_kit) |sk| {
-                        try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
-                    }
-                    // TODO pass `true` for have_tag when unions have a safety tag
-                    return AbiAlignmentAdvanced{ .scalar = ty.castTag(.@"union").?.data.abiAlignment(target, false) };
-                },
-                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+            .@"union" => {
+                const union_obj = ty.castTag(.@"union").?.data;
+                // TODO pass `true` for have_tag when unions have a safety tag
+                return abiAlignmentAdvancedUnion(ty, target, strat, union_obj, false);
             },
-            .union_tagged => switch (strat) {
-                .eager, .sema_kit => {
-                    if (sema_kit) |sk| {
-                        try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
-                    }
-                    return AbiAlignmentAdvanced{ .scalar = ty.castTag(.union_tagged).?.data.abiAlignment(target, true) };
-                },
-                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+            .union_tagged => {
+                const union_obj = ty.castTag(.union_tagged).?.data;
+                return abiAlignmentAdvancedUnion(ty, target, strat, union_obj, true);
             },
 
             .empty_struct,
@@ -3021,6 +3029,51 @@ pub const Type = extern union {
 
             .generic_poison => unreachable,
         };
+    }
+
+    pub fn abiAlignmentAdvancedUnion(
+        ty: Type,
+        target: Target,
+        strat: AbiAlignmentAdvancedStrat,
+        union_obj: *Module.Union,
+        have_tag: bool,
+    ) Module.CompileError!AbiAlignmentAdvanced {
+        const sema_kit = switch (strat) {
+            .sema_kit => |sk| sk,
+            else => null,
+        };
+        if (sema_kit) |sk| {
+            if (union_obj.status == .field_types_wip) {
+                // We'll guess "pointer-aligned" and if we guess wrong, emit
+                // a compile error later.
+                return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
+            }
+            _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
+        }
+        if (!union_obj.haveFieldTypes()) switch (strat) {
+            .eager => unreachable, // union layout not resolved
+            .sema_kit => unreachable, // handled above
+            .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+        };
+
+        var max_align: u32 = 0;
+        if (have_tag) max_align = union_obj.tag_ty.abiAlignment(target);
+        for (union_obj.fields.values()) |field| {
+            if (!(try field.ty.hasRuntimeBitsAdvanced(false, sema_kit))) continue;
+
+            const field_align = if (field.abi_align != 0)
+                field.abi_align
+            else switch (try field.ty.abiAlignmentAdvanced(target, strat)) {
+                .scalar => |a| a,
+                .val => switch (strat) {
+                    .eager => unreachable, // struct layout not resolved
+                    .sema_kit => unreachable, // handled above
+                    .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                },
+            };
+            max_align = @maximum(max_align, field_align);
+        }
+        return AbiAlignmentAdvanced{ .scalar = max_align };
     }
 
     /// Asserts the type has the ABI size already resolved.
