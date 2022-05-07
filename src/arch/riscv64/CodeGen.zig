@@ -939,10 +939,10 @@ fn binOpRegister(
     const rhs_is_register = rhs == .register;
 
     const lhs_lock: ?RegisterLock = if (lhs_is_register)
-        self.register_manager.freezeReg(lhs.register)
+        self.register_manager.lockReg(lhs.register)
     else
         null;
-    defer if (lhs_lock) |reg| self.register_manager.unfreezeReg(reg);
+    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
 
@@ -958,8 +958,8 @@ fn binOpRegister(
 
         break :blk reg;
     };
-    const new_lhs_lock = self.register_manager.freezeReg(lhs_reg);
-    defer if (new_lhs_lock) |reg| self.register_manager.unfreezeReg(reg);
+    const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
+    defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const rhs_reg = if (rhs_is_register) rhs.register else blk: {
         const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
@@ -973,8 +973,8 @@ fn binOpRegister(
 
         break :blk reg;
     };
-    const new_rhs_lock = self.register_manager.freezeReg(rhs_reg);
-    defer if (new_rhs_lock) |reg| self.register_manager.unfreezeReg(reg);
+    const new_rhs_lock = self.register_manager.lockReg(rhs_reg);
+    defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const dest_reg = if (maybe_inst) |inst| blk: {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -1452,8 +1452,8 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .stack_offset,
         => {
             const reg = try self.register_manager.allocReg(null);
-            const reg_lock = self.register_manager.freezeRegAssumeUnused(reg);
-            defer self.register_manager.unfreezeReg(reg_lock);
+            const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
+            defer self.register_manager.unlockReg(reg_lock);
 
             try self.genSetReg(ptr_ty, reg, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
