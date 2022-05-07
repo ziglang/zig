@@ -1424,7 +1424,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .add_with_overflow => self.airBinOpOverflow(inst, .add),
         .sub_with_overflow => self.airBinOpOverflow(inst, .sub),
         .shl_with_overflow => self.airBinOpOverflow(inst, .shl),
-        .mul_with_overflow => self.airBinOpOverflow(inst, .mul),
+        .mul_with_overflow => self.airMulWithOverflow(inst),
 
         .clz => self.airClz(inst),
         .ctz => self.airCtz(inst),
@@ -1927,7 +1927,14 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
 
-    return self.wrapBinOp(lhs, rhs, self.air.typeOf(bin_op.lhs), op);
+    const ty = self.air.typeOf(bin_op.lhs);
+    if (ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: Implement wrapping arithmetic for vectors", .{});
+    } else if (ty.abiSize(self.target) > 8) {
+        return self.fail("TODO: Implement wrapping arithmetic for bitsize > 64", .{});
+    }
+
+    return self.wrapBinOp(lhs, rhs, ty, op);
 }
 
 fn wrapBinOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
@@ -1941,31 +1948,8 @@ fn wrapBinOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError
     });
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
     const bin_local = try self.allocLocal(ty);
-
-    const int_info = ty.intInfo(self.target);
-    const bitsize = int_info.bits;
-    const is_signed = int_info.signedness == .signed;
-    // if target type bitsize is x < 32 and 32 > x < 64, we perform
-    // result & ((1<<N)-1) where N = bitsize or bitsize -1 incase of signed.
-    if (bitsize != 32 and bitsize < 64) {
-        // first check if we can use a single instruction,
-        // wasm provides those if the integers are signed and 8/16-bit.
-        // For arbitrary integer sizes, we use the algorithm mentioned above.
-        if (is_signed and bitsize == 8) {
-            try self.addTag(.i32_extend8_s);
-        } else if (is_signed and bitsize == 16) {
-            try self.addTag(.i32_extend16_s);
-        } else {
-            try self.addLabel(.local_set, bin_local.local);
-            return self.wrapOperand(bin_local, ty);
-        }
-    } else if (int_info.bits > 64) {
-        return self.fail("TODO wasm: Integer wrapping for bitsizes larger than 64", .{});
-    }
-
-    // save the result in a temporary
     try self.addLabel(.local_set, bin_local.local);
-    return bin_local;
+    return self.wrapOperand(bin_local, ty);
 }
 
 /// Wraps an operand based on a given type's bitsize.
@@ -2855,11 +2839,12 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const ty = self.air.getRefType(ty_op.ty);
     const operand = try self.resolveInst(ty_op.operand);
-    const ref_ty = self.air.typeOf(ty_op.operand);
-    if (ty.abiSize(self.target) > 8 or ref_ty.abiSize(self.target) > 8) {
+    const operand_ty = self.air.typeOf(ty_op.operand);
+    if (ty.abiSize(self.target) > 8 or operand_ty.abiSize(self.target) > 8) {
         return self.fail("todo Wasm intcast for bitsize > 64", .{});
     }
-    return self.intcast(operand, ty, ref_ty);
+
+    return self.intcast(operand, operand_ty, ty);
 }
 
 /// Upcasts or downcasts an integer based on the given and wanted types,
@@ -3102,63 +3087,17 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn airTrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
-    if (self.liveness.isUnused(inst)) return WValue.none;
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
-    const op_ty = self.air.typeOf(ty_op.operand);
-    const int_info = self.air.getRefType(ty_op.ty).intInfo(self.target);
+    const wanted_ty = self.air.getRefType(ty_op.ty);
+    const int_info = wanted_ty.intInfo(self.target);
     const wanted_bits = int_info.bits;
-    const result = try self.allocLocal(self.air.getRefType(ty_op.ty));
-    const op_bits = op_ty.intInfo(self.target).bits;
 
-    const wasm_bits = toWasmBits(wanted_bits) orelse
+    _ = toWasmBits(wanted_bits) orelse {
         return self.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{wanted_bits});
-
-    // Use wasm's instruction to wrap from 64bit to 32bit integer when possible
-    if (op_bits == 64 and wanted_bits == 32) {
-        try self.emitWValue(operand);
-        try self.addTag(.i32_wrap_i64);
-        try self.addLabel(.local_set, result.local);
-        return result;
-    }
-
-    // Any other truncation must be done manually
-    if (int_info.signedness == .unsigned) {
-        const mask = (@as(u65, 1) << @intCast(u7, wanted_bits)) - 1;
-        try self.emitWValue(operand);
-        switch (wasm_bits) {
-            32 => {
-                try self.addImm32(@bitCast(i32, @intCast(u32, mask)));
-                try self.addTag(.i32_and);
-            },
-            64 => {
-                try self.addImm64(@intCast(u64, mask));
-                try self.addTag(.i64_and);
-            },
-            else => unreachable,
-        }
-    } else {
-        const shift_bits = wasm_bits - wanted_bits;
-        try self.emitWValue(operand);
-        switch (wasm_bits) {
-            32 => {
-                try self.addImm32(@bitCast(i16, shift_bits));
-                try self.addTag(.i32_shl);
-                try self.addImm32(@bitCast(i16, shift_bits));
-                try self.addTag(.i32_shr_s);
-            },
-            64 => {
-                try self.addImm64(shift_bits);
-                try self.addTag(.i64_shl);
-                try self.addImm64(shift_bits);
-                try self.addTag(.i64_shr_s);
-            },
-            else => unreachable,
-        }
-    }
-
-    try self.addLabel(.local_set, result.local);
-    return result;
+    };
+    return self.wrapOperand(operand, wanted_ty);
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -3448,7 +3387,8 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const result = try self.allocLocal(dest_ty);
     try self.addLabel(.local_set, result.local);
-    return result;
+
+    return self.wrapOperand(result, dest_ty);
 }
 
 fn airIntToFloat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -3952,6 +3892,10 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
     const rhs = try self.resolveInst(extra.rhs);
     const lhs_ty = self.air.typeOf(extra.lhs);
 
+    if (lhs_ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: Implement overflow arithmetic for vectors", .{});
+    }
+
     // We store the bit if it's overflowed or not in this. As it's zero-initialized
     // we only need to update it if an overflow (or underflow) occured.
     const overflow_bit = try self.allocLocal(Type.initTag(.u1));
@@ -3990,7 +3934,7 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
         const cmp_res = try self.cmp(lhs, rhs, lhs_ty, .lt);
         try self.emitWValue(cmp_res);
         try self.addLabel(.local_set, overflow_bit.local);
-    } else if (int_info.signedness == .signed and op != .shl and op != .mul) {
+    } else if (int_info.signedness == .signed and op != .shl) {
         // for overflow, we first check if lhs is > 0 (or lhs < 0 in case of subtraction). If not, we will not overflow.
         // We first create an outer block, where we handle overflow.
         // Then we create an inner block, where underflow is handled.
@@ -4038,64 +3982,100 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
         }
         try self.addLabel(.local_set, tmp_val.local);
         break :blk tmp_val;
-    } else if (op == .mul) blk: {
-        // for 32 & 64 bitsize we calculate overflow
-        // differently.
-        if (int_info.bits == 32) {
-            const new_ty = if (int_info.signedness == .signed) Type.i64 else Type.u64;
-            const lhs_upcast = try self.intcast(lhs, lhs_ty, new_ty);
-            const rhs_upcast = try self.intcast(rhs, lhs_ty, new_ty);
-            const bin_op = try self.binOp(lhs_upcast, rhs_upcast, new_ty, op);
-            if (int_info.signedness == .unsigned) {
-                const shr = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
-                const wrap = try self.intcast(shr, new_ty, lhs_ty);
-                const cmp_res = try self.cmp(wrap, zero, lhs_ty, .neq);
-                try self.emitWValue(cmp_res);
-                try self.addLabel(.local_set, overflow_bit.local);
-                break :blk try self.intcast(bin_op, new_ty, lhs_ty);
-            } else {
-                const down_cast = try self.intcast(bin_op, new_ty, lhs_ty);
-                const shr = try self.binOp(down_cast, .{ .imm32 = int_info.bits - 1 }, lhs_ty, .shr);
-
-                const shr_res = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
-                const down_shr_res = try self.intcast(shr_res, new_ty, lhs_ty);
-                const cmp_res = try self.cmp(down_shr_res, shr, lhs_ty, .neq);
-                try self.emitWValue(cmp_res);
-                try self.addLabel(.local_set, overflow_bit.local);
-                break :blk down_cast;
-            }
-        } else if (int_info.signedness == .signed) {
-            const shift_imm = if (wasm_bits == 32)
-                WValue{ .imm32 = wasm_bits - int_info.bits }
-            else
-                WValue{ .imm64 = wasm_bits - int_info.bits };
-
-            const lhs_shl = try self.binOp(lhs, shift_imm, lhs_ty, .shl);
-            const lhs_shr = try self.binOp(lhs_shl, shift_imm, lhs_ty, .shr);
-            const rhs_shl = try self.binOp(rhs, shift_imm, lhs_ty, .shl);
-            const rhs_shr = try self.binOp(rhs_shl, shift_imm, lhs_ty, .shr);
-
-            const bin_op = try self.binOp(lhs_shr, rhs_shr, lhs_ty, op);
-            const shl = try self.binOp(bin_op, shift_imm, lhs_ty, .shl);
-            const shr = try self.binOp(shl, shift_imm, lhs_ty, .shr);
-
-            const cmp_op = try self.cmp(shr, bin_op, lhs_ty, .neq);
-            try self.emitWValue(cmp_op);
-            try self.addLabel(.local_set, overflow_bit.local);
-            break :blk try self.wrapOperand(bin_op, lhs_ty);
-        } else {
-            const bin_op = try self.binOp(lhs, rhs, lhs_ty, op);
-            const shift_imm = if (wasm_bits == 32)
-                WValue{ .imm32 = int_info.bits }
-            else
-                WValue{ .imm64 = int_info.bits };
-            const shr = try self.binOp(bin_op, shift_imm, lhs_ty, .shr);
-            const cmp_op = try self.cmp(shr, zero, lhs_ty, .neq);
-            try self.emitWValue(cmp_op);
-            try self.addLabel(.local_set, overflow_bit.local);
-            break :blk try self.wrapOperand(bin_op, lhs_ty);
-        }
     } else try self.wrapBinOp(lhs, rhs, lhs_ty, op);
+
+    const result_ptr = try self.allocStack(self.air.typeOfIndex(inst));
+    try self.store(result_ptr, bin_op, lhs_ty, 0);
+    const offset = @intCast(u32, lhs_ty.abiSize(self.target));
+    try self.store(result_ptr, overflow_bit, Type.initTag(.u1), offset);
+
+    return result_ptr;
+}
+
+fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const lhs = try self.resolveInst(extra.lhs);
+    const rhs = try self.resolveInst(extra.rhs);
+    const lhs_ty = self.air.typeOf(extra.lhs);
+
+    if (lhs_ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: Implement overflow arithmetic for vectors", .{});
+    }
+
+    // We store the bit if it's overflowed or not in this. As it's zero-initialized
+    // we only need to update it if an overflow (or underflow) occured.
+    const overflow_bit = try self.allocLocal(Type.initTag(.u1));
+    const int_info = lhs_ty.intInfo(self.target);
+    const wasm_bits = toWasmBits(int_info.bits) orelse {
+        return self.fail("TODO: Implement overflow arithmetic for integer bitsize: {d}", .{int_info.bits});
+    };
+
+    if (wasm_bits == 64) {
+        return self.fail("TODO: Implement `@mulWithOverflow` for integer bitsize: {d}", .{int_info.bits});
+    }
+
+    const zero = switch (wasm_bits) {
+        32 => WValue{ .imm32 = 0 },
+        64 => WValue{ .imm64 = 0 },
+        else => unreachable,
+    };
+
+    // for 32 bit integers we upcast it to a 64bit integer
+    const bin_op = if (int_info.bits == 32) blk: {
+        const new_ty = if (int_info.signedness == .signed) Type.i64 else Type.u64;
+        const lhs_upcast = try self.intcast(lhs, lhs_ty, new_ty);
+        const rhs_upcast = try self.intcast(rhs, lhs_ty, new_ty);
+        const bin_op = try self.binOp(lhs_upcast, rhs_upcast, new_ty, .mul);
+        if (int_info.signedness == .unsigned) {
+            const shr = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
+            const wrap = try self.intcast(shr, new_ty, lhs_ty);
+            const cmp_res = try self.cmp(wrap, zero, lhs_ty, .neq);
+            try self.emitWValue(cmp_res);
+            try self.addLabel(.local_set, overflow_bit.local);
+            break :blk try self.intcast(bin_op, new_ty, lhs_ty);
+        } else {
+            const down_cast = try self.intcast(bin_op, new_ty, lhs_ty);
+            const shr = try self.binOp(down_cast, .{ .imm32 = int_info.bits - 1 }, lhs_ty, .shr);
+
+            const shr_res = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
+            const down_shr_res = try self.intcast(shr_res, new_ty, lhs_ty);
+            const cmp_res = try self.cmp(down_shr_res, shr, lhs_ty, .neq);
+            try self.emitWValue(cmp_res);
+            try self.addLabel(.local_set, overflow_bit.local);
+            break :blk down_cast;
+        }
+    } else if (int_info.signedness == .signed) blk: {
+        const shift_imm = if (wasm_bits == 32)
+            WValue{ .imm32 = wasm_bits - int_info.bits }
+        else
+            WValue{ .imm64 = wasm_bits - int_info.bits };
+
+        const lhs_shl = try self.binOp(lhs, shift_imm, lhs_ty, .shl);
+        const lhs_shr = try self.binOp(lhs_shl, shift_imm, lhs_ty, .shr);
+        const rhs_shl = try self.binOp(rhs, shift_imm, lhs_ty, .shl);
+        const rhs_shr = try self.binOp(rhs_shl, shift_imm, lhs_ty, .shr);
+
+        const bin_op = try self.binOp(lhs_shr, rhs_shr, lhs_ty, .mul);
+        const shl = try self.binOp(bin_op, shift_imm, lhs_ty, .shl);
+        const shr = try self.binOp(shl, shift_imm, lhs_ty, .shr);
+
+        const cmp_op = try self.cmp(shr, bin_op, lhs_ty, .neq);
+        try self.emitWValue(cmp_op);
+        try self.addLabel(.local_set, overflow_bit.local);
+        break :blk try self.wrapOperand(bin_op, lhs_ty);
+    } else blk: {
+        const bin_op = try self.binOp(lhs, rhs, lhs_ty, .mul);
+        const shift_imm = if (wasm_bits == 32)
+            WValue{ .imm32 = int_info.bits }
+        else
+            WValue{ .imm64 = int_info.bits };
+        const shr = try self.binOp(bin_op, shift_imm, lhs_ty, .shr);
+        const cmp_op = try self.cmp(shr, zero, lhs_ty, .neq);
+        try self.emitWValue(cmp_op);
+        try self.addLabel(.local_set, overflow_bit.local);
+        break :blk try self.wrapOperand(bin_op, lhs_ty);
+    };
 
     const result_ptr = try self.allocStack(self.air.typeOfIndex(inst));
     try self.store(result_ptr, bin_op, lhs_ty, 0);
