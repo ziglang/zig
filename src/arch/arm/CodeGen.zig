@@ -1672,6 +1672,9 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                     // lsl dest, lhs, rhs
                     const dest = try self.binOp(.shl, null, lhs, rhs, lhs_ty, rhs_ty);
+                    const dest_reg = dest.register;
+                    const dest_lock = self.register_manager.lockRegAssumeUnused(dest_reg);
+                    defer self.register_manager.unlockReg(dest_lock);
 
                     // asr/lsr reconstructed, dest, rhs
                     const reconstructed = try self.binOp(.shr, null, dest, rhs, lhs_ty, rhs_ty);
