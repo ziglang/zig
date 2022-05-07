@@ -353,7 +353,7 @@ pub const dirent = extern struct {
     d_type: u8,
     d_namlen: u8,
     __d_padding: [4]u8,
-    d_name: [MAXNAMLEN + 1]u8,
+    d_name: [MAXNAMLEN:0]u8,
 
     pub fn reclen(self: dirent) u16 {
         return self.d_reclen;
