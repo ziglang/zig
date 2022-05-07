@@ -687,7 +687,6 @@ test "basic @mulWithOverflow" {
 test "extensive @mulWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     {
         var a: u5 = 3;
@@ -833,6 +832,12 @@ test "extensive @mulWithOverflow" {
         try expect(@mulWithOverflow(i32, a, b, &res));
         try expect(res == 0x7fffffff);
     }
+}
+
+test "@mulWithOverflow bitsize > 32" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     {
         var a: u62 = 3;
