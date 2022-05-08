@@ -141,6 +141,17 @@ pub fn floorq(x: f128) callconv(.C) f128 {
     }
 }
 
+pub fn floorl(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __floorh(x),
+        32 => return floorf(x),
+        64 => return floor(x),
+        80 => return __floorx(x),
+        128 => return floorq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "floor16" {
     try expect(__floorh(1.3) == 1.0);
     try expect(__floorh(-1.3) == -2.0);

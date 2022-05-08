@@ -159,6 +159,17 @@ pub fn log10q(a: f128) callconv(.C) f128 {
     return log10(@floatCast(f64, a));
 }
 
+pub fn log10l(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __log10h(x),
+        32 => return log10f(x),
+        64 => return log10(x),
+        80 => return __log10x(x),
+        128 => return log10q(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "log10_32" {
     const epsilon = 0.000001;
 

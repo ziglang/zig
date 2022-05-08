@@ -111,6 +111,17 @@ pub fn sinq(x: f128) callconv(.C) f128 {
     return sin(@floatCast(f64, x));
 }
 
+pub fn sinl(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __sinh(x),
+        32 => return sinf(x),
+        64 => return sin(x),
+        80 => return __sinx(x),
+        128 => return sinq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "sin32" {
     const epsilon = 0.00001;
 

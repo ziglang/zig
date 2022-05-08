@@ -237,6 +237,17 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     return amod;
 }
 
+pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __fmodh(a, b),
+        32 => return fmodf(a, b),
+        64 => return fmod(a, b),
+        80 => return __fmodx(a, b),
+        128 => return fmodq(a, b),
+        else => @compileError("unreachable"),
+    }
+}
+
 inline fn generic_fmod(comptime T: type, x: T, y: T) T {
     @setRuntimeSafety(false);
 

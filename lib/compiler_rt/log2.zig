@@ -150,6 +150,17 @@ pub fn log2q(a: f128) callconv(.C) f128 {
     return math.log2(a);
 }
 
+pub fn log2l(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __log2h(x),
+        32 => return log2f(x),
+        64 => return log2(x),
+        80 => return __log2x(x),
+        128 => return log2q(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "log2_32" {
     const epsilon = 0.000001;
 

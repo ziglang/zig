@@ -724,25 +724,25 @@ comptime {
         @export(_aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
-    mathExport("ceil", @import("./compiler_rt/ceil.zig"), false);
-    mathExport("cos", @import("./compiler_rt/cos.zig"), true);
-    mathExport("exp", @import("./compiler_rt/exp.zig"), true);
-    mathExport("exp2", @import("./compiler_rt/exp2.zig"), true);
-    mathExport("fabs", @import("./compiler_rt/fabs.zig"), true);
-    mathExport("floor", @import("./compiler_rt/floor.zig"), false);
-    mathExport("fma", @import("./compiler_rt/fma.zig"), true);
-    mathExport("fmax", @import("./compiler_rt/fmax.zig"), true);
-    mathExport("fmin", @import("./compiler_rt/fmin.zig"), true);
-    mathExport("fmod", @import("./compiler_rt/fmod.zig"), true);
-    mathExport("log", @import("./compiler_rt/log.zig"), true);
-    mathExport("log10", @import("./compiler_rt/log10.zig"), false);
-    mathExport("log2", @import("./compiler_rt/log2.zig"), true);
-    mathExport("round", @import("./compiler_rt/round.zig"), true);
-    mathExport("sin", @import("./compiler_rt/sin.zig"), true);
-    mathExport("sincos", @import("./compiler_rt/sincos.zig"), true);
-    mathExport("sqrt", @import("./compiler_rt/sqrt.zig"), true);
-    mathExport("tan", @import("./compiler_rt/tan.zig"), true);
-    mathExport("trunc", @import("./compiler_rt/trunc.zig"), true);
+    mathExport("ceil", @import("./compiler_rt/ceil.zig"));
+    mathExport("cos", @import("./compiler_rt/cos.zig"));
+    mathExport("exp", @import("./compiler_rt/exp.zig"));
+    mathExport("exp2", @import("./compiler_rt/exp2.zig"));
+    mathExport("fabs", @import("./compiler_rt/fabs.zig"));
+    mathExport("floor", @import("./compiler_rt/floor.zig"));
+    mathExport("fma", @import("./compiler_rt/fma.zig"));
+    mathExport("fmax", @import("./compiler_rt/fmax.zig"));
+    mathExport("fmin", @import("./compiler_rt/fmin.zig"));
+    mathExport("fmod", @import("./compiler_rt/fmod.zig"));
+    mathExport("log", @import("./compiler_rt/log.zig"));
+    mathExport("log10", @import("./compiler_rt/log10.zig"));
+    mathExport("log2", @import("./compiler_rt/log2.zig"));
+    mathExport("round", @import("./compiler_rt/round.zig"));
+    mathExport("sin", @import("./compiler_rt/sin.zig"));
+    mathExport("sincos", @import("./compiler_rt/sincos.zig"));
+    mathExport("sqrt", @import("./compiler_rt/sqrt.zig"));
+    mathExport("tan", @import("./compiler_rt/tan.zig"));
+    mathExport("trunc", @import("./compiler_rt/trunc.zig"));
 
     if (arch.isSPARC()) {
         // SPARC systems use a different naming scheme
@@ -825,7 +825,7 @@ comptime {
     }
 }
 
-inline fn mathExport(double_name: []const u8, comptime import: type, win_libc_has_it: bool) void {
+inline fn mathExport(double_name: []const u8, comptime import: type) void {
     const half_name = "__" ++ double_name ++ "h";
     const half_fn = @field(import, half_name);
     const float_name = double_name ++ "f";
@@ -853,9 +853,12 @@ inline fn mathExport(double_name: []const u8, comptime import: type, win_libc_ha
         .{ f128, quad_fn },
     };
 
-    // Weak aliases don't work on Windows, so we avoid exporting the `l` alias
-    // on this platform for functions we know will collide.
-    if (builtin.os.tag != .windows or !builtin.link_libc or !win_libc_has_it) {
+    if (builtin.os.tag == .windows) {
+        // Weak aliases don't work on Windows, so we have to provide the 'l' variants
+        // as additional function definitions that jump to the real definition.
+        const long_double_fn = @field(import, long_double_name);
+        @export(long_double_fn, .{ .name = long_double_name, .linkage = linkage });
+    } else {
         inline for (pairs) |pair| {
             const F = pair[0];
             const func = pair[1];

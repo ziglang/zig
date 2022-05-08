@@ -181,6 +181,17 @@ pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.C) void {
     r_cos.* = small_cos;
 }
 
+pub fn sincosl(x: c_longdouble, r_sin: *c_longdouble, r_cos: *c_longdouble) callconv(.C) void {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __sincosh(x, r_sin, r_cos),
+        32 => return sincosf(x, r_sin, r_cos),
+        64 => return sincos(x, r_sin, r_cos),
+        80 => return __sincosx(x, r_sin, r_cos),
+        128 => return sincosq(x, r_sin, r_cos),
+        else => @compileError("unreachable"),
+    }
+}
+
 const rem_pio2_generic = @compileError("TODO");
 
 /// Ported from musl sincosl.c. Needs the following dependencies to be complete:
