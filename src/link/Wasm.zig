@@ -97,6 +97,8 @@ debug_info: std.ArrayListUnmanaged(u8) = .{},
 debug_line: std.ArrayListUnmanaged(u8) = .{},
 /// Contains all bytes for the '.debug_abbrev' section
 debug_abbrev: std.ArrayListUnmanaged(u8) = .{},
+/// Contains all bytes for the '.debug_ranges' section
+debug_aranges: std.ArrayListUnmanaged(u8) = .{},
 
 // Output sections
 /// Output type section
@@ -513,6 +515,7 @@ pub fn deinit(self: *Wasm) void {
     self.debug_info.deinit(gpa);
     self.debug_line.deinit(gpa);
     self.debug_abbrev.deinit(gpa);
+    self.debug_aranges.deinit(gpa);
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl_index: Module.Decl.Index) !void {
@@ -1928,6 +1931,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     }
 
     // Code section
+    var code_section_size: u32 = 0;
     if (self.code_section_index) |code_index| {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
@@ -1940,11 +1944,13 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             try writer.writeAll(atom.code.items);
             atom = atom.next orelse break;
         }
+
+        code_section_size = @intCast(u32, (try file.getPos()) - header_offset - header_size);
         try writeVecSectionHeader(
             file,
             header_offset,
             .code,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            code_section_size,
             @intCast(u32, self.functions.items.len),
         );
         code_section_index = section_count;
@@ -2032,13 +2038,16 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     } else if (!self.base.options.strip) {
         if (self.dwarf) |*dwarf| {
             if (self.debug_info_index != null) {
-                _ = dwarf;
                 try dwarf.writeDbgAbbrev(&self.base);
-                try dwarf.writeDbgInfoHeader(&self.base, mod, 0, 0);
+                // for debug info and ranges, the address is always 0,
+                // as locations are always offsets relative to 'code' section.
+                try dwarf.writeDbgInfoHeader(&self.base, mod, 0, code_section_size);
+                try dwarf.writeDbgAranges(&self.base, 0, code_section_size);
                 try dwarf.writeDbgLineHeader(&self.base, mod);
 
                 try emitDebugSection(file, self.debug_info.items, ".debug_info");
-                try emitDebugSection(file, self.debug_abbrev.items, ".debug_abbrev"); // TODO
+                try emitDebugSection(file, self.debug_aranges.items, ".debug_ranges");
+                try emitDebugSection(file, self.debug_abbrev.items, ".debug_abbrev");
                 try emitDebugSection(file, self.debug_line.items, ".debug_line");
                 try emitDebugSection(file, dwarf.strtab.items, ".debug_str");
             }

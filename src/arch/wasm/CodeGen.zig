@@ -1362,7 +1362,6 @@ fn isByRef(ty: Type, target: std.Target) bool {
         .NoReturn,
         .Void,
         .Bool,
-        .Float,
         .ErrorSet,
         .Fn,
         .Enum,
@@ -1375,7 +1374,8 @@ fn isByRef(ty: Type, target: std.Target) bool {
         .Frame,
         .Union,
         => return ty.hasRuntimeBitsIgnoreComptime(),
-        .Int => return if (ty.intInfo(target).bits > 64) true else false,
+        .Int => return ty.intInfo(target).bits > 64,
+        .Float => return ty.floatBits(target) > 64,
         .ErrorUnion => {
             const has_tag = ty.errorUnionSet().hasRuntimeBitsIgnoreComptime();
             const has_pl = ty.errorUnionPayload().hasRuntimeBitsIgnoreComptime();
@@ -4326,7 +4326,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index, is_ptr: bool) !WValue {
     try self.addDbgInfoTypeReloc(op_ty);
     dbg_info.appendSliceAssumeCapacity(name);
     dbg_info.appendAssumeCapacity(0);
-    try return WValue{ .none = {} };
+    return WValue{ .none = {} };
 }
 
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !WValue {
