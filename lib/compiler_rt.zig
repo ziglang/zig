@@ -724,24 +724,24 @@ comptime {
         @export(_aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
-    mathExport("ceil", @import("./compiler_rt/ceil.zig"), true);
+    mathExport("ceil", @import("./compiler_rt/ceil.zig"), false);
     mathExport("cos", @import("./compiler_rt/cos.zig"), true);
     mathExport("exp", @import("./compiler_rt/exp.zig"), true);
     mathExport("exp2", @import("./compiler_rt/exp2.zig"), true);
     mathExport("fabs", @import("./compiler_rt/fabs.zig"), true);
-    mathExport("floor", @import("./compiler_rt/floor.zig"), true);
+    mathExport("floor", @import("./compiler_rt/floor.zig"), false);
     mathExport("fma", @import("./compiler_rt/fma.zig"), true);
     mathExport("fmax", @import("./compiler_rt/fmax.zig"), true);
     mathExport("fmin", @import("./compiler_rt/fmin.zig"), true);
     mathExport("fmod", @import("./compiler_rt/fmod.zig"), true);
     mathExport("log", @import("./compiler_rt/log.zig"), true);
-    mathExport("log10", @import("./compiler_rt/log10.zig"), true);
+    mathExport("log10", @import("./compiler_rt/log10.zig"), false);
     mathExport("log2", @import("./compiler_rt/log2.zig"), true);
     mathExport("round", @import("./compiler_rt/round.zig"), true);
     mathExport("sin", @import("./compiler_rt/sin.zig"), true);
     mathExport("sincos", @import("./compiler_rt/sincos.zig"), true);
     mathExport("sqrt", @import("./compiler_rt/sqrt.zig"), true);
-    mathExport("tan", @import("./compiler_rt/tan.zig"), false);
+    mathExport("tan", @import("./compiler_rt/tan.zig"), true);
     mathExport("trunc", @import("./compiler_rt/trunc.zig"), true);
 
     if (arch.isSPARC()) {
@@ -825,7 +825,7 @@ comptime {
     }
 }
 
-inline fn mathExport(double_name: []const u8, comptime import: type, is_standard: bool) void {
+inline fn mathExport(double_name: []const u8, comptime import: type, win_libc_has_it: bool) void {
     const half_name = "__" ++ double_name ++ "h";
     const half_fn = @field(import, half_name);
     const float_name = double_name ++ "f";
@@ -855,7 +855,7 @@ inline fn mathExport(double_name: []const u8, comptime import: type, is_standard
 
     // Weak aliases don't work on Windows, so we avoid exporting the `l` alias
     // on this platform for functions we know will collide.
-    if (builtin.os.tag != .windows or !builtin.link_libc or !is_standard) {
+    if (builtin.os.tag != .windows or !builtin.link_libc or !win_libc_has_it) {
         inline for (pairs) |pair| {
             const F = pair[0];
             const func = pair[1];
@@ -865,7 +865,7 @@ inline fn mathExport(double_name: []const u8, comptime import: type, is_standard
         }
     }
 
-    if (is_ppc and is_standard) {
+    if (is_ppc) {
         // LLVM PPC backend lowers f128 ops with the suffix `f128` instead of `l`.
         @export(quad_fn, .{ .name = double_name ++ "f128", .linkage = linkage });
     }
