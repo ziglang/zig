@@ -65,7 +65,7 @@ stage2/bin/zig build test-behavior
 release/bin/zig build test-behavior         -Denable-macos-sdk -Domit-stage2
 release/bin/zig build test-compiler-rt      -Denable-macos-sdk
 release/bin/zig build test-std              -Denable-macos-sdk
-release/bin/zig build test-minilibc         -Denable-macos-sdk
+release/bin/zig build test-universal-libc   -Denable-macos-sdk
 release/bin/zig build test-compare-output   -Denable-macos-sdk
 release/bin/zig build test-standalone       -Denable-macos-sdk
 release/bin/zig build test-stack-traces     -Denable-macos-sdk
