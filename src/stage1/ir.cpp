@@ -4480,6 +4480,12 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         return result;
     }
 
+    if (wanted_type->id == ZigTypeIdFloat && actual_type->id == ZigTypeIdFloat) {
+        if (wanted_type->data.floating.bit_count == actual_type->data.floating.bit_count) {
+            return result;
+        }
+    }
+
     if (wanted_type->id == ZigTypeIdVector && actual_type->id == ZigTypeIdVector) {
         if (actual_type->data.vector.len != wanted_type->data.vector.len) {
             result.id = ConstCastResultIdVectorLength;
