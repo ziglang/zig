@@ -480,7 +480,7 @@ const table align(64) = init: {
 
 // Multiply a and b as GF(2) polynomials modulo poly.
 fn mul(a: u8, b: u8) u8 {
-    @setEvalBranchQuota(27151);
+    @setEvalBranchQuota(30000);
 
     var i: u9 = a;
     var j: u8 = b;
