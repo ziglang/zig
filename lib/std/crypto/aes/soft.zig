@@ -413,7 +413,7 @@ pub const Aes256 = struct {
 // constants
 
 // Rijndael's irreducible polynomial.
-const poly: u16 = 1<<8 | 1<<4 | 1<<3 | 1<<1 | 1<<0; // x⁸ + x⁴ + x³ + x + 1
+const poly: u9 = 1<<8 | 1<<4 | 1<<3 | 1<<1 | 1<<0; // x⁸ + x⁴ + x³ + x + 1
 
 // Powers of x mod poly in GF(2).
 const powx = init: {
@@ -482,10 +482,10 @@ const table align(64) = init: {
 fn mul(a: u8, b: u8) u8 {
     @setEvalBranchQuota(27151);
 
-    var i: u16 = a;
-    var j: u16 = b;
-    var k: u16 = 1;
-    var s: u16 = 0;
+    var i: u9 = a;
+    var j: u8 = b;
+    var k: u8 = 1;
+    var s: u9 = 0;
 
     while (k < 0x100 and j != 0) : (k <<= 1) {
         if (j & k != 0) {
@@ -500,5 +500,5 @@ fn mul(a: u8, b: u8) u8 {
         }
     }
 
-    return @intCast(u8, s);
+    return @truncate(u8, s);
 }
