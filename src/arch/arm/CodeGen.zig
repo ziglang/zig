@@ -23,6 +23,7 @@ const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const RegisterManager = RegisterManagerFn(Self, Register, &allocatable_registers);
+const RegisterLock = RegisterManager.RegisterLock;
 
 const FnResult = @import("../../codegen.zig").FnResult;
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
@@ -734,7 +735,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             // zig fmt: on
         }
 
-        assert(!self.register_manager.frozenRegsExist());
+        assert(!self.register_manager.lockedRegsExist());
 
         if (std.debug.runtime_safety) {
             if (self.air_bookkeeping < old_air_bookkeeping + 1) {
@@ -897,16 +898,16 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 fn spillCompareFlagsIfOccupied(self: *Self) !void {
     if (self.compare_flags_inst) |inst_to_save| {
         const mcv = self.getResolvedInstValue(inst_to_save);
-        switch (mcv) {
+        const new_mcv = switch (mcv) {
             .compare_flags_signed,
             .compare_flags_unsigned,
+            => try self.allocRegOrMem(inst_to_save, true),
             .register_c_flag,
             .register_v_flag,
-            => {},
+            => try self.allocRegOrMem(inst_to_save, false),
             else => unreachable, // mcv doesn't occupy the compare flags
-        }
+        };
 
-        const new_mcv = try self.allocRegOrMem(inst_to_save, true);
         try self.setRegOrMem(self.air.typeOfIndex(inst_to_save), new_mcv, mcv);
         log.debug("spilling {d} to mcv {any}", .{ inst_to_save, new_mcv });
 
@@ -914,6 +915,15 @@ fn spillCompareFlagsIfOccupied(self: *Self) !void {
         try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
 
         self.compare_flags_inst = null;
+
+        // TODO consolidate with register manager and spillInstruction
+        // this call should really belong in the register manager!
+        switch (mcv) {
+            .register_c_flag,
+            .register_v_flag,
+            => |reg| self.register_manager.freeReg(reg),
+            else => {},
+        }
     }
 }
 
@@ -1038,8 +1048,8 @@ fn trunc(
                 }
             },
         };
-        self.register_manager.freezeRegs(&.{operand_reg});
-        defer self.register_manager.unfreezeRegs(&.{operand_reg});
+        const operand_reg_lock = self.register_manager.lockReg(operand_reg);
+        defer if (operand_reg_lock) |reg| self.register_manager.unlockReg(reg);
 
         const dest_reg = if (maybe_inst) |inst| blk: {
             const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -1127,8 +1137,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                             .register => |r| r,
                             else => try self.copyToTmpRegister(operand_ty, operand),
                         };
-                        self.register_manager.freezeRegs(&.{op_reg});
-                        defer self.register_manager.unfreezeRegs(&.{op_reg});
+                        const op_reg_lock = self.register_manager.lockRegAssumeUnused(op_reg);
+                        defer self.register_manager.unlockReg(op_reg_lock);
 
                         const dest_reg = blk: {
                             if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
@@ -1157,8 +1167,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                                 .register => |r| r,
                                 else => try self.copyToTmpRegister(operand_ty, operand),
                             };
-                            self.register_manager.freezeRegs(&.{op_reg});
-                            defer self.register_manager.unfreezeRegs(&.{op_reg});
+                            const op_reg_lock = self.register_manager.lockRegAssumeUnused(op_reg);
+                            defer self.register_manager.unlockReg(op_reg_lock);
 
                             const dest_reg = blk: {
                                 if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
@@ -1218,15 +1228,15 @@ fn minMax(
                     .register => |r| r,
                     else => try self.copyToTmpRegister(lhs_ty, lhs),
                 };
-                self.register_manager.freezeRegs(&.{lhs_reg});
-                defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+                const lhs_reg_lock = self.register_manager.lockReg(lhs_reg);
+                defer if (lhs_reg_lock) |reg| self.register_manager.unlockReg(reg);
 
                 const rhs_reg = switch (rhs) {
                     .register => |r| r,
                     else => try self.copyToTmpRegister(rhs_ty, rhs),
                 };
-                self.register_manager.freezeRegs(&.{rhs_reg});
-                defer self.register_manager.unfreezeRegs(&.{rhs_reg});
+                const rhs_reg_lock = self.register_manager.lockReg(rhs_reg);
+                defer if (rhs_reg_lock) |reg| self.register_manager.unlockReg(reg);
 
                 const dest_reg = if (maybe_inst) |inst| blk: {
                     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -1392,12 +1402,12 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     };
                     const dest = try self.binOp(base_tag, null, lhs, rhs, lhs_ty, rhs_ty);
                     const dest_reg = dest.register;
-                    self.register_manager.freezeRegs(&.{dest_reg});
-                    defer self.register_manager.unfreezeRegs(&.{dest_reg});
+                    const dest_reg_lock = self.register_manager.lockRegAssumeUnused(dest_reg);
+                    defer self.register_manager.unlockReg(dest_reg_lock);
 
                     const truncated_reg = try self.register_manager.allocReg(null);
-                    self.register_manager.freezeRegs(&.{truncated_reg});
-                    defer self.register_manager.unfreezeRegs(&.{truncated_reg});
+                    const truncated_reg_lock = self.register_manager.lockRegAssumeUnused(truncated_reg);
+                    defer self.register_manager.unlockReg(truncated_reg_lock);
 
                     // sbfx/ubfx truncated, dest, #0, #bits
                     try self.truncRegister(dest_reg, truncated_reg, int_info.signedness, int_info.bits);
@@ -1493,12 +1503,12 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                     const dest = try self.binOpRegister(base_tag, null, lhs, rhs, lhs_ty, rhs_ty);
                     const dest_reg = dest.register;
-                    self.register_manager.freezeRegs(&.{dest_reg});
-                    defer self.register_manager.unfreezeRegs(&.{dest_reg});
+                    const dest_reg_lock = self.register_manager.lockRegAssumeUnused(dest_reg);
+                    defer self.register_manager.unlockReg(dest_reg_lock);
 
                     const truncated_reg = try self.register_manager.allocReg(null);
-                    self.register_manager.freezeRegs(&.{truncated_reg});
-                    defer self.register_manager.unfreezeRegs(&.{truncated_reg});
+                    const truncated_reg_lock = self.register_manager.lockRegAssumeUnused(truncated_reg);
+                    defer self.register_manager.unlockReg(truncated_reg_lock);
 
                     // sbfx/ubfx truncated, dest, #0, #bits
                     try self.truncRegister(dest_reg, truncated_reg, int_info.signedness, int_info.bits);
@@ -1526,28 +1536,31 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     const lhs_is_register = lhs == .register;
                     const rhs_is_register = rhs == .register;
 
-                    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
-                    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+                    const lhs_lock: ?RegisterLock = if (lhs_is_register)
+                        self.register_manager.lockReg(lhs.register)
+                    else
+                        null;
+                    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
-                    const lhs_reg = if (lhs_is_register) lhs.register else blk: {
-                        const reg = try self.register_manager.allocReg(null);
-                        self.register_manager.freezeRegs(&.{reg});
+                    const lhs_reg = if (lhs_is_register)
+                        lhs.register
+                    else
+                        try self.register_manager.allocReg(null);
+                    const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
+                    defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
-                        break :blk reg;
-                    };
-                    defer self.register_manager.unfreezeRegs(&.{lhs_reg});
-
-                    const rhs_reg = if (rhs_is_register) rhs.register else blk: {
-                        const reg = try self.register_manager.allocReg(null);
-                        self.register_manager.freezeRegs(&.{reg});
-
-                        break :blk reg;
-                    };
-                    defer self.register_manager.unfreezeRegs(&.{rhs_reg});
+                    const rhs_reg = if (rhs_is_register)
+                        rhs.register
+                    else
+                        try self.register_manager.allocReg(null);
+                    const new_rhs_lock = self.register_manager.lockReg(rhs_reg);
+                    defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
 
                     const dest_regs = try self.register_manager.allocRegs(2, .{ null, null });
-                    self.register_manager.freezeRegs(&dest_regs);
-                    defer self.register_manager.unfreezeRegs(&dest_regs);
+                    const dest_regs_locks = self.register_manager.lockRegsAssumeUnused(2, dest_regs);
+                    defer for (dest_regs_locks) |reg| {
+                        self.register_manager.unlockReg(reg);
+                    };
                     const rdlo = dest_regs[0];
                     const rdhi = dest_regs[1];
 
@@ -1555,8 +1568,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
 
                     const truncated_reg = try self.register_manager.allocReg(null);
-                    self.register_manager.freezeRegs(&.{truncated_reg});
-                    defer self.register_manager.unfreezeRegs(&.{truncated_reg});
+                    const truncated_reg_lock = self.register_manager.lockRegAssumeUnused(truncated_reg);
+                    defer self.register_manager.unlockReg(truncated_reg_lock);
 
                     _ = try self.addInst(.{
                         .tag = base_tag,
@@ -1648,14 +1661,20 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 if (int_info.bits <= 32) {
                     const stack_offset = try self.allocMem(inst, tuple_size, tuple_align);
 
-                    if (lhs == .register) self.register_manager.freezeRegs(&.{lhs.register});
-                    defer if (lhs == .register) self.register_manager.unfreezeRegs(&.{lhs.register});
+                    const lhs_lock: ?RegisterLock = if (lhs == .register)
+                        self.register_manager.lockRegAssumeUnused(lhs.register)
+                    else
+                        null;
+                    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
                     try self.spillCompareFlagsIfOccupied();
                     self.compare_flags_inst = null;
 
                     // lsl dest, lhs, rhs
                     const dest = try self.binOp(.shl, null, lhs, rhs, lhs_ty, rhs_ty);
+                    const dest_reg = dest.register;
+                    const dest_lock = self.register_manager.lockRegAssumeUnused(dest_reg);
+                    defer self.register_manager.unlockReg(dest_lock);
 
                     // asr/lsr reconstructed, dest, rhs
                     const reconstructed = try self.binOp(.shr, null, dest, rhs, lhs_ty, rhs_ty);
@@ -1939,8 +1958,11 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
 
-        if (index_is_register) self.register_manager.freezeRegs(&.{index_mcv.register});
-        defer if (index_is_register) self.register_manager.unfreezeRegs(&.{index_mcv.register});
+        const index_lock: ?RegisterLock = if (index_is_register)
+            self.register_manager.lockRegAssumeUnused(index_mcv.register)
+        else
+            null;
+        defer if (index_lock) |reg| self.register_manager.unlockReg(reg);
 
         const base_mcv = slicePtr(slice_mcv);
 
@@ -1950,20 +1972,20 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                     .register => |r| r,
                     else => try self.copyToTmpRegister(slice_ptr_field_type, base_mcv),
                 };
-                self.register_manager.freezeRegs(&.{base_reg});
-                defer self.register_manager.unfreezeRegs(&.{base_reg});
+                const base_reg_lock = self.register_manager.lockRegAssumeUnused(base_reg);
+                defer self.register_manager.unlockReg(base_reg_lock);
 
                 const dst_reg = try self.register_manager.allocReg(inst);
                 const dst_mcv = MCValue{ .register = dst_reg };
-                self.register_manager.freezeRegs(&.{dst_reg});
-                defer self.register_manager.unfreezeRegs(&.{dst_reg});
+                const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+                defer self.register_manager.unlockReg(dst_reg_lock);
 
                 const index_reg: Register = switch (index_mcv) {
                     .register => |reg| reg,
                     else => try self.copyToTmpRegister(Type.usize, index_mcv),
                 };
-                self.register_manager.freezeRegs(&.{index_reg});
-                defer self.register_manager.unfreezeRegs(&.{index_reg});
+                const index_reg_lock = self.register_manager.lockReg(index_reg);
+                defer if (index_reg_lock) |lock| self.register_manager.unlockReg(lock);
 
                 const tag: Mir.Inst.Tag = switch (elem_size) {
                     1 => .ldrb,
@@ -2149,8 +2171,8 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
         .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
         .register => |reg| {
-            self.register_manager.freezeRegs(&.{reg});
-            defer self.register_manager.unfreezeRegs(&.{reg});
+            const reg_lock = self.register_manager.lockReg(reg);
+            defer if (reg_lock) |reg_locked| self.register_manager.unlockReg(reg_locked);
 
             switch (dst_mcv) {
                 .dead => unreachable,
@@ -2162,16 +2184,18 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .stack_offset => |off| {
                     if (elem_size <= 4) {
                         const tmp_reg = try self.register_manager.allocReg(null);
-                        self.register_manager.freezeRegs(&.{tmp_reg});
-                        defer self.register_manager.unfreezeRegs(&.{tmp_reg});
+                        const tmp_reg_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                        defer self.register_manager.unlockReg(tmp_reg_lock);
 
                         try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
                         try self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
                     } else {
                         // TODO optimize the register allocation
                         const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null });
-                        self.register_manager.freezeRegs(&regs);
-                        defer self.register_manager.unfreezeRegs(&regs);
+                        const regs_locks = self.register_manager.lockRegsAssumeUnused(4, regs);
+                        defer for (regs_locks) |reg_locked| {
+                            self.register_manager.unlockReg(reg_locked);
+                        };
 
                         const src_reg = reg;
                         const dst_reg = regs[0];
@@ -2197,8 +2221,8 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .stack_argument_offset,
         => {
             const reg = try self.register_manager.allocReg(null);
-            self.register_manager.freezeRegs(&.{reg});
-            defer self.register_manager.unfreezeRegs(&.{reg});
+            const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
+            defer self.register_manager.unlockReg(reg_lock);
 
             try self.genSetReg(ptr_ty, reg, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
@@ -2252,8 +2276,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             try self.genSetStack(value_ty, off, value);
         },
         .register => |addr_reg| {
-            self.register_manager.freezeRegs(&.{addr_reg});
-            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+            const addr_reg_lock = self.register_manager.lockReg(addr_reg);
+            defer if (addr_reg_lock) |reg| self.register_manager.unlockReg(reg);
 
             switch (value) {
                 .dead => unreachable,
@@ -2264,15 +2288,17 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 else => {
                     if (elem_size <= 4) {
                         const tmp_reg = try self.register_manager.allocReg(null);
-                        self.register_manager.freezeRegs(&.{tmp_reg});
-                        defer self.register_manager.unfreezeRegs(&.{tmp_reg});
+                        const tmp_reg_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                        defer self.register_manager.unlockReg(tmp_reg_lock);
 
                         try self.genSetReg(value_ty, tmp_reg, value);
                         try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                     } else {
                         const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null });
-                        self.register_manager.freezeRegs(&regs);
-                        defer self.register_manager.unfreezeRegs(&regs);
+                        const regs_locks = self.register_manager.lockRegsAssumeUnused(4, regs);
+                        defer for (regs_locks) |reg| {
+                            self.register_manager.unlockReg(reg);
+                        };
 
                         const src_reg = regs[0];
                         const dst_reg = addr_reg;
@@ -2356,12 +2382,12 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                 const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
                     .immediate = struct_field_offset,
                 });
-                self.register_manager.freezeRegs(&.{offset_reg});
-                defer self.register_manager.unfreezeRegs(&.{offset_reg});
+                const offset_reg_lock = self.register_manager.lockRegAssumeUnused(offset_reg);
+                defer self.register_manager.unlockReg(offset_reg_lock);
 
                 const addr_reg = try self.copyToTmpRegister(ptr_ty, mcv);
-                self.register_manager.freezeRegs(&.{addr_reg});
-                defer self.register_manager.unfreezeRegs(&.{addr_reg});
+                const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+                defer self.register_manager.unlockReg(addr_reg_lock);
 
                 const dest = try self.binOp(
                     .add,
@@ -2477,8 +2503,11 @@ fn binOpRegister(
     const lhs_is_register = lhs == .register;
     const rhs_is_register = rhs == .register;
 
-    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
-    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+    const lhs_lock: ?RegisterLock = if (lhs_is_register)
+        self.register_manager.lockReg(lhs.register)
+    else
+        null;
+    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
 
@@ -2489,13 +2518,13 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst);
-        self.register_manager.freezeRegs(&.{reg});
 
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
 
         break :blk reg;
     };
-    defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+    const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
+    defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const rhs_reg = if (rhs_is_register) rhs.register else blk: {
         const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
@@ -2504,13 +2533,13 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst);
-        self.register_manager.freezeRegs(&.{reg});
 
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
 
         break :blk reg;
     };
-    defer self.register_manager.unfreezeRegs(&.{rhs_reg});
+    const new_rhs_lock = self.register_manager.lockReg(rhs_reg);
+    defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const dest_reg = switch (mir_tag) {
         .cmp => .r0, // cmp has no destination regardless
@@ -2593,7 +2622,11 @@ fn binOpImmediate(
 ) !MCValue {
     const lhs_is_register = lhs == .register;
 
-    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+    const lhs_lock: ?RegisterLock = if (lhs_is_register)
+        self.register_manager.lockReg(lhs.register)
+    else
+        null;
+    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
 
@@ -2606,13 +2639,13 @@ fn binOpImmediate(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst);
-        self.register_manager.freezeRegs(&.{reg});
 
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
 
         break :blk reg;
     };
-    defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+    const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
+    defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const dest_reg = switch (mir_tag) {
         .cmp => .r0, // cmp has no destination reg
@@ -3656,6 +3689,9 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const parent_compare_flags_inst = self.compare_flags_inst;
 
     try self.branch_stack.append(.{});
+    errdefer {
+        _ = self.branch_stack.pop();
+    }
 
     try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
     for (liveness_condbr.then_deaths) |operand| {
@@ -4264,8 +4300,36 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
         },
         .register_c_flag,
         .register_v_flag,
-        => {
-            return self.fail("TODO implement genSetStack {}", .{mcv});
+        => |reg| {
+            const reg_lock = self.register_manager.lockReg(reg);
+            defer if (reg_lock) |locked_reg| self.register_manager.unlockReg(locked_reg);
+
+            const wrapped_ty = ty.structFieldType(0);
+            try self.genSetStack(wrapped_ty, stack_offset, .{ .register = reg });
+
+            const overflow_bit_ty = ty.structFieldType(1);
+            const overflow_bit_offset = @intCast(u32, ty.structFieldOffset(1, self.target.*));
+            const cond_reg = try self.register_manager.allocReg(null);
+
+            // C flag: movcs reg, #1
+            // V flag: movvs reg, #1
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .cond = switch (mcv) {
+                    .register_c_flag => .cs,
+                    .register_v_flag => .vs,
+                    else => unreachable,
+                },
+                .data = .{ .rr_op = .{
+                    .rd = cond_reg,
+                    .rn = .r0,
+                    .op = Instruction.Operand.fromU32(1).?,
+                } },
+            });
+
+            try self.genSetStack(overflow_bit_ty, stack_offset - overflow_bit_offset, .{
+                .register = cond_reg,
+            });
         },
         .memory,
         .stack_argument_offset,
