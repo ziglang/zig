@@ -131,6 +131,17 @@ pub fn logq(a: f128) callconv(.C) f128 {
     return log(@floatCast(f64, a));
 }
 
+pub fn logl(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __logh(x),
+        32 => return logf(x),
+        64 => return log(x),
+        80 => return __logx(x),
+        128 => return logq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "ln32" {
     const epsilon = 0.000001;
 

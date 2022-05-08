@@ -149,6 +149,17 @@ pub fn exp2q(x: f128) callconv(.C) f128 {
     return exp2(@floatCast(f64, x));
 }
 
+pub fn exp2l(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __exp2h(x),
+        32 => return exp2f(x),
+        64 => return exp2(x),
+        80 => return __exp2x(x),
+        128 => return exp2q(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 const exp2ft = [_]f64{
     0x1.6a09e667f3bcdp-1,
     0x1.7a11473eb0187p-1,

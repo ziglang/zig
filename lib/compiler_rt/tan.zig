@@ -96,6 +96,17 @@ pub fn tanq(x: f128) callconv(.C) f128 {
     return tan(@floatCast(f64, x));
 }
 
+pub fn tanl(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __tanh(x),
+        32 => return tanf(x),
+        64 => return tan(x),
+        80 => return __tanx(x),
+        128 => return tanq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "tan" {
     try expect(tan(@as(f32, 0.0)) == tanf(0.0));
     try expect(tan(@as(f64, 0.0)) == tan(0.0));

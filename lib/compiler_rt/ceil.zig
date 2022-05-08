@@ -111,6 +111,17 @@ pub fn ceilq(x: f128) callconv(.C) f128 {
     }
 }
 
+pub fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __ceilh(x),
+        32 => return ceilf(x),
+        64 => return ceil(x),
+        80 => return __ceilx(x),
+        128 => return ceilq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "ceil32" {
     try expect(ceilf(1.3) == 2.0);
     try expect(ceilf(-1.3) == -1.0);

@@ -20,6 +20,17 @@ pub fn fabsq(a: f128) callconv(.C) f128 {
     return generic_fabs(a);
 }
 
+pub fn fabsl(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __fabsh(x),
+        32 => return fabsf(x),
+        64 => return fabs(x),
+        80 => return __fabsx(x),
+        128 => return fabsq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 inline fn generic_fabs(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);

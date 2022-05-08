@@ -21,6 +21,17 @@ pub fn fmaxq(x: f128, y: f128) callconv(.C) f128 {
     return generic_fmax(f128, x, y);
 }
 
+pub fn fmaxl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __fmaxh(x, y),
+        32 => return fmaxf(x, y),
+        64 => return fmax(x, y),
+        80 => return __fmaxx(x, y),
+        128 => return fmaxq(x, y),
+        else => @compileError("unreachable"),
+    }
+}
+
 inline fn generic_fmax(comptime T: type, x: T, y: T) T {
     if (math.isNan(x))
         return y;

@@ -1426,3 +1426,23 @@ test "pointer to empty struct literal to mutable slice" {
     var x: []i32 = &.{};
     try expect(x.len == 0);
 }
+
+test "coerce between pointers of compatible differently-named floats" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const F = switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => f16,
+        32 => f32,
+        64 => f64,
+        80 => f80,
+        128 => f128,
+        else => @compileError("unreachable"),
+    };
+    var f1: F = 12.34;
+    var f2: *c_longdouble = &f1;
+    f2.* += 1;
+    try expect(f1 == @as(F, 12.34) + 1);
+}

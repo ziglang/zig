@@ -18673,6 +18673,15 @@ fn coerceInMemoryAllowed(
         }
     }
 
+    // Differently-named floats with the same number of bits.
+    if (dest_ty.zigTypeTag() == .Float and src_ty.zigTypeTag() == .Float) {
+        const dest_bits = dest_ty.floatBits(target);
+        const src_bits = src_ty.floatBits(target);
+        if (dest_bits == src_bits) {
+            return .ok;
+        }
+    }
+
     // Pointers / Pointer-like Optionals
     var dest_buf: Type.Payload.ElemType = undefined;
     var src_buf: Type.Payload.ElemType = undefined;

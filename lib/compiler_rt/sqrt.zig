@@ -225,6 +225,17 @@ pub fn sqrtq(x: f128) callconv(.C) f128 {
     return sqrt(@floatCast(f64, x));
 }
 
+pub fn sqrtl(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __sqrth(x),
+        32 => return sqrtf(x),
+        64 => return sqrt(x),
+        80 => return __sqrtx(x),
+        128 => return sqrtq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "sqrtf" {
     const V = [_]f32{
         0.0,

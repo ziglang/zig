@@ -81,6 +81,17 @@ pub fn truncq(x: f128) callconv(.C) f128 {
     }
 }
 
+pub fn truncl(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __trunch(x),
+        32 => return truncf(x),
+        64 => return trunc(x),
+        80 => return __truncx(x),
+        128 => return truncq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "trunc32" {
     try expect(truncf(1.3) == 1.0);
     try expect(truncf(-1.3) == -1.0);

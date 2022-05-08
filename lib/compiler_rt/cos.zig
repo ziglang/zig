@@ -107,6 +107,17 @@ pub fn cosq(a: f128) callconv(.C) f128 {
     return cos(@floatCast(f64, a));
 }
 
+pub fn cosl(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __cosh(x),
+        32 => return cosf(x),
+        64 => return cos(x),
+        80 => return __cosx(x),
+        128 => return cosq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "cos32" {
     const epsilon = 0.00001;
 

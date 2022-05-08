@@ -123,6 +123,17 @@ pub fn roundq(x_: f128) callconv(.C) f128 {
     }
 }
 
+pub fn roundl(x: c_longdouble) callconv(.C) c_longdouble {
+    switch (@typeInfo(c_longdouble).Float.bits) {
+        16 => return __roundh(x),
+        32 => return roundf(x),
+        64 => return round(x),
+        80 => return __roundx(x),
+        128 => return roundq(x),
+        else => @compileError("unreachable"),
+    }
+}
+
 test "round32" {
     try expect(roundf(1.3) == 1.0);
     try expect(roundf(-1.3) == -1.0);
