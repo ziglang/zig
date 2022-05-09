@@ -492,7 +492,7 @@ fn mul(a: u8, b: u8) u8 {
     var i: u8 = a;
     var j: u9 = b;
     var s: u9 = 0;
-    
+
     while (i > 0) : (i >>= 1) {
         if (i & 1 != 0) {
             s ^= j;
