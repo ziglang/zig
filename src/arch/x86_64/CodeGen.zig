@@ -592,8 +592,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub             => try self.airBinOp(inst),
             .subwrap         => try self.airBinOp(inst),
             .sub_sat         => try self.airSubSat(inst),
-            .mul             => try self.airMul(inst),
-            .mulwrap         => try self.airMul(inst),
+            .mul             => try self.airBinOp(inst),
+            .mulwrap         => try self.airBinOp(inst),
             .mul_sat         => try self.airMulSat(inst),
             .rem             => try self.airRem(inst),
             .mod             => try self.airMod(inst),
@@ -1122,7 +1122,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
             },
             else => {},
         }
-        break :result try self.genBinOp(inst, ty_op.operand, .bool_true);
+        break :result try self.genBinOp(inst, ty_op.operand, .bool_true, true);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -1185,24 +1185,6 @@ fn airMax(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airPtrAdd(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        try self.genBinOp(inst, bin_op.lhs, bin_op.rhs);
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airPtrSub(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        try self.genBinOp(inst, bin_op.lhs, bin_op.rhs);
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
 fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -1229,7 +1211,7 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        try self.genBinOp(inst, bin_op.lhs, bin_op.rhs);
+        try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, true);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1248,36 +1230,6 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
         .dead
     else
         return self.fail("TODO implement sub_sat for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airMul(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ty = self.air.typeOfIndex(inst);
-
-        if (ty.zigTypeTag() != .Int) {
-            return self.fail("TODO implement 'mul' for operands of dst type {}", .{ty.zigTypeTag()});
-        }
-
-        // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-        try self.register_manager.getReg(.rax, inst);
-        try self.register_manager.getReg(.rdx, null);
-        const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
-        defer for (reg_locks) |reg| {
-            self.register_manager.unlockReg(reg);
-        };
-
-        const lhs = try self.resolveInst(bin_op.lhs);
-        const rhs = try self.resolveInst(bin_op.rhs);
-
-        const signedness = ty.intInfo(self.target.*).signedness;
-        try self.genIntMulDivOpMir(switch (signedness) {
-            .signed => .imul,
-            .unsigned => .mul,
-        }, ty, signedness, lhs, rhs);
-        break :result MCValue{ .register = .rax };
-    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1308,7 +1260,7 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 try self.spillCompareFlagsIfOccupied();
                 self.compare_flags_inst = inst;
 
-                const partial = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs);
+                const partial = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, true);
                 const result: MCValue = switch (int_info.signedness) {
                     .signed => .{ .register_overflow_signed = partial.register },
                     .unsigned => .{ .register_overflow_unsigned = partial.register },
@@ -1340,7 +1292,7 @@ fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 try self.spillCompareFlagsIfOccupied();
                 self.compare_flags_inst = inst;
 
-                const partial = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs);
+                const partial = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, true);
                 const result: MCValue = switch (int_info.signedness) {
                     .signed => .{ .register_overflow_signed = partial.register },
                     .unsigned => .{ .register_overflow_unsigned = partial.register },
@@ -1373,34 +1325,17 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     return self.fail("TODO implement mul_with_overflow for Ints larger than 64bits", .{});
                 }
 
+                try self.spillCompareFlagsIfOccupied();
+
                 if (math.isPowerOfTwo(int_info.bits)) {
-                    try self.spillCompareFlagsIfOccupied();
                     self.compare_flags_inst = inst;
-
-                    // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-                    try self.register_manager.getReg(.rax, inst);
-                    try self.register_manager.getReg(.rdx, null);
-                    const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
-                    defer for (reg_locks) |reg| {
-                        self.register_manager.unlockReg(reg);
+                    const partial = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, true);
+                    break :result switch (int_info.signedness) {
+                        .signed => MCValue{ .register_overflow_signed = partial.register },
+                        .unsigned => MCValue{ .register_overflow_unsigned = partial.register },
                     };
-
-                    const lhs = try self.resolveInst(bin_op.lhs);
-                    const rhs = try self.resolveInst(bin_op.rhs);
-
-                    try self.genIntMulDivOpMir(switch (int_info.signedness) {
-                        .signed => .imul,
-                        .unsigned => .mul,
-                    }, ty, int_info.signedness, lhs, rhs);
-
-                    const result: MCValue = switch (int_info.signedness) {
-                        .signed => .{ .register_overflow_signed = .rax },
-                        .unsigned => .{ .register_overflow_unsigned = .rax },
-                    };
-                    break :result result;
                 }
 
-                try self.spillCompareFlagsIfOccupied();
                 self.compare_flags_inst = null;
 
                 const dst_reg: Register = dst_reg: {
@@ -1437,20 +1372,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             break :dst_reg dst_reg;
                         },
                         .unsigned => {
-                            // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-                            try self.register_manager.getReg(.rax, null);
-                            try self.register_manager.getReg(.rdx, null);
-                            const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
-                            defer for (reg_locks) |reg| {
-                                self.register_manager.unlockReg(reg);
-                            };
-
-                            const lhs = try self.resolveInst(bin_op.lhs);
-                            const rhs = try self.resolveInst(bin_op.rhs);
-
-                            try self.genIntMulDivOpMir(.mul, ty, .unsigned, lhs, rhs);
-
-                            break :dst_reg registerAlias(.rax, @intCast(u32, ty.abiSize(self.target.*)));
+                            const dst_mcv = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, false);
+                            break :dst_reg dst_mcv.register;
                         },
                     }
                 };
@@ -3291,6 +3214,7 @@ fn genBinOp(
     inst: Air.Inst.Index,
     op_lhs: Air.Inst.Ref,
     op_rhs: Air.Inst.Ref,
+    track: bool,
 ) !MCValue {
     const tag = self.air.instructions.items(.tag)[inst];
     const is_commutative: bool = switch (tag) {
@@ -3309,6 +3233,8 @@ fn genBinOp(
         .subwrap,
         .sub_with_overflow,
         .mul,
+        .mulwrap,
+        .mul_with_overflow,
         .shl,
         .shr,
         .ptr_add,
@@ -3319,6 +3245,43 @@ fn genBinOp(
     };
     const dst_ty = self.air.typeOf(op_lhs);
     const src_ty = self.air.typeOf(op_rhs);
+
+    if (dst_ty.zigTypeTag() == .Vector or dst_ty.zigTypeTag() == .Float) {
+        return self.fail("TODO implement genBinOp for {}", .{dst_ty.fmtDebug()});
+    }
+    if (dst_ty.abiSize(self.target.*) > 8) {
+        return self.fail("TODO implement genBinOp for {}", .{dst_ty.fmtDebug()});
+    }
+
+    switch (tag) {
+        .mul,
+        .mulwrap,
+        .mul_with_overflow,
+        => {
+            // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
+            try self.register_manager.getReg(.rax, if (track) inst else null);
+            try self.register_manager.getReg(.rdx, null);
+            const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
+            defer for (reg_locks) |reg| {
+                self.register_manager.unlockReg(reg);
+            };
+
+            const lhs = try self.resolveInst(op_lhs);
+            const rhs = try self.resolveInst(op_rhs);
+
+            const int_info = dst_ty.intInfo(self.target.*);
+            try self.genIntMulDivOpMir(switch (int_info.signedness) {
+                .signed => .imul,
+                .unsigned => .mul,
+            }, dst_ty, int_info.signedness, lhs, rhs);
+
+            return switch (int_info.signedness) {
+                .signed => MCValue{ .register = .rax },
+                .unsigned => MCValue{ .register = registerAlias(.rax, @intCast(u32, dst_ty.abiSize(self.target.*))) },
+            };
+        },
+        else => {},
+    }
 
     const lhs = try self.resolveInst(op_lhs);
     const lhs_lock: ?RegisterLock = switch (lhs) {
@@ -3343,7 +3306,11 @@ fn genBinOp(
             flipped = true;
             break :blk rhs;
         }
-        break :blk try self.copyToRegisterWithInstTracking(inst, dst_ty, lhs);
+        if (track) {
+            break :blk try self.copyToRegisterWithInstTracking(inst, dst_ty, lhs);
+        } else {
+            break :blk MCValue{ .register = try self.copyToTmpRegister(dst_ty, lhs) };
+        }
     };
     const dst_mcv_lock: ?RegisterLock = switch (dst_mcv) {
         .register => |reg| self.register_manager.lockReg(reg),
