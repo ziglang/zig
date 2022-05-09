@@ -11,7 +11,7 @@ pub const struct_VM_ = extern struct {
     functions: ?[*]const struct_InvocationTable_,
 };
 
-//excised output from stdlib.h etc
+// excised output from stdlib.h etc
 
 pub const InvocationTable_ = struct_InvocationTable_;
 pub const VM_ = struct_VM_;

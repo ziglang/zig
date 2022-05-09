@@ -577,5 +577,5 @@ test "typeInfo resolves usingnamespace declarations" {
     };
 
     try expect(@typeInfo(B).Struct.decls.len == 2);
-    //a
+    // a
 }

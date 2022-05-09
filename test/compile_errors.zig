@@ -139,7 +139,7 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     // TODO test this in stage2, but we won't even try in stage1
-    //ctx.objErrStage1("inline fn calls itself indirectly",
+    // ctx.objErrStage1("inline fn calls itself indirectly",
     //    \\export fn foo() void {
     //    \\    bar();
     //    \\}
@@ -152,17 +152,17 @@ pub fn addCases(ctx: *TestContext) !void {
     //    \\    quux();
     //    \\}
     //    \\extern fn quux() void;
-    //, &[_][]const u8{
+    // , &[_][]const u8{
     //    "tmp.zig:4:1: error: unable to inline function",
-    //});
+    // });
 
-    //ctx.objErrStage1("save reference to inline function",
+    // ctx.objErrStage1("save reference to inline function",
     //    \\export fn foo() void {
     //    \\    quux(@ptrToInt(bar));
     //    \\}
     //    \\fn bar() callconv(.Inline) void { }
     //    \\extern fn quux(usize) void;
-    //, &[_][]const u8{
+    // , &[_][]const u8{
     //    "tmp.zig:4:1: error: unable to inline function",
-    //});
+    // });
 }

@@ -71,12 +71,12 @@ fn testDifferentSizedFloatComparisons() !void {
 }
 
 // TODO This is waiting on library support for the Windows build (not sure why the other's don't need it)
-//test "@nearbyint" {
+// test "@nearbyint" {
 //    comptime testNearbyInt();
 //    testNearbyInt();
-//}
+// }
 
-//fn testNearbyInt() void {
+// fn testNearbyInt() void {
 //    // TODO test f16, f128, and c_longdouble
 //    // https://github.com/ziglang/zig/issues/4026
 //    {
@@ -87,7 +87,7 @@ fn testDifferentSizedFloatComparisons() !void {
 //        var a: f64 = -3.75;
 //    try expect(@nearbyint(a) == -4);
 //    }
-//}
+// }
 
 test "negative f128 floatToInt at compile-time" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -141,10 +141,10 @@ fn testSqrt() !void {
         }
         // TODO test f128, and c_longdouble
         // https://github.com/ziglang/zig/issues/4026
-        //{
+        // {
         //    var a: f128 = 49;
-        //try expect(@sqrt(a) == 7);
-        //}
+        // try expect(@sqrt(a) == 7);
+        // }
     }
 }
 

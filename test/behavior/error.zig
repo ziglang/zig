@@ -145,7 +145,7 @@ test "implicit cast to optional to error union to return result loc" {
         };
     };
     try S.entry();
-    //comptime S.entry(); TODO
+    // comptime S.entry(); TODO
 }
 
 test "error: fn returning empty error set can be passed as fn returning any error" {

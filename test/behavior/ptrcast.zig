@@ -35,7 +35,7 @@ fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
     const ptr = &bytes.?[1];
     const copy: [4]?u8 = @ptrCast(*const [4]?u8, ptr).*;
     _ = copy;
-    //try expect(@ptrCast(*align(1)?u8, bytes[1..5]).* == );
+    // try expect(@ptrCast(*align(1)?u8, bytes[1..5]).* == );
 }
 
 test "reinterpret bytes inside auto-layout struct as integer with nonzero offset" {

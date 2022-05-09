@@ -219,13 +219,13 @@ const test_targets = blk: {
             .link_libc = true,
         },
         // https://github.com/ziglang/zig/issues/3287
-        //.{
+        // .{
         //    .target = CrossTarget.parse(.{
         //        .arch_os_abi = "arm-linux-gnueabihf",
         //        .cpu_features = "generic+v8a",
         //    }) catch unreachable,
         //    .link_libc = true,
-        //},
+        // },
 
         .{
             .target = .{
@@ -245,14 +245,14 @@ const test_targets = blk: {
         },
 
         // https://github.com/ziglang/zig/issues/4927
-        //.{
+        // .{
         //    .target = .{
         //        .cpu_arch = .mips,
         //        .os_tag = .linux,
         //        .abi = .gnueabihf,
         //    },
         //    .link_libc = true,
-        //},
+        // },
 
         .{
             .target = .{
@@ -272,14 +272,14 @@ const test_targets = blk: {
         },
 
         // https://github.com/ziglang/zig/issues/4927
-        //.{
+        // .{
         //    .target = .{
         //        .cpu_arch = .mipsel,
         //        .os_tag = .linux,
         //        .abi = .gnueabihf,
         //    },
         //    .link_libc = true,
-        //},
+        // },
 
         .{
             .target = .{
@@ -297,14 +297,14 @@ const test_targets = blk: {
             .link_libc = true,
         },
         // https://github.com/ziglang/zig/issues/2256
-        //.{
+        // .{
         //    .target = .{
         //        .cpu_arch = .powerpc,
         //        .os_tag = .linux,
         //        .abi = .gnueabihf,
         //    },
         //    .link_libc = true,
-        //},
+        // },
 
         .{
             .target = .{
@@ -324,14 +324,14 @@ const test_targets = blk: {
         },
 
         // https://github.com/ziglang/zig/issues/3340
-        //.{
+        // .{
         //    .target = .{
         //        .cpu_arch = .riscv64,
         //        .os = .linux,
         //        .abi = .gnu,
         //    },
         //    .link_libc = true,
-        //},
+        // },
 
         .{
             .target = .{

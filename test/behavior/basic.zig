@@ -135,7 +135,7 @@ test "multiline string comments at start" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const s1 =
-        //\\one
+        // \\one
         \\two)
         \\three
     ;
@@ -149,7 +149,7 @@ test "multiline string comments at end" {
     const s1 =
         \\one
         \\two)
-        //\\three
+        // \\three
     ;
     const s2 = "one\ntwo)";
     try expect(mem.eql(u8, s1, s2));
@@ -160,7 +160,7 @@ test "multiline string comments in middle" {
 
     const s1 =
         \\one
-        //\\two)
+        // \\two)
         \\three
     ;
     const s2 = "one\nthree";
@@ -172,9 +172,9 @@ test "multiline string comments at multiple places" {
 
     const s1 =
         \\one
-        //\\two
+        // \\two
         \\three
-        //\\four
+        // \\four
         \\five
     ;
     const s2 = "one\nthree\nfive";
@@ -346,7 +346,7 @@ test "memcpy and memset intrinsics" {
 
     try testMemcpyMemset();
     // TODO add comptime test coverage
-    //comptime try testMemcpyMemset();
+    // comptime try testMemcpyMemset();
 }
 
 fn testMemcpyMemset() !void {

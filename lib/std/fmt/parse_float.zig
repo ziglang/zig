@@ -128,7 +128,7 @@ test "fmt.parseFloat hex.f64" {
     try testing.expectEqual(try parseFloat(f64, "0x1p-1022"), math.floatMin(f64));
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1022"), -math.floatMin(f64));
     // Min denormalized value.
-    //try testing.expectEqual(try parseFloat(f64, "0x1p-1074"), math.floatTrueMin(f64));
+    // try testing.expectEqual(try parseFloat(f64, "0x1p-1074"), math.floatTrueMin(f64));
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1074"), -math.floatTrueMin(f64));
 }
 test "fmt.parseFloat hex.f128" {

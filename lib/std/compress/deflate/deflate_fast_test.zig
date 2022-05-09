@@ -115,11 +115,11 @@ test "best speed max match offset" {
                 var offset = deflate_const.max_match_offset + offset_adj;
 
                 // Make src to be a []u8 of the form
-                //	fmt("{s}{s}{s}{s}{s}", .{abc, zeros0, xyzMaybe, abc, zeros1})
+                //  fmt("{s}{s}{s}{s}{s}", .{abc, zeros0, xyzMaybe, abc, zeros1})
                 // where:
-                //	zeros0 is approximately max_match_offset zeros.
-                //	xyzMaybe is either xyz or the empty string.
-                //	zeros1 is between 0 and 30 zeros.
+                //  zeros0 is approximately max_match_offset zeros.
+                //  xyzMaybe is either xyz or the empty string.
+                //  zeros1 is between 0 and 30 zeros.
                 // The difference between the two abc's will be offset, which
                 // is max_match_offset plus or minus a small adjustment.
                 var src_len: usize = @intCast(usize, offset + abc.len + @intCast(i32, extra));

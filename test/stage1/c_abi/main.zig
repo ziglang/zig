@@ -258,17 +258,17 @@ const c_small_packed_struct: fn (SmallPackedStruct) callconv(.C) void = @compile
 extern fn c_ret_small_packed_struct() SmallPackedStruct;
 
 // waiting on #1481
-//export fn zig_small_packed_struct(x: SmallPackedStruct) void {
+// export fn zig_small_packed_struct(x: SmallPackedStruct) void {
 //    expect(x.a == 0) catch @panic("test failure");
 //    expect(x.b == 1) catch @panic("test failure");
 //    expect(x.c == 2) catch @panic("test failure");
 //    expect(x.d == 3) catch @panic("test failure");
 //    expect(x.e) catch @panic("test failure");
-//}
+// }
 
 test "C ABI small packed struct" {
     var s = SmallPackedStruct{ .a = 0, .b = 1, .c = 2, .d = 3, .e = true };
-    _ = s; //c_small_packed_struct(s); // waiting on #1481
+    _ = s; // c_small_packed_struct(s); // waiting on #1481
     var s2 = c_ret_small_packed_struct();
     try expect(s2.a == 0);
     try expect(s2.b == 1);

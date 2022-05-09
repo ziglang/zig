@@ -444,7 +444,7 @@ pub fn addCases(ctx: *TestContext) !void {
             ":8:14: error: unreachable else prong; all cases already handled",
         });
     }
-    //{
+    // {
     //    var case = ctx.exeFromCompiledC("optionals", .{});
 
     //    // Simple while loop
@@ -470,7 +470,7 @@ pub fn addCases(ctx: *TestContext) !void {
     //        \\    return count - 5;
     //        \\}
     //    , "");
-    //}
+    // }
 
     {
         var case = ctx.exeFromCompiledC("errors", .{});
