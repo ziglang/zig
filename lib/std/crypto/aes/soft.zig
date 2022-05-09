@@ -50,10 +50,10 @@ pub const Block = struct {
         const s2 = block.repr[2];
         const s3 = block.repr[3];
 
-        const t0 = round_key.repr[0] ^ table[0][0][@truncate(u8, s0 >> 24)] ^ table[0][1][@truncate(u8, s1 >> 16)] ^ table[0][2][@truncate(u8, s2 >> 8)] ^ table[0][3][@truncate(u8, s3)];
-        const t1 = round_key.repr[1] ^ table[0][0][@truncate(u8, s1 >> 24)] ^ table[0][1][@truncate(u8, s2 >> 16)] ^ table[0][2][@truncate(u8, s3 >> 8)] ^ table[0][3][@truncate(u8, s0)];
-        const t2 = round_key.repr[2] ^ table[0][0][@truncate(u8, s2 >> 24)] ^ table[0][1][@truncate(u8, s3 >> 16)] ^ table[0][2][@truncate(u8, s0 >> 8)] ^ table[0][3][@truncate(u8, s1)];
-        const t3 = round_key.repr[3] ^ table[0][0][@truncate(u8, s3 >> 24)] ^ table[0][1][@truncate(u8, s0 >> 16)] ^ table[0][2][@truncate(u8, s1 >> 8)] ^ table[0][3][@truncate(u8, s2)];
+        const t0 = round_key.repr[0] ^ table_encrypt[0][@truncate(u8, s0 >> 24)] ^ table_encrypt[1][@truncate(u8, s1 >> 16)] ^ table_encrypt[2][@truncate(u8, s2 >> 8)] ^ table_encrypt[3][@truncate(u8, s3)];
+        const t1 = round_key.repr[1] ^ table_encrypt[0][@truncate(u8, s1 >> 24)] ^ table_encrypt[1][@truncate(u8, s2 >> 16)] ^ table_encrypt[2][@truncate(u8, s3 >> 8)] ^ table_encrypt[3][@truncate(u8, s0)];
+        const t2 = round_key.repr[2] ^ table_encrypt[0][@truncate(u8, s2 >> 24)] ^ table_encrypt[1][@truncate(u8, s3 >> 16)] ^ table_encrypt[2][@truncate(u8, s0 >> 8)] ^ table_encrypt[3][@truncate(u8, s1)];
+        const t3 = round_key.repr[3] ^ table_encrypt[0][@truncate(u8, s3 >> 24)] ^ table_encrypt[1][@truncate(u8, s0 >> 16)] ^ table_encrypt[2][@truncate(u8, s1 >> 8)] ^ table_encrypt[3][@truncate(u8, s2)];
 
         return Block{ .repr = BlockVec{ t0, t1, t2, t3 } };
     }
@@ -66,10 +66,10 @@ pub const Block = struct {
         const t3 = block.repr[3];
 
         // Last round uses s-box directly and XORs to produce output.
-        var s0 = @as(u32, sbox[0][t0 >> 24]) << 24 | @as(u32, sbox[0][t1 >> 16 & 0xff]) << 16 | @as(u32, sbox[0][t2 >> 8 & 0xff]) << 8 | @as(u32, sbox[0][t3 & 0xff]);
-        var s1 = @as(u32, sbox[0][t1 >> 24]) << 24 | @as(u32, sbox[0][t2 >> 16 & 0xff]) << 16 | @as(u32, sbox[0][t3 >> 8 & 0xff]) << 8 | @as(u32, sbox[0][t0 & 0xff]);
-        var s2 = @as(u32, sbox[0][t2 >> 24]) << 24 | @as(u32, sbox[0][t3 >> 16 & 0xff]) << 16 | @as(u32, sbox[0][t0 >> 8 & 0xff]) << 8 | @as(u32, sbox[0][t1 & 0xff]);
-        var s3 = @as(u32, sbox[0][t3 >> 24]) << 24 | @as(u32, sbox[0][t0 >> 16 & 0xff]) << 16 | @as(u32, sbox[0][t1 >> 8 & 0xff]) << 8 | @as(u32, sbox[0][t2 & 0xff]);
+        var s0 = @as(u32, sbox_encrypt[t0 >> 24]) << 24 | @as(u32, sbox_encrypt[t1 >> 16 & 0xff]) << 16 | @as(u32, sbox_encrypt[t2 >> 8 & 0xff]) << 8 | @as(u32, sbox_encrypt[t3 & 0xff]);
+        var s1 = @as(u32, sbox_encrypt[t1 >> 24]) << 24 | @as(u32, sbox_encrypt[t2 >> 16 & 0xff]) << 16 | @as(u32, sbox_encrypt[t3 >> 8 & 0xff]) << 8 | @as(u32, sbox_encrypt[t0 & 0xff]);
+        var s2 = @as(u32, sbox_encrypt[t2 >> 24]) << 24 | @as(u32, sbox_encrypt[t3 >> 16 & 0xff]) << 16 | @as(u32, sbox_encrypt[t0 >> 8 & 0xff]) << 8 | @as(u32, sbox_encrypt[t1 & 0xff]);
+        var s3 = @as(u32, sbox_encrypt[t3 >> 24]) << 24 | @as(u32, sbox_encrypt[t0 >> 16 & 0xff]) << 16 | @as(u32, sbox_encrypt[t1 >> 8 & 0xff]) << 8 | @as(u32, sbox_encrypt[t2 & 0xff]);
         s0 ^= round_key.repr[0];
         s1 ^= round_key.repr[1];
         s2 ^= round_key.repr[2];
@@ -85,10 +85,10 @@ pub const Block = struct {
         const s2 = block.repr[2];
         const s3 = block.repr[3];
 
-        const t0 = round_key.repr[0] ^ table[1][0][@truncate(u8, s0 >> 24)] ^ table[1][1][@truncate(u8, s3 >> 16)] ^ table[1][2][@truncate(u8, s2 >> 8)] ^ table[1][3][@truncate(u8, s1)];
-        const t1 = round_key.repr[1] ^ table[1][0][@truncate(u8, s1 >> 24)] ^ table[1][1][@truncate(u8, s0 >> 16)] ^ table[1][2][@truncate(u8, s3 >> 8)] ^ table[1][3][@truncate(u8, s2)];
-        const t2 = round_key.repr[2] ^ table[1][0][@truncate(u8, s2 >> 24)] ^ table[1][1][@truncate(u8, s1 >> 16)] ^ table[1][2][@truncate(u8, s0 >> 8)] ^ table[1][3][@truncate(u8, s3)];
-        const t3 = round_key.repr[3] ^ table[1][0][@truncate(u8, s3 >> 24)] ^ table[1][1][@truncate(u8, s2 >> 16)] ^ table[1][2][@truncate(u8, s1 >> 8)] ^ table[1][3][@truncate(u8, s0)];
+        const t0 = round_key.repr[0] ^ table_decrypt[0][@truncate(u8, s0 >> 24)] ^ table_decrypt[1][@truncate(u8, s3 >> 16)] ^ table_decrypt[2][@truncate(u8, s2 >> 8)] ^ table_decrypt[3][@truncate(u8, s1)];
+        const t1 = round_key.repr[1] ^ table_decrypt[0][@truncate(u8, s1 >> 24)] ^ table_decrypt[1][@truncate(u8, s0 >> 16)] ^ table_decrypt[2][@truncate(u8, s3 >> 8)] ^ table_decrypt[3][@truncate(u8, s2)];
+        const t2 = round_key.repr[2] ^ table_decrypt[0][@truncate(u8, s2 >> 24)] ^ table_decrypt[1][@truncate(u8, s1 >> 16)] ^ table_decrypt[2][@truncate(u8, s0 >> 8)] ^ table_decrypt[3][@truncate(u8, s3)];
+        const t3 = round_key.repr[3] ^ table_decrypt[0][@truncate(u8, s3 >> 24)] ^ table_decrypt[1][@truncate(u8, s2 >> 16)] ^ table_decrypt[2][@truncate(u8, s1 >> 8)] ^ table_decrypt[3][@truncate(u8, s0)];
 
         return Block{ .repr = BlockVec{ t0, t1, t2, t3 } };
     }
@@ -101,10 +101,10 @@ pub const Block = struct {
         const t3 = block.repr[3];
 
         // Last round uses s-box directly and XORs to produce output.
-        var s0 = @as(u32, sbox[1][t0 >> 24]) << 24 | @as(u32, sbox[1][t3 >> 16 & 0xff]) << 16 | @as(u32, sbox[1][t2 >> 8 & 0xff]) << 8 | @as(u32, sbox[1][t1 & 0xff]);
-        var s1 = @as(u32, sbox[1][t1 >> 24]) << 24 | @as(u32, sbox[1][t0 >> 16 & 0xff]) << 16 | @as(u32, sbox[1][t3 >> 8 & 0xff]) << 8 | @as(u32, sbox[1][t2 & 0xff]);
-        var s2 = @as(u32, sbox[1][t2 >> 24]) << 24 | @as(u32, sbox[1][t1 >> 16 & 0xff]) << 16 | @as(u32, sbox[1][t0 >> 8 & 0xff]) << 8 | @as(u32, sbox[1][t3 & 0xff]);
-        var s3 = @as(u32, sbox[1][t3 >> 24]) << 24 | @as(u32, sbox[1][t2 >> 16 & 0xff]) << 16 | @as(u32, sbox[1][t1 >> 8 & 0xff]) << 8 | @as(u32, sbox[1][t0 & 0xff]);
+        var s0 = @as(u32, sbox_decrypt[t0 >> 24]) << 24 | @as(u32, sbox_decrypt[t3 >> 16 & 0xff]) << 16 | @as(u32, sbox_decrypt[t2 >> 8 & 0xff]) << 8 | @as(u32, sbox_decrypt[t1 & 0xff]);
+        var s1 = @as(u32, sbox_decrypt[t1 >> 24]) << 24 | @as(u32, sbox_decrypt[t0 >> 16 & 0xff]) << 16 | @as(u32, sbox_decrypt[t3 >> 8 & 0xff]) << 8 | @as(u32, sbox_decrypt[t2 & 0xff]);
+        var s2 = @as(u32, sbox_decrypt[t2 >> 24]) << 24 | @as(u32, sbox_decrypt[t1 >> 16 & 0xff]) << 16 | @as(u32, sbox_decrypt[t0 >> 8 & 0xff]) << 8 | @as(u32, sbox_decrypt[t3 & 0xff]);
+        var s3 = @as(u32, sbox_decrypt[t3 >> 24]) << 24 | @as(u32, sbox_decrypt[t2 >> 16 & 0xff]) << 16 | @as(u32, sbox_decrypt[t1 >> 8 & 0xff]) << 8 | @as(u32, sbox_decrypt[t0 & 0xff]);
         s0 ^= round_key.repr[0];
         s1 ^= round_key.repr[1];
         s2 ^= round_key.repr[2];
@@ -224,9 +224,9 @@ fn KeySchedule(comptime Aes: type) type {
         // Key expansion algorithm. See FIPS-197, Figure 11.
         fn expandKey(key: [key_length]u8) Self {
             const subw = struct {
-                // Apply sbox[0] to each byte in w.
+                // Apply sbox_encrypt to each byte in w.
                 fn func(w: u32) u32 {
-                    return @as(u32, sbox[0][w >> 24]) << 24 | @as(u32, sbox[0][w >> 16 & 0xff]) << 16 | @as(u32, sbox[0][w >> 8 & 0xff]) << 8 | @as(u32, sbox[0][w & 0xff]);
+                    return @as(u32, sbox_encrypt[w >> 24]) << 24 | @as(u32, sbox_encrypt[w >> 16 & 0xff]) << 16 | @as(u32, sbox_encrypt[w >> 8 & 0xff]) << 8 | @as(u32, sbox_encrypt[w & 0xff]);
                 }
             }.func;
 
@@ -259,7 +259,7 @@ fn KeySchedule(comptime Aes: type) type {
                 inline while (j < 4) : (j += 1) {
                     var x = round_keys[(ei + j) / 4].repr[(ei + j) % 4];
                     if (i > 0 and i + 4 < total_words) {
-                        x = table[1][0][sbox[0][x >> 24]] ^ table[1][1][sbox[0][x >> 16 & 0xff]] ^ table[1][2][sbox[0][x >> 8 & 0xff]] ^ table[1][3][sbox[0][x & 0xff]];
+                        x = table_decrypt[0][sbox_encrypt[x >> 24]] ^ table_decrypt[1][sbox_encrypt[x >> 16 & 0xff]] ^ table_decrypt[2][sbox_encrypt[x >> 8 & 0xff]] ^ table_decrypt[3][sbox_encrypt[x & 0xff]];
                     }
                     inv_round_keys[(i + j) / 4].repr[(i + j) % 4] = x;
                 }
@@ -428,55 +428,60 @@ const powx = init: {
     break :init array;
 };
 
-// S-box substitution values; should match FIPS-197 figures 7 & 14.
-const sbox align(64) = init: {
-    var array: [2][256]u8 align(64) = undefined;
+const sbox_encrypt align(64) = generateSbox(false);
+const sbox_decrypt align(64) = generateSbox(true);
+const table_encrypt align(64) = generateTable(sbox_encrypt, [_]u8{0x3, 0x1, 0x1, 0x2});
+const table_decrypt align(64) = generateTable(sbox_decrypt, [_]u8{0xb, 0xd, 0x9, 0xe});
+
+// Generate S-box substitution values.
+fn generateSbox(invert: bool) [256]u8 {
+    var array: [256]u8 align(64) = undefined;
 
     var p: u8 = 1;
     var q: u8 = 1;
-    for (array[0]) |_| { 
+    for (array) |_| { 
         p = mul(p, 3);
         q = mul(q, 0xf6); // divide by 3
 
-        array[0][p] = q ^ 0x63;
-        array[0][p] ^= math.rotl(u8, q, 1);
-        array[0][p] ^= math.rotl(u8, q, 2);
-        array[0][p] ^= math.rotl(u8, q, 3);
-        array[0][p] ^= math.rotl(u8, q, 4);
-
-        array[1][array[0][p]] = p;
-    }
-
-    array[0][0x00] = 0x63;
-    array[1][0x63] = 0x00;
-
-    break :init array;
-};
-
-// Lookup tables for encryption and decryption.
-const table align(64) = init: {
-    var array: [2][4][256]u32 align(64) = undefined;
-
-    var modes = [2][4]u8{
-        [_]u8{0x3, 0x1, 0x1, 0x2},
-        [_]u8{0xb, 0xd, 0x9, 0xe}
-    };
-
-    for (modes) |factors, mode| {
-        for (sbox[mode]) |value, index| { 
-            array[mode][0][index] = mul(value, factors[0]);
-            array[mode][0][index] |= math.shl(u32, mul(value, factors[1]), 8);
-            array[mode][0][index] |= math.shl(u32, mul(value, factors[2]), 16);
-            array[mode][0][index] |= math.shl(u32, mul(value, factors[3]), 24);
-
-            array[mode][1][index] = math.rotr(u32, array[mode][0][index], 8);
-            array[mode][2][index] = math.rotr(u32, array[mode][0][index], 16);
-            array[mode][3][index] = math.rotr(u32, array[mode][0][index], 24);
+        var value: u8 = q ^ 0x63;
+        value ^= math.rotl(u8, q, 1);
+        value ^= math.rotl(u8, q, 2);
+        value ^= math.rotl(u8, q, 3);
+        value ^= math.rotl(u8, q, 4);
+        
+        if (invert) {
+            array[value] = p;       
+        } else {
+            array[p] = value;
         }
     }
 
-    break :init array;
-};
+    if (invert) {
+        array[0x63] = 0x00;
+    } else {
+        array[0x00] = 0x63;
+    }
+
+    return array;
+}
+
+// Generate lookup tables for encryption and decryption.
+fn generateTable(sbox: [256]u8, factors: [4]u8) [4][256]u32 {
+    var array: [4][256]u32 align(64) = undefined;
+
+    for (sbox) |value, index| { 
+        array[0][index] = mul(value, factors[0]);
+        array[0][index] |= math.shl(u32, mul(value, factors[1]), 8);
+        array[0][index] |= math.shl(u32, mul(value, factors[2]), 16);
+        array[0][index] |= math.shl(u32, mul(value, factors[3]), 24);
+
+        array[1][index] = math.rotr(u32, array[0][index], 8);
+        array[2][index] = math.rotr(u32, array[0][index], 16);
+        array[3][index] = math.rotr(u32, array[0][index], 24);
+    }
+
+    return array;
+}
 
 // Multiply a and b as GF(2) polynomials modulo poly.
 fn mul(a: u8, b: u8) u8 {
