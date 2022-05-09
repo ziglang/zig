@@ -435,7 +435,9 @@ const table_decrypt align(64) = generateTable(sbox_decrypt, [_]u8{ 0xb, 0xd, 0x9
 
 // Generate S-box substitution values.
 fn generateSbox(invert: bool) [256]u8 {
-    var array: [256]u8 align(64) = undefined;
+    @setEvalBranchQuota(2000);
+
+    var array: [256]u8 = undefined;
 
     var p: u8 = 1;
     var q: u8 = 1;
@@ -467,7 +469,7 @@ fn generateSbox(invert: bool) [256]u8 {
 
 // Generate lookup tables for encryption and decryption.
 fn generateTable(sbox: [256]u8, factors: [4]u8) [4][256]u32 {
-    var array: [4][256]u32 align(64) = undefined;
+    var array: [4][256]u32 = undefined;
 
     for (sbox) |value, index| {
         array[0][index] = mul(value, factors[0]);
