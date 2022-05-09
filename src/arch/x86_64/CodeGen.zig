@@ -1122,7 +1122,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
             },
             else => {},
         }
-        break :result try self.genBinOp(inst, ty_op.operand, .bool_true, true);
+        break :result try self.genBinOp(.not, inst, ty_op.operand, .bool_true);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -1208,10 +1208,13 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airBinOp(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, true);
+
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
+    const tag = self.air.instructions.items(.tag)[inst];
+    const result = try self.genBinOp(tag, inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1260,7 +1263,7 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 try self.spillCompareFlagsIfOccupied();
                 self.compare_flags_inst = inst;
 
-                const partial = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, true);
+                const partial = try self.genBinOp(.add, inst, bin_op.lhs, bin_op.rhs);
                 const result: MCValue = switch (int_info.signedness) {
                     .signed => .{ .register_overflow_signed = partial.register },
                     .unsigned => .{ .register_overflow_unsigned = partial.register },
@@ -1292,7 +1295,7 @@ fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 try self.spillCompareFlagsIfOccupied();
                 self.compare_flags_inst = inst;
 
-                const partial = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, true);
+                const partial = try self.genBinOp(.sub, inst, bin_op.lhs, bin_op.rhs);
                 const result: MCValue = switch (int_info.signedness) {
                     .signed => .{ .register_overflow_signed = partial.register },
                     .unsigned => .{ .register_overflow_unsigned = partial.register },
@@ -1329,7 +1332,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                 if (math.isPowerOfTwo(int_info.bits)) {
                     self.compare_flags_inst = inst;
-                    const partial = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, true);
+                    const partial = try self.genBinOp(.mul, inst, bin_op.lhs, bin_op.rhs);
                     break :result switch (int_info.signedness) {
                         .signed => MCValue{ .register_overflow_signed = partial.register },
                         .unsigned => MCValue{ .register_overflow_unsigned = partial.register },
@@ -1372,7 +1375,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             break :dst_reg dst_reg;
                         },
                         .unsigned => {
-                            const dst_mcv = try self.genBinOp(inst, bin_op.lhs, bin_op.rhs, false);
+                            const dst_mcv = try self.genBinOp(.mul, null, bin_op.lhs, bin_op.rhs);
                             break :dst_reg dst_mcv.register;
                         },
                     }
@@ -3211,16 +3214,14 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 /// Result is always a register.
 fn genBinOp(
     self: *Self,
-    inst: Air.Inst.Index,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
     op_lhs: Air.Inst.Ref,
     op_rhs: Air.Inst.Ref,
-    track: bool,
 ) !MCValue {
-    const tag = self.air.instructions.items(.tag)[inst];
     const is_commutative: bool = switch (tag) {
         .add,
         .addwrap,
-        .add_with_overflow,
         .bool_or,
         .bit_or,
         .bool_and,
@@ -3231,10 +3232,8 @@ fn genBinOp(
 
         .sub,
         .subwrap,
-        .sub_with_overflow,
         .mul,
         .mulwrap,
-        .mul_with_overflow,
         .shl,
         .shr,
         .ptr_add,
@@ -3256,10 +3255,9 @@ fn genBinOp(
     switch (tag) {
         .mul,
         .mulwrap,
-        .mul_with_overflow,
         => {
             // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-            try self.register_manager.getReg(.rax, if (track) inst else null);
+            try self.register_manager.getReg(.rax, maybe_inst);
             try self.register_manager.getReg(.rdx, null);
             const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
             defer for (reg_locks) |reg| {
@@ -3299,18 +3297,17 @@ fn genBinOp(
 
     var flipped: bool = false;
     const dst_mcv: MCValue = blk: {
-        if (self.reuseOperand(inst, op_lhs, 0, lhs) and lhs.isRegister()) {
-            break :blk lhs;
-        }
-        if (is_commutative and self.reuseOperand(inst, op_rhs, 1, rhs) and rhs.isRegister()) {
-            flipped = true;
-            break :blk rhs;
-        }
-        if (track) {
+        if (maybe_inst) |inst| {
+            if (self.reuseOperand(inst, op_lhs, 0, lhs) and lhs.isRegister()) {
+                break :blk lhs;
+            }
+            if (is_commutative and self.reuseOperand(inst, op_rhs, 1, rhs) and rhs.isRegister()) {
+                flipped = true;
+                break :blk rhs;
+            }
             break :blk try self.copyToRegisterWithInstTracking(inst, dst_ty, lhs);
-        } else {
-            break :blk MCValue{ .register = try self.copyToTmpRegister(dst_ty, lhs) };
         }
+        break :blk MCValue{ .register = try self.copyToTmpRegister(dst_ty, lhs) };
     };
     const dst_mcv_lock: ?RegisterLock = switch (dst_mcv) {
         .register => |reg| self.register_manager.lockReg(reg),
@@ -3332,12 +3329,10 @@ fn genBinOp(
     switch (tag) {
         .add,
         .addwrap,
-        .add_with_overflow,
         => try self.genBinOpMir(.add, dst_ty, dst_mcv, src_mcv),
 
         .sub,
         .subwrap,
-        .sub_with_overflow,
         => try self.genBinOpMir(.sub, dst_ty, dst_mcv, src_mcv),
 
         .ptr_add,
@@ -3353,9 +3348,18 @@ fn genBinOp(
             try self.genBinOpMir(mir_tag, dst_ty, dst_mcv, src_mcv);
         },
 
-        .bool_or, .bit_or => try self.genBinOpMir(.@"or", dst_ty, dst_mcv, src_mcv),
-        .bool_and, .bit_and => try self.genBinOpMir(.@"and", dst_ty, dst_mcv, src_mcv),
-        .xor, .not => try self.genBinOpMir(.xor, dst_ty, dst_mcv, src_mcv),
+        .bool_or,
+        .bit_or,
+        => try self.genBinOpMir(.@"or", dst_ty, dst_mcv, src_mcv),
+
+        .bool_and,
+        .bit_and,
+        => try self.genBinOpMir(.@"and", dst_ty, dst_mcv, src_mcv),
+
+        .xor,
+        .not,
+        => try self.genBinOpMir(.xor, dst_ty, dst_mcv, src_mcv),
+
         else => unreachable,
     }
     return dst_mcv;
