@@ -413,7 +413,7 @@ pub const Aes256 = struct {
 // constants
 
 // Rijndael's irreducible polynomial.
-const poly: u9 = 1<<8 | 1<<4 | 1<<3 | 1<<1 | 1<<0; // x⁸ + x⁴ + x³ + x + 1
+const poly: u9 = 1 << 8 | 1 << 4 | 1 << 3 | 1 << 1 | 1 << 0; // x⁸ + x⁴ + x³ + x + 1
 
 // Powers of x mod poly in GF(2).
 const powx = init: {
@@ -430,8 +430,8 @@ const powx = init: {
 
 const sbox_encrypt align(64) = generateSbox(false);
 const sbox_decrypt align(64) = generateSbox(true);
-const table_encrypt align(64) = generateTable(sbox_encrypt, [_]u8{0x3, 0x1, 0x1, 0x2});
-const table_decrypt align(64) = generateTable(sbox_decrypt, [_]u8{0xb, 0xd, 0x9, 0xe});
+const table_encrypt align(64) = generateTable(sbox_encrypt, [_]u8{ 0x3, 0x1, 0x1, 0x2 });
+const table_decrypt align(64) = generateTable(sbox_decrypt, [_]u8{ 0xb, 0xd, 0x9, 0xe });
 
 // Generate S-box substitution values.
 fn generateSbox(invert: bool) [256]u8 {
@@ -439,7 +439,7 @@ fn generateSbox(invert: bool) [256]u8 {
 
     var p: u8 = 1;
     var q: u8 = 1;
-    for (array) |_| { 
+    for (array) |_| {
         p = mul(p, 3);
         q = mul(q, 0xf6); // divide by 3
 
@@ -448,9 +448,9 @@ fn generateSbox(invert: bool) [256]u8 {
         value ^= math.rotl(u8, q, 2);
         value ^= math.rotl(u8, q, 3);
         value ^= math.rotl(u8, q, 4);
-        
+
         if (invert) {
-            array[value] = p;       
+            array[value] = p;
         } else {
             array[p] = value;
         }
@@ -469,7 +469,7 @@ fn generateSbox(invert: bool) [256]u8 {
 fn generateTable(sbox: [256]u8, factors: [4]u8) [4][256]u32 {
     var array: [4][256]u32 align(64) = undefined;
 
-    for (sbox) |value, index| { 
+    for (sbox) |value, index| {
         array[0][index] = mul(value, factors[0]);
         array[0][index] |= math.shl(u32, mul(value, factors[1]), 8);
         array[0][index] |= math.shl(u32, mul(value, factors[2]), 16);
