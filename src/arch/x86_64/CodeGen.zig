@@ -595,8 +595,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .mul             => try self.airBinOp(inst),
             .mulwrap         => try self.airBinOp(inst),
             .mul_sat         => try self.airMulSat(inst),
-            .rem             => try self.airRem(inst),
-            .mod             => try self.airMod(inst),
+            .rem             => try self.airBinOp(inst),
+            .mod             => try self.airBinOp(inst),
             .shl, .shl_exact => try self.airShl(inst),
             .shl_sat         => try self.airShlSat(inst),
             .min             => try self.airMin(inst),
@@ -1539,6 +1539,7 @@ fn genIntMulDivOpMir(
     }
 }
 
+/// Always returns a register.
 /// Clobbers .rax and .rdx registers.
 fn genInlineIntDivFloor(self: *Self, ty: Type, lhs: MCValue, rhs: MCValue) !MCValue {
     const signedness = ty.intInfo(self.target.*).signedness;
@@ -1681,86 +1682,6 @@ fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
                 break :result try self.genInlineIntDivFloor(ty, lhs, rhs);
             },
             else => unreachable,
-        }
-    };
-
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airRem(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    }
-    const ty = self.air.typeOfIndex(inst);
-    if (ty.zigTypeTag() != .Int) {
-        return self.fail("TODO implement .rem for operands of dst type {}", .{ty.zigTypeTag()});
-    }
-    // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-    try self.register_manager.getReg(.rax, null);
-    try self.register_manager.getReg(.rdx, inst);
-    const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
-    defer for (reg_locks) |reg| {
-        self.register_manager.unlockReg(reg);
-    };
-
-    const lhs = try self.resolveInst(bin_op.lhs);
-    const rhs = try self.resolveInst(bin_op.rhs);
-
-    const signedness = ty.intInfo(self.target.*).signedness;
-    try self.genIntMulDivOpMir(switch (signedness) {
-        .signed => .idiv,
-        .unsigned => .div,
-    }, ty, signedness, lhs, rhs);
-
-    const result: MCValue = .{ .register = .rdx };
-
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airMod(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    }
-
-    const ty = self.air.typeOfIndex(inst);
-    if (ty.zigTypeTag() != .Int) {
-        return self.fail("TODO implement .mod for operands of dst type {}", .{ty.zigTypeTag()});
-    }
-    const signedness = ty.intInfo(self.target.*).signedness;
-
-    // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
-    try self.register_manager.getReg(.rax, null);
-    try self.register_manager.getReg(.rdx, if (signedness == .unsigned) inst else null);
-    const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
-    defer for (reg_locks) |reg| {
-        self.register_manager.unlockReg(reg);
-    };
-
-    const lhs = try self.resolveInst(bin_op.lhs);
-    const rhs = try self.resolveInst(bin_op.rhs);
-
-    const result: MCValue = result: {
-        switch (signedness) {
-            .unsigned => {
-                try self.genIntMulDivOpMir(switch (signedness) {
-                    .signed => .idiv,
-                    .unsigned => .div,
-                }, ty, signedness, lhs, rhs);
-                break :result MCValue{ .register = .rdx };
-            },
-            .signed => {
-                const div_floor = try self.genInlineIntDivFloor(ty, lhs, rhs);
-                try self.genIntMulComplexOpMir(ty, div_floor, rhs);
-
-                const result = try self.copyToRegisterWithInstTracking(inst, ty, lhs);
-                try self.genBinOpMir(.sub, ty, result, div_floor);
-
-                break :result result;
-            },
         }
     };
 
@@ -3234,11 +3155,17 @@ fn genBinOp(
         .subwrap,
         .mul,
         .mulwrap,
+        .div_exact,
+        .div_trunc,
+        .rem,
+        .mod,
         .shl,
         .shr,
         .ptr_add,
         .ptr_sub,
         => false,
+
+        .div_float => return self.fail("TODO implement genBinOp for {}", .{tag}),
 
         else => unreachable,
     };
@@ -3277,6 +3204,57 @@ fn genBinOp(
                 .signed => MCValue{ .register = .rax },
                 .unsigned => MCValue{ .register = registerAlias(.rax, @intCast(u32, dst_ty.abiSize(self.target.*))) },
             };
+        },
+        .mod,
+        .rem,
+        => {
+            const int_info = dst_ty.intInfo(self.target.*);
+            const track_inst_rdx: ?Air.Inst.Index = switch (tag) {
+                .mod => if (int_info.signedness == .unsigned) maybe_inst else null,
+                .rem => maybe_inst,
+                else => unreachable,
+            };
+
+            // Spill .rax and .rdx upfront to ensure we don't spill the operands too late.
+            try self.register_manager.getReg(.rax, null);
+            try self.register_manager.getReg(.rdx, track_inst_rdx);
+            const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
+            defer for (reg_locks) |reg| {
+                self.register_manager.unlockReg(reg);
+            };
+
+            const lhs = try self.resolveInst(op_lhs);
+            const rhs = try self.resolveInst(op_rhs);
+
+            switch (int_info.signedness) {
+                .signed => {
+                    switch (tag) {
+                        .rem => {
+                            try self.genIntMulDivOpMir(.idiv, dst_ty, .signed, lhs, rhs);
+                            return MCValue{ .register = .rdx };
+                        },
+                        .mod => {
+                            const div_floor = try self.genInlineIntDivFloor(dst_ty, lhs, rhs);
+                            try self.genIntMulComplexOpMir(dst_ty, div_floor, rhs);
+                            const div_floor_lock = self.register_manager.lockReg(div_floor.register);
+                            defer if (div_floor_lock) |lock| self.register_manager.unlockReg(lock);
+
+                            const result: MCValue = if (maybe_inst) |inst|
+                                try self.copyToRegisterWithInstTracking(inst, dst_ty, lhs)
+                            else
+                                MCValue{ .register = try self.copyToTmpRegister(dst_ty, lhs) };
+                            try self.genBinOpMir(.sub, dst_ty, result, div_floor);
+
+                            return result;
+                        },
+                        else => unreachable,
+                    }
+                },
+                .unsigned => {
+                    try self.genIntMulDivOpMir(.div, dst_ty, .unsigned, lhs, rhs);
+                    return MCValue{ .register = .rdx };
+                },
+            }
         },
         else => {},
     }
