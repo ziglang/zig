@@ -430,18 +430,18 @@ const powx = init: {
 
 const sbox_encrypt align(64) = generateSbox(false);
 const sbox_decrypt align(64) = generateSbox(true);
-const table_encrypt align(64) = generateTable(sbox_encrypt, [_]u8{ 0x3, 0x1, 0x1, 0x2 });
-const table_decrypt align(64) = generateTable(sbox_decrypt, [_]u8{ 0xb, 0xd, 0x9, 0xe });
+const table_encrypt align(64) = generateTable(false);
+const table_decrypt align(64) = generateTable(true);
 
 // Generate S-box substitution values.
 fn generateSbox(invert: bool) [256]u8 {
     @setEvalBranchQuota(5000);
 
-    var array: [256]u8 = undefined;
+    var sbox: [256]u8 = undefined;
 
     var p: u8 = 1;
     var q: u8 = 1;
-    for (array) |_| {
+    for (sbox) |_| {
         p = mul(p, 3);
         q = mul(q, 0xf6); // divide by 3
 
@@ -452,37 +452,37 @@ fn generateSbox(invert: bool) [256]u8 {
         value ^= math.rotl(u8, q, 4);
 
         if (invert) {
-            array[value] = p;
+            sbox[value] = p;
         } else {
-            array[p] = value;
+            sbox[p] = value;
         }
     }
 
     if (invert) {
-        array[0x63] = 0x00;
+        sbox[0x63] = 0x00;
     } else {
-        array[0x00] = 0x63;
+        sbox[0x00] = 0x63;
     }
 
-    return array;
+    return sbox;
 }
 
 // Generate lookup tables for encryption and decryption.
-fn generateTable(sbox: [256]u8, factors: [4]u8) [4][256]u32 {
-    var array: [4][256]u32 = undefined;
+fn generateTable(invert: bool) [4][256]u32 {
+    var table: [4][256]u32 = undefined;
 
-    for (sbox) |value, index| {
-        array[0][index] = mul(value, factors[0]);
-        array[0][index] |= math.shl(u32, mul(value, factors[1]), 8);
-        array[0][index] |= math.shl(u32, mul(value, factors[2]), 16);
-        array[0][index] |= math.shl(u32, mul(value, factors[3]), 24);
+    for (generateSbox(invert)) |value, index| {
+        table[0][index] = mul(value, if (invert) 0xb else 0x3);
+        table[0][index] |= math.shl(u32, mul(value, if (invert) 0xd else 0x1), 8);
+        table[0][index] |= math.shl(u32, mul(value, if (invert) 0x9 else 0x1), 16);
+        table[0][index] |= math.shl(u32, mul(value, if (invert) 0xe else 0x2), 24);
 
-        array[1][index] = math.rotr(u32, array[0][index], 8);
-        array[2][index] = math.rotr(u32, array[0][index], 16);
-        array[3][index] = math.rotr(u32, array[0][index], 24);
+        table[1][index] = math.rotr(u32, table[0][index], 8);
+        table[2][index] = math.rotr(u32, table[0][index], 16);
+        table[3][index] = math.rotr(u32, table[0][index], 24);
     }
 
-    return array;
+    return table;
 }
 
 // Multiply a and b as GF(2) polynomials modulo poly.
