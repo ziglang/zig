@@ -1177,7 +1177,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = validationAllocator.allocator();
 
-    //Maybe a platform's page_size is actually the same as or
+    // Maybe a platform's page_size is actually the same as or
     //  very near usize?
     if (mem.page_size << 2 > maxInt(usize)) return;
 

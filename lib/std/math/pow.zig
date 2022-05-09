@@ -213,7 +213,7 @@ test "math.pow.special" {
     try expect(pow(f32, -0, 0.5) == 0);
     try expect(math.isNan(pow(f32, 5.0, math.nan(f32))));
     try expect(math.isPositiveInf(pow(f32, 0.0, -1.0)));
-    //expect(math.isNegativeInf(pow(f32, -0.0, -3.0))); TODO is this required?
+    // expect(math.isNegativeInf(pow(f32, -0.0, -3.0))); TODO is this required?
     try expect(math.isPositiveInf(pow(f32, 0.0, -math.inf(f32))));
     try expect(math.isPositiveInf(pow(f32, -0.0, -math.inf(f32))));
     try expect(pow(f32, 0.0, math.inf(f32)) == 0.0);
@@ -236,7 +236,7 @@ test "math.pow.special" {
     try expect(math.isPositiveInf(pow(f32, -0.2, -math.inf(f32))));
     try expect(math.isPositiveInf(pow(f32, math.inf(f32), 1.0)));
     try expect(pow(f32, math.inf(f32), -1.0) == 0.0);
-    //expect(pow(f32, -math.inf(f32), 5.0) == pow(f32, -0.0, -5.0)); TODO support negative 0?
+    // expect(pow(f32, -math.inf(f32), 5.0) == pow(f32, -0.0, -5.0)); TODO support negative 0?
     try expect(pow(f32, -math.inf(f32), -5.2) == pow(f32, -0.0, 5.2));
     try expect(math.isNan(pow(f32, -1.0, 1.2)));
     try expect(math.isNan(pow(f32, -12.4, 78.5)));

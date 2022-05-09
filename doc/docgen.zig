@@ -748,12 +748,12 @@ fn writeEscaped(out: anytype, input: []const u8) !void {
     }
 }
 
-//#define VT_RED "\x1b[31;1m"
-//#define VT_GREEN "\x1b[32;1m"
-//#define VT_CYAN "\x1b[36;1m"
-//#define VT_WHITE "\x1b[37;1m"
-//#define VT_BOLD "\x1b[0;1m"
-//#define VT_RESET "\x1b[0m"
+// #define VT_RED "\x1b[31;1m"
+// #define VT_GREEN "\x1b[32;1m"
+// #define VT_CYAN "\x1b[36;1m"
+// #define VT_WHITE "\x1b[37;1m"
+// #define VT_BOLD "\x1b[0;1m"
+// #define VT_RESET "\x1b[0m"
 
 const TermState = enum {
     Start,

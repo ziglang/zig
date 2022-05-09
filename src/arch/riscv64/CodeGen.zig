@@ -1541,7 +1541,7 @@ fn structFieldPtr(self: *Self, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u
     _ = ty;
     _ = index;
     return self.fail("TODO implement codegen struct_field_ptr", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+    // return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
@@ -1549,7 +1549,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
     _ = extra;
     return self.fail("TODO implement codegen struct_field_val", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+    // return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
 }
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
@@ -1640,7 +1640,7 @@ fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airFence(self: *Self) !void {
     return self.fail("TODO implement fence() for {}", .{self.target.cpu.arch});
-    //return self.finishAirBookkeeping();
+    // return self.finishAirBookkeeping();
 }
 
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.Modifier) !void {
@@ -1771,7 +1771,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ptr = try self.resolveInst(un_op);
     _ = ptr;
     return self.fail("TODO implement airRetLoad for {}", .{self.target.cpu.arch});
-    //return self.finishAir(inst, .dead, .{ un_op, .none, .none });
+    // return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {

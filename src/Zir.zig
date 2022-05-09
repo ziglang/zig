@@ -1802,9 +1802,9 @@ pub const Inst = struct {
         };
 
         // Uncomment to view how many tag slots are available.
-        //comptime {
+        // comptime {
         //    @compileLog("ZIR tags left: ", 256 - @typeInfo(Tag).Enum.fields.len);
-        //}
+        // }
     };
 
     /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.

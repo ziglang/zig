@@ -714,7 +714,7 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
                 return "ilp32";
             }
         },
-        //TODO add ARM, Mips, and PowerPC
+        // TODO add ARM, Mips, and PowerPC
         else => return null,
     }
 }

@@ -35,7 +35,7 @@ inline fn muloXi4_genericFast(comptime ST: type, a: ST, b: ST, overflow: *c_int)
     const min = math.minInt(ST);
     const max = math.maxInt(ST);
     var res: EST = @as(EST, a) * @as(EST, b);
-    //invariant: -2^{bitwidth(EST)} < res < 2^{bitwidth(EST)-1}
+    // invariant: -2^{bitwidth(EST)} < res < 2^{bitwidth(EST)-1}
     if (res < min or max < res)
         overflow.* = 1;
     return @truncate(ST, res);

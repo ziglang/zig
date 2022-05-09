@@ -1005,16 +1005,16 @@ test "std.ArrayList/ArrayListUnmanaged.orderedRemove" {
         try list.append(6);
         try list.append(7);
 
-        //remove from middle
+        // remove from middle
         try testing.expectEqual(@as(i32, 4), list.orderedRemove(3));
         try testing.expectEqual(@as(i32, 5), list.items[3]);
         try testing.expectEqual(@as(usize, 6), list.items.len);
 
-        //remove from end
+        // remove from end
         try testing.expectEqual(@as(i32, 7), list.orderedRemove(5));
         try testing.expectEqual(@as(usize, 5), list.items.len);
 
-        //remove from front
+        // remove from front
         try testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
         try testing.expectEqual(@as(i32, 2), list.items[0]);
         try testing.expectEqual(@as(usize, 4), list.items.len);
@@ -1031,16 +1031,16 @@ test "std.ArrayList/ArrayListUnmanaged.orderedRemove" {
         try list.append(a, 6);
         try list.append(a, 7);
 
-        //remove from middle
+        // remove from middle
         try testing.expectEqual(@as(i32, 4), list.orderedRemove(3));
         try testing.expectEqual(@as(i32, 5), list.items[3]);
         try testing.expectEqual(@as(usize, 6), list.items.len);
 
-        //remove from end
+        // remove from end
         try testing.expectEqual(@as(i32, 7), list.orderedRemove(5));
         try testing.expectEqual(@as(usize, 5), list.items.len);
 
-        //remove from front
+        // remove from front
         try testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
         try testing.expectEqual(@as(i32, 2), list.items[0]);
         try testing.expectEqual(@as(usize, 4), list.items.len);
@@ -1061,16 +1061,16 @@ test "std.ArrayList/ArrayListUnmanaged.swapRemove" {
         try list.append(6);
         try list.append(7);
 
-        //remove from middle
+        // remove from middle
         try testing.expect(list.swapRemove(3) == 4);
         try testing.expect(list.items[3] == 7);
         try testing.expect(list.items.len == 6);
 
-        //remove from end
+        // remove from end
         try testing.expect(list.swapRemove(5) == 6);
         try testing.expect(list.items.len == 5);
 
-        //remove from front
+        // remove from front
         try testing.expect(list.swapRemove(0) == 1);
         try testing.expect(list.items[0] == 5);
         try testing.expect(list.items.len == 4);
@@ -1087,16 +1087,16 @@ test "std.ArrayList/ArrayListUnmanaged.swapRemove" {
         try list.append(a, 6);
         try list.append(a, 7);
 
-        //remove from middle
+        // remove from middle
         try testing.expect(list.swapRemove(3) == 4);
         try testing.expect(list.items[3] == 7);
         try testing.expect(list.items.len == 6);
 
-        //remove from end
+        // remove from end
         try testing.expect(list.swapRemove(5) == 6);
         try testing.expect(list.items.len == 5);
 
-        //remove from front
+        // remove from front
         try testing.expect(list.swapRemove(0) == 1);
         try testing.expect(list.items[0] == 5);
         try testing.expect(list.items.len == 4);

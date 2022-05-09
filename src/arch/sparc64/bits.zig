@@ -378,7 +378,7 @@ pub const Instruction = union(enum) {
         reserved: u19 = 0b0000000000000000000,
     },
 
-    //Format 4 (op = 2): MOVcc, FMOVr, FMOVcc, and Tcc
+    // Format 4 (op = 2): MOVcc, FMOVr, FMOVcc, and Tcc
     format_4a: struct {
         op: u2 = 0b10,
         rd: u5,

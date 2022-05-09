@@ -2784,7 +2784,7 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     // If we wanted to go this route, we would need to go all the way and not output
     // newlines until the next dbg_stmt occurs.
     // Perhaps an additional compilation option is in order?
-    //try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
+    // try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
     try writer.print("/* file:{d}:{d} */\n", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
     return CValue.none;
 }
@@ -3790,8 +3790,8 @@ fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = operand;
     _ = local;
     return f.fail("TODO: C backend: implement airTagName", .{});
-    //try writer.writeAll(";\n");
-    //return local;
+    // try writer.writeAll(";\n");
+    // return local;
 }
 
 fn airErrorName(f: *Function, inst: Air.Inst.Index) !CValue {

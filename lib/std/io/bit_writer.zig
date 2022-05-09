@@ -37,7 +37,7 @@ pub fn BitWriter(endian: std.builtin.Endian, comptime WriterType: type) type {
             const U = @TypeOf(value);
             comptime assert(trait.isUnsignedInt(U));
 
-            //by extending the buffer to a minimum of u8 we can cover a number of edge cases
+            // by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.
             const u_bit_count = @bitSizeOf(U);
             const buf_bit_count = bc: {
@@ -75,15 +75,15 @@ pub fn BitWriter(endian: std.builtin.Endian, comptime WriterType: type) type {
                 self.bit_count += n;
                 in_bits -= n;
 
-                //if we didn't fill the buffer, it's because bits < bits_remaining;
+                // if we didn't fill the buffer, it's because bits < bits_remaining;
                 if (self.bit_count != u8_bit_count) return;
                 try self.forward_writer.writeByte(self.bit_buffer);
                 self.bit_buffer = 0;
                 self.bit_count = 0;
             }
-            //at this point we know bit_buffer is empty
+            // at this point we know bit_buffer is empty
 
-            //copy bytes until we can't fill one anymore, then leave the rest in bit_buffer
+            // copy bytes until we can't fill one anymore, then leave the rest in bit_buffer
             while (in_bits >= u8_bit_count) {
                 switch (endian) {
                     .Big => {

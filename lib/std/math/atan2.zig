@@ -248,7 +248,7 @@ test "math.atan2_32.special" {
     try expect(atan2_32(0.0, 5.0) == 0.0);
     try expect(atan2_32(-0.0, 5.0) == -0.0);
     try expect(math.approxEqAbs(f32, atan2_32(0.0, -5.0), math.pi, epsilon));
-    //expect(math.approxEqAbs(f32, atan2_32(-0.0, -5.0), -math.pi, .{.rel=0,.abs=epsilon})); TODO support negative zero?
+    // expect(math.approxEqAbs(f32, atan2_32(-0.0, -5.0), -math.pi, .{.rel=0,.abs=epsilon})); TODO support negative zero?
     try expect(math.approxEqAbs(f32, atan2_32(1.0, 0.0), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f32, atan2_32(1.0, -0.0), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f32, atan2_32(-1.0, 0.0), -math.pi / 2.0, epsilon));
@@ -272,7 +272,7 @@ test "math.atan2_64.special" {
     try expect(atan2_64(0.0, 5.0) == 0.0);
     try expect(atan2_64(-0.0, 5.0) == -0.0);
     try expect(math.approxEqAbs(f64, atan2_64(0.0, -5.0), math.pi, epsilon));
-    //expect(math.approxEqAbs(f64, atan2_64(-0.0, -5.0), -math.pi, .{.rel=0,.abs=epsilon})); TODO support negative zero?
+    // expect(math.approxEqAbs(f64, atan2_64(-0.0, -5.0), -math.pi, .{.rel=0,.abs=epsilon})); TODO support negative zero?
     try expect(math.approxEqAbs(f64, atan2_64(1.0, 0.0), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f64, atan2_64(1.0, -0.0), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f64, atan2_64(-1.0, 0.0), -math.pi / 2.0, epsilon));

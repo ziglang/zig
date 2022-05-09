@@ -76,7 +76,7 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         exportIt();
     } else if (mips and os == .openbsd) {
         // TODO
-        //cacheflush(start, (uintptr_t)end - (uintptr_t)start, BCACHE);
+        // cacheflush(start, (uintptr_t)end - (uintptr_t)start, BCACHE);
         // exportIt();
     } else if (os == .linux and riscv) {
         const result = std.os.linux.syscall3(.riscv_flush_icache, start, end - start, 0);
@@ -123,31 +123,31 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         exportIt();
     } else if (powerpc64) {
         // TODO
-        //const size_t line_size = 32;
-        //const size_t len = (uintptr_t)end - (uintptr_t)start;
+        // const size_t line_size = 32;
+        // const size_t len = (uintptr_t)end - (uintptr_t)start;
         //
-        //const uintptr_t mask = ~(line_size - 1);
-        //const uintptr_t start_line = ((uintptr_t)start) & mask;
-        //const uintptr_t end_line = ((uintptr_t)start + len + line_size - 1) & mask;
+        // const uintptr_t mask = ~(line_size - 1);
+        // const uintptr_t start_line = ((uintptr_t)start) & mask;
+        // const uintptr_t end_line = ((uintptr_t)start + len + line_size - 1) & mask;
         //
-        //for (uintptr_t line = start_line; line < end_line; line += line_size)
+        // for (uintptr_t line = start_line; line < end_line; line += line_size)
         //  __asm__ volatile("dcbf 0, %0" : : "r"(line));
-        //__asm__ volatile("sync");
+        // __asm__ volatile("sync");
         //
-        //for (uintptr_t line = start_line; line < end_line; line += line_size)
+        // for (uintptr_t line = start_line; line < end_line; line += line_size)
         //  __asm__ volatile("icbi 0, %0" : : "r"(line));
-        //__asm__ volatile("isync");
+        // __asm__ volatile("isync");
         // exportIt();
     } else if (sparc) {
         // TODO
-        //const size_t dword_size = 8;
-        //const size_t len = (uintptr_t)end - (uintptr_t)start;
+        // const size_t dword_size = 8;
+        // const size_t len = (uintptr_t)end - (uintptr_t)start;
         //
-        //const uintptr_t mask = ~(dword_size - 1);
-        //const uintptr_t start_dword = ((uintptr_t)start) & mask;
-        //const uintptr_t end_dword = ((uintptr_t)start + len + dword_size - 1) & mask;
+        // const uintptr_t mask = ~(dword_size - 1);
+        // const uintptr_t start_dword = ((uintptr_t)start) & mask;
+        // const uintptr_t end_dword = ((uintptr_t)start + len + dword_size - 1) & mask;
         //
-        //for (uintptr_t dword = start_dword; dword < end_dword; dword += dword_size)
+        // for (uintptr_t dword = start_dword; dword < end_dword; dword += dword_size)
         //  __asm__ volatile("flush %0" : : "r"(dword));
         // exportIt();
     } else if (apple) {

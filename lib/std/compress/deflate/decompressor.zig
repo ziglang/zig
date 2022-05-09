@@ -47,7 +47,7 @@ const InflateError = error{
 // number of bits.
 //
 // See the following:
-//	https://github.com/madler/zlib/raw/master/doc/algorithm.txt
+// https://github.com/madler/zlib/raw/master/doc/algorithm.txt
 
 // chunk & 15 is number of bits
 // chunk >> 4 is value, including table link

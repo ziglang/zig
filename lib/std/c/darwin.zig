@@ -2284,46 +2284,46 @@ pub const F = struct {
     /// used in conjunction with F.NOCACHE to indicate that DIRECT, synchonous writes
     /// should not be used (i.e. its ok to temporaily create cached pages)
     pub const NODIRECT = 62;
-    ///Get the protection class of a file from the EA, returns int
+    /// Get the protection class of a file from the EA, returns int
     pub const GETPROTECTIONCLASS = 63;
-    ///Set the protection class of a file for the EA, requires int
+    /// Set the protection class of a file for the EA, requires int
     pub const SETPROTECTIONCLASS = 64;
-    ///file offset to device offset, extended
+    /// file offset to device offset, extended
     pub const LOG2PHYS_EXT = 65;
-    ///get record locking information, per-process
+    /// get record locking information, per-process
     pub const GETLKPID = 66;
-    ///Mark the file as being the backing store for another filesystem
+    /// Mark the file as being the backing store for another filesystem
     pub const SETBACKINGSTORE = 70;
-    ///return the full path of the FD, but error in specific mtmd circumstances
+    /// return the full path of the FD, but error in specific mtmd circumstances
     pub const GETPATH_MTMINFO = 71;
-    ///Returns the code directory, with associated hashes, to the caller
+    /// Returns the code directory, with associated hashes, to the caller
     pub const GETCODEDIR = 72;
-    ///No SIGPIPE generated on EPIPE
+    /// No SIGPIPE generated on EPIPE
     pub const SETNOSIGPIPE = 73;
-    ///Status of SIGPIPE for this fd
+    /// Status of SIGPIPE for this fd
     pub const GETNOSIGPIPE = 74;
-    ///For some cases, we need to rewrap the key for AKS/MKB
+    /// For some cases, we need to rewrap the key for AKS/MKB
     pub const TRANSCODEKEY = 75;
-    ///file being written to a by single writer... if throttling enabled, writes
-    ///may be broken into smaller chunks with throttling in between
+    /// file being written to a by single writer... if throttling enabled, writes
+    /// may be broken into smaller chunks with throttling in between
     pub const SINGLE_WRITER = 76;
-    ///Get the protection version number for this filesystem
+    /// Get the protection version number for this filesystem
     pub const GETPROTECTIONLEVEL = 77;
-    ///Add detached code signatures (used by dyld for shared libs)
+    /// Add detached code signatures (used by dyld for shared libs)
     pub const FINDSIGS = 78;
-    ///Add signature from same file, only if it is signed by Apple (used by dyld for simulator)
+    /// Add signature from same file, only if it is signed by Apple (used by dyld for simulator)
     pub const ADDFILESIGS_FOR_DYLD_SIM = 83;
-    ///fsync + issue barrier to drive
+    /// fsync + issue barrier to drive
     pub const BARRIERFSYNC = 85;
-    ///Add signature from same file, return end offset in structure on success
+    /// Add signature from same file, return end offset in structure on success
     pub const ADDFILESIGS_RETURN = 97;
-    ///Check if Library Validation allows this Mach-O file to be mapped into the calling process
+    /// Check if Library Validation allows this Mach-O file to be mapped into the calling process
     pub const CHECK_LV = 98;
-    ///Deallocate a range of the file
+    /// Deallocate a range of the file
     pub const PUNCHHOLE = 99;
-    ///Trim an active file
+    /// Trim an active file
     pub const TRIM_ACTIVE_FILE = 100;
-    ///mark the dup with FD_CLOEXEC
+    /// mark the dup with FD_CLOEXEC
     pub const DUPFD_CLOEXEC = 67;
     /// shared or read lock
     pub const RDLCK = 1;
@@ -2335,7 +2335,7 @@ pub const F = struct {
 
 pub const FCNTL_FS_SPECIFIC_BASE = 0x00010000;
 
-///close-on-exec flag
+/// close-on-exec flag
 pub const FD_CLOEXEC = 1;
 
 pub const LOCK = struct {
@@ -2491,7 +2491,7 @@ pub const IXANY: tcflag_t = 0x00000800; // any char will restart after stop
 pub const IMAXBEL: tcflag_t = 0x00002000; // ring bell on input queue full
 pub const IUTF8: tcflag_t = 0x00004000; // maintain state for UTF-8 VERASE
 
-pub const OPOST: tcflag_t = 0x00000001; //enable following output processing
+pub const OPOST: tcflag_t = 0x00000001; // enable following output processing
 pub const ONLCR: tcflag_t = 0x00000002; // map NL to CR-NL (ala CRMOD)
 pub const OXTABS: tcflag_t = 0x00000004; // expand tabs to spaces
 pub const ONOEOT: tcflag_t = 0x00000008; // discard EOT's (^D) on output)

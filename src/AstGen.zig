@@ -6765,7 +6765,7 @@ fn asmExpr(
             // assembly templates to be an expression. Once stage2 addresses the real world needs
             // of people using inline assembly (primarily OS developers) then we can re-institute
             // the rule into AstGen that assembly code must use string literal syntax.
-            //return astgen.failNode(full.ast.template, "assembly code must use string literal syntax", .{}),
+            // return astgen.failNode(full.ast.template, "assembly code must use string literal syntax", .{}),
             // We still need to trigger all the expr() calls here to avoid errors for unused things.
             // So we pass 0 as the asm source and stage2 Sema will notice this and
             // report the error.

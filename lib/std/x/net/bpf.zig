@@ -58,7 +58,7 @@
 //! original paper[1]. For the sake of completeness, here is the complete
 //! instruction set, along with the extensions:
 //!
-//!```
+//! ```
 //! opcode  addressing modes
 //! ld      #k  #len    M[k]    [k]     [x + k]
 //! ldh     [k] [x + k]

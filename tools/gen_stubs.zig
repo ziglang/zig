@@ -360,7 +360,7 @@ pub fn main() !void {
                             name, @tagName(arch), multi_sym.size[i],
                         });
                     }
-                    //try stdout.print(".size {s}, {d}\n", .{ name, size });
+                    // try stdout.print(".size {s}, {d}\n", .{ name, size });
                 }
             },
             else => unreachable,

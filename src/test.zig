@@ -1824,7 +1824,7 @@ pub const TestContext = struct {
                     try std.testing.expectEqualStrings(expected_stdout, exec_result.stdout);
                     // We allow stderr to have garbage in it because wasmtime prints a
                     // warning about --invoke even though we don't pass it.
-                    //std.testing.expectEqualStrings("", exec_result.stderr);
+                    // std.testing.expectEqualStrings("", exec_result.stderr);
                 },
             }
         }

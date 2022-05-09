@@ -15,5 +15,5 @@ pub const InfoSec = packed struct {
     sec_name_off: u32,
     num_info: u32,
     // TODO: communicate that there is data here
-    //data: [0]u8,
+    // data: [0]u8,
 };

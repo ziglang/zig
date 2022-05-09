@@ -1447,7 +1447,7 @@ fn resMSendRc(
 
     // Convert any IPv4 addresses in a mixed environment to v4-mapped
     // TODO
-    //if (family == AF.INET6) {
+    // if (family == AF.INET6) {
     //    setsockopt(fd, IPPROTO.IPV6, IPV6_V6ONLY, &(int){0}, sizeof 0);
     //    for (i=0; i<nns; i++) {
     //        if (ns[i].sin.sin_family != AF.INET) continue;
@@ -1459,7 +1459,7 @@ fn resMSendRc(
     //        ns[i].sin6.sin6_flowinfo = 0;
     //        ns[i].sin6.sin6_scope_id = 0;
     //    }
-    //}
+    // }
 
     var pfd = [1]os.pollfd{os.pollfd{
         .fd = fd,

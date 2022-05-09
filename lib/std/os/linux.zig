@@ -3240,8 +3240,8 @@ pub const VFS_CAP_U32 = VFS_CAP_U32_2;
 pub const VFS_CAP_REVISION = VFS_CAP_REVISION_2;
 
 pub const vfs_cap_data = extern struct {
-    //all of these are mandated as little endian
-    //when on disk.
+    // all of these are mandated as little endian
+    // when on disk.
     const Data = struct {
         permitted: u32,
         inheritable: u32,
@@ -3326,7 +3326,7 @@ pub const inotify_event = extern struct {
     mask: u32,
     cookie: u32,
     len: u32,
-    //name: [?]u8,
+    // name: [?]u8,
 };
 
 pub const dirent64 = extern struct {

@@ -1012,11 +1012,11 @@ pub fn QueryObjectName(
     const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
 
     const info = @ptrCast(*OBJECT_NAME_INFORMATION, out_buffer_aligned);
-    //buffer size is specified in bytes
+    // buffer size is specified in bytes
     const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) catch |e| switch (e) {
         error.Overflow => std.math.maxInt(ULONG),
     };
-    //last argument would return the length required for full_buffer, not exposed here
+    // last argument would return the length required for full_buffer, not exposed here
     const rc = ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null);
     switch (rc) {
         .SUCCESS => {
@@ -1039,7 +1039,7 @@ test "QueryObjectName" {
     if (builtin.os.tag != .windows)
         return;
 
-    //any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
+    // any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const handle = tmp.dir.fd;
@@ -1047,9 +1047,9 @@ test "QueryObjectName" {
 
     var result_path = try QueryObjectName(handle, &out_buffer);
     const required_len_in_u16 = result_path.len + @divExact(@ptrToInt(result_path.ptr) - @ptrToInt(&out_buffer), 2) + 1;
-    //insufficient size
+    // insufficient size
     try std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
-    //exactly-sufficient size
+    // exactly-sufficient size
     _ = try QueryObjectName(handle, out_buffer[0..required_len_in_u16]);
 }
 
@@ -1193,22 +1193,22 @@ test "GetFinalPathNameByHandle" {
     if (builtin.os.tag != .windows)
         return;
 
-    //any file will do
+    // any file will do
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const handle = tmp.dir.fd;
     var buffer: [PATH_MAX_WIDE]u16 = undefined;
 
-    //check with sufficient size
+    // check with sufficient size
     const nt_path = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, &buffer);
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, &buffer);
 
     const required_len_in_u16 = nt_path.len + @divExact(@ptrToInt(nt_path.ptr) - @ptrToInt(&buffer), 2) + 1;
-    //check with insufficient size
+    // check with insufficient size
     try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
     try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
 
-    //check with exactly-sufficient size
+    // check with exactly-sufficient size
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..required_len_in_u16]);
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..required_len_in_u16]);
 }

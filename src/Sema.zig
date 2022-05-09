@@ -1814,10 +1814,10 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     {
         const air_tags = sema.air_instructions.items(.tag);
 
-        //std.debug.print("dummy storePtr instructions:\n", .{});
-        //for (trash_block.instructions.items) |item| {
+        // std.debug.print("dummy storePtr instructions:\n", .{});
+        // for (trash_block.instructions.items) |item| {
         //    std.debug.print("  {s}\n", .{@tagName(air_tags[item])});
-        //}
+        // }
 
         // The last one is always `store`.
         const trash_inst = trash_block.instructions.items[trash_block.instructions.items.len - 1];
@@ -3279,12 +3279,12 @@ fn validateStructInit(
             const field_ptr_air_ref = sema.inst_map.get(field_ptr).?;
             const field_ptr_air_inst = Air.refToIndex(field_ptr_air_ref).?;
 
-            //std.debug.print("validateStructInit (field_ptr_air_inst=%{d}):\n", .{
+            // std.debug.print("validateStructInit (field_ptr_air_inst=%{d}):\n", .{
             //    field_ptr_air_inst,
-            //});
-            //for (block.instructions.items) |item| {
+            // });
+            // for (block.instructions.items) |item| {
             //    std.debug.print("  %{d} = {s}\n", .{item, @tagName(air_tags[item])});
-            //}
+            // }
 
             // We expect to see something like this in the current block AIR:
             //   %a = field_ptr(...)
@@ -11944,9 +11944,9 @@ fn typeInfoDecls(
 
         const fields = try decls_anon_decl.arena().create([2]Value);
         fields.* = .{
-            //name: []const u8,
+            // name: []const u8,
             name_val,
-            //is_pub: bool,
+            // is_pub: bool,
             Value.makeBool(decl.is_pub),
         };
         decls_val.* = try Value.Tag.aggregate.create(decls_anon_decl.arena(), fields);
@@ -13912,7 +13912,7 @@ fn reifyTuple(
         const name_val = field_struct_val[0];
         // field_type: type,
         const field_type_val = field_struct_val[1];
-        //default_value: ?*const anyopaque,
+        // default_value: ?*const anyopaque,
         const default_value_val = field_struct_val[2];
 
         const field_name = try name_val.toAllocatedBytes(
@@ -14017,7 +14017,7 @@ fn reifyStruct(
         const name_val = field_struct_val[0];
         // field_type: type,
         const field_type_val = field_struct_val[1];
-        //default_value: ?*const anyopaque,
+        // default_value: ?*const anyopaque,
         const default_value_val = field_struct_val[2];
         // is_comptime: bool,
         const is_comptime_val = field_struct_val[3];
@@ -16127,12 +16127,12 @@ fn zirVarExtended(
     // ZIR supports encoding this information but it is not used; the information
     // is encoded via the Decl entry.
     assert(!small.has_align);
-    //const align_val: Value = if (small.has_align) blk: {
+    // const align_val: Value = if (small.has_align) blk: {
     //    const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
     //    extra_index += 1;
     //    const align_tv = try sema.resolveInstConst(block, align_src, align_ref);
     //    break :blk align_tv.val;
-    //} else Value.@"null";
+    // } else Value.@"null";
 
     const uncasted_init: Air.Inst.Ref = if (small.has_init) blk: {
         const init_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
@@ -17655,18 +17655,18 @@ fn unionFieldPtr(
                 // in which case we would skip this check, and in fact we would actually
                 // set the union tag here and the payload to undefined.
 
-                //const tag_and_val = union_val.castTag(.@"union").?.data;
-                //var field_tag_buf: Value.Payload.U32 = .{
+                // const tag_and_val = union_val.castTag(.@"union").?.data;
+                // var field_tag_buf: Value.Payload.U32 = .{
                 //    .base = .{ .tag = .enum_field_index },
                 //    .data = field_index,
-                //};
-                //const field_tag = Value.initPayload(&field_tag_buf.base);
-                //const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, mod);
-                //if (!tag_matches) {
+                // };
+                // const field_tag = Value.initPayload(&field_tag_buf.base);
+                // const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, mod);
+                // if (!tag_matches) {
                 //    // TODO enhance this saying which one was active
                 //    // and which one was accessed, and showing where the union was declared.
                 //    return sema.fail(block, src, "access of inactive union field", .{});
-                //}
+                // }
                 // TODO add runtime safety check for the active tag
             },
             .Packed, .Extern => {},
@@ -18520,15 +18520,15 @@ fn coerce(
                 const val = (try sema.resolveDefinedValue(block, inst_src, inst)) orelse break :int;
                 const result_val = try val.intToFloat(sema.arena, inst_ty, dest_ty, target);
                 // TODO implement this compile error
-                //const int_again_val = try result_val.floatToInt(sema.arena, inst_ty);
-                //if (!int_again_val.eql(val, inst_ty, mod)) {
+                // const int_again_val = try result_val.floatToInt(sema.arena, inst_ty);
+                // if (!int_again_val.eql(val, inst_ty, mod)) {
                 //    return sema.fail(
                 //        block,
                 //        inst_src,
                 //        "type {} cannot represent integer value {}",
                 //        .{ dest_ty.fmt(sema.mod), val },
                 //    );
-                //}
+                // }
                 return try sema.addConstant(dest_ty, result_val);
             },
             .Undefined => {

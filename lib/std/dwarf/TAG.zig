@@ -89,7 +89,7 @@ pub const HP_Bliss_field_set = 0x4092;
 // GNU extensions.
 pub const format_label = 0x4101; // For FORTRAN 77 and Fortran 90.
 pub const function_template = 0x4102; // For C++.
-pub const class_template = 0x4103; //For C++.
+pub const class_template = 0x4103; // For C++.
 pub const GNU_BINCL = 0x4104;
 pub const GNU_EINCL = 0x4105;
 

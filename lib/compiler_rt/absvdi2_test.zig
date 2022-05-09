@@ -11,7 +11,7 @@ test "absvdi2" {
     // 2^63 = 9223372036854775808
     // 2^63-1 = 9223372036854775807
     // TODO write panic handler for testing panics
-    //try test__absvdi2(-9223372036854775808, -5); // tested with return -5; and panic
+    // try test__absvdi2(-9223372036854775808, -5); // tested with return -5; and panic
     try test__absvdi2(-9223372036854775807, 9223372036854775807);
     try test__absvdi2(-9223372036854775806, 9223372036854775806);
     try test__absvdi2(-9223372036854775805, 9223372036854775805);

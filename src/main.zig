@@ -1963,7 +1963,7 @@ fn buildOutputType(
             fatal("`zig run` expects at least one positional argument", .{});
             // TODO once the attempt to unwrap error: LinkingWithoutZigSourceUnimplemented
             // is solved, remove the above fatal() and uncomment the `break` below.
-            //break :blk "run";
+            // break :blk "run";
         } else {
             fatal("expected a positional argument, -femit-bin=[path], --show-builtin, or --name [name]", .{});
         }

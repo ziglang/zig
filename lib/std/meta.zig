@@ -729,7 +729,7 @@ test "std.meta.Tag" {
     try testing.expect(Tag(U) == E);
 }
 
-///Returns the active tag of a tagged union
+/// Returns the active tag of a tagged union
 pub fn activeTag(u: anytype) Tag(@TypeOf(u)) {
     const T = @TypeOf(u);
     return @as(Tag(T), u);
@@ -755,7 +755,7 @@ test "std.meta.activeTag" {
 
 const TagPayloadType = TagPayload;
 
-///Given a tagged union type, and an enum, return the type of the union
+/// Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
 pub fn TagPayload(comptime U: type, tag: Tag(U)) type {
     comptime debug.assert(trait.is(.Union)(U));

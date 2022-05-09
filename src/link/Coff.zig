@@ -1304,8 +1304,8 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
                         try argv.append(try allocPrint(arena, "{s}vcruntime{s}.lib", .{ lib_str, d_str }));
                         try argv.append(try allocPrint(arena, "{s}ucrt{s}.lib", .{ lib_str, d_str }));
 
-                        //Visual C++ 2015 Conformance Changes
-                        //https://msdn.microsoft.com/en-us/library/bb531344.aspx
+                        // Visual C++ 2015 Conformance Changes
+                        // https://msdn.microsoft.com/en-us/library/bb531344.aspx
                         try argv.append("legacy_stdio_definitions.lib");
 
                         // msvcrt depends on kernel32 and ntdll

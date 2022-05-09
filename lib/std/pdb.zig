@@ -64,8 +64,8 @@ pub const ModInfo = extern struct {
     SourceFileNameIndex: u32,
     PdbFilePathNameIndex: u32,
     // These fields are variable length
-    //ModuleName: char[],
-    //ObjFileName: char[],
+    // ModuleName: char[],
+    // ObjFileName: char[],
 };
 
 pub const SectionMapHeader = extern struct {

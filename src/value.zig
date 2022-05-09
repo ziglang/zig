@@ -1794,7 +1794,7 @@ pub const Value = extern union {
             .float_16 => @rem(self.castTag(.float_16).?.data, 1) != 0,
             .float_32 => @rem(self.castTag(.float_32).?.data, 1) != 0,
             .float_64 => @rem(self.castTag(.float_64).?.data, 1) != 0,
-            //.float_80 => @rem(self.castTag(.float_80).?.data, 1) != 0,
+            // .float_80 => @rem(self.castTag(.float_80).?.data, 1) != 0,
             .float_80 => @panic("TODO implement __remx in compiler-rt"),
             .float_128 => @rem(self.castTag(.float_128).?.data, 1) != 0,
 

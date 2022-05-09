@@ -45,7 +45,7 @@ pub fn BitReader(endian: std.builtin.Endian, comptime ReaderType: type) type {
         pub fn readBits(self: *Self, comptime U: type, bits: usize, out_bits: *usize) Error!U {
             comptime assert(trait.isUnsignedInt(U));
 
-            //by extending the buffer to a minimum of u8 we can cover a number of edge cases
+            // by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.
             const u_bit_count = @bitSizeOf(U);
             const buf_bit_count = bc: {
@@ -82,16 +82,16 @@ pub fn BitReader(endian: std.builtin.Endian, comptime ReaderType: type) type {
                 self.bit_count -= n;
                 out_bits.* = n;
             }
-            //at this point we know bit_buffer is empty
+            // at this point we know bit_buffer is empty
 
-            //copy bytes until we have enough bits, then leave the rest in bit_buffer
+            // copy bytes until we have enough bits, then leave the rest in bit_buffer
             while (out_bits.* < bits) {
                 const n = bits - out_bits.*;
                 const next_byte = self.forward_reader.readByte() catch |err| {
                     if (err == error.EndOfStream) {
                         return @intCast(U, out_buffer);
                     }
-                    //@BUG: See #1810. Not sure if the bug is that I have to do this for some
+                    // @BUG: See #1810. Not sure if the bug is that I have to do this for some
                     // streams, or that I don't for streams with emtpy errorsets.
                     return @errSetCast(Error, err);
                 };
@@ -141,7 +141,7 @@ pub fn BitReader(endian: std.builtin.Endian, comptime ReaderType: type) type {
         pub fn read(self: *Self, buffer: []u8) Error!usize {
             var out_bits: usize = undefined;
             var out_bits_total = @as(usize, 0);
-            //@NOTE: I'm not sure this is a good idea, maybe alignToByte should be forced
+            // @NOTE: I'm not sure this is a good idea, maybe alignToByte should be forced
             if (self.bit_count > 0) {
                 for (buffer) |*b| {
                     b.* = try self.readBits(u8, u8_bit_count, &out_bits);

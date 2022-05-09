@@ -1012,7 +1012,7 @@ pub const Builder = struct {
         return InstallArtifactStep.create(self, artifact);
     }
 
-    ///`dest_rel_path` is relative to prefix path
+    /// `dest_rel_path` is relative to prefix path
     pub fn installFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) void {
         self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .prefix, dest_rel_path).step);
     }
@@ -1021,12 +1021,12 @@ pub const Builder = struct {
         self.getInstallStep().dependOn(&self.addInstallDirectory(options).step);
     }
 
-    ///`dest_rel_path` is relative to bin path
+    /// `dest_rel_path` is relative to bin path
     pub fn installBinFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) void {
         self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .bin, dest_rel_path).step);
     }
 
-    ///`dest_rel_path` is relative to lib path
+    /// `dest_rel_path` is relative to lib path
     pub fn installLibFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) void {
         self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
     }
@@ -1038,17 +1038,17 @@ pub const Builder = struct {
         return raw;
     }
 
-    ///`dest_rel_path` is relative to install prefix path
+    /// `dest_rel_path` is relative to install prefix path
     pub fn addInstallFile(self: *Builder, source: FileSource, dest_rel_path: []const u8) *InstallFileStep {
         return self.addInstallFileWithDir(source.dupe(self), .prefix, dest_rel_path);
     }
 
-    ///`dest_rel_path` is relative to bin path
+    /// `dest_rel_path` is relative to bin path
     pub fn addInstallBinFile(self: *Builder, source: FileSource, dest_rel_path: []const u8) *InstallFileStep {
         return self.addInstallFileWithDir(source.dupe(self), .bin, dest_rel_path);
     }
 
-    ///`dest_rel_path` is relative to lib path
+    /// `dest_rel_path` is relative to lib path
     pub fn addInstallLibFile(self: *Builder, source: FileSource, dest_rel_path: []const u8) *InstallFileStep {
         return self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path);
     }

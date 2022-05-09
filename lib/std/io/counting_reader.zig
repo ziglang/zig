@@ -34,7 +34,7 @@ test "io.CountingReader" {
     var counting_stream = countingReader(fbs.reader());
     const stream = counting_stream.reader();
 
-    //read and discard all bytes
+    // read and discard all bytes
     while (stream.readByte()) |_| {} else |err| {
         try testing.expect(err == error.EndOfStream);
     }

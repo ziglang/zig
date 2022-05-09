@@ -549,7 +549,7 @@ const PanicSwitch = struct {
         // TODO: Tailcall is broken right now, but eventually this should be used
         // to avoid blowing up the stack.  It's ok for now though, there are no
         // cycles in the state machine so the max stack usage is bounded.
-        //@call(.{.modifier = .always_tail}, func, args);
+        // @call(.{.modifier = .always_tail}, func, args);
         @call(.{}, func, args);
     }
 

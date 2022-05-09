@@ -264,7 +264,7 @@ test "blake2s160 streaming" {
 }
 
 test "comptime blake2s160" {
-    //comptime
+    // comptime
     {
         @setEvalBranchQuota(10000);
         var block = [_]u8{0} ** Blake2s160.block_length;

@@ -147,7 +147,7 @@ test "isSliceOf" {
 
 ///////////Strait trait Fns
 
-//@TODO:
+// @TODO:
 // Somewhat limited since we can't apply this logic to normal variables, fields, or
 //  Fns yet. Should be isExternType?
 pub fn isExtern(comptime T: type) bool {

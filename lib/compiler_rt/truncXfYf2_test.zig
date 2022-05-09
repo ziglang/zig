@@ -96,7 +96,7 @@ test "truncdfhf2" {
     test__truncdfhf2_raw(0x7ff8000000000000, 0x7e00); // qNaN
     test__truncdfhf2_raw(0x7ff0000000008000, 0x7e00); // NaN
 
-    test__truncdfhf2_raw(0x7ff0000000000000, 0x7c00); //inf
+    test__truncdfhf2_raw(0x7ff0000000000000, 0x7c00); // inf
     test__truncdfhf2_raw(0xfff0000000000000, 0xfc00); // -inf
 
     test__truncdfhf2(0.0, 0x0); // zero

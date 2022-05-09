@@ -163,7 +163,7 @@ pub fn sincos(x: f64, r_sin: *f64, r_cos: *f64) callconv(.C) void {
 
 pub fn __sincosx(x: f80, r_sin: *f80, r_cos: *f80) callconv(.C) void {
     // TODO: more efficient implementation
-    //return sincos_generic(f80, x, r_sin, r_cos);
+    // return sincos_generic(f80, x, r_sin, r_cos);
     var big_sin: f128 = undefined;
     var big_cos: f128 = undefined;
     sincosq(x, &big_sin, &big_cos);
@@ -173,7 +173,7 @@ pub fn __sincosx(x: f80, r_sin: *f80, r_cos: *f80) callconv(.C) void {
 
 pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.C) void {
     // TODO: more correct implementation
-    //return sincos_generic(f128, x, r_sin, r_cos);
+    // return sincos_generic(f128, x, r_sin, r_cos);
     var small_sin: f64 = undefined;
     var small_cos: f64 = undefined;
     sincos(@floatCast(f64, x), &small_sin, &small_cos);

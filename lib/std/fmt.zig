@@ -2448,7 +2448,7 @@ test "bytes.hex" {
     const some_bytes = "\xCA\xFE\xBA\xBE";
     try expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{fmtSliceHexLower(some_bytes)});
     try expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{fmtSliceHexUpper(some_bytes)});
-    //Test Slices
+    // Test Slices
     try expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{fmtSliceHexUpper(some_bytes[0..2])});
     try expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{fmtSliceHexLower(some_bytes[2..])});
     const bytes_with_zeros = "\x00\x0E\xBA\xBE";

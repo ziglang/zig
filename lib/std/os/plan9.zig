@@ -80,12 +80,12 @@ pub fn close(fd: usize) usize {
     return syscall_bits.syscall1(.CLOSE, fd);
 }
 pub const OpenMode = enum(usize) {
-    OREAD = 0, //* open for read
-    OWRITE = 1, //* write
-    ORDWR = 2, //* read and write
-    OEXEC = 3, //* execute, == read but check execute permission
-    OTRUNC = 16, //* or'ed in (except for exec), truncate file first
-    OCEXEC = 32, //* or'ed in (per file descriptor), close on exec
-    ORCLOSE = 64, //* or'ed in, remove on close
-    OEXCL = 0x1000, //* or'ed in, exclusive create
+    OREAD = 0, // * open for read
+    OWRITE = 1, // * write
+    ORDWR = 2, // * read and write
+    OEXEC = 3, // * execute, == read but check execute permission
+    OTRUNC = 16, // * or'ed in (except for exec), truncate file first
+    OCEXEC = 32, // * or'ed in (per file descriptor), close on exec
+    ORCLOSE = 64, // * or'ed in, remove on close
+    OEXCL = 0x1000, // * or'ed in, exclusive create
 };

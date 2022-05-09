@@ -38,9 +38,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-U__CRTDLL__",
                 "-D__MSVCRT__",
                 // Uncomment these 3 things for crtu
-                //"-DUNICODE",
-                //"-D_UNICODE",
-                //"-DWPRFLAG=1",
+                // "-DUNICODE",
+                // "-D_UNICODE",
+                // "-DWPRFLAG=1",
             });
             return comp.build_crt_file("crt2", .Obj, &[1]Compilation.CSourceFile{
                 .{

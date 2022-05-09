@@ -129,14 +129,14 @@ pub fn Channel(comptime T: type) type {
             return result;
         }
 
-        //pub async fn select(comptime EnumUnion: type, channels: ...) EnumUnion {
+        // pub async fn select(comptime EnumUnion: type, channels: ...) EnumUnion {
         //    assert(@memberCount(EnumUnion) == channels.len); // enum union and channels mismatch
         //    assert(channels.len != 0); // enum unions cannot have 0 fields
         //    if (channels.len == 1) {
         //        const result = await (async channels[0].get() catch unreachable);
         //        return @unionInit(EnumUnion, @memberName(EnumUnion, 0), result);
         //    }
-        //}
+        // }
 
         /// Get an item from the channel. If the buffer is empty and there are no
         /// puts waiting, this returns `null`.

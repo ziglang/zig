@@ -385,8 +385,8 @@ test "cityhash32" {
     try Test.doTest();
     // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
     // case once we ship stage2.
-    //@setEvalBranchQuota(50000);
-    //comptime Test.doTest();
+    // @setEvalBranchQuota(50000);
+    // comptime Test.doTest();
 }
 
 test "cityhash64" {
@@ -400,6 +400,6 @@ test "cityhash64" {
     try Test.doTest();
     // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
     // case once we ship stage2.
-    //@setEvalBranchQuota(50000);
-    //comptime Test.doTest();
+    // @setEvalBranchQuota(50000);
+    // comptime Test.doTest();
 }

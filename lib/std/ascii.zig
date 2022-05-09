@@ -62,8 +62,8 @@ const tIndex = enum(u3) {
     // Print, = Graph || == ' '. NOT '\t' et cetera
     Punct,
     Graph,
-    //ASCII, | ~0b01111111
-    //isBlank, == ' ' || == '\x09'
+    // ASCII, | ~0b01111111
+    // isBlank, == ' ' || == '\x09'
 };
 
 const combinedTable = init: {
@@ -198,7 +198,7 @@ pub fn isAlpha(c: u8) bool {
 }
 
 pub fn isCntrl(c: u8) bool {
-    return c < 0x20 or c == 127; //DEL
+    return c < 0x20 or c == 127; // DEL
 }
 
 pub fn isDigit(c: u8) bool {

@@ -86,7 +86,7 @@ fn mulXf3(comptime T: type, a: T, b: T) T {
         }
 
         if (bAbs == infRep) {
-            //? non-zero * infinity = +/- infinity
+            // ? non-zero * infinity = +/- infinity
             if (aAbs != 0) {
                 return @bitCast(T, bAbs | productSign);
             } else {

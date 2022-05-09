@@ -45,7 +45,7 @@ const libcxx_files = [_][]const u8{
     "src/filesystem/directory_iterator.cpp",
     // omit int128_builtins.cpp because it provides __muloti4 which is already provided
     // by compiler_rt and crashes on Windows x86_64: https://github.com/ziglang/zig/issues/10719
-    //"src/filesystem/int128_builtins.cpp",
+    // "src/filesystem/int128_builtins.cpp",
     "src/filesystem/operations.cpp",
     "src/format.cpp",
     "src/functional.cpp",
