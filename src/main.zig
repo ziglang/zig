@@ -656,6 +656,9 @@ fn buildOutputType(
     var linker_max_memory: ?u64 = null;
     var linker_shared_memory: bool = false;
     var linker_global_base: ?u64 = null;
+    var linker_print_gc_sections: bool = false;
+    var linker_print_icf_sections: bool = false;
+    var linker_print_map: bool = false;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
     var linker_z_defs = false;
@@ -1704,6 +1707,12 @@ fn buildOutputType(
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--no-gc-sections")) {
                     linker_gc_sections = false;
+                } else if (mem.eql(u8, arg, "--print-gc-sections")) {
+                    linker_print_gc_sections = true;
+                } else if (mem.eql(u8, arg, "--print-icf-sections")) {
+                    linker_print_icf_sections = true;
+                } else if (mem.eql(u8, arg, "--print-map")) {
+                    linker_print_map = true;
                 } else if (mem.eql(u8, arg, "--allow-shlib-undefined") or
                     mem.eql(u8, arg, "-allow-shlib-undefined"))
                 {
@@ -2765,6 +2774,9 @@ fn buildOutputType(
         .linker_initial_memory = linker_initial_memory,
         .linker_max_memory = linker_max_memory,
         .linker_shared_memory = linker_shared_memory,
+        .linker_print_gc_sections = linker_print_gc_sections,
+        .linker_print_icf_sections = linker_print_icf_sections,
+        .linker_print_map = linker_print_map,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nodelete = linker_z_nodelete,

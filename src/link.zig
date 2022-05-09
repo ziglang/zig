@@ -159,6 +159,9 @@ pub const Options = struct {
     version_script: ?[]const u8,
     soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
+    print_gc_sections: bool,
+    print_icf_sections: bool,
+    print_map: bool,
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,

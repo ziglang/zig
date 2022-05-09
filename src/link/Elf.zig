@@ -1475,6 +1475,18 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("--gc-sections");
         }
 
+        if (self.base.options.print_gc_sections) {
+            try argv.append("--print-gc-sections");
+        }
+
+        if (self.base.options.print_icf_sections) {
+            try argv.append("--print-icf-sections");
+        }
+
+        if (self.base.options.print_map) {
+            try argv.append("--print-map");
+        }
+
         if (self.base.options.eh_frame_hdr) {
             try argv.append("--eh-frame-hdr");
         }
