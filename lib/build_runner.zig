@@ -335,7 +335,7 @@ fn printStepsAndErr(builder: *Builder, already_ran_build: bool, out_stream: anyt
         \\
         \\Steps:
         \\
-    , .{builder.zig_exe});
+    , .{});
 
     const allocator = builder.allocator;
     for (builder.top_level_steps.items) |top_level_step| {
