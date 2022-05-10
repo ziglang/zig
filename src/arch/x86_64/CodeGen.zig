@@ -1659,6 +1659,8 @@ fn airShlShrBinOp(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
     }
 
+    try self.spillRegisters(1, .{.rcx});
+
     const tag = self.air.instructions.items(.tag)[inst];
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
@@ -2981,7 +2983,7 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 /// Result is always a register.
-/// Clobbers .rcx therefore care is needed to spill .rcx upfront.
+/// Clobbers .rcx for non-immediate rhs, therefore care is needed to spill .rcx upfront.
 /// Asserts .rcx is free.
 fn genShiftBinOp(
     self: *Self,
@@ -2999,12 +3001,7 @@ fn genShiftBinOp(
         return self.fail("TODO implement genShiftBinOp for {}", .{lhs_ty.fmtDebug()});
     }
 
-    assert(self.register_manager.isRegFree(.rcx));
-
-    try self.register_manager.getReg(.rcx, null);
-    try self.genSetReg(rhs_ty, .rcx, rhs);
-    const rcx_lock = self.register_manager.lockRegAssumeUnused(.rcx);
-    defer self.register_manager.unlockReg(rcx_lock);
+    assert(rhs_ty.abiSize(self.target.*) == 1);
 
     const int_info = lhs_ty.intInfo(self.target.*);
     const signedness = int_info.signedness;
@@ -3020,6 +3017,29 @@ fn genShiftBinOp(
         else => null,
     };
     defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const flags: u2 = blk: {
+        if (rhs.isImmediate()) {
+            const flags: u2 = switch (rhs.immediate) {
+                0 => unreachable, // TODO is this valid?
+                1 => 0b00,
+                else => 0b10,
+            };
+            break :blk flags;
+        }
+
+        assert(self.register_manager.isRegFree(.rcx));
+
+        try self.register_manager.getReg(.rcx, null);
+        try self.genSetReg(rhs_ty, .rcx, rhs);
+        const rcx_lock = self.register_manager.lockRegAssumeUnused(.rcx);
+        defer self.register_manager.unlockReg(rcx_lock);
+
+        break :blk 0b01;
+    };
+    const data: Mir.Inst.Data = if (rhs.isImmediate()) .{
+        .imm = @intCast(u8, rhs.immediate),
+    } else undefined;
 
     const dst: MCValue = blk: {
         if (maybe_inst) |inst| {
@@ -3040,9 +3060,9 @@ fn genShiftBinOp(
                     .tag = .sal,
                     .ops = (Mir.Ops{
                         .reg1 = dst.register,
-                        .flags = 0b01,
+                        .flags = flags,
                     }).encode(),
-                    .data = undefined,
+                    .data = data,
                 });
             },
             .unsigned => {
@@ -3050,9 +3070,9 @@ fn genShiftBinOp(
                     .tag = .shl,
                     .ops = (Mir.Ops{
                         .reg1 = dst.register,
-                        .flags = 0b01,
+                        .flags = flags,
                     }).encode(),
-                    .data = undefined,
+                    .data = data,
                 });
             },
         },
@@ -3062,9 +3082,9 @@ fn genShiftBinOp(
                     .tag = .sar,
                     .ops = (Mir.Ops{
                         .reg1 = dst.register,
-                        .flags = 0b01,
+                        .flags = flags,
                     }).encode(),
-                    .data = undefined,
+                    .data = data,
                 });
             },
             .unsigned => {
@@ -3072,9 +3092,9 @@ fn genShiftBinOp(
                     .tag = .shr,
                     .ops = (Mir.Ops{
                         .reg1 = dst.register,
-                        .flags = 0b01,
+                        .flags = flags,
                     }).encode(),
-                    .data = undefined,
+                    .data = data,
                 });
             },
         },
