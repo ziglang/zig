@@ -206,9 +206,7 @@ pub fn main() !void {
 
     builder.make(targets.items) catch |err| {
         switch (err) {
-            error.InvalidStepName => {
-                return usageAndErr(builder, true, stderr_stream);
-            },
+            error.InvalidStepName => process.exit(1),
             error.UncleanExit => process.exit(1),
             else => return err,
         }
