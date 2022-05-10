@@ -1533,8 +1533,108 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airShlWithOverflow for {}", .{self.target.cpu.arch});
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+
+    if (self.liveness.isUnused(inst)) {
+        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const abi_size = lhs_ty.abiSize(self.target.*);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+
+    const result: MCValue = result: {
+        switch (lhs_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement shl_with_overflow for Vector type", .{}),
+            .Int => {
+                if (abi_size > 8) {
+                    return self.fail("TODO implement shl_with_overflow for Ints larger than 64bits", .{});
+                }
+
+                const int_info = lhs_ty.intInfo(self.target.*);
+
+                if (math.isPowerOfTwo(int_info.bits) and int_info.bits >= 8) {
+                    try self.spillCompareFlagsIfOccupied();
+                    self.compare_flags_inst = inst;
+
+                    try self.spillRegisters(1, .{.rcx});
+
+                    const lhs = try self.resolveInst(bin_op.lhs);
+                    const rhs = try self.resolveInst(bin_op.rhs);
+
+                    const partial = try self.genShiftBinOp(.shl, null, lhs, rhs, lhs_ty, rhs_ty);
+                    break :result switch (int_info.signedness) {
+                        .signed => MCValue{ .register_overflow_signed = partial.register },
+                        .unsigned => MCValue{ .register_overflow_unsigned = partial.register },
+                    };
+                }
+
+                return self.fail("TODO shl_with_overflow non-power-of-two", .{});
+
+                // try self.spillCompareFlagsIfOccupied();
+                // self.compare_flags_inst = null;
+
+                // const dst_reg: Register = dst_reg: {
+                //     switch (int_info.signedness) {
+                //         .signed => {
+                //             const lhs = try self.resolveInst(bin_op.lhs);
+                //             const rhs = try self.resolveInst(bin_op.rhs);
+
+                //             const rhs_lock: ?RegisterLock = switch (rhs) {
+                //                 .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                //                 else => null,
+                //             };
+                //             defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+                //             const dst_reg: Register = blk: {
+                //                 if (lhs.isRegister()) break :blk lhs.register;
+                //                 break :blk try self.copyToTmpRegister(ty, lhs);
+                //             };
+                //             const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+                //             defer self.register_manager.unlockReg(dst_reg_lock);
+
+                //             const rhs_mcv: MCValue = blk: {
+                //                 if (rhs.isRegister() or rhs.isMemory()) break :blk rhs;
+                //                 break :blk MCValue{ .register = try self.copyToTmpRegister(ty, rhs) };
+                //             };
+                //             const rhs_mcv_lock: ?RegisterLock = switch (rhs_mcv) {
+                //                 .register => |reg| self.register_manager.lockReg(reg),
+                //                 else => null,
+                //             };
+                //             defer if (rhs_mcv_lock) |lock| self.register_manager.unlockReg(lock);
+
+                //             try self.genIntMulComplexOpMir(Type.isize, .{ .register = dst_reg }, rhs_mcv);
+
+                //             break :dst_reg dst_reg;
+                //         },
+                //         .unsigned => {
+                //             try self.spillRegisters(2, .{ .rax, .rdx });
+
+                //             const lhs = try self.resolveInst(bin_op.lhs);
+                //             const rhs = try self.resolveInst(bin_op.rhs);
+
+                //             const dst_mcv = try self.genMulDivBinOp(.mul, null, ty, lhs, rhs);
+                //             break :dst_reg dst_mcv.register;
+                //         },
+                //     }
+                // };
+
+                // const tuple_ty = self.air.typeOfIndex(inst);
+                // const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
+                // const tuple_align = tuple_ty.abiAlignment(self.target.*);
+                // const overflow_bit_offset = @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*));
+                // const stack_offset = @intCast(i32, try self.allocMem(inst, tuple_size, tuple_align));
+
+                // try self.genSetStackTruncatedOverflowCompare(ty, stack_offset, overflow_bit_offset, dst_reg);
+
+                // break :result MCValue{ .stack_offset = stack_offset };
+            },
+            else => unreachable,
+        }
+    };
+
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 /// Generates signed or unsigned integer multiplication/division.
