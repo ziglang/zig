@@ -8635,11 +8635,11 @@ static bool ir_resolve_global_linkage(IrAnalyze *ira, Stage1AirInst *value, Glob
     return true;
 }
 
-static bool ir_resolve_global_visibility(IrAnalyze *ira, Stage1AirInst *value, GlobalVisibilityId *out) {
+static bool ir_resolve_global_visibility(IrAnalyze *ira, Stage1AirInst *value, SymbolVisibilityId *out) {
     if (type_is_invalid(value->value->type))
         return false;
 
-    ZigType *global_visibility_type = get_builtin_type(ira->codegen, "GlobalVisibility");
+    ZigType *global_visibility_type = get_builtin_type(ira->codegen, "SymbolVisibility");
 
     Stage1AirInst *casted_value = ir_implicit_cast(ira, value, global_visibility_type);
     if (type_is_invalid(casted_value->value->type))
@@ -8649,7 +8649,7 @@ static bool ir_resolve_global_visibility(IrAnalyze *ira, Stage1AirInst *value, G
     if (!const_val)
         return false;
 
-    *out = (GlobalVisibilityId)bigint_as_u32(&const_val->data.x_enum_tag);
+    *out = (SymbolVisibilityId)bigint_as_u32(&const_val->data.x_enum_tag);
     return true;
 }
 
@@ -11714,7 +11714,7 @@ static Stage1AirInst *ir_analyze_instruction_export(IrAnalyze *ira, Stage1ZirIns
     if (!ir_resolve_global_linkage(ira, linkage_inst, &global_linkage_id))
         return ira->codegen->invalid_inst_gen;
 
-    GlobalVisibilityId global_visibility_id;
+    SymbolVisibilityId global_visibility_id;
     if (!ir_resolve_global_visibility(ira, visibility_inst, &global_visibility_id))
         return ira->codegen->invalid_inst_gen;
 

@@ -242,13 +242,13 @@ static LLVMLinkage to_llvm_linkage(GlobalLinkageId id, bool is_extern) {
     zig_unreachable();
 }
 
-static LLVMVisibility to_llvm_visibility(GlobalVisibilityId id) {
+static LLVMVisibility to_llvm_visibility(SymbolVisibilityId id) {
     switch (id) {
-        case GlobalVisibilityIdDefault:
+        case SymbolVisibilityIdDefault:
             return LLVMDefaultVisibility;
-        case GlobalVisibilityIdHidden:
+        case SymbolVisibilityIdHidden:
             return LLVMHiddenVisibility;
-        case GlobalVisibilityIdProtected:
+        case SymbolVisibilityIdProtected:
             return LLVMProtectedVisibility;
     }
     zig_unreachable();
@@ -412,7 +412,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     const char *unmangled_name = buf_ptr(&fn->symbol_name);
     const char *symbol_name;
     GlobalLinkageId linkage;
-    GlobalVisibilityId visibility = GlobalVisibilityIdDefault;
+    SymbolVisibilityId visibility = SymbolVisibilityIdDefault;
     if (fn->body_node == nullptr) {
         symbol_name = unmangled_name;
         linkage = GlobalLinkageIdStrong;
@@ -8967,7 +8967,7 @@ static void do_code_gen(CodeGen *g) {
         assert(var->decl_node);
 
         GlobalLinkageId linkage;
-        GlobalVisibilityId visibility = GlobalVisibilityIdDefault;
+        SymbolVisibilityId visibility = SymbolVisibilityIdDefault;
         const char *unmangled_name = var->name;
         const char *symbol_name;
         if (var->export_list.length == 0) {
