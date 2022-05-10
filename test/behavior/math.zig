@@ -905,20 +905,47 @@ test "@subWithOverflow" {
 
 test "@shlWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
-    var result: u16 = undefined;
-    try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
-    try expect(result == 0b0111111111111000);
-    try expect(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
-    try expect(result == 0b1011111111111100);
+    {
+        var result: u4 = undefined;
+        var a: u4 = 2;
+        var b: u2 = 1;
+        try expect(!@shlWithOverflow(u4, a, b, &result));
+        try expect(result == 4);
 
-    var a: u16 = 0b0000_0000_0000_0011;
-    var b: u4 = 15;
-    try expect(@shlWithOverflow(u16, a, b, &result));
-    try expect(result == 0b1000_0000_0000_0000);
-    b = 14;
-    try expect(!@shlWithOverflow(u16, a, b, &result));
-    try expect(result == 0b1100_0000_0000_0000);
+        b = 3;
+        try expect(@shlWithOverflow(u4, a, b, &result));
+        try expect(result == 0);
+    }
+
+    {
+        var result: i9 = undefined;
+        var a: i9 = 127;
+        var b: u4 = 1;
+        try expect(!@shlWithOverflow(i9, a, b, &result));
+        try expect(result == 254);
+
+        b = 2;
+        try expect(@shlWithOverflow(i9, a, b, &result));
+        try expect(result == -4);
+    }
+
+    {
+        var result: u16 = undefined;
+        try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
+        try expect(result == 0b0111111111111000);
+        try expect(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
+        try expect(result == 0b1011111111111100);
+
+        var a: u16 = 0b0000_0000_0000_0011;
+        var b: u4 = 15;
+        try expect(@shlWithOverflow(u16, a, b, &result));
+        try expect(result == 0b1000_0000_0000_0000);
+        b = 14;
+        try expect(!@shlWithOverflow(u16, a, b, &result));
+        try expect(result == 0b1100_0000_0000_0000);
+    }
 }
 
 test "overflow arithmetic with u0 values" {
