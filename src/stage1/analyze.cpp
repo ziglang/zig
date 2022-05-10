@@ -3717,15 +3717,14 @@ ZigType *get_test_fn_type(CodeGen *g) {
     return g->test_fn_type;
 }
 
-void add_var_export(CodeGen *g, ZigVar *var, const char *symbol_name, GlobalLinkageId linkage, SymbolVisibilityId visibility) {
+void add_var_export(CodeGen *g, ZigVar *var, const char *symbol_name, GlobalLinkageId linkage) {
     GlobalExport *global_export = var->export_list.add_one();
     memset(global_export, 0, sizeof(GlobalExport));
     buf_init_from_str(&global_export->name, symbol_name);
     global_export->linkage = linkage;
-    global_export->visibility = visibility;
 }
 
-void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, SymbolVisibilityId visibility, CallingConvention cc) {
+void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, CallingConvention cc) {
     CallingConvention winapi_cc = g->zig_target->arch == ZigLLVM_x86
         ? CallingConventionStdcall
         : CallingConventionC;
@@ -3750,7 +3749,6 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, G
     memset(fn_export, 0, sizeof(GlobalExport));
     buf_init_from_str(&fn_export->name, symbol_name);
     fn_export->linkage = linkage;
-    fn_export->visibility = visibility;
 }
 
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
@@ -3854,13 +3852,13 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 case CallingConventionWin64:
                 case CallingConventionPtxKernel:
                     add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
-                                  GlobalLinkageIdStrong, SymbolVisibilityIdDefault, fn_cc);
+                                  GlobalLinkageIdStrong, fn_cc);
                     break;
                 case CallingConventionUnspecified:
                     // An exported function without a specific calling
                     // convention defaults to C
                     add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
-                                  GlobalLinkageIdStrong, SymbolVisibilityIdDefault, CallingConventionC);
+                                  GlobalLinkageIdStrong, CallingConventionC);
                     break;
             }
         }
@@ -4323,7 +4321,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
 
     if (is_export) {
         validate_export_var_type(g, type, source_node);
-        add_var_export(g, tld_var->var, tld_var->var->name, GlobalLinkageIdStrong, SymbolVisibilityIdDefault);
+        add_var_export(g, tld_var->var, tld_var->var->name, GlobalLinkageIdStrong);
     }
 
     if (is_extern) {

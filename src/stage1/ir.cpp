@@ -8635,25 +8635,6 @@ static bool ir_resolve_global_linkage(IrAnalyze *ira, Stage1AirInst *value, Glob
     return true;
 }
 
-static bool ir_resolve_global_visibility(IrAnalyze *ira, Stage1AirInst *value, SymbolVisibilityId *out) {
-    if (type_is_invalid(value->value->type))
-        return false;
-
-    ZigType *global_visibility_type = get_builtin_type(ira->codegen, "SymbolVisibility");
-
-    Stage1AirInst *casted_value = ir_implicit_cast(ira, value, global_visibility_type);
-    if (type_is_invalid(casted_value->value->type))
-        return false;
-
-    ZigValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
-    if (!const_val)
-        return false;
-
-    *out = (SymbolVisibilityId)bigint_as_u32(&const_val->data.x_enum_tag);
-    return true;
-}
-
-
 static bool ir_resolve_float_mode(IrAnalyze *ira, Stage1AirInst *value, FloatMode *out) {
     if (type_is_invalid(value->value->type))
         return false;
@@ -11680,12 +11661,6 @@ static Stage1AirInst *ir_analyze_instruction_export(IrAnalyze *ira, Stage1ZirIns
     if (type_is_invalid(section_inst->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    TypeStructField *visibility_field = find_struct_type_field(options_type, buf_create_from_str("visibility"));
-    src_assert(visibility_field != nullptr, instruction->base.source_node);
-    Stage1AirInst *visibility_inst = ir_analyze_struct_value_field_value(ira, instruction->base.scope, instruction->base.source_node, options, visibility_field);
-    if (type_is_invalid(visibility_inst->value->type))
-        return ira->codegen->invalid_inst_gen;
-
     // The `section` field is optional, we have to unwrap it first
     Stage1AirInst *non_null_check = ir_analyze_test_non_null(ira, instruction->base.scope, instruction->base.source_node, section_inst);
     bool is_non_null;
@@ -11712,10 +11687,6 @@ static Stage1AirInst *ir_analyze_instruction_export(IrAnalyze *ira, Stage1ZirIns
 
     GlobalLinkageId global_linkage_id;
     if (!ir_resolve_global_linkage(ira, linkage_inst, &global_linkage_id))
-        return ira->codegen->invalid_inst_gen;
-
-    SymbolVisibilityId global_visibility_id;
-    if (!ir_resolve_global_visibility(ira, visibility_inst, &global_visibility_id))
         return ira->codegen->invalid_inst_gen;
 
     Buf *section_name = nullptr;
@@ -11780,7 +11751,7 @@ static Stage1AirInst *ir_analyze_instruction_export(IrAnalyze *ira, Stage1ZirIns
                 case CallingConventionSysV:
                 case CallingConventionWin64:
                 case CallingConventionPtxKernel:
-                    add_fn_export(ira->codegen, fn_entry, buf_ptr(symbol_name), global_linkage_id, global_visibility_id, cc);
+                    add_fn_export(ira->codegen, fn_entry, buf_ptr(symbol_name), global_linkage_id, cc);
                     fn_entry->section_name = section_name;
                     break;
             }
@@ -11927,7 +11898,7 @@ static Stage1AirInst *ir_analyze_instruction_export(IrAnalyze *ira, Stage1ZirIns
         if (load_ptr->ptr->id == Stage1AirInstIdVarPtr) {
             Stage1AirInstVarPtr *var_ptr = reinterpret_cast<Stage1AirInstVarPtr *>(load_ptr->ptr);
             ZigVar *var = var_ptr->var;
-            add_var_export(ira->codegen, var, buf_ptr(symbol_name), global_linkage_id, global_visibility_id);
+            add_var_export(ira->codegen, var, buf_ptr(symbol_name), global_linkage_id);
             var->section_name = section_name;
         }
     }

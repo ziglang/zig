@@ -242,18 +242,6 @@ static LLVMLinkage to_llvm_linkage(GlobalLinkageId id, bool is_extern) {
     zig_unreachable();
 }
 
-static LLVMVisibility to_llvm_visibility(SymbolVisibilityId id) {
-    switch (id) {
-        case SymbolVisibilityIdDefault:
-            return LLVMDefaultVisibility;
-        case SymbolVisibilityIdHidden:
-            return LLVMHiddenVisibility;
-        case SymbolVisibilityIdProtected:
-            return LLVMProtectedVisibility;
-    }
-    zig_unreachable();
-}
-
 struct CalcLLVMFieldIndex {
     uint32_t offset;
     uint32_t field_index;
@@ -412,7 +400,6 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     const char *unmangled_name = buf_ptr(&fn->symbol_name);
     const char *symbol_name;
     GlobalLinkageId linkage;
-    SymbolVisibilityId visibility = SymbolVisibilityIdDefault;
     if (fn->body_node == nullptr) {
         symbol_name = unmangled_name;
         linkage = GlobalLinkageIdStrong;
@@ -423,7 +410,6 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         GlobalExport *fn_export = &fn->export_list.items[0];
         symbol_name = buf_ptr(&fn_export->name);
         linkage = fn_export->linkage;
-        visibility = fn_export->visibility;
     }
 
     CallingConvention cc = fn->type_entry->data.fn.fn_type_id.cc;
@@ -545,8 +531,6 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     if (linkage == GlobalLinkageIdInternal) {
         LLVMSetUnnamedAddr(llvm_fn, true);
     }
-
-    LLVMSetVisibility(llvm_fn, to_llvm_visibility(visibility));
 
     ZigType *return_type = fn_type->data.fn.fn_type_id.return_type;
     if (return_type->id == ZigTypeIdUnreachable) {
@@ -8967,7 +8951,6 @@ static void do_code_gen(CodeGen *g) {
         assert(var->decl_node);
 
         GlobalLinkageId linkage;
-        SymbolVisibilityId visibility = SymbolVisibilityIdDefault;
         const char *unmangled_name = var->name;
         const char *symbol_name;
         if (var->export_list.length == 0) {
@@ -8982,7 +8965,6 @@ static void do_code_gen(CodeGen *g) {
             GlobalExport *global_export = &var->export_list.items[0];
             symbol_name = buf_ptr(&global_export->name);
             linkage = global_export->linkage;
-            visibility = global_export->visibility;
         }
 
         LLVMValueRef global_value;
@@ -9027,8 +9009,6 @@ static void do_code_gen(CodeGen *g) {
             LLVMSetGlobalConstant(global_value, var->gen_is_const);
             set_global_tls(g, var, global_value);
         }
-
-        LLVMSetVisibility(global_value, to_llvm_visibility(visibility));
 
         var->value_ref = global_value;
 
