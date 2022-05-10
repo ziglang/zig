@@ -3131,75 +3131,82 @@ fn genMulDivBinOp(
     switch (tag) {
         .mul,
         .mulwrap,
-        => {
-            try self.register_manager.getReg(.rax, maybe_inst);
-            try self.register_manager.getReg(.rdx, null);
-
-            try self.genIntMulDivOpMir(switch (signedness) {
-                .signed => .imul,
-                .unsigned => .mul,
-            }, ty, signedness, lhs, rhs);
-
-            return switch (signedness) {
-                .signed => MCValue{ .register = .rax },
-                .unsigned => MCValue{ .register = registerAlias(.rax, @intCast(u32, ty.abiSize(self.target.*))) },
-            };
-        },
-        .mod,
         .rem,
+        .div_trunc,
+        .div_exact,
         => {
-            const track_inst_rdx: ?Air.Inst.Index = switch (tag) {
-                .mod => if (signedness == .unsigned) maybe_inst else null,
-                .rem => maybe_inst,
-                else => unreachable,
+            const track_inst_rax: ?Air.Inst.Index = switch (tag) {
+                .mul, .mulwrap, .div_exact, .div_trunc => maybe_inst,
+                else => null,
             };
-
-            try self.register_manager.getReg(.rax, null);
+            const track_inst_rdx: ?Air.Inst.Index = switch (tag) {
+                .rem => maybe_inst,
+                else => null,
+            };
+            try self.register_manager.getReg(.rax, track_inst_rax);
             try self.register_manager.getReg(.rdx, track_inst_rdx);
 
-            switch (signedness) {
-                .signed => {
-                    switch (tag) {
-                        .rem => {
-                            try self.genIntMulDivOpMir(.idiv, ty, .signed, lhs, rhs);
-                            return MCValue{ .register = .rdx };
-                        },
-                        .mod => {
-                            const div_floor = try self.genInlineIntDivFloor(ty, lhs, rhs);
-                            try self.genIntMulComplexOpMir(ty, div_floor, rhs);
-                            const div_floor_lock = self.register_manager.lockReg(div_floor.register);
-                            defer if (div_floor_lock) |lock| self.register_manager.unlockReg(lock);
-
-                            const result: MCValue = if (maybe_inst) |inst|
-                                try self.copyToRegisterWithInstTracking(inst, ty, lhs)
-                            else
-                                MCValue{ .register = try self.copyToTmpRegister(ty, lhs) };
-                            try self.genBinOpMir(.sub, ty, result, div_floor);
-
-                            return result;
-                        },
-                        else => unreachable,
-                    }
+            const mir_tag: Mir.Inst.Tag = switch (signedness) {
+                .signed => switch (tag) {
+                    .mul, .mulwrap => Mir.Inst.Tag.imul,
+                    .div_trunc, .div_exact, .rem => Mir.Inst.Tag.idiv,
+                    else => unreachable,
                 },
-                .unsigned => {
-                    try self.genIntMulDivOpMir(.div, ty, .unsigned, lhs, rhs);
-                    return MCValue{ .register = .rdx };
+                .unsigned => switch (tag) {
+                    .mul, .mulwrap => Mir.Inst.Tag.mul,
+                    .div_trunc, .div_exact, .rem => Mir.Inst.Tag.div,
+                    else => unreachable,
+                },
+            };
+
+            try self.genIntMulDivOpMir(mir_tag, ty, .signed, lhs, rhs);
+
+            switch (signedness) {
+                .signed => switch (tag) {
+                    .mul, .mulwrap, .div_trunc, .div_exact => return MCValue{ .register = .rax },
+                    .rem => return MCValue{ .register = .rdx },
+                    else => unreachable,
+                },
+                .unsigned => switch (tag) {
+                    .mul, .mulwrap, .div_trunc, .div_exact => return MCValue{
+                        .register = registerAlias(.rax, @intCast(u32, ty.abiSize(self.target.*))),
+                    },
+                    .rem => return MCValue{
+                        .register = registerAlias(.rdx, @intCast(u32, ty.abiSize(self.target.*))),
+                    },
+                    else => unreachable,
                 },
             }
         },
-        .div_trunc,
-        .div_floor,
-        .div_exact,
-        => {
-            const track_inst_rax: ?Air.Inst.Index = blk: {
-                if (signedness == .unsigned) break :blk maybe_inst;
-                switch (tag) {
-                    .div_exact, .div_trunc => break :blk maybe_inst,
-                    else => break :blk null,
-                }
-            };
 
-            try self.register_manager.getReg(.rax, track_inst_rax);
+        .mod => {
+            try self.register_manager.getReg(.rax, null);
+            try self.register_manager.getReg(.rdx, if (signedness == .unsigned) maybe_inst else null);
+
+            switch (signedness) {
+                .signed => {
+                    const div_floor = try self.genInlineIntDivFloor(ty, lhs, rhs);
+                    try self.genIntMulComplexOpMir(ty, div_floor, rhs);
+                    const div_floor_lock = self.register_manager.lockReg(div_floor.register);
+                    defer if (div_floor_lock) |lock| self.register_manager.unlockReg(lock);
+
+                    const result: MCValue = if (maybe_inst) |inst|
+                        try self.copyToRegisterWithInstTracking(inst, ty, lhs)
+                    else
+                        MCValue{ .register = try self.copyToTmpRegister(ty, lhs) };
+                    try self.genBinOpMir(.sub, ty, result, div_floor);
+
+                    return result;
+                },
+                .unsigned => {
+                    try self.genIntMulDivOpMir(.div, ty, .unsigned, lhs, rhs);
+                    return MCValue{ .register = registerAlias(.rdx, @intCast(u32, ty.abiSize(self.target.*))) };
+                },
+            }
+        },
+
+        .div_floor => {
+            try self.register_manager.getReg(.rax, if (signedness == .unsigned) maybe_inst else null);
             try self.register_manager.getReg(.rdx, null);
 
             const lhs_lock: ?RegisterLock = switch (lhs) {
@@ -3209,24 +3216,21 @@ fn genMulDivBinOp(
             defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
             const actual_rhs: MCValue = blk: {
-                if (signedness == .signed) {
-                    switch (tag) {
-                        .div_floor => {
-                            const rhs_lock: ?RegisterLock = switch (rhs) {
-                                .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-                                else => null,
-                            };
-                            defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+                switch (signedness) {
+                    .signed => {
+                        const rhs_lock: ?RegisterLock = switch (rhs) {
+                            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                            else => null,
+                        };
+                        defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-                            if (maybe_inst) |inst| {
-                                break :blk try self.copyToRegisterWithInstTracking(inst, ty, rhs);
-                            }
-                            break :blk MCValue{ .register = try self.copyToTmpRegister(ty, rhs) };
-                        },
-                        else => {},
-                    }
+                        if (maybe_inst) |inst| {
+                            break :blk try self.copyToRegisterWithInstTracking(inst, ty, rhs);
+                        }
+                        break :blk MCValue{ .register = try self.copyToTmpRegister(ty, rhs) };
+                    },
+                    .unsigned => break :blk rhs,
                 }
-                break :blk rhs;
             };
             const rhs_lock: ?RegisterLock = switch (actual_rhs) {
                 .register => |reg| self.register_manager.lockReg(reg),
@@ -3235,27 +3239,19 @@ fn genMulDivBinOp(
             defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
             const result: MCValue = result: {
-                if (signedness == .unsigned) {
-                    try self.genIntMulDivOpMir(.div, ty, signedness, lhs, actual_rhs);
-                    break :result MCValue{ .register = .rax };
-                }
-
-                switch (tag) {
-                    .div_exact, .div_trunc => {
-                        try self.genIntMulDivOpMir(switch (signedness) {
-                            .signed => .idiv,
-                            .unsigned => .div,
-                        }, ty, signedness, lhs, actual_rhs);
-                        break :result MCValue{ .register = .rax };
+                switch (signedness) {
+                    .signed => break :result try self.genInlineIntDivFloor(ty, lhs, actual_rhs),
+                    .unsigned => {
+                        try self.genIntMulDivOpMir(.div, ty, .unsigned, lhs, actual_rhs);
+                        break :result MCValue{
+                            .register = registerAlias(.rax, @intCast(u32, ty.abiSize(self.target.*))),
+                        };
                     },
-                    .div_floor => {
-                        break :result try self.genInlineIntDivFloor(ty, lhs, actual_rhs);
-                    },
-                    else => unreachable,
                 }
             };
             return result;
         },
+
         else => unreachable,
     }
 }
