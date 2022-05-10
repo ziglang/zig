@@ -2400,15 +2400,25 @@ test "accept/connect/recv/cancel" {
     try testing.expectEqual(@as(u64, 0x99999999), sqe_cancel.user_data);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
-    const cqe_recv = try ring.copy_cqe();
+    var cqe_recv = try ring.copy_cqe();
     if (cqe_recv.err() == .INVAL) return error.SkipZigTest;
+    var cqe_cancel = try ring.copy_cqe();
+    if (cqe_cancel.err() == .INVAL) return error.SkipZigTest;
+
+    // The recv/cancel CQEs may arrive in any order, the recv CQE will sometimes come first:
+    if (cqe_recv.user_data == 0x99999999 and cqe_cancel.user_data == 0xffffffff) {
+        const a = cqe_recv;
+        const b = cqe_cancel;
+        cqe_recv = b;
+        cqe_cancel = a;
+    }
+
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
         .flags = 0,
     }, cqe_recv);
 
-    const cqe_cancel = try ring.copy_cqe();
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x99999999,
         .res = 0,
