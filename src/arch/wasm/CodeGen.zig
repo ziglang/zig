@@ -2962,7 +2962,7 @@ fn intcast(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!W
             try self.store(stack_ptr, .{ .imm64 = 0 }, Type.u64, 8);
         }
         return stack_ptr;
-    } else unreachable;
+    } else return self.fail("todo Wasm @intCast to 128bit integers", .{});
 
     const result = try self.allocLocal(wanted);
     try self.addLabel(.local_set, result.local);
@@ -3710,35 +3710,44 @@ fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std
 }
 
 /// Compares big integers by checking both its high bits and low bits.
-/// TODO: Lower this to compiler_rt call
+/// TODO: Lower this to compiler_rt call when bitsize > 128
 fn cmpBigInt(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
     if (operand_ty.intInfo(self.target).bits > 128) {
         return self.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.intInfo(self.target).bits});
     }
 
-    const result = try self.allocLocal(Type.initTag(.i32));
-    {
-        try self.startBlock(.block, wasm.block_empty);
-        const lhs_high_bit = try self.load(lhs, Type.u64, 0);
-        const lhs_low_bit = try self.load(lhs, Type.u64, 8);
-        const rhs_high_bit = try self.load(rhs, Type.u64, 0);
-        const rhs_low_bit = try self.load(rhs, Type.u64, 8);
-        try self.emitWValue(lhs_high_bit);
-        try self.emitWValue(rhs_high_bit);
-        try self.addTag(.i64_ne);
-        try self.addLabel(.br_if, 0);
-        try self.emitWValue(lhs_low_bit);
-        try self.emitWValue(rhs_low_bit);
-        try self.addTag(.i64_ne);
-        try self.addLabel(.br_if, 0);
-        try self.addImm32(1);
-        try self.addLabel(.local_set, result.local);
-        try self.endBlock();
+    const lhs_high_bit = try self.load(lhs, Type.u64, 0);
+    const lhs_low_bit = try self.load(lhs, Type.u64, 8);
+    const rhs_high_bit = try self.load(rhs, Type.u64, 0);
+    const rhs_low_bit = try self.load(rhs, Type.u64, 8);
+
+    try self.emitWValue(or_result);
+    switch (op) {
+        .eq, .neq => {
+            const xor_high = try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, .xor);
+            const xor_low = try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, .xor);
+            const or_result = try self.binOp(xor_high, xor_low, Type.u64, .@"or");
+
+            switch (op) {
+                .eq => try self.addTag(.i64_eqz),
+                .neq => return self.cmp(or_result, .{ .imm32 = 0 }, Type.u32, .neq),
+                else => unreachable,
+            }
+        },
+        else => {
+            const ty = if (operand_ty.isSignedInt()) Type.i64 else Type.u64;
+            const low_bit_eql = try self.cmp(lhs_low_bit, rhs_low_bit, ty, .eq);
+            const high_bit_cmp = try self.cmp(lhs_high_bit, rhs_high_bit, ty, op);
+            const low_bit_cmp = try self.cmp(lhs_low_bit, rhs_low_bit, ty, op);
+
+            try self.emitWValue(low_bit_cmp);
+            try self.emitWValue(high_bit_cmp);
+            try self.emitWValue(low_bit_eql);
+            try self.addTag(.select);
+        },
     }
 
-    try self.emitWValue(result);
-    try self.addImm32(0);
-    try self.addTag(if (op == .eq) .i32_ne else .i32_eq);
+    const result = try self.allocLocal(Type.initTag(.i32));
     try self.addLabel(.local_set, result.local);
     return result;
 }
