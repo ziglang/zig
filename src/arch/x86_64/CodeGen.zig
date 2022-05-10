@@ -1708,7 +1708,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
                 // TODO reuse the operand
                 const result = try self.copyToRegisterWithInstTracking(inst, optional_ty, operand);
                 const shift = @intCast(u8, offset * @sizeOf(usize));
-                try self.genShiftBinOpMir(optional_ty, result.register, .{ .immediate = @intCast(u8, shift) }, .right);
+                try self.genShiftBinOpMir(.shr, optional_ty, result.register, .{ .immediate = @intCast(u8, shift) });
                 break :result result;
             },
             else => return self.fail("TODO implement optional_payload when operand is {}", .{operand}),
@@ -1795,7 +1795,7 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
                 // TODO reuse operand
                 const shift = @intCast(u6, err_abi_size * @sizeOf(usize));
                 const result = try self.copyToRegisterWithInstTracking(inst, err_union_ty, operand);
-                try self.genShiftBinOpMir(Type.usize, result.register, .{ .immediate = shift }, .right);
+                try self.genShiftBinOpMir(.shr, Type.usize, result.register, .{ .immediate = shift });
                 break :result MCValue{
                     .register = registerAlias(result.register, @intCast(u32, payload_ty.abiSize(self.target.*))),
                 };
@@ -2307,7 +2307,7 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
                 else
                     0;
                 const result = try self.copyToRegisterWithInstTracking(inst, union_ty, operand);
-                try self.genShiftBinOpMir(Type.usize, result.register, .{ .immediate = shift }, .right);
+                try self.genShiftBinOpMir(.shr, Type.usize, result.register, .{ .immediate = shift });
                 break :blk MCValue{
                     .register = registerAlias(result.register, @intCast(u32, layout.tag_size)),
                 };
@@ -2906,7 +2906,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
                 // Shift by struct_field_offset.
                 const shift = @intCast(u8, struct_field_offset * @sizeOf(usize));
-                try self.genShiftBinOpMir(Type.usize, dst_mcv.register, .{ .immediate = shift }, .right);
+                try self.genShiftBinOpMir(.shr, Type.usize, dst_mcv.register, .{ .immediate = shift });
 
                 // Mask with reg.size() - struct_field_size
                 const max_reg_bit_width = Register.rax.size();
@@ -2983,26 +2983,15 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 /// Clobbers .rcx for non-immediate shift value.
-fn genShiftBinOpMir(self: *Self, ty: Type, reg: Register, shift: MCValue, direction: enum { left, right }) !void {
+fn genShiftBinOpMir(self: *Self, tag: Mir.Inst.Tag, ty: Type, reg: Register, shift: MCValue) !void {
     assert(reg.to64() != .rcx);
 
+    switch (tag) {
+        .sal, .sar, .shl, .shr => {},
+        else => unreachable,
+    }
+
     const abi_size = @intCast(u32, ty.abiSize(self.target.*));
-    const signedness: std.builtin.Signedness = blk: {
-        if (ty.zigTypeTag() != .Int) break :blk .unsigned;
-        break :blk ty.intInfo(self.target.*).signedness;
-    };
-
-    const tag: Mir.Inst.Tag = switch (signedness) {
-        .signed => switch (direction) {
-            .left => Mir.Inst.Tag.sal,
-            .right => Mir.Inst.Tag.sar,
-        },
-        .unsigned => switch (direction) {
-            .left => Mir.Inst.Tag.shl,
-            .right => Mir.Inst.Tag.shr,
-        },
-    };
-
     blk: {
         switch (shift) {
             .immediate => |imm| switch (imm) {
@@ -3100,9 +3089,22 @@ fn genShiftBinOp(
         break :blk MCValue{ .register = try self.copyToTmpRegister(lhs_ty, lhs) };
     };
 
+    const signedness = lhs_ty.intInfo(self.target.*).signedness;
     switch (tag) {
-        .shl => try self.genShiftBinOpMir(lhs_ty, dst.register, rhs, .left),
-        .shr => try self.genShiftBinOpMir(lhs_ty, dst.register, rhs, .right),
+        .shl => try self.genShiftBinOpMir(switch (signedness) {
+            .signed => .sal,
+            .unsigned => .shl,
+        }, lhs_ty, dst.register, rhs),
+
+        .shl_exact => try self.genShiftBinOpMir(.shl, lhs_ty, dst.register, rhs),
+
+        .shr,
+        .shr_exact,
+        => try self.genShiftBinOpMir(switch (signedness) {
+            .signed => .sar,
+            .unsigned => .shr,
+        }, lhs_ty, dst.register, rhs),
+
         else => unreachable,
     }
 
@@ -5427,7 +5429,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     });
 
                     if (nearest_power_of_two > 1) {
-                        try self.genShiftBinOpMir(ty, tmp_reg, .{ .immediate = nearest_power_of_two * 8 }, .right);
+                        try self.genShiftBinOpMir(.shr, ty, tmp_reg, .{ .immediate = nearest_power_of_two * 8 });
                     }
 
                     remainder -= nearest_power_of_two;
@@ -6804,8 +6806,8 @@ fn truncateRegister(self: *Self, ty: Type, reg: Register) !void {
     switch (int_info.signedness) {
         .signed => {
             const shift = @intCast(u6, max_reg_bit_width - int_info.bits);
-            try self.genShiftBinOpMir(Type.isize, reg, .{ .immediate = shift }, .left);
-            try self.genShiftBinOpMir(Type.isize, reg, .{ .immediate = shift }, .right);
+            try self.genShiftBinOpMir(.sal, Type.isize, reg, .{ .immediate = shift });
+            try self.genShiftBinOpMir(.sar, Type.isize, reg, .{ .immediate = shift });
         },
         .unsigned => {
             const shift = @intCast(u6, max_reg_bit_width - int_info.bits);
