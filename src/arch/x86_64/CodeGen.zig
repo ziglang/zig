@@ -1311,18 +1311,15 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const result = if (self.liveness.isUnused(inst)) .dead else result: {
         const ty = self.air.typeOf(bin_op.lhs);
-
+        const abi_size = ty.abiSize(self.target.*);
         switch (ty.zigTypeTag()) {
             .Vector => return self.fail("TODO implement add_with_overflow for Vector type", .{}),
             .Int => {
-                const int_info = ty.intInfo(self.target.*);
-
-                if (int_info.bits > 64) {
+                if (abi_size > 8) {
                     return self.fail("TODO implement add_with_overflow for Ints larger than 64bits", .{});
                 }
 
                 try self.spillCompareFlagsIfOccupied();
-                self.compare_flags_inst = inst;
 
                 const lhs = try self.resolveInst(bin_op.lhs);
                 const rhs = try self.resolveInst(bin_op.rhs);
@@ -1333,17 +1330,105 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     else => unreachable,
                 };
                 const partial = try self.genBinOp(base_tag, null, lhs, rhs, ty, ty);
-                const result: MCValue = switch (int_info.signedness) {
-                    .signed => .{ .register_overflow_signed = partial.register },
-                    .unsigned => .{ .register_overflow_unsigned = partial.register },
-                };
-                break :result result;
+
+                const int_info = ty.intInfo(self.target.*);
+
+                if (math.isPowerOfTwo(int_info.bits) and int_info.bits >= 8) {
+                    self.compare_flags_inst = inst;
+
+                    const result: MCValue = switch (int_info.signedness) {
+                        .signed => .{ .register_overflow_signed = partial.register },
+                        .unsigned => .{ .register_overflow_unsigned = partial.register },
+                    };
+                    break :result result;
+                }
+
+                self.compare_flags_inst = null;
+
+                const tuple_ty = self.air.typeOfIndex(inst);
+                const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
+                const tuple_align = tuple_ty.abiAlignment(self.target.*);
+                const overflow_bit_offset = @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*));
+                const stack_offset = @intCast(i32, try self.allocMem(inst, tuple_size, tuple_align));
+
+                try self.genSetStackTruncatedOverflowCompare(ty, stack_offset, overflow_bit_offset, partial.register);
+
+                break :result MCValue{ .stack_offset = stack_offset };
             },
             else => unreachable,
         }
     };
 
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn genSetStackTruncatedOverflowCompare(
+    self: *Self,
+    ty: Type,
+    stack_offset: i32,
+    overflow_bit_offset: i32,
+    reg: Register,
+) !void {
+    const reg_lock = self.register_manager.lockReg(reg);
+    defer if (reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const int_info = ty.intInfo(self.target.*);
+    const extended_ty = switch (int_info.signedness) {
+        .signed => Type.isize,
+        .unsigned => ty,
+    };
+
+    const temp_regs = try self.register_manager.allocRegs(3, .{ null, null, null });
+    const temp_regs_locks = self.register_manager.lockRegsAssumeUnused(3, temp_regs);
+    defer for (temp_regs_locks) |rreg| {
+        self.register_manager.unlockReg(rreg);
+    };
+
+    const overflow_reg = temp_regs[0];
+    const flags: u2 = switch (int_info.signedness) {
+        .signed => 0b00,
+        .unsigned => 0b10,
+    };
+    _ = try self.addInst(.{
+        .tag = .cond_set_byte_overflow,
+        .ops = (Mir.Ops{
+            .reg1 = overflow_reg.to8(),
+            .flags = flags,
+        }).encode(),
+        .data = undefined,
+    });
+
+    const scratch_reg = temp_regs[1];
+    try self.genSetReg(extended_ty, scratch_reg, .{ .register = reg });
+    try self.truncateRegister(ty, scratch_reg);
+    try self.genBinOpMir(
+        .cmp,
+        extended_ty,
+        .{ .register = reg },
+        .{ .register = scratch_reg },
+    );
+
+    const eq_reg = temp_regs[2];
+    _ = try self.addInst(.{
+        .tag = .cond_set_byte_eq_ne,
+        .ops = (Mir.Ops{
+            .reg1 = eq_reg.to8(),
+            .flags = 0b00,
+        }).encode(),
+        .data = undefined,
+    });
+
+    try self.genBinOpMir(
+        .@"or",
+        Type.u8,
+        .{ .register = overflow_reg },
+        .{ .register = eq_reg },
+    );
+
+    try self.genSetStack(ty, stack_offset, .{ .register = scratch_reg }, .{});
+    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{
+        .register = overflow_reg.to8(),
+    }, .{});
 }
 
 fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
@@ -1355,17 +1440,18 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     const ty = self.air.typeOf(bin_op.lhs);
+    const abi_size = ty.abiSize(self.target.*);
     const result: MCValue = result: {
         switch (ty.zigTypeTag()) {
             .Vector => return self.fail("TODO implement mul_with_overflow for Vector type", .{}),
             .Int => {
-                const int_info = ty.intInfo(self.target.*);
-
-                if (int_info.bits > 64) {
+                if (abi_size > 8) {
                     return self.fail("TODO implement mul_with_overflow for Ints larger than 64bits", .{});
                 }
 
-                if (math.isPowerOfTwo(int_info.bits)) {
+                const int_info = ty.intInfo(self.target.*);
+
+                if (math.isPowerOfTwo(int_info.bits) and int_info.bits >= 8) {
                     try self.spillCompareFlagsIfOccupied();
                     self.compare_flags_inst = inst;
 
@@ -1428,71 +1514,14 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         },
                     }
                 };
-                const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
-                defer self.register_manager.unlockReg(dst_reg_lock);
 
                 const tuple_ty = self.air.typeOfIndex(inst);
                 const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
                 const tuple_align = tuple_ty.abiAlignment(self.target.*);
                 const overflow_bit_offset = @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*));
-
                 const stack_offset = @intCast(i32, try self.allocMem(inst, tuple_size, tuple_align));
-                const extended_ty = switch (int_info.signedness) {
-                    .signed => Type.isize,
-                    .unsigned => ty,
-                };
 
-                const temp_regs = try self.register_manager.allocRegs(3, .{ null, null, null });
-                const temp_regs_locks = self.register_manager.lockRegsAssumeUnused(3, temp_regs);
-                defer for (temp_regs_locks) |reg| {
-                    self.register_manager.unlockReg(reg);
-                };
-
-                const overflow_reg = temp_regs[0];
-                const flags: u2 = switch (int_info.signedness) {
-                    .signed => 0b00,
-                    .unsigned => 0b10,
-                };
-                _ = try self.addInst(.{
-                    .tag = .cond_set_byte_overflow,
-                    .ops = (Mir.Ops{
-                        .reg1 = overflow_reg.to8(),
-                        .flags = flags,
-                    }).encode(),
-                    .data = undefined,
-                });
-
-                const scratch_reg = temp_regs[1];
-                try self.genSetReg(extended_ty, scratch_reg, .{ .register = dst_reg });
-                try self.truncateRegister(ty, scratch_reg);
-                try self.genBinOpMir(
-                    .cmp,
-                    extended_ty,
-                    .{ .register = dst_reg },
-                    .{ .register = scratch_reg },
-                );
-
-                const eq_reg = temp_regs[2];
-                _ = try self.addInst(.{
-                    .tag = .cond_set_byte_eq_ne,
-                    .ops = (Mir.Ops{
-                        .reg1 = eq_reg.to8(),
-                        .flags = 0b00,
-                    }).encode(),
-                    .data = undefined,
-                });
-
-                try self.genBinOpMir(
-                    .@"or",
-                    Type.u8,
-                    .{ .register = overflow_reg },
-                    .{ .register = eq_reg },
-                );
-
-                try self.genSetStack(ty, stack_offset, .{ .register = scratch_reg }, .{});
-                try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{
-                    .register = overflow_reg.to8(),
-                }, .{});
+                try self.genSetStackTruncatedOverflowCompare(ty, stack_offset, overflow_bit_offset, dst_reg);
 
                 break :result MCValue{ .stack_offset = stack_offset };
             },
