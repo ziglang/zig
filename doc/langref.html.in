@@ -9220,8 +9220,8 @@ test "@setRuntimeSafety" {
       any bits that disagree with the resultant sign bit are shifted out.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}
@@ -9234,8 +9234,8 @@ test "@setRuntimeSafety" {
                          If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
@@ -9247,8 +9247,8 @@ test "@setRuntimeSafety" {
       that the shift will not shift any 1 bits out.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
