@@ -332,7 +332,6 @@ fn printStepsAndErr(builder: *Builder, already_ran_build: bool, out_stream: anyt
     }
 
     try out_stream.print(
-        \\Usage: {s} build [steps] [options]
         \\
         \\Steps:
         \\
