@@ -207,7 +207,7 @@ pub fn main() !void {
     builder.make(targets.items) catch |err| {
         switch (err) {
             error.InvalidStepName => {
-                return usageAndErr(builder, true, stderr_stream);
+                return printStepsAndErr(builder, true, stderr_stream);
             },
             error.UncleanExit => process.exit(1),
             else => return err,
@@ -321,6 +321,31 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features
         \\
     );
+}
+
+fn printStepsAndErr(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void {
+    defer process.exit(1);
+    // run the build script to collect the options
+    if (!already_ran_build) {
+        builder.resolveInstallPrefix(null, .{});
+        try runBuild(builder);
+    }
+
+    try out_stream.print(
+        \\Usage: {s} build [steps] [options]
+        \\
+        \\Steps:
+        \\
+    , .{builder.zig_exe});
+
+    const allocator = builder.allocator;
+    for (builder.top_level_steps.items) |top_level_step| {
+        const name = if (&top_level_step.step == builder.default_step)
+            try fmt.allocPrint(allocator, "{s} (default)", .{top_level_step.step.name})
+        else
+            top_level_step.step.name;
+        try out_stream.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
+    }
 }
 
 fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: anytype) void {
