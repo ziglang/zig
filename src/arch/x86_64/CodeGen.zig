@@ -597,7 +597,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .mul_sat         => try self.airMulSat(inst),
             .rem             => try self.airMulDivBinOp(inst),
             .mod             => try self.airMulDivBinOp(inst),
-            .shl, .shl_exact => try self.airShl(inst),
+            .shl, .shl_exact => try self.airShlShrBinOp(inst),
             .shl_sat         => try self.airShlSat(inst),
             .min             => try self.airMin(inst),
             .max             => try self.airMax(inst),
@@ -643,7 +643,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bit_and         => try self.airBinOp(inst),
             .bit_or          => try self.airBinOp(inst),
             .xor             => try self.airBinOp(inst),
-            .shr, .shr_exact => try self.airShr(inst),
+            .shr, .shr_exact => try self.airShlShrBinOp(inst),
 
             .alloc           => try self.airAlloc(inst),
             .ret_ptr         => try self.airRetPtr(inst),
@@ -1652,64 +1652,22 @@ fn genInlineIntDivFloor(self: *Self, ty: Type, lhs: MCValue, rhs: MCValue) !MCVa
     return MCValue{ .register = divisor };
 }
 
-fn airShl(self: *Self, inst: Air.Inst.Index) !void {
+fn airShlShrBinOp(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
     if (self.liveness.isUnused(inst)) {
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
     }
 
-    const ty = self.air.typeOfIndex(inst);
-
     const tag = self.air.instructions.items(.tag)[inst];
-    switch (tag) {
-        .shl_exact => return self.fail("TODO implement {} for type {}", .{ tag, ty.fmtDebug() }),
-        .shl => {},
-        else => unreachable,
-    }
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
 
-    if (ty.zigTypeTag() != .Int) {
-        return self.fail("TODO implement .shl for type {}", .{ty.fmtDebug()});
-    }
-    if (ty.abiSize(self.target.*) > 8) {
-        return self.fail("TODO implement .shl for integers larger than 8 bytes", .{});
-    }
+    const result = try self.genShiftBinOp(tag, inst, lhs, rhs, lhs_ty, rhs_ty);
 
-    // TODO look into reusing the operands
-    // TODO audit register allocation mechanics
-    const shift = try self.resolveInst(bin_op.rhs);
-    const shift_ty = self.air.typeOf(bin_op.rhs);
-
-    blk: {
-        switch (shift) {
-            .register => |reg| {
-                if (reg.to64() == .rcx) break :blk;
-            },
-            else => {},
-        }
-        try self.register_manager.getReg(.rcx, null);
-        try self.genSetReg(shift_ty, .rcx, shift);
-    }
-    const rcx_lock = self.register_manager.lockRegAssumeUnused(.rcx);
-    defer self.register_manager.unlockReg(rcx_lock);
-
-    const value = try self.resolveInst(bin_op.lhs);
-    const value_lock: ?RegisterLock = switch (value) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
-    };
-    defer if (value_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ty, value);
-    _ = try self.addInst(.{
-        .tag = .sal,
-        .ops = (Mir.Ops{
-            .reg1 = dst_mcv.register,
-            .flags = 0b01,
-        }).encode(),
-        .data = undefined,
-    });
-
-    return self.finishAir(inst, dst_mcv, .{ bin_op.lhs, bin_op.rhs, .none });
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
@@ -1719,80 +1677,6 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
     else
         return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airShr(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    }
-
-    const ty = self.air.typeOfIndex(inst);
-    const tag = self.air.instructions.items(.tag)[inst];
-    switch (tag) {
-        .shr_exact => return self.fail("TODO implement shr_exact for type {}", .{ty.fmtDebug()}),
-        .shr => {},
-        else => unreachable,
-    }
-
-    if (ty.zigTypeTag() != .Int) {
-        return self.fail("TODO implement shr for type {}", .{ty.fmtDebug()});
-    }
-    if (ty.abiSize(self.target.*) > 8) {
-        return self.fail("TODO implement shr for integers larger than 8 bytes", .{});
-    }
-
-    // TODO look into reusing the operands
-    // TODO audit register allocation mechanics
-    const shift = try self.resolveInst(bin_op.rhs);
-    const shift_ty = self.air.typeOf(bin_op.rhs);
-
-    blk: {
-        switch (shift) {
-            .register => |reg| {
-                if (reg.to64() == .rcx) break :blk;
-            },
-            else => {},
-        }
-        try self.register_manager.getReg(.rcx, null);
-        try self.genSetReg(shift_ty, .rcx, shift);
-    }
-    const rcx_lock = self.register_manager.lockRegAssumeUnused(.rcx);
-    defer self.register_manager.unlockReg(rcx_lock);
-
-    const value = try self.resolveInst(bin_op.lhs);
-    const value_lock: ?RegisterLock = switch (value) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
-    };
-    defer if (value_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ty, value);
-    switch (ty.intInfo(self.target.*).signedness) {
-        .signed => {
-            _ = try self.addInst(.{
-                .tag = .sar,
-                .ops = (Mir.Ops{
-                    .reg1 = dst_mcv.register,
-                    .flags = 0b01,
-                }).encode(),
-                .data = undefined,
-            });
-        },
-        .unsigned => {
-            _ = try self.addInst(.{
-                .tag = .shr,
-                .ops = (Mir.Ops{
-                    .reg1 = dst_mcv.register,
-                    .flags = 0b01,
-                }).encode(),
-                .data = undefined,
-            });
-        },
-    }
-
-    return self.finishAir(inst, dst_mcv, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
@@ -1822,7 +1706,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
                 // TODO reuse the operand
                 const result = try self.copyToRegisterWithInstTracking(inst, optional_ty, operand);
                 const shift = @intCast(u8, offset * @sizeOf(usize));
-                try self.shiftRegister(result.register, @intCast(u8, shift));
+                try self.shiftRegisterRightUnsigned(result.register, @intCast(u8, shift));
                 break :result result;
             },
             else => return self.fail("TODO implement optional_payload when operand is {}", .{operand}),
@@ -1909,7 +1793,7 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
                 // TODO reuse operand
                 const shift = @intCast(u6, err_abi_size * @sizeOf(usize));
                 const result = try self.copyToRegisterWithInstTracking(inst, err_union_ty, operand);
-                try self.shiftRegister(result.register.to64(), shift);
+                try self.shiftRegisterRightUnsigned(result.register.to64(), shift);
                 break :result MCValue{
                     .register = registerAlias(result.register, @intCast(u32, payload_ty.abiSize(self.target.*))),
                 };
@@ -2421,7 +2305,7 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
                 else
                     0;
                 const result = try self.copyToRegisterWithInstTracking(inst, union_ty, operand);
-                try self.shiftRegister(result.register.to64(), shift);
+                try self.shiftRegisterRightUnsigned(result.register.to64(), shift);
                 break :blk MCValue{
                     .register = registerAlias(result.register, @intCast(u32, layout.tag_size)),
                 };
@@ -3020,7 +2904,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
                 // Shift by struct_field_offset.
                 const shift = @intCast(u8, struct_field_offset * @sizeOf(usize));
-                try self.shiftRegister(dst_mcv.register, shift);
+                try self.shiftRegisterRightUnsigned(dst_mcv.register, shift);
 
                 // Mask with reg.size() - struct_field_size
                 const max_reg_bit_width = Register.rax.size();
@@ -3097,7 +2981,111 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 /// Result is always a register.
-/// Clobbers .rax and .rdx therefore care needs to be taken to spill operands upfront.
+/// Clobbers .rcx therefore care is needed to spill .rcx upfront.
+/// Asserts .rcx is free.
+fn genShiftBinOp(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) !MCValue {
+    if (lhs_ty.zigTypeTag() == .Vector or lhs_ty.zigTypeTag() == .Float) {
+        return self.fail("TODO implement genShiftBinOp for {}", .{lhs_ty.fmtDebug()});
+    }
+    if (lhs_ty.abiSize(self.target.*) > 8) {
+        return self.fail("TODO implement genShiftBinOp for {}", .{lhs_ty.fmtDebug()});
+    }
+
+    assert(self.register_manager.isRegFree(.rcx));
+
+    try self.register_manager.getReg(.rcx, null);
+    try self.genSetReg(rhs_ty, .rcx, rhs);
+    const rcx_lock = self.register_manager.lockRegAssumeUnused(.rcx);
+    defer self.register_manager.unlockReg(rcx_lock);
+
+    const int_info = lhs_ty.intInfo(self.target.*);
+    const signedness = int_info.signedness;
+
+    const lhs_lock: ?RegisterLock = switch (lhs) {
+        .register => |reg| self.register_manager.lockReg(reg),
+        else => null,
+    };
+    defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const rhs_lock: ?RegisterLock = switch (rhs) {
+        .register => |reg| self.register_manager.lockReg(reg),
+        else => null,
+    };
+    defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const dst: MCValue = blk: {
+        if (maybe_inst) |inst| {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            // TODO dst can also be a memory location
+            if (self.reuseOperand(inst, bin_op.lhs, 0, lhs) and lhs.isRegister()) {
+                break :blk lhs;
+            }
+            break :blk try self.copyToRegisterWithInstTracking(inst, lhs_ty, lhs);
+        }
+        break :blk MCValue{ .register = try self.copyToTmpRegister(lhs_ty, lhs) };
+    };
+
+    switch (tag) {
+        .shl => switch (signedness) {
+            .signed => {
+                _ = try self.addInst(.{
+                    .tag = .sal,
+                    .ops = (Mir.Ops{
+                        .reg1 = dst.register,
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = undefined,
+                });
+            },
+            .unsigned => {
+                _ = try self.addInst(.{
+                    .tag = .shl,
+                    .ops = (Mir.Ops{
+                        .reg1 = dst.register,
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = undefined,
+                });
+            },
+        },
+        .shr => switch (signedness) {
+            .signed => {
+                _ = try self.addInst(.{
+                    .tag = .sar,
+                    .ops = (Mir.Ops{
+                        .reg1 = dst.register,
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = undefined,
+                });
+            },
+            .unsigned => {
+                _ = try self.addInst(.{
+                    .tag = .shr,
+                    .ops = (Mir.Ops{
+                        .reg1 = dst.register,
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = undefined,
+                });
+            },
+        },
+        else => unreachable,
+    }
+
+    return dst;
+}
+
+/// Result is always a register.
+/// Clobbers .rax and .rdx therefore care is needed to spill .rax and .rdx upfront.
 /// Asserts .rax and .rdx are free.
 fn genMulDivBinOp(
     self: *Self,
@@ -6790,7 +6778,8 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
     }
 }
 
-fn shiftRegister(self: *Self, reg: Register, shift: u8) !void {
+/// Shifts register right without sign-extension.
+fn shiftRegisterRightUnsigned(self: *Self, reg: Register, shift: u8) !void {
     if (shift == 0) return;
     if (shift == 1) {
         _ = try self.addInst(.{
