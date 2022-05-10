@@ -621,8 +621,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .trunc_float,
             => try self.airUnaryMath(inst),
 
-            .add_with_overflow => try self.airAddWithOverflow(inst),
-            .sub_with_overflow => try self.airSubWithOverflow(inst),
+            .add_with_overflow => try self.airAddSubWithOverflow(inst),
+            .sub_with_overflow => try self.airAddSubWithOverflow(inst),
             .mul_with_overflow => try self.airMulWithOverflow(inst),
             .shl_with_overflow => try self.airShlWithOverflow(inst),
 
@@ -1279,8 +1279,9 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const tag = self.air.instructions.items(.tag)[inst];
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const result = if (self.liveness.isUnused(inst)) .dead else result: {
         const ty = self.air.typeOf(bin_op.lhs);
@@ -1300,42 +1301,12 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 const lhs = try self.resolveInst(bin_op.lhs);
                 const rhs = try self.resolveInst(bin_op.rhs);
 
-                const partial = try self.genBinOp(.add, null, lhs, rhs, ty, ty);
-                const result: MCValue = switch (int_info.signedness) {
-                    .signed => .{ .register_overflow_signed = partial.register },
-                    .unsigned => .{ .register_overflow_unsigned = partial.register },
+                const base_tag: Air.Inst.Tag = switch (tag) {
+                    .add_with_overflow => .add,
+                    .sub_with_overflow => .sub,
+                    else => unreachable,
                 };
-                break :result result;
-            },
-            else => unreachable,
-        }
-    };
-
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ty = self.air.typeOf(bin_op.lhs);
-
-        switch (ty.zigTypeTag()) {
-            .Vector => return self.fail("TODO implement sub_with_overflow for Vector type", .{}),
-            .Int => {
-                const int_info = ty.intInfo(self.target.*);
-
-                if (int_info.bits > 64) {
-                    return self.fail("TODO implement sub_with_overflow for Ints larger than 64bits", .{});
-                }
-
-                try self.spillCompareFlagsIfOccupied();
-                self.compare_flags_inst = inst;
-
-                const lhs = try self.resolveInst(bin_op.lhs);
-                const rhs = try self.resolveInst(bin_op.rhs);
-
-                const partial = try self.genBinOp(.sub, null, lhs, rhs, ty, ty);
+                const partial = try self.genBinOp(base_tag, null, lhs, rhs, ty, ty);
                 const result: MCValue = switch (int_info.signedness) {
                     .signed => .{ .register_overflow_signed = partial.register },
                     .unsigned => .{ .register_overflow_unsigned = partial.register },
