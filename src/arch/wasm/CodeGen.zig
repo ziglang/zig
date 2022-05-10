@@ -1210,7 +1210,7 @@ fn allocStackPtr(self: *Self, inst: Air.Inst.Index) !WValue {
 
 /// From given zig bitsize, returns the wasm bitsize
 fn toWasmBits(bits: u16) ?u16 {
-    return for ([_]u16{ 32, 64 }) |wasm_bits| {
+    return for ([_]u16{ 32, 64, 128 }) |wasm_bits| {
         if (bits <= wasm_bits) return wasm_bits;
     } else null;
 }
@@ -1837,8 +1837,11 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
             }
         },
         .Int => if (ty.intInfo(self.target).bits > 64) {
-            const len = @intCast(u32, ty.abiSize(self.target));
-            return self.memcpy(lhs, rhs, .{ .imm32 = len });
+            const lsb = try self.load(rhs, Type.u64, 0);
+            const msb = try self.load(rhs, Type.u64, 8);
+            try self.store(lhs, lsb, Type.u64, 0);
+            try self.store(lhs, msb, Type.u64, 8);
+            return;
         },
         else => {},
     }
@@ -2900,8 +2903,11 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty = self.air.getRefType(ty_op.ty);
     const operand = try self.resolveInst(ty_op.operand);
     const operand_ty = self.air.typeOf(ty_op.operand);
-    if (ty.abiSize(self.target) > 8 or operand_ty.abiSize(self.target) > 8) {
-        return self.fail("todo Wasm intcast for bitsize > 64", .{});
+    if (ty.zigTypeTag() == .Vector or operand_ty.zigTypeTag() == .Vector) {
+        return self.fail("todo Wasm intcast for vectors", .{});
+    }
+    if (ty.abiSize(self.target) > 16 or operand_ty.abiSize(self.target) > 16) {
+        return self.fail("todo Wasm intcast for bitsize > 128", .{});
     }
 
     return self.intcast(operand, operand_ty, ty);
@@ -2909,25 +2915,53 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 /// Upcasts or downcasts an integer based on the given and wanted types,
 /// and stores the result in a new operand.
-/// Asserts type's bitsize <= 64
+/// Asserts type's bitsize <= 128
 fn intcast(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
     const given_info = given.intInfo(self.target);
     const wanted_info = wanted.intInfo(self.target);
-    assert(given_info.bits <= 64);
-    assert(wanted_info.bits <= 64);
+    assert(given_info.bits <= 128);
+    assert(wanted_info.bits <= 128);
 
     const op_bits = toWasmBits(given_info.bits).?;
     const wanted_bits = toWasmBits(wanted_info.bits).?;
     if (op_bits == wanted_bits) return operand;
 
-    try self.emitWValue(operand);
-    if (op_bits > 32 and wanted_bits == 32) {
+    if (op_bits > 32 and op_bits <= 64 and wanted_bits == 32) {
+        try self.emitWValue(operand);
         try self.addTag(.i32_wrap_i64);
-    } else if (op_bits == 32 and wanted_bits > 32) {
+    } else if (op_bits == 32 and wanted_bits > 32 and wanted_bits <= 64) {
+        try self.emitWValue(operand);
         try self.addTag(switch (wanted_info.signedness) {
             .signed => .i64_extend_i32_s,
             .unsigned => .i64_extend_i32_u,
         });
+    } else if (wanted_bits == 128) {
+        // for 128bit integers we store the integer in the virtual stack, rather than a local
+        const stack_ptr = try self.allocStack(wanted);
+
+        // for 32 bit integers, we first coerce the value into a 64 bit integer before storing it
+        // meaning less store operations are required.
+        const lhs = if (op_bits == 32) blk: {
+            const tmp = try self.intcast(
+                operand,
+                given,
+                if (wanted.isSignedInt()) Type.i64 else Type.u64,
+            );
+            break :blk tmp;
+        } else operand;
+
+        // store msb first
+        try self.store(stack_ptr, lhs, Type.u64, 0);
+
+        // For signed integers we shift msb by 63 (64bit integer - 1 sign bit) and store remaining value
+        if (wanted.isSignedInt()) {
+            const shr = try self.binOp(lhs, .{ .imm64 = 63 }, Type.i64, .shr);
+            try self.store(stack_ptr, shr, Type.u64, 8);
+        } else {
+            // Ensure memory of lsb is zero'd
+            try self.store(stack_ptr, .{ .imm64 = 0 }, Type.u64, 8);
+        }
+        return stack_ptr;
     } else unreachable;
 
     const result = try self.allocLocal(wanted);
