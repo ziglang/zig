@@ -1154,7 +1154,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
         };
         defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
 
-        try self.genBinOpMir(.xor, operand_ty, dst_mcv, .{ .immediate = 1 });
+        const mask = ~@as(u64, 0);
+        try self.genBinOpMir(.xor, operand_ty, dst_mcv, .{ .immediate = mask });
 
         break :result dst_mcv;
     };
