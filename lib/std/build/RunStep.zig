@@ -1,7 +1,6 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const build = std.build;
-const CrossTarget = std.zig.CrossTarget;
 const Step = build.Step;
 const Builder = build.Builder;
 const LibExeObjStep = build.LibExeObjStep;
@@ -143,23 +142,6 @@ pub fn expectStdErrEqual(self: *RunStep, bytes: []const u8) void {
     self.stderr_action = .{ .expect_exact = self.builder.dupe(bytes) };
 }
 
-/// Returns true if the step could be run, otherwise false
-pub fn isRunnable(
-    self: *RunStep,
-) bool {
-    for (self.argv.items) |arg| {
-        switch (arg) {
-            .artifact => |artifact| {
-                _ = self.getExternalExecutor(artifact) catch {
-                    return false;
-                };
-            },
-            else => {},
-        }
-    }
-    return true;
-}
-
 pub fn expectStdOutEqual(self: *RunStep, bytes: []const u8) void {
     self.stdout_action = .{ .expect_exact = self.builder.dupe(bytes) };
 }
@@ -170,57 +152,6 @@ fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
         .inherit => .Inherit,
         .expect_exact, .expect_matches => .Pipe,
     };
-}
-
-fn getExternalExecutor(self: *RunStep, artifact: *LibExeObjStep) !?[]const u8 {
-    const need_cross_glibc = artifact.target.isGnuLibC() and artifact.is_linking_libc;
-    const executor = self.builder.host.getExternalExecutor(artifact.target_info, .{
-        .qemu_fixes_dl = need_cross_glibc and self.builder.glibc_runtimes_dir != null,
-        .link_libc = artifact.is_linking_libc,
-    });
-    switch (executor) {
-        .bad_dl, .bad_os_or_cpu => {
-            return error.NoExecutable;
-        },
-        .native => {
-            return null;
-        },
-        .rosetta => {
-            if (self.builder.enable_rosetta) {
-                return null;
-            } else {
-                return error.RosettaNotEnabled;
-            }
-        },
-        .qemu => |bin_name| {
-            if (self.builder.enable_qemu) {
-                return bin_name;
-            } else {
-                return error.QemuNotEnabled;
-            }
-        },
-        .wine => |bin_name| {
-            if (self.builder.enable_wine) {
-                return bin_name;
-            } else {
-                return error.WineNotEnabled;
-            }
-        },
-        .wasmtime => |bin_name| {
-            if (self.builder.enable_wasmtime) {
-                return bin_name;
-            } else {
-                return error.WasmtimeNotEnabled;
-            }
-        },
-        .darling => |bin_name| {
-            if (self.builder.enable_darling) {
-                return bin_name;
-            } else {
-                return error.DarlingNotEnabled;
-            }
-        },
-    }
 }
 
 fn make(step: *Step) !void {
@@ -237,9 +168,6 @@ fn make(step: *Step) !void {
                 if (artifact.target.isWindows()) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     self.addPathForDynLibs(artifact);
-                }
-                if (try self.getExternalExecutor(artifact)) |executor| {
-                    try argv_list.append(executor);
                 }
                 const executable_path = artifact.installed_path orelse artifact.getOutputSource().getPath(self.builder);
                 try argv_list.append(executable_path);

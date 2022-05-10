@@ -3815,7 +3815,7 @@ pub fn addCCArgs(
 
         if (comp.bin_file.options.single_threaded) {
             try argv.append("-D_LIBCPP_HAS_NO_THREADS");
-        } else {}
+        }
     }
 
     if (comp.bin_file.options.link_libunwind) {
