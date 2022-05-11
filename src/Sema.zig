@@ -14475,12 +14475,18 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
         if (!dest_ty.isAnyError()) {
             const error_name = val.castTag(.@"error").?.data.name;
             if (!dest_ty.errorSetHasField(error_name)) {
-                return sema.fail(
-                    block,
-                    src,
-                    "error.{s} not a member of error set '{}'",
-                    .{ error_name, dest_ty.fmt(sema.mod) },
-                );
+                const msg = msg: {
+                    const msg = try sema.errMsg(
+                        block,
+                        src,
+                        "error.{s} not a member of error set '{}'",
+                        .{ error_name, dest_ty.fmt(sema.mod) },
+                    );
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.addDeclaredHereNote(msg, dest_ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
             }
         }
 
