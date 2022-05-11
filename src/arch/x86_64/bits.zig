@@ -8,7 +8,7 @@ const DW = std.dwarf;
 
 // zig fmt: off
 
-/// Definitions of all of the x64 registers. The order is semantically meaningful.
+/// Definitions of all of the general purpose x64 registers. The order is semantically meaningful.
 /// The registers are defined such that IDs go in descending order of 64-bit,
 /// 32-bit, 16-bit, and then 8-bit, and each set contains exactly sixteen
 /// registers. This results in some useful properties:
@@ -123,6 +123,52 @@ pub const Register = enum(u7) {
 
             else => unreachable,
         };
+    }
+};
+
+/// AVX registers.
+/// TODO missing dwarfLocOp implementation.
+/// TODO add support for AVX-512
+pub const AvxRegister = enum(u6) {
+    // 256-bit registers
+    ymm0, ymm1, ymm2,  ymm3,  ymm4,  ymm5,  ymm6,  ymm7,
+    ymm8, ymm9, ymm10, ymm11, ymm12, ymm13, ymm14, ymm15,
+
+    // 128-bit registers
+    xmm0, xmm1, xmm2,  xmm3,  xmm4,  xmm5,  xmm6,  xmm7,
+    xmm8, xmm9, xmm10, xmm11, xmm12, xmm13, xmm14, xmm15,
+
+    // Pseudo, used only for MIR to signify that the
+    // operand is not a register but an immediate, etc.
+    none,
+
+    /// Returns the bit-width of the register.
+    pub fn size(self: AvxRegister) u4 {
+        return switch (@enumToInt(self)) {
+            0...15 => 256,
+            16...31 => 128,
+            else => unreachable,
+        };
+    }
+
+    /// This returns the 4-bit register ID.
+    pub fn id(self: AvxRegister) u4 {
+        return @truncate(u4, @enumToInt(self));
+    }
+
+    /// Like id, but only returns the lower 3 bits.
+    pub fn lowId(self: AvxRegister) u3 {
+        return @truncate(u3, @enumToInt(self));
+    }
+
+    /// Convert from any register to its 256 bit alias.
+    pub fn to256(self: AvxRegister) AvxRegister {
+        return @intToEnum(AvxRegister, self.id());
+    }
+
+    /// Convert from any register to its 128 bit alias.
+    pub fn to128(self: AvxRegister) AvxRegister {
+        return @intToEnum(AvxRegister, @as(u8, self.id()) + 16);
     }
 };
 
@@ -249,6 +295,98 @@ pub const Encoder = struct {
     /// Note that this flag is overridden by REX.W, if both are present.
     pub fn prefix16BitMode(self: Self) void {
         self.code.appendAssumeCapacity(0x66);
+    }
+
+    pub fn Vex(comptime count: comptime_int) type {
+        if (count < 2 or count > 3) {
+            @compileError("VEX prefix can either be 2- or 3-byte long");
+        }
+
+        return struct {
+            bytes: [count]u8 = switch (count) {
+                2 => .{ 0xc5, 0xf8 },
+                3 => .{ 0xc4, 0xe1, 0xf8 },
+                else => unreachable,
+            },
+
+            pub fn rex(self: *@This(), prefix: Rex) void {
+                const byte = &self.bytes[1];
+                if (prefix.w) switch (count) {
+                    3 => self.bytes[2] &= 0b0111_1111,
+                    else => unreachable,
+                };
+                if (prefix.r) byte.* &= 0b0111_1111;
+                if (prefix.x) switch (count) {
+                    3 => byte.* &= 0b1011_1111,
+                    else => unreachable,
+                };
+                if (prefix.b) switch (count) {
+                    3 => byte.* &= 0b1101_1111,
+                    else => unreachable,
+                };
+            }
+
+            pub fn leading_opcode_0f(self: *@This()) void {
+                switch (count) {
+                    3 => self.bytes[1] |= 0b0_0001,
+                    else => {},
+                }
+            }
+
+            pub fn leading_opcode_0f_38(self: *@This()) void {
+                switch (count) {
+                    3 => self.bytes[1] |= 0b0_0010,
+                    else => unreachable,
+                }
+            }
+
+            pub fn leading_opcode_0f_3a(self: *@This()) void {
+                switch (count) {
+                    3 => self.bytes[1] |= 0b0_0011,
+                    else => unreachable,
+                }
+            }
+
+            pub fn reg(self: *@This(), register: u4) void {
+                const byte = &self.bytes[count - 1];
+                const mask = 0b1_0000_111;
+                byte.* &= mask;
+                byte.* |= @intCast(u7, ~register) << 3;
+            }
+
+            pub fn len_128(self: *@This()) void {
+                const byte = &self.bytes[count - 1];
+                byte.* &= 0b0_11;
+            }
+
+            pub fn len_256(self: *@This()) void {
+                const byte = &self.bytes[count - 1];
+                byte.* |= 0b1_00;
+            }
+
+            pub fn simd_prefix_66(self: *@This()) void {
+                const byte = &self.bytes[count - 1];
+                byte.* |= 0b01;
+            }
+
+            pub fn simd_prefix_f2(self: *@This()) void {
+                const byte = &self.bytes[count - 1];
+                byte.* |= 0b11;
+            }
+
+            pub fn simd_prefix_f3(self: *@This()) void {
+                const byte = &self.bytes[count - 1];
+                byte.* |= 0b10;
+            }
+        };
+    }
+
+    pub fn vex_2byte(self: Self, prefix: Vex(2)) void {
+        self.code.appendSliceAssumeCapacity(&prefix.bytes);
+    }
+
+    pub fn vex_3byte(self: Self, prefix: Vex(3)) void {
+        self.code.appendSliceAssumeCapacity(&prefix.bytes);
     }
 
     /// From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB
@@ -543,7 +681,7 @@ pub const Encoder = struct {
     }
 };
 
-test "x86_64 Encoder helpers" {
+test "Encoder helpers - general purpose registers" {
     var code = ArrayList(u8).init(testing.allocator);
     defer code.deinit();
 
@@ -612,6 +750,75 @@ test "x86_64 Encoder helpers" {
         encoder.imm32(2147483647);
 
         try testing.expectEqualSlices(u8, &[_]u8{ 0x48, 0x81, 0xc1, 0xff, 0xff, 0xff, 0x7f }, code.items);
+    }
+}
+
+test "Encoder helpers - Vex prefix" {
+    {
+        var vex_prefix = Encoder.Vex(2){};
+        vex_prefix.rex(.{
+            .r = true,
+        });
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x78 }, &vex_prefix.bytes);
+    }
+
+    {
+        var vex_prefix = Encoder.Vex(2){};
+        vex_prefix.reg(AvxRegister.xmm15.id());
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x80 }, &vex_prefix.bytes);
+    }
+
+    {
+        var vex_prefix = Encoder.Vex(3){};
+        vex_prefix.rex(.{
+            .w = true,
+            .x = true,
+        });
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc4, 0b101_0_0001, 0b0_1111_0_00 }, &vex_prefix.bytes);
+    }
+
+    {
+        var vex_prefix = Encoder.Vex(3){};
+        vex_prefix.rex(.{
+            .w = true,
+            .r = true,
+        });
+        vex_prefix.len_256();
+        vex_prefix.leading_opcode_0f();
+        vex_prefix.simd_prefix_66();
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc4, 0b011_0_0001, 0b0_1111_1_01 }, &vex_prefix.bytes);
+    }
+
+    var code = ArrayList(u8).init(testing.allocator);
+    defer code.deinit();
+
+    {
+        // vmovapd xmm1, xmm2
+        const encoder = try Encoder.init(&code, 4);
+        var vex = Encoder.Vex(2){};
+        vex.simd_prefix_66();
+        encoder.vex_2byte(vex); // use 64 bit operation
+        encoder.opcode_1byte(0x28);
+        encoder.modRm_direct(0, AvxRegister.xmm1.lowId());
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xC5, 0xF9, 0x28, 0xC1 }, code.items);
+    }
+
+    {
+        try code.resize(0);
+
+        // vmovhpd xmm13, xmm1, qword ptr [rip]
+        const encoder = try Encoder.init(&code, 9);
+        var vex = Encoder.Vex(2){};
+        vex.len_128();
+        vex.simd_prefix_66();
+        vex.leading_opcode_0f();
+        vex.rex(.{ .r = true });
+        vex.reg(AvxRegister.xmm1.id());
+        encoder.vex_2byte(vex);
+        encoder.opcode_1byte(0x16);
+        encoder.modRm_RIPDisp32(AvxRegister.xmm13.lowId());
+        encoder.disp32(0);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xC5, 0x71, 0x16, 0x2D, 0x00, 0x00, 0x00, 0x00 }, code.items);
     }
 }
 
