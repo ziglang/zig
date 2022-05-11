@@ -4348,6 +4348,7 @@ pub fn analyzeExport(
             .name = symbol_name,
             .linkage = borrowed_options.linkage,
             .section = section,
+            .visibility = borrowed_options.visibility,
         },
         .src = src,
         .link = switch (mod.comp.bin_file.tag) {
@@ -14998,23 +14999,37 @@ fn resolveExportOptions(
     const air_ref = sema.resolveInst(zir_ref);
     const options = try sema.coerce(block, export_options_ty, air_ref, src);
 
-    const name = try sema.fieldVal(block, src, options, "name", src);
-    const name_val = try sema.resolveConstValue(block, src, name);
+    const name_operand = try sema.fieldVal(block, src, options, "name", src);
+    const name_val = try sema.resolveConstValue(block, src, name_operand);
+    const name_ty = Type.initTag(.const_slice_u8);
+    const name = try name_val.toAllocatedBytes(name_ty, sema.arena, sema.mod);
 
-    const linkage = try sema.fieldVal(block, src, options, "linkage", src);
-    const linkage_val = try sema.resolveConstValue(block, src, linkage);
+    const linkage_operand = try sema.fieldVal(block, src, options, "linkage", src);
+    const linkage_val = try sema.resolveConstValue(block, src, linkage_operand);
+    const linkage = linkage_val.toEnum(std.builtin.GlobalLinkage);
 
     const section = try sema.fieldVal(block, src, options, "section", src);
     const section_val = try sema.resolveConstValue(block, src, section);
 
+    const visibility_operand = try sema.fieldVal(block, src, options, "visibility", src);
+    const visibility_val = try sema.resolveConstValue(block, src, visibility_operand);
+    const visibility = visibility_val.toEnum(std.builtin.SymbolVisibility);
+
+    if (visibility != .default and linkage == .Internal) {
+        return sema.fail(block, src, "symbol '{s}' exported with internal linkage has non-default visibility {s}", .{
+            name, @tagName(visibility),
+        });
+    }
+
     if (!section_val.isNull()) {
         return sema.fail(block, src, "TODO: implement exporting with linksection", .{});
     }
-    const name_ty = Type.initTag(.const_slice_u8);
+
     return std.builtin.ExportOptions{
-        .name = try name_val.toAllocatedBytes(name_ty, sema.arena, sema.mod),
-        .linkage = linkage_val.toEnum(std.builtin.GlobalLinkage),
+        .name = name,
+        .linkage = linkage,
         .section = null, // TODO
+        .visibility = visibility,
     };
 }
 

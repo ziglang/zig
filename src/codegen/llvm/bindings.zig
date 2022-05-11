@@ -117,6 +117,9 @@ pub const Value = opaque {
     pub const setLinkage = LLVMSetLinkage;
     extern fn LLVMSetLinkage(Global: *const Value, Linkage: Linkage) void;
 
+    pub const setVisibility = LLVMSetVisibility;
+    extern fn LLVMSetVisibility(Global: *const Value, Linkage: Visibility) void;
+
     pub const setUnnamedAddr = LLVMSetUnnamedAddr;
     extern fn LLVMSetUnnamedAddr(Global: *const Value, HasUnnamedAddr: Bool) void;
 
@@ -1322,6 +1325,12 @@ pub const Linkage = enum(c_uint) {
     Common,
     LinkerPrivate,
     LinkerPrivateWeak,
+};
+
+pub const Visibility = enum(c_uint) {
+    Default,
+    Hidden,
+    Protected,
 };
 
 pub const ThreadLocalMode = enum(c_uint) {

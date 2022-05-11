@@ -808,6 +808,11 @@ pub const Object = struct {
                 .Weak => llvm_global.setLinkage(.WeakODR),
                 .LinkOnce => llvm_global.setLinkage(.LinkOnceODR),
             }
+            switch (exports[0].options.visibility) {
+                .default => llvm_global.setVisibility(.Default),
+                .hidden => llvm_global.setVisibility(.Hidden),
+                .protected => llvm_global.setVisibility(.Protected),
+            }
             if (decl.val.castTag(.variable)) |variable| {
                 if (variable.data.is_threadlocal) {
                     llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
