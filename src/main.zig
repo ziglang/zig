@@ -3057,7 +3057,6 @@ fn buildOutputType(
             gpa,
             arena,
             test_exec_args.items,
-            self_exe_path,
             arg_mode,
             target_info,
             watch,
@@ -3129,7 +3128,6 @@ fn buildOutputType(
                         gpa,
                         arena,
                         test_exec_args.items,
-                        self_exe_path,
                         arg_mode,
                         target_info,
                         watch,
@@ -3154,7 +3152,6 @@ fn buildOutputType(
                         gpa,
                         arena,
                         test_exec_args.items,
-                        self_exe_path,
                         arg_mode,
                         target_info,
                         watch,
@@ -3233,7 +3230,6 @@ fn runOrTest(
     gpa: Allocator,
     arena: Allocator,
     test_exec_args: []const ?[]const u8,
-    self_exe_path: []const u8,
     arg_mode: ArgMode,
     target_info: std.zig.system.NativeTargetInfo,
     watch: bool,
@@ -3253,25 +3249,10 @@ fn runOrTest(
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
-        // when testing pass the zig_exe_path to argv
-        if (arg_mode == .zig_test)
-            try argv.appendSlice(&[_][]const u8{
-                exe_path, self_exe_path,
-            })
-            // when running just pass the current exe
-        else
-            try argv.appendSlice(&[_][]const u8{
-                exe_path,
-            });
+        try argv.append(exe_path);
     } else {
         for (test_exec_args) |arg| {
-            if (arg) |a| {
-                try argv.append(a);
-            } else {
-                try argv.appendSlice(&[_][]const u8{
-                    exe_path, self_exe_path,
-                });
-            }
+            try argv.append(arg orelse exe_path);
         }
     }
     if (runtime_args_start) |i| {

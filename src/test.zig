@@ -1329,6 +1329,8 @@ pub const TestContext = struct {
             &[_][]const u8{ tmp_dir_path, "zig-cache" },
         );
 
+        const zig_exe_path = @import("test_options").zig_exe_path;
+
         for (case.files.items) |file| {
             try tmp.dir.writeFile(file.path, file.src);
         }
@@ -1351,7 +1353,7 @@ pub const TestContext = struct {
             try tmp.dir.writeFile(tmp_src_path, update.src);
 
             var zig_args = std.ArrayList([]const u8).init(arena);
-            try zig_args.append(std.testing.zig_exe_path);
+            try zig_args.append(zig_exe_path);
 
             if (case.is_test) {
                 try zig_args.append("test");
@@ -1545,7 +1547,7 @@ pub const TestContext = struct {
             .link_libc = case.link_libc,
             .use_llvm = use_llvm,
             .use_stage1 = null, // We already handled stage1 tests
-            .self_exe_path = std.testing.zig_exe_path,
+            .self_exe_path = zig_exe_path,
             // TODO instead of turning off color, pass in a std.Progress.Node
             .color = .off,
             // TODO: force self-hosted linkers with stage2 backend to avoid LLD creeping in
@@ -1795,7 +1797,7 @@ pub const TestContext = struct {
                                 continue :update; // Pass test.
                             }
                             try argv.appendSlice(&[_][]const u8{
-                                std.testing.zig_exe_path,
+                                zig_exe_path,
                                 "run",
                                 "-cflags",
                                 "-std=c99",
