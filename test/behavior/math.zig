@@ -9,7 +9,6 @@ const mem = std.mem;
 const math = std.math;
 
 test "assignment operators" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
@@ -363,7 +362,6 @@ fn comptimeAdd(comptime a: comptime_int, comptime b: comptime_int) comptime_int 
 
 test "binary not" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     try expect(comptime x: {
         break :x ~@as(u16, 0b1010101010101010) == 0b0101010101010101;
@@ -570,8 +568,6 @@ test "bit shift a u1" {
 }
 
 test "truncating shift right" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     try testShrTrunc(maxInt(u16));
     comptime try testShrTrunc(maxInt(u16));
 }
@@ -642,7 +638,6 @@ test "@addWithOverflow" {
 
 test "small int addition" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
@@ -908,21 +903,47 @@ test "@subWithOverflow" {
 
 test "@shlWithOverflow" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
-    var result: u16 = undefined;
-    try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
-    try expect(result == 0b0111111111111000);
-    try expect(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
-    try expect(result == 0b1011111111111100);
+    {
+        var result: u4 = undefined;
+        var a: u4 = 2;
+        var b: u2 = 1;
+        try expect(!@shlWithOverflow(u4, a, b, &result));
+        try expect(result == 4);
 
-    var a: u16 = 0b0000_0000_0000_0011;
-    var b: u4 = 15;
-    try expect(@shlWithOverflow(u16, a, b, &result));
-    try expect(result == 0b1000_0000_0000_0000);
-    b = 14;
-    try expect(!@shlWithOverflow(u16, a, b, &result));
-    try expect(result == 0b1100_0000_0000_0000);
+        b = 3;
+        try expect(@shlWithOverflow(u4, a, b, &result));
+        try expect(result == 0);
+    }
+
+    {
+        var result: i9 = undefined;
+        var a: i9 = 127;
+        var b: u4 = 1;
+        try expect(!@shlWithOverflow(i9, a, b, &result));
+        try expect(result == 254);
+
+        b = 2;
+        try expect(@shlWithOverflow(i9, a, b, &result));
+        try expect(result == -4);
+    }
+
+    {
+        var result: u16 = undefined;
+        try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
+        try expect(result == 0b0111111111111000);
+        try expect(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
+        try expect(result == 0b1011111111111100);
+
+        var a: u16 = 0b0000_0000_0000_0011;
+        var b: u4 = 15;
+        try expect(@shlWithOverflow(u16, a, b, &result));
+        try expect(result == 0b1000_0000_0000_0000);
+        b = 14;
+        try expect(!@shlWithOverflow(u16, a, b, &result));
+        try expect(result == 0b1100_0000_0000_0000);
+    }
 }
 
 test "overflow arithmetic with u0 values" {
@@ -1067,8 +1088,6 @@ fn testShlTrunc(x: u16) !void {
 }
 
 test "exact shift left" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     try testShlExact(0b00110101);
     comptime try testShlExact(0b00110101);
 }
@@ -1078,8 +1097,6 @@ fn testShlExact(x: u8) !void {
 }
 
 test "exact shift right" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     try testShrExact(0b10110100);
     comptime try testShrExact(0b10110100);
 }
