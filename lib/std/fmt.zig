@@ -488,25 +488,14 @@ pub fn formatType(
         },
         .Enum => |enumInfo| {
             try writer.writeAll(@typeName(T));
-            if (enumInfo.is_exhaustive) {
+            if (enumInfo.is_exhaustive or std.enums.hasName(value)) {
                 try writer.writeAll(".");
                 try writer.writeAll(@tagName(value));
-                return;
+            } else {
+                try writer.writeAll("(");
+                try formatType(@enumToInt(value), actual_fmt, options, writer, max_depth);
+                try writer.writeAll(")");
             }
-
-            // Use @tagName only if value is one of known fields
-            @setEvalBranchQuota(3 * enumInfo.fields.len);
-            inline for (enumInfo.fields) |enumField| {
-                if (@enumToInt(value) == enumField.value) {
-                    try writer.writeAll(".");
-                    try writer.writeAll(@tagName(value));
-                    return;
-                }
-            }
-
-            try writer.writeAll("(");
-            try formatType(@enumToInt(value), actual_fmt, options, writer, max_depth);
-            try writer.writeAll(")");
         },
         .Union => |info| {
             try writer.writeAll(@typeName(T));
