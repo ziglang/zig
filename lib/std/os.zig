@@ -1883,18 +1883,22 @@ pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
 
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
 /// See also `getenv`.
-/// This function first attempts a case-sensitive lookup. If no match is found, and `key`
-/// is ASCII, then it attempts a second case-insensitive lookup.
+/// This function performs a Unicode-aware case-insensitive lookup using RtlEqualUnicodeString.
 pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
     if (builtin.os.tag != .windows) {
         @compileError("std.os.getenvW is a Windows-only API");
     }
     const key_slice = mem.sliceTo(key, 0);
     const ptr = windows.peb().ProcessParameters.Environment;
-    var ascii_match: ?[:0]const u16 = null;
     var i: usize = 0;
     while (ptr[i] != 0) {
         const key_start = i;
+
+        // There are some special environment variables that start with =,
+        // so we need a special case to not treat = as a key/value separator
+        // if it's the first character.
+        // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
+        if (ptr[key_start] == '=') i += 1;
 
         while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
         const this_key = ptr[key_start..i];
@@ -1905,22 +1909,25 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         while (ptr[i] != 0) : (i += 1) {}
         const this_value = ptr[value_start..i :0];
 
-        if (mem.eql(u16, key_slice, this_key)) return this_value;
-
-        ascii_check: {
-            if (ascii_match != null) break :ascii_check;
-            if (key_slice.len != this_key.len) break :ascii_check;
-            for (key_slice) |a_c, key_index| {
-                const a = math.cast(u8, a_c) catch break :ascii_check;
-                const b = math.cast(u8, this_key[key_index]) catch break :ascii_check;
-                if (std.ascii.toLower(a) != std.ascii.toLower(b)) break :ascii_check;
-            }
-            ascii_match = this_value;
+        const key_string_bytes = @intCast(u16, key_slice.len * 2);
+        const key_string = windows.UNICODE_STRING{
+            .Length = key_string_bytes,
+            .MaximumLength = key_string_bytes,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(key)),
+        };
+        const this_key_string_bytes = @intCast(u16, this_key.len * 2);
+        const this_key_string = windows.UNICODE_STRING{
+            .Length = this_key_string_bytes,
+            .MaximumLength = this_key_string_bytes,
+            .Buffer = this_key.ptr,
+        };
+        if (windows.ntdll.RtlEqualUnicodeString(&key_string, &this_key_string, windows.TRUE) == windows.TRUE) {
+            return this_value;
         }
 
         i += 1; // skip over null byte
     }
-    return ascii_match;
+    return null;
 }
 
 pub const GetCwdError = error{
