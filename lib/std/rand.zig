@@ -9,8 +9,6 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 const math = std.math;
 const ziggurat = @import("rand/ziggurat.zig");
@@ -249,18 +247,51 @@ pub const Random = struct {
 
     /// Return a floating point value evenly distributed in the range [0, 1).
     pub fn float(r: Random, comptime T: type) T {
-        // Generate a uniform value between [1, 2) and scale down to [0, 1).
-        // Note: The lowest mantissa bit is always set to 0 so we only use half the available range.
+        // Generate a uniformly random value between for the mantissa.
+        // Then generate an exponentially biased random value for the exponent.
+        // Over the previous method, this has the advantage of being able to
+        // represent every possible value in the available range.
         switch (T) {
             f32 => {
-                const s = r.int(u32);
-                const repr = (0x7f << 23) | (s >> 9);
-                return @bitCast(f32, repr) - 1.0;
+                // Use 23 random bits for the mantissa, and the rest for the exponent.
+                // If all 41 bits are zero, generate additional random bits, until a
+                // set bit is found, or 126 bits have been generated.
+                const rand = r.int(u64);
+                var rand_lz = @clz(u64, rand | 0x7FFFFF);
+                if (rand_lz == 41) {
+                    rand_lz += @clz(u64, r.int(u64));
+                    if (rand_lz == 41 + 64) {
+                        // It is astronomically unlikely to reach this point.
+                        rand_lz += @clz(u32, r.int(u32) | 0x7FF);
+                    }
+                }
+                const mantissa = @truncate(u23, rand);
+                const exponent = @as(u32, 126 - rand_lz) << 23;
+                return @bitCast(f32, exponent | mantissa);
             },
             f64 => {
-                const s = r.int(u64);
-                const repr = (0x3ff << 52) | (s >> 12);
-                return @bitCast(f64, repr) - 1.0;
+                // Use 52 random bits for the mantissa, and the rest for the exponent.
+                // If all 12 bits are zero, generate additional random bits, until a
+                // set bit is found, or 1022 bits have been generated.
+                const rand = r.int(u64);
+                var rand_lz: u64 = @clz(u64, rand | 0xFFFFFFFFFFFFF);
+                if (rand_lz == 12) {
+                    while (true) {
+                        // It is astronomically unlikely for this loop to execute more than once.
+                        const addl_rand_lz = @clz(u64, r.int(u64));
+                        rand_lz += addl_rand_lz;
+                        if (addl_rand_lz != 64) {
+                            break;
+                        }
+                        if (rand_lz >= 1022) {
+                            rand_lz = 1022;
+                            break;
+                        }
+                    }
+                }
+                const mantissa = rand & 0xFFFFFFFFFFFFF;
+                const exponent = (1022 - rand_lz) << 52;
+                return @bitCast(f64, exponent | mantissa);
             },
             else => @compileError("unknown floating point type"),
         }
@@ -319,221 +350,6 @@ pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
     return @intCast(T, m >> bits);
 }
 
-const SequentialPrng = struct {
-    const Self = @This();
-    next_value: u8,
-
-    pub fn init() Self {
-        return Self{
-            .next_value = 0,
-        };
-    }
-
-    pub fn random(self: *Self) Random {
-        return Random.init(self, fill);
-    }
-
-    pub fn fill(self: *Self, buf: []u8) void {
-        for (buf) |*b| {
-            b.* = self.next_value;
-        }
-        self.next_value +%= 1;
-    }
-};
-
-test "Random int" {
-    try testRandomInt();
-    comptime try testRandomInt();
-}
-fn testRandomInt() !void {
-    var rng = SequentialPrng.init();
-    const random = rng.random();
-
-    try expect(random.int(u0) == 0);
-
-    rng.next_value = 0;
-    try expect(random.int(u1) == 0);
-    try expect(random.int(u1) == 1);
-    try expect(random.int(u2) == 2);
-    try expect(random.int(u2) == 3);
-    try expect(random.int(u2) == 0);
-
-    rng.next_value = 0xff;
-    try expect(random.int(u8) == 0xff);
-    rng.next_value = 0x11;
-    try expect(random.int(u8) == 0x11);
-
-    rng.next_value = 0xff;
-    try expect(random.int(u32) == 0xffffffff);
-    rng.next_value = 0x11;
-    try expect(random.int(u32) == 0x11111111);
-
-    rng.next_value = 0xff;
-    try expect(random.int(i32) == -1);
-    rng.next_value = 0x11;
-    try expect(random.int(i32) == 0x11111111);
-
-    rng.next_value = 0xff;
-    try expect(random.int(i8) == -1);
-    rng.next_value = 0x11;
-    try expect(random.int(i8) == 0x11);
-
-    rng.next_value = 0xff;
-    try expect(random.int(u33) == 0x1ffffffff);
-    rng.next_value = 0xff;
-    try expect(random.int(i1) == -1);
-    rng.next_value = 0xff;
-    try expect(random.int(i2) == -1);
-    rng.next_value = 0xff;
-    try expect(random.int(i33) == -1);
-}
-
-test "Random boolean" {
-    try testRandomBoolean();
-    comptime try testRandomBoolean();
-}
-fn testRandomBoolean() !void {
-    var rng = SequentialPrng.init();
-    const random = rng.random();
-
-    try expect(random.boolean() == false);
-    try expect(random.boolean() == true);
-    try expect(random.boolean() == false);
-    try expect(random.boolean() == true);
-}
-
-test "Random enum" {
-    try testRandomEnumValue();
-    comptime try testRandomEnumValue();
-}
-fn testRandomEnumValue() !void {
-    const TestEnum = enum {
-        First,
-        Second,
-        Third,
-    };
-    var rng = SequentialPrng.init();
-    const random = rng.random();
-    rng.next_value = 0;
-    try expect(random.enumValue(TestEnum) == TestEnum.First);
-    try expect(random.enumValue(TestEnum) == TestEnum.First);
-    try expect(random.enumValue(TestEnum) == TestEnum.First);
-}
-
-test "Random intLessThan" {
-    @setEvalBranchQuota(10000);
-    try testRandomIntLessThan();
-    comptime try testRandomIntLessThan();
-}
-fn testRandomIntLessThan() !void {
-    var rng = SequentialPrng.init();
-    const random = rng.random();
-
-    rng.next_value = 0xff;
-    try expect(random.uintLessThan(u8, 4) == 3);
-    try expect(rng.next_value == 0);
-    try expect(random.uintLessThan(u8, 4) == 0);
-    try expect(rng.next_value == 1);
-
-    rng.next_value = 0;
-    try expect(random.uintLessThan(u64, 32) == 0);
-
-    // trigger the bias rejection code path
-    rng.next_value = 0;
-    try expect(random.uintLessThan(u8, 3) == 0);
-    // verify we incremented twice
-    try expect(rng.next_value == 2);
-
-    rng.next_value = 0xff;
-    try expect(random.intRangeLessThan(u8, 0, 0x80) == 0x7f);
-    rng.next_value = 0xff;
-    try expect(random.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
-
-    rng.next_value = 0xff;
-    try expect(random.intRangeLessThan(i8, 0, 0x40) == 0x3f);
-    rng.next_value = 0xff;
-    try expect(random.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
-    rng.next_value = 0xff;
-    try expect(random.intRangeLessThan(i8, -0x80, 0) == -1);
-
-    rng.next_value = 0xff;
-    try expect(random.intRangeLessThan(i3, -4, 0) == -1);
-    rng.next_value = 0xff;
-    try expect(random.intRangeLessThan(i3, -2, 2) == 1);
-}
-
-test "Random intAtMost" {
-    @setEvalBranchQuota(10000);
-    try testRandomIntAtMost();
-    comptime try testRandomIntAtMost();
-}
-fn testRandomIntAtMost() !void {
-    var rng = SequentialPrng.init();
-    const random = rng.random();
-
-    rng.next_value = 0xff;
-    try expect(random.uintAtMost(u8, 3) == 3);
-    try expect(rng.next_value == 0);
-    try expect(random.uintAtMost(u8, 3) == 0);
-
-    // trigger the bias rejection code path
-    rng.next_value = 0;
-    try expect(random.uintAtMost(u8, 2) == 0);
-    // verify we incremented twice
-    try expect(rng.next_value == 2);
-
-    rng.next_value = 0xff;
-    try expect(random.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
-    rng.next_value = 0xff;
-    try expect(random.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
-
-    rng.next_value = 0xff;
-    try expect(random.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
-    rng.next_value = 0xff;
-    try expect(random.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
-    rng.next_value = 0xff;
-    try expect(random.intRangeAtMost(i8, -0x80, -1) == -1);
-
-    rng.next_value = 0xff;
-    try expect(random.intRangeAtMost(i3, -4, -1) == -1);
-    rng.next_value = 0xff;
-    try expect(random.intRangeAtMost(i3, -2, 1) == 1);
-
-    try expect(random.uintAtMost(u0, 0) == 0);
-}
-
-test "Random Biased" {
-    var prng = DefaultPrng.init(0);
-    const random = prng.random();
-    // Not thoroughly checking the logic here.
-    // Just want to execute all the paths with different types.
-
-    try expect(random.uintLessThanBiased(u1, 1) == 0);
-    try expect(random.uintLessThanBiased(u32, 10) < 10);
-    try expect(random.uintLessThanBiased(u64, 20) < 20);
-
-    try expect(random.uintAtMostBiased(u0, 0) == 0);
-    try expect(random.uintAtMostBiased(u1, 0) <= 0);
-    try expect(random.uintAtMostBiased(u32, 10) <= 10);
-    try expect(random.uintAtMostBiased(u64, 20) <= 20);
-
-    try expect(random.intRangeLessThanBiased(u1, 0, 1) == 0);
-    try expect(random.intRangeLessThanBiased(i1, -1, 0) == -1);
-    try expect(random.intRangeLessThanBiased(u32, 10, 20) >= 10);
-    try expect(random.intRangeLessThanBiased(i32, 10, 20) >= 10);
-    try expect(random.intRangeLessThanBiased(u64, 20, 40) >= 20);
-    try expect(random.intRangeLessThanBiased(i64, 20, 40) >= 20);
-
-    // uncomment for broken module error:
-    //expect(random.intRangeAtMostBiased(u0, 0, 0) == 0);
-    try expect(random.intRangeAtMostBiased(u1, 0, 1) >= 0);
-    try expect(random.intRangeAtMostBiased(i1, -1, 0) >= -1);
-    try expect(random.intRangeAtMostBiased(u32, 10, 20) >= 10);
-    try expect(random.intRangeAtMostBiased(i32, 10, 20) >= 10);
-    try expect(random.intRangeAtMostBiased(u64, 20, 40) >= 20);
-    try expect(random.intRangeAtMostBiased(i64, 20, 40) >= 20);
-}
-
 // Generator to extend 64-bit seed values into longer sequences.
 //
 // The number of cycles is thus limited to 64-bits regardless of the engine, but this
@@ -555,107 +371,7 @@ pub const SplitMix64 = struct {
     }
 };
 
-test "splitmix64 sequence" {
-    var r = SplitMix64.init(0xaeecf86f7878dd75);
-
-    const seq = [_]u64{
-        0x5dbd39db0178eb44,
-        0xa9900fb66b397da3,
-        0x5c1a28b1aeebcf5c,
-        0x64a963238f776912,
-        0xc6d4177b21d1c0ab,
-        0xb2cbdbdb5ea35394,
-    };
-
-    for (seq) |s| {
-        try expect(s == r.next());
-    }
-}
-
-// Actual Random helper function tests, pcg engine is assumed correct.
-test "Random float" {
-    var prng = DefaultPrng.init(0);
-    const random = prng.random();
-
-    var i: usize = 0;
-    while (i < 1000) : (i += 1) {
-        const val1 = random.float(f32);
-        try expect(val1 >= 0.0);
-        try expect(val1 < 1.0);
-
-        const val2 = random.float(f64);
-        try expect(val2 >= 0.0);
-        try expect(val2 < 1.0);
-    }
-}
-
-test "Random shuffle" {
-    var prng = DefaultPrng.init(0);
-    const random = prng.random();
-
-    var seq = [_]u8{ 0, 1, 2, 3, 4 };
-    var seen = [_]bool{false} ** 5;
-
-    var i: usize = 0;
-    while (i < 1000) : (i += 1) {
-        random.shuffle(u8, seq[0..]);
-        seen[seq[0]] = true;
-        try expect(sumArray(seq[0..]) == 10);
-    }
-
-    // we should see every entry at the head at least once
-    for (seen) |e| {
-        try expect(e == true);
-    }
-}
-
-fn sumArray(s: []const u8) u32 {
-    var r: u32 = 0;
-    for (s) |e|
-        r += e;
-    return r;
-}
-
-test "Random range" {
-    var prng = DefaultPrng.init(0);
-    const random = prng.random();
-
-    try testRange(random, -4, 3);
-    try testRange(random, -4, -1);
-    try testRange(random, 10, 14);
-    try testRange(random, -0x80, 0x7f);
-}
-
-fn testRange(r: Random, start: i8, end: i8) !void {
-    try testRangeBias(r, start, end, true);
-    try testRangeBias(r, start, end, false);
-}
-fn testRangeBias(r: Random, start: i8, end: i8, biased: bool) !void {
-    const count = @intCast(usize, @as(i32, end) - @as(i32, start));
-    var values_buffer = [_]bool{false} ** 0x100;
-    const values = values_buffer[0..count];
-    var i: usize = 0;
-    while (i < count) {
-        const value: i32 = if (biased) r.intRangeLessThanBiased(i8, start, end) else r.intRangeLessThan(i8, start, end);
-        const index = @intCast(usize, value - start);
-        if (!values[index]) {
-            i += 1;
-            values[index] = true;
-        }
-    }
-}
-
-test "CSPRNG" {
-    var secret_seed: [DefaultCsprng.secret_seed_length]u8 = undefined;
-    std.crypto.random.bytes(&secret_seed);
-    var csprng = DefaultCsprng.init(secret_seed);
-    const random = csprng.random();
-    const a = random.int(u64);
-    const b = random.int(u64);
-    const c = random.int(u64);
-    try expect(a ^ b ^ c != 0);
-}
-
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("rand/test.zig");
 }
