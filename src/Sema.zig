@@ -6093,13 +6093,13 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
                     try sema.addSafetyCheck(block, is_in_range, .invalid_enum_value);
                 } else {
                     // TODO: Output a switch instead of chained OR's.
-                    var found = sema.resolveInst(.bool_false);
-                    for (dest_ty.enumValues().keys()) |value| {
+                    var found_match: Air.Inst.Ref = undefined;
+                    for (dest_ty.enumValues().keys()) |value, i| {
                         const tag_val_inst = try sema.addConstant(dest_int_ty, value);
                         const next_match = try block.addBinOp(.cmp_eq, tag_val_inst, casted_operand);
-                        found = try block.addBinOp(.bool_or, found, next_match);
+                        found_match = if (i == 0) next_match else try block.addBinOp(.bool_or, found_match, next_match);
                     }
-                    try sema.addSafetyCheck(block, found, .invalid_enum_value);
+                    try sema.addSafetyCheck(block, found_match, .invalid_enum_value);
                 }
             },
             else => unreachable,
