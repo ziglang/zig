@@ -14271,10 +14271,18 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     }
 
     try sema.requireRuntimeBlock(block, src);
-    if (block.wantSafety()) {
-        // TODO
+    if (block.wantSafety() and !dest_ty.isAnyError()) {
+        const err_int_inst = try block.addBitCast(Type.u16, operand);
+        // TODO: Output a switch instead of chained OR's.
+        var found_match: Air.Inst.Ref = undefined;
+        for (dest_ty.errorSetNames()) |dest_err_name, i| {
+            const dest_err_int = (try sema.mod.getErrorValue(dest_err_name)).value;
+            const dest_err_int_inst = try sema.addIntUnsigned(Type.u16, dest_err_int);
+            const next_match = try block.addBinOp(.cmp_eq, dest_err_int_inst, err_int_inst);
+            found_match = if (i == 0) next_match else try block.addBinOp(.bool_or, found_match, next_match);
+        }
+        try sema.addSafetyCheck(block, found_match, .invalid_error_code);
     }
-
     return block.addBitCast(dest_ty, operand);
 }
 
