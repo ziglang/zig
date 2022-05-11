@@ -758,8 +758,8 @@ fn analyzeBodyInner(
             .is_non_null                  => try sema.zirIsNonNull(block, inst),
             .is_non_null_ptr              => try sema.zirIsNonNullPtr(block, inst),
             .merge_error_sets             => try sema.zirMergeErrorSets(block, inst),
-            .negate                       => try sema.zirNegate(block, inst, .sub),
-            .negate_wrap                  => try sema.zirNegate(block, inst, .subwrap),
+            .negate                       => try sema.zirNegate(block, inst),
+            .negate_wrap                  => try sema.zirNegateWrap(block, inst),
             .optional_payload_safe        => try sema.zirOptionalPayload(block, inst, true),
             .optional_payload_safe_ptr    => try sema.zirOptionalPayloadPtr(block, inst, true),
             .optional_payload_unsafe      => try sema.zirOptionalPayload(block, inst, false),
@@ -9328,15 +9328,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     return sema.fail(block, lhs_src, "TODO runtime array_mul", .{});
 }
 
-fn zirNegate(
-    sema: *Sema,
-    block: *Block,
-    inst: Zir.Inst.Index,
-    tag_override: Zir.Inst.Tag,
-) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
+fn zirNegate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const lhs_src = src;
@@ -9346,8 +9338,17 @@ fn zirNegate(
     const rhs_ty = sema.typeOf(rhs);
     const rhs_scalar_ty = rhs_ty.scalarType();
 
-    if (tag_override == .sub and rhs_scalar_ty.isUnsignedInt()) {
+    if (rhs_scalar_ty.isUnsignedInt()) {
         return sema.fail(block, src, "negation of type '{}'", .{rhs_ty.fmt(sema.mod)});
+    }
+
+    if (rhs_scalar_ty.isAnyFloat()) {
+        // We handle comptime negation here to ensure negative zero is represented in the bits.
+        if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
+            if (rhs_val.isUndef()) return sema.addConstUndef(rhs_ty);
+            const target = sema.mod.getTarget();
+            return sema.addConstant(rhs_ty, try rhs_val.floatNeg(rhs_ty, sema.arena, target));
+        }
     }
 
     const lhs = if (rhs_ty.zigTypeTag() == .Vector)
@@ -9355,7 +9356,24 @@ fn zirNegate(
     else
         sema.resolveInst(.zero);
 
-    return sema.analyzeArithmetic(block, tag_override, lhs, rhs, src, lhs_src, rhs_src);
+    return sema.analyzeArithmetic(block, .sub, lhs, rhs, src, lhs_src, rhs_src);
+}
+
+fn zirNegateWrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const lhs_src = src;
+    const rhs_src = src; // TODO better source location
+
+    const rhs = sema.resolveInst(inst_data.operand);
+    const rhs_ty = sema.typeOf(rhs);
+
+    const lhs = if (rhs_ty.zigTypeTag() == .Vector)
+        try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, Value.zero))
+    else
+        sema.resolveInst(.zero);
+
+    return sema.analyzeArithmetic(block, .subwrap, lhs, rhs, src, lhs_src, rhs_src);
 }
 
 fn zirArithmetic(

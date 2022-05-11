@@ -1593,17 +1593,30 @@ test "compare undefined literal with comptime_int" {
 }
 
 test "signed zeros are represented properly" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
-            inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-                const ST = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-                var as_fp_val = -@as(T, 0.0);
-                var as_uint_val = @bitCast(ST, as_fp_val);
-                // Ensure the sign bit is set.
-                try expect(as_uint_val >> (@typeInfo(T).Float.bits - 1) == 1);
-            }
+            try testOne(f16);
+            try testOne(f32);
+            try testOne(f64);
+            // TODO enable this
+            //try testOne(f80);
+            try testOne(f128);
+            // TODO enable this
+            //try testOne(c_longdouble);
+        }
+
+        fn testOne(comptime T: type) !void {
+            const ST = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+            var as_fp_val = -@as(T, 0.0);
+            var as_uint_val = @bitCast(ST, as_fp_val);
+            // Ensure the sign bit is set.
+            try expect(as_uint_val >> (@typeInfo(T).Float.bits - 1) == 1);
         }
     };
 

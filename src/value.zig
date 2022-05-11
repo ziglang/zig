@@ -4155,6 +4155,38 @@ pub const Value = extern union {
         }
     }
 
+    pub fn floatNeg(
+        val: Value,
+        float_type: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        if (float_type.zigTypeTag() == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen());
+            for (result_data) |*scalar, i| {
+                scalar.* = try floatNegScalar(val.indexVectorlike(i), float_type.scalarType(), arena, target);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatNegScalar(val, float_type, arena, target);
+    }
+
+    pub fn floatNegScalar(
+        val: Value,
+        float_type: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        switch (float_type.floatBits(target)) {
+            16 => return Value.Tag.float_16.create(arena, -val.toFloat(f16)),
+            32 => return Value.Tag.float_32.create(arena, -val.toFloat(f32)),
+            64 => return Value.Tag.float_64.create(arena, -val.toFloat(f64)),
+            80 => return Value.Tag.float_80.create(arena, -val.toFloat(f80)),
+            128 => return Value.Tag.float_128.create(arena, -val.toFloat(f128)),
+            else => unreachable,
+        }
+    }
+
     pub fn floatDiv(
         lhs: Value,
         rhs: Value,
