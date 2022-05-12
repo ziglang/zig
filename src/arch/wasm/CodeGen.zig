@@ -1958,31 +1958,68 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
-    const operand_ty = self.air.typeOfIndex(inst);
     const ty = self.air.typeOf(bin_op.lhs);
-
-    if (isByRef(operand_ty, self.target)) {
-        return self.fail("TODO: Implement binary operation for type: {}", .{operand_ty.fmtDebug()});
-    }
 
     return self.binOp(lhs, rhs, ty, op);
 }
 
 fn binOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    try self.emitWValue(lhs);
-    try self.emitWValue(rhs);
+    if (isByRef(ty, self.target)) {
+        if (ty.zigTypeTag() == .Int) {
+            return self.binOpBigInt(lhs, rhs, ty, op);
+        } else {
+            return self.fail(
+                "TODO: Implement binary operation for type: {}",
+                .{ty.fmt(self.bin_file.base.options.module.?)},
+            );
+        }
+    }
 
     const opcode: wasm.Opcode = buildOpcode(.{
         .op = op,
         .valtype1 = typeToValtype(ty, self.target),
         .signedness = if (ty.isSignedInt()) .signed else .unsigned,
     });
+    try self.emitWValue(lhs);
+    try self.emitWValue(rhs);
+
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
     // save the result in a temporary
     const bin_local = try self.allocLocal(ty);
     try self.addLabel(.local_set, bin_local.local);
     return bin_local;
+}
+
+fn binOpBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
+    if (ty.intInfo(self.target).bits != 128) {
+        return self.fail("TODO: Implement binary operation for big integer", .{});
+    }
+
+    if (op != .add and op != .sub) {
+        return self.fail("TODO: Implement binary operation for big integers", .{});
+    }
+
+    const result = try self.allocStack(ty);
+    const lhs_high_bit = try self.load(lhs, Type.u64, 0);
+    const lhs_low_bit = try self.load(lhs, Type.u64, 8);
+    const rhs_high_bit = try self.load(rhs, Type.u64, 0);
+    const rhs_low_bit = try self.load(rhs, Type.u64, 8);
+
+    const low_op_res = try self.binOp(rhs_low_bit, lhs_low_bit, Type.u64, op);
+    const high_op_res = try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
+
+    const lt = if (op == .add) blk: {
+        break :blk try self.cmp(high_op_res, rhs_high_bit, Type.u64, .lt);
+    } else if (op == .sub) blk: {
+        break :blk try self.cmp(rhs_high_bit, lhs_high_bit, Type.u64, .lt);
+    } else unreachable;
+    const tmp = try self.intcast(lt, Type.u32, Type.u64);
+    const tmp_op = try self.binOp(low_op_res, tmp, Type.u64, op);
+
+    try self.store(result, high_op_res, Type.u64, 0);
+    try self.store(result, tmp_op, Type.u64, 8);
+    return result;
 }
 
 fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
@@ -1993,10 +2030,6 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const ty = self.air.typeOf(bin_op.lhs);
     if (ty.zigTypeTag() == .Vector) {
         return self.fail("TODO: Implement wrapping arithmetic for vectors", .{});
-    } else if (ty.abiSize(self.target) > 8 and op == .mul) {
-        return self.fail("TODO: Implement wrapping multiplication for bitsize > 64", .{});
-    } else if (ty.abiSize(self.target) > 16) {
-        return self.fail("TODO: Implement wrapping arithmetic for bitsize > 128", .{});
     }
 
     return self.wrapBinOp(lhs, rhs, ty, op);
@@ -2007,30 +2040,9 @@ fn wrapBinOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError
     var wasm_bits = toWasmBits(bit_size) orelse {
         return self.fail("TODO: Implement wrapping arithmetic for integers with bitsize: {d}\n", .{bit_size});
     };
+
     if (wasm_bits == 128) {
-        if (op == .mul) return self.fail("TODO: Implement wrapping multiplication for 128bit integers", .{});
-        if (bit_size != wasm_bits) return self.fail("TODO: Implement wrapping arithmetic for integers > 64 & < 128", .{});
-
-        const result = try self.allocStack(ty);
-        const lhs_high_bit = try self.load(lhs, Type.u64, 0);
-        const lhs_low_bit = try self.load(lhs, Type.u64, 8);
-        const rhs_high_bit = try self.load(rhs, Type.u64, 0);
-        const rhs_low_bit = try self.load(rhs, Type.u64, 8);
-
-        const low_op_res = try self.binOp(rhs_low_bit, lhs_low_bit, Type.u64, op);
-        const high_op_res = try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
-
-        const lt = if (op == .add) blk: {
-            break :blk try self.binOp(high_op_res, rhs_high_bit, Type.u64, .lt);
-        } else if (op == .sub) blk: {
-            break :blk try self.binOp(rhs_high_bit, lhs_high_bit, Type.u64, .lt);
-        } else unreachable;
-        const tmp = try self.intcast(lt, Type.u32, Type.u64);
-        const tmp_op = try self.binOp(low_op_res, tmp, Type.u64, op);
-
-        try self.store(result, high_op_res, Type.u64, 0);
-        try self.store(result, tmp_op, Type.u64, 8);
-        return result;
+        return self.binOp(lhs, rhs, ty, op);
     }
 
     const opcode: wasm.Opcode = buildOpcode(.{
@@ -2044,6 +2056,10 @@ fn wrapBinOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
     const bin_local = try self.allocLocal(ty);
     try self.addLabel(.local_set, bin_local.local);
+    if (wasm_bits == bit_size) {
+        return bin_local;
+    }
+
     return self.wrapOperand(bin_local, ty);
 }
 
@@ -2994,7 +3010,7 @@ fn intcast(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!W
             try self.store(stack_ptr, .{ .imm64 = 0 }, Type.u64, 8);
         }
         return stack_ptr;
-    } else return self.fail("todo Wasm @intCast to 128bit integers", .{});
+    } else return self.load(operand, wanted, 0);
 
     const result = try self.allocLocal(wanted);
     try self.addLabel(.local_set, result.local);
@@ -3760,20 +3776,20 @@ fn cmpBigInt(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.ma
             const or_result = try self.binOp(xor_high, xor_low, Type.u64, .@"or");
 
             switch (op) {
-                .eq => return self.cmp(or_result, .{ .imm32 = 0 }, Type.u32, .eq),
-                .neq => return self.cmp(or_result, .{ .imm32 = 0 }, Type.u32, .neq),
+                .eq => return self.cmp(or_result, .{ .imm64 = 0 }, Type.u64, .eq),
+                .neq => return self.cmp(or_result, .{ .imm64 = 0 }, Type.u64, .neq),
                 else => unreachable,
             }
         },
         else => {
             const ty = if (operand_ty.isSignedInt()) Type.i64 else Type.u64;
-            const low_bit_eql = try self.cmp(lhs_low_bit, rhs_low_bit, ty, .eq);
+            const high_bit_eql = try self.cmp(lhs_high_bit, rhs_high_bit, ty, .eq);
             const high_bit_cmp = try self.cmp(lhs_high_bit, rhs_high_bit, ty, op);
             const low_bit_cmp = try self.cmp(lhs_low_bit, rhs_low_bit, ty, op);
 
             try self.emitWValue(low_bit_cmp);
             try self.emitWValue(high_bit_cmp);
-            try self.emitWValue(low_bit_eql);
+            try self.emitWValue(high_bit_eql);
             try self.addTag(.select);
         },
     }
