@@ -1,3 +1,4 @@
+blank_issues_enabled: false
 contact_links:
   - name: Language Proposal
     about: Propose to improve the Zig language
