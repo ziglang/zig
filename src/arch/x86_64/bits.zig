@@ -151,6 +151,11 @@ pub const AvxRegister = enum(u6) {
         };
     }
 
+    /// Returns whether the register is *extended*.
+    pub fn isExtended(self: Register) bool {
+        return @enumToInt(self) & 0x08 != 0;
+    }
+
     /// This returns the 4-bit register ID.
     pub fn id(self: AvxRegister) u4 {
         return @truncate(u4, @enumToInt(self));
