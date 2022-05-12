@@ -247,10 +247,9 @@ pub const Random = struct {
 
     /// Return a floating point value evenly distributed in the range [0, 1).
     pub fn float(r: Random, comptime T: type) T {
-        // Generate a uniformly random value between for the mantissa.
+        // Generate a uniformly random value for the mantissa.
         // Then generate an exponentially biased random value for the exponent.
-        // Over the previous method, this has the advantage of being able to
-        // represent every possible value in the available range.
+        // This covers every possible value in the range.
         switch (T) {
             f32 => {
                 // Use 23 random bits for the mantissa, and the rest for the exponent.
@@ -259,6 +258,9 @@ pub const Random = struct {
                 const rand = r.int(u64);
                 var rand_lz = @clz(u64, rand | 0x7FFFFF);
                 if (rand_lz == 41) {
+                    // TODO: when #5177 or #489 is implemented,
+                    // tell the compiler it is unlikely (1/2^41) to reach this point.
+                    // (Same for the if branch and the f64 calculations below.)
                     rand_lz += @clz(u64, r.int(u64));
                     if (rand_lz == 41 + 64) {
                         // It is astronomically unlikely to reach this point.
