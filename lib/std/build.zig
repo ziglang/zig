@@ -12,7 +12,7 @@ const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
 const process = std.process;
 const BufSet = std.BufSet;
-const BufMap = std.BufMap;
+const EnvMap = std.process.EnvMap;
 const fmt_lib = std.fmt;
 const File = std.fs.File;
 const CrossTarget = std.zig.CrossTarget;
@@ -48,7 +48,7 @@ pub const Builder = struct {
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: *Step,
-    env_map: *BufMap,
+    env_map: *EnvMap,
     top_level_steps: ArrayList(*TopLevelStep),
     install_prefix: []const u8,
     dest_dir: ?[]const u8,
@@ -167,7 +167,7 @@ pub const Builder = struct {
         cache_root: []const u8,
         global_cache_root: []const u8,
     ) !*Builder {
-        const env_map = try allocator.create(BufMap);
+        const env_map = try allocator.create(EnvMap);
         env_map.* = try process.getEnvMap(allocator);
 
         const host = try NativeTargetInfo.detect(allocator, .{});
@@ -963,7 +963,7 @@ pub const Builder = struct {
         warn("\n", .{});
     }
 
-    pub fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) !void {
+    pub fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const EnvMap, argv: []const []const u8) !void {
         if (self.verbose) {
             printCmd(cwd, argv);
         }
