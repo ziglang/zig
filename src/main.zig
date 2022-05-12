@@ -3960,7 +3960,10 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
     // Mark any excluded files/directories as already seen,
     // so that they are skipped later during actual processing
     for (excluded_files.items) |file_path| {
-        var dir = try fs.cwd().openDir(file_path, .{});
+        var dir = fs.cwd().openDir(file_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| return e,
+        };
         defer dir.close();
 
         const stat = try dir.stat();
