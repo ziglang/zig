@@ -143,7 +143,7 @@ pub const AvxRegister = enum(u6) {
     none,
 
     /// Returns the bit-width of the register.
-    pub fn size(self: AvxRegister) u4 {
+    pub fn size(self: AvxRegister) u9 {
         return switch (@enumToInt(self)) {
             0...15 => 256,
             16...31 => 128,
@@ -152,7 +152,7 @@ pub const AvxRegister = enum(u6) {
     }
 
     /// Returns whether the register is *extended*.
-    pub fn isExtended(self: Register) bool {
+    pub fn isExtended(self: AvxRegister) bool {
         return @enumToInt(self) & 0x08 != 0;
     }
 
@@ -308,9 +308,9 @@ pub const Encoder = struct {
         register: u4 = 0b1111,
         length: u1 = 0b0,
         simd_prefix: u2 = 0b00,
-        wig: bool = false,
-        lig: bool = false,
-        lz: bool = false,
+        wig_desc: bool = false,
+        lig_desc: bool = false,
+        lz_desc: bool = false,
 
         pub fn rex(self: *Vex, r: Rex) void {
             self.rex_prefix = r;
@@ -337,7 +337,7 @@ pub const Encoder = struct {
         }
 
         pub fn len_256(self: *Vex) void {
-            assert(!self.lz);
+            assert(!self.lz_desc);
             self.length = 1;
         }
 
@@ -354,26 +354,26 @@ pub const Encoder = struct {
         }
 
         pub fn wig(self: *Vex) void {
-            self.wig = true;
+            self.wig_desc = true;
         }
 
         pub fn lig(self: *Vex) void {
-            self.lig = true;
+            self.lig_desc = true;
         }
 
         pub fn lz(self: *Vex) void {
-            self.lz = true;
+            self.lz_desc = true;
         }
 
         pub fn write(self: Vex, writer: anytype) usize {
             var buf: [3]u8 = .{0} ** 3;
             const form_3byte: bool = blk: {
-                if (self.rex_prefix.w and !self.wig) break :blk true;
+                if (self.rex_prefix.w and !self.wig_desc) break :blk true;
                 if (self.rex_prefix.x or self.rex_prefix.b) break :blk true;
                 break :blk self.lead_opc != 0b0_0001;
             };
 
-            if (self.lz) {
+            if (self.lz_desc) {
                 assert(self.length == 0);
             }
 

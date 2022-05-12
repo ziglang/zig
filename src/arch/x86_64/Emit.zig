@@ -26,7 +26,7 @@ const Mir = @import("Mir.zig");
 const Module = @import("../../Module.zig");
 const Instruction = bits.Instruction;
 const GpRegister = bits.Register;
-const AvxRegister = bits.Register;
+const AvxRegister = bits.AvxRegister;
 const Type = @import("../../type.zig").Type;
 
 mir: Mir,
@@ -1180,6 +1180,7 @@ const Tag = enum {
     cmovng,
     cmovb,
     cmovnae,
+    vmovsd,
 
     fn isSetCC(tag: Tag) bool {
         return switch (tag) {
@@ -1393,6 +1394,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .cmp => OpCode.oneByte(if (is_one_byte) 0x38 else 0x39),
             .mov => OpCode.oneByte(if (is_one_byte) 0x88 else 0x89),
             .@"test" => OpCode.oneByte(if (is_one_byte) 0x84 else 0x85),
+            .vmovsd => OpCode.oneByte(0x11),
             else => null,
         },
         .rm => return switch (tag) {
@@ -1413,6 +1415,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .cmove, .cmovz => OpCode.twoByte(0x0f, 0x44),
             .cmovb, .cmovnae => OpCode.twoByte(0x0f, 0x42),
             .cmovl, .cmovng => OpCode.twoByte(0x0f, 0x4c),
+            .vmovsd => OpCode.oneByte(0x10),
             else => null,
         },
         .oi => return switch (tag) {
@@ -1497,6 +1500,80 @@ inline fn getModRmExt(tag: Tag) ?u3 {
         .fld64 => 0x0,
         else => null,
     };
+}
+
+const VexPrefix = struct {
+    prefix: Encoder.Vex,
+    reg: ?enum {
+        ndd,
+        nds,
+        dds,
+    },
+};
+
+inline fn getVexPrefix(tag: Tag, enc: Encoding) ?VexPrefix {
+    const desc: struct {
+        reg: enum {
+            none,
+            ndd,
+            nds,
+            dds,
+        } = .none,
+        len_256: bool = false,
+        wig: bool = false,
+        lig: bool = false,
+        lz: bool = false,
+        lead_opc: enum {
+            l_0f,
+            l_0f_3a,
+            l_0f_38,
+        } = .l_0f,
+        simd_prefix: enum {
+            none,
+            p_66,
+            p_f2,
+            p_f3,
+        } = .none,
+    } = blk: {
+        switch (enc) {
+            .mr => switch (tag) {
+                .vmovsd => break :blk .{ .lig = true, .simd_prefix = .p_f2, .wig = true },
+                else => return null,
+            },
+            .rm => switch (tag) {
+                .vmovsd => break :blk .{ .lig = true, .simd_prefix = .p_f2, .wig = true },
+                else => return null,
+            },
+            else => unreachable,
+        }
+    };
+
+    var vex: Encoder.Vex = .{};
+
+    if (desc.len_256) vex.len_256();
+    if (desc.wig) vex.wig();
+    if (desc.lig) vex.lig();
+    if (desc.lz) vex.lz();
+
+    switch (desc.lead_opc) {
+        .l_0f => {},
+        .l_0f_3a => vex.lead_opc_0f_3a(),
+        .l_0f_38 => vex.lead_opc_0f_38(),
+    }
+
+    switch (desc.simd_prefix) {
+        .none => {},
+        .p_66 => vex.simd_prefix_66(),
+        .p_f2 => vex.simd_prefix_f2(),
+        .p_f3 => vex.simd_prefix_f3(),
+    }
+
+    return VexPrefix{ .prefix = vex, .reg = switch (desc.reg) {
+        .none => null,
+        .nds => .nds,
+        .dds => .dds,
+        .ndd => .ndd,
+    } };
 }
 
 const ScaleIndex = struct {
@@ -1913,24 +1990,48 @@ fn lowerToRmEnc(
             encoder.modRm_direct(reg.lowId(), src_reg.lowId());
         },
         .memory => |src_mem| {
-            const encoder = try Encoder.init(code, 9);
-            if (reg.size() == 16) {
-                encoder.prefix16BitMode();
-            }
-            if (src_mem.base) |base| {
-                // TODO handle 32-bit base register - requires prefix 0x67
-                // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
-                encoder.rex(.{
-                    .w = setRexWRegister(reg),
-                    .r = reg.isExtended(),
-                    .b = base.isExtended(),
-                });
-            } else {
-                encoder.rex(.{
-                    .w = setRexWRegister(reg),
-                    .r = reg.isExtended(),
-                });
-            }
+            const encoder: Encoder = blk: {
+                switch (reg) {
+                    .register => {
+                        const encoder = try Encoder.init(code, 9);
+                        if (reg.size() == 16) {
+                            encoder.prefix16BitMode();
+                        }
+                        if (src_mem.base) |base| {
+                            // TODO handle 32-bit base register - requires prefix 0x67
+                            // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
+                            encoder.rex(.{
+                                .w = setRexWRegister(reg),
+                                .r = reg.isExtended(),
+                                .b = base.isExtended(),
+                            });
+                        } else {
+                            encoder.rex(.{
+                                .w = setRexWRegister(reg),
+                                .r = reg.isExtended(),
+                            });
+                        }
+                        break :blk encoder;
+                    },
+                    .avx_register => {
+                        const encoder = try Encoder.init(code, 10);
+                        var vex_prefix = getVexPrefix(tag, .rm).?;
+                        const vex = &vex_prefix.prefix;
+                        if (src_mem.base) |base| {
+                            vex.rex(.{
+                                .r = reg.isExtended(),
+                                .b = base.isExtended(),
+                            });
+                        } else {
+                            vex.rex(.{
+                                .r = reg.isExtended(),
+                            });
+                        }
+                        encoder.vex(vex_prefix.prefix);
+                        break :blk encoder;
+                    },
+                }
+            };
             opc.encode(encoder);
             src_mem.encode(encoder, reg.lowId());
         },
@@ -1959,7 +2060,7 @@ fn lowerToMrEnc(
             encoder.modRm_direct(reg.lowId(), dst_reg.lowId());
         },
         .memory => |dst_mem| {
-            const encoder = blk: {
+            const encoder: Encoder = blk: {
                 switch (reg) {
                     .register => {
                         const encoder = try Encoder.init(code, 9);
@@ -1981,7 +2082,23 @@ fn lowerToMrEnc(
                         break :blk encoder;
                     },
                     .avx_register => {
-                        unreachable;
+                        const encoder = try Encoder.init(code, 10);
+                        var vex_prefix = getVexPrefix(tag, .mr).?;
+                        const vex = &vex_prefix.prefix;
+                        if (dst_mem.base) |base| {
+                            vex.rex(.{
+                                .w = dst_mem.ptr_size == .qword_ptr,
+                                .r = reg.isExtended(),
+                                .b = base.isExtended(),
+                            });
+                        } else {
+                            vex.rex(.{
+                                .w = dst_mem.ptr_size == .qword_ptr,
+                                .r = reg.isExtended(),
+                            });
+                        }
+                        encoder.vex(vex_prefix.prefix);
+                        break :blk encoder;
                     },
                 }
             };
@@ -2247,6 +2364,14 @@ test "lower RM encoding" {
         },
     }), emit.code());
     try expectEqualHexStrings("\x48\x8D\x74\x0D\x00", emit.lowered(), "lea rsi, qword ptr [rbp + rcx*1 + 0]");
+
+    // AVX extension tests
+    try lowerToRmEnc(.vmovsd, Register.avxReg(.xmm1), RegisterOrMemory.rip(.qword_ptr, 0x10), emit.code());
+    try expectEqualHexStrings(
+        "\xC5\xFB\x10\x0D\x10\x00\x00\x00",
+        emit.lowered(),
+        "vmovsd xmm1, qword ptr [rip + 0x10]",
+    );
 }
 
 test "lower MR encoding" {
@@ -2282,6 +2407,14 @@ test "lower MR encoding" {
     );
     try lowerToMrEnc(.mov, RegisterOrMemory.rip(.qword_ptr, 0x10), Register.reg(.r12), emit.code());
     try expectEqualHexStrings("\x4C\x89\x25\x10\x00\x00\x00", emit.lowered(), "mov qword ptr [rip + 0x10], r12");
+
+    // AVX extension tests
+    try lowerToMrEnc(.vmovsd, RegisterOrMemory.rip(.qword_ptr, 0x10), Register.avxReg(.xmm1), emit.code());
+    try expectEqualHexStrings(
+        "\xC5\xFB\x11\x0D\x10\x00\x00\x00",
+        emit.lowered(),
+        "vmovsd qword ptr [rip + 0x10], xmm1",
+    );
 }
 
 test "lower OI encoding" {
