@@ -256,12 +256,12 @@ pub const Random = struct {
                 // If all 41 bits are zero, generate additional random bits, until a
                 // set bit is found, or 126 bits have been generated.
                 const rand = r.int(u64);
-                var rand_lz = @clz(u64, rand | 0x7FFFFF);
-                if (rand_lz == 41) {
+                var rand_lz = @clz(u64, rand);
+                if (rand_lz >= 41) {
                     // TODO: when #5177 or #489 is implemented,
                     // tell the compiler it is unlikely (1/2^41) to reach this point.
                     // (Same for the if branch and the f64 calculations below.)
-                    rand_lz += @clz(u64, r.int(u64));
+                    rand_lz = 41 + @clz(u64, r.int(u64));
                     if (rand_lz == 41 + 64) {
                         // It is astronomically unlikely to reach this point.
                         rand_lz += @clz(u32, r.int(u32) | 0x7FF);
@@ -276,8 +276,9 @@ pub const Random = struct {
                 // If all 12 bits are zero, generate additional random bits, until a
                 // set bit is found, or 1022 bits have been generated.
                 const rand = r.int(u64);
-                var rand_lz: u64 = @clz(u64, rand | 0xFFFFFFFFFFFFF);
-                if (rand_lz == 12) {
+                var rand_lz: u64 = @clz(u64, rand);
+                if (rand_lz >= 12) {
+                    rand_lz = 12;
                     while (true) {
                         // It is astronomically unlikely for this loop to execute more than once.
                         const addl_rand_lz = @clz(u64, r.int(u64));
