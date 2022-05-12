@@ -302,96 +302,113 @@ pub const Encoder = struct {
         self.code.appendAssumeCapacity(0x66);
     }
 
-    pub fn Vex(comptime count: comptime_int) type {
-        if (count < 2 or count > 3) {
-            @compileError("VEX prefix can either be 2- or 3-byte long");
+    pub const Vex = struct {
+        rex_prefix: Rex = .{},
+        lead_opc: u5 = 0b0_0001,
+        register: u4 = 0b1111,
+        length: u1 = 0b0,
+        simd_prefix: u2 = 0b00,
+        wig: bool = false,
+        lig: bool = false,
+        lz: bool = false,
+
+        pub fn rex(self: *Vex, r: Rex) void {
+            self.rex_prefix = r;
         }
 
-        return struct {
-            bytes: [count]u8 = switch (count) {
-                2 => .{ 0xc5, 0xf8 },
-                3 => .{ 0xc4, 0xe1, 0xf8 },
-                else => unreachable,
-            },
+        pub fn lead_opc_0f(self: *Vex) void {
+            self.lead_opc = 0b0_0001;
+        }
 
-            pub fn rex(self: *@This(), prefix: Rex) void {
-                const byte = &self.bytes[1];
-                if (prefix.w) switch (count) {
-                    3 => self.bytes[2] &= 0b0111_1111,
-                    else => unreachable,
-                };
-                if (prefix.r) byte.* &= 0b0111_1111;
-                if (prefix.x) switch (count) {
-                    3 => byte.* &= 0b1011_1111,
-                    else => unreachable,
-                };
-                if (prefix.b) switch (count) {
-                    3 => byte.* &= 0b1101_1111,
-                    else => unreachable,
-                };
+        pub fn lead_opc_0f_38(self: *Vex) void {
+            self.lead_opc = 0b0_0010;
+        }
+
+        pub fn lead_opc_0f_3a(self: *Vex) void {
+            self.lead_opc = 0b0_0011;
+        }
+
+        pub fn reg(self: *Vex, register: u4) void {
+            self.register = ~register;
+        }
+
+        pub fn len_128(self: *Vex) void {
+            self.length = 0;
+        }
+
+        pub fn len_256(self: *Vex) void {
+            assert(!self.lz);
+            self.length = 1;
+        }
+
+        pub fn simd_prefix_66(self: *Vex) void {
+            self.simd_prefix = 0b01;
+        }
+
+        pub fn simd_prefix_f3(self: *Vex) void {
+            self.simd_prefix = 0b10;
+        }
+
+        pub fn simd_prefix_f2(self: *Vex) void {
+            self.simd_prefix = 0b11;
+        }
+
+        pub fn wig(self: *Vex) void {
+            self.wig = true;
+        }
+
+        pub fn lig(self: *Vex) void {
+            self.lig = true;
+        }
+
+        pub fn lz(self: *Vex) void {
+            self.lz = true;
+        }
+
+        pub fn write(self: Vex, writer: anytype) usize {
+            var buf: [3]u8 = .{0} ** 3;
+            const form_3byte: bool = blk: {
+                if (self.rex_prefix.w and !self.wig) break :blk true;
+                if (self.rex_prefix.x or self.rex_prefix.b) break :blk true;
+                break :blk self.lead_opc != 0b0_0001;
+            };
+
+            if (self.lz) {
+                assert(self.length == 0);
             }
 
-            pub fn leading_opcode_0f(self: *@This()) void {
-                switch (count) {
-                    3 => self.bytes[1] |= 0b0_0001,
-                    else => {},
-                }
+            if (form_3byte) {
+                // First byte
+                buf[0] = 0xc4;
+                // Second byte
+                const rxb_mask: u3 = @intCast(u3, @boolToInt(!self.rex_prefix.r)) << 2 |
+                    @intCast(u2, @boolToInt(!self.rex_prefix.x)) << 1 |
+                    @boolToInt(!self.rex_prefix.b);
+                buf[1] |= @intCast(u8, rxb_mask) << 5;
+                buf[1] |= self.lead_opc;
+                // Third byte
+                buf[2] |= @intCast(u8, @boolToInt(!self.rex_prefix.w)) << 7;
+                buf[2] |= @intCast(u7, self.register) << 3;
+                buf[2] |= @intCast(u3, self.length) << 2;
+                buf[2] |= self.simd_prefix;
+            } else {
+                // First byte
+                buf[0] = 0xc5;
+                // Second byte
+                buf[1] |= @intCast(u8, @boolToInt(!self.rex_prefix.r)) << 7;
+                buf[1] |= @intCast(u7, self.register) << 3;
+                buf[1] |= @intCast(u3, self.length) << 2;
+                buf[1] |= self.simd_prefix;
             }
 
-            pub fn leading_opcode_0f_38(self: *@This()) void {
-                switch (count) {
-                    3 => self.bytes[1] |= 0b0_0010,
-                    else => unreachable,
-                }
-            }
+            const count: usize = if (form_3byte) 3 else 2;
+            _ = writer.writeAll(buf[0..count]) catch unreachable;
+            return count;
+        }
+    };
 
-            pub fn leading_opcode_0f_3a(self: *@This()) void {
-                switch (count) {
-                    3 => self.bytes[1] |= 0b0_0011,
-                    else => unreachable,
-                }
-            }
-
-            pub fn reg(self: *@This(), register: u4) void {
-                const byte = &self.bytes[count - 1];
-                const mask = 0b1_0000_111;
-                byte.* &= mask;
-                byte.* |= @intCast(u7, ~register) << 3;
-            }
-
-            pub fn len_128(self: *@This()) void {
-                const byte = &self.bytes[count - 1];
-                byte.* &= 0b0_11;
-            }
-
-            pub fn len_256(self: *@This()) void {
-                const byte = &self.bytes[count - 1];
-                byte.* |= 0b1_00;
-            }
-
-            pub fn simd_prefix_66(self: *@This()) void {
-                const byte = &self.bytes[count - 1];
-                byte.* |= 0b01;
-            }
-
-            pub fn simd_prefix_f2(self: *@This()) void {
-                const byte = &self.bytes[count - 1];
-                byte.* |= 0b11;
-            }
-
-            pub fn simd_prefix_f3(self: *@This()) void {
-                const byte = &self.bytes[count - 1];
-                byte.* |= 0b10;
-            }
-        };
-    }
-
-    pub fn vex_2byte(self: Self, prefix: Vex(2)) void {
-        self.code.appendSliceAssumeCapacity(&prefix.bytes);
-    }
-
-    pub fn vex_3byte(self: Self, prefix: Vex(3)) void {
-        self.code.appendSliceAssumeCapacity(&prefix.bytes);
+    pub fn vex(self: Self, prefix: Vex) void {
+        _ = prefix.write(self.code.writer());
     }
 
     /// From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB
@@ -759,39 +776,50 @@ test "Encoder helpers - general purpose registers" {
 }
 
 test "Encoder helpers - Vex prefix" {
+    var buf: [3]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const writer = stream.writer();
+
     {
-        var vex_prefix = Encoder.Vex(2){};
+        var vex_prefix = Encoder.Vex{};
         vex_prefix.rex(.{
             .r = true,
         });
-        try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x78 }, &vex_prefix.bytes);
+        const nwritten = vex_prefix.write(writer);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x78 }, buf[0..nwritten]);
     }
 
     {
-        var vex_prefix = Encoder.Vex(2){};
+        stream.reset();
+        var vex_prefix = Encoder.Vex{};
         vex_prefix.reg(AvxRegister.xmm15.id());
-        try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x80 }, &vex_prefix.bytes);
+        const nwritten = vex_prefix.write(writer);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x80 }, buf[0..nwritten]);
     }
 
     {
-        var vex_prefix = Encoder.Vex(3){};
+        stream.reset();
+        var vex_prefix = Encoder.Vex{};
         vex_prefix.rex(.{
             .w = true,
             .x = true,
         });
-        try testing.expectEqualSlices(u8, &[_]u8{ 0xc4, 0b101_0_0001, 0b0_1111_0_00 }, &vex_prefix.bytes);
+        const nwritten = vex_prefix.write(writer);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc4, 0b101_0_0001, 0b0_1111_0_00 }, buf[0..nwritten]);
     }
 
     {
-        var vex_prefix = Encoder.Vex(3){};
+        stream.reset();
+        var vex_prefix = Encoder.Vex{};
         vex_prefix.rex(.{
             .w = true,
             .r = true,
         });
         vex_prefix.len_256();
-        vex_prefix.leading_opcode_0f();
+        vex_prefix.lead_opc_0f();
         vex_prefix.simd_prefix_66();
-        try testing.expectEqualSlices(u8, &[_]u8{ 0xc4, 0b011_0_0001, 0b0_1111_1_01 }, &vex_prefix.bytes);
+        const nwritten = vex_prefix.write(writer);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc4, 0b011_0_0001, 0b0_1111_1_01 }, buf[0..nwritten]);
     }
 
     var code = ArrayList(u8).init(testing.allocator);
@@ -800,9 +828,9 @@ test "Encoder helpers - Vex prefix" {
     {
         // vmovapd xmm1, xmm2
         const encoder = try Encoder.init(&code, 4);
-        var vex = Encoder.Vex(2){};
+        var vex = Encoder.Vex{};
         vex.simd_prefix_66();
-        encoder.vex_2byte(vex); // use 64 bit operation
+        encoder.vex(vex); // use 64 bit operation
         encoder.opcode_1byte(0x28);
         encoder.modRm_direct(0, AvxRegister.xmm1.lowId());
         try testing.expectEqualSlices(u8, &[_]u8{ 0xC5, 0xF9, 0x28, 0xC1 }, code.items);
@@ -813,13 +841,13 @@ test "Encoder helpers - Vex prefix" {
 
         // vmovhpd xmm13, xmm1, qword ptr [rip]
         const encoder = try Encoder.init(&code, 9);
-        var vex = Encoder.Vex(2){};
+        var vex = Encoder.Vex{};
         vex.len_128();
         vex.simd_prefix_66();
-        vex.leading_opcode_0f();
+        vex.lead_opc_0f();
         vex.rex(.{ .r = true });
         vex.reg(AvxRegister.xmm1.id());
-        encoder.vex_2byte(vex);
+        encoder.vex(vex);
         encoder.opcode_1byte(0x16);
         encoder.modRm_RIPDisp32(AvxRegister.xmm13.lowId());
         encoder.disp32(0);

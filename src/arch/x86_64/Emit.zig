@@ -249,7 +249,7 @@ fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     switch (ops.flags) {
         0b00 => {
             // PUSH/POP reg
-            return lowerToOEnc(tag, .{ .register = ops.reg1 }, emit.code);
+            return lowerToOEnc(tag, Register.reg(ops.reg1), emit.code);
         },
         0b01 => {
             // PUSH/POP r/m64
@@ -285,9 +285,9 @@ fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.I
             try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
                 .disp = @bitCast(u32, -@intCast(i32, disp)),
                 .base = ops.reg1,
-            }), .{ .register = reg.to64() }, emit.code);
+            }), Register.reg(reg.to64()), emit.code);
         } else {
-            try lowerToRmEnc(.mov, .{ .register = reg.to64() }, RegisterOrMemory.mem(.qword_ptr, .{
+            try lowerToRmEnc(.mov, Register.reg(reg.to64()), RegisterOrMemory.mem(.qword_ptr, .{
                 .disp = @bitCast(u32, -@intCast(i32, disp)),
                 .base = ops.reg1,
             }), emit.code);
@@ -321,7 +321,7 @@ fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
                 return lowerToMEnc(tag, RegisterOrMemory.mem(ptr_size, .{ .disp = imm }), emit.code);
             }
             // JMP/CALL reg
-            return lowerToMEnc(tag, RegisterOrMemory.reg(.{ .register = ops.reg1 }), emit.code);
+            return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
         },
         0b10 => {
             // JMP/CALL r/m64
@@ -394,13 +394,13 @@ fn mirCondSetByte(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) Inne
         },
         else => unreachable,
     };
-    return lowerToMEnc(tag, RegisterOrMemory.reg(.{ .register = ops.reg1.to8() }), emit.code);
+    return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1.to8()), emit.code);
 }
 
 fn mirCondMov(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     if (ops.flags == 0b00) {
-        return lowerToRmEnc(tag, .{ .register = ops.reg1 }, RegisterOrMemory.reg(.{ .register = ops.reg2 }), emit.code);
+        return lowerToRmEnc(tag, Register.reg(ops.reg1), RegisterOrMemory.reg(ops.reg2), emit.code);
     }
     const imm = emit.mir.instructions.items(.data)[inst].imm;
     const ptr_size: Memory.PtrSize = switch (ops.flags) {
@@ -409,7 +409,7 @@ fn mirCondMov(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
         0b10 => .dword_ptr,
         0b11 => .qword_ptr,
     };
-    return lowerToRmEnc(tag, .{ .register = ops.reg1 }, RegisterOrMemory.mem(ptr_size, .{
+    return lowerToRmEnc(tag, Register.reg(ops.reg1), RegisterOrMemory.mem(ptr_size, .{
         .disp = imm,
         .base = ops.reg2,
     }), emit.code);
@@ -430,13 +430,13 @@ fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                     // I
                     return lowerToIEnc(.@"test", imm, emit.code);
                 }
-                return lowerToMiEnc(.@"test", RegisterOrMemory.reg(.{ .register = ops.reg1 }), imm, emit.code);
+                return lowerToMiEnc(.@"test", RegisterOrMemory.reg(ops.reg1), imm, emit.code);
             }
             // TEST r/m64, r64
             return lowerToMrEnc(
                 .@"test",
-                RegisterOrMemory.reg(.{ .register = ops.reg1 }),
-                .{ .register = ops.reg2 },
+                RegisterOrMemory.reg(ops.reg1),
+                Register.reg(ops.reg2),
                 emit.code,
             );
         },
@@ -478,18 +478,18 @@ fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
                 // mov reg1, imm32
                 // MI
                 const imm = emit.mir.instructions.items(.data)[inst].imm;
-                return lowerToMiEnc(tag, RegisterOrMemory.reg(.{ .register = ops.reg1 }), imm, emit.code);
+                return lowerToMiEnc(tag, RegisterOrMemory.reg(ops.reg1), imm, emit.code);
             }
             // mov reg1, reg2
             // RM
-            return lowerToRmEnc(tag, .{ .register = ops.reg1 }, RegisterOrMemory.reg(.{ .register = ops.reg2 }), emit.code);
+            return lowerToRmEnc(tag, Register.reg(ops.reg1), RegisterOrMemory.reg(ops.reg2), emit.code);
         },
         0b01 => {
             // mov reg1, [reg2 + imm32]
             // RM
             const imm = emit.mir.instructions.items(.data)[inst].imm;
             const src_reg: ?GpRegister = if (ops.reg2 == .none) null else ops.reg2;
-            return lowerToRmEnc(tag, .{ .register = ops.reg1 }, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
+            return lowerToRmEnc(tag, Register.reg(ops.reg1), RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
                 .disp = imm,
                 .base = src_reg,
             }), emit.code);
@@ -504,7 +504,7 @@ fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
             return lowerToMrEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg2.size()), .{
                 .disp = imm,
                 .base = ops.reg1,
-            }), .{ .register = ops.reg2 }, emit.code);
+            }), Register.reg(ops.reg2), emit.code);
         },
         0b11 => {
             return emit.fail("TODO unused variant: mov reg1, reg2, 0b11", .{});
@@ -562,7 +562,7 @@ fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
         .scale = scale,
         .index = .rcx,
     };
-    return lowerToRmEnc(tag, .{ .register = ops.reg1 }, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
+    return lowerToRmEnc(tag, Register.reg(ops.reg1), RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
         .disp = imm,
         .base = ops.reg2,
         .scale_index = scale_index,
@@ -590,7 +590,7 @@ fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
         .disp = imm,
         .base = ops.reg1,
         .scale_index = scale_index,
-    }), .{ .register = ops.reg2 }, emit.code);
+    }), Register.reg(ops.reg2), emit.code);
 }
 
 fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
@@ -641,27 +641,22 @@ fn mirMovSignExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     switch (ops.flags) {
         0b00 => {
             const tag: Tag = if (ops.reg2.size() == 32) .movsxd else .movsx;
-            return lowerToRmEnc(
-                tag,
-                .{ .register = ops.reg1 },
-                RegisterOrMemory.reg(.{ .register = ops.reg2 }),
-                emit.code,
-            );
+            return lowerToRmEnc(tag, Register.reg(ops.reg1), RegisterOrMemory.reg(ops.reg2), emit.code);
         },
         0b01 => {
-            return lowerToRmEnc(.movsx, .{ .register = ops.reg1 }, RegisterOrMemory.mem(.byte_ptr, .{
+            return lowerToRmEnc(.movsx, Register.reg(ops.reg1), RegisterOrMemory.mem(.byte_ptr, .{
                 .disp = imm,
                 .base = ops.reg2,
             }), emit.code);
         },
         0b10 => {
-            return lowerToRmEnc(.movsx, .{ .register = ops.reg1 }, RegisterOrMemory.mem(.word_ptr, .{
+            return lowerToRmEnc(.movsx, Register.reg(ops.reg1), RegisterOrMemory.mem(.word_ptr, .{
                 .disp = imm,
                 .base = ops.reg2,
             }), emit.code);
         },
         0b11 => {
-            return lowerToRmEnc(.movsxd, .{ .register = ops.reg1 }, RegisterOrMemory.mem(.dword_ptr, .{
+            return lowerToRmEnc(.movsxd, Register.reg(ops.reg1), RegisterOrMemory.mem(.dword_ptr, .{
                 .disp = imm,
                 .base = ops.reg2,
             }), emit.code);
@@ -676,21 +671,16 @@ fn mirMovZeroExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const imm = if (ops.flags != 0b00) emit.mir.instructions.items(.data)[inst].imm else undefined;
     switch (ops.flags) {
         0b00 => {
-            return lowerToRmEnc(
-                .movzx,
-                .{ .register = ops.reg1 },
-                RegisterOrMemory.reg(.{ .register = ops.reg2 }),
-                emit.code,
-            );
+            return lowerToRmEnc(.movzx, Register.reg(ops.reg1), RegisterOrMemory.reg(ops.reg2), emit.code);
         },
         0b01 => {
-            return lowerToRmEnc(.movzx, .{ .register = ops.reg1 }, RegisterOrMemory.mem(.byte_ptr, .{
+            return lowerToRmEnc(.movzx, Register.reg(ops.reg1), RegisterOrMemory.mem(.byte_ptr, .{
                 .disp = imm,
                 .base = ops.reg2,
             }), emit.code);
         },
         0b10 => {
-            return lowerToRmEnc(.movzx, .{ .register = ops.reg1 }, RegisterOrMemory.mem(.word_ptr, .{
+            return lowerToRmEnc(.movzx, Register.reg(ops.reg1), RegisterOrMemory.mem(.word_ptr, .{
                 .disp = imm,
                 .base = ops.reg2,
             }), emit.code);
@@ -713,16 +703,16 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     if (ops.flags == 0b00) {
         // movabs reg, imm64
         // OI
-        return lowerToOiEnc(.mov, .{ .register = ops.reg1 }, imm, emit.code);
+        return lowerToOiEnc(.mov, Register.reg(ops.reg1), imm, emit.code);
     }
     if (ops.reg1 == .none) {
         // movabs moffs64, rax
         // TD
-        return lowerToTdEnc(.mov, imm, .{ .register = ops.reg2 }, emit.code);
+        return lowerToTdEnc(.mov, imm, Register.reg(ops.reg2), emit.code);
     }
     // movabs rax, moffs64
     // FD
-    return lowerToFdEnc(.mov, .{ .register = ops.reg1 }, imm, emit.code);
+    return lowerToFdEnc(.mov, Register.reg(ops.reg1), imm, emit.code);
 }
 
 fn mirFisttp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -773,18 +763,18 @@ fn mirShift(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
         0b00 => {
             // sal reg1, 1
             // M1
-            return lowerToM1Enc(tag, RegisterOrMemory.reg(.{ .register = ops.reg1 }), emit.code);
+            return lowerToM1Enc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
         },
         0b01 => {
             // sal reg1, .cl
             // MC
-            return lowerToMcEnc(tag, RegisterOrMemory.reg(.{ .register = ops.reg1 }), emit.code);
+            return lowerToMcEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
         },
         0b10 => {
             // sal reg1, imm8
             // MI
             const imm = @truncate(u8, emit.mir.instructions.items(.data)[inst].imm);
-            return lowerToMiImm8Enc(tag, RegisterOrMemory.reg(.{ .register = ops.reg1 }), imm, emit.code);
+            return lowerToMiImm8Enc(tag, RegisterOrMemory.reg(ops.reg1), imm, emit.code);
         },
         0b11 => {
             return emit.fail("TODO unused variant: SHIFT reg1, 0b11", .{});
@@ -796,7 +786,7 @@ fn mirMulDiv(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     if (ops.reg1 != .none) {
         assert(ops.reg2 == .none);
-        return lowerToMEnc(tag, RegisterOrMemory.reg(.{ .register = ops.reg1 }), emit.code);
+        return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
     }
     assert(ops.reg1 == .none);
     assert(ops.reg2 != .none);
@@ -819,35 +809,24 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
-            return lowerToRmEnc(
-                .imul,
-                .{ .register = ops.reg1 },
-                RegisterOrMemory.reg(.{ .register = ops.reg2 }),
-                emit.code,
-            );
+            return lowerToRmEnc(.imul, Register.reg(ops.reg1), RegisterOrMemory.reg(ops.reg2), emit.code);
         },
         0b01 => {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
             const src_reg: ?GpRegister = if (ops.reg2 == .none) null else ops.reg2;
-            return lowerToRmEnc(.imul, .{ .register = ops.reg1 }, RegisterOrMemory.mem(.qword_ptr, .{
+            return lowerToRmEnc(.imul, Register.reg(ops.reg1), RegisterOrMemory.mem(.qword_ptr, .{
                 .disp = imm,
                 .base = src_reg,
             }), emit.code);
         },
         0b10 => {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            return lowerToRmiEnc(
-                .imul,
-                .{ .register = ops.reg1 },
-                RegisterOrMemory.reg(.{ .register = ops.reg2 }),
-                imm,
-                emit.code,
-            );
+            return lowerToRmiEnc(.imul, Register.reg(ops.reg1), RegisterOrMemory.reg(ops.reg2), imm, emit.code);
         },
         0b11 => {
             const payload = emit.mir.instructions.items(.data)[inst].payload;
             const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
-            return lowerToRmiEnc(.imul, .{ .register = ops.reg1 }, RegisterOrMemory.mem(.qword_ptr, .{
+            return lowerToRmiEnc(.imul, Register.reg(ops.reg1), RegisterOrMemory.mem(.qword_ptr, .{
                 .disp = imm_pair.dest_off,
                 .base = ops.reg2,
             }), imm_pair.operand, emit.code);
@@ -878,7 +857,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const src_reg: ?GpRegister = if (ops.reg2 == .none) null else ops.reg2;
             return lowerToRmEnc(
                 .lea,
-                .{ .register = ops.reg1 },
+                Register.reg(ops.reg1),
                 RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
                     .disp = imm,
                     .base = src_reg,
@@ -892,7 +871,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const start_offset = emit.code.items.len;
             try lowerToRmEnc(
                 .lea,
-                .{ .register = ops.reg1 },
+                Register.reg(ops.reg1),
                 RegisterOrMemory.rip(Memory.PtrSize.fromBits(ops.reg1.size()), 0),
                 emit.code,
             );
@@ -913,7 +892,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             };
             return lowerToRmEnc(
                 .lea,
-                .{ .register = ops.reg1 },
+                Register.reg(ops.reg1),
                 RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
                     .disp = imm,
                     .base = src_reg,
@@ -936,7 +915,7 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     // RM
     try lowerToRmEnc(
         .lea,
-        .{ .register = ops.reg1 },
+        Register.reg(ops.reg1),
         RegisterOrMemory.rip(Memory.PtrSize.fromBits(ops.reg1.size()), 0),
         emit.code,
     );
@@ -1666,8 +1645,12 @@ const RegisterOrMemory = union(enum) {
     register: Register,
     memory: Memory,
 
-    fn reg(register: Register) RegisterOrMemory {
-        return .{ .register = register };
+    fn reg(register: GpRegister) RegisterOrMemory {
+        return .{ .register = Register.reg(register) };
+    }
+
+    fn avxReg(register: AvxRegister) RegisterOrMemory {
+        return .{ .register = Register.avxReg(register) };
     }
 
     fn mem(ptr_size: Memory.PtrSize, args: struct {
@@ -1976,22 +1959,32 @@ fn lowerToMrEnc(
             encoder.modRm_direct(reg.lowId(), dst_reg.lowId());
         },
         .memory => |dst_mem| {
-            const encoder = try Encoder.init(code, 9);
-            if (reg.size() == 16) {
-                encoder.prefix16BitMode();
-            }
-            if (dst_mem.base) |base| {
-                encoder.rex(.{
-                    .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
-                    .r = reg.isExtended(),
-                    .b = base.isExtended(),
-                });
-            } else {
-                encoder.rex(.{
-                    .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
-                    .r = reg.isExtended(),
-                });
-            }
+            const encoder = blk: {
+                switch (reg) {
+                    .register => {
+                        const encoder = try Encoder.init(code, 9);
+                        if (reg.size() == 16) {
+                            encoder.prefix16BitMode();
+                        }
+                        if (dst_mem.base) |base| {
+                            encoder.rex(.{
+                                .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
+                                .r = reg.isExtended(),
+                                .b = base.isExtended(),
+                            });
+                        } else {
+                            encoder.rex(.{
+                                .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
+                                .r = reg.isExtended(),
+                            });
+                        }
+                        break :blk encoder;
+                    },
+                    .avx_register => {
+                        unreachable;
+                    },
+                }
+            };
             opc.encode(encoder);
             dst_mem.encode(encoder, reg.lowId());
         },
@@ -2168,23 +2161,23 @@ test "lower MI encoding" {
 test "lower RM encoding" {
     var emit = TestEmit.init();
     defer emit.deinit();
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.reg(.rbx), emit.code());
+    try lowerToRmEnc(.mov, Register.reg(.rax), RegisterOrMemory.reg(.rbx), emit.code());
     try expectEqualHexStrings("\x48\x8b\xc3", emit.lowered(), "mov rax, rbx");
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{ .disp = 0, .base = .r11 }), emit.code());
+    try lowerToRmEnc(.mov, Register.reg(.rax), RegisterOrMemory.mem(.qword_ptr, .{ .disp = 0, .base = .r11 }), emit.code());
     try expectEqualHexStrings("\x49\x8b\x03", emit.lowered(), "mov rax, qword ptr [r11 + 0]");
-    try lowerToRmEnc(.add, .r11, RegisterOrMemory.mem(.qword_ptr, .{ .disp = 0x10000000 }), emit.code());
+    try lowerToRmEnc(.add, Register.reg(.r11), RegisterOrMemory.mem(.qword_ptr, .{ .disp = 0x10000000 }), emit.code());
     try expectEqualHexStrings(
         "\x4C\x03\x1C\x25\x00\x00\x00\x10",
         emit.lowered(),
         "add r11, qword ptr [ds:0x10000000]",
     );
-    try lowerToRmEnc(.add, .r12b, RegisterOrMemory.mem(.byte_ptr, .{ .disp = 0x10000000 }), emit.code());
+    try lowerToRmEnc(.add, Register.reg(.r12b), RegisterOrMemory.mem(.byte_ptr, .{ .disp = 0x10000000 }), emit.code());
     try expectEqualHexStrings(
         "\x44\x02\x24\x25\x00\x00\x00\x10",
         emit.lowered(),
         "add r11b, byte ptr [ds:0x10000000]",
     );
-    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.qword_ptr, .{
+    try lowerToRmEnc(.sub, Register.reg(.r11), RegisterOrMemory.mem(.qword_ptr, .{
         .disp = 0x10000000,
         .base = .r13,
     }), emit.code());
@@ -2193,7 +2186,7 @@ test "lower RM encoding" {
         emit.lowered(),
         "sub r11, qword ptr [r13 + 0x10000000]",
     );
-    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.qword_ptr, .{
+    try lowerToRmEnc(.sub, Register.reg(.r11), RegisterOrMemory.mem(.qword_ptr, .{
         .disp = 0x10000000,
         .base = .r12,
     }), emit.code());
@@ -2202,14 +2195,14 @@ test "lower RM encoding" {
         emit.lowered(),
         "sub r11, qword ptr [r12 + 0x10000000]",
     );
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{
+    try lowerToRmEnc(.mov, Register.reg(.rax), RegisterOrMemory.mem(.qword_ptr, .{
         .disp = @bitCast(u32, @as(i32, -4)),
         .base = .rbp,
     }), emit.code());
     try expectEqualHexStrings("\x48\x8B\x45\xFC", emit.lowered(), "mov rax, qword ptr [rbp - 4]");
-    try lowerToRmEnc(.lea, .rax, RegisterOrMemory.rip(.qword_ptr, 0x10), emit.code());
+    try lowerToRmEnc(.lea, Register.reg(.rax), RegisterOrMemory.rip(.qword_ptr, 0x10), emit.code());
     try expectEqualHexStrings("\x48\x8D\x05\x10\x00\x00\x00", emit.lowered(), "lea rax, [rip + 0x10]");
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{
+    try lowerToRmEnc(.mov, Register.reg(.rax), RegisterOrMemory.mem(.qword_ptr, .{
         .disp = @bitCast(u32, @as(i32, -8)),
         .base = .rbp,
         .scale_index = .{
@@ -2218,7 +2211,7 @@ test "lower RM encoding" {
         },
     }), emit.code());
     try expectEqualHexStrings("\x48\x8B\x44\x0D\xF8", emit.lowered(), "mov rax, qword ptr [rbp + rcx*1 - 8]");
-    try lowerToRmEnc(.mov, .eax, RegisterOrMemory.mem(.dword_ptr, .{
+    try lowerToRmEnc(.mov, Register.reg(.eax), RegisterOrMemory.mem(.dword_ptr, .{
         .disp = @bitCast(u32, @as(i32, -4)),
         .base = .rbp,
         .scale_index = .{
@@ -2227,7 +2220,7 @@ test "lower RM encoding" {
         },
     }), emit.code());
     try expectEqualHexStrings("\x8B\x44\x95\xFC", emit.lowered(), "mov eax, dword ptr [rbp + rdx*4 - 4]");
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{
+    try lowerToRmEnc(.mov, Register.reg(.rax), RegisterOrMemory.mem(.qword_ptr, .{
         .disp = @bitCast(u32, @as(i32, -8)),
         .base = .rbp,
         .scale_index = .{
@@ -2236,7 +2229,7 @@ test "lower RM encoding" {
         },
     }), emit.code());
     try expectEqualHexStrings("\x48\x8B\x44\xCD\xF8", emit.lowered(), "mov rax, qword ptr [rbp + rcx*8 - 8]");
-    try lowerToRmEnc(.mov, .r8b, RegisterOrMemory.mem(.byte_ptr, .{
+    try lowerToRmEnc(.mov, Register.reg(.r8b), RegisterOrMemory.mem(.byte_ptr, .{
         .disp = @bitCast(u32, @as(i32, -24)),
         .base = .rsi,
         .scale_index = .{
@@ -2245,7 +2238,7 @@ test "lower RM encoding" {
         },
     }), emit.code());
     try expectEqualHexStrings("\x44\x8A\x44\x0E\xE8", emit.lowered(), "mov r8b, byte ptr [rsi + rcx*1 - 24]");
-    try lowerToRmEnc(.lea, .rsi, RegisterOrMemory.mem(.qword_ptr, .{
+    try lowerToRmEnc(.lea, Register.reg(.rsi), RegisterOrMemory.mem(.qword_ptr, .{
         .disp = 0,
         .base = .rbp,
         .scale_index = .{
@@ -2259,20 +2252,20 @@ test "lower RM encoding" {
 test "lower MR encoding" {
     var emit = TestEmit.init();
     defer emit.deinit();
-    try lowerToMrEnc(.mov, RegisterOrMemory.reg(.rax), .rbx, emit.code());
+    try lowerToMrEnc(.mov, RegisterOrMemory.reg(.rax), Register.reg(.rbx), emit.code());
     try expectEqualHexStrings("\x48\x89\xd8", emit.lowered(), "mov rax, rbx");
     try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
         .disp = @bitCast(u32, @as(i32, -4)),
         .base = .rbp,
-    }), .r11, emit.code());
+    }), Register.reg(.r11), emit.code());
     try expectEqualHexStrings("\x4c\x89\x5d\xfc", emit.lowered(), "mov qword ptr [rbp - 4], r11");
-    try lowerToMrEnc(.add, RegisterOrMemory.mem(.byte_ptr, .{ .disp = 0x10000000 }), .r12b, emit.code());
+    try lowerToMrEnc(.add, RegisterOrMemory.mem(.byte_ptr, .{ .disp = 0x10000000 }), Register.reg(.r12b), emit.code());
     try expectEqualHexStrings(
         "\x44\x00\x24\x25\x00\x00\x00\x10",
         emit.lowered(),
         "add byte ptr [ds:0x10000000], r12b",
     );
-    try lowerToMrEnc(.add, RegisterOrMemory.mem(.dword_ptr, .{ .disp = 0x10000000 }), .r12d, emit.code());
+    try lowerToMrEnc(.add, RegisterOrMemory.mem(.dword_ptr, .{ .disp = 0x10000000 }), Register.reg(.r12d), emit.code());
     try expectEqualHexStrings(
         "\x44\x01\x24\x25\x00\x00\x00\x10",
         emit.lowered(),
@@ -2281,53 +2274,53 @@ test "lower MR encoding" {
     try lowerToMrEnc(.sub, RegisterOrMemory.mem(.qword_ptr, .{
         .disp = 0x10000000,
         .base = .r11,
-    }), .r12, emit.code());
+    }), Register.reg(.r12), emit.code());
     try expectEqualHexStrings(
         "\x4D\x29\xA3\x00\x00\x00\x10",
         emit.lowered(),
         "sub qword ptr [r11 + 0x10000000], r12",
     );
-    try lowerToMrEnc(.mov, RegisterOrMemory.rip(.qword_ptr, 0x10), .r12, emit.code());
+    try lowerToMrEnc(.mov, RegisterOrMemory.rip(.qword_ptr, 0x10), Register.reg(.r12), emit.code());
     try expectEqualHexStrings("\x4C\x89\x25\x10\x00\x00\x00", emit.lowered(), "mov qword ptr [rip + 0x10], r12");
 }
 
 test "lower OI encoding" {
     var emit = TestEmit.init();
     defer emit.deinit();
-    try lowerToOiEnc(.mov, .rax, 0x1000000000000000, emit.code());
+    try lowerToOiEnc(.mov, Register.reg(.rax), 0x1000000000000000, emit.code());
     try expectEqualHexStrings(
         "\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x10",
         emit.lowered(),
         "movabs rax, 0x1000000000000000",
     );
-    try lowerToOiEnc(.mov, .r11, 0x1000000000000000, emit.code());
+    try lowerToOiEnc(.mov, Register.reg(.r11), 0x1000000000000000, emit.code());
     try expectEqualHexStrings(
         "\x49\xBB\x00\x00\x00\x00\x00\x00\x00\x10",
         emit.lowered(),
         "movabs r11, 0x1000000000000000",
     );
-    try lowerToOiEnc(.mov, .r11d, 0x10000000, emit.code());
+    try lowerToOiEnc(.mov, Register.reg(.r11d), 0x10000000, emit.code());
     try expectEqualHexStrings("\x41\xBB\x00\x00\x00\x10", emit.lowered(), "mov r11d, 0x10000000");
-    try lowerToOiEnc(.mov, .r11w, 0x1000, emit.code());
+    try lowerToOiEnc(.mov, Register.reg(.r11w), 0x1000, emit.code());
     try expectEqualHexStrings("\x66\x41\xBB\x00\x10", emit.lowered(), "mov r11w, 0x1000");
-    try lowerToOiEnc(.mov, .r11b, 0x10, emit.code());
+    try lowerToOiEnc(.mov, Register.reg(.r11b), 0x10, emit.code());
     try expectEqualHexStrings("\x41\xB3\x10", emit.lowered(), "mov r11b, 0x10");
 }
 
 test "lower FD/TD encoding" {
     var emit = TestEmit.init();
     defer emit.deinit();
-    try lowerToFdEnc(.mov, .rax, 0x1000000000000000, emit.code());
+    try lowerToFdEnc(.mov, Register.reg(.rax), 0x1000000000000000, emit.code());
     try expectEqualHexStrings(
         "\x48\xa1\x00\x00\x00\x00\x00\x00\x00\x10",
         emit.lowered(),
         "mov rax, ds:0x1000000000000000",
     );
-    try lowerToFdEnc(.mov, .eax, 0x10000000, emit.code());
+    try lowerToFdEnc(.mov, Register.reg(.eax), 0x10000000, emit.code());
     try expectEqualHexStrings("\xa1\x00\x00\x00\x10", emit.lowered(), "mov eax, ds:0x10000000");
-    try lowerToFdEnc(.mov, .ax, 0x1000, emit.code());
+    try lowerToFdEnc(.mov, Register.reg(.ax), 0x1000, emit.code());
     try expectEqualHexStrings("\x66\xa1\x00\x10", emit.lowered(), "mov ax, ds:0x1000");
-    try lowerToFdEnc(.mov, .al, 0x10, emit.code());
+    try lowerToFdEnc(.mov, Register.reg(.al), 0x10, emit.code());
     try expectEqualHexStrings("\xa0\x10", emit.lowered(), "mov al, ds:0x10");
 }
 
@@ -2403,16 +2396,16 @@ test "lower M1 and MC encodings" {
 test "lower O encoding" {
     var emit = TestEmit.init();
     defer emit.deinit();
-    try lowerToOEnc(.pop, .r12, emit.code());
+    try lowerToOEnc(.pop, Register.reg(.r12), emit.code());
     try expectEqualHexStrings("\x41\x5c", emit.lowered(), "pop r12");
-    try lowerToOEnc(.push, .r12w, emit.code());
+    try lowerToOEnc(.push, Register.reg(.r12w), emit.code());
     try expectEqualHexStrings("\x66\x41\x54", emit.lowered(), "push r12w");
 }
 
 test "lower RMI encoding" {
     var emit = TestEmit.init();
     defer emit.deinit();
-    try lowerToRmiEnc(.imul, .rax, RegisterOrMemory.mem(.qword_ptr, .{
+    try lowerToRmiEnc(.imul, Register.reg(.rax), RegisterOrMemory.mem(.qword_ptr, .{
         .disp = @bitCast(u32, @as(i32, -8)),
         .base = .rbp,
     }), 0x10, emit.code());
@@ -2421,18 +2414,18 @@ test "lower RMI encoding" {
         emit.lowered(),
         "imul rax, qword ptr [rbp - 8], 0x10",
     );
-    try lowerToRmiEnc(.imul, .eax, RegisterOrMemory.mem(.dword_ptr, .{
+    try lowerToRmiEnc(.imul, Register.reg(.eax), RegisterOrMemory.mem(.dword_ptr, .{
         .disp = @bitCast(u32, @as(i32, -4)),
         .base = .rbp,
     }), 0x10, emit.code());
     try expectEqualHexStrings("\x69\x45\xFC\x10\x00\x00\x00", emit.lowered(), "imul eax, dword ptr [rbp - 4], 0x10");
-    try lowerToRmiEnc(.imul, .ax, RegisterOrMemory.mem(.word_ptr, .{
+    try lowerToRmiEnc(.imul, Register.reg(.ax), RegisterOrMemory.mem(.word_ptr, .{
         .disp = @bitCast(u32, @as(i32, -2)),
         .base = .rbp,
     }), 0x10, emit.code());
     try expectEqualHexStrings("\x66\x69\x45\xFE\x10\x00", emit.lowered(), "imul ax, word ptr [rbp - 2], 0x10");
-    try lowerToRmiEnc(.imul, .r12, RegisterOrMemory.reg(.r12), 0x10, emit.code());
+    try lowerToRmiEnc(.imul, Register.reg(.r12), RegisterOrMemory.reg(.r12), 0x10, emit.code());
     try expectEqualHexStrings("\x4D\x69\xE4\x10\x00\x00\x00", emit.lowered(), "imul r12, r12, 0x10");
-    try lowerToRmiEnc(.imul, .r12w, RegisterOrMemory.reg(.r12w), 0x10, emit.code());
+    try lowerToRmiEnc(.imul, Register.reg(.r12w), RegisterOrMemory.reg(.r12w), 0x10, emit.code());
     try expectEqualHexStrings("\x66\x45\x69\xE4\x10\x00", emit.lowered(), "imul r12w, r12w, 0x10");
 }
