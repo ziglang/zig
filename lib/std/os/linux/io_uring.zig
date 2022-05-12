@@ -857,6 +857,41 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to provide a group of buffers used for commands that read/receive data.
+    /// Returns a pointer to the SQE.
+    ///
+    /// Provided buffers can be used in `read`, `recv` or `recvmsg` commands via .buffer_selection.
+    ///
+    /// The kernel expects a contiguous block of memory of size (buffers_count * buffer_size).
+    pub fn provide_buffers(
+        self: *IO_Uring,
+        user_data: u64,
+        buffers: [*]u8,
+        buffers_count: usize,
+        buffer_size: usize,
+        group_id: usize,
+        buffer_id: usize,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_provide_buffers(sqe, buffers, buffers_count, buffer_size, group_id, buffer_id);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    /// Queues (but does not submit) an SQE to remove a group of provided buffers.
+    /// Returns a pointer to the SQE.
+    pub fn remove_buffers(
+        self: *IO_Uring,
+        user_data: u64,
+        buffers_count: usize,
+        group_id: usize,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_remove_buffers(sqe, buffers_count, group_id);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -1506,6 +1541,28 @@ pub fn io_uring_prep_linkat(
     );
     sqe.len = @bitCast(u32, new_dir_fd);
     sqe.rw_flags = flags;
+}
+
+pub fn io_uring_prep_provide_buffers(
+    sqe: *io_uring_sqe,
+    buffers: [*]u8,
+    num: usize,
+    buffer_len: usize,
+    group_id: usize,
+    buffer_id: usize,
+) void {
+    const ptr = @ptrToInt(buffers);
+    io_uring_prep_rw(.PROVIDE_BUFFERS, sqe, @intCast(i32, num), ptr, buffer_len, buffer_id);
+    sqe.buf_index = @intCast(u16, group_id);
+}
+
+pub fn io_uring_prep_remove_buffers(
+    sqe: *io_uring_sqe,
+    num: usize,
+    group_id: usize,
+) void {
+    io_uring_prep_rw(.REMOVE_BUFFERS, sqe, @intCast(i32, num), 0, 0, 0);
+    sqe.buf_index = @intCast(u16, group_id);
 }
 
 test "structs/offsets/entries" {
