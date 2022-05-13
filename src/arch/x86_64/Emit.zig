@@ -1896,7 +1896,7 @@ fn lowerToMrEnc(
     const opc = getOpCode(tag, .mr, reg.size() == 8 or reg_or_mem.size() == 8).?;
     switch (reg_or_mem) {
         .register => |dst_reg| {
-            const encoder = try Encoder.init(code, 3);
+            const encoder = try Encoder.init(code, 4);
             if (dst_reg.size() == 16) {
                 encoder.prefix16BitMode();
             }
