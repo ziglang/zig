@@ -380,29 +380,30 @@ pub fn build(b: *Builder) !void {
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
-    const test_stage2_options = b.addOptions();
-    test_cases.addOptions("build_options", test_stage2_options);
+    const test_cases_options = b.addOptions();
+    test_cases.addOptions("build_options", test_cases_options);
 
-    test_stage2_options.addOption(bool, "enable_logging", enable_logging);
-    test_stage2_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
-    test_stage2_options.addOption(bool, "skip_non_native", skip_non_native);
-    test_stage2_options.addOption(bool, "skip_stage1", skip_stage1);
-    test_stage2_options.addOption(bool, "is_stage1", is_stage1);
-    test_stage2_options.addOption(bool, "omit_stage2", omit_stage2);
-    test_stage2_options.addOption(bool, "have_llvm", enable_llvm);
-    test_stage2_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
-    test_stage2_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
-    test_stage2_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
-    test_stage2_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
-    test_stage2_options.addOption(bool, "enable_qemu", b.enable_qemu);
-    test_stage2_options.addOption(bool, "enable_wine", b.enable_wine);
-    test_stage2_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
-    test_stage2_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
-    test_stage2_options.addOption(bool, "enable_darling", b.enable_darling);
-    test_stage2_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
-    test_stage2_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
-    test_stage2_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
-    test_stage2_options.addOption(std.SemanticVersion, "semver", semver);
+    test_cases_options.addOption(bool, "enable_logging", enable_logging);
+    test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
+    test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
+    test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
+    test_cases_options.addOption(bool, "is_stage1", is_stage1);
+    test_cases_options.addOption(bool, "omit_stage2", omit_stage2);
+    test_cases_options.addOption(bool, "have_llvm", enable_llvm);
+    test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
+    test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
+    test_cases_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
+    test_cases_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
+    test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
+    test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
+    test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
+    test_cases_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
+    test_cases_options.addOption(bool, "enable_darling", b.enable_darling);
+    test_cases_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
+    test_cases_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
+    test_cases_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
+    test_cases_options.addOption(std.SemanticVersion, "semver", semver);
+    test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
     test_cases_step.dependOn(&test_cases.step);
