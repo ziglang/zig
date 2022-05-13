@@ -1450,8 +1450,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .min => self.airMaxMin(inst, .min),
         .mul_add => self.airMulAdd(inst),
 
-        .add_with_overflow => self.airBinOpOverflow(inst, .add),
-        .sub_with_overflow => self.airBinOpOverflow(inst, .sub),
+        .add_with_overflow => self.airAddSubWithOverflow(inst, .add),
+        .sub_with_overflow => self.airAddSubWithOverflow(inst, .sub),
         .shl_with_overflow => self.airBinOpOverflow(inst, .shl),
         .mul_with_overflow => self.airMulWithOverflow(inst),
 
@@ -3988,7 +3988,7 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
         const cmp_res = try self.cmp(rhs, diff, lhs_ty, .gt);
         try self.emitWValue(cmp_res);
         try self.addLabel(.local_set, overflow_bit.local);
-    } else if (int_info.signedness == .unsigned and op == .sub) {
+    } else if (op == .sub) {
         const cmp_res = try self.cmp(lhs, rhs, lhs_ty, .lt);
         try self.emitWValue(cmp_res);
         try self.addLabel(.local_set, overflow_bit.local);
@@ -4044,6 +4044,79 @@ fn airBinOpOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue
 
     const result_ptr = try self.allocStack(self.air.typeOfIndex(inst));
     try self.store(result_ptr, bin_op, lhs_ty, 0);
+    const offset = @intCast(u32, lhs_ty.abiSize(self.target));
+    try self.store(result_ptr, overflow_bit, Type.initTag(.u1), offset);
+
+    return result_ptr;
+}
+
+fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+    assert(op == .add or op == .sub);
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const lhs_op = try self.resolveInst(extra.lhs);
+    const rhs_op = try self.resolveInst(extra.rhs);
+    const lhs_ty = self.air.typeOf(extra.lhs);
+
+    if (lhs_ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: Implement overflow arithmetic for vectors", .{});
+    }
+
+    const int_info = lhs_ty.intInfo(self.target);
+    const is_signed = int_info.signedness == .signed;
+    const wasm_bits = toWasmBits(int_info.bits) orelse {
+        return self.fail("TODO: Implement sub_with_overflow for integer bitsize: {d}", .{int_info.bits});
+    };
+
+    if (wasm_bits == 128) {
+        return self.fail("TODO: Implement sub_with_overflow for 128 bit integers", .{});
+    }
+
+    const zero = switch (wasm_bits) {
+        32 => WValue{ .imm32 = 0 },
+        64 => WValue{ .imm64 = 0 },
+        else => unreachable,
+    };
+    const shift_amt = wasm_bits - int_info.bits;
+    const shift_val = switch (wasm_bits) {
+        32 => WValue{ .imm32 = shift_amt },
+        64 => WValue{ .imm64 = shift_amt },
+        else => unreachable,
+    };
+
+    // for signed integers, we first apply signed shifts by the difference in bits
+    // to get the signed value, as we store it internally as 2's complement.
+    const lhs = if (wasm_bits != int_info.bits and is_signed) blk: {
+        const shl = try self.binOp(lhs_op, shift_val, lhs_ty, .shl);
+        break :blk try self.binOp(shl, shift_val, lhs_ty, .shr);
+    } else lhs_op;
+    const rhs = if (wasm_bits != int_info.bits and is_signed) blk: {
+        const shl = try self.binOp(rhs_op, shift_val, lhs_ty, .shl);
+        break :blk try self.binOp(shl, shift_val, lhs_ty, .shr);
+    } else rhs_op;
+
+    const bin_op = try self.binOp(lhs, rhs, lhs_ty, op);
+    const result = if (wasm_bits != int_info.bits) blk: {
+        break :blk try self.wrapOperand(bin_op, lhs_ty);
+    } else bin_op;
+
+    const cmp_op: std.math.CompareOperator = if (op == .sub) .gt else .lt;
+    const overflow_bit: WValue = if (is_signed) blk: {
+        if (wasm_bits == int_info.bits) {
+            const cmp_zero = try self.cmp(rhs, zero, lhs_ty, cmp_op);
+            const lt = try self.cmp(bin_op, lhs, lhs_ty, .lt);
+            break :blk try self.binOp(cmp_zero, lt, Type.u32, .xor); // result of cmp_zero and lt is always 32bit
+        }
+        const shl = try self.binOp(bin_op, shift_val, lhs_ty, .shl);
+        const shr = try self.binOp(shl, shift_val, lhs_ty, .shr);
+        break :blk try self.cmp(shr, bin_op, lhs_ty, .neq);
+    } else if (wasm_bits == int_info.bits)
+        try self.cmp(bin_op, lhs, lhs_ty, cmp_op)
+    else
+        try self.cmp(bin_op, result, lhs_ty, .neq);
+
+    const result_ptr = try self.allocStack(self.air.typeOfIndex(inst));
+    try self.store(result_ptr, result, lhs_ty, 0);
     const offset = @intCast(u32, lhs_ty.abiSize(self.target));
     try self.store(result_ptr, overflow_bit, Type.initTag(.u1), offset);
 
