@@ -34,12 +34,11 @@ case "$1" in
     ./build/zig build $BUILD_FLAGS test-stack-traces
     ./build/zig build $BUILD_FLAGS test-cli
     ./build/zig build $BUILD_FLAGS test-asm-link
-    ./build/zig build $BUILD_FLAGS test-runtime-safety
     ./build/zig build $BUILD_FLAGS test-translate-c
     ;;
   7)
     ./build/zig build $BUILD_FLAGS # test building self-hosted without LLVM
-    ./build/zig build $BUILD_FLAGS test-stage2
+    ./build/zig build $BUILD_FLAGS test-cases
     ;;
   '')
     echo "error: expecting test group argument"

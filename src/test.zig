@@ -1394,7 +1394,22 @@ pub const TestContext = struct {
                     }
                 },
                 .CompareObjectFile => @panic("TODO implement in the test harness"),
-                .Execution => @panic("TODO implement in the test harness"),
+                .Execution => |expected_stdout| {
+                    switch (result.term) {
+                        .Exited => |code| {
+                            if (code != 0) {
+                                dumpArgs(zig_args.items);
+                                return error.CompilationFailed;
+                            }
+                        },
+                        else => {
+                            dumpArgs(zig_args.items);
+                            return error.CompilationCrashed;
+                        },
+                    }
+                    try std.testing.expectEqualStrings("", result.stderr);
+                    try std.testing.expectEqualStrings(expected_stdout, result.stdout);
+                },
                 .Header => @panic("TODO implement in the test harness"),
             }
             return;
