@@ -53,7 +53,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .riscv32 => "riscv32",
         .riscv64 => "riscv64",
         .sparc => "sparc",
-        .sparcv9 => "sparcv9",
+        .sparc64 => "sparc64",
         .sparcel => "sparcel",
         .s390x => "s390x",
         .tce => "tce",
@@ -7797,7 +7797,7 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeRISCVAsmPrinter();
             llvm.LLVMInitializeRISCVAsmParser();
         },
-        .sparc, .sparcv9, .sparcel => {
+        .sparc, .sparc64, .sparcel => {
             llvm.LLVMInitializeSparcTarget();
             llvm.LLVMInitializeSparcTargetInfo();
             llvm.LLVMInitializeSparcTargetMC();

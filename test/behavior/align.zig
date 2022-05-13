@@ -135,7 +135,7 @@ test "alignment and size of structs with 128-bit fields" {
         .powerpc64,
         .powerpc64le,
         .riscv64,
-        .sparcv9,
+        .sparc64,
         .x86_64,
         .aarch64,
         .aarch64_be,

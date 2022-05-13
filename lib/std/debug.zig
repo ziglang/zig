@@ -401,7 +401,7 @@ pub const StackIterator = struct {
     fp: usize,
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
-        if (native_arch == .sparcv9) {
+        if (native_arch == .sparc64) {
             // Flush all the register windows on stack.
             asm volatile (
                 \\ flushw

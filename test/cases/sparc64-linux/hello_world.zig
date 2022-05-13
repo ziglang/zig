@@ -16,7 +16,7 @@ pub fn main() void {
 }
 
 // run
-// target=sparcv9-linux
+// target=sparc64-linux
 //
 // Hello, World!
 //

@@ -727,8 +727,8 @@ pub const CompilerBackend = enum(u64) {
     /// riscv64 backend.
     stage2_riscv64 = 9,
     /// The reference implementation self-hosted compiler of Zig, using the
-    /// sparcv9 backend.
-    stage2_sparcv9 = 10,
+    /// sparc64 backend.
+    stage2_sparc64 = 10,
 
     _,
 };
@@ -775,7 +775,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         builtin.zig_backend == .stage2_x86_64 or
         builtin.zig_backend == .stage2_x86 or
         builtin.zig_backend == .stage2_riscv64 or
-        builtin.zig_backend == .stage2_sparcv9)
+        builtin.zig_backend == .stage2_sparc64)
     {
         while (true) {
             @breakpoint();

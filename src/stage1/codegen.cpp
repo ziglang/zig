@@ -21,6 +21,7 @@
 #include "zigendian.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <errno.h>
 #include <math.h>
 
@@ -3596,7 +3597,7 @@ static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LL
         result = LLVMBuildLoad(g->builder, result, "");
     }
 
-    // Some operations are implemented as compound ops and require us to perform some 
+    // Some operations are implemented as compound ops and require us to perform some
     // more operations before we obtain the final result
     switch (op_id) {
         case IrBinOpDivTrunc:
@@ -9982,6 +9983,12 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             if (arch == g->zig_target->arch) {
                 cur_arch = arch_name;
             }
+        }
+
+        // Workaround to LLVM/Zig naming mismatch.
+        // LLVM calls it sparcv9, while Zig calls it sparc64.
+        if (!strcmp(cur_arch, "sparcv9")) {
+            cur_arch = "sparc64";
         }
     }
     assert(cur_arch != nullptr);

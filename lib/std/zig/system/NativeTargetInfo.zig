@@ -931,7 +931,7 @@ pub fn getExternalExecutor(
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
             .sparc => Executor{ .qemu = "qemu-sparc" },
-            .sparcv9 => Executor{ .qemu = "qemu-sparc64" },
+            .sparc64 => Executor{ .qemu = "qemu-sparc64" },
             .x86_64 => Executor{ .qemu = "qemu-x86_64" },
             else => return bad_result,
         };

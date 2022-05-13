@@ -11392,7 +11392,7 @@ Architectures:
   riscv32
   riscv64
   sparc
-  sparcv9
+  sparc64
   sparcel
   s390x
   thumb
@@ -11543,7 +11543,7 @@ Available libcs:
   s390x-linux-gnu
   s390x-linux-musl
   sparc-linux-gnu
-  sparcv9-linux-gnu
+  sparc64-linux-gnu
   wasm32-freestanding-musl
   wasm32-wasi-musl
   x86_64-linux-gnu

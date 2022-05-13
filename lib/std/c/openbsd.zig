@@ -1263,7 +1263,7 @@ pub const E = enum(u16) {
 
 const _MAX_PAGE_SHIFT = switch (builtin.cpu.arch) {
     .i386 => 12,
-    .sparcv9 => 13,
+    .sparc64 => 13,
 };
 pub const MINSIGSTKSZ = 1 << _MAX_PAGE_SHIFT;
 pub const SIGSTKSZ = MINSIGSTKSZ + (1 << _MAX_PAGE_SHIFT) * 4;

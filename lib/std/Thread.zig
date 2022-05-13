@@ -859,7 +859,7 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .sparcv9 => asm volatile (
+                .sparc64 => asm volatile (
                     \\ # SPARCs really don't like it when active stack frames
                     \\ # is unmapped (it will result in a segfault), so we
                     \\ # force-deactivate it by running `restore` until

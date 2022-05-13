@@ -115,7 +115,7 @@ pub const _errno = switch (native_abi) {
 };
 
 pub const Stat = switch (native_arch) {
-    .sparcv9 => extern struct {
+    .sparc64 => extern struct {
         dev: u64,
         __pad1: u16,
         ino: ino_t,
@@ -345,7 +345,7 @@ const __SIZEOF_PTHREAD_MUTEX_T = switch (native_abi) {
     .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
         .aarch64 => 48,
         .x86_64 => if (native_abi == .gnux32) 40 else 32,
-        .mips64, .powerpc64, .powerpc64le, .sparcv9 => 40,
+        .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
         else => if (@sizeOf(usize) == 8) 40 else 24,
     },
     .android => if (@sizeOf(usize) == 8) 40 else 4,

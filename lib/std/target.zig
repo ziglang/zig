@@ -785,7 +785,7 @@ pub const Target = struct {
             riscv32,
             riscv64,
             sparc,
-            sparcv9,
+            sparc64,
             sparcel,
             s390x,
             tce,
@@ -884,7 +884,7 @@ pub const Target = struct {
 
             pub fn isSPARC(arch: Arch) bool {
                 return switch (arch) {
-                    .sparc, .sparcel, .sparcv9 => true,
+                    .sparc, .sparcel, .sparc64 => true,
                     else => false,
                 };
             }
@@ -964,7 +964,7 @@ pub const Target = struct {
                     .bpfel => .BPF,
                     .bpfeb => .BPF,
                     .csky => .CSKY,
-                    .sparcv9 => .SPARCV9,
+                    .sparc64 => .SPARCV9,
                     .s390x => .S390,
                     .ve => .NONE,
                     .spu_2 => .SPU_2,
@@ -1025,7 +1025,7 @@ pub const Target = struct {
                     .bpfel => .Unknown,
                     .bpfeb => .Unknown,
                     .csky => .Unknown,
-                    .sparcv9 => .Unknown,
+                    .sparc64 => .Unknown,
                     .s390x => .Unknown,
                     .ve => .Unknown,
                     .spu_2 => .Unknown,
@@ -1092,7 +1092,7 @@ pub const Target = struct {
                     .powerpc64,
                     .thumbeb,
                     .sparc,
-                    .sparcv9,
+                    .sparc64,
                     .tce,
                     .lanai,
                     .s390x,
@@ -1159,7 +1159,7 @@ pub const Target = struct {
                     .amdgcn,
                     .bpfel,
                     .bpfeb,
-                    .sparcv9,
+                    .sparc64,
                     .s390x,
                     .ve,
                     .spirv64,
@@ -1177,7 +1177,7 @@ pub const Target = struct {
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
                     .amdgcn => "amdgpu",
                     .riscv32, .riscv64 => "riscv",
-                    .sparc, .sparcv9, .sparcel => "sparc",
+                    .sparc, .sparc64, .sparcel => "sparc",
                     .s390x => "systemz",
                     .i386, .x86_64 => "x86",
                     .nvptx, .nvptx64 => "nvptx",
@@ -1200,7 +1200,7 @@ pub const Target = struct {
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => &powerpc.all_features,
                     .amdgcn => &amdgpu.all_features,
                     .riscv32, .riscv64 => &riscv.all_features,
-                    .sparc, .sparcv9, .sparcel => &sparc.all_features,
+                    .sparc, .sparc64, .sparcel => &sparc.all_features,
                     .spirv32, .spirv64 => &spirv.all_features,
                     .s390x => &systemz.all_features,
                     .i386, .x86_64 => &x86.all_features,
@@ -1225,7 +1225,7 @@ pub const Target = struct {
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
                     .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
                     .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
-                    .sparc, .sparcv9, .sparcel => comptime allCpusFromDecls(sparc.cpu),
+                    .sparc, .sparc64, .sparcel => comptime allCpusFromDecls(sparc.cpu),
                     .s390x => comptime allCpusFromDecls(systemz.cpu),
                     .i386, .x86_64 => comptime allCpusFromDecls(x86.cpu),
                     .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
@@ -1286,7 +1286,7 @@ pub const Target = struct {
                     .riscv32 => &riscv.cpu.generic_rv32,
                     .riscv64 => &riscv.cpu.generic_rv64,
                     .sparc, .sparcel => &sparc.cpu.generic,
-                    .sparcv9 => &sparc.cpu.v9,
+                    .sparc64 => &sparc.cpu.v9, // 64-bit SPARC needs v9 as the baseline
                     .s390x => &systemz.cpu.generic,
                     .i386 => &x86.cpu._i386,
                     .x86_64 => &x86.cpu.x86_64,
@@ -1587,7 +1587,7 @@ pub const Target = struct {
                 .powerpc, .powerpcle => return copy(&result, "/lib/ld.so.1"),
                 .powerpc64, .powerpc64le => return copy(&result, "/lib64/ld64.so.2"),
                 .s390x => return copy(&result, "/lib64/ld64.so.1"),
-                .sparcv9 => return copy(&result, "/lib64/ld-linux.so.2"),
+                .sparc64 => return copy(&result, "/lib64/ld-linux.so.2"),
                 .x86_64 => return copy(&result, switch (self.abi) {
                     .gnux32 => "/libx32/ld-linux-x32.so.2",
                     else => "/lib64/ld-linux-x86-64.so.2",
@@ -1735,7 +1735,7 @@ pub const Target = struct {
                 .mips64,
                 .mips64el,
                 .sparc,
-                .sparcv9,
+                .sparc64,
                 .sparcel,
                 .powerpc,
                 .powerpcle,
@@ -1760,7 +1760,7 @@ pub const Target = struct {
                 .mips64,
                 .mips64el,
                 .sparc,
-                .sparcv9,
+                .sparc64,
                 .sparcel,
                 .powerpc,
                 .powerpcle,
@@ -1810,14 +1810,14 @@ pub const Target = struct {
             // 1. Better machine code when loading into SIMD register.
             // 2. The C ABI wants 16 for extern structs.
             // 3. 16-byte cmpxchg needs 16-byte alignment.
-            // Same logic for riscv64, powerpc64, mips64, sparcv9.
+            // Same logic for riscv64, powerpc64, mips64, sparc64.
             .x86_64,
             .riscv64,
             .powerpc64,
             .powerpc64le,
             .mips64,
             .mips64el,
-            .sparcv9,
+            .sparc64,
 
             // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
             .aarch64,

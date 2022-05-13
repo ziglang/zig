@@ -99,14 +99,14 @@ const pthread_spin_t = switch (builtin.cpu.arch) {
     .powerpc, .powerpc64, .powerpc64le => i32,
     .i386, .x86_64 => u8,
     .arm, .armeb, .thumb, .thumbeb => i32,
-    .sparc, .sparcel, .sparcv9 => u8,
+    .sparc, .sparcel, .sparc64 => u8,
     .riscv32, .riscv64 => u32,
     else => @compileError("undefined pthread_spin_t for this arch"),
 };
 
 const padded_pthread_spin_t = switch (builtin.cpu.arch) {
     .i386, .x86_64 => u32,
-    .sparc, .sparcel, .sparcv9 => u32,
+    .sparc, .sparcel, .sparc64 => u32,
     else => pthread_spin_t,
 };
 
@@ -1070,7 +1070,7 @@ pub const ucontext_t = extern struct {
             .i386 => 4,
             .mips, .mipsel, .mips64, .mips64el => 14,
             .arm, .armeb, .thumb, .thumbeb => 1,
-            .sparc, .sparcel, .sparcv9 => if (@sizeOf(usize) == 4) 43 else 8,
+            .sparc, .sparcel, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,
             else => 0,
         }
     ]u32,

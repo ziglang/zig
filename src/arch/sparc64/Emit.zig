@@ -51,9 +51,9 @@ pub fn emitMir(
 
             .add => try emit.mirArithmetic3Op(inst),
 
-            .bpcc => @panic("TODO implement sparcv9 bpcc"),
+            .bpcc => @panic("TODO implement sparc64 bpcc"),
 
-            .call => @panic("TODO implement sparcv9 call"),
+            .call => @panic("TODO implement sparc64 call"),
 
             .jmpl => try emit.mirArithmetic3Op(inst),
 
@@ -73,7 +73,7 @@ pub fn emitMir(
 
             .sethi => try emit.mirSethi(inst),
 
-            .sllx => @panic("TODO implement sparcv9 sllx"),
+            .sllx => @panic("TODO implement sparc64 sllx"),
 
             .stb => try emit.mirArithmetic3Op(inst),
             .sth => try emit.mirArithmetic3Op(inst),

@@ -625,7 +625,7 @@ fn clone() callconv(.Naked) void {
                 \\  sc
             );
         },
-        .sparcv9 => {
+        .sparc64 => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //           i0,    i1,    i2,  i3,   i4,  i5,   sp
             // syscall(SYS_clone, flags, stack, ptid, tls, ctid)

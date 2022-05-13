@@ -338,7 +338,7 @@ pub fn generate(
 fn gen(self: *Self) !void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
-        // TODO Finish function prologue and epilogue for sparcv9.
+        // TODO Finish function prologue and epilogue for sparc64.
 
         // save %sp, stack_save_area, %sp
         const save_inst = try self.addInst(.{
@@ -378,7 +378,7 @@ fn gen(self: *Self) !void {
 
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             _ = jmp_reloc;
-            return self.fail("TODO add branches in sparcv9", .{});
+            return self.fail("TODO add branches in sparc64", .{});
         }
 
         // Backpatch stack offset
@@ -1668,11 +1668,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
                         .callee => .{ .register = abi.c_abi_int_return_regs_callee_view[0] },
                     };
                 } else {
-                    return self.fail("TODO support more return values for sparcv9", .{});
+                    return self.fail("TODO support more return values for sparc64", .{});
                 }
             }
         },
-        else => return self.fail("TODO implement function parameters for {} on sparcv9", .{cc}),
+        else => return self.fail("TODO implement function parameters for {} on sparc64", .{cc}),
     }
 
     return result;
