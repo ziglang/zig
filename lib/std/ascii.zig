@@ -9,6 +9,7 @@
 //! See also: https://en.wikipedia.org/wiki/ASCII#Character_set
 
 const std = @import("std");
+const testing = std.testing;
 
 /// Contains constants for the C0 control codes of the ASCII encoding.
 ///
@@ -213,7 +214,6 @@ pub fn isSpace(c: u8) bool {
 pub const spaces = [_]u8{ ' ', '\t', '\n', '\r', control_code.VT, control_code.FF };
 
 test "spaces" {
-    const testing = std.testing;
     for (spaces) |space| try testing.expect(isSpace(space));
 
     var i: u8 = 0;
@@ -259,15 +259,50 @@ pub fn toLower(c: u8) u8 {
 }
 
 test "ascii character classes" {
-    const testing = std.testing;
+    try testing.expect(!isCntrl('a'));
+    try testing.expect(!isCntrl('z'));
+    try testing.expect(isCntrl(control_code.NUL));
+    try testing.expect(isCntrl(control_code.FF));
+    try testing.expect(isCntrl(control_code.US));
 
     try testing.expect('C' == toUpper('c'));
     try testing.expect(':' == toUpper(':'));
     try testing.expect('\xab' == toUpper('\xab'));
+    try testing.expect(!isUpper('z'));
+
     try testing.expect('c' == toLower('C'));
+    try testing.expect(':' == toLower(':'));
+    try testing.expect('\xab' == toLower('\xab'));
+    try testing.expect(!isLower('Z'));
+
+    try testing.expect(isAlNum('Z'));
+    try testing.expect(isAlNum('z'));
+    try testing.expect(isAlNum('5'));
+    try testing.expect(isAlNum('5'));
+    try testing.expect(!isAlNum('!'));
+
+    try testing.expect(!isAlpha('5'));
     try testing.expect(isAlpha('c'));
     try testing.expect(!isAlpha('5'));
+
     try testing.expect(isSpace(' '));
+    try testing.expect(isSpace('\t'));
+    try testing.expect(isSpace('\r'));
+    try testing.expect(isSpace('\n'));
+    try testing.expect(!isSpace('.'));
+
+    try testing.expect(!isXDigit('g'));
+    try testing.expect(isXDigit('b'));
+    try testing.expect(isXDigit('9'));
+
+    try testing.expect(!isDigit('~'));
+    try testing.expect(isDigit('0'));
+    try testing.expect(isDigit('9'));
+
+    try testing.expect(isPrint(' '));
+    try testing.expect(isPrint('@'));
+    try testing.expect(isPrint('~'));
+    try testing.expect(!isPrint(control_code.ESC));
 }
 
 /// Writes a lower case copy of `ascii_string` to `output`.
@@ -283,7 +318,7 @@ pub fn lowerString(output: []u8, ascii_string: []const u8) []u8 {
 test "lowerString" {
     var buf: [1024]u8 = undefined;
     const result = lowerString(&buf, "aBcDeFgHiJkLmNOPqrst0234+💩!");
-    try std.testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
+    try testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
 }
 
 /// Allocates a lower case copy of `ascii_string`.
@@ -294,9 +329,9 @@ pub fn allocLowerString(allocator: std.mem.Allocator, ascii_string: []const u8) 
 }
 
 test "allocLowerString" {
-    const result = try allocLowerString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
+    const result = try allocLowerString(testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
 }
 
 /// Writes an upper case copy of `ascii_string` to `output`.
@@ -312,7 +347,7 @@ pub fn upperString(output: []u8, ascii_string: []const u8) []u8 {
 test "upperString" {
     var buf: [1024]u8 = undefined;
     const result = upperString(&buf, "aBcDeFgHiJkLmNOPqrst0234+💩!");
-    try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
+    try testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
 }
 
 /// Allocates an upper case copy of `ascii_string`.
@@ -323,12 +358,12 @@ pub fn allocUpperString(allocator: std.mem.Allocator, ascii_string: []const u8) 
 }
 
 test "allocUpperString" {
-    const result = try allocUpperString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
+    const result = try allocUpperString(testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
 }
 
-/// Compares strings `a` and `b` case insensitively and returns whether they are equal.
+/// Compares strings `a` and `b` case-insensitively and returns whether they are equal.
 pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     for (a) |a_c, i| {
@@ -338,9 +373,9 @@ pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
 }
 
 test "eqlIgnoreCase" {
-    try std.testing.expect(eqlIgnoreCase("HEl💩Lo!", "hel💩lo!"));
-    try std.testing.expect(!eqlIgnoreCase("hElLo!", "hello! "));
-    try std.testing.expect(!eqlIgnoreCase("hElLo!", "helro!"));
+    try testing.expect(eqlIgnoreCase("HEl💩Lo!", "hel💩lo!"));
+    try testing.expect(!eqlIgnoreCase("hElLo!", "hello! "));
+    try testing.expect(!eqlIgnoreCase("hElLo!", "helro!"));
 }
 
 pub fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
@@ -348,8 +383,8 @@ pub fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
 }
 
 test "ascii.startsWithIgnoreCase" {
-    try std.testing.expect(startsWithIgnoreCase("boB", "Bo"));
-    try std.testing.expect(!startsWithIgnoreCase("Needle in hAyStAcK", "haystack"));
+    try testing.expect(startsWithIgnoreCase("boB", "Bo"));
+    try testing.expect(!startsWithIgnoreCase("Needle in hAyStAcK", "haystack"));
 }
 
 pub fn endsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
@@ -357,8 +392,8 @@ pub fn endsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
 }
 
 test "ascii.endsWithIgnoreCase" {
-    try std.testing.expect(endsWithIgnoreCase("Needle in HaYsTaCk", "haystack"));
-    try std.testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
+    try testing.expect(endsWithIgnoreCase("Needle in HaYsTaCk", "haystack"));
+    try testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
 }
 
 /// Finds `substr` in `container`, ignoring case, starting at `start_index`.
@@ -380,12 +415,11 @@ pub fn indexOfIgnoreCase(container: []const u8, substr: []const u8) ?usize {
 }
 
 test "indexOfIgnoreCase" {
-    try std.testing.expect(indexOfIgnoreCase("one Two Three Four", "foUr").? == 14);
-    try std.testing.expect(indexOfIgnoreCase("one two three FouR", "gOur") == null);
-    try std.testing.expect(indexOfIgnoreCase("foO", "Foo").? == 0);
-    try std.testing.expect(indexOfIgnoreCase("foo", "fool") == null);
-
-    try std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
+    try testing.expect(indexOfIgnoreCase("one Two Three Four", "foUr").? == 14);
+    try testing.expect(indexOfIgnoreCase("one two three FouR", "gOur") == null);
+    try testing.expect(indexOfIgnoreCase("foO", "Foo").? == 0);
+    try testing.expect(indexOfIgnoreCase("foo", "fool") == null);
+    try testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
 }
 
 /// Compares two slices of numbers lexicographically. O(n).
