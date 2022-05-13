@@ -1051,7 +1051,7 @@ pub fn getgroups(size: usize, list: *gid_t) usize {
     }
 }
 
-pub fn setgroups(size: usize, list: *const gid_t) usize {
+pub fn setgroups(size: usize, list: [*]const gid_t) usize {
     if (@hasField(SYS, "setgroups32")) {
         return syscall2(.setgroups32, size, @ptrToInt(list));
     } else {
