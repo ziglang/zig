@@ -1,16 +1,18 @@
-// Does NOT look at the locale the way C89's toupper(3), isspace() et cetera does.
-// I could have taken only a u7 to make this clear, but it would be slower
-// It is my opinion that encodings other than UTF-8 should not be supported.
-//
-// (and 128 bytes is not much to pay).
-// Also does not handle Unicode character classes.
-//
-// https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/USASCII_code_chart.png/1200px-USASCII_code_chart.png
+//! The 7-bit [ASCII](https://en.wikipedia.org/wiki/ASCII) character encoding standard.
+//!
+//! This is not to be confused with the 8-bit [Extended ASCII](https://en.wikipedia.org/wiki/Extended_ASCII).
+//!
+//! Even though this module concerns itself with 7-bit ASCII,
+//! functions use `u8` as the type instead of `u7` for convenience and compatibility.
+//! Characters outside of the 7-bit range are gracefully handled (e.g. by returning `false`).
+//!
+//! See also: https://en.wikipedia.org/wiki/ASCII#Character_set
 
 const std = @import("std");
 
 /// Contains constants for the C0 control codes of the ASCII encoding.
-/// https://en.wikipedia.org/wiki/C0_and_C1_control_codes
+///
+/// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `is_control`
 pub const control_code = struct {
     pub const NUL = 0x00;
     pub const SOH = 0x01;
@@ -47,7 +49,9 @@ pub const control_code = struct {
 
     pub const DEL = 0x7F;
 
+    /// An alias to `DC1`.
     pub const XON = 0x11;
+    /// An alias to `DC3`.
     pub const XOFF = 0x13;
 };
 
@@ -188,15 +192,20 @@ fn inTable(c: u8, t: tIndex) bool {
     return (combinedTable[c] & (@as(u8, 1) << @enumToInt(t))) != 0;
 }
 
+/// Returns whether the character is alphanumeric. This is case-insensitive.
 pub fn isAlNum(c: u8) bool {
     return (combinedTable[c] & ((@as(u8, 1) << @enumToInt(tIndex.Alpha)) |
         @as(u8, 1) << @enumToInt(tIndex.Digit))) != 0;
 }
 
+/// Returns whether the character is alphabetic. This is case-insensitive.
 pub fn isAlpha(c: u8) bool {
     return inTable(c, tIndex.Alpha);
 }
 
+/// Returns whether the character is a control character.
+///
+/// See also: `control`
 pub fn isCntrl(c: u8) bool {
     return c < 0x20 or c == 127; //DEL
 }
@@ -213,6 +222,7 @@ pub fn isLower(c: u8) bool {
     return inTable(c, tIndex.Lower);
 }
 
+/// Returns whether the character has some graphical representation and can be printed.
 pub fn isPrint(c: u8) bool {
     return inTable(c, tIndex.Graph) or c == ' ';
 }
@@ -225,8 +235,8 @@ pub fn isSpace(c: u8) bool {
     return inTable(c, tIndex.Space);
 }
 
-/// All the values for which isSpace() returns true. This may be used with
-/// e.g. std.mem.trim() to trim whiteSpace.
+/// All the values for which `isSpace()` returns `true`.
+/// This may be used with e.g. `std.mem.trim()` to trim spaces.
 pub const spaces = [_]u8{ ' ', '\t', '\n', '\r', control_code.VT, control_code.FF };
 
 test "spaces" {
@@ -243,6 +253,7 @@ pub fn isUpper(c: u8) bool {
     return inTable(c, tIndex.Upper);
 }
 
+/// Returns whether the character is a hexadecimal digit. This is case-insensitive.
 pub fn isXDigit(c: u8) bool {
     return inTable(c, tIndex.Hex);
 }
@@ -415,7 +426,7 @@ pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
     return std.math.order(lhs.len, rhs.len);
 }
 
-/// Returns true if lhs < rhs, false otherwise
+/// Returns whether lhs < rhs.
 /// TODO rename "IgnoreCase" to "Insensitive" in this entire file.
 pub fn lessThanIgnoreCase(lhs: []const u8, rhs: []const u8) bool {
     return orderIgnoreCase(lhs, rhs) == .lt;
