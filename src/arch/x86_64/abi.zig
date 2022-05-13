@@ -3,6 +3,7 @@ const Type = @import("../../type.zig").Type;
 const Target = std.Target;
 const assert = std.debug.assert;
 const Register = @import("bits.zig").Register;
+const AvxRegister = @import("bits.zig").AvxRegister;
 
 pub const Class = enum { integer, sse, sseup, x87, x87up, complex_x87, memory, none };
 
@@ -381,3 +382,8 @@ pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8
 pub const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs;
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+
+pub const avx_regs = [_]AvxRegister{
+    .ymm0, .ymm1, .ymm2,  .ymm3,  .ymm4,  .ymm5,  .ymm6,  .ymm7,
+    .ymm8, .ymm9, .ymm10, .ymm11, .ymm12, .ymm13, .ymm14, .ymm15,
+};
