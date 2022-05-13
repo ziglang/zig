@@ -95,67 +95,23 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\}
         ;
 
-        cases.addRuntimeSafety("slicing operator with sentinel",
+        cases.addRuntimeSafety("slice with sentinel out of bounds",
             \\const std = @import("std");
         ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf = [4]u8{'a','b','c',0};
-            \\    const slice = buf[0..4 :0];
+            \\    const input: []u8 = &buf;
+            \\    const slice = input[0..4 :0];
             \\    _ = slice;
             \\}
         );
-        cases.addRuntimeSafety("slicing operator with sentinel",
-            \\const std = @import("std");
-        ++ check_panic_msg ++
-            \\pub fn main() void {
-            \\    var buf = [4]u8{'a','b','c',0};
-            \\    const slice = buf[0..:0];
-            \\    _ = slice;
-            \\}
-        );
-        cases.addRuntimeSafety("slicing operator with sentinel",
+        cases.addRuntimeSafety("empty slice with sentinel out of bounds",
             \\const std = @import("std");
         ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_zero = [0]u8{};
-            \\    const slice = buf_zero[0..0 :0];
-            \\    _ = slice;
-            \\}
-        );
-        cases.addRuntimeSafety("slicing operator with sentinel",
-            \\const std = @import("std");
-        ++ check_panic_msg ++
-            \\pub fn main() void {
-            \\    var buf_zero = [0]u8{};
-            \\    const slice = buf_zero[0..:0];
-            \\    _ = slice;
-            \\}
-        );
-        cases.addRuntimeSafety("slicing operator with sentinel",
-            \\const std = @import("std");
-        ++ check_panic_msg ++
-            \\pub fn main() void {
-            \\    var buf_sentinel = [2:0]u8{'a','b'};
-            \\    @ptrCast(*[3]u8, &buf_sentinel)[2] = 0;
-            \\    const slice = buf_sentinel[0..3 :0];
-            \\    _ = slice;
-            \\}
-        );
-        cases.addRuntimeSafety("slicing operator with sentinel",
-            \\const std = @import("std");
-        ++ check_panic_msg ++
-            \\pub fn main() void {
-            \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
-            \\    const slice = buf_slice[0..3 :0];
-            \\    _ = slice;
-            \\}
-        );
-        cases.addRuntimeSafety("slicing operator with sentinel",
-            \\const std = @import("std");
-        ++ check_panic_msg ++
-            \\pub fn main() void {
-            \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
-            \\    const slice = buf_slice[0.. :0];
+            \\    const input: []u8 = &buf_zero;
+            \\    const slice = input[0..0 :0];
             \\    _ = slice;
             \\}
         );
