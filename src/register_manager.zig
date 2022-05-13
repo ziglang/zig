@@ -23,10 +23,15 @@ pub const AllocateRegistersError = error{
     CodegenFail,
 };
 
+pub fn SpillFn(comptime Function: type, comptime Register: type) type {
+    return fn (*Function, Register, Air.Inst.Index) anyerror!void;
+}
+
 pub fn RegisterManager(
     comptime Function: type,
     comptime Register: type,
     comptime tracked_registers: []const Register,
+    comptime spill_fn: SpillFn(Function, Register),
 ) type {
     // architectures which do not have a concept of registers should
     // refrain from using RegisterManager
@@ -47,6 +52,7 @@ pub fn RegisterManager(
         allocated_registers: FreeRegInt = 0,
         /// Tracks registers which are locked from being allocated
         locked_registers: FreeRegInt = 0,
+        function: *Function,
 
         const Self = @This();
 
@@ -55,8 +61,8 @@ pub fn RegisterManager(
         const FreeRegInt = std.meta.Int(.unsigned, tracked_registers.len);
         const ShiftInt = math.Log2Int(FreeRegInt);
 
-        fn getFunction(self: *Self) *Function {
-            return @fieldParentPtr(Function, "register_manager", self);
+        fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) AllocateRegistersError!void {
+            return try spill_fn(self.function, reg, inst);
         }
 
         fn getRegisterMask(reg: Register) ?FreeRegInt {
@@ -251,14 +257,14 @@ pub fn RegisterManager(
                             self.markRegUsed(reg);
                         } else {
                             const spilled_inst = self.registers[index];
-                            try self.getFunction().spillInstruction(reg, spilled_inst);
+                            try self.spillInstruction(reg, spilled_inst);
                         }
                         self.registers[index] = inst;
                     } else {
                         // Don't track the register
                         if (!self.isRegFree(reg)) {
                             const spilled_inst = self.registers[index];
-                            try self.getFunction().spillInstruction(reg, spilled_inst);
+                            try self.spillInstruction(reg, spilled_inst);
                             self.freeReg(reg);
                         }
                     }
@@ -293,7 +299,7 @@ pub fn RegisterManager(
                     // stack allocation.
                     const spilled_inst = self.registers[index];
                     self.registers[index] = tracked_inst;
-                    try self.getFunction().spillInstruction(reg, spilled_inst);
+                    try self.spillInstruction(reg, spilled_inst);
                 } else {
                     self.getRegAssumeFree(reg, tracked_inst);
                 }
@@ -302,7 +308,7 @@ pub fn RegisterManager(
                     // Move the instruction that was previously there to a
                     // stack allocation.
                     const spilled_inst = self.registers[index];
-                    try self.getFunction().spillInstruction(reg, spilled_inst);
+                    try self.spillInstruction(reg, spilled_inst);
                     self.freeReg(reg);
                 }
             }

@@ -14,7 +14,8 @@ const assert = std.debug.assert;
 const bits = @import("bits.zig");
 const Air = @import("../../Air.zig");
 const CodeGen = @import("CodeGen.zig");
-const Register = bits.Register;
+const GpRegister = bits.Register;
+const AvxRegister = bits.AvxRegister;
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
@@ -349,6 +350,12 @@ pub const Inst = struct {
         /// Nop
         nop,
 
+        /// AVX instructions
+        /// ops flags:  form:
+        ///       0b00  reg1, qword ptr [reg2 + imm32]
+        ///       0b10  qword ptr [reg1 + imm32], reg2
+        mov_f64,
+
         /// Pseudo-instructions
         /// call extern function
         /// Notes:
@@ -450,30 +457,32 @@ pub const DbgLineColumn = struct {
     column: u32,
 };
 
-pub const Ops = struct {
-    reg1: Register = .none,
-    reg2: Register = .none,
-    flags: u2 = 0b00,
+pub fn Ops(comptime Reg1: type, comptime Reg2: type) type {
+    return struct {
+        reg1: Reg1 = .none,
+        reg2: Reg2 = .none,
+        flags: u2 = 0b00,
 
-    pub fn encode(self: Ops) u16 {
-        var ops: u16 = 0;
-        ops |= @intCast(u16, @enumToInt(self.reg1)) << 9;
-        ops |= @intCast(u16, @enumToInt(self.reg2)) << 2;
-        ops |= self.flags;
-        return ops;
-    }
+        pub fn encode(self: @This()) u16 {
+            var ops: u16 = 0;
+            ops |= @intCast(u16, @enumToInt(self.reg1)) << 9;
+            ops |= @intCast(u16, @enumToInt(self.reg2)) << 2;
+            ops |= self.flags;
+            return ops;
+        }
 
-    pub fn decode(ops: u16) Ops {
-        const reg1 = @intToEnum(Register, @truncate(u7, ops >> 9));
-        const reg2 = @intToEnum(Register, @truncate(u7, ops >> 2));
-        const flags = @truncate(u2, ops);
-        return .{
-            .reg1 = reg1,
-            .reg2 = reg2,
-            .flags = flags,
-        };
-    }
-};
+        pub fn decode(ops: u16) @This() {
+            const reg1 = @intToEnum(Reg1, @truncate(u7, ops >> 9));
+            const reg2 = @intToEnum(Reg2, @truncate(u7, ops >> 2));
+            const flags = @truncate(u2, ops);
+            return .{
+                .reg1 = reg1,
+                .reg2 = reg2,
+                .flags = flags,
+            };
+        }
+    };
+}
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);

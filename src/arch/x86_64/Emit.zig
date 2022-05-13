@@ -68,6 +68,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
         const inst = @intCast(u32, index);
         try emit.code_offset_mapping.putNoClobber(emit.bin_file.allocator, inst, emit.code.items.len);
         switch (tag) {
+            // GPR instructions
             .adc => try emit.mirArith(.adc, inst),
             .add => try emit.mirArith(.add, inst),
             .sub => try emit.mirArith(.sub, inst),
@@ -182,6 +183,10 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .interrupt => try emit.mirInterrupt(inst),
             .nop => try emit.mirNop(),
 
+            // AVX instructions
+            .mov_f64 => try emit.mirMovF64(inst),
+
+            // Pseudo-instructions
             .call_extern => try emit.mirCallExtern(inst),
 
             .dbg_line => try emit.mirDbgLine(inst),
@@ -245,7 +250,7 @@ fn mirSyscall(emit: *Emit) InnerError!void {
 }
 
 fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             // PUSH/POP reg
@@ -274,7 +279,7 @@ fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
 }
 
 fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const data = emit.mir.extraData(Mir.RegsToPushOrPop, payload).data;
     const regs = data.regs;
@@ -297,7 +302,7 @@ fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.I
 }
 
 fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             const target = emit.mir.instructions.items(.data)[inst].inst;
@@ -336,7 +341,7 @@ fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
 }
 
 fn mirCondJmp(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const target = emit.mir.instructions.items(.data)[inst].inst;
     const tag = switch (mir_tag) {
         .cond_jmp_greater_less => switch (ops.flags) {
@@ -368,7 +373,7 @@ fn mirCondJmp(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerErr
 }
 
 fn mirCondSetByte(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const tag = switch (mir_tag) {
         .cond_set_byte_greater_less => switch (ops.flags) {
             0b00 => Tag.setge,
@@ -398,7 +403,7 @@ fn mirCondSetByte(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) Inne
 }
 
 fn mirCondMov(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     if (ops.flags == 0b00) {
         return lowerToRmEnc(tag, Register.reg(ops.reg1), RegisterOrMemory.reg(ops.reg2), emit.code);
     }
@@ -418,7 +423,7 @@ fn mirCondMov(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
 fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .@"test");
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             if (ops.reg2 == .none) {
@@ -447,7 +452,7 @@ fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .ret);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             // RETF imm16
@@ -471,7 +476,7 @@ fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 }
 
 fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             if (ops.reg2 == .none) {
@@ -513,7 +518,7 @@ fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
 }
 
 fn mirArithMemImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     assert(ops.reg2 == .none);
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
@@ -554,7 +559,7 @@ inline fn immOpSize(u_imm: u32) u8 {
 }
 
 fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const imm = emit.mir.instructions.items(.data)[inst].imm;
     // OP reg1, [reg2 + scale*rcx + imm32]
@@ -570,7 +575,7 @@ fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
 }
 
 fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const imm = emit.mir.instructions.items(.data)[inst].imm;
     const scale_index = ScaleIndex{
@@ -594,7 +599,7 @@ fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
 }
 
 fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
@@ -611,7 +616,7 @@ fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
 }
 
 fn mirArithMemIndexImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     assert(ops.reg2 == .none);
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
@@ -636,7 +641,7 @@ fn mirArithMemIndexImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!v
 fn mirMovSignExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const mir_tag = emit.mir.instructions.items(.tag)[inst];
     assert(mir_tag == .mov_sign_extend);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const imm = if (ops.flags != 0b00) emit.mir.instructions.items(.data)[inst].imm else undefined;
     switch (ops.flags) {
         0b00 => {
@@ -667,7 +672,7 @@ fn mirMovSignExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 fn mirMovZeroExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const mir_tag = emit.mir.instructions.items(.tag)[inst];
     assert(mir_tag == .mov_zero_extend);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const imm = if (ops.flags != 0b00) emit.mir.instructions.items(.data)[inst].imm else undefined;
     switch (ops.flags) {
         0b00 => {
@@ -694,7 +699,7 @@ fn mirMovZeroExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .movabs);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const imm: u64 = if (ops.reg1.size() == 64) blk: {
         const payload = emit.mir.instructions.items(.data)[inst].payload;
         const imm = emit.mir.extraData(Mir.Imm64, payload).data;
@@ -718,7 +723,7 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 fn mirFisttp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .fisttp);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
 
     // the selecting between operand sizes for this particular `fisttp` instruction
     // is done via opcode instead of the usual prefixes.
@@ -740,7 +745,7 @@ fn mirFisttp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 fn mirFld(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .fld);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
 
     // the selecting between operand sizes for this particular `fisttp` instruction
     // is done via opcode instead of the usual prefixes.
@@ -757,8 +762,9 @@ fn mirFld(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     };
     return lowerToMEnc(opcode, .{ .memory = mem_or_reg }, emit.code);
 }
+
 fn mirShift(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             // sal reg1, 1
@@ -783,7 +789,7 @@ fn mirShift(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
 }
 
 fn mirMulDiv(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     if (ops.reg1 != .none) {
         assert(ops.reg2 == .none);
         return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
@@ -806,7 +812,7 @@ fn mirMulDiv(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
 fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .imul_complex);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             return lowerToRmEnc(.imul, Register.reg(ops.reg1), RegisterOrMemory.reg(ops.reg2), emit.code);
@@ -835,7 +841,7 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 }
 
 fn mirCwd(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const tag: Tag = switch (ops.flags) {
         0b00 => .cbw,
         0b01 => .cwd,
@@ -848,7 +854,7 @@ fn mirCwd(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .lea);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             // lea reg1, [reg2 + imm32]
@@ -908,7 +914,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .lea_pie);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops(GpRegister, GpRegister).decode(emit.mir.instructions.items(.ops)[inst]);
     const load_reloc = emit.mir.instructions.items(.data)[inst].load_reloc;
 
     // lea reg1, [rip + reloc]
@@ -946,6 +952,36 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         );
     }
 }
+
+// AVX instructions
+
+fn mirMovF64(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    assert(tag == .mov_f64);
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    const flags = @truncate(u2, ops);
+    const imm = emit.mir.instructions.items(.data)[inst].imm;
+
+    switch (flags) {
+        0b00 => {
+            const decoded = Mir.Ops(AvxRegister, GpRegister).decode(ops);
+            return lowerToRmEnc(.vmovsd, Register.avxReg(decoded.reg1), RegisterOrMemory.mem(.qword_ptr, .{
+                .disp = imm,
+                .base = decoded.reg2,
+            }), emit.code);
+        },
+        0b01 => {
+            const decoded = Mir.Ops(GpRegister, AvxRegister).decode(ops);
+            return lowerToMrEnc(.vmovsd, RegisterOrMemory.mem(.qword_ptr, .{
+                .disp = imm,
+                .base = decoded.reg1,
+            }), Register.avxReg(decoded.reg2), emit.code);
+        },
+        else => return emit.fail("TODO unused variant 0b{b} for mov_f64", .{flags}),
+    }
+}
+
+// Pseudo-instructions
 
 fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
