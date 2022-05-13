@@ -437,7 +437,6 @@ pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
 }
 
 /// Returns whether lhs < rhs.
-/// TODO rename "IgnoreCase" to "Insensitive" in this entire file.
 pub fn lessThanIgnoreCase(lhs: []const u8, rhs: []const u8) bool {
     return orderIgnoreCase(lhs, rhs) == .lt;
 }
