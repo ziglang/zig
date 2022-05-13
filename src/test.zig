@@ -1201,6 +1201,9 @@ pub const TestContext = struct {
             if (!build_options.have_llvm and case.backend == .llvm)
                 continue;
 
+            if (build_options.test_filter) |test_filter| {
+                if (std.mem.indexOf(u8, case.name, test_filter) == null) continue;
+            }
             var prg_node = root_node.start(case.name, case.updates.items.len);
             prg_node.activate();
             defer prg_node.end();
