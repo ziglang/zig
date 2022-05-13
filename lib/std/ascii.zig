@@ -55,184 +55,157 @@ pub const control_code = struct {
     pub const XOFF = 0x13;
 };
 
-const tIndex = enum(u3) {
-    Alpha,
-    Hex,
-    Space,
-    Digit,
-    Lower,
-    Upper,
-    // Ctrl, < 0x20 || == DEL
-    // Print, = Graph || == ' '. NOT '\t' et cetera
-    Punct,
-    Graph,
-    //ASCII, | ~0b01111111
-    //isBlank, == ' ' || == '\x09'
-};
+// These naive functions are used to generate the lookup table
+// and they're used as fallbacks for if the lookup table isn't available.
+//
+// Note that some functions like for example `isDigit` don't use a table because it's slower.
+// Using a table is generally only useful if not all `true` values in the table would be in one row.
 
-const combinedTable = init: {
-    comptime var table: [256]u8 = undefined;
-
-    const mem = std.mem;
-
-    const alpha = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-    };
-    const lower = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-    };
-    const upper = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
-    const digit = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
-    const hex = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-
-        0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
-    const space = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
-    const punct = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
-
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1,
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
-    };
-    const graph = [_]u1{
-        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-    };
-
-    comptime var i = 0;
-    inline while (i < 128) : (i += 1) {
-        table[i] =
-            @as(u8, alpha[i]) << @enumToInt(tIndex.Alpha) |
-            @as(u8, hex[i]) << @enumToInt(tIndex.Hex) |
-            @as(u8, space[i]) << @enumToInt(tIndex.Space) |
-            @as(u8, digit[i]) << @enumToInt(tIndex.Digit) |
-            @as(u8, lower[i]) << @enumToInt(tIndex.Lower) |
-            @as(u8, upper[i]) << @enumToInt(tIndex.Upper) |
-            @as(u8, punct[i]) << @enumToInt(tIndex.Punct) |
-            @as(u8, graph[i]) << @enumToInt(tIndex.Graph);
-    }
-    mem.set(u8, table[128..256], 0);
-    break :init table;
-};
-
-fn inTable(c: u8, t: tIndex) bool {
-    return (combinedTable[c] & (@as(u8, 1) << @enumToInt(t))) != 0;
+fn isCntrlNaive(c: u8) bool {
+    return c <= control_code.US or c == control_code.DEL;
 }
+fn isAlphaNaive(c: u8) bool {
+    return isLower(c) or isUpper(c);
+}
+fn isXDigitNaive(c: u8) bool {
+    return isDigit(c) or
+        (c >= 'a' and c <= 'f') or
+        (c >= 'A' and c <= 'F');
+}
+fn isAlNumNaive(c: u8) bool {
+    return isDigit(c) or isAlphaNaive(c);
+}
+fn isPunctNaive(c: u8) bool {
+    @setEvalBranchQuota(3000);
+    return (c >= '!' and c <= '/') or
+        (c >= '[' and c <= '`') or
+        (c >= '{' and c <= '~') or
+        (c >= ':' and c <= '@');
+}
+fn isSpaceNaive(c: u8) bool {
+    @setEvalBranchQuota(5000);
+    return std.mem.indexOfScalar(u8, &spaces, c) != null;
+}
+
+/// A lookup table.
+const CombinedTable = struct {
+    table: [256]u8,
+
+    const Index = enum {
+        control,
+        alphabetic,
+        hexadecimal,
+        alphanumeric,
+        punct,
+        spaces,
+    };
+
+    /// Generates a table which is filled with the results of the given function for all characters.
+    fn getBoolTable(comptime condition: fn (u8) bool) [128]bool {
+        @setEvalBranchQuota(2000);
+        comptime var table: [128]bool = undefined;
+        comptime var index = 0;
+        while (index < 128) : (index += 1) {
+            table[index] = condition(index);
+        }
+        return table;
+    }
+
+    fn init() CombinedTable {
+        comptime var table: [256]u8 = undefined;
+
+        const control_table = comptime getBoolTable(isCntrlNaive);
+        const alpha_table = comptime getBoolTable(isAlphaNaive);
+        const hex_table = comptime getBoolTable(isXDigitNaive);
+        const alphanumeric_table = comptime getBoolTable(isAlNumNaive);
+        const punct_table = comptime getBoolTable(isPunctNaive);
+        const whitespace_table = comptime getBoolTable(isSpaceNaive);
+
+        comptime var i = 0;
+        inline while (i < 128) : (i += 1) {
+            table[i] =
+                @boolToInt(control_table[i]) << @enumToInt(Index.control) |
+                @boolToInt(alpha_table[i]) << @enumToInt(Index.alphabetic) |
+                @boolToInt(hex_table[i]) << @enumToInt(Index.hexadecimal) |
+                @boolToInt(alphanumeric_table[i]) << @enumToInt(Index.alphanumeric) |
+                @boolToInt(punct_table[i]) << @enumToInt(Index.punct) |
+                @boolToInt(whitespace_table[i]) << @enumToInt(Index.spaces);
+        }
+
+        std.mem.set(u8, table[128..256], 0);
+
+        return .{ .table = table };
+    }
+
+    fn contains(self: CombinedTable, c: u8, index: Index) bool {
+        return (self.table[c] & (@as(u8, 1) << @enumToInt(index))) != 0;
+    }
+};
+
+/// The combined table for fast lookup.
+///
+/// This is not used in `ReleaseSmall` to save 256 bytes at the cost of
+/// a small decrease in performance.
+const combined_table: ?CombinedTable = if (@import("builtin").mode == .ReleaseSmall)
+    null
+else
+    CombinedTable.init();
 
 /// Returns whether the character is alphanumeric. This is case-insensitive.
 pub fn isAlNum(c: u8) bool {
-    return (combinedTable[c] & ((@as(u8, 1) << @enumToInt(tIndex.Alpha)) |
-        @as(u8, 1) << @enumToInt(tIndex.Digit))) != 0;
+    if (combined_table) |table|
+        return table.contains(c, .alphanumeric)
+    else
+        return isAlNumNaive(c);
 }
 
 /// Returns whether the character is alphabetic. This is case-insensitive.
 pub fn isAlpha(c: u8) bool {
-    return inTable(c, tIndex.Alpha);
+    if (combined_table) |table|
+        return table.contains(c, .alphabetic)
+    else
+        return isAlphaNaive(c);
 }
 
 /// Returns whether the character is a control character.
 ///
 /// See also: `control`
 pub fn isCntrl(c: u8) bool {
-    return c < 0x20 or c == 127; //DEL
+    if (combined_table) |table|
+        return table.contains(c, .control)
+    else
+        return isCntrlNaive(c);
 }
 
 pub fn isDigit(c: u8) bool {
-    return inTable(c, tIndex.Digit);
+    return c >= '0' and c <= '9';
 }
 
 pub fn isGraph(c: u8) bool {
-    return inTable(c, tIndex.Graph);
+    return isPrint(c) and c != ' ';
 }
 
 pub fn isLower(c: u8) bool {
-    return inTable(c, tIndex.Lower);
+    return c >= 'a' and c <= 'z';
 }
 
 /// Returns whether the character has some graphical representation and can be printed.
 pub fn isPrint(c: u8) bool {
-    return inTable(c, tIndex.Graph) or c == ' ';
+    return c >= ' ' and c <= '~';
 }
 
 pub fn isPunct(c: u8) bool {
-    return inTable(c, tIndex.Punct);
+    if (combined_table) |table|
+        return table.contains(c, .punct)
+    else
+        return isPunctNaive(c);
 }
 
 pub fn isSpace(c: u8) bool {
-    return inTable(c, tIndex.Space);
+    if (combined_table) |table|
+        return table.contains(c, .spaces)
+    else
+        return isSpaceNaive(c);
 }
 
 /// All the values for which `isSpace()` returns `true`.
@@ -250,12 +223,15 @@ test "spaces" {
 }
 
 pub fn isUpper(c: u8) bool {
-    return inTable(c, tIndex.Upper);
+    return c >= 'A' and c <= 'Z';
 }
 
 /// Returns whether the character is a hexadecimal digit. This is case-insensitive.
 pub fn isXDigit(c: u8) bool {
-    return inTable(c, tIndex.Hex);
+    if (combined_table) |table|
+        return table.contains(c, .hexadecimal)
+    else
+        return isXDigitNaive(c);
 }
 
 pub fn isASCII(c: u8) bool {
