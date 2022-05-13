@@ -36,7 +36,7 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         else => false,
     };
     const sparc = switch (arch) {
-        .sparc, .sparcv9, .sparcel => true,
+        .sparc, .sparc64, .sparcel => true,
         else => false,
     };
     const apple = switch (os) {

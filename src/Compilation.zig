@@ -4566,7 +4566,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
             .i386 => .stage2_x86,
             .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
             .riscv64 => .stage2_riscv64,
-            .sparcv9 => .stage2_sparcv9,
+            .sparc64 => .stage2_sparc64,
             else => .other,
         };
     };

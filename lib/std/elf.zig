@@ -1511,7 +1511,7 @@ pub const EM = enum(u16) {
             .RISCV => .riscv64,
             .X86_64 => .x86_64,
             .BPF => .bpfel,
-            .SPARCV9 => .sparcv9,
+            .SPARCV9 => .sparc64,
             .S390 => .s390x,
             .SPU_2 => .spu_2,
             // there's many cases we don't (yet) handle, or will never have a

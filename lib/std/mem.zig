@@ -18,7 +18,7 @@ pub const page_size = switch (builtin.cpu.arch) {
         .macos, .ios, .watchos, .tvos => 16 * 1024,
         else => 4 * 1024,
     },
-    .sparcv9 => 8 * 1024,
+    .sparc64 => 8 * 1024,
     else => 4 * 1024,
 };
 

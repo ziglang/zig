@@ -38,7 +38,7 @@ const arch_bits = switch (native_arch) {
     .aarch64 => @import("linux/arm64.zig"),
     .arm, .thumb => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
-    .sparcv9 => @import("linux/sparc64.zig"),
+    .sparc64 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
     .powerpc => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
@@ -1098,7 +1098,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
     const result = switch (native_arch) {
         // The sparc version of rt_sigaction needs the restorer function to be passed as an argument too.
-        .sparc, .sparcv9 => syscall5(.rt_sigaction, sig, ksa_arg, oldksa_arg, @ptrToInt(ksa.restorer), mask_size),
+        .sparc, .sparc64 => syscall5(.rt_sigaction, sig, ksa_arg, oldksa_arg, @ptrToInt(ksa.restorer), mask_size),
         else => syscall4(.rt_sigaction, sig, ksa_arg, oldksa_arg, mask_size),
     };
     if (getErrno(result) != .SUCCESS) return result;
@@ -1698,7 +1698,7 @@ pub fn seccomp(operation: u32, flags: u32, args: ?*const anyopaque) usize {
 
 pub const E = switch (native_arch) {
     .mips, .mipsel => @import("linux/errno/mips.zig").E,
-    .sparc, .sparcel, .sparcv9 => @import("linux/errno/sparc.zig").E,
+    .sparc, .sparcel, .sparc64 => @import("linux/errno/sparc.zig").E,
     else => @import("linux/errno/generic.zig").E,
 };
 
@@ -4090,7 +4090,7 @@ pub const V = switch (native_arch) {
         pub const LNEXT = 15;
         pub const DISCARD = 16;
     },
-    .sparc, .sparcv9 => struct {
+    .sparc, .sparc64 => struct {
         pub const INTR = 0;
         pub const QUIT = 1;
         pub const ERASE = 2;
@@ -5427,7 +5427,7 @@ pub const AUDIT = struct {
             .aarch64 => .AARCH64,
             .arm, .thumb => .ARM,
             .riscv64 => .RISCV64,
-            .sparcv9 => .SPARC64,
+            .sparc64 => .SPARC64,
             .mips => .MIPS,
             .mipsel => .MIPSEL,
             .powerpc => .PPC,
@@ -5454,7 +5454,7 @@ pub const AUDIT = struct {
         RISCV64 = toAudit(.riscv64),
         S390X = toAudit(.s390x),
         SPARC = toAudit(.sparc),
-        SPARC64 = toAudit(.sparcv9),
+        SPARC64 = toAudit(.sparc64),
         X86_64 = toAudit(.x86_64),
 
         fn toAudit(arch: std.Target.Cpu.Arch) u32 {

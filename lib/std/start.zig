@@ -29,7 +29,7 @@ comptime {
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_riscv64 or
-        builtin.zig_backend == .stage2_sparcv9)
+        builtin.zig_backend == .stage2_sparc64)
     {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
@@ -164,7 +164,7 @@ fn exit2(code: usize) noreturn {
                     : "rcx", "r11", "memory"
                 );
             },
-            .sparcv9 => {
+            .sparc64 => {
                 asm volatile ("ta 0x6d"
                     :
                     : [number] "{g1}" (1),
@@ -323,7 +323,7 @@ fn _start() callconv(.Naked) noreturn {
                 : "r0"
             );
         },
-        .sparcv9 => {
+        .sparc64 => {
             // argc is stored after a register window (16 registers) plus stack bias
             argc_argv_ptr = asm (
                 \\ mov %%g0, %%i6

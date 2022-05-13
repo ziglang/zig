@@ -604,7 +604,7 @@ test "vector shift operators" {
         .mips64,
         .mips64el,
         .riscv64,
-        .sparcv9,
+        .sparc64,
         => {
             // LLVM miscompiles on this architecture
             // https://github.com/ziglang/zig/issues/4951

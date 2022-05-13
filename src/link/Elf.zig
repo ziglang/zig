@@ -307,7 +307,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
 
     const page_size: u32 = switch (options.target.cpu.arch) {
         .powerpc64le => 0x10000,
-        .sparcv9 => 0x2000,
+        .sparc64 => 0x2000,
         else => 0x1000,
     };
 
@@ -2940,7 +2940,7 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .powerpc64 => return "elf64ppc",
         .powerpc64le => return "elf64lppc",
         .sparc, .sparcel => return "elf32_sparc",
-        .sparcv9 => return "elf64_sparc",
+        .sparc64 => return "elf64_sparc",
         .mips => return "elf32btsmip",
         .mipsel => return "elf32ltsmip",
         .mips64 => {
