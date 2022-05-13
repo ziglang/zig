@@ -202,6 +202,7 @@ pub const MCValue = union(enum) {
     fn isRegister(mcv: MCValue) bool {
         return switch (mcv) {
             .register => true,
+            .avx_register => true,
             else => false,
         };
     }
@@ -971,6 +972,7 @@ pub fn spillCompareFlagsIfOccupied(self: *Self) !void {
             .compare_flags_signed,
             .compare_flags_unsigned,
             => try self.allocRegOrMem(inst_to_save, true),
+            .avx_register => try self.allocRegOrMem(inst_to_save, false),
             else => unreachable,
         };
 
@@ -988,6 +990,7 @@ pub fn spillCompareFlagsIfOccupied(self: *Self) !void {
             .register_overflow_signed,
             .register_overflow_unsigned,
             => |reg| self.register_manager.freeReg(reg),
+            .avx_register => |reg| self.avx_register_manager.freeReg(reg),
             else => {},
         }
     }
@@ -2497,7 +2500,6 @@ fn reuseOperand(
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
     const elem_ty = ptr_ty.elemType();
     const abi_size = elem_ty.abiSize(self.target.*);
-    std.log.warn("{} => {}, {}", .{ ptr_ty.fmtDebug(), ptr, dst_mcv });
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -2627,7 +2629,6 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
 
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
     const abi_size = value_ty.abiSize(self.target.*);
-    std.log.warn("{} => {}, {} => {}", .{ ptr_ty.fmtDebug(), ptr, value_ty.fmtDebug(), value });
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -3375,11 +3376,37 @@ fn genBinOp(
     const rhs = try self.resolveInst(rhs_air);
     const lhs_ty = self.air.typeOf(lhs_air);
     const rhs_ty = self.air.typeOf(rhs_air);
-    if (lhs_ty.zigTypeTag() == .Vector or lhs_ty.zigTypeTag() == .Float) {
+    if (lhs_ty.zigTypeTag() == .Vector) {
         return self.fail("TODO implement genBinOp for {}", .{lhs_ty.fmtDebug()});
     }
     if (lhs_ty.abiSize(self.target.*) > 8) {
         return self.fail("TODO implement genBinOp for {}", .{lhs_ty.fmtDebug()});
+    }
+
+    if (lhs_ty.zigTypeTag() == .Float) {
+        switch (tag) {
+            .add => {
+                const dst_reg: AvxRegister = blk: {
+                    const reg = try self.avx_register_manager.allocReg(null);
+                    try self.genSetAvxReg(lhs_ty, reg, lhs);
+                    break :blk reg.to128();
+                };
+                const dst_lock = self.avx_register_manager.lockRegAssumeUnused(dst_reg);
+                defer self.avx_register_manager.unlockReg(dst_lock);
+
+                const src_reg: AvxRegister = blk: {
+                    const reg = try self.avx_register_manager.allocReg(null);
+                    try self.genSetAvxReg(lhs_ty, reg, rhs);
+                    break :blk reg.to128();
+                };
+                const src_lock = self.avx_register_manager.lockRegAssumeUnused(src_reg);
+                defer self.avx_register_manager.unlockReg(src_lock);
+
+                try self.genBinOpMir(.add_f64, lhs_ty, .{ .avx_register = dst_reg }, .{ .avx_register = src_reg });
+                return MCValue{ .avx_register = dst_reg };
+            },
+            else => unreachable,
+        }
     }
 
     const is_commutative: bool = switch (tag) {
@@ -3550,8 +3577,28 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                 },
             }
         },
-        .avx_register => {
-            return self.fail("TODO genBinOp for AVX register", .{});
+        .avx_register => |dst_reg| {
+            switch (src_mcv) {
+                .avx_register => |src_reg| {
+                    switch (dst_ty.zigTypeTag()) {
+                        .Float => switch (dst_ty.tag()) {
+                            .f64 => {
+                                _ = try self.addInst(.{
+                                    .tag = mir_tag,
+                                    .ops = (Mir.Ops(AvxRegister, AvxRegister){
+                                        .reg1 = dst_reg.to128(),
+                                        .reg2 = src_reg.to128(),
+                                    }).encode(),
+                                    .data = undefined,
+                                });
+                            },
+                            else => return self.fail("TODO genBinOp for AVX register and type {}", .{dst_ty.fmtDebug()}),
+                        },
+                        else => return self.fail("TODO genBinOp for AVX register and type {}", .{dst_ty.fmtDebug()}),
+                    }
+                },
+                else => return self.fail("TODO genBinOp for AVX register", .{}),
+            }
         },
         .ptr_stack_offset, .stack_offset => |off| {
             if (off > math.maxInt(i32)) {
@@ -4209,6 +4256,37 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     self.compare_flags_inst = inst;
 
     const result: MCValue = result: {
+        if (ty.zigTypeTag() == .Float) {
+            const lhs = try self.resolveInst(bin_op.lhs);
+            const rhs = try self.resolveInst(bin_op.rhs);
+
+            const dst_reg: AvxRegister = blk: {
+                const reg = try self.avx_register_manager.allocReg(null);
+                try self.genSetAvxReg(ty, reg, lhs);
+                break :blk reg.to128();
+            };
+            const dst_lock = self.avx_register_manager.lockRegAssumeUnused(dst_reg);
+            defer self.avx_register_manager.unlockReg(dst_lock);
+
+            const src_reg: AvxRegister = blk: {
+                const reg = try self.avx_register_manager.allocReg(null);
+                try self.genSetAvxReg(ty, reg, rhs);
+                break :blk reg.to128();
+            };
+            const src_lock = self.avx_register_manager.lockRegAssumeUnused(src_reg);
+            defer self.avx_register_manager.unlockReg(src_lock);
+
+            _ = try self.addInst(.{
+                .tag = .cmp_f64,
+                .ops = (Mir.Ops(AvxRegister, AvxRegister){
+                    .reg1 = dst_reg,
+                    .reg2 = src_reg,
+                }).encode(),
+                .data = undefined,
+            });
+
+            break :result MCValue{ .compare_flags_unsigned = op };
+        }
         // There are 2 operands, destination and source.
         // Either one, but not both, can be a memory operand.
         // Source operand can be an immediate, 8 bits or 32 bits.
@@ -5960,6 +6038,51 @@ fn genSetAvxReg(self: *Self, ty: Type, reg: AvxRegister, mcv: MCValue) InnerErro
                     }
                 },
                 else => return self.fail("TODO genSetAvxReg from stack offset for type {}", .{ty.fmtDebug()}),
+            }
+        },
+        .avx_register => |src_reg| {
+            switch (ty.zigTypeTag()) {
+                .Float => {
+                    switch (ty.tag()) {
+                        .f32 => return self.fail("TODO genSetAvxReg from register for f32", .{}),
+                        .f64 => {
+                            _ = try self.addInst(.{
+                                .tag = .mov_f64,
+                                .ops = (Mir.Ops(AvxRegister, AvxRegister){
+                                    .reg1 = reg.to128(),
+                                    .reg2 = src_reg.to128(),
+                                    .flags = 0b10,
+                                }).encode(),
+                                .data = undefined,
+                            });
+                        },
+                        else => return self.fail("TODO genSetAvxReg from register for {}", .{ty.fmtDebug()}),
+                    }
+                },
+                else => return self.fail("TODO genSetAvxReg from register for type {}", .{ty.fmtDebug()}),
+            }
+        },
+        .memory => {
+            switch (ty.zigTypeTag()) {
+                .Float => {
+                    switch (ty.tag()) {
+                        .f32 => return self.fail("TODO genSetAvxReg from memory for f32", .{}),
+                        .f64 => {
+                            const base_reg = try self.register_manager.allocReg(null);
+                            try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
+                            _ = try self.addInst(.{
+                                .tag = .mov_f64,
+                                .ops = (Mir.Ops(AvxRegister, Register){
+                                    .reg1 = reg.to128(),
+                                    .reg2 = base_reg.to64(),
+                                }).encode(),
+                                .data = .{ .imm = 0 },
+                            });
+                        },
+                        else => return self.fail("TODO genSetAvxReg from memory for {}", .{ty.fmtDebug()}),
+                    }
+                },
+                else => return self.fail("TODO genSetAvxReg from memory for type {}", .{ty.fmtDebug()}),
             }
         },
         else => |other| {

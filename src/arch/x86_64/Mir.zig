@@ -353,8 +353,17 @@ pub const Inst = struct {
         /// AVX instructions
         /// ops flags:  form:
         ///       0b00  reg1, qword ptr [reg2 + imm32]
-        ///       0b10  qword ptr [reg1 + imm32], reg2
+        ///       0b01  qword ptr [reg1 + imm32], reg2
+        ///       0b10  reg1, reg2
         mov_f64,
+
+        /// ops flags:  form:
+        ///       0b00  reg1, reg1, reg2
+        add_f64,
+
+        /// ops flags:  form:
+        ///
+        cmp_f64,
 
         /// Pseudo-instructions
         /// call extern function
