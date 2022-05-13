@@ -1330,6 +1330,7 @@ pub const TestContext = struct {
                             }
                         },
                         else => {
+                            std.debug.print("{s}", .{result.stderr});
                             dumpArgs(zig_args.items);
                             return error.CompilationCrashed;
                         },
@@ -1403,6 +1404,7 @@ pub const TestContext = struct {
                             }
                         },
                         else => {
+                            std.debug.print("{s}", .{result.stderr});
                             dumpArgs(zig_args.items);
                             return error.CompilationCrashed;
                         },
