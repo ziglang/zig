@@ -336,13 +336,13 @@ test "Random float chi-square goodness of fit" {
         if (f32_put.found_existing) {
             f32_put.value_ptr.* += 1;
         } else {
-            f32_put.value_ptr.* = 0;
+            f32_put.value_ptr.* = 1;
         }
         var f64_put = try f64_hist.getOrPut(@floatToInt(u32, rand_f64 * @intToFloat(f64, num_buckets)));
         if (f64_put.found_existing) {
             f64_put.value_ptr.* += 1;
         } else {
-            f64_put.value_ptr.* = 0;
+            f64_put.value_ptr.* = 1;
         }
     }
 
@@ -371,7 +371,7 @@ test "Random float chi-square goodness of fit" {
         }
     }
 
-    // Corresponds to a p-value > 0.05.
+    // Accept p-values >= 0.05.
     // Critical value is calculated by opening a Python interpreter and running:
     // scipy.stats.chi2.isf(0.05, num_buckets - 1)
     const critical_value = 1073.6426506574246;
