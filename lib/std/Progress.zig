@@ -93,7 +93,9 @@ pub const Node = struct {
 
     /// This is the same as calling `start` and then `end` on the returned `Node`. Thread-safe.
     pub fn completeOne(self: *Node) void {
-        self.activate();
+        if (self.parent) |parent| {
+            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
+        }
         _ = @atomicRmw(usize, &self.unprotected_completed_items, .Add, 1, .Monotonic);
         self.context.maybeRefresh();
     }
@@ -120,6 +122,7 @@ pub const Node = struct {
     pub fn activate(self: *Node) void {
         if (self.parent) |parent| {
             @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
+            self.context.maybeRefresh();
         }
     }
 
