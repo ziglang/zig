@@ -186,6 +186,10 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             // AVX instructions
             .mov_f64 => try emit.mirMovF64(inst),
 
+            .add_f64 => try emit.mirAddF64(inst),
+
+            .cmp_f64 => try emit.mirCmpF64(inst),
+
             // Pseudo-instructions
             .call_extern => try emit.mirCallExtern(inst),
 
@@ -960,11 +964,11 @@ fn mirMovF64(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .mov_f64);
     const ops = emit.mir.instructions.items(.ops)[inst];
     const flags = @truncate(u2, ops);
-    const imm = emit.mir.instructions.items(.data)[inst].imm;
 
     switch (flags) {
         0b00 => {
             const decoded = Mir.Ops(AvxRegister, GpRegister).decode(ops);
+            const imm = emit.mir.instructions.items(.data)[inst].imm;
             return lowerToRmEnc(.vmovsd, Register.avxReg(decoded.reg1), RegisterOrMemory.mem(.qword_ptr, .{
                 .disp = imm,
                 .base = decoded.reg2,
@@ -972,10 +976,62 @@ fn mirMovF64(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         },
         0b01 => {
             const decoded = Mir.Ops(GpRegister, AvxRegister).decode(ops);
+            const imm = emit.mir.instructions.items(.data)[inst].imm;
             return lowerToMrEnc(.vmovsd, RegisterOrMemory.mem(.qword_ptr, .{
                 .disp = imm,
                 .base = decoded.reg1,
             }), Register.avxReg(decoded.reg2), emit.code);
+        },
+        0b10 => {
+            const decoded = Mir.Ops(AvxRegister, AvxRegister).decode(ops);
+            return lowerToRvmEnc(
+                .vmovsd,
+                Register.avxReg(decoded.reg1),
+                Register.avxReg(decoded.reg1),
+                RegisterOrMemory.avxReg(decoded.reg2),
+                emit.code,
+            );
+        },
+        else => return emit.fail("TODO unused variant 0b{b} for mov_f64", .{flags}),
+    }
+}
+
+fn mirAddF64(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    assert(tag == .add_f64);
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    const flags = @truncate(u2, ops);
+
+    switch (flags) {
+        0b00 => {
+            const decoded = Mir.Ops(AvxRegister, AvxRegister).decode(ops);
+            return lowerToRvmEnc(
+                .vaddsd,
+                Register.avxReg(decoded.reg1),
+                Register.avxReg(decoded.reg1),
+                RegisterOrMemory.avxReg(decoded.reg2),
+                emit.code,
+            );
+        },
+        else => return emit.fail("TODO unused variant 0b{b} for mov_f64", .{flags}),
+    }
+}
+
+fn mirCmpF64(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    assert(tag == .cmp_f64);
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    const flags = @truncate(u2, ops);
+
+    switch (flags) {
+        0b00 => {
+            const decoded = Mir.Ops(AvxRegister, AvxRegister).decode(ops);
+            return lowerToRmEnc(
+                .vucomisd,
+                Register.avxReg(decoded.reg1),
+                RegisterOrMemory.avxReg(decoded.reg2),
+                emit.code,
+            );
         },
         else => return emit.fail("TODO unused variant 0b{b} for mov_f64", .{flags}),
     }
@@ -1217,6 +1273,9 @@ const Tag = enum {
     cmovb,
     cmovnae,
     vmovsd,
+    vaddsd,
+    vcmpsd,
+    vucomisd,
 
     fn isSetCC(tag: Tag) bool {
         return switch (tag) {
@@ -1301,6 +1360,12 @@ const Encoding = enum {
 
     /// OP r64, r/m64, imm32
     rmi,
+
+    /// OP xmm1, xmm2, xmm3/m64
+    rvm,
+
+    /// OP xmm1, xmm2, xmm3/m64, imm8
+    rvmi,
 };
 
 const OpCode = union(enum) {
@@ -1452,6 +1517,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .cmovb, .cmovnae => OpCode.twoByte(0x0f, 0x42),
             .cmovl, .cmovng => OpCode.twoByte(0x0f, 0x4c),
             .vmovsd => OpCode.oneByte(0x10),
+            .vucomisd => OpCode.oneByte(0x2e),
             else => null,
         },
         .oi => return switch (tag) {
@@ -1468,6 +1534,15 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
         },
         .rmi => return switch (tag) {
             .imul => OpCode.oneByte(if (is_one_byte) 0x6b else 0x69),
+            else => null,
+        },
+        .rvm => return switch (tag) {
+            .vaddsd => OpCode.oneByte(0x58),
+            .vmovsd => OpCode.oneByte(0x10),
+            else => null,
+        },
+        .rvmi => return switch (tag) {
+            .vcmpsd => OpCode.oneByte(0xc2),
             else => null,
         },
     }
@@ -1578,6 +1653,16 @@ inline fn getVexPrefix(tag: Tag, enc: Encoding) ?VexPrefix {
             },
             .rm => switch (tag) {
                 .vmovsd => break :blk .{ .lig = true, .simd_prefix = .p_f2, .wig = true },
+                .vucomisd => break :blk .{ .lig = true, .simd_prefix = .p_66, .wig = true },
+                else => return null,
+            },
+            .rvm => switch (tag) {
+                .vaddsd => break :blk .{ .reg = .nds, .lig = true, .simd_prefix = .p_f2, .wig = true },
+                .vmovsd => break :blk .{ .reg = .nds, .lig = true, .simd_prefix = .p_f2, .wig = true },
+                else => return null,
+            },
+            .rvmi => switch (tag) {
+                .vcmpsd => break :blk .{ .reg = .nds, .lig = true, .simd_prefix = .p_f2, .wig = true },
                 else => return null,
             },
             else => unreachable,
@@ -2013,15 +2098,33 @@ fn lowerToRmEnc(
     const opc = getOpCode(tag, .rm, reg.size() == 8 or reg_or_mem.size() == 8).?;
     switch (reg_or_mem) {
         .register => |src_reg| {
-            const encoder = try Encoder.init(code, 4);
-            if (reg.size() == 16) {
-                encoder.prefix16BitMode();
-            }
-            encoder.rex(.{
-                .w = setRexWRegister(reg) or setRexWRegister(src_reg),
-                .r = reg.isExtended(),
-                .b = src_reg.isExtended(),
-            });
+            const encoder: Encoder = blk: {
+                switch (reg) {
+                    .register => {
+                        const encoder = try Encoder.init(code, 4);
+                        if (reg.size() == 16) {
+                            encoder.prefix16BitMode();
+                        }
+                        encoder.rex(.{
+                            .w = setRexWRegister(reg) or setRexWRegister(src_reg),
+                            .r = reg.isExtended(),
+                            .b = src_reg.isExtended(),
+                        });
+                        break :blk encoder;
+                    },
+                    .avx_register => {
+                        const encoder = try Encoder.init(code, 5);
+                        var vex_prefix = getVexPrefix(tag, .rm).?;
+                        const vex = &vex_prefix.prefix;
+                        vex.rex(.{
+                            .r = reg.isExtended(),
+                            .b = src_reg.isExtended(),
+                        });
+                        encoder.vex(vex_prefix.prefix);
+                        break :blk encoder;
+                    },
+                }
+            };
             opc.encode(encoder);
             encoder.modRm_direct(reg.lowId(), src_reg.lowId());
         },
@@ -2186,6 +2289,79 @@ fn lowerToRmiEnc(
         },
     }
     encodeImm(encoder, imm, reg.size());
+}
+
+fn lowerToRvmEnc(
+    tag: Tag,
+    reg1: Register,
+    reg2: Register,
+    reg_or_mem: RegisterOrMemory,
+    code: *std.ArrayList(u8),
+) InnerError!void {
+    const opc = getOpCode(tag, .rvm, false).?;
+    var vex_prefix = getVexPrefix(tag, .rvm).?;
+    const vex = &vex_prefix.prefix;
+    switch (reg_or_mem) {
+        .register => |reg3| {
+            if (vex_prefix.reg) |vvvv| {
+                switch (vvvv) {
+                    .nds => vex.reg(reg2.avx_register.id()),
+                    else => unreachable, // TODO
+                }
+            }
+            const encoder = try Encoder.init(code, 5);
+            vex.rex(.{
+                .r = reg1.isExtended(),
+                .b = reg3.isExtended(),
+            });
+            encoder.vex(vex_prefix.prefix);
+            opc.encode(encoder);
+            encoder.modRm_direct(reg1.lowId(), reg3.lowId());
+        },
+        .memory => |dst_mem| {
+            _ = dst_mem;
+            unreachable; // TODO
+        },
+    }
+}
+
+fn lowerToRvmiEnc(
+    tag: Tag,
+    reg1: Register,
+    reg2: Register,
+    reg_or_mem: RegisterOrMemory,
+    imm: u32,
+    code: *std.ArrayList(u8),
+) InnerError!void {
+    const opc = getOpCode(tag, .rvmi, false).?;
+    var vex_prefix = getVexPrefix(tag, .rvmi).?;
+    const vex = &vex_prefix.prefix;
+    const encoder: Encoder = blk: {
+        switch (reg_or_mem) {
+            .register => |reg3| {
+                if (vex_prefix.reg) |vvvv| {
+                    switch (vvvv) {
+                        .nds => vex.reg(reg2.avx_register.id()),
+                        else => unreachable, // TODO
+                    }
+                }
+                const encoder = try Encoder.init(code, 5);
+                vex.rex(.{
+                    .r = reg1.isExtended(),
+                    .b = reg3.isExtended(),
+                });
+                encoder.vex(vex_prefix.prefix);
+                opc.encode(encoder);
+                encoder.modRm_direct(reg1.lowId(), reg3.lowId());
+                break :blk encoder;
+            },
+            .memory => |dst_mem| {
+                _ = dst_mem;
+                unreachable; // TODO
+            },
+        }
+    };
+    encodeImm(encoder, imm, 8); // TODO
 }
 
 fn expectEqualHexStrings(expected: []const u8, given: []const u8, assembly: []const u8) !void {
@@ -2597,4 +2773,25 @@ test "lower RMI encoding" {
     try expectEqualHexStrings("\x4D\x69\xE4\x10\x00\x00\x00", emit.lowered(), "imul r12, r12, 0x10");
     try lowerToRmiEnc(.imul, Register.reg(.r12w), RegisterOrMemory.reg(.r12w), 0x10, emit.code());
     try expectEqualHexStrings("\x66\x45\x69\xE4\x10\x00", emit.lowered(), "imul r12w, r12w, 0x10");
+}
+
+test "lower to RVM encoding" {
+    var emit = TestEmit.init();
+    defer emit.deinit();
+    try lowerToRvmEnc(
+        .vaddsd,
+        Register.avxReg(.xmm0),
+        Register.avxReg(.xmm1),
+        RegisterOrMemory.avxReg(.xmm2),
+        emit.code(),
+    );
+    try expectEqualHexStrings("\xC5\xF3\x58\xC2", emit.lowered(), "vaddsd xmm0, xmm1, xmm2");
+    try lowerToRvmEnc(
+        .vaddsd,
+        Register.avxReg(.xmm0),
+        Register.avxReg(.xmm0),
+        RegisterOrMemory.avxReg(.xmm1),
+        emit.code(),
+    );
+    try expectEqualHexStrings("\xC5\xFB\x58\xC1", emit.lowered(), "vaddsd xmm0, xmm0, xmm1");
 }
