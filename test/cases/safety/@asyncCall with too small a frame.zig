@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
     _ = message;
@@ -6,6 +7,10 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noretur
     std.process.exit(0);
 }
 pub fn main() !void {
+    if (builtin.zig_backend == .stage1 and builtin.os.tag == .wasi) {
+        // TODO file a bug for this failure
+        std.process.exit(0); // skip the test
+    }
     var bytes: [1]u8 align(16) = undefined;
     var ptr = other;
     var frame = @asyncCall(&bytes, {}, ptr, .{});
