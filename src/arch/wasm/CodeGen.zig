@@ -794,7 +794,7 @@ fn genFunctype(gpa: Allocator, fn_info: Type.Payload.Function.Data, target: std.
     defer returns.deinit();
 
     if (firstParamSRet(fn_info, target)) {
-        try params.append(typeToValtype(fn_info.return_type, target));
+        try params.append(.i32); // memory address is always a 32-bit handle
     } else if (fn_info.return_type.hasRuntimeBitsIgnoreComptime()) {
         if (fn_info.cc == .C) {
             const res_classes = abi.classifyType(fn_info.return_type, target);
@@ -824,7 +824,10 @@ fn genFunctype(gpa: Allocator, fn_info: Type.Payload.Function.Data, target: std.
                         }
                     }
                 },
-                else => try params.append(typeToValtype(param_type, target)),
+                else => if (isByRef(param_type, target))
+                    try params.append(.i32)
+                else
+                    try params.append(typeToValtype(param_type, target)),
             }
         }
     }
@@ -844,7 +847,6 @@ pub fn generate(
     code: *std.ArrayList(u8),
     debug_output: codegen.DebugInfoOutput,
 ) codegen.GenerateSymbolError!codegen.FnResult {
-    _ = debug_output; // TODO
     _ = src_loc;
     var code_gen: Self = .{
         .gpa = bin_file.allocator,
@@ -1088,9 +1090,9 @@ fn lowerArg(self: *Self, cc: std.builtin.CallingConvention, ty: Type, value: WVa
             assert(ty.abiSize(self.target) == 16);
             // in this case we have an integer or float that must be lowered as 2 i64's.
             try self.emitWValue(value);
-            try self.addMemArg(.i64_load, .{ .offset = value.offset(), .alignment = 16 });
+            try self.addMemArg(.i64_load, .{ .offset = value.offset(), .alignment = 8 });
             try self.emitWValue(value);
-            try self.addMemArg(.i64_load, .{ .offset = value.offset() + 8, .alignment = 16 });
+            try self.addMemArg(.i64_load, .{ .offset = value.offset() + 8, .alignment = 8 });
         },
         else => return self.lowerToStack(value),
     }
@@ -1221,14 +1223,8 @@ fn memcpy(self: *Self, dst: WValue, src: WValue, len: WValue) !void {
     // When bulk_memory is enabled, we lower it to wasm's memcpy instruction.
     // If not, we lower it ourselves manually
     if (std.Target.wasm.featureSetHas(self.target.cpu.features, .bulk_memory)) {
-        switch (dst) {
-            .stack_offset => try self.emitWValue(try self.buildPointerOffset(dst, 0, .new)),
-            else => try self.emitWValue(dst),
-        }
-        switch (src) {
-            .stack_offset => try self.emitWValue(try self.buildPointerOffset(src, 0, .new)),
-            else => try self.emitWValue(src),
-        }
+        try self.lowerToStack(dst);
+        try self.lowerToStack(src);
         try self.emitWValue(len);
         try self.addExtended(.memory_copy);
         return;
@@ -1792,7 +1788,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty = self.air.typeOf(bin_op.lhs).childType();
 
     try self.store(lhs, rhs, ty, 0);
-    return .none;
+    return WValue{ .none = {} };
 }
 
 fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
@@ -1848,11 +1844,8 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
     try self.emitWValue(lhs);
     // In this case we're actually interested in storing the stack position
     // into lhs, so we calculate that and emit that instead
-    if (rhs == .stack_offset) {
-        try self.emitWValue(try self.buildPointerOffset(rhs, 0, .new));
-    } else {
-        try self.emitWValue(rhs);
-    }
+    try self.lowerToStack(rhs);
+
     const valtype = typeToValtype(ty, self.target);
     const abi_size = @intCast(u8, ty.abiSize(self.target));
 
@@ -1912,13 +1905,28 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const arg_index = self.arg_index;
     const arg = self.args[arg_index];
     const cc = self.decl.ty.fnInfo().cc;
+    const arg_ty = self.air.typeOfIndex(inst);
     if (cc == .C) {
-        const ty = self.air.typeOfIndex(inst);
-        const arg_classes = abi.classifyType(ty, self.target);
+        const arg_classes = abi.classifyType(arg_ty, self.target);
         for (arg_classes) |class| {
             if (class != .none) {
                 self.arg_index += 1;
             }
+        }
+
+        // When we have an argument that's passed using more than a single parameter,
+        // we combine them into a single stack value
+        if (arg_classes[0] == .direct and arg_classes[1] == .direct) {
+            if (arg_ty.zigTypeTag() != .Int) {
+                return self.fail(
+                    "TODO: Implement C-ABI argument for type '{}'",
+                    .{arg_ty.fmt(self.bin_file.base.options.module.?)},
+                );
+            }
+            const result = try self.allocStack(arg_ty);
+            try self.store(result, arg, Type.u64, 0);
+            try self.store(result, self.args[arg_index + 1], Type.u64, 8);
+            return result;
         }
     } else {
         self.arg_index += 1;
@@ -1943,7 +1951,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 std.dwarf.OP.WASM_local,
             });
             leb.writeULEB128(dbg_info.writer(), arg.local) catch unreachable;
-            try self.addDbgInfoTypeReloc(self.air.typeOfIndex(inst));
+            try self.addDbgInfoTypeReloc(arg_ty);
             dbg_info.appendSliceAssumeCapacity(name);
             dbg_info.appendAssumeCapacity(0);
         },
@@ -2503,14 +2511,8 @@ fn cmp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOper
 
     // ensure that when we compare pointers, we emit
     // the true pointer of a stack value, rather than the stack pointer.
-    switch (lhs) {
-        .stack_offset => try self.emitWValue(try self.buildPointerOffset(lhs, 0, .new)),
-        else => try self.emitWValue(lhs),
-    }
-    switch (rhs) {
-        .stack_offset => try self.emitWValue(try self.buildPointerOffset(rhs, 0, .new)),
-        else => try self.emitWValue(rhs),
-    }
+    try self.lowerToStack(lhs);
+    try self.lowerToStack(rhs);
 
     const signedness: std.builtin.Signedness = blk: {
         // by default we tell the operand type is unsigned (i.e. bools and enum values)
@@ -2560,11 +2562,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     // if operand has codegen bits we should break with a value
     if (self.air.typeOf(br.operand).hasRuntimeBitsIgnoreComptime()) {
         const operand = try self.resolveInst(br.operand);
-        const op = switch (operand) {
-            .stack_offset => try self.buildPointerOffset(operand, 0, .new),
-            else => operand,
-        };
-        try self.emitWValue(op);
+        try self.lowerToStack(operand);
 
         if (block.value != .none) {
             try self.addLabel(.local_set, block.value.local);
@@ -3295,11 +3293,7 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const ptr_local = try self.load(ptr, Type.usize, 0);
         try self.addLabel(.local_get, ptr_local.local);
     } else {
-        const pointer = switch (ptr) {
-            .stack_offset => try self.buildPointerOffset(ptr, 0, .new),
-            else => ptr,
-        };
-        try self.emitWValue(pointer);
+        try self.lowerToStack(ptr);
     }
 
     // calculate index into slice
@@ -3332,11 +3326,7 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const ptr_local = try self.load(ptr, Type.usize, 0);
         try self.addLabel(.local_get, ptr_local.local);
     } else {
-        const pointer = switch (ptr) {
-            .stack_offset => try self.buildPointerOffset(ptr, 0, .new),
-            else => ptr,
-        };
-        try self.emitWValue(pointer);
+        try self.lowerToStack(ptr);
     }
 
     // calculate index into ptr
@@ -3365,11 +3355,7 @@ fn airPtrBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const mul_opcode = buildOpcode(.{ .valtype1 = valtype, .op = .mul });
     const bin_opcode = buildOpcode(.{ .valtype1 = valtype, .op = op });
 
-    const pointer = switch (ptr) {
-        .stack_offset => try self.buildPointerOffset(ptr, 0, .new),
-        else => ptr,
-    };
-    try self.emitWValue(pointer);
+    try self.lowerToStack(ptr);
     try self.emitWValue(offset);
     try self.addImm32(@bitCast(i32, @intCast(u32, pointee_ty.abiSize(self.target))));
     try self.addTag(Mir.Inst.Tag.fromOpcode(mul_opcode));
@@ -3400,10 +3386,7 @@ fn memset(self: *Self, ptr: WValue, len: WValue, value: WValue) InnerError!void 
     // When bulk_memory is enabled, we lower it to wasm's memset instruction.
     // If not, we lower it ourselves
     if (std.Target.wasm.featureSetHas(self.target.cpu.features, .bulk_memory)) {
-        switch (ptr) {
-            .stack_offset => try self.emitWValue(try self.buildPointerOffset(ptr, 0, .new)),
-            else => try self.emitWValue(ptr),
-        }
+        try self.lowerToStack(ptr);
         try self.emitWValue(value);
         try self.emitWValue(len);
         try self.addExtended(.memory_fill);
@@ -3490,12 +3473,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const elem_ty = array_ty.childType();
     const elem_size = elem_ty.abiSize(self.target);
 
-    const array_ptr = switch (array) {
-        .stack_offset => try self.buildPointerOffset(array, 0, .new),
-        else => array,
-    };
-
-    try self.emitWValue(array_ptr);
+    try self.lowerToStack(array);
     try self.emitWValue(index);
     try self.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
     try self.addTag(.i32_mul);
@@ -3517,6 +3495,10 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = try self.resolveInst(ty_op.operand);
     const dest_ty = self.air.typeOfIndex(inst);
     const op_ty = self.air.typeOf(ty_op.operand);
+
+    if (op_ty.abiSize(self.target) > 8) {
+        return self.fail("TODO: floatToInt for integers/floats with bitsize larger than 64 bits", .{});
+    }
 
     try self.emitWValue(operand);
     const op = buildOpcode(.{
@@ -3540,6 +3522,10 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = try self.resolveInst(ty_op.operand);
     const dest_ty = self.air.typeOfIndex(inst);
     const op_ty = self.air.typeOf(ty_op.operand);
+
+    if (op_ty.abiSize(self.target) > 8) {
+        return self.fail("TODO: intToFloat for integers/floats with bitsize larger than 64 bits", .{});
+    }
 
     try self.emitWValue(operand);
     const op = buildOpcode(.{
