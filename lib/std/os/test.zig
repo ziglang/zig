@@ -495,8 +495,9 @@ test "argsAlloc" {
 }
 
 test "memfd_create" {
-    // memfd_create is linux specific.
-    if (native_os != .linux) return error.SkipZigTest;
+    // memfd_create is only supported by linux and freebsd.
+    if (native_os != .linux and native_os != .freebsd) return error.SkipZigTest;
+
     const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
         // Related: https://github.com/ziglang/zig/issues/4019
         error.SystemOutdated => return error.SkipZigTest,
