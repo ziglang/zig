@@ -97,6 +97,7 @@ pub const MADV = system.MADV;
 pub const MAP = system.MAP;
 pub const MSF = system.MSF;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
+pub const MFD = system.MFD;
 pub const MMAP2_UNIT = system.MMAP2_UNIT;
 pub const MSG = system.MSG;
 pub const NAME_MAX = system.NAME_MAX;
@@ -6522,20 +6523,37 @@ pub const MemFdCreateError = error{
 } || UnexpectedError;
 
 pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
-    // memfd_create is available only in glibc versions starting with 2.27.
-    const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
-    const sys = if (use_c) std.c else linux;
-    const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
-    const rc = sys.memfd_create(name, flags);
-    switch (getErrno(rc)) {
-        .SUCCESS => return @intCast(fd_t, rc),
-        .FAULT => unreachable, // name has invalid memory
-        .INVAL => unreachable, // name/flags are faulty
-        .NFILE => return error.SystemFdQuotaExceeded,
-        .MFILE => return error.ProcessFdQuotaExceeded,
-        .NOMEM => return error.OutOfMemory,
-        .NOSYS => return error.SystemOutdated,
-        else => |err| return unexpectedErrno(err),
+    switch (builtin.os.tag) {
+        .linux => {
+            // memfd_create is available only in glibc versions starting with 2.27.
+            const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
+            const sys = if (use_c) std.c else linux;
+            const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
+            const rc = sys.memfd_create(name, flags);
+            switch (getErrno(rc)) {
+                .SUCCESS => return @intCast(fd_t, rc),
+                .FAULT => unreachable, // name has invalid memory
+                .INVAL => unreachable, // name/flags are faulty
+                .NFILE => return error.SystemFdQuotaExceeded,
+                .MFILE => return error.ProcessFdQuotaExceeded,
+                .NOMEM => return error.OutOfMemory,
+                .NOSYS => return error.SystemOutdated,
+                else => |err| return unexpectedErrno(err),
+            }
+        },
+        .freebsd => {
+            const rc = system.memfd_create(name, flags);
+            switch (errno(rc)) {
+                .SUCCESS => return rc,
+                .BADF => unreachable, // name argument NULL
+                .INVAL => unreachable, // name too long or invalid/unsupported flags.
+                .MFILE => return error.ProcessFdQuotaExceeded,
+                .NFILE => return error.SystemFdQuotaExceeded,
+                .NOSYS => return error.SystemOutdated,
+                else => |err| return unexpectedErrno(err),
+            }
+        },
+        else => @compileError("target OS does not support memfd_create()"),
     }
 }
 
