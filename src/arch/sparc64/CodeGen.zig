@@ -23,6 +23,7 @@ const FnResult = @import("../../codegen.zig").FnResult;
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const RegisterManager = RegisterManagerFn(Self, Register, &abi.allocatable_regs);
+const RegisterLock = RegisterManager.RegisterLock;
 
 const build_options = @import("build_options");
 
@@ -1584,8 +1585,17 @@ fn binOpRegister(
     const lhs_is_register = lhs == .register;
     const rhs_is_register = rhs == .register;
 
-    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
-    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+    const lhs_lock: ?RegisterLock = if (lhs_is_register)
+        self.register_manager.lockReg(lhs.register)
+    else
+        null;
+    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+    const rhs_lock: ?RegisterLock = if (rhs_is_register)
+        self.register_manager.lockReg(rhs.register)
+    else
+        null;
+    defer if (rhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
 
@@ -1596,13 +1606,12 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst);
-        self.register_manager.freezeRegs(&.{reg});
-
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
 
         break :blk reg;
     };
-    defer self.register_manager.unfreezeRegs(&.{lhs_reg});
+    const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
+    defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const rhs_reg = if (rhs_is_register) rhs.register else blk: {
         const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
@@ -1611,13 +1620,12 @@ fn binOpRegister(
         } else null;
 
         const reg = try self.register_manager.allocReg(track_inst);
-        self.register_manager.freezeRegs(&.{reg});
-
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
 
         break :blk reg;
     };
-    defer self.register_manager.unfreezeRegs(&.{rhs_reg});
+    const new_rhs_lock = self.register_manager.lockReg(rhs_reg);
+    defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const dest_reg = switch (mir_tag) {
         else => if (maybe_inst) |inst| blk: {
@@ -2298,8 +2306,8 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
         .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
         .register => |addr_reg| {
-            self.register_manager.freezeRegs(&.{addr_reg});
-            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+            const addr_reg_lock = self.register_manager.lockReg(addr_reg);
+            defer if (addr_reg_lock) |reg| self.register_manager.unlockReg(reg);
 
             switch (dst_mcv) {
                 .dead => unreachable,
@@ -2311,15 +2319,17 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .stack_offset => |off| {
                     if (elem_size <= 8) {
                         const tmp_reg = try self.register_manager.allocReg(null);
-                        self.register_manager.freezeRegs(&.{tmp_reg});
-                        defer self.register_manager.unfreezeRegs(&.{tmp_reg});
+                        const tmp_reg_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                        defer self.register_manager.unlockReg(tmp_reg_lock);
 
                         try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
                         try self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
                     } else {
                         const regs = try self.register_manager.allocRegs(3, .{ null, null, null });
-                        self.register_manager.freezeRegs(&regs);
-                        defer self.register_manager.unfreezeRegs(&regs);
+                        const regs_locks = self.register_manager.lockRegsAssumeUnused(3, regs);
+                        defer for (regs_locks) |reg| {
+                            self.register_manager.unlockReg(reg);
+                        };
 
                         const src_reg = addr_reg;
                         const dst_reg = regs[0];
@@ -2641,8 +2651,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             try self.genSetStack(value_ty, off, value);
         },
         .register => |addr_reg| {
-            self.register_manager.freezeRegs(&.{addr_reg});
-            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+            const addr_reg_lock = self.register_manager.lockReg(addr_reg);
+            defer if (addr_reg_lock) |reg| self.register_manager.unlockReg(reg);
 
             switch (value) {
                 .register => |value_reg| {
