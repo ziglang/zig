@@ -74,6 +74,11 @@ pub const Inst = struct {
         // TODO add other operations.
         @"or",
 
+        /// A.37 Multiply and Divide (64-bit)
+        /// This uses the arithmetic_3op field.
+        // TODO add other operations.
+        mulx,
+
         /// A.40 No Operation
         /// This uses the nop field.
         nop,
@@ -93,8 +98,12 @@ pub const Inst = struct {
 
         /// A.49 Shift
         /// This uses the shift field.
-        // TODO add other operations.
+        sll,
+        srl,
+        sra,
         sllx,
+        srlx,
+        srax,
 
         /// A.54 Store Integer
         /// This uses the arithmetic_3op field.
@@ -210,7 +219,7 @@ pub const Inst = struct {
         /// if is_imm true then it uses the imm field of rs2_or_imm,
         /// otherwise it uses rs2 field.
         ///
-        /// Used by e.g. add, sub
+        /// Used by e.g. sllx
         shift: struct {
             is_imm: bool,
             width: Instruction.ShiftWidth,
