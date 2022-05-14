@@ -633,13 +633,13 @@ static inline uint64_t zig_addo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, u
 }
 
 static inline uint128_t zig_addo_u128(uint128_t lhs, uint128_t rhs, uint128_t *res, uint128_t max) {
-    bool overflow;
+    int overflow;
     *res = __uaddoti4(lhs, rhs, &overflow);
-    if (*res > max && !overflow) {
+    if (*res > max && overflow == 0) {
         *res -= max - 1;
         return true;
     }
-    return overflow;
+    return overflow != 0;
 }
 
 static inline bool zig_subo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, int8_t max) {
@@ -1095,128 +1095,6 @@ static inline uint128_t zig_mulo_u128(uint128_t lhs, uint128_t rhs, uint128_t *r
     return overflow != 0;
 }
 
-static inline bool zig_shlo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, int8_t max) {
-    int16_t big_result = (int16_t)lhs << (int16_t)rhs;
-    if (big_result > max) {
-        *res = big_result - ((int16_t)max - (int16_t)min);
-        return true;
-    }
-    if (big_result < min) {
-        *res = big_result + ((int16_t)max - (int16_t)min);
-        return true;
-    }
-    *res = big_result;
-    return false;
-}
-
-static inline bool zig_shlo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t min, int16_t max) {
-    int32_t big_result = (int32_t)lhs << (int32_t)rhs;
-    if (big_result > max) {
-        *res = big_result - ((int32_t)max - (int32_t)min);
-        return true;
-    }
-    if (big_result < min) {
-        *res = big_result + ((int32_t)max - (int32_t)min);
-        return true;
-    }
-    *res = big_result;
-    return false;
-}
-
-static inline bool zig_shlo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t min, int32_t max) {
-    int64_t big_result = (int64_t)lhs << (int64_t)rhs;
-    if (big_result > max) {
-        *res = big_result - ((int64_t)max - (int64_t)min);
-        return true;
-    }
-    if (big_result < min) {
-        *res = big_result + ((int64_t)max - (int64_t)min);
-        return true;
-    }
-    *res = big_result;
-    return false;
-}
-
-static inline bool zig_shlo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t min, int64_t max) {
-    int overflow;
-    *res = __shlodi4(lhs, rhs, &overflow);
-    if (overflow == 0) {
-        if (*res > max) {
-            // TODO adjust the result to be the truncated bits
-            return true;
-        } else if (*res < min) {
-            // TODO adjust the result to be the truncated bits
-            return true;
-        }
-    }
-    return overflow != 0;
-}
-
-static inline bool zig_shlo_i128(int128_t lhs, int128_t rhs, int128_t *res, int128_t min, int128_t max) {
-    int overflow;
-    *res = __shloti4(lhs, rhs, &overflow);
-    if (overflow == 0) {
-        if (*res > max) {
-            // TODO adjust the result to be the truncated bits
-            return true;
-        } else if (*res < min) {
-            // TODO adjust the result to be the truncated bits
-            return true;
-        }
-    }
-    return overflow != 0;
-}
-
-static inline bool zig_shlo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t max) {
-    uint16_t big_result = (uint16_t)lhs << (uint16_t)rhs;
-    if (big_result > max) {
-        *res = big_result - max - 1;
-        return true;
-    }
-    *res = big_result;
-    return false;
-}
-
-static inline uint16_t zig_shlo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, uint16_t max) {
-    uint32_t big_result = (uint32_t)lhs << (uint32_t)rhs;
-    if (big_result > max) {
-        *res = big_result - max - 1;
-        return true;
-    }
-    *res = big_result;
-    return false;
-}
-
-static inline uint32_t zig_shlo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, uint32_t max) {
-    uint64_t big_result = (uint64_t)lhs << (uint64_t)rhs;
-    if (big_result > max) {
-        *res = big_result - max - 1;
-        return true;
-    }
-    *res = big_result;
-    return false;
-}
-
-static inline uint64_t zig_shlo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, uint64_t max) {
-    int overflow;
-    *res = __ushlodi4(lhs, rhs, &overflow);
-    if (*res > max && overflow == 0) {
-        *res -= max - 1;
-        return true;
-    }
-    return overflow != 0;
-}
-
-static inline uint128_t zig_shlo_u128(uint128_t lhs, uint128_t rhs, uint128_t *res, uint128_t max) {
-    int overflow;
-    *res = __ushloti4(lhs, rhs, &overflow);
-    if (*res > max && overflow == 0) {
-        *res -= max - 1;
-        return true;
-    }
-    return overflow != 0;
-}
-
 static inline float zig_bitcast_f32_u32(uint32_t arg) {
     float dest;
     memcpy(&dest, &arg, sizeof dest);
@@ -1428,6 +1306,76 @@ static inline int zig_popcount_u128(uint128_t value, uint8_t zig_type_bit_width)
 }
 
 #define zig_popcount_i128 zig_popcount_u128
+
+static inline bool zig_shlo_i8(int8_t lhs, int8_t rhs, int8_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i8(lhs, bits) >= rhs) return false;
+    *res &= UINT8_MAX >> (8 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_i16(int16_t lhs, int16_t rhs, int16_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i16(lhs, bits) >= rhs) return false;
+    *res &= UINT16_MAX >> (16 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_i32(int32_t lhs, int32_t rhs, int32_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i32(lhs, bits) >= rhs) return false;
+    *res &= UINT32_MAX >> (32 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_i64(int64_t lhs, int64_t rhs, int64_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i64(lhs, bits) >= rhs) return false;
+    *res &= UINT64_MAX >> (64 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_i128(int128_t lhs, int128_t rhs, int128_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i128(lhs, bits) >= rhs) return false;
+    *res &= UINT128_MAX >> (128 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u8(lhs, bits) >= rhs) return false;
+    *res &= UINT8_MAX >> (8 - bits);
+    return true;
+}
+
+static inline uint16_t zig_shlo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u16(lhs, bits) >= rhs) return false;
+    *res &= UINT16_MAX >> (16 - bits);
+    return true;
+}
+
+static inline uint32_t zig_shlo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u32(lhs, bits) >= rhs) return false;
+    *res &= UINT32_MAX >> (32 - bits);
+    return true;
+}
+
+static inline uint64_t zig_shlo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u64(lhs, bits) >= rhs) return false;
+    *res &= UINT64_MAX >> (64 - bits);
+    return true;
+}
+
+static inline uint128_t zig_shlo_u128(uint128_t lhs, uint128_t rhs, uint128_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u128(lhs, bits) >= rhs) return false;
+    *res &= UINT128_MAX >> (128 - bits);
+    return true;
+}
 
 #define zig_sign_extend(T) \
     static inline T zig_sign_extend_##T(T value, uint8_t zig_type_bit_width) { \
