@@ -94,6 +94,8 @@ pub fn emitMir(
 
             .@"or" => try emit.mirArithmetic3Op(inst),
 
+            .mulx => @panic("TODO implement sparc64 mulx"),
+
             .nop => try emit.mirNop(),
 
             .@"return" => try emit.mirArithmetic2Op(inst),
@@ -103,7 +105,12 @@ pub fn emitMir(
 
             .sethi => try emit.mirSethi(inst),
 
+            .sll => @panic("TODO implement sparc64 sll"),
+            .srl => @panic("TODO implement sparc64 srl"),
+            .sra => @panic("TODO implement sparc64 sra"),
             .sllx => @panic("TODO implement sparc64 sllx"),
+            .srlx => @panic("TODO implement sparc64 srlx"),
+            .srax => @panic("TODO implement sparc64 srax"),
 
             .stb => try emit.mirArithmetic3Op(inst),
             .sth => try emit.mirArithmetic3Op(inst),
