@@ -1294,6 +1294,8 @@ pub const TestContext = struct {
 
             if (case.is_test) {
                 try zig_args.append("test");
+            } else if (update.case == .Execution) {
+                try zig_args.append("run");
             } else switch (case.output_mode) {
                 .Obj => try zig_args.append("build-obj"),
                 .Exe => try zig_args.append("build-exe"),
@@ -1402,6 +1404,7 @@ pub const TestContext = struct {
                     switch (result.term) {
                         .Exited => |code| {
                             if (code != 0) {
+                                std.debug.print("{s}", .{result.stderr});
                                 dumpArgs(zig_args.items);
                                 return error.CompilationFailed;
                             }
