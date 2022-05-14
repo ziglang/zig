@@ -67,7 +67,6 @@ pub const LOCK = arch_bits.LOCK;
 pub const MMAP2_UNIT = arch_bits.MMAP2_UNIT;
 pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
-pub const SYS = arch_bits.SYS;
 pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
 pub const blkcnt_t = arch_bits.blkcnt_t;
@@ -92,6 +91,20 @@ pub const pie = @import("linux/start_pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
+
+pub const syscalls = @import("linux/syscalls.zig");
+pub const SYS = switch (@import("builtin").cpu.arch) {
+    .i386 => syscalls.X86,
+    .x86_64 => syscalls.X64,
+    .aarch64 => syscalls.Arm64,
+    .arm, .thumb => syscalls.Arm,
+    .riscv64 => syscalls.RiscV64,
+    .sparc64 => syscalls.Sparc64,
+    .mips, .mipsel => syscalls.Mips,
+    .powerpc => syscalls.PowerPC,
+    .powerpc64, .powerpc64le => syscalls.PowerPC64,
+    else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
+};
 
 pub const MAP = struct {
     pub usingnamespace arch_bits.MAP;
