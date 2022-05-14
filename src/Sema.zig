@@ -2125,8 +2125,8 @@ fn zirEnumDecl(
     extra_index += body.len;
 
     const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
-    const body_end = extra_index;
-    extra_index += bit_bags_count;
+    var bit_bag_index = extra_index + fields_len; // skip doc comments
+    extra_index = bit_bag_index + bit_bags_count;
 
     {
         // We create a block for the field type instructions because they
@@ -2186,7 +2186,7 @@ fn zirEnumDecl(
     const target = mod.getTarget();
 
     try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
-    const any_values = for (sema.code.extra[body_end..][0..bit_bags_count]) |bag| {
+    const any_values = for (sema.code.extra[bit_bag_index..][0..bit_bags_count]) |bag| {
         if (bag != 0) break true;
     } else false;
     if (any_values) {
@@ -2196,7 +2196,6 @@ fn zirEnumDecl(
         });
     }
 
-    var bit_bag_index: usize = body_end;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
     var last_tag_val: ?Value = null;
@@ -2209,9 +2208,6 @@ fn zirEnumDecl(
         cur_bit_bag >>= 1;
 
         const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
-        extra_index += 1;
-
-        // doc comment
         extra_index += 1;
 
         // This string needs to outlive the ZIR code.
@@ -2412,6 +2408,7 @@ fn zirErrorSetDecl(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.ErrorSetDecl, inst_data.payload_index);
+    const fields = sema.code.extra[extra.end..][0..extra.data.fields_len];
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer new_decl_arena.deinit();
@@ -2432,11 +2429,9 @@ fn zirErrorSetDecl(
     var names = Module.ErrorSet.NameMap{};
     try names.ensureUnusedCapacity(new_decl_arena_allocator, extra.data.fields_len);
 
-    var extra_index = @intCast(u32, extra.end);
-    const extra_index_end = extra_index + (extra.data.fields_len * 2);
-    while (extra_index < extra_index_end) : (extra_index += 2) { // +2 to skip over doc_string
-        const str_index = sema.code.extra[extra_index];
+    for (fields) |str_index| {
         const kv = try mod.getErrorValue(sema.code.nullTerminatedString(str_index));
+
         const result = names.getOrPutAssumeCapacity(kv.key);
         assert(!result.found_existing); // verified in AstGen
     }
@@ -22250,8 +22245,8 @@ fn semaStructFields(
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-    var bit_bag_index: usize = extra_index;
-    extra_index += bit_bags_count;
+    var bit_bag_index: usize = extra_index + fields_len; // skip doc comments
+    extra_index = bit_bag_index + bit_bags_count;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
     while (field_i < fields_len) : (field_i += 1) {
@@ -22273,9 +22268,6 @@ fn semaStructFields(
         const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
         extra_index += 1;
         const field_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
-        extra_index += 1;
-
-        // doc_comment
         extra_index += 1;
 
         // This string needs to outlive the ZIR code.
@@ -22475,8 +22467,8 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-    var bit_bag_index: usize = extra_index;
-    extra_index += bit_bags_count;
+    var bit_bag_index: usize = extra_index + fields_len; // skip doc comments
+    extra_index = bit_bag_index + bit_bags_count;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
     var last_tag_val: ?Value = null;
@@ -22496,9 +22488,6 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
         _ = unused;
 
         const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
-        extra_index += 1;
-
-        // doc_comment
         extra_index += 1;
 
         const field_type_ref: Zir.Inst.Ref = if (has_type) blk: {

@@ -2983,13 +2983,15 @@ pub const Inst = struct {
     /// 1. body_len: u32, // if has_body_len
     /// 2. fields_len: u32, // if has_fields_len
     /// 3. decls_len: u32, // if has_decls_len
-    /// 4. decl_bits: u32 // for every 8 decls
+    /// 4. decl_doc_comments: u32 // for every decls_len
+    ///    - 0 if no doc comment, if this is a decltest, doc_comment references the decl name in the string table
+    /// 5. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 5. decl: { // for every decls_len
+    /// 6. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -3000,25 +3002,25 @@ pub const Inst = struct {
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        doc_comment: u32, 0 if no doc comment, if this is a decltest, doc_comment references the decl name in the string table
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
     ///            address_space: Ref,
     ///        }
     ///    }
-    /// 6. inst: Index // for every body_len
-    /// 7. flags: u32 // for every 8 fields
+    /// 7. inst: Index // for every body_len
+    /// 8. field_doc_comments: u32 // for every decls_len
+    ///    - 0 if no doc comment exists
+    /// 9. flags: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has an align expression
     ///      0b00X0: whether corresponding field has a default expression
     ///      0b0X00: whether corresponding field is comptime
     ///      0bX000: unused
-    /// 8. fields: { // for every fields_len
+    /// 10. fields: { // for every fields_len
     ///        field_name: u32,
     ///        field_type: Ref,
     ///        - if none, means `anytype`.
-    ///        doc_comment: u32, // 0 if no doc comment
     ///        align: Ref, // if corresponding bit is set
     ///        default_value: Ref, // if corresponding bit is set
     ///    }
@@ -3054,13 +3056,15 @@ pub const Inst = struct {
     /// 2. body_len: u32, // if has_body_len
     /// 3. fields_len: u32, // if has_fields_len
     /// 4. decls_len: u32, // if has_decls_len
-    /// 5. decl_bits: u32 // for every 8 decls
+    /// 5. decl_doc_comments: u32 // for every decls_len
+    ///    - 0 if no doc comment
+    /// 6. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 6. decl: { // for every decls_len
+    /// 7. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -3070,7 +3074,6 @@ pub const Inst = struct {
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc_comment
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -3078,11 +3081,12 @@ pub const Inst = struct {
     ///        }
     ///    }
     /// 7. inst: Index // for every body_len
-    /// 8. has_bits: u32 // for every 32 fields
+    /// 8. field_doc_comments: u32 // for every decls_len
+    ///    - 0 if no doc comment exists
+    /// 9. has_bits: u32 // for every 32 fields
     ///    - the bit is whether corresponding field has an value expression
-    /// 9. fields: { // for every fields_len
+    /// 10. fields: { // for every fields_len
     ///        field_name: u32,
-    ///        doc_comment: u32, // 0 if no doc_comment
     ///        value: Ref, // if corresponding bit is set
     ///    }
     pub const EnumDecl = struct {
@@ -3104,13 +3108,15 @@ pub const Inst = struct {
     /// 2. body_len: u32, // if has_body_len
     /// 3. fields_len: u32, // if has_fields_len
     /// 4. decls_len: u32, // if has_decls_len
-    /// 5. decl_bits: u32 // for every 8 decls
+    /// 5. decl_doc_comments: u32 // for every decls_len
+    ///    - 0 if no doc comment
+    /// 6. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 6. decl: { // for every decls_len
+    /// 7. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -3120,23 +3126,23 @@ pub const Inst = struct {
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc comment
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
     ///            address_space: Ref,
     ///        }
     ///    }
-    /// 7. inst: Index // for every body_len
-    /// 8. has_bits: u32 // for every 8 fields
+    /// 8. inst: Index // for every body_len
+    /// 9. field_doc_comments: u32 // for every decls_len
+    ///    - 0 if no doc comment exists
+    /// 10. has_bits: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has a type expression
     ///      0b00X0: whether corresponding field has a align expression
     ///      0b0X00: whether corresponding field has a tag value expression
     ///      0bX000: unused
-    /// 9. fields: { // for every fields_len
+    /// 11. fields: { // for every fields_len
     ///        field_name: u32, // null terminated string index
-    ///        doc_comment: u32, // 0 if no doc comment
     ///        field_type: Ref, // if corresponding bit is set
     ///        - if none, means `anytype`.
     ///        align: Ref, // if corresponding bit is set
@@ -3165,13 +3171,15 @@ pub const Inst = struct {
     /// Trailing:
     /// 0. src_node: i32, // if has_src_node
     /// 1. decls_len: u32, // if has_decls_len
-    /// 2. decl_bits: u32 // for every 8 decls
+    /// 2. decl_doc_comments: u32 // for every decls_len
+    ///    - 0 if no doc comment
+    /// 3. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 3. decl: { // for every decls_len
+    /// 4. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -3181,7 +3189,6 @@ pub const Inst = struct {
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc comment,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -3198,10 +3205,8 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// { // for every fields_len
-    ///      field_name: u32 // null terminated string index
-    ///     doc_comment: u32 // null terminated string index
-    /// }
+    /// field_name: u32 // for every fields_len; null terminated string index
+    /// doc_comment: u32 // for every fields_len; null terminated string index
     pub const ErrorSetDecl = struct {
         fields_len: u32,
     };
@@ -3452,7 +3457,7 @@ pub const DeclIterator = struct {
         const sub_index = @intCast(u32, it.extra_index);
         it.extra_index += 5; // src_hash(4) + line(1)
         const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
-        it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
+        it.extra_index += 2; // name(1) + value(1)
         it.extra_index += @truncate(u1, flags >> 2);
         it.extra_index += @truncate(u1, flags >> 3);
 
@@ -3541,8 +3546,8 @@ pub fn declIteratorInner(zir: Zir, extra_index: usize, decls_len: u32) DeclItera
     const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
     return .{
         .zir = zir,
-        .extra_index = extra_index + bit_bags_count,
-        .bit_bag_index = extra_index,
+        .extra_index = extra_index + decls_len + bit_bags_count,
+        .bit_bag_index = extra_index + decls_len,
         .cur_bit_bag = undefined,
         .decl_i = 0,
         .decls_len = decls_len,

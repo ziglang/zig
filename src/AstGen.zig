@@ -3188,6 +3188,7 @@ fn arrayTypeSentinel(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.I
 const WipMembers = struct {
     payload: *ArrayListUnmanaged(u32),
     payload_top: usize,
+    decl_bits_start: u32,
     decls_start: u32,
     decls_end: u32,
     field_bits_start: u32,
@@ -3195,19 +3196,24 @@ const WipMembers = struct {
     fields_end: u32,
     decl_index: u32 = 0,
     field_index: u32 = 0,
+    decl_docs_end: u32,
+    field_docs_start: u32,
+    field_docs_end: u32,
 
     const Self = @This();
     /// struct, union, enum, and opaque decls all use same 4 bits per decl
     const bits_per_decl = 4;
     const decls_per_u32 = 32 / bits_per_decl;
-    /// struct, union, enum, and opaque decls all have maximum size of 11 u32 slots
-    /// (4 for src_hash + line + name + value + doc_comment + align + link_section + address_space )
-    const max_decl_size = 11;
+    /// struct, union, enum, and opaque decls all have maximum size of 10 u32 slots
+    /// (4 for src_hash + line + name + value + align + link_section + address_space )
+    const max_decl_size = 10;
 
     pub fn init(gpa: Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
         const payload_top = @intCast(u32, payload.items.len);
-        const decls_start = payload_top + (decl_count + decls_per_u32 - 1) / decls_per_u32;
-        const field_bits_start = decls_start + decl_count * max_decl_size;
+        const decl_bits_start = payload_top + decl_count;
+        const decls_start = decl_bits_start + (decl_count + decls_per_u32 - 1) / decls_per_u32;
+        const field_docs_start = decls_start + decl_count * max_decl_size;
+        const field_bits_start = field_docs_start + field_count;
         const fields_start = field_bits_start + if (bits_per_field > 0) blk: {
             const fields_per_u32 = 32 / bits_per_field;
             break :blk (field_count + fields_per_u32 - 1) / fields_per_u32;
@@ -3217,16 +3223,20 @@ const WipMembers = struct {
         return Self{
             .payload = payload,
             .payload_top = payload_top,
+            .decl_bits_start = decl_bits_start,
             .decls_start = decls_start,
             .field_bits_start = field_bits_start,
             .fields_start = fields_start,
             .decls_end = decls_start,
             .fields_end = fields_start,
+            .decl_docs_end = payload_top,
+            .field_docs_start = field_docs_start,
+            .field_docs_end = field_docs_start,
         };
     }
 
     pub fn nextDecl(self: *Self, is_pub: bool, is_export: bool, has_align: bool, has_section_or_addrspace: bool) void {
-        const index = self.payload_top + self.decl_index / decls_per_u32;
+        const index = self.decl_bits_start + self.decl_index / decls_per_u32;
         assert(index < self.decls_start);
         const bit_bag: u32 = if (self.decl_index % decls_per_u32 == 0) 0 else self.payload.items[index];
         self.payload.items[index] = (bit_bag >> bits_per_decl) |
@@ -3252,13 +3262,19 @@ const WipMembers = struct {
     }
 
     pub fn appendToDecl(self: *Self, data: u32) void {
-        assert(self.decls_end < self.field_bits_start);
+        assert(self.decls_end < self.field_docs_start);
         self.payload.items[self.decls_end] = data;
         self.decls_end += 1;
     }
 
+    pub fn addDeclDocComment(self: *Self, data: u32) void {
+        assert(self.decl_docs_end < self.decl_bits_start);
+        self.payload.items[self.decl_docs_end] = data;
+        self.decl_docs_end += 1;
+    }
+
     pub fn appendToDeclSlice(self: *Self, data: []const u32) void {
-        assert(self.decls_end + data.len <= self.field_bits_start);
+        assert(self.decls_end + data.len <= self.field_docs_start);
         mem.copy(u32, self.payload.items[self.decls_end..], data);
         self.decls_end += @intCast(u32, data.len);
     }
@@ -3269,10 +3285,16 @@ const WipMembers = struct {
         self.fields_end += 1;
     }
 
+    pub fn addFieldDocComment(self: *Self, data: u32) void {
+        assert(self.field_docs_end < self.field_bits_start);
+        self.payload.items[self.field_docs_end] = data;
+        self.field_docs_end += 1;
+    }
+
     pub fn finishBits(self: *Self, comptime bits_per_field: u32) void {
         const empty_decl_slots = decls_per_u32 - (self.decl_index % decls_per_u32);
         if (self.decl_index > 0 and empty_decl_slots < decls_per_u32) {
-            const index = self.payload_top + self.decl_index / decls_per_u32;
+            const index = self.decl_bits_start + self.decl_index / decls_per_u32;
             self.payload.items[index] >>= @intCast(u5, empty_decl_slots * bits_per_decl);
         }
         if (bits_per_field > 0) {
@@ -3290,7 +3312,7 @@ const WipMembers = struct {
     }
 
     pub fn fieldsSlice(self: *Self) []u32 {
-        return self.payload.items[self.field_bits_start..self.fields_end];
+        return self.payload.items[self.field_docs_start..self.fields_end];
     }
 
     pub fn deinit(self: *Self) void {
@@ -3568,7 +3590,7 @@ fn fnDecl(
     }
     wip_members.appendToDecl(fn_name_str_index);
     wip_members.appendToDecl(block_inst);
-    wip_members.appendToDecl(doc_comment_index);
+    wip_members.addDeclDocComment(doc_comment_index);
     if (has_section_or_addrspace) {
         wip_members.appendToDecl(@enumToInt(section_inst));
         wip_members.appendToDecl(@enumToInt(addrspace_inst));
@@ -3718,7 +3740,7 @@ fn globalVarDecl(
     }
     wip_members.appendToDecl(name_str_index);
     wip_members.appendToDecl(block_inst);
-    wip_members.appendToDecl(doc_comment_index); // doc_comment wip
+    wip_members.addDeclDocComment(doc_comment_index); // doc_comment wip
     if (align_inst != .none) {
         wip_members.appendToDecl(@enumToInt(align_inst));
     }
@@ -3774,7 +3796,7 @@ fn comptimeDecl(
     }
     wip_members.appendToDecl(0);
     wip_members.appendToDecl(block_inst);
-    wip_members.appendToDecl(0); // no doc comments on comptime decls
+    wip_members.addDeclDocComment(0); // no doc comments on comptime decls
 }
 
 fn usingnamespaceDecl(
@@ -3827,7 +3849,7 @@ fn usingnamespaceDecl(
     }
     wip_members.appendToDecl(0);
     wip_members.appendToDecl(block_inst);
-    wip_members.appendToDecl(0); // no doc comments on usingnamespace decls
+    wip_members.addDeclDocComment(0); // no doc comments on usingnamespace decls
 }
 
 fn testDecl(
@@ -3999,9 +4021,9 @@ fn testDecl(
         wip_members.appendToDecl(test_name);
     wip_members.appendToDecl(block_inst);
     if (is_decltest)
-        wip_members.appendToDecl(test_name) // the doc comment on a decltest represents it's name
+        wip_members.addDeclDocComment(test_name) // the doc comment on a decltest represents it's name
     else
-        wip_members.appendToDecl(0); // no doc comments on test decls
+        wip_members.addDeclDocComment(0); // no doc comments on test decls
 }
 
 fn structDeclInner(
@@ -4058,7 +4080,7 @@ fn structDeclInner(
     const field_count = @intCast(u32, container_decl.ast.members.len - decl_count);
 
     const bits_per_field = 4;
-    const max_field_size = 5;
+    const max_field_size = 4;
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
@@ -4081,7 +4103,7 @@ fn structDeclInner(
         wip_members.appendToField(@enumToInt(field_type));
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
-        wip_members.appendToField(doc_comment_index);
+        wip_members.addFieldDocComment(doc_comment_index);
 
         const have_align = member.ast.align_expr != 0;
         const have_value = member.ast.value_expr != 0;
@@ -4189,7 +4211,7 @@ fn unionDeclInner(
         .none;
 
     const bits_per_field = 4;
-    const max_field_size = 5;
+    const max_field_size = 4;
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
@@ -4206,7 +4228,7 @@ fn unionDeclInner(
         wip_members.appendToField(field_name);
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
-        wip_members.appendToField(doc_comment_index);
+        wip_members.addFieldDocComment(doc_comment_index);
 
         const have_type = member.ast.type_expr != 0;
         const have_align = member.ast.align_expr != 0;
@@ -4469,7 +4491,7 @@ fn containerDecl(
                 .none;
 
             const bits_per_field = 1;
-            const max_field_size = 3;
+            const max_field_size = 2;
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(u32, counts.decls), @intCast(u32, counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
@@ -4488,7 +4510,7 @@ fn containerDecl(
                 wip_members.appendToField(field_name);
 
                 const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
-                wip_members.appendToField(doc_comment_index);
+                wip_members.addFieldDocComment(doc_comment_index);
 
                 const have_value = member.ast.value_expr != 0;
                 wip_members.nextField(bits_per_field, .{have_value});
@@ -4719,6 +4741,9 @@ fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir
 
         const error_token = main_tokens[node];
         var tok_i = error_token + 2;
+        // doc comment indices follow the field names.
+        var doc_comment_indices = std.ArrayList(u32).init(gpa);
+        defer doc_comment_indices.deinit();
         while (true) : (tok_i += 1) {
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
@@ -4743,16 +4768,16 @@ fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir
                     }
                     gop.value_ptr.* = tok_i;
 
-                    try astgen.extra.ensureUnusedCapacity(gpa, 2);
-                    astgen.extra.appendAssumeCapacity(str_index);
+                    try astgen.extra.append(gpa, str_index);
                     const doc_comment_index = try astgen.docCommentAsString(tok_i);
-                    astgen.extra.appendAssumeCapacity(doc_comment_index);
+                    try doc_comment_indices.append(doc_comment_index);
                     fields_len += 1;
                 },
                 .r_brace => break,
                 else => unreachable,
             }
         }
+        try astgen.extra.appendSlice(gpa, doc_comment_indices.items);
     }
 
     setExtra(astgen, payload_index, Zir.Inst.ErrorSetDecl{

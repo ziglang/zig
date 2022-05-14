@@ -1253,8 +1253,9 @@ const Writer = struct {
             const bits_per_field = 4;
             const fields_per_u32 = 32 / bits_per_field;
             const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-            var bit_bag_index: usize = extra_index;
-            extra_index += bit_bags_count;
+            const doc_comments_begin = extra_index;
+            var bit_bag_index: usize = extra_index + fields_len;
+            extra_index = bit_bag_index + fields_len + bit_bags_count;
             var cur_bit_bag: u32 = undefined;
             var field_i: u32 = 0;
             while (field_i < fields_len) : (field_i += 1) {
@@ -1277,8 +1278,7 @@ const Writer = struct {
                 extra_index += 1;
                 const field_type = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
                 extra_index += 1;
-                const doc_comment_index = self.code.extra[extra_index];
-                extra_index += 1;
+                const doc_comment_index = self.code.extra[doc_comments_begin + field_i];
 
                 try self.writeDocComment(stream, doc_comment_index);
 
@@ -1384,8 +1384,8 @@ const Writer = struct {
         const fields_per_u32 = 32 / bits_per_field;
         const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
         const body_end = extra_index;
-        extra_index += bit_bags_count;
-        var bit_bag_index: usize = body_end;
+        var bit_bag_index: usize = body_end + fields_len; // skip doc comments
+        extra_index = bit_bag_index + bit_bags_count;
         var cur_bit_bag: u32 = undefined;
         var field_i: u32 = 0;
         while (field_i < fields_len) : (field_i += 1) {
@@ -1406,8 +1406,7 @@ const Writer = struct {
 
             const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
             extra_index += 1;
-            const doc_comment_index = self.code.extra[extra_index];
-            extra_index += 1;
+            const doc_comment_index = self.code.extra[body_end + field_i];
 
             try self.writeDocComment(stream, doc_comment_index);
             try stream.writeByteNTimes(' ', self.indent);
@@ -1448,7 +1447,8 @@ const Writer = struct {
     fn writeDecls(self: *Writer, stream: anytype, decls_len: u32, extra_start: usize) !usize {
         const parent_decl_node = self.parent_decl_node;
         const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
-        var extra_index = extra_start + bit_bags_count;
+        var doc_comment_start = extra_start;
+        var extra_index = extra_start + decls_len + bit_bags_count;
         var bit_bag_index: usize = extra_start;
         var cur_bit_bag: u32 = undefined;
         var decl_i: u32 = 0;
@@ -1468,6 +1468,7 @@ const Writer = struct {
 
             const sub_index = extra_index;
 
+            const doc_comment_index = self.code.extra[doc_comment_start + decl_i];
             const hash_u32s = self.code.extra[extra_index..][0..4];
             extra_index += 4;
             const line = self.code.extra[extra_index];
@@ -1475,8 +1476,6 @@ const Writer = struct {
             const decl_name_index = self.code.extra[extra_index];
             extra_index += 1;
             const decl_index = self.code.extra[extra_index];
-            extra_index += 1;
-            const doc_comment_index = self.code.extra[extra_index];
             extra_index += 1;
 
             const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
@@ -1631,8 +1630,8 @@ const Writer = struct {
             self.indent += 2;
             const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
             const body_end = extra_index;
-            extra_index += bit_bags_count;
-            var bit_bag_index: usize = body_end;
+            var bit_bag_index: usize = body_end + fields_len; // skip doc comments
+            extra_index += bit_bag_index + bit_bags_count;
             var cur_bit_bag: u32 = undefined;
             var field_i: u32 = 0;
             while (field_i < fields_len) : (field_i += 1) {
@@ -1646,8 +1645,7 @@ const Writer = struct {
                 const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
                 extra_index += 1;
 
-                const doc_comment_index = self.code.extra[extra_index];
-                extra_index += 1;
+                const doc_comment_index = self.code.extra[body_end + field_i];
 
                 try self.writeDocComment(stream, doc_comment_index);
 
@@ -1721,11 +1719,11 @@ const Writer = struct {
         self.indent += 2;
 
         var extra_index = @intCast(u32, extra.end);
-        const extra_index_end = extra_index + (extra.data.fields_len * 2);
-        while (extra_index < extra_index_end) : (extra_index += 2) {
+        const extra_index_end = extra_index + extra.data.fields_len;
+        while (extra_index < extra_index_end) : (extra_index += 1) {
             const str_index = self.code.extra[extra_index];
             const name = self.code.nullTerminatedString(str_index);
-            const doc_comment_index = self.code.extra[extra_index + 1];
+            const doc_comment_index = self.code.extra[extra_index + extra.data.fields_len];
             try self.writeDocComment(stream, doc_comment_index);
             try stream.writeByteNTimes(' ', self.indent);
             try stream.print("{},\n", .{std.zig.fmtId(name)});

@@ -571,14 +571,14 @@ pub const Decl = struct {
         if (!decl.has_align) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope().zir;
-        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 8]);
+        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 7]);
     }
 
     pub fn zirLinksectionRef(decl: Decl) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope().zir;
-        const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align);
+        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align);
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
@@ -586,7 +586,7 @@ pub const Decl = struct {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope().zir;
-        const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align) + 1;
+        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align) + 1;
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
@@ -4407,8 +4407,9 @@ pub fn scanNamespace(
     try namespace.decls.ensureTotalCapacity(gpa, decls_len);
 
     const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
-    var extra_index = extra_start + bit_bags_count;
-    var bit_bag_index: usize = extra_start;
+    var doc_comments_begin = extra_start;
+    var bit_bag_index: usize = extra_start + decls_len;
+    var extra_index = bit_bag_index + bit_bags_count;
     var cur_bit_bag: u32 = undefined;
     var decl_i: u32 = 0;
     var scan_decl_iter: ScanDeclIter = .{
@@ -4425,11 +4426,11 @@ pub fn scanNamespace(
         cur_bit_bag >>= 4;
 
         const decl_sub_index = extra_index;
-        extra_index += 8; // src_hash(4) + line(1) + name(1) + value(1) + doc_comment(1)
+        extra_index += 7; // src_hash(4) + line(1) + name(1) + value(1)
         extra_index += @truncate(u1, flags >> 2); // Align
         extra_index += @as(u2, @truncate(u1, flags >> 3)) * 2; // Link section or address space, consists of 2 Refs
 
-        try scanDecl(&scan_decl_iter, decl_sub_index, flags);
+        try scanDecl(&scan_decl_iter, decl_sub_index, doc_comments_begin + decl_i, flags);
     }
     return extra_index;
 }
@@ -4443,7 +4444,7 @@ const ScanDeclIter = struct {
     unnamed_test_index: usize = 0,
 };
 
-fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!void {
+fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, decl_doccomment_index: usize, flags: u4) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -4462,10 +4463,10 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     const line_off = zir.extra[decl_sub_index + 4];
     const line = iter.parent_decl.relativeToLine(line_off);
     const decl_name_index = zir.extra[decl_sub_index + 5];
-    const decl_doccomment_index = zir.extra[decl_sub_index + 7];
     const decl_zir_index = zir.extra[decl_sub_index + 6];
     const decl_block_inst_data = zir.instructions.items(.data)[decl_zir_index].pl_node;
     const decl_node = iter.parent_decl.relativeToNodeIndex(decl_block_inst_data.src_node);
+    const decl_doccomment = zir.extra[decl_doccomment_index];
 
     // Every Decl needs a name.
     var is_named_test = false;
@@ -4488,7 +4489,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         },
         2 => name: {
             is_named_test = true;
-            const test_name = zir.nullTerminatedString(decl_doccomment_index);
+            const test_name = zir.nullTerminatedString(decl_doccomment);
             break :name try std.fmt.allocPrintZ(gpa, "decltest.{s}", .{test_name});
         },
         else => name: {
