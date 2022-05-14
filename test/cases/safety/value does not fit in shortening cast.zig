@@ -16,3 +16,4 @@ fn shorten_cast(x: i32) i8 {
 }
 // run
 // backend=stage1
+// target=native

@@ -16,3 +16,4 @@ fn div(a: i16, b: i16) i16 {
 }
 // run
 // backend=stage1
+// target=native

@@ -16,3 +16,4 @@ fn shorten_cast(x: u8) u0 {
 }
 // run
 // backend=stage1
+// target=native

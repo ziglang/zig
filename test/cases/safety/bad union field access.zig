@@ -22,3 +22,4 @@ fn bar(f: *Foo) void {
 }
 // run
 // backend=stage1
+// target=native

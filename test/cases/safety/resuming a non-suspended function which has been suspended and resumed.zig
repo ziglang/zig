@@ -29,3 +29,4 @@ pub fn main() !void {
 }
 // run
 // backend=stage1
+// target=native

@@ -16,3 +16,4 @@ fn bar(a: []const i32) i32 {
 fn baz(_: i32) void { }
 // run
 // backend=stage1
+// target=native

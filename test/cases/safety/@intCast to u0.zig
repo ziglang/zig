@@ -17,3 +17,4 @@ fn bar(one: u1, not_zero: i32) void {
 }
 // run
 // backend=stage1
+// target=native

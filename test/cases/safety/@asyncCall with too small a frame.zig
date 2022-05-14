@@ -22,3 +22,4 @@ fn other() callconv(.Async) void {
 }
 // run
 // backend=stage1
+// target=native

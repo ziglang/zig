@@ -15,3 +15,4 @@ fn div0(a: i32, b: i32) i32 {
 }
 // run
 // backend=stage1
+// target=native

@@ -16,3 +16,4 @@ fn foo(set1: Set1) Set2 {
 }
 // run
 // backend=stage1
+// target=native

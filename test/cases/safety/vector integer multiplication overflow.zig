@@ -17,3 +17,4 @@ fn mul(a: @Vector(4, u8), b: @Vector(4, u8)) @Vector(4, u8) {
 }
 // run
 // backend=stage1
+// target=native

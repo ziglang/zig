@@ -18,3 +18,4 @@ fn divExact(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
 }
 // run
 // backend=stage1
+// target=native

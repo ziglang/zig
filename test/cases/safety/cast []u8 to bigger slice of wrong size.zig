@@ -16,3 +16,4 @@ fn widenSlice(slice: []align(1) const u8) []align(1) const i32 {
 }
 // run
 // backend=stage1
+// target=native

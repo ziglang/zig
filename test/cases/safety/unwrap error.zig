@@ -16,3 +16,4 @@ fn bar() !void {
 }
 // run
 // backend=stage1
+// target=native

@@ -16,3 +16,4 @@ fn neg(a: i16) i16 {
 }
 // run
 // backend=stage1
+// target=native

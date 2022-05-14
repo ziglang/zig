@@ -17,3 +17,4 @@ fn sub(a: @Vector(4, u32), b: @Vector(4, u32)) @Vector(4, u32) {
 }
 // run
 // backend=stage1
+// target=native

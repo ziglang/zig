@@ -14,3 +14,4 @@ fn bar(x: u16) anyerror {
 }
 // run
 // backend=stage1
+// target=native

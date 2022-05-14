@@ -26,3 +26,4 @@ fn func() void {
 }
 // run
 // backend=stage1
+// target=native

@@ -16,3 +16,4 @@ fn neg(a: @Vector(4, i16)) @Vector(4, i16) {
 }
 // run
 // backend=stage1
+// target=native

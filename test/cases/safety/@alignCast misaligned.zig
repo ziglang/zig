@@ -19,3 +19,4 @@ fn foo(bytes: []u8) u32 {
 }
 // run
 // backend=stage1
+// target=native

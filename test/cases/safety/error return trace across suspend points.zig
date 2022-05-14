@@ -36,3 +36,4 @@ fn printTrace(p: anyframe->anyerror!void) void {
 }
 // run
 // backend=stage1
+// target=native

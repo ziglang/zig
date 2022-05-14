@@ -16,3 +16,4 @@ fn shl(a: u16, b: u4) u16 {
 }
 // run
 // backend=stage1
+// target=native

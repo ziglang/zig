@@ -19,3 +19,4 @@ fn other() void {
 }
 // run
 // backend=stage1
+// target=native

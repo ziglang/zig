@@ -16,3 +16,4 @@ fn shr(a: i16, b: u4) i16 {
 }
 // run
 // backend=stage1
+// target=native

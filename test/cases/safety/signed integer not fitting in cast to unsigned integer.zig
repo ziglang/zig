@@ -16,3 +16,4 @@ fn unsigned_cast(x: i32) u32 {
 }
 // run
 // backend=stage1
+// target=native
