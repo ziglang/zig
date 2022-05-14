@@ -100,6 +100,7 @@ Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents);
 Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents);
 
 Error ATTRIBUTE_MUST_USE os_get_cwd(Buf *out_cwd);
+Error ATTRIBUTE_MUST_USE os_real_path(Buf *full_path, Buf *out_real_path);
 
 bool os_stderr_supports_color(void);
 void os_stderr_set_color(TermColor color);

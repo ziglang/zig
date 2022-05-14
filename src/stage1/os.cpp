@@ -782,6 +782,41 @@ Error os_get_cwd(Buf *out_cwd) {
 #endif
 }
 
+Error os_real_path(Buf *full_path, Buf *out_real_path) {
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
+    HANDLE file_handle = CreateFileW(&path_space.data.items[0], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file_handle == INVALID_HANDLE_VALUE) {
+        zig_panic("CreateFileW failed");
+    }
+
+    PathSpace real_path_space = path_space;
+    DWORD len = GetFinalPathNameByHandleW(file_handle, &real_path_space.data.items[0], PATH_MAX_WIDE, FILE_NAME_NORMALIZED);
+    CloseHandle(file_handle);
+    if (len == 0) {
+        zig_panic("GetFinalPathNameByHandleW failed");
+    }
+    static Array<WCHAR, 4> prefix = {u'\\', u'\\', u'?', u'\\'};
+    if (memStartsWith(real_path_space.data.slice(), prefix.slice())) {
+        utf16le_ptr_to_utf8(out_real_path, &real_path_space.data.items[4]);
+    }
+    else {
+        utf16le_ptr_to_utf8(out_real_path, &real_path_space.data.items[0]);
+    }
+    return ErrorNone;
+#elif defined(ZIG_OS_POSIX)
+    char buf[PATH_MAX];
+    char *res = realpath(buf_ptr(full_path), buf);
+    if (res == nullptr) {
+        zig_panic("unable to realpath: %s", strerror(errno));
+    }
+    buf_init_from_str(out_real_path, res);
+    return ErrorNone;
+#else
+#error "missing os_real_path implementation"
+#endif
+}
+
 #if defined(ZIG_OS_WINDOWS)
 #define is_wprefix(s, prefix) \
     (wcsncmp((s), (prefix), sizeof(prefix) / sizeof(WCHAR) - 1) == 0)

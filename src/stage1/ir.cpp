@@ -17275,6 +17275,10 @@ static Stage1AirInst *ir_analyze_instruction_import(IrAnalyze *ira, Stage1ZirIns
             ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
             return ira->codegen->invalid_inst_gen;
+        } else if (err == ErrorImportPathMismatch) {
+            ir_add_error_node(ira, source_node,
+                    buf_sprintf("unable to load '%s': canonical file system name is '%s'", buf_ptr(import_target_path), buf_ptr(&full_path)));
+            return ira->codegen->invalid_inst_gen;
         } else {
             ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));

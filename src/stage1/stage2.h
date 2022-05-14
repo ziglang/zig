@@ -114,6 +114,7 @@ enum Error {
     ErrorLocked,
     ErrorInvalidCharacter,
     ErrorUnicodePointTooLarge,
+    ErrorImportPathMismatch,
 };
 
 // ABI warning

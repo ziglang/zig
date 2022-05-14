@@ -10033,6 +10033,15 @@ Error analyze_import(CodeGen *g, ZigType *source_import, Buf *import_target_str,
         return err;
     }
 
+    Buf *real_path = buf_alloc();
+    if ((err = os_real_path(resolved_path, real_path))) {
+        return err;
+    }
+    if (!buf_eql_buf(real_path, resolved_path)) {
+        buf_init_from_buf(out_full_path, real_path);
+        return ErrorImportPathMismatch;
+    }
+
     *out_import = add_source_file(g, target_package, resolved_path, import_code, source_kind);
     return ErrorNone;
 }

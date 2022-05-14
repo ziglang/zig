@@ -90,6 +90,7 @@ const char *err_str(Error err) {
         case ErrorLocked: return "file is locked by another process";
         case ErrorInvalidCharacter: return "invalid character";
         case ErrorUnicodePointTooLarge: return "unicode codepoint too large";
+        case ErrorImportPathMismatch: return "import of file name does not match real path (casing wrong?)";
     }
     return "(invalid error)";
 }
