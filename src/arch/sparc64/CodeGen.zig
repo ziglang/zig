@@ -2375,7 +2375,47 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 return self.fail("TODO larger stack offsets", .{});
             return self.genStore(reg, .sp, i13, simm13, abi_size);
         },
-        .memory, .stack_offset => return self.fail("TODO implement memcpy", .{}),
+        .memory, .stack_offset => {
+            switch (mcv) {
+                .stack_offset => |off| {
+                    if (stack_offset == off)
+                        return; // Copy stack variable to itself; nothing to do.
+                },
+                else => {},
+            }
+
+            if (abi_size <= 8) {
+                const reg = try self.copyToTmpRegister(ty, mcv);
+                return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+            } else {
+                var ptr_ty_payload: Type.Payload.ElemType = .{
+                    .base = .{ .tag = .single_mut_pointer },
+                    .data = ty,
+                };
+                const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+
+                const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null });
+                const regs_locks = self.register_manager.lockRegsAssumeUnused(4, regs);
+                defer for (regs_locks) |reg| {
+                    self.register_manager.unlockReg(reg);
+                };
+
+                const src_reg = regs[0];
+                const dst_reg = regs[1];
+                const len_reg = regs[2];
+                const tmp_reg = regs[3];
+
+                switch (mcv) {
+                    .stack_offset => |off| try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off }),
+                    .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = addr }),
+                    else => unreachable,
+                }
+
+                try self.genSetReg(ptr_ty, dst_reg, .{ .ptr_stack_offset = stack_offset });
+                try self.genSetReg(Type.usize, len_reg, .{ .immediate = abi_size });
+                try self.genInlineMemcpy(src_reg, dst_reg, len_reg, tmp_reg);
+            }
+        },
     }
 }
 
