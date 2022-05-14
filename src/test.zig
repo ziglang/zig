@@ -398,6 +398,8 @@ const TestIterator = struct {
     start: usize = 0,
     end: usize = 0,
     filenames: []const []const u8,
+    /// reset on each call to `next`
+    index: usize = 0,
 
     const Error = error{InvalidIncrementalTestIndex};
 
@@ -416,12 +418,12 @@ const TestIterator = struct {
         }
 
         const remaining = it.filenames[it.end..];
-        var i: usize = 0;
-        while (i < remaining.len - 1) : (i += 1) {
+        it.index = 0;
+        while (it.index < remaining.len - 1) : (it.index += 1) {
             // First, check if this file is part of an incremental update sequence
             // Split filename into "<base_name>.<index>.<file_ext>"
-            const prev_parts = getTestFileNameParts(remaining[i]);
-            const new_parts = getTestFileNameParts(remaining[i + 1]);
+            const prev_parts = getTestFileNameParts(remaining[it.index]);
+            const new_parts = getTestFileNameParts(remaining[it.index + 1]);
 
             // If base_name and file_ext match, these files are in the same test sequence
             // and the new one should be the incremented version of the previous test
@@ -441,12 +443,21 @@ const TestIterator = struct {
                 if (new_parts.test_index != null and new_parts.test_index.? != 0)
                     return error.InvalidIncrementalTestIndex;
 
-                it.end += i + 1;
+                it.end += it.index + 1;
                 break;
             }
         } else {
             it.end += remaining.len;
         }
+    }
+
+    /// In the event of an `error.InvalidIncrementalTestIndex`, this function can
+    /// be used to find the current filename that was being processed.
+    /// Asserts the iterator hasn't reached the end.
+    fn currentFilename(it: TestIterator) []const u8 {
+        assert(it.end != it.filenames.len);
+        const remaining = it.filenames[it.end..];
+        return remaining[it.index + 1];
     }
 };
 
@@ -1051,7 +1062,8 @@ pub const TestContext = struct {
         sortTestFilenames(filenames.items);
 
         var test_it = TestIterator{ .filenames = filenames.items };
-        while (try test_it.next()) |batch| {
+        while (test_it.next()) |maybe_batch| {
+            const batch = maybe_batch orelse break;
             const strategy: TestStrategy = if (batch.len > 1) .incremental else .independent;
             var cases = std.ArrayList(usize).init(ctx.arena);
 
@@ -1133,6 +1145,10 @@ pub const TestContext = struct {
                     }
                 }
             }
+        } else |err| {
+            // make sure the current file is set to the file that produced an error
+            current_file.* = test_it.currentFilename();
+            return err;
         }
     }
 
