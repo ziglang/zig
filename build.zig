@@ -40,10 +40,10 @@ pub fn build(b: *Builder) !void {
 
     const toolchain_step = b.step("test-toolchain", "Run the tests for the toolchain");
 
-    var test_stage2 = b.addTest("src/test.zig");
-    test_stage2.setBuildMode(mode);
-    test_stage2.addPackagePath("test_cases", "test/cases.zig");
-    test_stage2.single_threaded = single_threaded;
+    var test_cases = b.addTest("src/test.zig");
+    test_cases.setBuildMode(mode);
+    test_cases.addPackagePath("test_cases", "test/cases.zig");
+    test_cases.single_threaded = single_threaded;
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
@@ -158,7 +158,7 @@ pub fn build(b: *Builder) !void {
     if (target.isWindows() and target.getAbi() == .gnu) {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
         exe.want_lto = false;
-        test_stage2.want_lto = false;
+        test_cases.want_lto = false;
     }
 
     const exe_options = b.addOptions();
@@ -175,7 +175,7 @@ pub fn build(b: *Builder) !void {
 
     if (link_libc) {
         exe.linkLibC();
-        test_stage2.linkLibC();
+        test_cases.linkLibC();
     }
 
     const is_debug = mode == .Debug;
@@ -258,7 +258,7 @@ pub fn build(b: *Builder) !void {
             zig0.defineCMacro("ZIG_VERSION_PATCH", b.fmt("{d}", .{zig_version.patch}));
             zig0.defineCMacro("ZIG_VERSION_STRING", b.fmt("\"{s}\"", .{version}));
 
-            for ([_]*std.build.LibExeObjStep{ zig0, exe, test_stage2 }) |artifact| {
+            for ([_]*std.build.LibExeObjStep{ zig0, exe, test_cases }) |artifact| {
                 artifact.addIncludePath("src");
                 artifact.addIncludePath("deps/SoftFloat-3e/source/include");
                 artifact.addIncludePath("deps/SoftFloat-3e-prebuilt");
@@ -335,11 +335,11 @@ pub fn build(b: *Builder) !void {
             }
 
             try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
-            try addCmakeCfgOptionsToExe(b, cfg, test_stage2, use_zig_libcxx);
+            try addCmakeCfgOptionsToExe(b, cfg, test_cases, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
             try addStaticLlvmOptionsToExe(exe);
-            try addStaticLlvmOptionsToExe(test_stage2);
+            try addStaticLlvmOptionsToExe(test_cases);
         }
     }
 
@@ -380,34 +380,35 @@ pub fn build(b: *Builder) !void {
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
-    const test_stage2_options = b.addOptions();
-    test_stage2.addOptions("build_options", test_stage2_options);
+    const test_cases_options = b.addOptions();
+    test_cases.addOptions("build_options", test_cases_options);
 
-    test_stage2_options.addOption(bool, "enable_logging", enable_logging);
-    test_stage2_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
-    test_stage2_options.addOption(bool, "skip_non_native", skip_non_native);
-    test_stage2_options.addOption(bool, "skip_stage1", skip_stage1);
-    test_stage2_options.addOption(bool, "is_stage1", is_stage1);
-    test_stage2_options.addOption(bool, "omit_stage2", omit_stage2);
-    test_stage2_options.addOption(bool, "have_llvm", enable_llvm);
-    test_stage2_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
-    test_stage2_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
-    test_stage2_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
-    test_stage2_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
-    test_stage2_options.addOption(bool, "enable_qemu", b.enable_qemu);
-    test_stage2_options.addOption(bool, "enable_wine", b.enable_wine);
-    test_stage2_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
-    test_stage2_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
-    test_stage2_options.addOption(bool, "enable_darling", b.enable_darling);
-    test_stage2_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
-    test_stage2_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
-    test_stage2_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
-    test_stage2_options.addOption(std.SemanticVersion, "semver", semver);
+    test_cases_options.addOption(bool, "enable_logging", enable_logging);
+    test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
+    test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
+    test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
+    test_cases_options.addOption(bool, "is_stage1", is_stage1);
+    test_cases_options.addOption(bool, "omit_stage2", omit_stage2);
+    test_cases_options.addOption(bool, "have_llvm", enable_llvm);
+    test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
+    test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
+    test_cases_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
+    test_cases_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
+    test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
+    test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
+    test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
+    test_cases_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
+    test_cases_options.addOption(bool, "enable_darling", b.enable_darling);
+    test_cases_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
+    test_cases_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
+    test_cases_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
+    test_cases_options.addOption(std.SemanticVersion, "semver", semver);
+    test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
 
-    const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
-    test_stage2_step.dependOn(&test_stage2.step);
+    const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
+    test_cases_step.dependOn(&test_cases.step);
     if (!skip_stage2_tests) {
-        toolchain_step.dependOn(test_stage2_step);
+        toolchain_step.dependOn(test_cases_step);
     }
 
     var chosen_modes: [4]builtin.Mode = undefined;
@@ -485,7 +486,6 @@ pub fn build(b: *Builder) !void {
     toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addTranslateCTests(b, test_filter));
     if (!skip_run_translated_c) {
         toolchain_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));

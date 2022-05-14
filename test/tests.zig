@@ -18,7 +18,6 @@ const compare_output = @import("compare_output.zig");
 const standalone = @import("standalone.zig");
 const stack_traces = @import("stack_traces.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
-const runtime_safety = @import("runtime_safety.zig");
 const translate_c = @import("translate_c.zig");
 const run_translated_c = @import("run_translated_c.zig");
 const gen_h = @import("gen_h.zig");
@@ -451,21 +450,6 @@ pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
     };
 
     stack_traces.addCases(cases);
-
-    return cases.step;
-}
-
-pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
-    const cases = b.allocator.create(CompareOutputContext) catch unreachable;
-    cases.* = CompareOutputContext{
-        .b = b,
-        .step = b.step("test-runtime-safety", "Run the runtime safety tests"),
-        .test_index = 0,
-        .test_filter = test_filter,
-        .modes = modes,
-    };
-
-    runtime_safety.addCases(cases);
 
     return cases.step;
 }

@@ -1201,6 +1201,9 @@ pub const TestContext = struct {
             if (!build_options.have_llvm and case.backend == .llvm)
                 continue;
 
+            if (build_options.test_filter) |test_filter| {
+                if (std.mem.indexOf(u8, case.name, test_filter) == null) continue;
+            }
             var prg_node = root_node.start(case.name, case.updates.items.len);
             prg_node.activate();
             defer prg_node.end();
@@ -1291,6 +1294,8 @@ pub const TestContext = struct {
 
             if (case.is_test) {
                 try zig_args.append("test");
+            } else if (update.case == .Execution) {
+                try zig_args.append("run");
             } else switch (case.output_mode) {
                 .Obj => try zig_args.append("build-obj"),
                 .Exe => try zig_args.append("build-exe"),
@@ -1330,6 +1335,7 @@ pub const TestContext = struct {
                             }
                         },
                         else => {
+                            std.debug.print("{s}", .{result.stderr});
                             dumpArgs(zig_args.items);
                             return error.CompilationCrashed;
                         },
@@ -1394,7 +1400,24 @@ pub const TestContext = struct {
                     }
                 },
                 .CompareObjectFile => @panic("TODO implement in the test harness"),
-                .Execution => @panic("TODO implement in the test harness"),
+                .Execution => |expected_stdout| {
+                    switch (result.term) {
+                        .Exited => |code| {
+                            if (code != 0) {
+                                std.debug.print("{s}", .{result.stderr});
+                                dumpArgs(zig_args.items);
+                                return error.CompilationFailed;
+                            }
+                        },
+                        else => {
+                            std.debug.print("{s}", .{result.stderr});
+                            dumpArgs(zig_args.items);
+                            return error.CompilationCrashed;
+                        },
+                    }
+                    try std.testing.expectEqualStrings("", result.stderr);
+                    try std.testing.expectEqualStrings(expected_stdout, result.stdout);
+                },
                 .Header => @panic("TODO implement in the test harness"),
             }
             return;

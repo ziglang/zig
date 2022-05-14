@@ -69,12 +69,11 @@ $ZIG build test-standalone       -fqemu -fwasmtime
 $ZIG build test-stack-traces     -fqemu -fwasmtime
 $ZIG build test-cli              -fqemu -fwasmtime
 $ZIG build test-asm-link         -fqemu -fwasmtime
-$ZIG build test-runtime-safety   -fqemu -fwasmtime
 $ZIG build test-translate-c      -fqemu -fwasmtime
 $ZIG build test-run-translated-c -fqemu -fwasmtime
 $ZIG build docs                  -fqemu -fwasmtime
 $ZIG build test-fmt              -fqemu -fwasmtime
-$ZIG build test-stage2           -fqemu -fwasmtime
+$ZIG build test-cases            -fqemu -fwasmtime
 
 # Produce the experimental std lib documentation.
 mkdir -p "$RELEASE_STAGING/docs/std"
