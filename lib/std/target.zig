@@ -510,11 +510,7 @@ pub const Target = struct {
                 .other,
                 => return .eabi,
                 .openbsd,
-                .macos,
                 .freebsd,
-                .ios,
-                .tvos,
-                .watchos,
                 .fuchsia,
                 .kfreebsd,
                 .netbsd,
@@ -531,6 +527,10 @@ pub const Target = struct {
                 .glsl450,
                 .vulkan,
                 .plan9, // TODO specify abi
+                .macos,
+                .ios,
+                .tvos,
+                .watchos,
                 => return .none,
             }
         }
