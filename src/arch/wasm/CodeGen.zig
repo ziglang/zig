@@ -2000,7 +2000,7 @@ fn binOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WVa
 }
 
 fn binOpBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    if (ty.intInfo(self.target).bits != 128) {
+    if (ty.intInfo(self.target).bits > 128) {
         return self.fail("TODO: Implement binary operation for big integer", .{});
     }
 
@@ -2050,7 +2050,8 @@ fn wrapBinOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError
     };
 
     if (wasm_bits == 128) {
-        return self.binOp(lhs, rhs, ty, op);
+        const bin_op = try self.binOpBigInt(lhs, rhs, ty, op);
+        return self.wrapOperand(bin_op, ty);
     }
 
     const opcode: wasm.Opcode = buildOpcode(.{
@@ -2064,28 +2065,46 @@ fn wrapBinOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
     const bin_local = try self.allocLocal(ty);
     try self.addLabel(.local_set, bin_local.local);
-    if (wasm_bits == bit_size) {
-        return bin_local;
-    }
 
     return self.wrapOperand(bin_local, ty);
 }
 
 /// Wraps an operand based on a given type's bitsize.
-/// Asserts `Type` is <= 64bits.
+/// Asserts `Type` is <= 128 bits.
 fn wrapOperand(self: *Self, operand: WValue, ty: Type) InnerError!WValue {
-    assert(ty.abiSize(self.target) <= 8);
+    assert(ty.abiSize(self.target) <= 16);
     const result_local = try self.allocLocal(ty);
     const bitsize = ty.intInfo(self.target).bits;
-    const result = @intCast(u64, (@as(u65, 1) << @intCast(u7, bitsize)) - 1);
+    const wasm_bits = toWasmBits(bitsize) orelse {
+        return self.fail("TODO: Implement wrapOperand for bitsize '{d}'", .{bitsize});
+    };
+    if (wasm_bits == bitsize) return operand;
+
+    if (wasm_bits == 128) {
+        const msb = try self.load(operand, Type.u64, 0);
+        const lsb = try self.load(operand, Type.u64, 8);
+
+        const result_ptr = try self.allocStack(ty);
+        try self.store(result_ptr, lsb, Type.u64, 8);
+        const result = (@as(u64, 1) << @intCast(u6, 64 - (wasm_bits - bitsize))) - 1;
+        try self.emitWValue(result_ptr);
+        try self.emitWValue(msb);
+        try self.addImm64(result);
+        try self.addTag(.i64_and);
+        try self.addMemArg(.i64_store, .{ .offset = result_ptr.offset(), .alignment = 8 });
+        return result_ptr;
+    }
+
+    const result = (@as(u64, 1) << @intCast(u6, bitsize)) - 1;
     try self.emitWValue(operand);
     if (bitsize <= 32) {
         try self.addImm32(@bitCast(i32, @intCast(u32, result)));
         try self.addTag(.i32_and);
-    } else {
+    } else if (bitsize <= 64) {
         try self.addImm64(result);
         try self.addTag(.i64_and);
-    }
+    } else unreachable;
+
     try self.addLabel(.local_set, result_local.local);
     return result_local;
 }
@@ -3231,13 +3250,20 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
     const wanted_ty = self.air.getRefType(ty_op.ty);
-    const int_info = wanted_ty.intInfo(self.target);
-    const wanted_bits = int_info.bits;
+    const op_ty = self.air.typeOf(ty_op.operand);
 
-    _ = toWasmBits(wanted_bits) orelse {
-        return self.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{wanted_bits});
-    };
-    return self.wrapOperand(operand, wanted_ty);
+    const int_info = op_ty.intInfo(self.target);
+    if (toWasmBits(int_info.bits) == null) {
+        return self.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{int_info.bits});
+    }
+
+    const result = try self.intcast(operand, op_ty, wanted_ty);
+    const wanted_bits = wanted_ty.intInfo(self.target).bits;
+    const wasm_bits = toWasmBits(wanted_bits).?;
+    if (wasm_bits != wanted_bits) {
+        return self.wrapOperand(result, wanted_ty);
+    }
+    return result;
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -3927,6 +3953,7 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
     const op_ty = self.air.typeOf(ty_op.operand);
+    const result_ty = self.air.typeOfIndex(inst);
 
     if (op_ty.zigTypeTag() == .Vector) {
         return self.fail("TODO: Implement @popCount for vectors", .{});
@@ -3938,32 +3965,32 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.fail("TODO: Implement @popCount for integers with bitsize '{d}'", .{bits});
     };
 
-    try self.emitWValue(operand);
-
-    // for signed integers we first mask the signedness bit
-    if (int_info.signedness == .signed and wasm_bits != bits) {
-        switch (wasm_bits) {
-            32 => {
-                const mask = (@as(u32, 1) << @intCast(u5, bits)) - 1;
-                try self.addImm32(@bitCast(i32, mask));
-                try self.addTag(.i32_and);
-            },
-            64 => {
-                const mask = (@as(u64, 1) << @intCast(u6, bits)) - 1;
-                try self.addImm64(mask);
-                try self.addTag(.i64_and);
-            },
-            else => unreachable,
-        }
-    }
-
     switch (wasm_bits) {
-        32 => try self.addTag(.i32_popcnt),
-        64 => try self.addTag(.i64_popcnt),
-        else => unreachable,
+        128 => {
+            const msb = try self.load(operand, Type.u64, 0);
+            const lsb = try self.load(operand, Type.u64, 8);
+
+            try self.emitWValue(msb);
+            try self.addTag(.i64_popcnt);
+            try self.emitWValue(lsb);
+            try self.addTag(.i64_popcnt);
+            try self.addTag(.i64_add);
+            try self.addTag(.i32_wrap_i64);
+        },
+        else => {
+            try self.emitWValue(operand);
+            switch (wasm_bits) {
+                32 => try self.addTag(.i32_popcnt),
+                64 => {
+                    try self.addTag(.i64_popcnt);
+                    try self.addTag(.i32_wrap_i64);
+                },
+                else => unreachable,
+            }
+        },
     }
 
-    const result = try self.allocLocal(op_ty);
+    const result = try self.allocLocal(result_ty);
     try self.addLabel(.local_set, result.local);
     return result;
 }
@@ -4366,6 +4393,7 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 try self.emitWValue(bin_op);
             } else try self.emitWValue(operand);
             try self.addTag(.i64_ctz);
+            try self.addTag(.i32_wrap_i64);
         },
         128 => {
             const msb = try self.load(operand, Type.u64, 0);
@@ -4388,13 +4416,14 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             }
             try self.emitWValue(neq);
             try self.addTag(.select);
+            try self.addTag(.i32_wrap_i64);
         },
         else => unreachable,
     }
 
-    const result = try self.allocLocal(ty);
+    const result = try self.allocLocal(result_ty);
     try self.addLabel(.local_set, result.local);
-    return self.intcast(result, ty, result_ty);
+    return result;
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index, is_ptr: bool) !WValue {
