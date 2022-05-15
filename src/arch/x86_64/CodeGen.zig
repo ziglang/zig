@@ -3755,8 +3755,10 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airBreakpoint(self: *Self) !void {
     _ = try self.addInst(.{
-        .tag = .brk,
-        .ops = undefined,
+        .tag = .interrupt,
+        .ops = (Mir.Ops{
+            .flags = 0b00,
+        }).encode(),
         .data = undefined,
     });
     return self.finishAirBookkeeping();

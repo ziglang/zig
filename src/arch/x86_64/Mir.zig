@@ -342,8 +342,9 @@ pub const Inst = struct {
         /// TODO handle more cases
         @"test",
 
-        /// Breakpoint
-        brk,
+        /// Breakpoint  form:
+        ///       0b00  int3
+        interrupt,
 
         /// Nop
         nop,

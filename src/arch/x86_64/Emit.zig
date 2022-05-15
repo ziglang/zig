@@ -178,7 +178,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
 
             .@"test" => try emit.mirTest(inst),
 
-            .brk => try emit.mirBrk(),
+            .interrupt => try emit.mirInterrupt(inst),
             .nop => try emit.mirNop(),
 
             .call_extern => try emit.mirCallExtern(inst),
@@ -225,8 +225,14 @@ fn fixupRelocs(emit: *Emit) InnerError!void {
     }
 }
 
-fn mirBrk(emit: *Emit) InnerError!void {
-    return lowerToZoEnc(.brk, emit.code);
+fn mirInterrupt(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    assert(tag == .interrupt);
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    switch (ops.flags) {
+        0b00 => return lowerToZoEnc(.int3, emit.code),
+        else => return emit.fail("TODO handle variant 0b{b} of interrupt instruction", .{ops.flags}),
+    }
 }
 
 fn mirNop(emit: *Emit) InnerError!void {
@@ -1074,7 +1080,7 @@ const Tag = enum {
     push,
     pop,
     @"test",
-    brk,
+    int3,
     nop,
     imul,
     mul,
@@ -1278,7 +1284,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
         .zo => return switch (tag) {
             .ret_near => OpCode.oneByte(0xc3),
             .ret_far => OpCode.oneByte(0xcb),
-            .brk => OpCode.oneByte(0xcc),
+            .int3 => OpCode.oneByte(0xcc),
             .nop => OpCode.oneByte(0x90),
             .syscall => OpCode.twoByte(0x0f, 0x05),
             .cbw => OpCode.oneByte(0x98),
