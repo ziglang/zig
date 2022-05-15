@@ -650,7 +650,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .optional_payload           => @panic("TODO try self.airOptionalPayload(inst)"),
             .optional_payload_ptr       => @panic("TODO try self.airOptionalPayloadPtr(inst)"),
             .optional_payload_ptr_set   => @panic("TODO try self.airOptionalPayloadPtrSet(inst)"),
-            .unwrap_errunion_err        => @panic("TODO try self.airUnwrapErrErr(inst)"),
+            .unwrap_errunion_err        => try self.airUnwrapErrErr(inst),
             .unwrap_errunion_payload    => try self.airUnwrapErrPayload(inst),
             .unwrap_errunion_err_ptr    => @panic("TODO try self.airUnwrapErrErrPtr(inst)"),
             .unwrap_errunion_payload_ptr=> @panic("TODO try self.airUnwrapErrPayloadPtr(inst)"),
@@ -1463,6 +1463,19 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
 
     return self.fail("TODO implement switch for {}", .{self.target.cpu.arch});
+}
+
+fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const error_union_ty = self.air.typeOf(ty_op.operand);
+        const payload_ty = error_union_ty.errorUnionPayload();
+        const mcv = try self.resolveInst(ty_op.operand);
+        if (!payload_ty.hasRuntimeBits()) break :result mcv;
+
+        return self.fail("TODO implement unwrap error union error for non-empty payloads", .{});
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
