@@ -4154,7 +4154,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.fail("TODO: Implement overflow arithmetic for integer bitsize: {d}", .{int_info.bits});
     };
 
-    if (wasm_bits == 64) {
+    if (wasm_bits > 32) {
         return self.fail("TODO: Implement `@mulWithOverflow` for integer bitsize: {d}", .{int_info.bits});
     }
 
@@ -4236,32 +4236,26 @@ fn airMaxMin(self: *Self, inst: Air.Inst.Index, op: enum { max, min }) InnerErro
         return self.fail("TODO: `@maximum` and `@minimum` for vectors", .{});
     }
 
-    if (ty.abiSize(self.target) > 8) {
-        return self.fail("TODO: `@maximum` and `@minimum` for types larger than 8 bytes", .{});
+    if (ty.abiSize(self.target) > 16) {
+        return self.fail("TODO: `@maximum` and `@minimum` for types larger than 16 bytes", .{});
     }
 
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
 
-    // operands to select from
-    try self.emitWValue(lhs);
-    try self.emitWValue(rhs);
+    const cmp_result = try self.cmp(lhs, rhs, ty, if (op == .max) .gt else .lt);
 
-    // operands to compare
-    try self.emitWValue(lhs);
-    try self.emitWValue(rhs);
-    const opcode = buildOpcode(.{
-        .op = if (op == .max) .gt else .lt,
-        .signedness = if (ty.isSignedInt()) .signed else .unsigned,
-        .valtype1 = typeToValtype(ty, self.target),
-    });
-    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+    // operands to select from
+    try self.lowerToStack(lhs);
+    try self.lowerToStack(rhs);
+    try self.emitWValue(cmp_result);
 
     // based on the result from comparison, return operand 0 or 1.
     try self.addTag(.select);
 
     // store result in local
-    const result = try self.allocLocal(ty);
+    const result_ty = if (isByRef(ty, self.target)) Type.u32 else ty;
+    const result = try self.allocLocal(result_ty);
     try self.addLabel(.local_set, result.local);
     return result;
 }
@@ -4302,29 +4296,37 @@ fn airClz(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.fail("TODO: `@clz` for integers with bitsize '{d}'", .{int_info.bits});
     };
 
-    try self.emitWValue(operand);
     switch (wasm_bits) {
         32 => {
+            try self.emitWValue(operand);
             try self.addTag(.i32_clz);
-
-            if (wasm_bits != int_info.bits) {
-                const tmp = try self.allocLocal(ty);
-                try self.addLabel(.local_set, tmp.local);
-                const val: i32 = -@intCast(i32, wasm_bits - int_info.bits);
-                return self.wrapBinOp(tmp, .{ .imm32 = @bitCast(u32, val) }, ty, .add);
-            }
         },
         64 => {
+            try self.emitWValue(operand);
             try self.addTag(.i64_clz);
+            try self.addTag(.i32_wrap_i64);
+        },
+        128 => {
+            const msb = try self.load(operand, Type.u64, 0);
+            const lsb = try self.load(operand, Type.u64, 8);
+            const neq = try self.cmp(lsb, .{ .imm64 = 0 }, Type.u64, .neq);
 
-            if (wasm_bits != int_info.bits) {
-                const tmp = try self.allocLocal(ty);
-                try self.addLabel(.local_set, tmp.local);
-                const val: i64 = -@intCast(i64, wasm_bits - int_info.bits);
-                return self.wrapBinOp(tmp, .{ .imm64 = @bitCast(u64, val) }, ty, .add);
-            }
+            try self.emitWValue(lsb);
+            try self.addTag(.i64_clz);
+            try self.emitWValue(msb);
+            try self.addTag(.i64_clz);
+            try self.emitWValue(.{ .imm64 = 64 });
+            try self.addTag(.i64_add);
+            try self.emitWValue(neq);
+            try self.addTag(.select);
+            try self.addTag(.i32_wrap_i64);
         },
         else => unreachable,
+    }
+
+    if (wasm_bits != int_info.bits) {
+        try self.emitWValue(.{ .imm32 = wasm_bits - int_info.bits });
+        try self.addTag(.i32_sub);
     }
 
     const result = try self.allocLocal(result_ty);
@@ -4365,12 +4367,34 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             } else try self.emitWValue(operand);
             try self.addTag(.i64_ctz);
         },
+        128 => {
+            const msb = try self.load(operand, Type.u64, 0);
+            const lsb = try self.load(operand, Type.u64, 8);
+            const neq = try self.cmp(msb, .{ .imm64 = 0 }, Type.u64, .neq);
+
+            try self.emitWValue(msb);
+            try self.addTag(.i64_ctz);
+            try self.emitWValue(lsb);
+            if (wasm_bits != int_info.bits) {
+                try self.addImm64(@as(u64, 1) << @intCast(u6, int_info.bits - 64));
+                try self.addTag(.i64_or);
+            }
+            try self.addTag(.i64_ctz);
+            try self.addImm64(64);
+            if (wasm_bits != int_info.bits) {
+                try self.addTag(.i64_or);
+            } else {
+                try self.addTag(.i64_add);
+            }
+            try self.emitWValue(neq);
+            try self.addTag(.select);
+        },
         else => unreachable,
     }
 
-    const result = try self.allocLocal(result_ty);
+    const result = try self.allocLocal(ty);
     try self.addLabel(.local_set, result.local);
-    return result;
+    return self.intcast(result, ty, result_ty);
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index, is_ptr: bool) !WValue {
