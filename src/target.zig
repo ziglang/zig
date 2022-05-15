@@ -16,8 +16,8 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .aarch64, .os = .linux, .abi = .gnu },
     .{ .arch = .aarch64, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
-    .{ .arch = .aarch64, .os = .macos, .abi = .gnu, .os_ver = .{ .major = 11, .minor = 0 } },
-    .{ .arch = .aarch64, .os = .macos, .abi = .gnu, .os_ver = .{ .major = 12, .minor = 0 } },
+    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0 } },
+    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0 } },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabi },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .armeb, .os = .linux, .abi = .musleabi },
@@ -70,9 +70,9 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
     .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
-    .{ .arch = .x86_64, .os = .macos, .abi = .gnu, .os_ver = .{ .major = 10, .minor = 0 } },
-    .{ .arch = .x86_64, .os = .macos, .abi = .gnu, .os_ver = .{ .major = 11, .minor = 0 } },
-    .{ .arch = .x86_64, .os = .macos, .abi = .gnu, .os_ver = .{ .major = 12, .minor = 0 } },
+    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 0 } },
+    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0 } },
+    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0 } },
 };
 
 pub fn libCGenericName(target: std.Target) [:0]const u8 {

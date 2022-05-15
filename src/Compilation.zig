@@ -4298,7 +4298,7 @@ fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8,
 
     list[0] = try std.fmt.allocPrint(
         arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-gnu",
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-none",
         .{ zig_lib_dir, arch_name, os_name },
     );
     list[1] = try std.fmt.allocPrint(

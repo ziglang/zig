@@ -303,7 +303,7 @@ const TargetMatcher = struct {
         };
         const os = @tagName(target.os.tag);
         const abi: ?[]const u8 = switch (target.abi) {
-            .gnu => null,
+            .none => null,
             .simulator => "simulator",
             else => unreachable,
         };
