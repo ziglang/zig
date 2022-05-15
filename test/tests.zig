@@ -95,7 +95,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .macos,
-                .abi = .gnu,
+                .abi = .none,
             },
             .backend = .stage2_aarch64,
         },
@@ -103,7 +103,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .macos,
-                .abi = .gnu,
+                .abi = .none,
             },
             .backend = .stage2_x86_64,
         },
@@ -337,7 +337,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .macos,
-                .abi = .gnu,
+                .abi = .none,
             },
         },
 
@@ -345,7 +345,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .macos,
-                .abi = .gnu,
+                .abi = .none,
             },
         },
 
