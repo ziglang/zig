@@ -94,7 +94,7 @@ pub fn emitMir(
 
             .@"or" => try emit.mirArithmetic3Op(inst),
 
-            .mulx => @panic("TODO implement sparc64 mulx"),
+            .mulx => try emit.mirArithmetic3Op(inst),
 
             .nop => try emit.mirNop(),
 
@@ -207,6 +207,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .lduw => try emit.writeInstruction(Instruction.lduw(i13, rs1, imm, rd)),
             .ldx => try emit.writeInstruction(Instruction.ldx(i13, rs1, imm, rd)),
             .@"or" => try emit.writeInstruction(Instruction.@"or"(i13, rs1, imm, rd)),
+            .mulx => try emit.writeInstruction(Instruction.mulx(i13, rs1, imm, rd)),
             .save => try emit.writeInstruction(Instruction.save(i13, rs1, imm, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(i13, rs1, imm, rd)),
             .stb => try emit.writeInstruction(Instruction.stb(i13, rs1, imm, rd)),
@@ -227,6 +228,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .lduw => try emit.writeInstruction(Instruction.lduw(Register, rs1, rs2, rd)),
             .ldx => try emit.writeInstruction(Instruction.ldx(Register, rs1, rs2, rd)),
             .@"or" => try emit.writeInstruction(Instruction.@"or"(Register, rs1, rs2, rd)),
+            .mulx => try emit.writeInstruction(Instruction.mulx(Register, rs1, rs2, rd)),
             .save => try emit.writeInstruction(Instruction.save(Register, rs1, rs2, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(Register, rs1, rs2, rd)),
             .stb => try emit.writeInstruction(Instruction.stb(Register, rs1, rs2, rd)),
