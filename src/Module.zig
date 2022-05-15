@@ -1848,6 +1848,15 @@ pub const File = struct {
         if (amt != stat.size)
             return error.UnexpectedEndOfFile;
 
+        const resolved_path = try file.fullPath(gpa);
+        defer gpa.free(resolved_path);
+        const real_path = try std.fs.realpathAlloc(gpa, resolved_path);
+        if (!mem.endsWith(u8, real_path, file.sub_file_path)) {
+            file.source = @ptrCast([:0]const u8, real_path);
+            return error.ImportPathMismatch;
+        }
+        defer gpa.free(real_path);
+
         // Here we do not modify stat fields because this function is the one
         // used for error reporting. We need to keep the stat fields stale so that
         // astGenFile can know to regenerate ZIR.
@@ -3142,6 +3151,15 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     if (amt != stat.size)
         return error.UnexpectedEndOfFile;
 
+    const resolved_path = try file.fullPath(gpa);
+    defer gpa.free(resolved_path);
+    const real_path = try std.fs.realpathAlloc(gpa, resolved_path);
+    if (!mem.endsWith(u8, real_path, file.sub_file_path)) {
+        file.source = @ptrCast([:0]const u8, real_path);
+        return error.ImportPathMismatch;
+    }
+    defer gpa.free(real_path);
+
     file.stat = .{
         .size = stat.size,
         .inode = stat.inode,
@@ -4297,7 +4315,12 @@ pub fn importFile(
     };
 }
 
-pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*EmbedFile {
+pub const EmbedFileResult = struct {
+    embed_file: ?*EmbedFile = null,
+    real_path: []const u8 = &.{},
+};
+
+pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !EmbedFileResult {
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the table, to detect if
@@ -4311,7 +4334,7 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
 
     const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
     errdefer assert(mod.embed_table.remove(resolved_path));
-    if (gop.found_existing) return gop.value_ptr.*;
+    if (gop.found_existing) return EmbedFileResult{ .embed_file = gop.value_ptr.* };
 
     const new_file = try gpa.create(EmbedFile);
     errdefer gpa.destroy(new_file);
@@ -4339,6 +4362,12 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     errdefer gpa.free(bytes);
 
+    const real_path = try std.fs.realpathAlloc(gpa, resolved_path);
+    if (!mem.endsWith(u8, real_path, sub_file_path)) {
+        return EmbedFileResult{ .real_path = real_path };
+    }
+    defer gpa.free(real_path);
+
     log.debug("new embedFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, rel_file_path={s}", .{
         resolved_root_path, resolved_path, sub_file_path, rel_file_path,
     });
@@ -4358,7 +4387,7 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
         .pkg = cur_file.pkg,
         .owner_decl = undefined, // Set by Sema immediately after this function returns.
     };
-    return new_file;
+    return EmbedFileResult{ .embed_file = new_file };
 }
 
 pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {

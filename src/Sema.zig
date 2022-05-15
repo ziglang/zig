@@ -8710,7 +8710,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const name = try sema.resolveConstString(block, operand_src, inst_data.operand);
 
-    const embed_file = mod.embedFile(block.getFileScope(), name) catch |err| switch (err) {
+    const result = mod.embedFile(block.getFileScope(), name) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
         },
@@ -8719,6 +8719,15 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             // retry this and not cache the file system error, which may be transient.
             return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ name, @errorName(err) });
         },
+    };
+    const embed_file = result.embed_file orelse {
+        defer mod.gpa.free(result.real_path);
+        return sema.fail(
+            block,
+            operand_src,
+            "unable to load '{s}': canonical file system name is '{s}'",
+            .{ name, result.real_path },
+        );
     };
 
     var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);

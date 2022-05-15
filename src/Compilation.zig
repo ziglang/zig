@@ -3475,17 +3475,43 @@ fn reportRetryableAstGenError(
         },
     };
 
-    const err_msg = if (file.pkg.root_src_directory.path) |dir_path|
-        try Module.ErrorMsg.create(
-            gpa,
-            src_loc,
-            "unable to load '{s}" ++ std.fs.path.sep_str ++ "{s}': {s}",
-            .{ dir_path, file.sub_file_path, @errorName(err) },
-        )
-    else
-        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{s}': {s}", .{
-            file.sub_file_path, @errorName(err),
-        });
+    const err_msg = switch (err) {
+        error.ImportPathMismatch => blk: {
+            defer gpa.free(file.source);
+            if (file.pkg.root_src_directory.path) |dir_path| {
+                if (file.source.len > dir_path.len and file.source[dir_path.len] == std.fs.path.sep and mem.startsWith(u8, file.source, dir_path)) {
+                    break :blk try Module.ErrorMsg.create(
+                        gpa,
+                        src_loc,
+                        "unable to load '{s}': canonical file system name is '{s}'",
+                        .{ file.sub_file_path, file.source[(dir_path.len + 1)..] },
+                    );
+                }
+                break :blk try Module.ErrorMsg.create(
+                    gpa,
+                    src_loc,
+                    "unable to load '{s}" ++ std.fs.path.sep_str ++ "{s}': canonical file system name is '{s}'",
+                    .{ dir_path, file.sub_file_path, file.source },
+                );
+            }
+            break :blk try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{s}': canonical file system name is '{s}'", .{
+                file.sub_file_path, file.source,
+            });
+        },
+        else => blk: {
+            if (file.pkg.root_src_directory.path) |dir_path| {
+                break :blk try Module.ErrorMsg.create(
+                    gpa,
+                    src_loc,
+                    "unable to load '{s}" ++ std.fs.path.sep_str ++ "{s}': {s}",
+                    .{ dir_path, file.sub_file_path, @errorName(err) },
+                );
+            }
+            break :blk try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{s}': {s}", .{
+                file.sub_file_path, @errorName(err),
+            });
+        },
+    };
     errdefer err_msg.destroy(gpa);
 
     {

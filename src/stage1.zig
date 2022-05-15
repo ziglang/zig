@@ -261,6 +261,7 @@ const Error = enum(c_int) {
     Locked,
     InvalidCharacter,
     UnicodePointTooLarge,
+    ImportPathMismatch,
 };
 
 // ABI warning
