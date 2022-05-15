@@ -85,7 +85,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         var i: u32 = 1;
         while (i <= @enumToInt(Ref.anyerror_void_error_union_type)) : (i += 1) {
             var tmpbuf = std.ArrayList(u8).init(self.arena);
-            try Ref.typed_value_map[i].val.format("", .{}, tmpbuf.writer());
+            try Ref.typed_value_map[i].val.fmtDebug().format("", .{}, tmpbuf.writer());
             try self.types.append(
                 self.arena,
                 switch (@intToEnum(Ref, i)) {
@@ -224,11 +224,11 @@ pub fn generateZirData(self: *Autodoc) !void {
     ) catch unreachable;
     out.print(";", .{}) catch unreachable;
     // copy main.js, index.html
-    const special = try self.module.comp.zig_lib_directory.join(self.arena, &.{ "std", "special", "docs", std.fs.path.sep_str });
-    var special_dir = std.fs.openDirAbsolute(special, .{}) catch unreachable;
-    defer special_dir.close();
-    special_dir.copyFile("main.js", output_dir, "main.js", .{}) catch unreachable;
-    special_dir.copyFile("index.html", output_dir, "index.html", .{}) catch unreachable;
+    const docs = try self.module.comp.zig_lib_directory.join(self.arena, &.{ "docs", std.fs.path.sep_str });
+    var docs_dir = std.fs.openDirAbsolute(docs, .{}) catch unreachable;
+    defer docs_dir.close();
+    docs_dir.copyFile("main.js", output_dir, "main.js", .{}) catch unreachable;
+    docs_dir.copyFile("index.html", output_dir, "index.html", .{}) catch unreachable;
 }
 
 /// Represents a chain of scopes, used to resolve decl references to the
@@ -1208,33 +1208,33 @@ fn walkInstruction(
                 },
 
                 .opaque_decl => return self.cteTodo("opaque {...}"),
-                .func => {
-                    const type_slot_index = self.types.items.len;
-                    try self.types.append(self.arena, .{ .Unanalyzed = {} });
-
-                    const result = try self.analyzeFunction(
-                        file,
-                        parent_scope,
-                        inst_index,
-                        self_ast_node_index,
-                        type_slot_index,
-                    );
-                    if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
-                        for (paths.items) |resume_info| {
-                            try self.tryResolveRefPath(
-                                resume_info.file,
-                                inst_index,
-                                resume_info.ref_path,
-                            );
-                        }
-
-                        _ = self.ref_paths_pending_on_types.remove(type_slot_index);
-                        // TODO: we should deallocate the arraylist that holds all the
-                        //       decl paths. not doing it now since it's arena-allocated
-                        //       anyway, but maybe we should put it elsewhere.
-                    }
-                    return result;
-                },
+                //                .func => {
+                //                    const type_slot_index = self.types.items.len;
+                //                    try self.types.append(self.arena, .{ .Unanalyzed = {} });
+                //
+                //                    const result = try self.analyzeFunction(
+                //                        file,
+                //                        parent_scope,
+                //                        inst_index,
+                //                        self_ast_node_index,
+                //                        type_slot_index,
+                //                    );
+                //                    if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
+                //                        for (paths.items) |resume_info| {
+                //                            try self.tryResolveRefPath(
+                //                                resume_info.file,
+                //                                inst_index,
+                //                                resume_info.ref_path,
+                //                            );
+                //                        }
+                //
+                //                        _ = self.ref_paths_pending_on_types.remove(type_slot_index);
+                //                        // TODO: we should deallocate the arraylist that holds all the
+                //                        //       decl paths. not doing it now since it's arena-allocated
+                //                        //       anyway, but maybe we should put it elsewhere.
+                //                    }
+                //                    return result;
+                //                },
                 .variable => {
                     const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
                     var extra_index: usize = extended.operand;
@@ -1731,16 +1731,16 @@ fn walkDecls(
                         const func_index = getBlockInlineBreak(file.zir, value_index);
                         // a decltest is always a function
                         const tag = file.zir.instructions.items(.tag)[Zir.refToIndex(func_index).?];
-                        std.debug.assert(tag == .extended);
+                        std.debug.assert(tag == .func_extended);
 
-                        const extended = file.zir.instructions.items(.data)[Zir.refToIndex(func_index).?].extended;
-                        const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, extended.operand);
-                        const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
+                        const pl_node = file.zir.instructions.items(.data)[Zir.refToIndex(func_index).?].pl_node;
+                        const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, pl_node.payload_index);
+                        const bits = @bitCast(Zir.Inst.ExtendedFunc.Bits, extra.data.bits);
 
                         var extra_index_for_this_func: usize = extra.end;
-                        if (small.has_lib_name) extra_index_for_this_func += 1;
-                        if (small.has_cc) extra_index_for_this_func += 1;
-                        if (small.has_align) extra_index_for_this_func += 1;
+                        if (bits.has_lib_name) extra_index_for_this_func += 1;
+                        if (bits.has_cc) extra_index_for_this_func += 1;
+                        if (bits.has_align) extra_index_for_this_func += 1;
 
                         const ret_ty_body = file.zir.extra[extra_index_for_this_func..][0..extra.data.ret_body_len];
                         extra_index_for_this_func += ret_ty_body.len;
