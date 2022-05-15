@@ -221,6 +221,7 @@ int pthread_getaffinity_np(pthread_t, size_t, struct cpu_set_t *);
 int pthread_setaffinity_np(pthread_t, size_t, const struct cpu_set_t *);
 int pthread_getattr_np(pthread_t, pthread_attr_t *);
 int pthread_setname_np(pthread_t, const char *);
+int pthread_getname_np(pthread_t, char *, size_t);
 int pthread_getattr_default_np(pthread_attr_t *);
 int pthread_setattr_default_np(const pthread_attr_t *);
 int pthread_tryjoin_np(pthread_t, void **);

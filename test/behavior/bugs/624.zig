@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 const TestContext = struct {
@@ -19,6 +20,9 @@ fn MemoryPool(comptime T: type) type {
 }
 
 test "foo" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var allocator = ContextAllocator{ .n = 10 };
     try expect(allocator.n == 10);
 }

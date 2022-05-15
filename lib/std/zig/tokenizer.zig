@@ -322,7 +322,18 @@ pub const Token = struct {
         }
 
         pub fn symbol(tag: Tag) []const u8 {
-            return tag.lexeme() orelse @tagName(tag);
+            return tag.lexeme() orelse switch (tag) {
+                .invalid => "invalid bytes",
+                .identifier => "an identifier",
+                .string_literal, .multiline_string_literal_line => "a string literal",
+                .char_literal => "a character literal",
+                .eof => "EOF",
+                .builtin => "a builtin function",
+                .integer_literal => "an integer literal",
+                .float_literal => "a floating point literal",
+                .doc_comment, .container_doc_comment => "a document comment",
+                else => unreachable,
+            };
         }
     };
 };
@@ -334,7 +345,7 @@ pub const Tokenizer = struct {
 
     /// For debugging purposes
     pub fn dump(self: *Tokenizer, token: *const Token) void {
-        std.debug.print("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.start..token.end] });
+        std.debug.print("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.loc.start..token.loc.end] });
     }
 
     pub fn init(buffer: [:0]const u8) Tokenizer {

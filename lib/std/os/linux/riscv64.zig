@@ -1,7 +1,12 @@
 const std = @import("../../std.zig");
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
+const linux = std.os.linux;
 const uid_t = std.os.linux.uid_t;
 const gid_t = std.os.linux.gid_t;
 const pid_t = std.os.linux.pid_t;
+const sockaddr = linux.sockaddr;
+const socklen_t = linux.socklen_t;
 const timespec = std.os.linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
@@ -486,6 +491,30 @@ pub const Flock = extern struct {
     len: off_t,
     pid: pid_t,
     __unused: [4]u8,
+};
+
+pub const msghdr = extern struct {
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: i32,
+    __pad1: i32 = 0,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    __pad2: socklen_t = 0,
+    flags: i32,
+};
+
+pub const msghdr_const = extern struct {
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec_const,
+    iovlen: i32,
+    __pad1: i32 = 0,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    __pad2: socklen_t = 0,
+    flags: i32,
 };
 
 // The `stat` definition used by the Linux kernel.

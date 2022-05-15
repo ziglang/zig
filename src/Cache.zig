@@ -762,18 +762,30 @@ pub const Manifest = struct {
 
     fn downgradeToSharedLock(self: *Manifest) !void {
         if (!self.have_exclusive_lock) return;
-        const manifest_file = self.manifest_file.?;
-        try manifest_file.downgradeLock();
+
+        // WASI does not currently support flock, so we bypass it here.
+        // TODO: If/when flock is supported on WASI, this check should be removed.
+        //       See https://github.com/WebAssembly/wasi-filesystem/issues/2
+        if (builtin.os.tag != .wasi or std.process.can_spawn or !builtin.single_threaded) {
+            const manifest_file = self.manifest_file.?;
+            try manifest_file.downgradeLock();
+        }
         self.have_exclusive_lock = false;
     }
 
     fn upgradeToExclusiveLock(self: *Manifest) !void {
         if (self.have_exclusive_lock) return;
-        const manifest_file = self.manifest_file.?;
-        // Here we intentionally have a period where the lock is released, in case there are
-        // other processes holding a shared lock.
-        manifest_file.unlock();
-        try manifest_file.lock(.Exclusive);
+
+        // WASI does not currently support flock, so we bypass it here.
+        // TODO: If/when flock is supported on WASI, this check should be removed.
+        //       See https://github.com/WebAssembly/wasi-filesystem/issues/2
+        if (builtin.os.tag != .wasi or std.process.can_spawn or !builtin.single_threaded) {
+            const manifest_file = self.manifest_file.?;
+            // Here we intentionally have a period where the lock is released, in case there are
+            // other processes holding a shared lock.
+            manifest_file.unlock();
+            try manifest_file.lock(.Exclusive);
+        }
         self.have_exclusive_lock = true;
     }
 

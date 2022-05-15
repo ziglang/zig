@@ -2,6 +2,7 @@ const std = @import("std");
 const Type = @import("../../type.zig").Type;
 const Target = std.Target;
 const assert = std.debug.assert;
+const Register = @import("bits.zig").Register;
 
 pub const Class = enum { integer, sse, sseup, x87, x87up, complex_x87, memory, none };
 
@@ -11,13 +12,10 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
     // and the registers used for those arguments. Any argument that doesn't fit in 8
     // bytes, or isn't 1, 2, 4, or 8 bytes, must be passed by reference. A single argument
     // is never spread across multiple registers."
+    // "All floating point operations are done using the 16 XMM registers."
     // "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are passed
     // as if they were integers of the same size."
-    switch (ty.abiSize(target)) {
-        1, 2, 4, 8 => {},
-        else => return .memory,
-    }
-    return switch (ty.zigTypeTag()) {
+    switch (ty.zigTypeTag()) {
         .Pointer,
         .Int,
         .Bool,
@@ -32,9 +30,13 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
         .ErrorUnion,
         .AnyFrame,
         .Frame,
-        => .integer,
+        => switch (ty.abiSize(target)) {
+            0 => unreachable,
+            1, 2, 4, 8 => return .integer,
+            else => return .memory,
+        },
 
-        .Float, .Vector => .sse,
+        .Float, .Vector => return .sse,
 
         .Type,
         .ComptimeFloat,
@@ -46,7 +48,7 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
         .Opaque,
         .EnumLiteral,
         => unreachable,
-    };
+    }
 }
 
 /// There are a maximum of 8 possible return slots. Returned values are in
@@ -105,15 +107,15 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
                 return result;
             },
             128 => {
-                // "Arguments of types__float128,_Decimal128and__m128are
+                // "Arguments of types__float128, _Decimal128 and__m128 are
                 // split into two halves.  The least significant ones belong
-                // to class SSE, the mostsignificant one to class SSEUP."
+                // to class SSE, the most significant one to class SSEUP."
                 result[0] = .sse;
                 result[1] = .sseup;
                 return result;
             },
             else => {
-                // "The 64-bit mantissa of arguments of typelong double
+                // "The 64-bit mantissa of arguments of type long double
                 // belongs to classX87, the 16-bit exponent plus 6 bytes
                 // of padding belongs to class X87UP."
                 result[0] = .x87;
@@ -178,9 +180,8 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
             var byte_i: usize = 0; // out of 8
             const fields = ty.structFields();
             for (fields.values()) |field| {
-                if (field.abi_align.tag() != .abi_align_default) {
-                    const field_alignment = field.abi_align.toUnsignedInt();
-                    if (field_alignment < field.ty.abiAlignment(target)) {
+                if (field.abi_align != 0) {
+                    if (field.abi_align < field.ty.abiAlignment(target)) {
                         return memory_class;
                     }
                 }
@@ -287,9 +288,8 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
 
             const fields = ty.unionFields();
             for (fields.values()) |field| {
-                if (field.abi_align.tag() != .abi_align_default) {
-                    const field_alignment = field.abi_align.toUnsignedInt();
-                    if (field_alignment < field.ty.abiAlignment(target)) {
+                if (field.abi_align != 0) {
+                    if (field.abi_align < field.ty.abiAlignment(target)) {
                         return memory_class;
                     }
                 }
@@ -370,3 +370,14 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
         else => unreachable,
     }
 }
+
+/// Note that .rsp and .rbp also belong to this set, however, we never expect to use them
+/// for anything else but stack offset tracking therefore we exclude them from this set.
+pub const callee_preserved_regs = [_]Register{ .rbx, .r12, .r13, .r14, .r15 };
+/// These registers need to be preserved (saved on the stack) and restored by the caller before
+/// the caller relinquishes control to a subroutine via call instruction (or similar).
+/// In other words, these registers are free to use by the callee.
+pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+pub const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs;
+pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };

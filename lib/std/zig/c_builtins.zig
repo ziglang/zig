@@ -228,6 +228,27 @@ pub inline fn __builtin_isinf_sign(x: anytype) c_int {
     return if (std.math.isPositiveInf(x)) 1 else -1;
 }
 
+pub inline fn __has_builtin(func: anytype) c_int {
+    _ = func;
+    return @boolToInt(true);
+}
+
+pub inline fn __builtin_assume(cond: bool) void {
+    if (!cond) unreachable;
+}
+
+pub inline fn __builtin_unreachable() noreturn {
+    unreachable;
+}
+
+pub inline fn __builtin_constant_p(expr: anytype) c_int {
+    _ = expr;
+    return @boolToInt(false);
+}
+pub fn __builtin_mul_overflow(a: anytype, b: anytype, result: *@TypeOf(a, b)) c_int {
+    return @boolToInt(@mulWithOverflow(@TypeOf(a, b), a, b, result));
+}
+
 // __builtin_alloca_with_align is not currently implemented.
 // It is used in a run-translated-c test and a test-translate-c test to ensure that non-implemented
 // builtins are correctly demoted. If you implement __builtin_alloca_with_align, please update the

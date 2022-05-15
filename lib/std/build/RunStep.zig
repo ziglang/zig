@@ -9,7 +9,7 @@ const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
-const BufMap = std.BufMap;
+const EnvMap = process.EnvMap;
 const Allocator = mem.Allocator;
 const ExecError = build.Builder.ExecError;
 
@@ -29,7 +29,7 @@ argv: ArrayList(Arg),
 cwd: ?[]const u8,
 
 /// Override this field to modify the environment, or use setEnvironmentVariable
-env_map: ?*BufMap,
+env_map: ?*EnvMap,
 
 stdout_action: StdIoAction = .inherit,
 stderr_action: StdIoAction = .inherit,
@@ -91,27 +91,16 @@ pub fn addArgs(self: *RunStep, args: []const []const u8) void {
 }
 
 pub fn clearEnvironment(self: *RunStep) void {
-    const new_env_map = self.builder.allocator.create(BufMap) catch unreachable;
-    new_env_map.* = BufMap.init(self.builder.allocator);
+    const new_env_map = self.builder.allocator.create(EnvMap) catch unreachable;
+    new_env_map.* = EnvMap.init(self.builder.allocator);
     self.env_map = new_env_map;
 }
 
 pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
     const env_map = self.getEnvMap();
 
-    var key: []const u8 = undefined;
-    var prev_path: ?[]const u8 = undefined;
-    if (builtin.os.tag == .windows) {
-        key = "Path";
-        prev_path = env_map.get(key);
-        if (prev_path == null) {
-            key = "PATH";
-            prev_path = env_map.get(key);
-        }
-    } else {
-        key = "PATH";
-        prev_path = env_map.get(key);
-    }
+    const key = "PATH";
+    var prev_path = env_map.get(key);
 
     if (prev_path) |pp| {
         const new_path = self.builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
@@ -121,9 +110,9 @@ pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
     }
 }
 
-pub fn getEnvMap(self: *RunStep) *BufMap {
+pub fn getEnvMap(self: *RunStep) *EnvMap {
     return self.env_map orelse {
-        const env_map = self.builder.allocator.create(BufMap) catch unreachable;
+        const env_map = self.builder.allocator.create(EnvMap) catch unreachable;
         env_map.* = process.getEnvMap(self.builder.allocator) catch unreachable;
         self.env_map = env_map;
         return env_map;
@@ -184,9 +173,7 @@ fn make(step: *Step) !void {
         return ExecError.ExecNotSupported;
     }
 
-    const child = std.ChildProcess.init(argv, self.builder.allocator) catch unreachable;
-    defer child.deinit();
-
+    var child = std.ChildProcess.init(argv, self.builder.allocator);
     child.cwd = cwd;
     child.env_map = self.env_map orelse self.builder.env_map;
 

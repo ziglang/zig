@@ -1,5 +1,6 @@
 const std = @import("std");
 const llvm = @import("codegen/llvm/bindings.zig");
+const Type = @import("type.zig").Type;
 
 pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,
@@ -62,7 +63,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .s390x, .os = .linux, .abi = .gnu },
     .{ .arch = .s390x, .os = .linux, .abi = .musl },
     .{ .arch = .sparc, .os = .linux, .abi = .gnu },
-    .{ .arch = .sparcv9, .os = .linux, .abi = .gnu },
+    .{ .arch = .sparc64, .os = .linux, .abi = .gnu },
     .{ .arch = .wasm32, .os = .freestanding, .abi = .musl },
     .{ .arch = .wasm32, .os = .wasi, .abi = .musl },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
@@ -117,7 +118,7 @@ pub fn osArchName(target: std.Target) [:0]const u8 {
             .mips, .mipsel, .mips64, .mips64el => "mips",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
             .riscv32, .riscv64 => "riscv",
-            .sparc, .sparcel, .sparcv9 => "sparc",
+            .sparc, .sparcel, .sparc64 => "sparc",
             .i386, .x86_64 => "x86",
             else => @tagName(target.cpu.arch),
         },
@@ -231,7 +232,7 @@ pub fn hasLlvmSupport(target: std.Target) bool {
         .riscv32,
         .riscv64,
         .sparc,
-        .sparcv9,
+        .sparc64,
         .sparcel,
         .s390x,
         .tce,
@@ -266,6 +267,15 @@ pub fn hasLlvmSupport(target: std.Target) bool {
         .spirv64,
         => false,
     };
+}
+
+/// The set of targets that our own self-hosted backends have robust support for.
+/// Used to select between LLVM backend and self-hosted backend when compiling in
+/// debug mode. A given target should only return true here if it is passing greater
+/// than or equal to the number of behavior tests as the respective LLVM backend.
+pub fn selfHostedBackendIsAsRobustAsLlvm(target: std.Target) bool {
+    _ = target;
+    return false;
 }
 
 pub fn supportsStackProbing(target: std.Target) bool {
@@ -341,7 +351,7 @@ pub fn archToLLVM(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .riscv32 => .riscv32,
         .riscv64 => .riscv64,
         .sparc => .sparc,
-        .sparcv9 => .sparcv9,
+        .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
         .sparcel => .sparcel,
         .s390x => .systemz,
         .tce => .tce,
@@ -427,18 +437,27 @@ pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
         eqlIgnoreCase(ignore_case, name, "c++abi");
 }
 
-pub fn is_compiler_rt_lib_name(target: std.Target, name: []const u8) bool {
+pub const CompilerRtClassification = enum { none, only_compiler_rt, only_libunwind, both };
+
+pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerRtClassification {
     if (target.abi.isGnu() and std.mem.eql(u8, name, "gcc_s")) {
-        return true;
+        // libgcc_s includes exception handling functions, so if linking this library
+        // is requested, zig needs to instead link libunwind. Otherwise we end up with
+        // the linker unable to find `_Unwind_RaiseException` and other related symbols.
+        return .both;
     }
     if (std.mem.eql(u8, name, "compiler_rt")) {
-        return true;
+        return .only_compiler_rt;
     }
-    return false;
+    if (std.mem.eql(u8, name, "unwind")) {
+        return .only_libunwind;
+    }
+    return .none;
 }
 
 pub fn hasDebugInfo(target: std.Target) bool {
-    return !target.cpu.arch.isWasm();
+    _ = target;
+    return true;
 }
 
 pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.Mode {
@@ -525,10 +544,28 @@ pub fn needUnwindTables(target: std.Target) bool {
     return target.os.tag == .windows;
 }
 
-/// TODO this was ported from stage1 but it does not take into account CPU features,
-/// which can affect this value. Audit this!
-pub fn largestAtomicBits(target: std.Target) u32 {
-    return switch (target.cpu.arch) {
+pub const AtomicPtrAlignmentError = error{
+    FloatTooBig,
+    IntTooBig,
+    BadType,
+};
+
+pub const AtomicPtrAlignmentDiagnostics = struct {
+    bits: u16 = undefined,
+    max_bits: u16 = undefined,
+};
+
+/// If ABI alignment of `ty` is OK for atomic operations, returns 0.
+/// Otherwise returns the alignment required on a pointer for the target
+/// to perform atomic operations.
+pub fn atomicPtrAlignment(
+    target: std.Target,
+    ty: Type,
+    diags: *AtomicPtrAlignmentDiagnostics,
+) AtomicPtrAlignmentError!u32 {
+    // TODO this was ported from stage1 but it does not take into account CPU features,
+    // which can affect this value. Audit this!
+    const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
         .msp430,
         .spu_2,
@@ -580,7 +617,7 @@ pub fn largestAtomicBits(target: std.Target) u32 {
         .powerpc64,
         .powerpc64le,
         .riscv64,
-        .sparcv9,
+        .sparc64,
         .s390x,
         .amdil64,
         .hsail64,
@@ -593,6 +630,40 @@ pub fn largestAtomicBits(target: std.Target) u32 {
 
         .x86_64 => 128,
     };
+
+    var buffer: Type.Payload.Bits = undefined;
+
+    const int_ty = switch (ty.zigTypeTag()) {
+        .Int => ty,
+        .Enum => ty.intTagType(&buffer),
+        .Float => {
+            const bit_count = ty.floatBits(target);
+            if (bit_count > max_atomic_bits) {
+                diags.* = .{
+                    .bits = bit_count,
+                    .max_bits = max_atomic_bits,
+                };
+                return error.FloatTooBig;
+            }
+            return 0;
+        },
+        .Bool => return 0,
+        else => {
+            if (ty.isPtrAtRuntime()) return 0;
+            return error.BadType;
+        },
+    };
+
+    const bit_count = int_ty.intInfo(target).bits;
+    if (bit_count > max_atomic_bits) {
+        diags.* = .{
+            .bits = bit_count,
+            .max_bits = max_atomic_bits,
+        };
+        return error.IntTooBig;
+    }
+
+    return 0;
 }
 
 pub fn defaultAddressSpace(
@@ -652,6 +723,7 @@ pub fn defaultFunctionAlignment(target: std.Target) u32 {
     return switch (target.cpu.arch) {
         .arm, .armeb => 4,
         .aarch64, .aarch64_32, .aarch64_be => 4,
+        .sparc, .sparcel, .sparc64 => 4,
         .riscv64 => 2,
         else => 1,
     };

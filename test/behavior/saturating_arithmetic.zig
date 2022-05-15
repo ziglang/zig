@@ -5,6 +5,12 @@ const maxInt = std.math.maxInt;
 const expect = std.testing.expect;
 
 test "saturating add" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest() !void {
             try testSatAdd(i8, -3, 10, 7);
@@ -49,6 +55,12 @@ test "saturating add" {
 }
 
 test "saturating subtraction" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest() !void {
             try testSatSub(i8, -3, 10, -13);
@@ -92,8 +104,20 @@ test "saturating subtraction" {
 }
 
 test "saturating multiplication" {
-    // TODO: once #9660 has been solved, remove this line
-    if (builtin.cpu.arch == .wasm32) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage1 and builtin.cpu.arch == .wasm32) {
+        // https://github.com/ziglang/zig/issues/9660
+        return error.SkipZigTest;
+    }
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
+        // https://github.com/ziglang/zig/issues/9660
+        return error.SkipZigTest;
+    }
 
     const S = struct {
         fn doTheTest() !void {
@@ -129,6 +153,12 @@ test "saturating multiplication" {
 }
 
 test "saturating shift-left" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest() !void {
             try testSatShl(i8, 1, 2, 4);
@@ -163,7 +193,11 @@ test "saturating shift-left" {
 }
 
 test "saturating shl uses the LHS type" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const lhs_const: u8 = 1;
     var lhs_var: u8 = 1;

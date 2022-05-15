@@ -66,7 +66,7 @@ const SparcCpuinfoImpl = struct {
 const SparcCpuinfoParser = CpuinfoParser(SparcCpuinfoImpl);
 
 test "cpuinfo: SPARC" {
-    try testParser(SparcCpuinfoParser, .sparcv9, &Target.sparc.cpu.niagara2,
+    try testParser(SparcCpuinfoParser, .sparc64, &Target.sparc.cpu.niagara2,
         \\cpu             : UltraSparc T2 (Niagara2)
         \\fpu             : UltraSparc T2 integrated FPU
         \\pmu             : niagara2
@@ -456,7 +456,7 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
         .arm, .armeb, .thumb, .thumbeb, .aarch64, .aarch64_be, .aarch64_32 => {
             return ArmCpuinfoParser.parse(current_arch, f.reader()) catch null;
         },
-        .sparcv9 => {
+        .sparc64 => {
             return SparcCpuinfoParser.parse(current_arch, f.reader()) catch null;
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {

@@ -9,11 +9,10 @@ const Allocator = std.mem.Allocator;
 const fs = std.fs;
 const elf = std.elf;
 const log = std.log.scoped(.link);
-const DW = std.dwarf;
-const leb128 = std.leb;
 
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
+const Dwarf = @import("Dwarf.zig");
 const codegen = @import("../codegen.zig");
 const lldMain = @import("../main.zig").lldMain;
 const trace = @import("../tracy.zig").trace;
@@ -37,6 +36,7 @@ const default_entry_addr = 0x8000000;
 pub const base_tag: File.Tag = .elf;
 
 base: File,
+dwarf: ?Dwarf = null,
 
 ptr_width: PtrWidth,
 
@@ -65,9 +65,8 @@ phdr_load_rw_index: ?u16 = null,
 phdr_shdr_table: std.AutoHashMapUnmanaged(u16, u16) = .{},
 
 entry_addr: ?u64 = null,
-page_size: u16,
+page_size: u32,
 
-debug_strtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
 shstrtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
 shstrtab_index: ?u16 = null,
 
@@ -81,8 +80,6 @@ debug_abbrev_section_index: ?u16 = null,
 debug_str_section_index: ?u16 = null,
 debug_aranges_section_index: ?u16 = null,
 debug_line_section_index: ?u16 = null,
-
-debug_abbrev_table_offset: ?u64 = null,
 
 /// The same order as in the file. ELF requires global symbols to all be after the
 /// local symbols, they cannot be mixed. So we must buffer all the global symbols and
@@ -103,11 +100,11 @@ offset_table: std.ArrayListUnmanaged(u64) = .{},
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
 shstrtab_dirty: bool = false,
-debug_strtab_dirty: bool = false,
 offset_table_count_dirty: bool = false,
+
+debug_strtab_dirty: bool = false,
 debug_abbrev_section_dirty: bool = false,
 debug_aranges_section_dirty: bool = false,
-
 debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
@@ -137,7 +134,7 @@ atom_free_lists: std.AutoHashMapUnmanaged(u16, std.ArrayListUnmanaged(*TextBlock
 /// We store them here so that we can properly dispose of any allocated
 /// memory within the atom in the incremental linker.
 /// TODO consolidate this.
-decls: std.AutoHashMapUnmanaged(*Module.Decl, ?u16) = .{},
+decls: std.AutoHashMapUnmanaged(Module.Decl.Index, ?u16) = .{},
 
 /// List of atoms that are owned directly by the linker.
 /// Currently these are only atoms that are the result of linking
@@ -157,7 +154,7 @@ atom_by_index_table: std.AutoHashMapUnmanaged(u32, *TextBlock) = .{},
 /// const Foo = struct{
 ///     a: u8,
 /// };
-/// 
+///
 /// pub fn main() void {
 ///     var foo = Foo{ .a = 1 };
 ///     _ = foo;
@@ -168,18 +165,6 @@ atom_by_index_table: std.AutoHashMapUnmanaged(u32, *TextBlock) = .{},
 /// with `Decl` `main`, and lives as long as that `Decl`.
 unnamed_const_atoms: UnnamedConstTable = .{},
 
-/// A list of `SrcFn` whose Line Number Programs have surplus capacity.
-/// This is the same concept as `text_block_free_list`; see those doc comments.
-dbg_line_fn_free_list: std.AutoHashMapUnmanaged(*SrcFn, void) = .{},
-dbg_line_fn_first: ?*SrcFn = null,
-dbg_line_fn_last: ?*SrcFn = null,
-
-/// A list of `TextBlock` whose corresponding .debug_info tags have surplus capacity.
-/// This is the same concept as `text_block_free_list`; see those doc comments.
-dbg_info_decl_free_list: std.AutoHashMapUnmanaged(*TextBlock, void) = .{},
-dbg_info_decl_first: ?*TextBlock = null,
-dbg_info_decl_last: ?*TextBlock = null,
-
 /// A table of relocations indexed by the owning them `TextBlock`.
 /// Note that once we refactor `TextBlock`'s lifetime and ownership rules,
 /// this will be a table indexed by index into the list of Atoms.
@@ -188,11 +173,12 @@ relocs: RelocTable = .{},
 const Reloc = struct {
     target: u32,
     offset: u64,
+    addend: u32,
     prev_vaddr: u64,
 };
 
 const RelocTable = std.AutoHashMapUnmanaged(*TextBlock, std.ArrayListUnmanaged(Reloc));
-const UnnamedConstTable = std.AutoHashMapUnmanaged(*Module.Decl, std.ArrayListUnmanaged(*TextBlock));
+const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(*TextBlock));
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
@@ -221,24 +207,14 @@ pub const TextBlock = struct {
     prev: ?*TextBlock,
     next: ?*TextBlock,
 
-    /// Previous/next linked list pointers.
-    /// This is the linked list node for this Decl's corresponding .debug_info tag.
-    dbg_info_prev: ?*TextBlock,
-    dbg_info_next: ?*TextBlock,
-    /// Offset into .debug_info pointing to the tag for this Decl.
-    dbg_info_off: u32,
-    /// Size of the .debug_info tag for this Decl, not including padding.
-    dbg_info_len: u32,
+    dbg_info_atom: Dwarf.Atom,
 
     pub const empty = TextBlock{
         .local_sym_index = 0,
         .offset_table_index = undefined,
         .prev = null,
         .next = null,
-        .dbg_info_prev = null,
-        .dbg_info_next = null,
-        .dbg_info_off = undefined,
-        .dbg_info_len = undefined,
+        .dbg_info_atom = undefined,
     };
 
     /// Returns how much room there is to grow in virtual address space.
@@ -272,26 +248,6 @@ pub const Export = struct {
     sym_index: ?u32 = null,
 };
 
-pub const SrcFn = struct {
-    /// Offset from the beginning of the Debug Line Program header that contains this function.
-    off: u32,
-    /// Size of the line number program component belonging to this function, not
-    /// including padding.
-    len: u32,
-
-    /// Points to the previous and next neighbors, based on the offset from .debug_line.
-    /// This can be used to find, for example, the capacity of this `SrcFn`.
-    prev: ?*SrcFn,
-    next: ?*SrcFn,
-
-    pub const empty: SrcFn = .{
-        .off = 0,
-        .len = 0,
-        .prev = null,
-        .next = null,
-    };
-};
-
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Elf {
     assert(options.object_format == .elf);
 
@@ -299,15 +255,14 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         return createEmpty(allocator, options);
     }
 
+    const self = try createEmpty(allocator, options);
+    errdefer self.base.destroy();
+
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
     });
-    errdefer file.close();
-
-    const self = try createEmpty(allocator, options);
-    errdefer self.base.destroy();
 
     self.base.file = file;
     self.shdr_table_dirty = true;
@@ -349,7 +304,17 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     };
     const self = try gpa.create(Elf);
     errdefer gpa.destroy(self);
-    const page_size: u16 = 0x1000; // TODO ppc64le requires 64KB
+
+    const page_size: u32 = switch (options.target.cpu.arch) {
+        .powerpc64le => 0x10000,
+        .sparc64 => 0x2000,
+        else => 0x1000,
+    };
+
+    var dwarf: ?Dwarf = if (!options.strip and options.module != null)
+        Dwarf.init(gpa, .elf, options.target)
+    else
+        null;
 
     self.* = .{
         .base = .{
@@ -358,6 +323,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
             .allocator = gpa,
             .file = null,
         },
+        .dwarf = dwarf,
         .ptr_width = ptr_width,
         .page_size = page_size,
     };
@@ -377,14 +343,11 @@ pub fn deinit(self: *Elf) void {
     self.sections.deinit(self.base.allocator);
     self.program_headers.deinit(self.base.allocator);
     self.shstrtab.deinit(self.base.allocator);
-    self.debug_strtab.deinit(self.base.allocator);
     self.local_symbols.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
     self.global_symbol_free_list.deinit(self.base.allocator);
     self.local_symbol_free_list.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
-    self.dbg_line_fn_free_list.deinit(self.base.allocator);
-    self.dbg_info_decl_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.phdr_shdr_table.deinit(self.base.allocator);
     self.decls.deinit(self.base.allocator);
@@ -420,34 +383,34 @@ pub fn deinit(self: *Elf) void {
     }
 
     self.atom_by_index_table.deinit(self.base.allocator);
+
+    if (self.dwarf) |*dw| {
+        dw.deinit();
+    }
 }
 
-pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl, parent_atom_index: u32, offset: u64) !u64 {
+pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: File.RelocInfo) !u64 {
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
     assert(self.llvm_object == null);
     assert(decl.link.elf.local_sym_index != 0);
 
     const target = decl.link.elf.local_sym_index;
     const vaddr = self.local_symbols.items[target].st_value;
-    const atom = self.atom_by_index_table.get(parent_atom_index).?;
+    const atom = self.atom_by_index_table.get(reloc_info.parent_atom_index).?;
     const gop = try self.relocs.getOrPut(self.base.allocator, atom);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     try gop.value_ptr.append(self.base.allocator, .{
         .target = target,
-        .offset = offset,
+        .offset = reloc_info.offset,
+        .addend = reloc_info.addend,
         .prev_vaddr = vaddr,
     });
 
     return vaddr;
-}
-
-fn getDebugLineProgramOff(self: Elf) u32 {
-    return self.dbg_line_fn_first.?.off;
-}
-
-fn getDebugLineProgramEnd(self: Elf) u32 {
-    return self.dbg_line_fn_last.?.off + self.dbg_line_fn_last.?.len;
 }
 
 /// Returns end pos of collision, if any.
@@ -496,7 +459,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     return null;
 }
 
-fn allocatedSize(self: *Elf, start: u64) u64 {
+pub fn allocatedSize(self: *Elf, start: u64) u64 {
     if (start == 0)
         return 0;
     var min_pos: u64 = std.math.maxInt(u64);
@@ -517,7 +480,7 @@ fn allocatedSize(self: *Elf, start: u64) u64 {
     return min_pos - start;
 }
 
-fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u16) u64 {
+pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u32) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
         start = mem.alignForwardGeneric(u64, item_end, min_alignment);
@@ -531,15 +494,6 @@ fn makeString(self: *Elf, bytes: []const u8) !u32 {
     const result = self.shstrtab.items.len;
     self.shstrtab.appendSliceAssumeCapacity(bytes);
     self.shstrtab.appendAssumeCapacity(0);
-    return @intCast(u32, result);
-}
-
-/// TODO Improve this to use a table.
-fn makeDebugString(self: *Elf, bytes: []const u8) !u32 {
-    try self.debug_strtab.ensureUnusedCapacity(self.base.allocator, bytes.len + 1);
-    const result = self.debug_strtab.items.len;
-    self.debug_strtab.appendSliceAssumeCapacity(bytes);
-    self.debug_strtab.appendAssumeCapacity(0);
     return @intCast(u32, result);
 }
 
@@ -803,127 +757,129 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         try self.writeSymbol(0);
     }
 
-    if (self.debug_str_section_index == null) {
-        self.debug_str_section_index = @intCast(u16, self.sections.items.len);
-        assert(self.debug_strtab.items.len == 0);
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_str"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
-            .sh_addr = 0,
-            .sh_offset = 0,
-            .sh_size = self.debug_strtab.items.len,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = 1,
-            .sh_entsize = 1,
-        });
-        self.debug_strtab_dirty = true;
-        self.shdr_table_dirty = true;
-    }
+    if (self.dwarf) |dw| {
+        if (self.debug_str_section_index == null) {
+            self.debug_str_section_index = @intCast(u16, self.sections.items.len);
+            assert(dw.strtab.items.len == 0);
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_str"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                .sh_addr = 0,
+                .sh_offset = 0,
+                .sh_size = 0,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = 1,
+                .sh_entsize = 1,
+            });
+            self.debug_strtab_dirty = true;
+            self.shdr_table_dirty = true;
+        }
 
-    if (self.debug_info_section_index == null) {
-        self.debug_info_section_index = @intCast(u16, self.sections.items.len);
+        if (self.debug_info_section_index == null) {
+            self.debug_info_section_index = @intCast(u16, self.sections.items.len);
 
-        const file_size_hint = 200;
-        const p_align = 1;
-        const off = self.findFreeSpace(file_size_hint, p_align);
-        log.debug("found .debug_info free space 0x{x} to 0x{x}", .{
-            off,
-            off + file_size_hint,
-        });
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_info"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = file_size_hint,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = p_align,
-            .sh_entsize = 0,
-        });
-        self.shdr_table_dirty = true;
-        self.debug_info_header_dirty = true;
-    }
+            const file_size_hint = 200;
+            const p_align = 1;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_info free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_info"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_info_header_dirty = true;
+        }
 
-    if (self.debug_abbrev_section_index == null) {
-        self.debug_abbrev_section_index = @intCast(u16, self.sections.items.len);
+        if (self.debug_abbrev_section_index == null) {
+            self.debug_abbrev_section_index = @intCast(u16, self.sections.items.len);
 
-        const file_size_hint = 128;
-        const p_align = 1;
-        const off = self.findFreeSpace(file_size_hint, p_align);
-        log.debug("found .debug_abbrev free space 0x{x} to 0x{x}", .{
-            off,
-            off + file_size_hint,
-        });
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_abbrev"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = file_size_hint,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = p_align,
-            .sh_entsize = 0,
-        });
-        self.shdr_table_dirty = true;
-        self.debug_abbrev_section_dirty = true;
-    }
+            const file_size_hint = 128;
+            const p_align = 1;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_abbrev free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_abbrev"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_abbrev_section_dirty = true;
+        }
 
-    if (self.debug_aranges_section_index == null) {
-        self.debug_aranges_section_index = @intCast(u16, self.sections.items.len);
+        if (self.debug_aranges_section_index == null) {
+            self.debug_aranges_section_index = @intCast(u16, self.sections.items.len);
 
-        const file_size_hint = 160;
-        const p_align = 16;
-        const off = self.findFreeSpace(file_size_hint, p_align);
-        log.debug("found .debug_aranges free space 0x{x} to 0x{x}", .{
-            off,
-            off + file_size_hint,
-        });
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_aranges"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = file_size_hint,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = p_align,
-            .sh_entsize = 0,
-        });
-        self.shdr_table_dirty = true;
-        self.debug_aranges_section_dirty = true;
-    }
+            const file_size_hint = 160;
+            const p_align = 16;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_aranges free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_aranges"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_aranges_section_dirty = true;
+        }
 
-    if (self.debug_line_section_index == null) {
-        self.debug_line_section_index = @intCast(u16, self.sections.items.len);
+        if (self.debug_line_section_index == null) {
+            self.debug_line_section_index = @intCast(u16, self.sections.items.len);
 
-        const file_size_hint = 250;
-        const p_align = 1;
-        const off = self.findFreeSpace(file_size_hint, p_align);
-        log.debug("found .debug_line free space 0x{x} to 0x{x}", .{
-            off,
-            off + file_size_hint,
-        });
-        try self.sections.append(self.base.allocator, .{
-            .sh_name = try self.makeString(".debug_line"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = file_size_hint,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = p_align,
-            .sh_entsize = 0,
-        });
-        self.shdr_table_dirty = true;
-        self.debug_line_header_dirty = true;
+            const file_size_hint = 250;
+            const p_align = 1;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_line free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(self.base.allocator, .{
+                .sh_name = try self.makeString(".debug_line"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_line_header_dirty = true;
+        }
     }
 
     const shsize: u64 = switch (self.ptr_width) {
@@ -976,45 +932,38 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 }
 
-pub const abbrev_compile_unit = 1;
-pub const abbrev_subprogram = 2;
-pub const abbrev_subprogram_retvoid = 3;
-pub const abbrev_base_type = 4;
-pub const abbrev_ptr_type = 5;
-pub const abbrev_struct_type = 6;
-pub const abbrev_anon_struct_type = 7;
-pub const abbrev_struct_member = 8;
-pub const abbrev_pad1 = 9;
-pub const abbrev_parameter = 10;
-
-pub fn flush(self: *Elf, comp: *Compilation) !void {
+pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (self.base.options.emit == null) {
         if (build_options.have_llvm) {
             if (self.llvm_object) |llvm_object| {
-                return try llvm_object.flushModule(comp);
+                return try llvm_object.flushModule(comp, prog_node);
             }
         }
         return;
     }
     const use_lld = build_options.have_llvm and self.base.options.use_lld;
     if (use_lld) {
-        return self.linkWithLLD(comp);
+        return self.linkWithLLD(comp, prog_node);
     }
     switch (self.base.options.output_mode) {
-        .Exe, .Obj => return self.flushModule(comp),
+        .Exe, .Obj => return self.flushModule(comp, prog_node),
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 }
 
-pub fn flushModule(self: *Elf, comp: *Compilation) !void {
+pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp);
+            return try llvm_object.flushModule(comp, prog_node);
         }
     }
+
+    var sub_prog_node = prog_node.start("ELF Flush", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
@@ -1022,11 +971,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
 
     const target_endian = self.base.options.target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
-    const ptr_width_bytes: u8 = self.ptrWidthBytes();
-    const init_len_size: usize = switch (self.ptr_width) {
-        .p32 => 4,
-        .p64 => 12,
-    };
+
+    if (self.dwarf) |*dw| {
+        try dw.flushModule(&self.base, module);
+    }
 
     {
         var it = self.relocs.iterator();
@@ -1040,7 +988,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
 
             for (relocs.items) |*reloc| {
                 const target_sym = self.local_symbols.items[reloc.target];
-                const target_vaddr = target_sym.st_value;
+                const target_vaddr = target_sym.st_value + reloc.addend;
 
                 if (target_vaddr == reloc.prev_vaddr) continue;
 
@@ -1067,358 +1015,42 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     // mixing local and global symbols within a symbol table.
     try self.writeAllGlobalSymbols();
 
-    if (self.debug_abbrev_section_dirty) {
-        const debug_abbrev_sect = &self.sections.items[self.debug_abbrev_section_index.?];
-
-        // These are LEB encoded but since the values are all less than 127
-        // we can simply append these bytes.
-        const abbrev_buf = [_]u8{
-            abbrev_compile_unit, DW.TAG.compile_unit, DW.CHILDREN.yes, // header
-            DW.AT.stmt_list,     DW.FORM.sec_offset,  DW.AT.low_pc,
-            DW.FORM.addr,        DW.AT.high_pc,       DW.FORM.addr,
-            DW.AT.name,          DW.FORM.strp,        DW.AT.comp_dir,
-            DW.FORM.strp,        DW.AT.producer,      DW.FORM.strp,
-            DW.AT.language,      DW.FORM.data2,       0,
-            0, // table sentinel
-            abbrev_subprogram,
-            DW.TAG.subprogram,
-            DW.CHILDREN.yes, // header
-            DW.AT.low_pc,
-            DW.FORM.addr,
-            DW.AT.high_pc,
-            DW.FORM.data4,
-            DW.AT.type,
-            DW.FORM.ref4,
-            DW.AT.name,
-            DW.FORM.string,
-            0,                         0, // table sentinel
-            abbrev_subprogram_retvoid,
-            DW.TAG.subprogram, DW.CHILDREN.yes, // header
-            DW.AT.low_pc,      DW.FORM.addr,
-            DW.AT.high_pc,     DW.FORM.data4,
-            DW.AT.name,        DW.FORM.string,
-            0,
-            0, // table sentinel
-            abbrev_base_type,
-            DW.TAG.base_type,
-            DW.CHILDREN.no, // header
-            DW.AT.encoding,
-            DW.FORM.data1,
-            DW.AT.byte_size,
-            DW.FORM.data1,
-            DW.AT.name,
-            DW.FORM.string,
-            0,
-            0, // table sentinel
-            abbrev_ptr_type,
-            DW.TAG.pointer_type,
-            DW.CHILDREN.no, // header
-            DW.AT.type,
-            DW.FORM.ref4,
-            0,
-            0, // table sentinel
-            abbrev_struct_type,
-            DW.TAG.structure_type,
-            DW.CHILDREN.yes, // header
-            DW.AT.byte_size,
-            DW.FORM.sdata,
-            DW.AT.name,
-            DW.FORM.string,
-            0,
-            0, // table sentinel
-            abbrev_anon_struct_type,
-            DW.TAG.structure_type,
-            DW.CHILDREN.yes, // header
-            DW.AT.byte_size,
-            DW.FORM.sdata,
-            0,
-            0, // table sentinel
-            abbrev_struct_member,
-            DW.TAG.member,
-            DW.CHILDREN.no, // header
-            DW.AT.name,
-            DW.FORM.string,
-            DW.AT.type,
-            DW.FORM.ref4,
-            DW.AT.data_member_location,
-            DW.FORM.sdata,
-            0,
-            0, // table sentinel
-            abbrev_pad1,
-            DW.TAG.unspecified_type,
-            DW.CHILDREN.no, // header
-            0,
-            0, // table sentinel
-            abbrev_parameter,
-            DW.TAG.formal_parameter, DW.CHILDREN.no, // header
-            DW.AT.location,          DW.FORM.exprloc,
-            DW.AT.type,              DW.FORM.ref4,
-            DW.AT.name,              DW.FORM.string,
-            0,
-            0, // table sentinel
-            0,
-            0,
-            0, // section sentinel
-        };
-
-        const needed_size = abbrev_buf.len;
-        const allocated_size = self.allocatedSize(debug_abbrev_sect.sh_offset);
-        if (needed_size > allocated_size) {
-            debug_abbrev_sect.sh_size = 0; // free the space
-            debug_abbrev_sect.sh_offset = self.findFreeSpace(needed_size, 1);
-        }
-        debug_abbrev_sect.sh_size = needed_size;
-        log.debug(".debug_abbrev start=0x{x} end=0x{x}", .{
-            debug_abbrev_sect.sh_offset,
-            debug_abbrev_sect.sh_offset + needed_size,
-        });
-
-        const abbrev_offset = 0;
-        self.debug_abbrev_table_offset = abbrev_offset;
-        try self.base.file.?.pwriteAll(&abbrev_buf, debug_abbrev_sect.sh_offset + abbrev_offset);
-        if (!self.shdr_table_dirty) {
-            // Then it won't get written with the others and we need to do it.
-            try self.writeSectHeader(self.debug_abbrev_section_index.?);
+    if (self.dwarf) |*dw| {
+        if (self.debug_abbrev_section_dirty) {
+            try dw.writeDbgAbbrev(&self.base);
+            if (!self.shdr_table_dirty) {
+                // Then it won't get written with the others and we need to do it.
+                try self.writeSectHeader(self.debug_abbrev_section_index.?);
+            }
+            self.debug_abbrev_section_dirty = false;
         }
 
-        self.debug_abbrev_section_dirty = false;
-    }
-
-    if (self.debug_info_header_dirty) debug_info: {
-        // If this value is null it means there is an error in the module;
-        // leave debug_info_header_dirty=true.
-        const first_dbg_info_decl = self.dbg_info_decl_first orelse break :debug_info;
-        const last_dbg_info_decl = self.dbg_info_decl_last.?;
-        const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
-
-        // We have a function to compute the upper bound size, because it's needed
-        // for determining where to put the offset of the first `LinkBlock`.
-        const needed_bytes = self.dbgInfoNeededHeaderBytes();
-        var di_buf = try std.ArrayList(u8).initCapacity(self.base.allocator, needed_bytes);
-        defer di_buf.deinit();
-
-        // initial length - length of the .debug_info contribution for this compilation unit,
-        // not including the initial length itself.
-        // We have to come back and write it later after we know the size.
-        const after_init_len = di_buf.items.len + init_len_size;
-        // +1 for the final 0 that ends the compilation unit children.
-        const dbg_info_end = last_dbg_info_decl.dbg_info_off + last_dbg_info_decl.dbg_info_len + 1;
-        const init_len = dbg_info_end - after_init_len;
-        switch (self.ptr_width) {
-            .p32 => {
-                mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len), target_endian);
-            },
-            .p64 => {
-                di_buf.appendNTimesAssumeCapacity(0xff, 4);
-                mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len, target_endian);
-            },
-        }
-        mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4, target_endian); // DWARF version
-        const abbrev_offset = self.debug_abbrev_table_offset.?;
-        switch (self.ptr_width) {
-            .p32 => {
-                mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, abbrev_offset), target_endian);
-                di_buf.appendAssumeCapacity(4); // address size
-            },
-            .p64 => {
-                mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), abbrev_offset, target_endian);
-                di_buf.appendAssumeCapacity(8); // address size
-            },
-        }
-        // Write the form for the compile unit, which must match the abbrev table above.
-        const name_strp = try self.makeDebugString(module.root_pkg.root_src_path);
-        const comp_dir_strp = try self.makeDebugString(module.root_pkg.root_src_directory.path orelse ".");
-        const producer_strp = try self.makeDebugString(link.producer_string);
-        // Currently only one compilation unit is supported, so the address range is simply
-        // identical to the main program header virtual address and memory size.
-        const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-        const low_pc = text_phdr.p_vaddr;
-        const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-
-        di_buf.appendAssumeCapacity(abbrev_compile_unit);
-        self.writeDwarfAddrAssumeCapacity(&di_buf, 0); // DW.AT.stmt_list, DW.FORM.sec_offset
-        self.writeDwarfAddrAssumeCapacity(&di_buf, low_pc);
-        self.writeDwarfAddrAssumeCapacity(&di_buf, high_pc);
-        self.writeDwarfAddrAssumeCapacity(&di_buf, name_strp);
-        self.writeDwarfAddrAssumeCapacity(&di_buf, comp_dir_strp);
-        self.writeDwarfAddrAssumeCapacity(&di_buf, producer_strp);
-        // We are still waiting on dwarf-std.org to assign DW_LANG_Zig a number:
-        // http://dwarfstd.org/ShowIssue.php?issue=171115.1
-        // Until then we say it is C99.
-        mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), DW.LANG.C99, target_endian);
-
-        if (di_buf.items.len > first_dbg_info_decl.dbg_info_off) {
-            // Move the first N decls to the end to make more padding for the header.
-            @panic("TODO: handle .debug_info header exceeding its padding");
-        }
-        const jmp_amt = first_dbg_info_decl.dbg_info_off - di_buf.items.len;
-        try self.pwriteDbgInfoNops(0, di_buf.items, jmp_amt, false, debug_info_sect.sh_offset);
-        self.debug_info_header_dirty = false;
-    }
-
-    if (self.debug_aranges_section_dirty) {
-        const debug_aranges_sect = &self.sections.items[self.debug_aranges_section_index.?];
-
-        // Enough for all the data without resizing. When support for more compilation units
-        // is added, the size of this section will become more variable.
-        var di_buf = try std.ArrayList(u8).initCapacity(self.base.allocator, 100);
-        defer di_buf.deinit();
-
-        // initial length - length of the .debug_aranges contribution for this compilation unit,
-        // not including the initial length itself.
-        // We have to come back and write it later after we know the size.
-        const init_len_index = di_buf.items.len;
-        di_buf.items.len += init_len_size;
-        const after_init_len = di_buf.items.len;
-        mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 2, target_endian); // version
-        // When more than one compilation unit is supported, this will be the offset to it.
-        // For now it is always at offset 0 in .debug_info.
-        self.writeDwarfAddrAssumeCapacity(&di_buf, 0); // .debug_info offset
-        di_buf.appendAssumeCapacity(ptr_width_bytes); // address_size
-        di_buf.appendAssumeCapacity(0); // segment_selector_size
-
-        const end_header_offset = di_buf.items.len;
-        const begin_entries_offset = mem.alignForward(end_header_offset, ptr_width_bytes * 2);
-        di_buf.appendNTimesAssumeCapacity(0, begin_entries_offset - end_header_offset);
-
-        // Currently only one compilation unit is supported, so the address range is simply
-        // identical to the main program header virtual address and memory size.
-        const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-        self.writeDwarfAddrAssumeCapacity(&di_buf, text_phdr.p_vaddr);
-        self.writeDwarfAddrAssumeCapacity(&di_buf, text_phdr.p_memsz);
-
-        // Sentinel.
-        self.writeDwarfAddrAssumeCapacity(&di_buf, 0);
-        self.writeDwarfAddrAssumeCapacity(&di_buf, 0);
-
-        // Go back and populate the initial length.
-        const init_len = di_buf.items.len - after_init_len;
-        switch (self.ptr_width) {
-            .p32 => {
-                mem.writeInt(u32, di_buf.items[init_len_index..][0..4], @intCast(u32, init_len), target_endian);
-            },
-            .p64 => {
-                // initial length - length of the .debug_aranges contribution for this compilation unit,
-                // not including the initial length itself.
-                di_buf.items[init_len_index..][0..4].* = [_]u8{ 0xff, 0xff, 0xff, 0xff };
-                mem.writeInt(u64, di_buf.items[init_len_index + 4 ..][0..8], init_len, target_endian);
-            },
+        if (self.debug_info_header_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            const low_pc = text_phdr.p_vaddr;
+            const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
+            try dw.writeDbgInfoHeader(&self.base, module, low_pc, high_pc);
+            self.debug_info_header_dirty = false;
         }
 
-        const needed_size = di_buf.items.len;
-        const allocated_size = self.allocatedSize(debug_aranges_sect.sh_offset);
-        if (needed_size > allocated_size) {
-            debug_aranges_sect.sh_size = 0; // free the space
-            debug_aranges_sect.sh_offset = self.findFreeSpace(needed_size, 16);
-        }
-        debug_aranges_sect.sh_size = needed_size;
-        log.debug(".debug_aranges start=0x{x} end=0x{x}", .{
-            debug_aranges_sect.sh_offset,
-            debug_aranges_sect.sh_offset + needed_size,
-        });
-
-        try self.base.file.?.pwriteAll(di_buf.items, debug_aranges_sect.sh_offset);
-        if (!self.shdr_table_dirty) {
-            // Then it won't get written with the others and we need to do it.
-            try self.writeSectHeader(self.debug_aranges_section_index.?);
+        if (self.debug_aranges_section_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            try dw.writeDbgAranges(&self.base, text_phdr.p_vaddr, text_phdr.p_memsz);
+            if (!self.shdr_table_dirty) {
+                // Then it won't get written with the others and we need to do it.
+                try self.writeSectHeader(self.debug_aranges_section_index.?);
+            }
+            self.debug_aranges_section_dirty = false;
         }
 
-        self.debug_aranges_section_dirty = false;
-    }
-    if (self.debug_line_header_dirty) debug_line: {
-        if (self.dbg_line_fn_first == null) {
-            break :debug_line; // Error in module; leave debug_line_header_dirty=true.
+        if (self.debug_line_header_dirty) {
+            try dw.writeDbgLineHeader(&self.base, module);
+            self.debug_line_header_dirty = false;
         }
-        const dbg_line_prg_off = self.getDebugLineProgramOff();
-        const dbg_line_prg_end = self.getDebugLineProgramEnd();
-        assert(dbg_line_prg_end != 0);
-
-        const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
-
-        // The size of this header is variable, depending on the number of directories,
-        // files, and padding. We have a function to compute the upper bound size, however,
-        // because it's needed for determining where to put the offset of the first `SrcFn`.
-        const needed_bytes = self.dbgLineNeededHeaderBytes();
-        var di_buf = try std.ArrayList(u8).initCapacity(self.base.allocator, needed_bytes);
-        defer di_buf.deinit();
-
-        // initial length - length of the .debug_line contribution for this compilation unit,
-        // not including the initial length itself.
-        const after_init_len = di_buf.items.len + init_len_size;
-        const init_len = dbg_line_prg_end - after_init_len;
-        switch (self.ptr_width) {
-            .p32 => {
-                mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len), target_endian);
-            },
-            .p64 => {
-                di_buf.appendNTimesAssumeCapacity(0xff, 4);
-                mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len, target_endian);
-            },
-        }
-
-        mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4, target_endian); // version
-
-        // Empirically, debug info consumers do not respect this field, or otherwise
-        // consider it to be an error when it does not point exactly to the end of the header.
-        // Therefore we rely on the NOP jump at the beginning of the Line Number Program for
-        // padding rather than this field.
-        const before_header_len = di_buf.items.len;
-        di_buf.items.len += ptr_width_bytes; // We will come back and write this.
-        const after_header_len = di_buf.items.len;
-
-        const opcode_base = DW.LNS.set_isa + 1;
-        di_buf.appendSliceAssumeCapacity(&[_]u8{
-            1, // minimum_instruction_length
-            1, // maximum_operations_per_instruction
-            1, // default_is_stmt
-            1, // line_base (signed)
-            1, // line_range
-            opcode_base,
-
-            // Standard opcode lengths. The number of items here is based on `opcode_base`.
-            // The value is the number of LEB128 operands the instruction takes.
-            0, // `DW.LNS.copy`
-            1, // `DW.LNS.advance_pc`
-            1, // `DW.LNS.advance_line`
-            1, // `DW.LNS.set_file`
-            1, // `DW.LNS.set_column`
-            0, // `DW.LNS.negate_stmt`
-            0, // `DW.LNS.set_basic_block`
-            0, // `DW.LNS.const_add_pc`
-            1, // `DW.LNS.fixed_advance_pc`
-            0, // `DW.LNS.set_prologue_end`
-            0, // `DW.LNS.set_epilogue_begin`
-            1, // `DW.LNS.set_isa`
-            0, // include_directories (none except the compilation unit cwd)
-        });
-        // file_names[0]
-        di_buf.appendSliceAssumeCapacity(module.root_pkg.root_src_path); // relative path name
-        di_buf.appendSliceAssumeCapacity(&[_]u8{
-            0, // null byte for the relative path name
-            0, // directory_index
-            0, // mtime (TODO supply this)
-            0, // file size bytes (TODO supply this)
-            0, // file_names sentinel
-        });
-
-        const header_len = di_buf.items.len - after_header_len;
-        switch (self.ptr_width) {
-            .p32 => {
-                mem.writeInt(u32, di_buf.items[before_header_len..][0..4], @intCast(u32, header_len), target_endian);
-            },
-            .p64 => {
-                mem.writeInt(u64, di_buf.items[before_header_len..][0..8], header_len, target_endian);
-            },
-        }
-
-        // We use NOPs because consumers empirically do not respect the header length field.
-        if (di_buf.items.len > dbg_line_prg_off) {
-            // Move the first N files to the end to make more padding for the header.
-            @panic("TODO: handle .debug_line header exceeding its padding");
-        }
-        const jmp_amt = dbg_line_prg_off - di_buf.items.len;
-        try self.pwriteDbgLineNops(0, di_buf.items, jmp_amt, debug_line_sect.sh_offset);
-        self.debug_line_header_dirty = false;
     }
 
     if (self.phdr_table_dirty) {
@@ -1488,11 +1120,12 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
             self.shstrtab_dirty = false;
         }
     }
-    {
+
+    if (self.dwarf) |dwarf| {
         const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
-        if (self.debug_strtab_dirty or self.debug_strtab.items.len != debug_strtab_sect.sh_size) {
+        if (self.debug_strtab_dirty or dwarf.strtab.items.len != debug_strtab_sect.sh_size) {
             const allocated_size = self.allocatedSize(debug_strtab_sect.sh_offset);
-            const needed_size = self.debug_strtab.items.len;
+            const needed_size = dwarf.strtab.items.len;
 
             if (needed_size > allocated_size) {
                 debug_strtab_sect.sh_size = 0; // free the space
@@ -1501,7 +1134,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
             debug_strtab_sect.sh_size = needed_size;
             log.debug("debug_strtab start=0x{x} end=0x{x}", .{ debug_strtab_sect.sh_offset, debug_strtab_sect.sh_offset + needed_size });
 
-            try self.base.file.?.pwriteAll(self.debug_strtab.items, debug_strtab_sect.sh_offset);
+            try self.base.file.?.pwriteAll(dwarf.strtab.items, debug_strtab_sect.sh_offset);
             if (!self.shdr_table_dirty) {
                 // Then it won't get written with the others and we need to do it.
                 try self.writeSectHeader(self.debug_str_section_index.?);
@@ -1509,6 +1142,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
             self.debug_strtab_dirty = false;
         }
     }
+
     if (self.shdr_table_dirty) {
         const shsize: u64 = switch (self.ptr_width) {
             .p32 => @sizeOf(elf.Elf32_Shdr),
@@ -1577,7 +1211,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     assert(!self.debug_strtab_dirty);
 }
 
-fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
+fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1609,7 +1243,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             }
         }
 
-        try self.flushModule(comp);
+        try self.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
@@ -1617,6 +1251,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             break :blk self.base.intermediary_basename.?;
         }
     } else null;
+
+    var sub_prog_node = prog_node.start("LLD Link", 0);
+    sub_prog_node.activate();
+    sub_prog_node.context.refresh();
+    defer sub_prog_node.end();
 
     const is_obj = self.base.options.output_mode == .Obj;
     const is_lib = self.base.options.output_mode == .Lib;
@@ -2115,9 +1754,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             // If possible, we run LLD as a child process because it does not always
             // behave properly as a library, unfortunately.
             // https://github.com/ziglang/zig/issues/3825
-            const child = try std.ChildProcess.init(argv.items, arena);
-            defer child.deinit();
-
+            var child = std.ChildProcess.init(argv.items, arena);
             if (comp.clang_passthrough_mode) {
                 child.stdin_behavior = .Inherit;
                 child.stdout_behavior = .Inherit;
@@ -2208,7 +1845,7 @@ fn writeElfHeader(self: *Elf) !void {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
     var index: usize = 0;
-    hdr_buf[0..4].* = "\x7fELF".*;
+    hdr_buf[0..4].* = elf.MAGIC.*;
     index += 4;
 
     hdr_buf[index] = switch (self.ptr_width) {
@@ -2347,7 +1984,6 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock, phdr_index: u16) void {
             i += 1;
         }
     }
-    // TODO process free list for dbg info just like we do above for vaddrs
 
     if (self.atoms.getPtr(phdr_index)) |last_block| {
         if (last_block.* == text_block) {
@@ -2358,14 +1994,6 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock, phdr_index: u16) void {
                 _ = self.atoms.fetchRemove(phdr_index);
             }
         }
-    }
-
-    if (self.dbg_info_decl_first == text_block) {
-        self.dbg_info_decl_first = text_block.dbg_info_next;
-    }
-    if (self.dbg_info_decl_last == text_block) {
-        // TODO shrink the .debug_info section size here
-        self.dbg_info_decl_last = text_block.dbg_info_prev;
     }
 
     if (text_block.prev) |prev| {
@@ -2386,18 +2014,8 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock, phdr_index: u16) void {
         text_block.next = null;
     }
 
-    if (text_block.dbg_info_prev) |prev| {
-        prev.dbg_info_next = text_block.dbg_info_next;
-
-        // TODO the free list logic like we do for text blocks above
-    } else {
-        text_block.dbg_info_prev = null;
-    }
-
-    if (text_block.dbg_info_next) |next| {
-        next.dbg_info_prev = text_block.dbg_info_prev;
-    } else {
-        text_block.dbg_info_next = null;
+    if (self.dwarf) |*dw| {
+        dw.freeAtom(&text_block.dbg_info_atom);
     }
 }
 
@@ -2505,14 +2123,16 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
         phdr.p_memsz = needed_size;
         phdr.p_filesz = needed_size;
 
-        // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
-        // range of the compilation unit. When we expand the text section, this range changes,
-        // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
-        self.debug_info_header_dirty = true;
-        // This becomes dirty for the same reason. We could potentially make this more
-        // fine-grained with the addition of support for more compilation units. It is planned to
-        // model each package as a different compilation unit.
-        self.debug_aranges_section_dirty = true;
+        if (self.dwarf) |_| {
+            // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
+            // range of the compilation unit. When we expand the text section, this range changes,
+            // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
+            self.debug_info_header_dirty = true;
+            // This becomes dirty for the same reason. We could potentially make this more
+            // fine-grained with the addition of support for more compilation units. It is planned to
+            // model each package as a different compilation unit.
+            self.debug_aranges_section_dirty = true;
+        }
 
         self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
         self.shdr_table_dirty = true; // TODO look into making only the one section dirty
@@ -2570,15 +2190,20 @@ fn allocateLocalSymbol(self: *Elf) !u32 {
     return index;
 }
 
-pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
+pub fn allocateDeclIndexes(self: *Elf, decl_index: Module.Decl.Index) !void {
     if (self.llvm_object) |_| return;
 
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
     if (decl.link.elf.local_sym_index != 0) return;
 
     try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
-    try self.decls.putNoClobber(self.base.allocator, decl, null);
+    try self.decls.putNoClobber(self.base.allocator, decl_index, null);
 
-    log.debug("allocating symbol indexes for {s}", .{decl.name});
+    const decl_name = try decl.getFullyQualifiedName(mod);
+    defer self.base.allocator.free(decl_name);
+
+    log.debug("allocating symbol indexes for {s}", .{decl_name});
     decl.link.elf.local_sym_index = try self.allocateLocalSymbol();
     try self.atom_by_index_table.putNoClobber(self.base.allocator, decl.link.elf.local_sym_index, &decl.link.elf);
 
@@ -2592,8 +2217,8 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
     self.offset_table.items[decl.link.elf.offset_table_index] = 0;
 }
 
-fn freeUnnamedConsts(self: *Elf, decl: *Module.Decl) void {
-    const unnamed_consts = self.unnamed_const_atoms.getPtr(decl) orelse return;
+fn freeUnnamedConsts(self: *Elf, decl_index: Module.Decl.Index) void {
+    const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom| {
         self.freeTextBlock(atom, self.phdr_load_ro_index.?);
         self.local_symbol_free_list.append(self.base.allocator, atom.local_sym_index) catch {};
@@ -2603,15 +2228,18 @@ fn freeUnnamedConsts(self: *Elf, decl: *Module.Decl) void {
     unnamed_consts.clearAndFree(self.base.allocator);
 }
 
-pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
+pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     }
 
-    const kv = self.decls.fetchRemove(decl);
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    const kv = self.decls.fetchRemove(decl_index);
     if (kv.?.value) |index| {
         self.freeTextBlock(&decl.link.elf, index);
-        self.freeUnnamedConsts(decl);
+        self.freeUnnamedConsts(decl_index);
     }
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
@@ -2623,34 +2251,10 @@ pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
 
         self.offset_table_free_list.append(self.base.allocator, decl.link.elf.offset_table_index) catch {};
     }
-    // TODO make this logic match freeTextBlock. Maybe abstract the logic out since the same thing
-    // is desired for both.
-    _ = self.dbg_line_fn_free_list.remove(&decl.fn_link.elf);
-    if (decl.fn_link.elf.prev) |prev| {
-        self.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
-        prev.next = decl.fn_link.elf.next;
-        if (decl.fn_link.elf.next) |next| {
-            next.prev = prev;
-        } else {
-            self.dbg_line_fn_last = prev;
-        }
-    } else if (decl.fn_link.elf.next) |next| {
-        self.dbg_line_fn_first = next;
-        next.prev = null;
-    }
-    if (self.dbg_line_fn_first == &decl.fn_link.elf) {
-        self.dbg_line_fn_first = decl.fn_link.elf.next;
-    }
-    if (self.dbg_line_fn_last == &decl.fn_link.elf) {
-        self.dbg_line_fn_last = decl.fn_link.elf.prev;
-    }
-}
 
-fn deinitRelocs(gpa: Allocator, table: *File.DbgInfoTypeRelocsTable) void {
-    for (table.values()) |*value| {
-        value.relocs.deinit(gpa);
+    if (self.dwarf) |*dw| {
+        dw.freeDecl(decl);
     }
-    table.deinit(gpa);
 }
 
 fn getDeclPhdrIndex(self: *Elf, decl: *Module.Decl) !u16 {
@@ -2676,11 +2280,17 @@ fn getDeclPhdrIndex(self: *Elf, decl: *Module.Decl) !u16 {
     return phdr_index;
 }
 
-fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8) !*elf.Elf64_Sym {
-    log.debug("updateDeclCode {s}{*}", .{ mem.sliceTo(decl.name, 0), decl });
+fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, stt_bits: u8) !*elf.Elf64_Sym {
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    const decl_name = try decl.getFullyQualifiedName(mod);
+    defer self.base.allocator.free(decl_name);
+
+    log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
 
-    const decl_ptr = self.decls.getPtr(decl).?;
+    const decl_ptr = self.decls.getPtr(decl_index).?;
     if (decl_ptr.* == null) {
         decl_ptr.* = try self.getDeclPhdrIndex(decl);
     }
@@ -2695,7 +2305,7 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
             !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growTextBlock(&decl.link.elf, code.len, required_alignment, phdr_index);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl.name, local_sym.st_value, vaddr });
+            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, local_sym.st_value, vaddr });
             if (vaddr != local_sym.st_value) {
                 local_sym.st_value = vaddr;
 
@@ -2707,14 +2317,13 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
             self.shrinkTextBlock(&decl.link.elf, code.len, phdr_index);
         }
         local_sym.st_size = code.len;
-        local_sym.st_name = try self.updateString(local_sym.st_name, mem.sliceTo(decl.name, 0));
+        local_sym.st_name = try self.updateString(local_sym.st_name, decl_name);
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
         local_sym.st_other = 0;
         local_sym.st_shndx = shdr_index;
         // TODO this write could be avoided if no fields of the symbol were changed.
         try self.writeSymbol(decl.link.elf.local_sym_index);
     } else {
-        const decl_name = mem.sliceTo(decl.name, 0);
         const name_str_index = try self.makeString(decl_name);
         const vaddr = try self.allocateTextBlock(&decl.link.elf, code.len, required_alignment, phdr_index);
         errdefer self.freeTextBlock(&decl.link.elf, phdr_index);
@@ -2741,62 +2350,6 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
     return local_sym;
 }
 
-fn finishUpdateDecl(
-    self: *Elf,
-    module: *Module,
-    decl: *Module.Decl,
-    dbg_info_type_relocs: *File.DbgInfoTypeRelocsTable,
-    dbg_info_buffer: *std.ArrayList(u8),
-) !void {
-    // We need this for the duration of this function only so that for composite
-    // types such as []const u32, if the type *u32 is non-existent, we create
-    // it synthetically and store the backing bytes in this arena. After we are
-    // done with the relocations, we can safely deinit the entire memory slab.
-    // TODO currently, we do not store the relocations for future use, however,
-    // if that is the case, we should move memory management to a higher scope,
-    // such as linker scope, or whatnot.
-    var dbg_type_arena = std.heap.ArenaAllocator.init(self.base.allocator);
-    defer dbg_type_arena.deinit();
-
-    // Now we emit the .debug_info types of the Decl. These will count towards the size of
-    // the buffer, so we have to do it before computing the offset, and we can't perform the actual
-    // relocations yet.
-    {
-        var it: usize = 0;
-        while (it < dbg_info_type_relocs.count()) : (it += 1) {
-            const ty = dbg_info_type_relocs.keys()[it];
-            const value_ptr = dbg_info_type_relocs.getPtr(ty).?;
-            value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
-            try self.addDbgInfoType(dbg_type_arena.allocator(), ty, dbg_info_buffer, dbg_info_type_relocs);
-        }
-    }
-
-    const text_block = &decl.link.elf;
-    try self.updateDeclDebugInfoAllocation(text_block, @intCast(u32, dbg_info_buffer.items.len));
-
-    const target_endian = self.base.options.target.cpu.arch.endian();
-
-    {
-        // Now that we have the offset assigned we can finally perform type relocations.
-        for (dbg_info_type_relocs.values()) |value| {
-            for (value.relocs.items) |off| {
-                mem.writeInt(
-                    u32,
-                    dbg_info_buffer.items[off..][0..4],
-                    text_block.dbg_info_off + value.off,
-                    target_endian,
-                );
-            }
-        }
-    }
-
-    try self.writeDeclDebugInfo(text_block, dbg_info_buffer.items);
-
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl, decl_exports);
-}
-
 pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -2811,235 +2364,57 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    // For functions we need to add a prologue to the debug line program.
-    var dbg_line_buffer = try std.ArrayList(u8).initCapacity(self.base.allocator, 26);
-    defer dbg_line_buffer.deinit();
+    const decl_index = func.owner_decl;
+    const decl = module.declPtr(decl_index);
+    self.freeUnnamedConsts(decl_index);
 
-    var dbg_info_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer dbg_info_buffer.deinit();
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl) else null;
+    defer if (decl_state) |*ds| ds.deinit();
 
-    var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
-    defer deinitRelocs(self.base.allocator, &dbg_info_type_relocs);
+    const res = if (decl_state) |*ds|
+        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
+            .dwarf = ds,
+        })
+    else
+        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
 
-    const decl = func.owner_decl;
-    self.freeUnnamedConsts(decl);
-
-    log.debug("updateFunc {s}{*}", .{ decl.name, func.owner_decl });
-    log.debug("  (decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d})", .{
-        decl.src_line,
-        func.lbrace_line,
-        func.rbrace_line,
-    });
-    const line = @intCast(u28, decl.src_line + func.lbrace_line);
-
-    const ptr_width_bytes = self.ptrWidthBytes();
-    dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
-        DW.LNS.extended_op,
-        ptr_width_bytes + 1,
-        DW.LNE.set_address,
-    });
-    // This is the "relocatable" vaddr, corresponding to `code_buffer` index `0`.
-    assert(dbg_line_vaddr_reloc_index == dbg_line_buffer.items.len);
-    dbg_line_buffer.items.len += ptr_width_bytes;
-
-    dbg_line_buffer.appendAssumeCapacity(DW.LNS.advance_line);
-    // This is the "relocatable" relative line offset from the previous function's end curly
-    // to this function's begin curly.
-    assert(self.getRelocDbgLineOff() == dbg_line_buffer.items.len);
-    // Here we use a ULEB128-fixed-4 to make sure this field can be overwritten later.
-    leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line);
-
-    dbg_line_buffer.appendAssumeCapacity(DW.LNS.set_file);
-    assert(self.getRelocDbgFileIndex() == dbg_line_buffer.items.len);
-    // Once we support more than one source file, this will have the ability to be more
-    // than one possible value.
-    const file_index = 1;
-    leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), file_index);
-
-    // Emit a line for the begin curly with prologue_end=false. The codegen will
-    // do the work of setting prologue_end=true and epilogue_begin=true.
-    dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
-
-    // .debug_info subprogram
-    const decl_name_with_null = decl.name[0 .. mem.sliceTo(decl.name, 0).len + 1];
-    try dbg_info_buffer.ensureUnusedCapacity(25 + decl_name_with_null.len);
-
-    const fn_ret_type = decl.ty.fnReturnType();
-    const fn_ret_has_bits = fn_ret_type.hasRuntimeBits();
-    if (fn_ret_has_bits) {
-        dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram);
-    } else {
-        dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram_retvoid);
-    }
-    // These get overwritten after generating the machine code. These values are
-    // "relocations" and have to be in this fixed place so that functions can be
-    // moved in virtual address space.
-    assert(dbg_info_low_pc_reloc_index == dbg_info_buffer.items.len);
-    dbg_info_buffer.items.len += ptr_width_bytes; // DW.AT.low_pc,  DW.FORM.addr
-    assert(self.getRelocDbgInfoSubprogramHighPC() == dbg_info_buffer.items.len);
-    dbg_info_buffer.items.len += 4; // DW.AT.high_pc,  DW.FORM.data4
-    if (fn_ret_has_bits) {
-        const gop = try dbg_info_type_relocs.getOrPut(self.base.allocator, fn_ret_type);
-        if (!gop.found_existing) {
-            gop.value_ptr.* = .{
-                .off = undefined,
-                .relocs = .{},
-            };
-        }
-        try gop.value_ptr.relocs.append(self.base.allocator, @intCast(u32, dbg_info_buffer.items.len));
-        dbg_info_buffer.items.len += 4; // DW.AT.type,  DW.FORM.ref4
-    }
-    dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT.name, DW.FORM.string
-
-    const res = try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
-        .dwarf = .{
-            .dbg_line = &dbg_line_buffer,
-            .dbg_info = &dbg_info_buffer,
-            .dbg_info_type_relocs = &dbg_info_type_relocs,
-        },
-    });
     const code = switch (res) {
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.failed_decls.put(module.gpa, decl_index, em);
             return;
         },
     };
-
-    const local_sym = try self.updateDeclCode(decl, code, elf.STT_FUNC);
-
-    const target_endian = self.base.options.target.cpu.arch.endian();
-
-    // Since the Decl is a function, we need to update the .debug_line program.
-    // Perform the relocations based on vaddr.
-    switch (self.ptr_width) {
-        .p32 => {
-            {
-                const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..4];
-                mem.writeInt(u32, ptr, @intCast(u32, local_sym.st_value), target_endian);
-            }
-            {
-                const ptr = dbg_info_buffer.items[dbg_info_low_pc_reloc_index..][0..4];
-                mem.writeInt(u32, ptr, @intCast(u32, local_sym.st_value), target_endian);
-            }
-        },
-        .p64 => {
-            {
-                const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..8];
-                mem.writeInt(u64, ptr, local_sym.st_value, target_endian);
-            }
-            {
-                const ptr = dbg_info_buffer.items[dbg_info_low_pc_reloc_index..][0..8];
-                mem.writeInt(u64, ptr, local_sym.st_value, target_endian);
-            }
-        },
-    }
-    {
-        const ptr = dbg_info_buffer.items[self.getRelocDbgInfoSubprogramHighPC()..][0..4];
-        mem.writeInt(u32, ptr, @intCast(u32, local_sym.st_size), target_endian);
+    const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_FUNC);
+    if (decl_state) |*ds| {
+        try self.dwarf.?.commitDeclState(
+            &self.base,
+            module,
+            decl,
+            local_sym.st_value,
+            local_sym.st_size,
+            ds,
+        );
     }
 
-    try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS.extended_op, 1, DW.LNE.end_sequence });
-
-    // Now we have the full contents and may allocate a region to store it.
-
-    // This logic is nearly identical to the logic below in `updateDeclDebugInfoAllocation` for
-    // `TextBlock` and the .debug_info. If you are editing this logic, you
-    // probably need to edit that logic too.
-
-    const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
-    const src_fn = &decl.fn_link.elf;
-    src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
-    if (self.dbg_line_fn_last) |last| not_first: {
-        if (src_fn.next) |next| {
-            // Update existing function - non-last item.
-            if (src_fn.off + src_fn.len + min_nop_size > next.off) {
-                // It grew too big, so we move it to a new location.
-                if (src_fn.prev) |prev| {
-                    self.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
-                    prev.next = src_fn.next;
-                }
-                assert(src_fn.prev != next);
-                next.prev = src_fn.prev;
-                src_fn.next = null;
-                // Populate where it used to be with NOPs.
-                const file_pos = debug_line_sect.sh_offset + src_fn.off;
-                try self.pwriteDbgLineNops(0, &[0]u8{}, src_fn.len, file_pos);
-                // TODO Look at the free list before appending at the end.
-                src_fn.prev = last;
-                last.next = src_fn;
-                self.dbg_line_fn_last = src_fn;
-
-                src_fn.off = last.off + padToIdeal(last.len);
-            }
-        } else if (src_fn.prev == null) {
-            if (src_fn == last) {
-                // Special case: there is only 1 function and it is being updated.
-                // In this case there is nothing to do. The function's length has
-                // already been updated, and the logic below takes care of
-                // resizing the .debug_line section.
-                break :not_first;
-            }
-            // Append new function.
-            // TODO Look at the free list before appending at the end.
-            src_fn.prev = last;
-            last.next = src_fn;
-            self.dbg_line_fn_last = src_fn;
-
-            src_fn.off = last.off + padToIdeal(last.len);
-        }
-    } else {
-        // This is the first function of the Line Number Program.
-        self.dbg_line_fn_first = src_fn;
-        self.dbg_line_fn_last = src_fn;
-
-        src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes());
-    }
-
-    const last_src_fn = self.dbg_line_fn_last.?;
-    const needed_size = last_src_fn.off + last_src_fn.len;
-    if (needed_size != debug_line_sect.sh_size) {
-        if (needed_size > self.allocatedSize(debug_line_sect.sh_offset)) {
-            const new_offset = self.findFreeSpace(needed_size, 1);
-            const existing_size = last_src_fn.off;
-            log.debug("moving .debug_line section: {d} bytes from 0x{x} to 0x{x}", .{
-                existing_size,
-                debug_line_sect.sh_offset,
-                new_offset,
-            });
-            const amt = try self.base.file.?.copyRangeAll(debug_line_sect.sh_offset, self.base.file.?, new_offset, existing_size);
-            if (amt != existing_size) return error.InputOutput;
-            debug_line_sect.sh_offset = new_offset;
-        }
-        debug_line_sect.sh_size = needed_size;
-        self.shdr_table_dirty = true; // TODO look into making only the one section dirty
-        self.debug_line_header_dirty = true;
-    }
-    const prev_padding_size: u32 = if (src_fn.prev) |prev| src_fn.off - (prev.off + prev.len) else 0;
-    const next_padding_size: u32 = if (src_fn.next) |next| next.off - (src_fn.off + src_fn.len) else 0;
-
-    // We only have support for one compilation unit so far, so the offsets are directly
-    // from the .debug_line section.
-    const file_pos = debug_line_sect.sh_offset + src_fn.off;
-    try self.pwriteDbgLineNops(prev_padding_size, dbg_line_buffer.items, next_padding_size, file_pos);
-
-    // .debug_info - End the TAG.subprogram children.
-    try dbg_info_buffer.append(0);
-
-    return self.finishUpdateDecl(module, decl, &dbg_info_type_relocs, &dbg_info_buffer);
+    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
+    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
+    return self.updateDeclExports(module, decl_index, decl_exports);
 }
 
-pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
+pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl_index);
     }
 
     const tracy = trace(@src());
     defer tracy.end();
+
+    const decl = module.declPtr(decl_index);
 
     if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
@@ -3051,52 +2426,68 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         }
     }
 
-    assert(!self.unnamed_const_atoms.contains(decl));
+    assert(!self.unnamed_const_atoms.contains(decl_index));
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer dbg_line_buffer.deinit();
-
-    var dbg_info_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer dbg_info_buffer.deinit();
-
-    var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
-    defer deinitRelocs(self.base.allocator, &dbg_info_type_relocs);
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl) else null;
+    defer if (decl_state) |*ds| ds.deinit();
 
     // TODO implement .debug_info for global variables
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.link.elf.local_sym_index, decl.srcLoc(), .{
-        .ty = decl.ty,
-        .val = decl_val,
-    }, &code_buffer, .{
-        .dwarf = .{
-            .dbg_line = &dbg_line_buffer,
-            .dbg_info = &dbg_info_buffer,
-            .dbg_info_type_relocs = &dbg_info_type_relocs,
-        },
-    });
+    const res = if (decl_state) |*ds|
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl_val,
+        }, &code_buffer, .{
+            .dwarf = ds,
+        }, .{
+            .parent_atom_index = decl.link.elf.local_sym_index,
+        })
+    else
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl_val,
+        }, &code_buffer, .none, .{
+            .parent_atom_index = decl.link.elf.local_sym_index,
+        });
+
     const code = switch (res) {
         .externally_managed => |x| x,
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.failed_decls.put(module.gpa, decl_index, em);
             return;
         },
     };
 
-    _ = try self.updateDeclCode(decl, code, elf.STT_OBJECT);
-    return self.finishUpdateDecl(module, decl, &dbg_info_type_relocs, &dbg_info_buffer);
+    const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_OBJECT);
+    if (decl_state) |*ds| {
+        try self.dwarf.?.commitDeclState(
+            &self.base,
+            module,
+            decl,
+            local_sym.st_value,
+            local_sym.st_size,
+            ds,
+        );
+    }
+
+    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
+    const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
+    return self.updateDeclExports(module, decl_index, decl_exports);
 }
 
-pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl) !u32 {
+pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const module = self.base.options.module.?;
-    const gop = try self.unnamed_const_atoms.getOrPut(self.base.allocator, decl);
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    const gop = try self.unnamed_const_atoms.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
@@ -3108,9 +2499,13 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
     try self.managed_atoms.append(self.base.allocator, atom);
 
     const name_str_index = blk: {
+        const decl_name = try decl.getFullyQualifiedName(mod);
+        defer self.base.allocator.free(decl_name);
+
         const index = unnamed_consts.items.len;
-        const name = try std.fmt.allocPrint(self.base.allocator, "__unnamed_{s}_{d}", .{ decl.name, index });
+        const name = try std.fmt.allocPrint(self.base.allocator, "__unnamed_{s}_{d}", .{ decl_name, index });
         defer self.base.allocator.free(name);
+
         break :blk try self.makeString(name);
     };
     const name = self.getString(name_str_index);
@@ -3119,15 +2514,18 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
     atom.local_sym_index = try self.allocateLocalSymbol();
     try self.atom_by_index_table.putNoClobber(self.base.allocator, atom.local_sym_index, atom);
 
-    const res = try codegen.generateSymbol(&self.base, atom.local_sym_index, decl.srcLoc(), typed_value, &code_buffer, .{
-        .none = .{},
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
+        .none = {},
+    }, .{
+        .parent_atom_index = atom.local_sym_index,
     });
     const code = switch (res) {
         .externally_managed => |x| x,
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            log.err("{s}", .{em.msg});
             return error.AnalysisFail;
         },
     };
@@ -3160,284 +2558,28 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl: *Module.Decl
     return atom.local_sym_index;
 }
 
-/// Asserts the type has codegen bits.
-fn addDbgInfoType(
-    self: *Elf,
-    arena: Allocator,
-    ty: Type,
-    dbg_info_buffer: *std.ArrayList(u8),
-    dbg_info_type_relocs: *File.DbgInfoTypeRelocsTable,
-) error{OutOfMemory}!void {
-    var relocs = std.ArrayList(struct { ty: Type, reloc: u32 }).init(arena);
-
-    switch (ty.zigTypeTag()) {
-        .NoReturn => unreachable,
-        .Void => {
-            try dbg_info_buffer.append(abbrev_pad1);
-        },
-        .Bool => {
-            try dbg_info_buffer.appendSlice(&[_]u8{
-                abbrev_base_type,
-                DW.ATE.boolean, // DW.AT.encoding ,  DW.FORM.data1
-                1, // DW.AT.byte_size,  DW.FORM.data1
-                'b', 'o', 'o', 'l', 0, // DW.AT.name,  DW.FORM.string
-            });
-        },
-        .Int => {
-            const info = ty.intInfo(self.base.options.target);
-            try dbg_info_buffer.ensureUnusedCapacity(12);
-            dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
-            // DW.AT.encoding, DW.FORM.data1
-            dbg_info_buffer.appendAssumeCapacity(switch (info.signedness) {
-                .signed => DW.ATE.signed,
-                .unsigned => DW.ATE.unsigned,
-            });
-            // DW.AT.byte_size,  DW.FORM.data1
-            dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(self.base.options.target)));
-            // DW.AT.name,  DW.FORM.string
-            try dbg_info_buffer.writer().print("{}\x00", .{ty});
-        },
-        .Optional => {
-            if (ty.isPtrLikeOptional()) {
-                try dbg_info_buffer.ensureUnusedCapacity(12);
-                dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
-                // DW.AT.encoding, DW.FORM.data1
-                dbg_info_buffer.appendAssumeCapacity(DW.ATE.address);
-                // DW.AT.byte_size,  DW.FORM.data1
-                dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(self.base.options.target)));
-                // DW.AT.name,  DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty});
-            } else {
-                log.debug("TODO implement .debug_info for type '{}'", .{ty});
-                try dbg_info_buffer.append(abbrev_pad1);
-            }
-        },
-        .Pointer => {
-            if (ty.isSlice()) {
-                // Slices are anonymous structs: struct { .ptr = *, .len = N }
-                try dbg_info_buffer.ensureUnusedCapacity(23);
-                // DW.AT.structure_type
-                dbg_info_buffer.appendAssumeCapacity(abbrev_anon_struct_type);
-                // DW.AT.byte_size, DW.FORM.sdata
-                dbg_info_buffer.appendAssumeCapacity(16);
-                // DW.AT.member
-                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
-                // DW.AT.name, DW.FORM.string
-                dbg_info_buffer.appendSliceAssumeCapacity("ptr");
-                dbg_info_buffer.appendAssumeCapacity(0);
-                // DW.AT.type, DW.FORM.ref4
-                var index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.resize(index + 4);
-                var buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
-                const ptr_ty = ty.slicePtrFieldType(buf);
-                try relocs.append(.{ .ty = ptr_ty, .reloc = @intCast(u32, index) });
-                // DW.AT.data_member_location, DW.FORM.sdata
-                dbg_info_buffer.appendAssumeCapacity(0);
-                // DW.AT.member
-                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
-                // DW.AT.name, DW.FORM.string
-                dbg_info_buffer.appendSliceAssumeCapacity("len");
-                dbg_info_buffer.appendAssumeCapacity(0);
-                // DW.AT.type, DW.FORM.ref4
-                index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.resize(index + 4);
-                try relocs.append(.{ .ty = Type.initTag(.usize), .reloc = @intCast(u32, index) });
-                // DW.AT.data_member_location, DW.FORM.sdata
-                dbg_info_buffer.appendAssumeCapacity(8);
-                // DW.AT.structure_type delimit children
-                dbg_info_buffer.appendAssumeCapacity(0);
-            } else {
-                try dbg_info_buffer.ensureUnusedCapacity(5);
-                dbg_info_buffer.appendAssumeCapacity(abbrev_ptr_type);
-                // DW.AT.type, DW.FORM.ref4
-                const index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.resize(index + 4);
-                try relocs.append(.{ .ty = ty.childType(), .reloc = @intCast(u32, index) });
-            }
-        },
-        .Struct => blk: {
-            // try dbg_info_buffer.ensureUnusedCapacity(23);
-            // DW.AT.structure_type
-            try dbg_info_buffer.append(abbrev_struct_type);
-            // DW.AT.byte_size, DW.FORM.sdata
-            const abi_size = ty.abiSize(self.base.options.target);
-            try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
-            // DW.AT.name, DW.FORM.string
-            const struct_name = try ty.nameAlloc(arena);
-            try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
-            dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
-            dbg_info_buffer.appendAssumeCapacity(0);
-
-            const struct_obj = ty.castTag(.@"struct").?.data;
-            if (struct_obj.layout == .Packed) {
-                log.debug("TODO implement .debug_info for packed structs", .{});
-                break :blk;
-            }
-
-            const fields = ty.structFields();
-            for (fields.keys()) |field_name, field_index| {
-                const field = fields.get(field_name).?;
-                // DW.AT.member
-                try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
-                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
-                // DW.AT.name, DW.FORM.string
-                dbg_info_buffer.appendSliceAssumeCapacity(field_name);
-                dbg_info_buffer.appendAssumeCapacity(0);
-                // DW.AT.type, DW.FORM.ref4
-                var index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.resize(index + 4);
-                try relocs.append(.{ .ty = field.ty, .reloc = @intCast(u32, index) });
-                // DW.AT.data_member_location, DW.FORM.sdata
-                const field_off = ty.structFieldOffset(field_index, self.base.options.target);
-                try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
-            }
-
-            // DW.AT.structure_type delimit children
-            try dbg_info_buffer.append(0);
-        },
-        else => {
-            log.debug("TODO implement .debug_info for type '{}'", .{ty});
-            try dbg_info_buffer.append(abbrev_pad1);
-        },
-    }
-
-    for (relocs.items) |rel| {
-        const gop = try dbg_info_type_relocs.getOrPut(self.base.allocator, rel.ty);
-        if (!gop.found_existing) {
-            gop.value_ptr.* = .{
-                .off = undefined,
-                .relocs = .{},
-            };
-        }
-        try gop.value_ptr.relocs.append(self.base.allocator, rel.reloc);
-    }
-}
-
-fn updateDeclDebugInfoAllocation(self: *Elf, text_block: *TextBlock, len: u32) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    // This logic is nearly identical to the logic above in `updateDecl` for
-    // `SrcFn` and the line number programs. If you are editing this logic, you
-    // probably need to edit that logic too.
-
-    const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
-    text_block.dbg_info_len = len;
-    if (self.dbg_info_decl_last) |last| not_first: {
-        if (text_block.dbg_info_next) |next| {
-            // Update existing Decl - non-last item.
-            if (text_block.dbg_info_off + text_block.dbg_info_len + min_nop_size > next.dbg_info_off) {
-                // It grew too big, so we move it to a new location.
-                if (text_block.dbg_info_prev) |prev| {
-                    self.dbg_info_decl_free_list.put(self.base.allocator, prev, {}) catch {};
-                    prev.dbg_info_next = text_block.dbg_info_next;
-                }
-                next.dbg_info_prev = text_block.dbg_info_prev;
-                text_block.dbg_info_next = null;
-                // Populate where it used to be with NOPs.
-                const file_pos = debug_info_sect.sh_offset + text_block.dbg_info_off;
-                try self.pwriteDbgInfoNops(0, &[0]u8{}, text_block.dbg_info_len, false, file_pos);
-                // TODO Look at the free list before appending at the end.
-                text_block.dbg_info_prev = last;
-                last.dbg_info_next = text_block;
-                self.dbg_info_decl_last = text_block;
-
-                text_block.dbg_info_off = last.dbg_info_off + padToIdeal(last.dbg_info_len);
-            }
-        } else if (text_block.dbg_info_prev == null) {
-            if (text_block == last) {
-                // Special case: there is only 1 .debug_info block and it is being updated.
-                // In this case there is nothing to do. The block's length has
-                // already been updated, and logic in writeDeclDebugInfo takes care of
-                // resizing the .debug_info section.
-                break :not_first;
-            }
-            // Append new Decl.
-            // TODO Look at the free list before appending at the end.
-            text_block.dbg_info_prev = last;
-            last.dbg_info_next = text_block;
-            self.dbg_info_decl_last = text_block;
-
-            text_block.dbg_info_off = last.dbg_info_off + padToIdeal(last.dbg_info_len);
-        }
-    } else {
-        // This is the first Decl of the .debug_info
-        self.dbg_info_decl_first = text_block;
-        self.dbg_info_decl_last = text_block;
-
-        text_block.dbg_info_off = padToIdeal(self.dbgInfoNeededHeaderBytes());
-    }
-}
-
-fn writeDeclDebugInfo(self: *Elf, text_block: *TextBlock, dbg_info_buf: []const u8) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    // This logic is nearly identical to the logic above in `updateDecl` for
-    // `SrcFn` and the line number programs. If you are editing this logic, you
-    // probably need to edit that logic too.
-
-    const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
-
-    const last_decl = self.dbg_info_decl_last.?;
-    // +1 for a trailing zero to end the children of the decl tag.
-    const needed_size = last_decl.dbg_info_off + last_decl.dbg_info_len + 1;
-    if (needed_size != debug_info_sect.sh_size) {
-        if (needed_size > self.allocatedSize(debug_info_sect.sh_offset)) {
-            const new_offset = self.findFreeSpace(needed_size, 1);
-            const existing_size = last_decl.dbg_info_off;
-            log.debug("moving .debug_info section: {} bytes from 0x{x} to 0x{x}", .{
-                existing_size,
-                debug_info_sect.sh_offset,
-                new_offset,
-            });
-            const amt = try self.base.file.?.copyRangeAll(debug_info_sect.sh_offset, self.base.file.?, new_offset, existing_size);
-            if (amt != existing_size) return error.InputOutput;
-            debug_info_sect.sh_offset = new_offset;
-        }
-        debug_info_sect.sh_size = needed_size;
-        self.shdr_table_dirty = true; // TODO look into making only the one section dirty
-        self.debug_info_header_dirty = true;
-    }
-    const prev_padding_size: u32 = if (text_block.dbg_info_prev) |prev|
-        text_block.dbg_info_off - (prev.dbg_info_off + prev.dbg_info_len)
-    else
-        0;
-    const next_padding_size: u32 = if (text_block.dbg_info_next) |next|
-        next.dbg_info_off - (text_block.dbg_info_off + text_block.dbg_info_len)
-    else
-        0;
-
-    // To end the children of the decl tag.
-    const trailing_zero = text_block.dbg_info_next == null;
-
-    // We only have support for one compilation unit so far, so the offsets are directly
-    // from the .debug_info section.
-    const file_pos = debug_info_sect.sh_offset + text_block.dbg_info_off;
-    try self.pwriteDbgInfoNops(prev_padding_size, dbg_info_buf, next_padding_size, trailing_zero, file_pos);
-}
-
 pub fn updateDeclExports(
     self: *Elf,
     module: *Module,
-    decl: *Module.Decl,
+    decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl_index, exports);
     }
 
     const tracy = trace(@src());
     defer tracy.end();
 
     try self.global_symbols.ensureUnusedCapacity(self.base.allocator, exports.len);
+    const decl = module.declPtr(decl_index);
     if (decl.link.elf.local_sym_index == 0) return;
     const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
 
-    const decl_ptr = self.decls.getPtr(decl).?;
+    const decl_ptr = self.decls.getPtr(decl_index).?;
     if (decl_ptr.* == null) {
         decl_ptr.* = try self.getDeclPhdrIndex(decl);
     }
@@ -3506,28 +2648,19 @@ pub fn updateDeclExports(
 }
 
 /// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Decl) !void {
-    _ = module;
+pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl: *const Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    log.debug("updateDeclLineNumber {s}{*}", .{ decl.name, decl });
+    const decl_name = try decl.getFullyQualifiedName(mod);
+    defer self.base.allocator.free(decl_name);
+
+    log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
 
     if (self.llvm_object) |_| return;
-
-    const func = decl.val.castTag(.function).?.data;
-    log.debug("  (decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d})", .{
-        decl.src_line,
-        func.lbrace_line,
-        func.rbrace_line,
-    });
-    const line = @intCast(u28, decl.src_line + func.lbrace_line);
-
-    const shdr = &self.sections.items[self.debug_line_section_index.?];
-    const file_pos = shdr.sh_offset + decl.fn_link.elf.off + self.getRelocDbgLineOff();
-    var data: [4]u8 = undefined;
-    leb128.writeUnsignedFixed(4, &data, line);
-    try self.base.file.?.pwriteAll(&data, file_pos);
+    if (self.dwarf) |*dw| {
+        try dw.updateDeclLineNumber(&self.base, decl);
+    }
 }
 
 pub fn deleteExport(self: *Elf, exp: Export) void {
@@ -3694,6 +2827,22 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
     };
+    const sym_align: u16 = switch (self.ptr_width) {
+        .p32 => @alignOf(elf.Elf32_Sym),
+        .p64 => @alignOf(elf.Elf64_Sym),
+    };
+    const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
+    if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
+        // Move all the symbols to a new file location.
+        const new_offset = self.findFreeSpace(needed_size, sym_align);
+        const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
+        const amt = try self.base.file.?.copyRangeAll(syms_sect.sh_offset, self.base.file.?, new_offset, existing_size);
+        if (amt != existing_size) return error.InputOutput;
+        syms_sect.sh_offset = new_offset;
+    }
+    syms_sect.sh_size = needed_size; // anticipating adding the global symbols later
+    self.shdr_table_dirty = true; // TODO look into only writing one section
+
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     const global_syms_off = syms_sect.sh_offset + self.local_symbols.items.len * sym_size;
     switch (self.ptr_width) {
@@ -3752,201 +2901,6 @@ fn archPtrWidthBytes(self: Elf) u8 {
     return @intCast(u8, self.base.options.target.cpu.arch.ptrBitWidth() / 8);
 }
 
-/// The reloc offset for the virtual address of a function in its Line Number Program.
-/// Size is a virtual address integer.
-const dbg_line_vaddr_reloc_index = 3;
-/// The reloc offset for the virtual address of a function in its .debug_info TAG.subprogram.
-/// Size is a virtual address integer.
-const dbg_info_low_pc_reloc_index = 1;
-
-/// The reloc offset for the line offset of a function from the previous function's line.
-/// It's a fixed-size 4-byte ULEB128.
-fn getRelocDbgLineOff(self: Elf) usize {
-    return dbg_line_vaddr_reloc_index + self.ptrWidthBytes() + 1;
-}
-
-fn getRelocDbgFileIndex(self: Elf) usize {
-    return self.getRelocDbgLineOff() + 5;
-}
-
-fn getRelocDbgInfoSubprogramHighPC(self: Elf) u32 {
-    return dbg_info_low_pc_reloc_index + self.ptrWidthBytes();
-}
-
-fn dbgLineNeededHeaderBytes(self: Elf) u32 {
-    const directory_entry_format_count = 1;
-    const file_name_entry_format_count = 1;
-    const directory_count = 1;
-    const file_name_count = 1;
-    const root_src_dir_path_len = if (self.base.options.module.?.root_pkg.root_src_directory.path) |p| p.len else 1; // "."
-    return @intCast(u32, 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
-        directory_count * 8 + file_name_count * 8 +
-        // These are encoded as DW.FORM.string rather than DW.FORM.strp as we would like
-        // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
-        root_src_dir_path_len +
-        self.base.options.module.?.root_pkg.root_src_path.len);
-}
-
-fn dbgInfoNeededHeaderBytes(self: Elf) u32 {
-    _ = self;
-    return 120;
-}
-
-const min_nop_size = 2;
-
-/// Writes to the file a buffer, prefixed and suffixed by the specified number of
-/// bytes of NOPs. Asserts each padding size is at least `min_nop_size` and total padding bytes
-/// are less than 1044480 bytes (if this limit is ever reached, this function can be
-/// improved to make more than one pwritev call, or the limit can be raised by a fixed
-/// amount by increasing the length of `vecs`).
-fn pwriteDbgLineNops(
-    self: *Elf,
-    prev_padding_size: usize,
-    buf: []const u8,
-    next_padding_size: usize,
-    offset: u64,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const page_of_nops = [1]u8{DW.LNS.negate_stmt} ** 4096;
-    const three_byte_nop = [3]u8{ DW.LNS.advance_pc, 0b1000_0000, 0 };
-    var vecs: [512]std.os.iovec_const = undefined;
-    var vec_index: usize = 0;
-    {
-        var padding_left = prev_padding_size;
-        if (padding_left % 2 != 0) {
-            vecs[vec_index] = .{
-                .iov_base = &three_byte_nop,
-                .iov_len = three_byte_nop.len,
-            };
-            vec_index += 1;
-            padding_left -= three_byte_nop.len;
-        }
-        while (padding_left > page_of_nops.len) {
-            vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
-            };
-            vec_index += 1;
-            padding_left -= page_of_nops.len;
-        }
-        if (padding_left > 0) {
-            vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
-            };
-            vec_index += 1;
-        }
-    }
-
-    vecs[vec_index] = .{
-        .iov_base = buf.ptr,
-        .iov_len = buf.len,
-    };
-    vec_index += 1;
-
-    {
-        var padding_left = next_padding_size;
-        if (padding_left % 2 != 0) {
-            vecs[vec_index] = .{
-                .iov_base = &three_byte_nop,
-                .iov_len = three_byte_nop.len,
-            };
-            vec_index += 1;
-            padding_left -= three_byte_nop.len;
-        }
-        while (padding_left > page_of_nops.len) {
-            vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
-            };
-            vec_index += 1;
-            padding_left -= page_of_nops.len;
-        }
-        if (padding_left > 0) {
-            vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
-            };
-            vec_index += 1;
-        }
-    }
-    try self.base.file.?.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
-}
-
-/// Writes to the file a buffer, prefixed and suffixed by the specified number of
-/// bytes of padding.
-fn pwriteDbgInfoNops(
-    self: *Elf,
-    prev_padding_size: usize,
-    buf: []const u8,
-    next_padding_size: usize,
-    trailing_zero: bool,
-    offset: u64,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const page_of_nops = [1]u8{abbrev_pad1} ** 4096;
-    var vecs: [32]std.os.iovec_const = undefined;
-    var vec_index: usize = 0;
-    {
-        var padding_left = prev_padding_size;
-        while (padding_left > page_of_nops.len) {
-            vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
-            };
-            vec_index += 1;
-            padding_left -= page_of_nops.len;
-        }
-        if (padding_left > 0) {
-            vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
-            };
-            vec_index += 1;
-        }
-    }
-
-    vecs[vec_index] = .{
-        .iov_base = buf.ptr,
-        .iov_len = buf.len,
-    };
-    vec_index += 1;
-
-    {
-        var padding_left = next_padding_size;
-        while (padding_left > page_of_nops.len) {
-            vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
-            };
-            vec_index += 1;
-            padding_left -= page_of_nops.len;
-        }
-        if (padding_left > 0) {
-            vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
-            };
-            vec_index += 1;
-        }
-    }
-
-    if (trailing_zero) {
-        var zbuf = [1]u8{0};
-        vecs[vec_index] = .{
-            .iov_base = &zbuf,
-            .iov_len = zbuf.len,
-        };
-        vec_index += 1;
-    }
-
-    try self.base.file.?.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
-}
-
 fn progHeaderTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
     return .{
         .p_type = phdr.p_type,
@@ -3986,7 +2940,7 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .powerpc64 => return "elf64ppc",
         .powerpc64le => return "elf64lppc",
         .sparc, .sparcel => return "elf32_sparc",
-        .sparcv9 => return "elf64_sparc",
+        .sparc64 => return "elf64_sparc",
         .mips => return "elf32btsmip",
         .mipsel => return "elf32ltsmip",
         .mips64 => {

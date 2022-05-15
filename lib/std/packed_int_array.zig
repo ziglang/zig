@@ -182,7 +182,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
 
 /// Creates a bit-packed array of `Int`. Non-byte-multiple integers
 /// will take up less memory in PackedIntArray than in a normal array.
-/// Elements are packed using native endianess and without storing any 
+/// Elements are packed using native endianess and without storing any
 /// meta data. PackedArray(i3, 8) will occupy exactly 3 bytes
 /// of memory.
 pub fn PackedIntArray(comptime Int: type, comptime int_count: usize) type {

@@ -18,10 +18,9 @@
 #include "buffer.hpp"
 #include "os.hpp"
 
-// This is the only file allowed to include config.h because config.h is
-// only produced when building with cmake. When using the zig build system,
-// zig0.cpp is never touched.
+#ifndef ZIG_VERSION_STRING
 #include "config.h"
+#endif
 
 #include <stdio.h>
 #include <string.h>

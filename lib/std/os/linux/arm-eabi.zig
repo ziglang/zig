@@ -99,7 +99,10 @@ pub fn syscall6(
 
 /// This matches the libc clone function.
 pub extern fn clone(
-    func: fn (arg: usize) callconv(.C) u8,
+    func: switch (@import("builtin").zig_backend) {
+        .stage1 => fn (arg: usize) callconv(.C) u8,
+        else => *const fn (arg: usize) callconv(.C) u8,
+    },
     stack: usize,
     flags: u32,
     arg: usize,
@@ -648,23 +651,23 @@ pub const Flock = extern struct {
 };
 
 pub const msghdr = extern struct {
-    msg_name: ?*sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec,
-    msg_iovlen: i32,
-    msg_control: ?*anyopaque,
-    msg_controllen: socklen_t,
-    msg_flags: i32,
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: i32,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    flags: i32,
 };
 
 pub const msghdr_const = extern struct {
-    msg_name: ?*const sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec_const,
-    msg_iovlen: i32,
-    msg_control: ?*anyopaque,
-    msg_controllen: socklen_t,
-    msg_flags: i32,
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec_const,
+    iovlen: i32,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    flags: i32,
 };
 
 pub const blksize_t = i32;
@@ -744,7 +747,7 @@ pub const mcontext_t = extern struct {
 
 pub const ucontext_t = extern struct {
     flags: usize,
-    link: *ucontext_t,
+    link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
     sigmask: sigset_t,

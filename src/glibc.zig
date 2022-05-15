@@ -43,6 +43,29 @@ pub const libs = [_]Lib{
     .{ .name = "util", .sover = 1 },
 };
 
+// glibc's naming of Zig architectures
+const Arch = enum(c_int) {
+    arm,
+    armeb,
+    aarch64,
+    aarch64_be,
+    mips,
+    mipsel,
+    mips64,
+    mips64el,
+    powerpc,
+    powerpc64,
+    powerpc64le,
+    riscv32,
+    riscv64,
+    sparc,
+    sparcv9,
+    sparcel,
+    s390x,
+    i386,
+    x86_64,
+};
+
 pub const LoadMetaDataError = error{
     /// The files that ship with the Zig compiler were unable to be read, or otherwise had malformed data.
     ZigInstallationCorrupt,
@@ -134,7 +157,7 @@ pub fn loadMetaData(gpa: Allocator, zig_lib_dir: fs.Dir) LoadMetaDataError!*ABI 
                 log.err("abilists: expected ABI name", .{});
                 return error.ZigInstallationCorrupt;
             };
-            const arch_tag = std.meta.stringToEnum(std.Target.Cpu.Arch, arch_name) orelse {
+            const arch_tag = std.meta.stringToEnum(Arch, arch_name) orelse {
                 log.err("abilists: unrecognized arch: '{s}'", .{arch_name});
                 return error.ZigInstallationCorrupt;
             };
@@ -148,7 +171,7 @@ pub fn loadMetaData(gpa: Allocator, zig_lib_dir: fs.Dir) LoadMetaDataError!*ABI 
             };
 
             targets[i] = .{
-                .arch = arch_tag,
+                .arch = glibcToZigArch(arch_tag),
                 .os = .linux,
                 .abi = abi_tag,
             };
@@ -381,7 +404,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
     const arch = comp.getTarget().cpu.arch;
     const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
     const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
-    const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparcv9;
+    const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparc64;
     const is_64 = arch.ptrBitWidth() == 64;
 
     const s = path.sep_str;
@@ -519,7 +542,7 @@ fn add_include_dirs_arch(
     const is_x86 = arch == .i386 or arch == .x86_64;
     const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
     const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
-    const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparcv9;
+    const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparc64;
     const is_64 = arch.ptrBitWidth() == 64;
 
     const s = path.sep_str;
@@ -1113,6 +1136,30 @@ fn buildSharedLib(
     defer sub_compilation.destroy();
 
     try sub_compilation.updateSubCompilation();
+}
+
+fn glibcToZigArch(arch_tag: Arch) std.Target.Cpu.Arch {
+    return switch (arch_tag) {
+        .arm => .arm,
+        .armeb => .armeb,
+        .aarch64 => .aarch64,
+        .aarch64_be => .aarch64_be,
+        .mips => .mips,
+        .mipsel => .mipsel,
+        .mips64 => .mips64,
+        .mips64el => .mips64el,
+        .powerpc => .powerpc,
+        .powerpc64 => .powerpc64,
+        .powerpc64le => .powerpc64le,
+        .riscv32 => .riscv32,
+        .riscv64 => .riscv64,
+        .sparc => .sparc,
+        .sparcv9 => .sparc64, // In glibc, sparc64 is called sparcv9.
+        .sparcel => .sparcel,
+        .s390x => .s390x,
+        .i386 => .i386,
+        .x86_64 => .x86_64,
+    };
 }
 
 // Return true if glibc has crti/crtn sources for that architecture.

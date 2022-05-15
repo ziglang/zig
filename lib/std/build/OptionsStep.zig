@@ -119,12 +119,17 @@ pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: 
                 out.print("    {},\n", .{std.zig.fmtId(field.name)}) catch unreachable;
             }
             out.writeAll("};\n") catch unreachable;
-            out.print("pub const {}: {s} = {s}.{s};\n", .{ std.zig.fmtId(name), @typeName(T), @typeName(T), std.zig.fmtId(@tagName(value)) }) catch unreachable;
+            out.print("pub const {}: {s} = {s}.{s};\n", .{
+                std.zig.fmtId(name),
+                std.zig.fmtId(@typeName(T)),
+                std.zig.fmtId(@typeName(T)),
+                std.zig.fmtId(@tagName(value)),
+            }) catch unreachable;
             return;
         },
         else => {},
     }
-    out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name), @typeName(T) }) catch unreachable;
+    out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name), std.zig.fmtId(@typeName(T)) }) catch unreachable;
     printLiteral(out, value, 0) catch unreachable;
     out.writeAll(";\n") catch unreachable;
 }
@@ -194,11 +199,11 @@ pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *LibExe
     self.step.dependOn(&artifact.step);
 }
 
-pub fn getPackage(self: OptionsStep, package_name: []const u8) build.Pkg {
+pub fn getPackage(self: *OptionsStep, package_name: []const u8) build.Pkg {
     return .{ .name = package_name, .path = self.getSource() };
 }
 
-pub fn getSource(self: OptionsStep) FileSource {
+pub fn getSource(self: *OptionsStep) FileSource {
     return .{ .generated = &self.generated_file };
 }
 

@@ -14,7 +14,7 @@ const ArrayList = std.ArrayList;
 // documentation and/or contributors.
 
 // https://llvm.org/docs/PDB/DbiStream.html#stream-header
-pub const DbiStreamHeader = packed struct {
+pub const DbiStreamHeader = extern struct {
     VersionSignature: i32,
     VersionHeader: u32,
     Age: u32,
@@ -37,7 +37,7 @@ pub const DbiStreamHeader = packed struct {
     Padding: u32,
 };
 
-pub const SectionContribEntry = packed struct {
+pub const SectionContribEntry = extern struct {
     /// COFF Section index, 1-based
     Section: u16,
     Padding1: [2]u8,
@@ -50,7 +50,7 @@ pub const SectionContribEntry = packed struct {
     RelocCrc: u32,
 };
 
-pub const ModInfo = packed struct {
+pub const ModInfo = extern struct {
     Unused1: u32,
     SectionContr: SectionContribEntry,
     Flags: u16,
@@ -68,7 +68,7 @@ pub const ModInfo = packed struct {
     //ObjFileName: char[],
 };
 
-pub const SectionMapHeader = packed struct {
+pub const SectionMapHeader = extern struct {
     /// Number of segment descriptors
     Count: u16,
 
@@ -76,7 +76,7 @@ pub const SectionMapHeader = packed struct {
     LogCount: u16,
 };
 
-pub const SectionMapEntry = packed struct {
+pub const SectionMapEntry = extern struct {
     /// See the SectionMapEntryFlags enum below.
     Flags: u16,
 
@@ -310,7 +310,7 @@ pub const SymbolKind = enum(u16) {
 
 pub const TypeIndex = u32;
 
-pub const ProcSym = packed struct {
+pub const ProcSym = extern struct {
     Parent: u32,
     End: u32,
     Next: u32,
@@ -342,7 +342,7 @@ pub const SectionContrSubstreamVersion = enum(u32) {
     _,
 };
 
-pub const RecordPrefix = packed struct {
+pub const RecordPrefix = extern struct {
     /// Record length, starting from &RecordKind.
     RecordLen: u16,
 
@@ -354,7 +354,7 @@ pub const RecordPrefix = packed struct {
 /// The structure definition follows.
 /// LineBlockFragmentHeader Blocks[]
 /// Each `LineBlockFragmentHeader` as specified below.
-pub const LineFragmentHeader = packed struct {
+pub const LineFragmentHeader = extern struct {
     /// Code offset of line contribution.
     RelocOffset: u32,
 
@@ -376,7 +376,7 @@ pub const LineFlags = packed struct {
 /// header.  The structure definitions follow.
 /// LineNumberEntry   Lines[NumLines];
 /// ColumnNumberEntry Columns[NumLines];
-pub const LineBlockFragmentHeader = packed struct {
+pub const LineBlockFragmentHeader = extern struct {
     /// Offset of FileChecksum entry in File
     /// checksums buffer.  The checksum entry then
     /// contains another offset into the string
@@ -388,7 +388,7 @@ pub const LineBlockFragmentHeader = packed struct {
     BlockSize: u32,
 };
 
-pub const LineNumberEntry = packed struct {
+pub const LineNumberEntry = extern struct {
     /// Offset to start of code bytes for line number
     Offset: u32,
     Flags: u32,
@@ -404,13 +404,13 @@ pub const LineNumberEntry = packed struct {
     };
 };
 
-pub const ColumnNumberEntry = packed struct {
+pub const ColumnNumberEntry = extern struct {
     StartColumn: u16,
     EndColumn: u16,
 };
 
 /// Checksum bytes follow.
-pub const FileChecksumEntryHeader = packed struct {
+pub const FileChecksumEntryHeader = extern struct {
     /// Byte offset of filename in global string table.
     FileNameOffset: u32,
 
@@ -441,7 +441,7 @@ pub const DebugSubsectionKind = enum(u32) {
     CoffSymbolRVA = 0xfd,
 };
 
-pub const DebugSubsectionHeader = packed struct {
+pub const DebugSubsectionHeader = extern struct {
     /// codeview::DebugSubsectionKind enum
     Kind: DebugSubsectionKind,
 
@@ -449,7 +449,7 @@ pub const DebugSubsectionHeader = packed struct {
     Length: u32,
 };
 
-pub const PDBStringTableHeader = packed struct {
+pub const PDBStringTableHeader = extern struct {
     /// PDBStringTableSignature
     Signature: u32,
 
@@ -498,6 +498,15 @@ pub const Pdb = struct {
         symbols: []u8,
         subsect_info: []u8,
         checksum_offset: ?usize,
+
+        pub fn deinit(self: *Module, allocator: mem.Allocator) void {
+            allocator.free(self.module_name);
+            allocator.free(self.obj_file_name);
+            if (self.populated) {
+                allocator.free(self.symbols);
+                allocator.free(self.subsect_info);
+            }
+        }
     };
 
     pub fn init(allocator: mem.Allocator, path: []const u8) !Pdb {
@@ -519,6 +528,10 @@ pub const Pdb = struct {
 
     pub fn deinit(self: *Pdb) void {
         self.in_file.close();
+        self.msf.deinit(self.allocator);
+        for (self.modules) |*module| {
+            module.deinit(self.allocator);
+        }
         self.allocator.free(self.modules);
         self.allocator.free(self.sect_contribs);
     }
@@ -673,12 +686,12 @@ pub const Pdb = struct {
 
         var symbol_i: usize = 0;
         while (symbol_i != module.symbols.len) {
-            const prefix = @ptrCast(*RecordPrefix, &module.symbols[symbol_i]);
+            const prefix = @ptrCast(*align(1) RecordPrefix, &module.symbols[symbol_i]);
             if (prefix.RecordLen < 2)
                 return null;
             switch (prefix.RecordKind) {
                 .S_LPROC32, .S_GPROC32 => {
-                    const proc_sym = @ptrCast(*ProcSym, &module.symbols[symbol_i + @sizeOf(RecordPrefix)]);
+                    const proc_sym = @ptrCast(*align(1) ProcSym, &module.symbols[symbol_i + @sizeOf(RecordPrefix)]);
                     if (address >= proc_sym.CodeOffset and address < proc_sym.CodeOffset + proc_sym.CodeSize) {
                         return mem.sliceTo(@ptrCast([*:0]u8, proc_sym) + @sizeOf(ProcSym), 0);
                     }
@@ -699,7 +712,7 @@ pub const Pdb = struct {
         var skip_len: usize = undefined;
         const checksum_offset = module.checksum_offset orelse return error.MissingDebugInfo;
         while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
-            const subsect_hdr = @ptrCast(*DebugSubsectionHeader, &subsect_info[sect_offset]);
+            const subsect_hdr = @ptrCast(*align(1) DebugSubsectionHeader, &subsect_info[sect_offset]);
             skip_len = subsect_hdr.Length;
             sect_offset += @sizeOf(DebugSubsectionHeader);
 
@@ -707,7 +720,7 @@ pub const Pdb = struct {
                 .Lines => {
                     var line_index = sect_offset;
 
-                    const line_hdr = @ptrCast(*LineFragmentHeader, &subsect_info[line_index]);
+                    const line_hdr = @ptrCast(*align(1) LineFragmentHeader, &subsect_info[line_index]);
                     if (line_hdr.RelocSegment == 0)
                         return error.MissingDebugInfo;
                     line_index += @sizeOf(LineFragmentHeader);
@@ -721,7 +734,7 @@ pub const Pdb = struct {
                         const subsection_end_index = sect_offset + subsect_hdr.Length;
 
                         while (line_index < subsection_end_index) {
-                            const block_hdr = @ptrCast(*LineBlockFragmentHeader, &subsect_info[line_index]);
+                            const block_hdr = @ptrCast(*align(1) LineBlockFragmentHeader, &subsect_info[line_index]);
                             line_index += @sizeOf(LineBlockFragmentHeader);
                             const start_line_index = line_index;
 
@@ -733,7 +746,7 @@ pub const Pdb = struct {
                             // This is done with a simple linear search.
                             var line_i: u32 = 0;
                             while (line_i < block_hdr.NumLines) : (line_i += 1) {
-                                const line_num_entry = @ptrCast(*LineNumberEntry, &subsect_info[line_index]);
+                                const line_num_entry = @ptrCast(*align(1) LineNumberEntry, &subsect_info[line_index]);
                                 line_index += @sizeOf(LineNumberEntry);
 
                                 const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
@@ -745,7 +758,7 @@ pub const Pdb = struct {
                             // line_i == 0 would mean that no matching LineNumberEntry was found.
                             if (line_i > 0) {
                                 const subsect_index = checksum_offset + block_hdr.NameIndex;
-                                const chksum_hdr = @ptrCast(*FileChecksumEntryHeader, &module.subsect_info[subsect_index]);
+                                const chksum_hdr = @ptrCast(*align(1) FileChecksumEntryHeader, &module.subsect_info[subsect_index]);
                                 const strtab_offset = @sizeOf(PDBStringTableHeader) + chksum_hdr.FileNameOffset;
                                 try self.string_table.?.seekTo(strtab_offset);
                                 const source_file_name = try self.string_table.?.reader().readUntilDelimiterAlloc(self.allocator, 0, 1024);
@@ -755,16 +768,15 @@ pub const Pdb = struct {
                                 const column = if (has_column) blk: {
                                     const start_col_index = start_line_index + @sizeOf(LineNumberEntry) * block_hdr.NumLines;
                                     const col_index = start_col_index + @sizeOf(ColumnNumberEntry) * line_entry_idx;
-                                    const col_num_entry = @ptrCast(*ColumnNumberEntry, &subsect_info[col_index]);
+                                    const col_num_entry = @ptrCast(*align(1) ColumnNumberEntry, &subsect_info[col_index]);
                                     break :blk col_num_entry.StartColumn;
                                 } else 0;
 
                                 const found_line_index = start_line_index + line_entry_idx * @sizeOf(LineNumberEntry);
-                                const line_num_entry = @ptrCast(*LineNumberEntry, &subsect_info[found_line_index]);
+                                const line_num_entry = @ptrCast(*align(1) LineNumberEntry, &subsect_info[found_line_index]);
                                 const flags = @ptrCast(*LineNumberEntry.Flags, &line_num_entry.Flags);
 
                                 return debug.LineInfo{
-                                    .allocator = self.allocator,
                                     .file_name = source_file_name,
                                     .line = flags.Start,
                                     .column = column,
@@ -821,7 +833,7 @@ pub const Pdb = struct {
         var sect_offset: usize = 0;
         var skip_len: usize = undefined;
         while (sect_offset != mod.subsect_info.len) : (sect_offset += skip_len) {
-            const subsect_hdr = @ptrCast(*DebugSubsectionHeader, &mod.subsect_info[sect_offset]);
+            const subsect_hdr = @ptrCast(*align(1) DebugSubsectionHeader, &mod.subsect_info[sect_offset]);
             skip_len = subsect_hdr.Length;
             sect_offset += @sizeOf(DebugSubsectionHeader);
 
@@ -942,6 +954,14 @@ const Msf = struct {
             .streams = streams,
         };
     }
+
+    fn deinit(self: *Msf, allocator: mem.Allocator) void {
+        allocator.free(self.directory.blocks);
+        for (self.streams) |*stream| {
+            allocator.free(stream.blocks);
+        }
+        allocator.free(self.streams);
+    }
 };
 
 fn blockCountFromSize(size: u32, block_size: u32) u32 {
@@ -949,7 +969,7 @@ fn blockCountFromSize(size: u32, block_size: u32) u32 {
 }
 
 // https://llvm.org/docs/PDB/MsfFile.html#the-superblock
-const SuperBlock = packed struct {
+const SuperBlock = extern struct {
     /// The LLVM docs list a space between C / C++ but empirically this is not the case.
     const file_magic = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00";
 

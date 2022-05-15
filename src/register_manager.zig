@@ -26,11 +26,11 @@ pub const AllocateRegistersError = error{
 pub fn RegisterManager(
     comptime Function: type,
     comptime Register: type,
-    comptime callee_preserved_regs: []const Register,
+    comptime tracked_registers: []const Register,
 ) type {
     // architectures which do not have a concept of registers should
     // refrain from using RegisterManager
-    assert(callee_preserved_regs.len > 0); // see note above
+    assert(tracked_registers.len > 0); // see note above
 
     return struct {
         /// Tracks the AIR instruction allocated to every register. If
@@ -38,22 +38,21 @@ pub fn RegisterManager(
         /// register is free), the value in that slot is undefined.
         ///
         /// The key must be canonical register.
-        registers: [callee_preserved_regs.len]Air.Inst.Index = undefined,
+        registers: [tracked_registers.len]Air.Inst.Index = undefined,
         /// Tracks which registers are free (in which case the
         /// corresponding bit is set to 1)
         free_registers: FreeRegInt = math.maxInt(FreeRegInt),
         /// Tracks all registers allocated in the course of this
         /// function
         allocated_registers: FreeRegInt = 0,
-        /// Tracks registers which are temporarily blocked from being
-        /// allocated
-        frozen_registers: FreeRegInt = 0,
+        /// Tracks registers which are locked from being allocated
+        locked_registers: FreeRegInt = 0,
 
         const Self = @This();
 
         /// An integer whose bits represent all the registers and
         /// whether they are free.
-        const FreeRegInt = std.meta.Int(.unsigned, callee_preserved_regs.len);
+        const FreeRegInt = std.meta.Int(.unsigned, tracked_registers.len);
         const ShiftInt = math.Log2Int(FreeRegInt);
 
         fn getFunction(self: *Self) *Function {
@@ -61,7 +60,7 @@ pub fn RegisterManager(
         }
 
         fn getRegisterMask(reg: Register) ?FreeRegInt {
-            const index = reg.allocIndex() orelse return null;
+            const index = indexOfRegIntoTracked(reg) orelse return null;
             const shift = @intCast(ShiftInt, index);
             const mask = @as(FreeRegInt, 1) << shift;
             return mask;
@@ -82,6 +81,17 @@ pub fn RegisterManager(
             self.free_registers |= mask;
         }
 
+        pub fn indexOfReg(comptime registers: []const Register, reg: Register) ?std.math.IntFittingRange(0, registers.len - 1) {
+            inline for (tracked_registers) |cpreg, i| {
+                if (reg.id() == cpreg.id()) return i;
+            }
+            return null;
+        }
+
+        pub fn indexOfRegIntoTracked(reg: Register) ?ShiftInt {
+            return indexOfReg(tracked_registers, reg);
+        }
+
         /// Returns true when this register is not tracked
         pub fn isRegFree(self: Self, reg: Register) bool {
             const mask = getRegisterMask(reg) orelse return true;
@@ -97,34 +107,70 @@ pub fn RegisterManager(
             return self.allocated_registers & mask != 0;
         }
 
-        /// Returns whether this register is frozen
+        /// Returns whether this register is locked
         ///
         /// Returns false when this register is not tracked
-        pub fn isRegFrozen(self: Self, reg: Register) bool {
+        pub fn isRegLocked(self: Self, reg: Register) bool {
             const mask = getRegisterMask(reg) orelse return false;
-            return self.frozen_registers & mask != 0;
+            return self.locked_registers & mask != 0;
         }
 
-        /// Prevents the registers from being allocated until they are
-        /// unfrozen again
-        pub fn freezeRegs(self: *Self, regs: []const Register) void {
-            for (regs) |reg| {
-                const mask = getRegisterMask(reg) orelse continue;
-                self.frozen_registers |= mask;
+        pub const RegisterLock = struct {
+            register: Register,
+        };
+
+        /// Prevents the register from being allocated until they are
+        /// unlocked again.
+        /// Returns `RegisterLock` if the register was not already
+        /// locked, or `null` otherwise.
+        /// Only the owner of the `RegisterLock` can unlock the
+        /// register later.
+        pub fn lockReg(self: *Self, reg: Register) ?RegisterLock {
+            log.debug("locking {}", .{reg});
+            if (self.isRegLocked(reg)) {
+                log.debug("  register already locked", .{});
+                return null;
             }
+            const mask = getRegisterMask(reg) orelse return null;
+            self.locked_registers |= mask;
+            return RegisterLock{ .register = reg };
         }
 
-        /// Enables the allocation of the registers
-        pub fn unfreezeRegs(self: *Self, regs: []const Register) void {
-            for (regs) |reg| {
-                const mask = getRegisterMask(reg) orelse continue;
-                self.frozen_registers &= ~mask;
+        /// Like `lockReg` but asserts the register was unused always
+        /// returning a valid lock.
+        pub fn lockRegAssumeUnused(self: *Self, reg: Register) RegisterLock {
+            log.debug("locking asserting free {}", .{reg});
+            assert(!self.isRegLocked(reg));
+            const mask = getRegisterMask(reg) orelse unreachable;
+            self.locked_registers |= mask;
+            return RegisterLock{ .register = reg };
+        }
+
+        /// Like `lockRegAssumeUnused` but locks multiple registers.
+        pub fn lockRegsAssumeUnused(
+            self: *Self,
+            comptime count: comptime_int,
+            regs: [count]Register,
+        ) [count]RegisterLock {
+            var buf: [count]RegisterLock = undefined;
+            for (regs) |reg, i| {
+                buf[i] = self.lockRegAssumeUnused(reg);
             }
+            return buf;
         }
 
-        /// Returns true when at least one register is frozen
-        pub fn frozenRegsExist(self: Self) bool {
-            return self.frozen_registers != 0;
+        /// Unlocks the register allowing its re-allocation and re-use.
+        /// Requires `RegisterLock` to unlock a register.
+        /// Call `lockReg` to obtain the lock first.
+        pub fn unlockReg(self: *Self, lock: RegisterLock) void {
+            log.debug("unlocking {}", .{lock.register});
+            const mask = getRegisterMask(lock.register) orelse return;
+            self.locked_registers &= ~mask;
+        }
+
+        /// Returns true when at least one register is locked
+        pub fn lockedRegsExist(self: Self) bool {
+            return self.locked_registers != 0;
         }
 
         /// Allocates a specified number of registers, optionally
@@ -135,20 +181,21 @@ pub fn RegisterManager(
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
         ) ?[count]Register {
-            comptime assert(count > 0 and count <= callee_preserved_regs.len);
+            comptime assert(count > 0 and count <= tracked_registers.len);
 
-            const free_registers = @popCount(FreeRegInt, self.free_registers);
-            if (free_registers < count) return null;
+            const free_and_not_locked_registers = self.free_registers & ~self.locked_registers;
+            const free_and_not_locked_registers_count = @popCount(FreeRegInt, free_and_not_locked_registers);
+            if (free_and_not_locked_registers_count < count) return null;
 
             var regs: [count]Register = undefined;
             var i: usize = 0;
-            for (callee_preserved_regs) |reg| {
+            for (tracked_registers) |reg| {
                 if (i >= count) break;
-                if (self.isRegFrozen(reg)) continue;
-                if (self.isRegFree(reg)) {
-                    regs[i] = reg;
-                    i += 1;
-                }
+                if (self.isRegLocked(reg)) continue;
+                if (!self.isRegFree(reg)) continue;
+
+                regs[i] = reg;
+                i += 1;
             }
             assert(i == count);
 
@@ -157,7 +204,7 @@ pub fn RegisterManager(
 
                 if (insts[j]) |inst| {
                     // Track the register
-                    const index = reg.allocIndex().?; // allocIndex() on a callee-preserved reg should never return null
+                    const index = indexOfRegIntoTracked(reg).?; // indexOfReg() on a callee-preserved reg should never return null
                     self.registers[index] = inst;
                     self.markRegUsed(reg);
                 }
@@ -181,8 +228,9 @@ pub fn RegisterManager(
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
         ) AllocateRegistersError![count]Register {
-            comptime assert(count > 0 and count <= callee_preserved_regs.len);
-            if (count > callee_preserved_regs.len - @popCount(FreeRegInt, self.frozen_registers)) return error.OutOfRegisters;
+            comptime assert(count > 0 and count <= tracked_registers.len);
+            const locked_registers_count = @popCount(FreeRegInt, self.locked_registers);
+            if (count > tracked_registers.len - locked_registers_count) return error.OutOfRegisters;
 
             const result = self.tryAllocRegs(count, insts) orelse blk: {
                 // We'll take over the first count registers. Spill
@@ -190,13 +238,13 @@ pub fn RegisterManager(
                 // stack allocations.
                 var regs: [count]Register = undefined;
                 var i: usize = 0;
-                for (callee_preserved_regs) |reg| {
+                for (tracked_registers) |reg| {
                     if (i >= count) break;
-                    if (self.isRegFrozen(reg)) continue;
+                    if (self.isRegLocked(reg)) continue;
 
                     regs[i] = reg;
                     self.markRegAllocated(reg);
-                    const index = reg.allocIndex().?; // allocIndex() on a callee-preserved reg should never return null
+                    const index = indexOfRegIntoTracked(reg).?; // indexOfReg() on a callee-preserved reg should never return null
                     if (insts[i]) |inst| {
                         // Track the register
                         if (self.isRegFree(reg)) {
@@ -235,7 +283,8 @@ pub fn RegisterManager(
         /// corresponding instruction is passed, will also track this
         /// register.
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
-            const index = reg.allocIndex() orelse return;
+            const index = indexOfRegIntoTracked(reg) orelse return;
+            log.debug("getReg {} for inst {}", .{ reg, inst });
             self.markRegAllocated(reg);
 
             if (inst) |tracked_inst|
@@ -263,7 +312,8 @@ pub fn RegisterManager(
         /// instruction. Asserts that the register is free and no
         /// spilling is necessary.
         pub fn getRegAssumeFree(self: *Self, reg: Register, inst: Air.Inst.Index) void {
-            const index = reg.allocIndex() orelse return;
+            const index = indexOfRegIntoTracked(reg) orelse return;
+            log.debug("getRegAssumeFree {} for inst {}", .{ reg, inst });
             self.markRegAllocated(reg);
 
             assert(self.isRegFree(reg));
@@ -273,7 +323,7 @@ pub fn RegisterManager(
 
         /// Marks the specified register as free
         pub fn freeReg(self: *Self, reg: Register) void {
-            const index = reg.allocIndex() orelse return;
+            const index = indexOfRegIntoTracked(reg) orelse return;
             log.debug("freeing register {}", .{reg});
 
             self.registers[index] = undefined;
@@ -288,14 +338,11 @@ const MockRegister1 = enum(u2) {
     r2,
     r3,
 
-    pub fn allocIndex(self: MockRegister1) ?u2 {
-        inline for (callee_preserved_regs) |cpreg, i| {
-            if (self == cpreg) return i;
-        }
-        return null;
+    pub fn id(reg: MockRegister1) u2 {
+        return @enumToInt(reg);
     }
 
-    const callee_preserved_regs = [_]MockRegister1{ .r2, .r3 };
+    const allocatable_registers = [_]MockRegister1{ .r2, .r3 };
 };
 
 const MockRegister2 = enum(u2) {
@@ -304,20 +351,17 @@ const MockRegister2 = enum(u2) {
     r2,
     r3,
 
-    pub fn allocIndex(self: MockRegister2) ?u2 {
-        inline for (callee_preserved_regs) |cpreg, i| {
-            if (self == cpreg) return i;
-        }
-        return null;
+    pub fn id(reg: MockRegister2) u2 {
+        return @enumToInt(reg);
     }
 
-    const callee_preserved_regs = [_]MockRegister2{ .r0, .r1, .r2, .r3 };
+    const allocatable_registers = [_]MockRegister2{ .r0, .r1, .r2, .r3 };
 };
 
 fn MockFunction(comptime Register: type) type {
     return struct {
         allocator: Allocator,
-        register_manager: RegisterManager(Self, Register, &Register.callee_preserved_regs) = .{},
+        register_manager: RegisterManager(Self, Register, &Register.allocatable_registers) = .{},
         spilled: std.ArrayListUnmanaged(Register) = .{},
 
         const Self = @This();
@@ -407,15 +451,15 @@ test "allocReg: spilling" {
     try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
     try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
 
-    // Frozen registers
+    // Locked registers
     function.register_manager.freeReg(.r3);
     {
-        function.register_manager.freezeRegs(&.{.r2});
-        defer function.register_manager.unfreezeRegs(&.{.r2});
+        const lock = function.register_manager.lockReg(.r2);
+        defer if (lock) |reg| function.register_manager.unlockReg(reg);
 
         try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
     }
-    try expect(!function.register_manager.frozenRegsExist());
+    try expect(!function.register_manager.lockedRegsExist());
 }
 
 test "tryAllocRegs" {
@@ -433,17 +477,17 @@ test "tryAllocRegs" {
     try expect(function.register_manager.isRegAllocated(.r2));
     try expect(!function.register_manager.isRegAllocated(.r3));
 
-    // Frozen registers
+    // Locked registers
     function.register_manager.freeReg(.r0);
     function.register_manager.freeReg(.r2);
     function.register_manager.freeReg(.r3);
     {
-        function.register_manager.freezeRegs(&.{.r1});
-        defer function.register_manager.unfreezeRegs(&.{.r1});
+        const lock = function.register_manager.lockReg(.r1);
+        defer if (lock) |reg| function.register_manager.unlockReg(reg);
 
         try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
     }
-    try expect(!function.register_manager.frozenRegsExist());
+    try expect(!function.register_manager.lockedRegsExist());
 
     try expect(function.register_manager.isRegAllocated(.r0));
     try expect(function.register_manager.isRegAllocated(.r1));
@@ -466,19 +510,19 @@ test "allocRegs: normal usage" {
 
         // The result register is known and fixed at this point, we
         // don't want to accidentally allocate lhs or rhs to the
-        // result register, this is why we freeze it.
+        // result register, this is why we lock it.
         //
-        // Using defer unfreeze right after freeze is a good idea in
-        // most cases as you probably are using the frozen registers
+        // Using defer unlock right after lock is a good idea in
+        // most cases as you probably are using the locked registers
         // in the remainder of this scope and don't need to use it
         // after the end of this scope. However, in some situations,
-        // it may make sense to manually unfreeze registers before the
+        // it may make sense to manually unlock registers before the
         // end of the scope when you are certain that they don't
         // contain any valuable data anymore and can be reused. For an
         // example of that, see `selectively reducing register
         // pressure`.
-        function.register_manager.freezeRegs(&.{result_reg});
-        defer function.register_manager.unfreezeRegs(&.{result_reg});
+        const lock = function.register_manager.lockReg(result_reg);
+        defer if (lock) |reg| function.register_manager.unlockReg(reg);
 
         const regs = try function.register_manager.allocRegs(2, .{ null, null });
         try function.genAdd(result_reg, regs[0], regs[1]);
@@ -498,16 +542,14 @@ test "allocRegs: selectively reducing register pressure" {
     {
         const result_reg: MockRegister2 = .r1;
 
-        function.register_manager.freezeRegs(&.{result_reg});
-        defer function.register_manager.unfreezeRegs(&.{result_reg});
+        const lock = function.register_manager.lockReg(result_reg);
 
-        // Here, we don't defer unfreeze because we manually unfreeze
+        // Here, we don't defer unlock because we manually unlock
         // after genAdd
         const regs = try function.register_manager.allocRegs(2, .{ null, null });
-        function.register_manager.freezeRegs(&.{result_reg});
 
         try function.genAdd(result_reg, regs[0], regs[1]);
-        function.register_manager.unfreezeRegs(&regs);
+        function.register_manager.unlockReg(lock.?);
 
         const extra_summand_reg = try function.register_manager.allocReg(null);
         try function.genAdd(result_reg, result_reg, extra_summand_reg);

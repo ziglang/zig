@@ -10,9 +10,7 @@ const Mixin = struct {
 };
 
 test "container member access usingnamespace decls" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     var foo = Foo{};
     foo.two();
 }

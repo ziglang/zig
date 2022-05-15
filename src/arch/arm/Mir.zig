@@ -12,7 +12,6 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const bits = @import("bits.zig");
-const Air = @import("../../Air.zig");
 const Register = bits.Register;
 
 instructions: std.MultiArrayList(Inst).Slice,
@@ -28,6 +27,8 @@ pub const Inst = struct {
     pub const Tag = enum(u16) {
         /// Add
         add,
+        /// Add, update condition flags
+        adds,
         /// Bitwise AND
         @"and",
         /// Arithmetic Shift Right
@@ -42,8 +43,6 @@ pub const Inst = struct {
         bx,
         /// Compare
         cmp,
-        /// Pseudo-instruction: Argument
-        dbg_arg,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
@@ -54,6 +53,8 @@ pub const Inst = struct {
         eor,
         /// Load Register
         ldr,
+        /// Pseudo-instruction: Load pointer to stack argument offset
+        ldr_ptr_stack_argument,
         /// Load Register
         ldr_stack_argument,
         /// Load Register Byte
@@ -64,6 +65,14 @@ pub const Inst = struct {
         ldrh,
         /// Load Register Halfword
         ldrh_stack_argument,
+        /// Load Register Signed Byte
+        ldrsb,
+        /// Load Register Signed Byte
+        ldrsb_stack_argument,
+        /// Load Register Signed Halfword
+        ldrsh,
+        /// Load Register Signed Halfword
+        ldrsh_stack_argument,
         /// Logical Shift Left
         lsl,
         /// Logical Shift Right
@@ -88,6 +97,12 @@ pub const Inst = struct {
         push,
         /// Reverse Subtract
         rsb,
+        /// Signed Bit Field Extract
+        sbfx,
+        /// Signed Multiply (halfwords), bottom half, bottom half
+        smulbb,
+        /// Signed Multiply Long
+        smull,
         /// Store Register
         str,
         /// Store Register Byte
@@ -96,8 +111,14 @@ pub const Inst = struct {
         strh,
         /// Subtract
         sub,
+        /// Subtract, update condition flags
+        subs,
         /// Supervisor Call
         svc,
+        /// Unsigned Bit Field Extract
+        ubfx,
+        /// Unsigned Multiply Long
+        umull,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -106,8 +127,6 @@ pub const Inst = struct {
     /// All instructions have a 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
-    // TODO flatten down Data (remove use of tagged unions) to make it
-    // 8 bytes only
     pub const Data = union {
         /// No additional data
         ///
@@ -179,11 +198,30 @@ pub const Inst = struct {
             rn: Register,
             offset: bits.Instruction.ExtraLoadStoreOffsetArgs,
         },
+        /// Two registers and a lsb (range 0-31) and a width (range
+        /// 1-32)
+        ///
+        /// Used by e.g. sbfx
+        rr_lsb_width: struct {
+            rd: Register,
+            rn: Register,
+            lsb: u5,
+            width: u6,
+        },
         /// Three registers
         ///
         /// Used by e.g. mul
         rrr: struct {
             rd: Register,
+            rn: Register,
+            rm: Register,
+        },
+        /// Four registers
+        ///
+        /// Used by e.g. smull
+        rrrr: struct {
+            rdlo: Register,
+            rdhi: Register,
             rn: Register,
             rm: Register,
         },
@@ -198,22 +236,15 @@ pub const Inst = struct {
             line: u32,
             column: u32,
         },
-        /// Debug info: argument
-        ///
-        /// Used by e.g. dbg_arg
-        dbg_arg_info: struct {
-            air_inst: Air.Inst.Index,
-            arg_index: u32,
-        },
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
-    // comptime {
-    //     if (builtin.mode != .Debug) {
-    //         assert(@sizeOf(Data) == 8);
-    //     }
-    // }
+    comptime {
+        if (builtin.mode != .Debug) {
+            assert(@sizeOf(Data) == 8);
+        }
+    }
 };
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {

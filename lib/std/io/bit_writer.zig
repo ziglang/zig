@@ -17,8 +17,8 @@ pub fn BitWriter(endian: std.builtin.Endian, comptime WriterType: type) type {
         pub const Writer = io.Writer(*Self, Error, write);
 
         const Self = @This();
-        const u8_bit_count = meta.bitCount(u8);
-        const u4_bit_count = meta.bitCount(u4);
+        const u8_bit_count = @bitSizeOf(u8);
+        const u4_bit_count = @bitSizeOf(u4);
 
         pub fn init(forward_writer: WriterType) Self {
             return Self{
@@ -39,7 +39,7 @@ pub fn BitWriter(endian: std.builtin.Endian, comptime WriterType: type) type {
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.
-            const u_bit_count = comptime meta.bitCount(U);
+            const u_bit_count = @bitSizeOf(U);
             const buf_bit_count = bc: {
                 assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;

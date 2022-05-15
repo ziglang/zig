@@ -9,7 +9,6 @@ const os = std.os;
 const fs = std.fs;
 const mem = std.mem;
 const meta = std.meta;
-const trait = meta.trait;
 const File = std.fs.File;
 
 pub const Mode = enum {

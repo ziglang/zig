@@ -1,4 +1,4 @@
-//! This file contains the functionality for lowering AArch64 MIR into
+//! This file contains the functionality for lowering RISCV64 MIR into
 //! machine code
 
 const Emit = @This();
@@ -43,6 +43,9 @@ pub fn emitMir(
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
+            .add => try emit.mirRType(inst),
+            .sub => try emit.mirRType(inst),
+
             .addi => try emit.mirIType(inst),
             .jalr => try emit.mirIType(inst),
             .ld => try emit.mirIType(inst),
@@ -55,6 +58,8 @@ pub fn emitMir(
 
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
+
+            .mv => try emit.mirRR(inst),
 
             .nop => try emit.mirNop(inst),
             .ret => try emit.mirNop(inst),
@@ -84,18 +89,19 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
     const delta_pc: usize = self.code.items.len - self.prev_di_pc;
     switch (self.debug_output) {
-        .dwarf => |dbg_out| {
+        .dwarf => |dw| {
             // TODO Look into using the DWARF special opcodes to compress this data.
             // It lets you emit single-byte opcodes that add different numbers to
             // both the PC and the line number at the same time.
-            try dbg_out.dbg_line.ensureUnusedCapacity(11);
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
+            const dbg_line = &dw.dbg_line;
+            try dbg_line.ensureUnusedCapacity(11);
+            dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
+            leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
             if (delta_line != 0) {
-                dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
+                dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
+                leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
             }
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
+            dbg_line.appendAssumeCapacity(DW.LNS.copy);
             self.prev_di_pc = self.code.items.len;
             self.prev_di_line = line;
             self.prev_di_column = column;
@@ -128,6 +134,17 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
             self.prev_di_pc = self.code.items.len;
         },
         .none => {},
+    }
+}
+
+fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const r_type = emit.mir.instructions.items(.data)[inst].r_type;
+
+    switch (tag) {
+        .add => try emit.writeInstruction(Instruction.add(r_type.rd, r_type.rs1, r_type.rs2)),
+        .sub => try emit.writeInstruction(Instruction.sub(r_type.rd, r_type.rs1, r_type.rs2)),
+        else => unreachable,
     }
 }
 
@@ -166,8 +183,8 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirDebugPrologueEnd(self: *Emit) !void {
     switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
+        .dwarf => |dw| {
+            try dw.dbg_line.append(DW.LNS.set_prologue_end);
             try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
         },
         .plan9 => {},
@@ -177,8 +194,8 @@ fn mirDebugPrologueEnd(self: *Emit) !void {
 
 fn mirDebugEpilogueBegin(self: *Emit) !void {
     switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
+        .dwarf => |dw| {
+            try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
             try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
         },
         .plan9 => {},
@@ -186,6 +203,15 @@ fn mirDebugEpilogueBegin(self: *Emit) !void {
     }
 }
 
+fn mirRR(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rr = emit.mir.instructions.items(.data)[inst].rr;
+
+    switch (tag) {
+        .mv => try emit.writeInstruction(Instruction.addi(rr.rd, rr.rs, 0)),
+        else => unreachable,
+    }
+}
 fn mirUType(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const u_type = emit.mir.instructions.items(.data)[inst].u_type;

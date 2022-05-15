@@ -138,11 +138,10 @@ const AggregateContainerType = enum(u1) { object, array };
 fn AggregateContainerStack(comptime n: usize) type {
     return struct {
         const Self = @This();
-        const TypeInfo = std.builtin.TypeInfo;
 
         const element_bitcount = 8 * @sizeOf(usize);
         const element_count = n / element_bitcount;
-        const ElementType = @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = element_bitcount } });
+        const ElementType = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = element_bitcount } });
         const ElementShiftAmountType = std.math.Log2Int(ElementType);
 
         comptime {
@@ -1656,7 +1655,7 @@ fn parseInternal(
             if (numberToken.is_integer)
                 return try std.fmt.parseInt(T, numberToken.slice(tokens.slice, tokens.i - 1), 10);
             const float = try std.fmt.parseFloat(f128, numberToken.slice(tokens.slice, tokens.i - 1));
-            if (std.math.round(float) != float) return error.InvalidNumber;
+            if (@round(float) != float) return error.InvalidNumber;
             if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
             return @floatToInt(T, float);
         },
@@ -1871,20 +1870,34 @@ fn parseInternal(
                                 const v = try parseInternal(ptrInfo.child, tok, tokens, options);
                                 arraylist.appendAssumeCapacity(v);
                             }
+
+                            if (ptrInfo.sentinel) |some| {
+                                const sentinel_value = @ptrCast(*const ptrInfo.child, some).*;
+                                try arraylist.append(sentinel_value);
+                                const output = arraylist.toOwnedSlice();
+                                return output[0 .. output.len - 1 :sentinel_value];
+                            }
+
                             return arraylist.toOwnedSlice();
                         },
                         .String => |stringToken| {
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                            const len = stringToken.decodedLength();
+                            const output = try allocator.alloc(u8, len + @boolToInt(ptrInfo.sentinel != null));
+                            errdefer allocator.free(output);
                             switch (stringToken.escapes) {
-                                .None => return allocator.dupe(u8, source_slice),
-                                .Some => {
-                                    const output = try allocator.alloc(u8, stringToken.decodedLength());
-                                    errdefer allocator.free(output);
-                                    try unescapeValidString(output, source_slice);
-                                    return output;
-                                },
+                                .None => mem.copy(u8, output, source_slice),
+                                .Some => try unescapeValidString(output, source_slice),
                             }
+
+                            if (ptrInfo.sentinel) |some| {
+                                const char = @ptrCast(*const u8, some).*;
+                                output[len] = char;
+                                return output[0..len :char];
+                            }
+
+                            return output;
                         },
                         else => return error.UnexpectedToken,
                     }
@@ -2215,6 +2228,35 @@ test "parse into struct with misc fields" {
     try testing.expectEqualSlices(u8, "zig", r.veryComplex[0].foo);
     try testing.expectEqualSlices(u8, "rocks", r.veryComplex[1].foo);
     try testing.expectEqual(T.Union{ .float = 100000 }, r.a_union);
+}
+
+test "parse into struct with strings and arrays with sentinels" {
+    @setEvalBranchQuota(10000);
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const T = struct {
+        language: [:0]const u8,
+        language_without_sentinel: []const u8,
+        data: [:99]const i32,
+        simple_data: []const i32,
+    };
+    const r = try parse(T, &TokenStream.init(
+        \\{
+        \\  "language": "zig",
+        \\  "language_without_sentinel": "zig again!",
+        \\  "data": [1, 2, 3],
+        \\  "simple_data": [4, 5, 6]
+        \\}
+    ), options);
+    defer parseFree(T, r, options);
+
+    try testing.expectEqualSentinel(u8, 0, "zig", r.language);
+
+    const data = [_:99]i32{ 1, 2, 3 };
+    try testing.expectEqualSentinel(i32, 99, data[0..data.len], r.data);
+
+    // Make sure that arrays who aren't supposed to have a sentinel still parse without one.
+    try testing.expectEqual(@as(?i32, null), std.meta.sentinel(@TypeOf(r.simple_data)));
+    try testing.expectEqual(@as(?u8, null), std.meta.sentinel(@TypeOf(r.language_without_sentinel)));
 }
 
 test "parse into struct with duplicate field" {
@@ -2921,6 +2963,47 @@ fn outputUnicodeEscape(
     }
 }
 
+fn outputJsonString(value: []const u8, options: StringifyOptions, out_stream: anytype) !void {
+    try out_stream.writeByte('\"');
+    var i: usize = 0;
+    while (i < value.len) : (i += 1) {
+        switch (value[i]) {
+            // normal ascii character
+            0x20...0x21, 0x23...0x2E, 0x30...0x5B, 0x5D...0x7F => |c| try out_stream.writeByte(c),
+            // only 2 characters that *must* be escaped
+            '\\' => try out_stream.writeAll("\\\\"),
+            '\"' => try out_stream.writeAll("\\\""),
+            // solidus is optional to escape
+            '/' => {
+                if (options.string.String.escape_solidus) {
+                    try out_stream.writeAll("\\/");
+                } else {
+                    try out_stream.writeByte('/');
+                }
+            },
+            // control characters with short escapes
+            // TODO: option to switch between unicode and 'short' forms?
+            0x8 => try out_stream.writeAll("\\b"),
+            0xC => try out_stream.writeAll("\\f"),
+            '\n' => try out_stream.writeAll("\\n"),
+            '\r' => try out_stream.writeAll("\\r"),
+            '\t' => try out_stream.writeAll("\\t"),
+            else => {
+                const ulen = std.unicode.utf8ByteSequenceLength(value[i]) catch unreachable;
+                // control characters (only things left with 1 byte length) should always be printed as unicode escapes
+                if (ulen == 1 or options.string.String.escape_unicode) {
+                    const codepoint = std.unicode.utf8Decode(value[i .. i + ulen]) catch unreachable;
+                    try outputUnicodeEscape(codepoint, out_stream);
+                } else {
+                    try out_stream.writeAll(value[i .. i + ulen]);
+                }
+                i += ulen - 1;
+            },
+        }
+    }
+    try out_stream.writeByte('\"');
+}
+
 pub fn stringify(
     value: anytype,
     options: StringifyOptions,
@@ -3006,7 +3089,7 @@ pub fn stringify(
                         try out_stream.writeByte('\n');
                         try child_whitespace.outputIndent(out_stream);
                     }
-                    try stringify(Field.name, options, out_stream);
+                    try outputJsonString(Field.name, options, out_stream);
                     try out_stream.writeByte(':');
                     if (child_options.whitespace) |child_whitespace| {
                         if (child_whitespace.separator) {
@@ -3040,44 +3123,7 @@ pub fn stringify(
             // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
             .Slice => {
                 if (ptr_info.child == u8 and options.string == .String and std.unicode.utf8ValidateSlice(value)) {
-                    try out_stream.writeByte('\"');
-                    var i: usize = 0;
-                    while (i < value.len) : (i += 1) {
-                        switch (value[i]) {
-                            // normal ascii character
-                            0x20...0x21, 0x23...0x2E, 0x30...0x5B, 0x5D...0x7F => |c| try out_stream.writeByte(c),
-                            // only 2 characters that *must* be escaped
-                            '\\' => try out_stream.writeAll("\\\\"),
-                            '\"' => try out_stream.writeAll("\\\""),
-                            // solidus is optional to escape
-                            '/' => {
-                                if (options.string.String.escape_solidus) {
-                                    try out_stream.writeAll("\\/");
-                                } else {
-                                    try out_stream.writeByte('/');
-                                }
-                            },
-                            // control characters with short escapes
-                            // TODO: option to switch between unicode and 'short' forms?
-                            0x8 => try out_stream.writeAll("\\b"),
-                            0xC => try out_stream.writeAll("\\f"),
-                            '\n' => try out_stream.writeAll("\\n"),
-                            '\r' => try out_stream.writeAll("\\r"),
-                            '\t' => try out_stream.writeAll("\\t"),
-                            else => {
-                                const ulen = std.unicode.utf8ByteSequenceLength(value[i]) catch unreachable;
-                                // control characters (only things left with 1 byte length) should always be printed as unicode escapes
-                                if (ulen == 1 or options.string.String.escape_unicode) {
-                                    const codepoint = std.unicode.utf8Decode(value[i .. i + ulen]) catch unreachable;
-                                    try outputUnicodeEscape(codepoint, out_stream);
-                                } else {
-                                    try out_stream.writeAll(value[i .. i + ulen]);
-                                }
-                                i += ulen - 1;
-                            },
-                        }
-                    }
-                    try out_stream.writeByte('\"');
+                    try outputJsonString(value, options, out_stream);
                     return;
                 }
 
@@ -3224,6 +3270,11 @@ test "stringify struct" {
     try teststringify("{\"foo\":42}", struct {
         foo: u32,
     }{ .foo = 42 }, StringifyOptions{});
+}
+
+test "stringify struct with string as array" {
+    try teststringify("{\"foo\":\"bar\"}", .{ .foo = "bar" }, StringifyOptions{});
+    try teststringify("{\"foo\":[98,97,114]}", .{ .foo = "bar" }, StringifyOptions{ .string = .Array });
 }
 
 test "stringify struct with indentation" {

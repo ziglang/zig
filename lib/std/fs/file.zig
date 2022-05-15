@@ -77,7 +77,6 @@ pub const File = struct {
 
     pub const Lock = enum { None, Shared, Exclusive };
 
-    /// TODO https://github.com/ziglang/zig/issues/3802
     pub const OpenFlags = struct {
         mode: OpenMode = .read_only,
 
@@ -133,7 +132,6 @@ pub const File = struct {
         }
     };
 
-    /// TODO https://github.com/ziglang/zig/issues/3802
     pub const CreateFlags = struct {
         /// Whether the file will be created with read access.
         read: bool = false,
@@ -200,6 +198,17 @@ pub const File = struct {
         } else {
             os.close(self.handle);
         }
+    }
+
+    pub const SyncError = os.SyncError;
+
+    /// Blocks until all pending file contents and metadata modifications
+    /// for the file have been synchronized with the underlying filesystem.
+    ///
+    /// Note that this does not ensure that metadata for the
+    /// directory containing the file has also reached disk.
+    pub fn sync(self: File) SyncError!void {
+        return os.fsync(self.handle);
     }
 
     /// Test whether the file refers to a terminal.

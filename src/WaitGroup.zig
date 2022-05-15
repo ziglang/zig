@@ -1,61 +1,39 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
+const Atomic = std.atomic.Atomic;
+const assert = std.debug.assert;
 const WaitGroup = @This();
 
-mutex: std.Thread.Mutex = .{},
-counter: usize = 0,
-event: std.Thread.ResetEvent,
+const is_waiting: usize = 1 << 0;
+const one_pending: usize = 1 << 1;
 
-pub fn init(self: *WaitGroup) !void {
-    self.* = .{
-        .mutex = .{},
-        .counter = 0,
-        .event = undefined,
-    };
-    try self.event.init();
-}
-
-pub fn deinit(self: *WaitGroup) void {
-    self.event.deinit();
-    self.* = undefined;
-}
+state: Atomic(usize) = Atomic(usize).init(0),
+event: std.Thread.ResetEvent = .{},
 
 pub fn start(self: *WaitGroup) void {
-    self.mutex.lock();
-    defer self.mutex.unlock();
-
-    self.counter += 1;
+    const state = self.state.fetchAdd(one_pending, .Monotonic);
+    assert((state / one_pending) < (std.math.maxInt(usize) / one_pending));
 }
 
 pub fn finish(self: *WaitGroup) void {
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    const state = self.state.fetchSub(one_pending, .Release);
+    assert((state / one_pending) > 0);
 
-    self.counter -= 1;
-
-    if (self.counter == 0) {
+    if (state == (one_pending | is_waiting)) {
+        self.state.fence(.Acquire);
         self.event.set();
     }
 }
 
 pub fn wait(self: *WaitGroup) void {
-    while (true) {
-        self.mutex.lock();
+    var state = self.state.fetchAdd(is_waiting, .Acquire);
+    assert(state & is_waiting == 0);
 
-        if (self.counter == 0) {
-            self.mutex.unlock();
-            return;
-        }
-
-        self.mutex.unlock();
+    if ((state / one_pending) > 0) {
         self.event.wait();
     }
 }
 
 pub fn reset(self: *WaitGroup) void {
+    self.state.store(0, .Monotonic);
     self.event.reset();
 }

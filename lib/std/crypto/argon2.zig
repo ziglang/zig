@@ -34,18 +34,18 @@ const max_hash_len = 64;
 
 /// Argon2 type
 pub const Mode = enum {
-    /// Argon2d is faster and uses data-depending memory access, which makes it highly resistant 
-    /// against GPU cracking attacks and suitable for applications with no threats from side-channel 
+    /// Argon2d is faster and uses data-depending memory access, which makes it highly resistant
+    /// against GPU cracking attacks and suitable for applications with no threats from side-channel
     /// timing attacks (eg. cryptocurrencies).
     argon2d,
 
-    /// Argon2i instead uses data-independent memory access, which is preferred for password 
-    /// hashing and password-based key derivation, but it is slower as it makes more passes over 
+    /// Argon2i instead uses data-independent memory access, which is preferred for password
+    /// hashing and password-based key derivation, but it is slower as it makes more passes over
     /// the memory to protect from tradeoff attacks.
     argon2i,
 
-    /// Argon2id is a hybrid of Argon2i and Argon2d, using a combination of data-depending and 
-    /// data-independent memory accesses, which gives some of Argon2i's resistance to side-channel 
+    /// Argon2id is a hybrid of Argon2i and Argon2d, using a combination of data-depending and
+    /// data-independent memory accesses, which gives some of Argon2i's resistance to side-channel
     /// cache timing attacks and much of Argon2d's resistance to GPU cracking attacks.
     argon2id,
 };
@@ -54,7 +54,7 @@ pub const Mode = enum {
 pub const Params = struct {
     const Self = @This();
 
-    /// A [t]ime cost, which defines the amount of computation realized and therefore the execution 
+    /// A [t]ime cost, which defines the amount of computation realized and therefore the execution
     /// time, given in number of iterations.
     t: u32,
 
@@ -64,16 +64,16 @@ pub const Params = struct {
     /// A [p]arallelism degree, which defines the number of parallel threads.
     p: u24,
 
-    /// The [secret] parameter, which is used for keyed hashing. This allows a secret key to be input 
-    /// at hashing time (from some external location) and be folded into the value of the hash. This 
-    /// means that even if your salts and hashes are compromised, an attacker cannot brute-force to 
+    /// The [secret] parameter, which is used for keyed hashing. This allows a secret key to be input
+    /// at hashing time (from some external location) and be folded into the value of the hash. This
+    /// means that even if your salts and hashes are compromised, an attacker cannot brute-force to
     /// find the password without the key.
     secret: ?[]const u8 = null,
 
-    /// The [ad] parameter, which is used to fold any additional data into the hash value. Functionally, 
-    /// this behaves almost exactly like the secret or salt parameters; the ad parameter is folding 
-    /// into the value of the hash. However, this parameter is used for different data. The salt 
-    /// should be a random string stored alongside your password. The secret should be a random key 
+    /// The [ad] parameter, which is used to fold any additional data into the hash value. Functionally,
+    /// this behaves almost exactly like the secret or salt parameters; the ad parameter is folding
+    /// into the value of the hash. However, this parameter is used for different data. The salt
+    /// should be a random string stored alongside your password. The secret should be a random key
     /// only usable at hashing time. The ad is for any other data.
     ad: ?[]const u8 = null,
 

@@ -20,7 +20,6 @@ fn getErrInt() anyerror!i32 {
 test "ir block deps" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     try expect((foo(1) catch unreachable) == 0);
     try expect((foo(2) catch unreachable) == 0);

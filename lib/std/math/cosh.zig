@@ -45,7 +45,7 @@ fn cosh32(x: f32) f32 {
 
     // |x| < log(FLT_MAX)
     if (ux < 0x42B17217) {
-        const t = math.exp(ax);
+        const t = @exp(ax);
         return 0.5 * (t + 1 / t);
     }
 
@@ -77,7 +77,7 @@ fn cosh64(x: f64) f64 {
 
     // |x| < log(DBL_MAX)
     if (w < 0x40862E42) {
-        const t = math.exp(ax);
+        const t = @exp(ax);
         // NOTE: If x > log(0x1p26) then 1/t is not required.
         return 0.5 * (t + 1 / t);
     }

@@ -1,10 +1,34 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "@popCount integers" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     comptime try testPopCountIntegers();
     try testPopCountIntegers();
+}
+
+test "@popCount 128bit integer" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    comptime {
+        try expect(@popCount(u128, @as(u128, 0b11111111000110001100010000100001000011000011100101010001)) == 24);
+        try expect(@popCount(i128, @as(i128, 0b11111111000110001100010000100001000011000011100101010001)) == 24);
+    }
+
+    {
+        var x: u128 = 0b11111111000110001100010000100001000011000011100101010001;
+        try expect(@popCount(u128, x) == 24);
+    }
+
+    try expect(@popCount(i128, @as(i128, 0b11111111000110001100010000100001000011000011100101010001)) == 24);
 }
 
 fn testPopCountIntegers() !void {
@@ -39,12 +63,15 @@ fn testPopCountIntegers() !void {
     comptime {
         try expect(@popCount(u8, @bitCast(u8, @as(i8, -120))) == 2);
     }
-    comptime {
-        try expect(@popCount(i128, @as(i128, 0b11111111000110001100010000100001000011000011100101010001)) == 24);
-    }
 }
 
 test "@popCount vectors" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     comptime try testPopCountVectors();
     try testPopCountVectors();
 }

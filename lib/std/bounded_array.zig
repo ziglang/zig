@@ -23,7 +23,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
 
         /// Set the actual length of the slice.
         /// Returns error.Overflow if it exceeds the length of the backing array.
-        pub fn init(len: usize) !Self {
+        pub fn init(len: usize) error{Overflow}!Self {
             if (len > capacity) return error.Overflow;
             return Self{ .len = len };
         }
@@ -40,13 +40,13 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
 
         /// Adjust the slice's length to `len`.
         /// Does not initialize added items if any.
-        pub fn resize(self: *Self, len: usize) !void {
+        pub fn resize(self: *Self, len: usize) error{Overflow}!void {
             if (len > capacity) return error.Overflow;
             self.len = len;
         }
 
         /// Copy the content of an existing slice.
-        pub fn fromSlice(m: []const T) !Self {
+        pub fn fromSlice(m: []const T) error{Overflow}!Self {
             var list = try init(m.len);
             std.mem.copy(T, list.slice(), m);
             return list;
@@ -68,14 +68,14 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         }
 
         /// Check that the slice can hold at least `additional_count` items.
-        pub fn ensureUnusedCapacity(self: Self, additional_count: usize) !void {
+        pub fn ensureUnusedCapacity(self: Self, additional_count: usize) error{Overflow}!void {
             if (self.len + additional_count > capacity) {
                 return error.Overflow;
             }
         }
 
         /// Increase length by 1, returning a pointer to the new item.
-        pub fn addOne(self: *Self) !*T {
+        pub fn addOne(self: *Self) error{Overflow}!*T {
             try self.ensureUnusedCapacity(1);
             return self.addOneAssumeCapacity();
         }
@@ -90,7 +90,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the uninitialized elements.
-        pub fn addManyAsArray(self: *Self, comptime n: usize) !*[n]T {
+        pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*[n]T {
             const prev_len = self.len;
             try self.resize(self.len + n);
             return self.slice()[prev_len..][0..n];
@@ -120,9 +120,13 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
 
         /// Insert `item` at index `i` by moving `slice[n .. slice.len]` to make room.
         /// This operation is O(N).
-        pub fn insert(self: *Self, i: usize, item: T) !void {
+        pub fn insert(
+            self: *Self,
+            i: usize,
+            item: T,
+        ) error{Overflow}!void {
             if (i > self.len) {
-                return error.IndexOutOfBounds;
+                return error.Overflow;
             }
             _ = try self.addOne();
             var s = self.slice();
@@ -132,7 +136,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
 
         /// Insert slice `items` at index `i` by moving `slice[i .. slice.len]` to make room.
         /// This operation is O(N).
-        pub fn insertSlice(self: *Self, i: usize, items: []const T) !void {
+        pub fn insertSlice(self: *Self, i: usize, items: []const T) error{Overflow}!void {
             try self.ensureUnusedCapacity(items.len);
             self.len += items.len;
             mem.copyBackwards(T, self.slice()[i + items.len .. self.len], self.constSlice()[i .. self.len - items.len]);
@@ -142,7 +146,12 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         /// Replace range of elements `slice[start..start+len]` with `new_items`.
         /// Grows slice if `len < new_items.len`.
         /// Shrinks slice if `len > new_items.len`.
-        pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: []const T) !void {
+        pub fn replaceRange(
+            self: *Self,
+            start: usize,
+            len: usize,
+            new_items: []const T,
+        ) error{Overflow}!void {
             const after_range = start + len;
             var range = self.slice()[start..after_range];
 
@@ -164,7 +173,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         }
 
         /// Extend the slice by 1 element.
-        pub fn append(self: *Self, item: T) !void {
+        pub fn append(self: *Self, item: T) error{Overflow}!void {
             const new_item_ptr = try self.addOne();
             new_item_ptr.* = item;
         }
@@ -201,7 +210,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         }
 
         /// Append the slice of items to the slice.
-        pub fn appendSlice(self: *Self, items: []const T) !void {
+        pub fn appendSlice(self: *Self, items: []const T) error{Overflow}!void {
             try self.ensureUnusedCapacity(items.len);
             self.appendSliceAssumeCapacity(items);
         }
@@ -216,7 +225,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
 
         /// Append a value to the slice `n` times.
         /// Allocates more memory as necessary.
-        pub fn appendNTimes(self: *Self, value: T, n: usize) !void {
+        pub fn appendNTimes(self: *Self, value: T, n: usize) error{Overflow}!void {
             const old_len = self.len;
             try self.resize(old_len + n);
             mem.set(T, self.slice()[old_len..self.len], value);
@@ -229,6 +238,24 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
             self.len += n;
             assert(self.len <= capacity);
             mem.set(T, self.slice()[old_len..self.len], value);
+        }
+
+        pub const Writer = if (T != u8)
+            @compileError("The Writer interface is only defined for BoundedArray(u8, ...) " ++
+                "but the given type is BoundedArray(" ++ @typeName(T) ++ ", ...)")
+        else
+            std.io.Writer(*Self, error{Overflow}, appendWrite);
+
+        /// Initializes a writer which will write into the array.
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
+
+        /// Same as `appendSlice` except it returns the number of bytes written, which is always the same
+        /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        fn appendWrite(self: *Self, m: []const u8) error{Overflow}!usize {
+            try self.appendSlice(m);
+            return m.len;
         }
     };
 }
@@ -327,4 +354,10 @@ test "BoundedArray" {
     const swapped = a.swapRemove(0);
     try testing.expectEqual(swapped, 0xdd);
     try testing.expectEqual(a.get(0), 0xee);
+
+    while (a.popOrNull()) |_| {}
+    const w = a.writer();
+    const s = "hello, this is a test string";
+    try w.writeAll(s);
+    try testing.expectEqualStrings(s, a.constSlice());
 }

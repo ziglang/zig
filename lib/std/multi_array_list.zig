@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const meta = std.meta;
 const mem = std.mem;
@@ -41,7 +42,10 @@ pub fn MultiArrayList(comptime S: type) type {
                     return &[_]F{};
                 }
                 const byte_ptr = self.ptrs[@enumToInt(field)];
-                const casted_ptr: [*]F = if (@sizeOf([*]F) == 0) undefined else @ptrCast([*]F, @alignCast(@alignOf(F), byte_ptr));
+                const casted_ptr: [*]F = if (@sizeOf(F) == 0)
+                    undefined
+                else
+                    @ptrCast([*]F, @alignCast(@alignOf(F), byte_ptr));
                 return casted_ptr[0..self.len];
             }
 
@@ -174,6 +178,14 @@ pub fn MultiArrayList(comptime S: type) type {
             self.set(self.len - 1, elem);
         }
 
+        /// Extend the list by 1 element, returning the newly reserved
+        /// index with uninitialized data.
+        /// Allocates more memory as necesasry.
+        pub fn addOne(self: *Self, allocator: Allocator) Allocator.Error!usize {
+            try self.ensureUnusedCapacity(allocator, 1);
+            return self.addOneAssumeCapacity();
+        }
+
         /// Extend the list by 1 element, asserting `self.capacity`
         /// is sufficient to hold an additional item.  Returns the
         /// newly reserved index with uninitialized data.
@@ -182,6 +194,23 @@ pub fn MultiArrayList(comptime S: type) type {
             const index = self.len;
             self.len += 1;
             return index;
+        }
+
+        /// Remove and return the last element from the list.
+        /// Asserts the list has at least one item.
+        /// Invalidates pointers to fields of the removed element.
+        pub fn pop(self: *Self) S {
+            const val = self.get(self.len - 1);
+            self.len -= 1;
+            return val;
+        }
+
+        /// Remove and return the last element from the list, or
+        /// return `null` if list is empty.
+        /// Invalidates pointers to fields of the removed element, if any.
+        pub fn popOrNull(self: *Self) ?S {
+            if (self.len == 0) return null;
+            return self.pop();
         }
 
         /// Inserts an item into an ordered list.  Shifts all elements
@@ -392,8 +421,36 @@ pub fn MultiArrayList(comptime S: type) type {
             return result;
         }
 
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sort(self: Self, ctx: anytype) void {
+            const SortContext = struct {
+                sub_ctx: @TypeOf(ctx),
+                slice: Slice,
+
+                pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
+                    inline for (fields) |field_info, i| {
+                        if (@sizeOf(field_info.field_type) != 0) {
+                            const field = @intToEnum(Field, i);
+                            const ptr = sc.slice.items(field);
+                            mem.swap(field_info.field_type, &ptr[a_index], &ptr[b_index]);
+                        }
+                    }
+                }
+
+                pub fn lessThan(sc: @This(), a_index: usize, b_index: usize) bool {
+                    return sc.sub_ctx.lessThan(a_index, b_index);
+                }
+            };
+
+            std.sort.sortContext(self.len, SortContext{
+                .sub_ctx = ctx,
+                .slice = self.slice(),
+            });
+        }
+
         fn capacityInBytes(capacity: usize) usize {
-            const sizes_vector: std.meta.Vector(sizes.bytes.len, usize) = sizes.bytes;
+            const sizes_vector: @Vector(sizes.bytes.len, usize) = sizes.bytes;
             const capacity_vector = @splat(sizes.bytes.len, capacity);
             return @reduce(.Add, capacity_vector * sizes_vector);
         }
@@ -404,6 +461,19 @@ pub fn MultiArrayList(comptime S: type) type {
 
         fn FieldType(field: Field) type {
             return meta.fieldInfo(S, field).field_type;
+        }
+
+        /// This function is used in tools/zig-gdb.py to fetch the child type to facilitate
+        /// fancy debug printing for this type.
+        fn gdbHelper(self: *Self, child: *S) void {
+            _ = self;
+            _ = child;
+        }
+
+        comptime {
+            if (builtin.mode == .Debug) {
+                _ = gdbHelper;
+            }
         }
     };
 }
@@ -487,6 +557,17 @@ test "basic usage" {
     try testing.expectEqualStrings("foobar", list.items(.b)[0]);
     try testing.expectEqualStrings("zigzag", list.items(.b)[1]);
     try testing.expectEqualStrings("fizzbuzz", list.items(.b)[2]);
+
+    list.set(try list.addOne(ally), .{
+        .a = 4,
+        .b = "xnopyt",
+        .c = 'd',
+    });
+    try testing.expectEqualStrings("xnopyt", list.pop().b);
+    try testing.expectEqual(@as(?u8, 'c'), if (list.popOrNull()) |elem| elem.c else null);
+    try testing.expectEqual(@as(u32, 2), list.pop().a);
+    try testing.expectEqual(@as(u8, 'a'), list.pop().c);
+    try testing.expectEqual(@as(?Foo, null), list.popOrNull());
 }
 
 // This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes

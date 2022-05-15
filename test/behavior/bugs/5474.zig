@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 // baseline (control) struct with array of scalar
 const Box0 = struct {
@@ -25,33 +26,34 @@ const Box2 = struct {
     };
 };
 
-fn doTest() !void {
-    // var
-    {
-        var box0: Box0 = .{ .items = undefined };
-        try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == false);
+fn mutable() !void {
+    var box0: Box0 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == false);
 
-        var box1: Box1 = .{ .items = undefined };
-        try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == false);
+    var box1: Box1 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == false);
 
-        var box2: Box2 = .{ .items = undefined };
-        try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == false);
-    }
-
-    // const
-    {
-        const box0: Box0 = .{ .items = undefined };
-        try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == true);
-
-        const box1: Box1 = .{ .items = undefined };
-        try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == true);
-
-        const box2: Box2 = .{ .items = undefined };
-        try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == true);
-    }
+    var box2: Box2 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == false);
 }
 
-test "pointer-to-array constness for zero-size elements" {
-    try doTest();
-    comptime try doTest();
+fn constant() !void {
+    const box0: Box0 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == true);
+
+    const box1: Box1 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == true);
+
+    const box2: Box2 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == true);
+}
+
+test "pointer-to-array constness for zero-size elements, var" {
+    try mutable();
+    comptime try mutable();
+}
+
+test "pointer-to-array constness for zero-size elements, const" {
+    try constant();
+    comptime try constant();
 }

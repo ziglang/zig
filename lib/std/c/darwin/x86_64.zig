@@ -1,3 +1,5 @@
+const c = @import("../darwin.zig");
+
 pub const exception_state = extern struct {
     trapno: u16,
     cpu: u16,
@@ -28,3 +30,6 @@ pub const thread_state = extern struct {
     fs: u64,
     gs: u64,
 };
+
+pub const THREAD_STATE = 4;
+pub const THREAD_STATE_COUNT: c.mach_msg_type_number_t = @sizeOf(thread_state) / @sizeOf(c_int);

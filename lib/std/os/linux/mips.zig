@@ -2,11 +2,12 @@ const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
-const iovec = linux.iovec;
-const iovec_const = linux.iovec_const;
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
+const sockaddr = linux.sockaddr;
 const timespec = linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
@@ -714,6 +715,26 @@ pub const Flock = extern struct {
     len: off_t,
     pid: pid_t,
     __unused: [4]u8,
+};
+
+pub const msghdr = extern struct {
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: i32,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    flags: i32,
+};
+
+pub const msghdr_const = extern struct {
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec_const,
+    iovlen: i32,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    flags: i32,
 };
 
 pub const blksize_t = i32;

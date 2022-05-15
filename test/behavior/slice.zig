@@ -29,8 +29,6 @@ comptime {
 test "slicing" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     var array: [20]i32 = undefined;
 
@@ -48,8 +46,6 @@ test "slicing" {
 }
 
 test "const slice" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     comptime {
         const a = "1234567890";
         try expect(a.len == 10);
@@ -60,8 +56,6 @@ test "const slice" {
 }
 
 test "comptime slice of undefined pointer of length 0" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     const slice1 = @as([*]i32, undefined)[0..0];
     try expect(slice1.len == 0);
     const slice2 = @as([*]i32, undefined)[100..100];
@@ -70,8 +64,6 @@ test "comptime slice of undefined pointer of length 0" {
 
 test "implicitly cast array of size 0 to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var msg = [_]u8{};
     try assertLenIsZero(&msg);
@@ -82,9 +74,6 @@ fn assertLenIsZero(msg: []const u8) !void {
 }
 
 test "access len index of sentinel-terminated slice" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             var slice: [:0]const u8 = "hello";
@@ -98,8 +87,6 @@ test "access len index of sentinel-terminated slice" {
 }
 
 test "comptime slice of slice preserves comptime var" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     comptime {
         var buff: [10]u8 = undefined;
         buff[0..][0..][0] = 1;
@@ -108,8 +95,6 @@ test "comptime slice of slice preserves comptime var" {
 }
 
 test "slice of type" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     comptime {
         var types_array = [_]type{ i32, f64, type };
         for (types_array) |T, i| {
@@ -133,7 +118,6 @@ test "slice of type" {
 
 test "generic malloc free" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
@@ -149,8 +133,6 @@ fn memFree(comptime T: type, memory: []T) void {
 }
 
 test "slice of hardcoded address to pointer" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             const pointer = @intToPtr([*]u8, 0x04)[0..2];
@@ -165,8 +147,6 @@ test "slice of hardcoded address to pointer" {
 }
 
 test "comptime slice of pointer preserves comptime var" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     comptime {
         var buff: [10]u8 = undefined;
         var a = @ptrCast([*]u8, &buff);
@@ -176,8 +156,6 @@ test "comptime slice of pointer preserves comptime var" {
 }
 
 test "comptime pointer cast array and then slice" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-
     const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
 
     const ptrA: [*]const u8 = @ptrCast([*]const u8, &array);
@@ -193,7 +171,6 @@ test "comptime pointer cast array and then slice" {
 test "slicing zero length array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const s1 = ""[0..];
@@ -207,10 +184,7 @@ test "slicing zero length array" {
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try expect(@ptrToInt(x) == 0x1000);
@@ -221,10 +195,6 @@ test "compile time slice of pointer to hard coded address" {
 }
 
 test "slice string literal has correct type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     comptime {
         try expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
         const array = [_]i32{ 1, 2, 3, 4 };
@@ -250,7 +220,6 @@ test "result location zero sized array inside struct field implicit cast to slic
 test "runtime safety lets us slice from len..len" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var an_array = [_]u8{ 1, 2, 3 };
     try expect(mem.eql(u8, sliceFromLenToLen(an_array[0..], 3, 3), ""));
@@ -262,8 +231,7 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 
 test "C pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     var buf: [*c]const u8 = "kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
     var len: u32 = 10;
@@ -304,7 +272,6 @@ fn sliceSum(comptime q: []const u8) i32 {
 test "slice type with custom alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const LazilyResolvedType = struct {
         anything: i32,
@@ -319,8 +286,6 @@ test "slice type with custom alignment" {
 test "obtaining a null terminated slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     // here we have a normal array
     var buf: [50]u8 = undefined;
@@ -344,17 +309,15 @@ test "obtaining a null terminated slice" {
 }
 
 test "empty array to slice" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             const empty: []align(16) u8 = &[_]u8{};
             const align_1: []align(1) u8 = empty;
             const align_4: []align(4) u8 = empty;
             const align_16: []align(16) u8 = empty;
-            try expectEqual(1, @typeInfo(@TypeOf(align_1)).Pointer.alignment);
-            try expectEqual(4, @typeInfo(@TypeOf(align_4)).Pointer.alignment);
-            try expectEqual(16, @typeInfo(@TypeOf(align_16)).Pointer.alignment);
+            try expect(1 == @typeInfo(@TypeOf(align_1)).Pointer.alignment);
+            try expect(4 == @typeInfo(@TypeOf(align_4)).Pointer.alignment);
+            try expect(16 == @typeInfo(@TypeOf(align_16)).Pointer.alignment);
         }
     };
 
@@ -364,8 +327,6 @@ test "empty array to slice" {
 
 test "@ptrCast slice to pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -381,7 +342,10 @@ test "@ptrCast slice to pointer" {
 }
 
 test "slice syntax resulting in pointer-to-array" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -394,8 +358,6 @@ test "slice syntax resulting in pointer-to-array" {
             try testPointer0();
             try testPointerAlign();
             try testSlice();
-            try testSliceZ();
-            try testSlice0();
             try testSliceOpt();
             try testSliceAlign();
         }
@@ -491,22 +453,11 @@ test "slice syntax resulting in pointer-to-array" {
             var array: [2]u8 = [2]u8{ 1, 2 };
             var slice: ?[]u8 = &array;
             comptime try expect(@TypeOf(&array, slice) == ?[]u8);
+            if (builtin.zig_backend != .stage1) {
+                // stage1 is not passing this case
+                comptime try expect(@TypeOf(slice, &array) == ?[]u8);
+            }
             comptime try expect(@TypeOf(slice.?[0..2]) == *[2]u8);
-        }
-
-        fn testSlice0() !void {
-            {
-                var array = [0]u8{};
-                var src_slice: []u8 = &array;
-                var slice = src_slice[0..0];
-                comptime try expect(@TypeOf(slice) == *[0]u8);
-            }
-            {
-                var array = [0:0]u8{};
-                var src_slice: [:0]u8 = &array;
-                var slice = src_slice[0..0];
-                comptime try expect(@TypeOf(slice) == *[0]u8);
-            }
         }
 
         fn testSliceAlign() !void {
@@ -528,8 +479,78 @@ test "slice syntax resulting in pointer-to-array" {
     comptime try S.doTheTest();
 }
 
+test "slice pointer-to-array null terminated" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    comptime {
+        var array = [5:0]u8{ 1, 2, 3, 4, 5 };
+        var slice: [:0]u8 = &array;
+        try expect(@TypeOf(slice[1..3]) == *[2]u8);
+        try expect(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
+
+        if (builtin.zig_backend == .stage1) {
+            try expect(@TypeOf(slice[1..]) == [:0]u8);
+        } else {
+            // stage2 gives a more accurate, correct answer
+            try expect(@TypeOf(slice[1..]) == *[4:0]u8);
+        }
+    }
+
+    var array = [5:0]u8{ 1, 2, 3, 4, 5 };
+    var slice: [:0]u8 = &array;
+    comptime try expect(@TypeOf(slice[1..3]) == *[2]u8);
+    comptime try expect(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
+    comptime try expect(@TypeOf(slice[1..]) == [:0]u8);
+}
+
+test "slice pointer-to-array zero length" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    comptime {
+        {
+            var array = [0]u8{};
+            var src_slice: []u8 = &array;
+            var slice = src_slice[0..0];
+            try expect(@TypeOf(slice) == *[0]u8);
+        }
+        {
+            var array = [0:0]u8{};
+            var src_slice: [:0]u8 = &array;
+            var slice = src_slice[0..0];
+            if (builtin.zig_backend == .stage1) {
+                try expect(@TypeOf(slice) == *[0]u8);
+            } else {
+                // stage2 gives a more accurate, correct answer
+                try expect(@TypeOf(slice) == *[0:0]u8);
+            }
+        }
+    }
+
+    {
+        var array = [0]u8{};
+        var src_slice: []u8 = &array;
+        var slice = src_slice[0..0];
+        comptime try expect(@TypeOf(slice) == *[0]u8);
+    }
+    {
+        var array = [0:0]u8{};
+        var src_slice: [:0]u8 = &array;
+        var slice = src_slice[0..0];
+        comptime try expect(@TypeOf(slice) == *[0]u8);
+    }
+}
+
 test "type coercion of pointer to anon struct literal to pointer to slice" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         const U = union {
@@ -557,23 +578,36 @@ test "type coercion of pointer to anon struct literal to pointer to slice" {
             try expect(mem.eql(u8, slice2[2], "world!"));
         }
     };
-    // try S.doTheTest();
+    try S.doTheTest();
     comptime try S.doTheTest();
 }
 
-test "array concat of slices gives slice" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
+test "array concat of slices gives ptr to array" {
     comptime {
         var a: []const u8 = "aoeu";
         var b: []const u8 = "asdf";
         const c = a ++ b;
         try expect(std.mem.eql(u8, c, "aoeuasdf"));
+        if (builtin.zig_backend != .stage1) {
+            // spec change: array concat now returns pointer-to-array for slices
+            try expect(@TypeOf(c) == *const [8]u8);
+        }
+    }
+}
+
+test "array mult of slice gives ptr to array" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // Stage 1 does not support multiplying slices
+
+    comptime {
+        var a: []const u8 = "aoeu";
+        const c = a ** 2;
+        try expect(std.mem.eql(u8, c, "aoeuaoeu"));
+        try expect(@TypeOf(c) == *const [8]u8);
     }
 }
 
 test "slice bounds in comptime concatenation" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const bs = comptime blk: {
         const b = "........1........";
@@ -589,8 +623,6 @@ test "slice bounds in comptime concatenation" {
 }
 
 test "slice sentinel access at comptime" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     {
         const str0 = &[_:0]u8{ '1', '2', '3' };
         const slice0: [:0]const u8 = str0;
@@ -605,5 +637,59 @@ test "slice sentinel access at comptime" {
 
         try expect(slice0.len == 3);
         try expect(slice0[slice0.len] == 0);
+    }
+}
+
+test "slicing array with sentinel as end index" {
+    // Doesn't work in stage1
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        fn do() !void {
+            var array = [_:0]u8{ 1, 2, 3, 4 };
+            var slice = array[4..5];
+            try expect(slice.len == 1);
+            try expect(slice[0] == 0);
+            try expect(@TypeOf(slice) == *[1]u8);
+        }
+    };
+
+    try S.do();
+    comptime try S.do();
+}
+
+test "slicing slice with sentinel as end index" {
+    // Doesn't work in stage1
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        fn do() !void {
+            var array = [_:0]u8{ 1, 2, 3, 4 };
+            var src_slice: [:0]u8 = &array;
+            var slice = src_slice[4..5];
+            try expect(slice.len == 1);
+            try expect(slice[0] == 0);
+            try expect(@TypeOf(slice) == *[1]u8);
+        }
+    };
+
+    try S.do();
+    comptime try S.do();
+}
+
+test "slice len modification at comptime" {
+    comptime {
+        var buf: [10]u8 = .{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+        var items: []u8 = buf[0..0];
+        items.len += 2;
+        try expect(items.len == 2);
+        try expect(items[0] == 0);
+        try expect(items[1] == 1);
     }
 }

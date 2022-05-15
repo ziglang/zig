@@ -313,12 +313,12 @@ void bigint_write_twos_complement(const BigInt *big_int, uint8_t *buf, size_t bi
             }
 
             if (digit_index == 0) break;
-            digit_index -= 1;
             if (digit_index == last_digit_index) {
                 buf_index += bytes_in_last_digit;
             } else {
                 buf_index += 8;
             }
+            digit_index -= 1;
         }
     } else {
         size_t digit_count = (bit_count + 63) / 64;

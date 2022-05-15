@@ -2,6 +2,7 @@ const std = @import("std");
 const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
+const meta = std.meta;
 const Allocator = mem.Allocator;
 const Target = std.Target;
 const target = @import("target.zig");
@@ -35,27 +36,25 @@ pub fn cmdTargets(
 
     try jws.objectField("arch");
     try jws.beginArray();
-    {
-        inline for (@typeInfo(Target.Cpu.Arch).Enum.fields) |field| {
-            try jws.arrayElem();
-            try jws.emitString(field.name);
-        }
+    for (meta.fieldNames(Target.Cpu.Arch)) |field| {
+        try jws.arrayElem();
+        try jws.emitString(field);
     }
     try jws.endArray();
 
     try jws.objectField("os");
     try jws.beginArray();
-    inline for (@typeInfo(Target.Os.Tag).Enum.fields) |field| {
+    for (meta.fieldNames(Target.Os.Tag)) |field| {
         try jws.arrayElem();
-        try jws.emitString(field.name);
+        try jws.emitString(field);
     }
     try jws.endArray();
 
     try jws.objectField("abi");
     try jws.beginArray();
-    inline for (@typeInfo(Target.Abi).Enum.fields) |field| {
+    for (meta.fieldNames(Target.Abi)) |field| {
         try jws.arrayElem();
-        try jws.emitString(field.name);
+        try jws.emitString(field);
     }
     try jws.endArray();
 
@@ -84,10 +83,9 @@ pub fn cmdTargets(
 
     try jws.objectField("cpus");
     try jws.beginObject();
-    inline for (@typeInfo(Target.Cpu.Arch).Enum.fields) |field| {
-        try jws.objectField(field.name);
+    for (meta.tags(Target.Cpu.Arch)) |arch| {
+        try jws.objectField(@tagName(arch));
         try jws.beginObject();
-        const arch = @field(Target.Cpu.Arch, field.name);
         for (arch.allCpuModels()) |model| {
             try jws.objectField(model.name);
             try jws.beginArray();
@@ -105,10 +103,9 @@ pub fn cmdTargets(
 
     try jws.objectField("cpuFeatures");
     try jws.beginObject();
-    inline for (@typeInfo(Target.Cpu.Arch).Enum.fields) |field| {
-        try jws.objectField(field.name);
+    for (meta.tags(Target.Cpu.Arch)) |arch| {
+        try jws.objectField(@tagName(arch));
         try jws.beginArray();
-        const arch = @field(Target.Cpu.Arch, field.name);
         for (arch.allFeaturesList()) |feature| {
             try jws.arrayElem();
             try jws.emitString(feature.name);

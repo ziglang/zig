@@ -223,6 +223,16 @@ pub extern "ntdll" fn RtlWaitOnAddress(
     Timeout: ?*const LARGE_INTEGER,
 ) callconv(WINAPI) NTSTATUS;
 
+pub extern "ntdll" fn RtlEqualUnicodeString(
+    String1: *const UNICODE_STRING,
+    String2: *const UNICODE_STRING,
+    CaseInSensitive: BOOLEAN,
+) callconv(WINAPI) BOOLEAN;
+
+pub extern "ntdll" fn RtlUpcaseUnicodeChar(
+    SourceCharacter: u16,
+) callconv(WINAPI) u16;
+
 pub extern "ntdll" fn NtLockFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,

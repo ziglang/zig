@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const builtin = @import("builtin");
 const math = std.math;
 const Limb = std.math.big.Limb;
 const limb_bits = @typeInfo(Limb).Int.bits;
@@ -14,6 +15,7 @@ const minInt = std.math.minInt;
 const assert = std.debug.assert;
 const Endian = std.builtin.Endian;
 const Signedness = std.builtin.Signedness;
+const native_endian = builtin.cpu.arch.endian();
 
 const debug_safety = false;
 
@@ -743,6 +745,132 @@ pub const Mutable = struct {
         rma.truncate(rma.toConst(), signedness, bit_count);
     }
 
+    /// r = @bitReverse(a) with 2s-complement semantics.
+    /// r and a may be aliases.
+    ///
+    /// Asserts the result fits in `r`. Upper bound on the number of limbs needed by
+    /// r is `calcTwosCompLimbCount(bit_count)`.
+    pub fn bitReverse(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
+        if (bit_count == 0) return;
+
+        r.copy(a);
+
+        const limbs_required = calcTwosCompLimbCount(bit_count);
+
+        if (!a.positive) {
+            r.positive = true; // Negate.
+            r.bitNotWrap(r.toConst(), .unsigned, bit_count); // Bitwise NOT.
+            r.addScalar(r.toConst(), 1); // Add one.
+        } else if (limbs_required > a.limbs.len) {
+            // Zero-extend to our output length
+            for (r.limbs[a.limbs.len..limbs_required]) |*limb| {
+                limb.* = 0;
+            }
+            r.len = limbs_required;
+        }
+
+        // 0b0..01..1000 with @log2(@sizeOf(Limb)) consecutive ones
+        const endian_mask: usize = (@sizeOf(Limb) - 1) << 3;
+
+        var bytes = std.mem.sliceAsBytes(r.limbs);
+        var bits = std.packed_int_array.PackedIntSliceEndian(u1, .Little).init(bytes, limbs_required * @bitSizeOf(Limb));
+
+        var k: usize = 0;
+        while (k < ((bit_count + 1) / 2)) : (k += 1) {
+            var i = k;
+            var rev_i = bit_count - i - 1;
+
+            // This "endian mask" remaps a low (LE) byte to the corresponding high
+            // (BE) byte in the Limb, without changing which limbs we are indexing
+            if (native_endian == .Big) {
+                i ^= endian_mask;
+                rev_i ^= endian_mask;
+            }
+
+            const bit_i = bits.get(i);
+            const bit_rev_i = bits.get(rev_i);
+            bits.set(i, bit_rev_i);
+            bits.set(rev_i, bit_i);
+        }
+
+        // Calculate signed-magnitude representation for output
+        if (signedness == .signed) {
+            const last_bit = switch (native_endian) {
+                .Little => bits.get(bit_count - 1),
+                .Big => bits.get((bit_count - 1) ^ endian_mask),
+            };
+            if (last_bit == 1) {
+                r.bitNotWrap(r.toConst(), .unsigned, bit_count); // Bitwise NOT.
+                r.addScalar(r.toConst(), 1); // Add one.
+                r.positive = false; // Negate.
+            }
+        }
+        r.normalize(r.len);
+    }
+
+    /// r = @byteSwap(a) with 2s-complement semantics.
+    /// r and a may be aliases.
+    ///
+    /// Asserts the result fits in `r`. Upper bound on the number of limbs needed by
+    /// r is `calcTwosCompLimbCount(8*byte_count)`.
+    pub fn byteSwap(r: *Mutable, a: Const, signedness: Signedness, byte_count: usize) void {
+        if (byte_count == 0) return;
+
+        r.copy(a);
+        const limbs_required = calcTwosCompLimbCount(8 * byte_count);
+
+        if (!a.positive) {
+            r.positive = true; // Negate.
+            r.bitNotWrap(r.toConst(), .unsigned, 8 * byte_count); // Bitwise NOT.
+            r.addScalar(r.toConst(), 1); // Add one.
+        } else if (limbs_required > a.limbs.len) {
+            // Zero-extend to our output length
+            for (r.limbs[a.limbs.len..limbs_required]) |*limb| {
+                limb.* = 0;
+            }
+            r.len = limbs_required;
+        }
+
+        // 0b0..01..1 with @log2(@sizeOf(Limb)) trailing ones
+        const endian_mask: usize = @sizeOf(Limb) - 1;
+
+        var bytes = std.mem.sliceAsBytes(r.limbs);
+        assert(bytes.len >= byte_count);
+
+        var k: usize = 0;
+        while (k < (byte_count + 1) / 2) : (k += 1) {
+            var i = k;
+            var rev_i = byte_count - k - 1;
+
+            // This "endian mask" remaps a low (LE) byte to the corresponding high
+            // (BE) byte in the Limb, without changing which limbs we are indexing
+            if (native_endian == .Big) {
+                i ^= endian_mask;
+                rev_i ^= endian_mask;
+            }
+
+            const byte_i = bytes[i];
+            const byte_rev_i = bytes[rev_i];
+            bytes[rev_i] = byte_i;
+            bytes[i] = byte_rev_i;
+        }
+
+        // Calculate signed-magnitude representation for output
+        if (signedness == .signed) {
+            const last_byte = switch (native_endian) {
+                .Little => bytes[byte_count - 1],
+                .Big => bytes[(byte_count - 1) ^ endian_mask],
+            };
+
+            if (last_byte & (1 << 7) != 0) { // Check sign bit of last byte
+                r.bitNotWrap(r.toConst(), .unsigned, 8 * byte_count); // Bitwise NOT.
+                r.addScalar(r.toConst(), 1); // Add one.
+                r.positive = false; // Negate.
+            }
+        }
+        r.normalize(r.len);
+    }
+
     /// r = @popCount(a) with 2s-complement semantics.
     /// r and a may be aliases.
     ///
@@ -1230,7 +1358,7 @@ pub const Mutable = struct {
         var tmp_x = try Managed.init(limbs_buffer.allocator);
         defer tmp_x.deinit();
 
-        while (y.len() > 1) {
+        while (y.len() > 1 and !y.eqZero()) {
             assert(x.isPositive() and y.isPositive());
             assert(x.len() >= y.len());
 
@@ -1498,7 +1626,6 @@ pub const Mutable = struct {
             // Note, we multiply by a single limb here.
             // The shift doesn't need to be performed if we add the result of the first multiplication
             // to x[i - t - 1].
-            // mem.set(Limb, x.limbs, 0);
             const underflow = llmulLimb(.sub, x.limbs[k..x.len], y.limbs[0..y.len], q.limbs[k]);
 
             // 3.4.
@@ -1511,10 +1638,9 @@ pub const Mutable = struct {
                 llaccum(.add, x.limbs[k..x.len], y.limbs[0..y.len]);
                 q.limbs[k] -= 1;
             }
-
-            x.normalize(x.len);
         }
 
+        x.normalize(x.len);
         q.normalize(q.len);
 
         // De-normalize r and y.
@@ -1621,10 +1747,17 @@ pub const Mutable = struct {
         }
     }
 
+    /// Read the value of `x` from `buffer`
+    /// Asserts that `buffer`, `abi_size`, and `bit_count` are large enough to store the value.
+    ///
+    /// The contents of `buffer` are interpreted as if they were the contents of
+    /// @ptrCast(*[abi_size]const u8, &x). Byte ordering is determined by `endian`
+    /// and any required padding bits are expected on the MSB end.
     pub fn readTwosComplement(
         x: *Mutable,
         buffer: []const u8,
         bit_count: usize,
+        abi_size: usize,
         endian: Endian,
         signedness: Signedness,
     ) void {
@@ -1634,26 +1767,77 @@ pub const Mutable = struct {
             x.positive = true;
             return;
         }
-        // zig fmt: off
-        switch (signedness) {
-            .signed => {
-                if (bit_count <=   8) return x.set(mem.readInt(  i8, buffer[0.. 1], endian));
-                if (bit_count <=  16) return x.set(mem.readInt( i16, buffer[0.. 2], endian));
-                if (bit_count <=  32) return x.set(mem.readInt( i32, buffer[0.. 4], endian));
-                if (bit_count <=  64) return x.set(mem.readInt( i64, buffer[0.. 8], endian));
-                if (bit_count <= 128) return x.set(mem.readInt(i128, buffer[0..16], endian));
-            },
-            .unsigned => {
-                if (bit_count <=   8) return x.set(mem.readInt(  u8, buffer[0.. 1], endian));
-                if (bit_count <=  16) return x.set(mem.readInt( u16, buffer[0.. 2], endian));
-                if (bit_count <=  32) return x.set(mem.readInt( u32, buffer[0.. 4], endian));
-                if (bit_count <=  64) return x.set(mem.readInt( u64, buffer[0.. 8], endian));
-                if (bit_count <= 128) return x.set(mem.readInt(u128, buffer[0..16], endian));
-            },
-        }
-        // zig fmt: on
 
-        @panic("TODO implement std lib big int readTwosComplement");
+        // byte_count is our total read size: it cannot exceed abi_size,
+        // but may be less as long as it includes the required bits
+        const limb_count = calcTwosCompLimbCount(bit_count);
+        const byte_count = std.math.min(abi_size, @sizeOf(Limb) * limb_count);
+        assert(8 * byte_count >= bit_count);
+
+        // Check whether the input is negative
+        var positive = true;
+        if (signedness == .signed) {
+            var last_byte = switch (endian) {
+                .Little => ((bit_count + 7) / 8) - 1,
+                .Big => abi_size - ((bit_count + 7) / 8),
+            };
+
+            const sign_bit = @as(u8, 1) << @intCast(u3, (bit_count - 1) % 8);
+            positive = ((buffer[last_byte] & sign_bit) == 0);
+        }
+
+        // Copy all complete limbs
+        var carry: u1 = if (positive) 0 else 1;
+        var limb_index: usize = 0;
+        while (limb_index < bit_count / @bitSizeOf(Limb)) : (limb_index += 1) {
+            var buf_index = switch (endian) {
+                .Little => @sizeOf(Limb) * limb_index,
+                .Big => abi_size - (limb_index + 1) * @sizeOf(Limb),
+            };
+
+            const limb_buf = @ptrCast(*const [@sizeOf(Limb)]u8, buffer[buf_index..]);
+            var limb = mem.readInt(Limb, limb_buf, endian);
+
+            // 2's complement (bitwise not, then add carry bit)
+            if (!positive) carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &limb));
+            x.limbs[limb_index] = limb;
+        }
+
+        // Copy the remaining N bytes (N <= @sizeOf(Limb))
+        var bytes_read = limb_index * @sizeOf(Limb);
+        if (bytes_read != byte_count) {
+            var limb: Limb = 0;
+
+            while (bytes_read != byte_count) {
+                const read_size = std.math.floorPowerOfTwo(usize, byte_count - bytes_read);
+                var int_buffer = switch (endian) {
+                    .Little => buffer[bytes_read..],
+                    .Big => buffer[(abi_size - bytes_read - read_size)..],
+                };
+                limb |= @intCast(Limb, switch (read_size) {
+                    1 => mem.readInt(u8, int_buffer[0..1], endian),
+                    2 => mem.readInt(u16, int_buffer[0..2], endian),
+                    4 => mem.readInt(u32, int_buffer[0..4], endian),
+                    8 => mem.readInt(u64, int_buffer[0..8], endian),
+                    16 => mem.readInt(u128, int_buffer[0..16], endian),
+                    else => unreachable,
+                }) << @intCast(Log2Limb, 8 * (bytes_read % @sizeOf(Limb)));
+                bytes_read += read_size;
+            }
+
+            // 2's complement (bitwise not, then add carry bit)
+            if (!positive) _ = @addWithOverflow(Limb, ~limb, carry, &limb);
+
+            // Mask off any unused bits
+            const valid_bits = @intCast(Log2Limb, bit_count % @bitSizeOf(Limb));
+            const mask = (@as(Limb, 1) << valid_bits) -% 1; // 0b0..01..1 with (valid_bits_in_limb) trailing ones
+            limb &= mask;
+
+            x.limbs[limb_count - 1] = limb;
+        }
+        x.positive = positive;
+        x.len = limb_count;
+        x.normalize(x.len);
     }
 
     /// Normalize a possible sequence of leading zeros.
@@ -1806,7 +1990,7 @@ pub const Const = struct {
             .Int => |info| {
                 const UT = std.meta.Int(.unsigned, info.bits);
 
-                if (self.bitCountTwosComp() > info.bits) {
+                if (!self.fitsInTwosComp(info.signedness, info.bits)) {
                     return error.TargetTooSmall;
                 }
 
@@ -1879,7 +2063,8 @@ pub const Const = struct {
         // This is the inverse of calcDivLimbsBufferLen
         const available_len = (limbs.len / 3) - 2;
 
-        const biggest: Const = .{
+        // TODO https://github.com/ziglang/zig/issues/11439
+        const biggest = comptime Const{
             .limbs = &([1]Limb{math.maxInt(Limb)} ** available_len),
             .positive = false,
         };
@@ -2013,27 +2198,68 @@ pub const Const = struct {
         return s.len;
     }
 
-    /// Asserts that `buffer` and `bit_count` are large enough to store the value.
-    pub fn writeTwosComplement(x: Const, buffer: []u8, bit_count: usize, endian: Endian) void {
-        if (bit_count == 0) return;
+    /// Write the value of `x` into `buffer`
+    /// Asserts that `buffer`, `abi_size`, and `bit_count` are large enough to store the value.
+    ///
+    /// `buffer` is filled so that its contents match what would be observed via
+    /// @ptrCast(*[abi_size]const u8, &x). Byte ordering is determined by `endian`,
+    /// and any required padding bits are added on the MSB end.
+    pub fn writeTwosComplement(x: Const, buffer: []u8, bit_count: usize, abi_size: usize, endian: Endian) void {
 
-        // zig fmt: off
-        if (x.positive) {
-            if (bit_count <=   8) return mem.writeInt(  u8, buffer[0.. 1], x.to(  u8) catch unreachable, endian);
-            if (bit_count <=  16) return mem.writeInt( u16, buffer[0.. 2], x.to( u16) catch unreachable, endian);
-            if (bit_count <=  32) return mem.writeInt( u32, buffer[0.. 4], x.to( u32) catch unreachable, endian);
-            if (bit_count <=  64) return mem.writeInt( u64, buffer[0.. 8], x.to( u64) catch unreachable, endian);
-            if (bit_count <= 128) return mem.writeInt(u128, buffer[0..16], x.to(u128) catch unreachable, endian);
-        } else {
-            if (bit_count <=   8) return mem.writeInt(  i8, buffer[0.. 1], x.to(  i8) catch unreachable, endian);
-            if (bit_count <=  16) return mem.writeInt( i16, buffer[0.. 2], x.to( i16) catch unreachable, endian);
-            if (bit_count <=  32) return mem.writeInt( i32, buffer[0.. 4], x.to( i32) catch unreachable, endian);
-            if (bit_count <=  64) return mem.writeInt( i64, buffer[0.. 8], x.to( i64) catch unreachable, endian);
-            if (bit_count <= 128) return mem.writeInt(i128, buffer[0..16], x.to(i128) catch unreachable, endian);
+        // byte_count is our total write size
+        const byte_count = abi_size;
+        assert(8 * byte_count >= bit_count);
+        assert(buffer.len >= byte_count);
+        assert(x.fitsInTwosComp(if (x.positive) .unsigned else .signed, bit_count));
+
+        // Copy all complete limbs
+        var carry: u1 = if (x.positive) 0 else 1;
+        var limb_index: usize = 0;
+        while (limb_index < byte_count / @sizeOf(Limb)) : (limb_index += 1) {
+            var buf_index = switch (endian) {
+                .Little => @sizeOf(Limb) * limb_index,
+                .Big => abi_size - (limb_index + 1) * @sizeOf(Limb),
+            };
+
+            var limb: Limb = if (limb_index < x.limbs.len) x.limbs[limb_index] else 0;
+            // 2's complement (bitwise not, then add carry bit)
+            if (!x.positive) carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &limb));
+
+            var limb_buf = @ptrCast(*[@sizeOf(Limb)]u8, buffer[buf_index..]);
+            mem.writeInt(Limb, limb_buf, limb, endian);
         }
-        // zig fmt: on
 
-        @panic("TODO implement std lib big int writeTwosComplement for larger than 128 bits");
+        // Copy the remaining N bytes (N < @sizeOf(Limb))
+        var bytes_written = limb_index * @sizeOf(Limb);
+        if (bytes_written != byte_count) {
+            var limb: Limb = if (limb_index < x.limbs.len) x.limbs[limb_index] else 0;
+            // 2's complement (bitwise not, then add carry bit)
+            if (!x.positive) _ = @addWithOverflow(Limb, ~limb, carry, &limb);
+
+            while (bytes_written != byte_count) {
+                const write_size = std.math.floorPowerOfTwo(usize, byte_count - bytes_written);
+                var int_buffer = switch (endian) {
+                    .Little => buffer[bytes_written..],
+                    .Big => buffer[(abi_size - bytes_written - write_size)..],
+                };
+
+                if (write_size == 1) {
+                    mem.writeInt(u8, int_buffer[0..1], @truncate(u8, limb), endian);
+                } else if (@sizeOf(Limb) >= 2 and write_size == 2) {
+                    mem.writeInt(u16, int_buffer[0..2], @truncate(u16, limb), endian);
+                } else if (@sizeOf(Limb) >= 4 and write_size == 4) {
+                    mem.writeInt(u32, int_buffer[0..4], @truncate(u32, limb), endian);
+                } else if (@sizeOf(Limb) >= 8 and write_size == 8) {
+                    mem.writeInt(u64, int_buffer[0..8], @truncate(u64, limb), endian);
+                } else if (@sizeOf(Limb) >= 16 and write_size == 16) {
+                    mem.writeInt(u128, int_buffer[0..16], @truncate(u128, limb), endian);
+                } else if (@sizeOf(Limb) >= 32) {
+                    @compileError("@sizeOf(Limb) exceeded supported range");
+                } else unreachable;
+                limb >>= @intCast(Log2Limb, 8 * write_size);
+                bytes_written += write_size;
+            }
+        }
     }
 
     /// Returns `math.Order.lt`, `math.Order.eq`, `math.Order.gt` if
@@ -3449,8 +3675,8 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
 fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
-    assert(r.len >= a.len);
     assert(a.len >= b.len);
+    assert(r.len >= if (!a_positive and !b_positive) a.len + 1 else b.len);
 
     if (a_positive and b_positive) {
         // Trivial case, result is positive.

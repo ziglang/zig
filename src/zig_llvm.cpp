@@ -541,6 +541,10 @@ LLVMValueRef ZigLLVMBuildUShlSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRe
     return wrap(call_inst);
 }
 
+LLVMValueRef LLVMBuildVectorSplat(LLVMBuilderRef B, unsigned elem_count, LLVMValueRef V, const char *Name) {
+  return wrap(unwrap(B)->CreateVectorSplat(elem_count, unwrap(V), Name));
+}
+
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
     assert( isa<Function>(unwrap(fn)) );
     Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));
@@ -791,9 +795,20 @@ void ZigLLVMDisposeDIBuilder(ZigLLVMDIBuilder *dbuilder) {
     delete di_builder;
 }
 
-void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope) {
+void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder,
+        unsigned int line, unsigned int column, ZigLLVMDIScope *scope)
+{
     DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
     DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, column, di_scope, nullptr, false);
+    unwrap(builder)->SetCurrentDebugLocation(debug_loc);
+}
+
+void ZigLLVMSetCurrentDebugLocation2(LLVMBuilderRef builder, unsigned int line,
+        unsigned int column, ZigLLVMDIScope *scope, ZigLLVMDILocation *inlined_at)
+{
+    DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
+    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, column, di_scope, 
+        reinterpret_cast<DILocation *>(inlined_at), false);
     unwrap(builder)->SetCurrentDebugLocation(debug_loc);
 }
 
@@ -840,7 +855,7 @@ ZigLLVMDIGlobalVariable *ZigLLVMCreateGlobalVariable(ZigLLVMDIBuilder *dbuilder,
         line_no,
         reinterpret_cast<DIType*>(di_type),
         is_local_to_unit);
-    return reinterpret_cast<ZigLLVMDIGlobalVariable*>(result);
+    return reinterpret_cast<ZigLLVMDIGlobalVariable*>(result->getVariable());
 }
 
 ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(ZigLLVMDIBuilder *dbuilder,
@@ -883,6 +898,56 @@ ZigLLVMDIScope *ZigLLVMSubprogramToScope(ZigLLVMDISubprogram *subprogram) {
 ZigLLVMDIScope *ZigLLVMTypeToScope(ZigLLVMDIType *type) {
     DIScope *scope = reinterpret_cast<DIType*>(type);
     return reinterpret_cast<ZigLLVMDIScope*>(scope);
+}
+
+ZigLLVMDINode *ZigLLVMLexicalBlockToNode(ZigLLVMDILexicalBlock *lexical_block) {
+    DINode *node = reinterpret_cast<DILexicalBlock*>(lexical_block);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMCompileUnitToNode(ZigLLVMDICompileUnit *compile_unit) {
+    DINode *node = reinterpret_cast<DICompileUnit*>(compile_unit);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMFileToNode(ZigLLVMDIFile *difile) {
+    DINode *node = reinterpret_cast<DIFile*>(difile);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMSubprogramToNode(ZigLLVMDISubprogram *subprogram) {
+    DINode *node = reinterpret_cast<DISubprogram*>(subprogram);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMTypeToNode(ZigLLVMDIType *type) {
+    DINode *node = reinterpret_cast<DIType*>(type);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMScopeToNode(ZigLLVMDIScope *scope) {
+    DINode *node = reinterpret_cast<DIScope*>(scope);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+ZigLLVMDINode *ZigLLVMGlobalVariableToNode(ZigLLVMDIGlobalVariable *global_variable) {
+    DINode *node = reinterpret_cast<DIGlobalVariable*>(global_variable);
+    return reinterpret_cast<ZigLLVMDINode*>(node);
+}
+
+void ZigLLVMSubprogramReplaceLinkageName(ZigLLVMDISubprogram *subprogram,
+        ZigLLVMMDString *linkage_name)
+{
+    MDString *linkage_name_md = reinterpret_cast<MDString*>(linkage_name);
+    reinterpret_cast<DISubprogram*>(subprogram)->replaceLinkageName(linkage_name_md);
+}
+
+void ZigLLVMGlobalVariableReplaceLinkageName(ZigLLVMDIGlobalVariable *global_variable,
+        ZigLLVMMDString *linkage_name)
+{
+    Metadata *linkage_name_md = reinterpret_cast<MDString*>(linkage_name);
+    // NOTE: Operand index must match llvm::DIGlobalVariable
+    reinterpret_cast<DIGlobalVariable*>(global_variable)->replaceOperandWith(5, linkage_name_md);
 }
 
 ZigLLVMDICompileUnit *ZigLLVMCreateCompileUnit(ZigLLVMDIBuilder *dibuilder,
@@ -942,6 +1007,19 @@ LLVMValueRef ZigLLVMInsertDeclareAtEnd(ZigLLVMDIBuilder *dibuilder, LLVMValueRef
     return wrap(result);
 }
 
+LLVMValueRef ZigLLVMInsertDbgValueIntrinsicAtEnd(ZigLLVMDIBuilder *dib, LLVMValueRef val,
+        ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc,
+        LLVMBasicBlockRef basic_block_ref)
+{
+    Instruction *result = reinterpret_cast<DIBuilder*>(dib)->insertDbgValueIntrinsic(
+            unwrap(val),
+            reinterpret_cast<DILocalVariable *>(var_info),
+            reinterpret_cast<DIBuilder*>(dib)->createExpression(),
+            reinterpret_cast<DILocation*>(debug_loc),
+            static_cast<BasicBlock*>(unwrap(basic_block_ref)));
+    return wrap(result);
+}
+
 LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
         ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMValueRef insert_before_instr)
 {
@@ -957,6 +1035,14 @@ LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef stor
 ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col, ZigLLVMDIScope *scope) {
     DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
     DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, col, di_scope, nullptr, false);
+    return reinterpret_cast<ZigLLVMDILocation*>(debug_loc.get());
+}
+
+ZigLLVMDILocation *ZigLLVMGetDebugLoc2(unsigned line, unsigned col, ZigLLVMDIScope *scope,
+        ZigLLVMDILocation *inlined_at) {
+    DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
+    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, col, di_scope,
+        reinterpret_cast<DILocation *>(inlined_at), false);
     return reinterpret_cast<ZigLLVMDILocation*>(debug_loc.get());
 }
 

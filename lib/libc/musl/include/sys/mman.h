@@ -40,6 +40,7 @@ extern "C" {
 
 #define MAP_HUGE_SHIFT 26
 #define MAP_HUGE_MASK  0x3f
+#define MAP_HUGE_16KB  (14 << 26)
 #define MAP_HUGE_64KB  (16 << 26)
 #define MAP_HUGE_512KB (19 << 26)
 #define MAP_HUGE_1MB   (20 << 26)

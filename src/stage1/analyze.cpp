@@ -991,6 +991,7 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionAAPCSVFP: return "AAPCSVFP";
         case CallingConventionInline: return "Inline";
         case CallingConventionSysV: return "SysV";
+        case CallingConventionWin64: return "Win64";
         case CallingConventionPtxKernel: return "PtxKernel";
     }
     zig_unreachable();
@@ -1015,6 +1016,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionAAPCS:
         case CallingConventionAAPCSVFP:
         case CallingConventionSysV:
+        case CallingConventionWin64:
             return false;
     }
     zig_unreachable();
@@ -2006,6 +2008,7 @@ Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_
                 allowed_platforms = "ARM";
             break;
         case CallingConventionSysV:
+        case CallingConventionWin64:
             if (g->zig_target->arch != ZigLLVM_x86_64)
                 allowed_platforms = "x86_64";
             break;
@@ -2404,6 +2407,8 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     size_t size_in_bits = 0;
     size_t abi_align = struct_type->abi_align;
 
+    TypeStructField *last_packed_field = nullptr;
+
     // Calculate offsets
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = struct_type->data.structure.fields[i];
@@ -2428,6 +2433,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
                 return err;
             }
 
+            last_packed_field = field;
             size_t field_size_in_bits = type_size_bits(g, field_type);
             size_t next_packed_bits_offset = packed_bits_offset + field_size_in_bits;
 
@@ -2487,8 +2493,13 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     }
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
+        size_t full_abi_size = get_abi_size_bytes(full_bit_count, 1);
         next_offset = next_field_offset(next_offset, abi_align, full_abi_size, abi_align);
+        ZigType* last_field_type = last_packed_field->type_entry;
+        // If only last field is misaligned and it is of int type save it so we can generate proper code for it later
+        if (last_field_type->size_in_bits == full_bit_count && (last_field_type->id == ZigTypeIdInt || last_field_type->id == ZigTypeIdEnum)) {
+            struct_type->data.structure.misaligned_field = last_packed_field;
+        }
         host_int_bytes[gen_field_index] = full_abi_size;
         gen_field_index += 1;
     }
@@ -3838,6 +3849,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 case CallingConventionAAPCS:
                 case CallingConventionAAPCSVFP:
                 case CallingConventionSysV:
+                case CallingConventionWin64:
                 case CallingConventionPtxKernel:
                     add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
                                   GlobalLinkageIdStrong, fn_cc);
@@ -7678,6 +7690,7 @@ ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
             // However for some targets, LLVM incorrectly reports this as 8.
             // See: https://github.com/ziglang/zig/issues/2987
             entry->abi_align = 16;
+            entry->abi_size = align_forward(entry->abi_size, entry->abi_align);
         }
     }
 
@@ -8839,6 +8852,8 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         llvm_struct_abi_align = max(llvm_struct_abi_align, llvm_field_abi_align);
     }
 
+    ZigType* last_packed_field_type = nullptr;
+
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = field->type_entry;
@@ -8849,6 +8864,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         }
 
         if (packed) {
+            last_packed_field_type = field_type;
             size_t field_size_in_bits = type_size_bits(g, field_type);
             size_t next_packed_bits_offset = packed_bits_offset + field_size_in_bits;
 
@@ -8917,7 +8933,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
             assert(next_offset >= llvm_next_offset);
             if (next_offset > llvm_next_offset) {
-                size_t pad_bytes = next_offset - (field->offset + LLVMStoreSizeOfType(g->target_data_ref, llvm_type));
+                size_t pad_bytes = next_offset - (field->offset + LLVMABISizeOfType(g->target_data_ref, llvm_type));
                 if (pad_bytes != 0) {
                     LLVMTypeRef pad_llvm_type = LLVMArrayType(LLVMInt8Type(), pad_bytes);
                     element_types[gen_field_index] = pad_llvm_type;
@@ -8933,8 +8949,15 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
-        element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
+        size_t full_abi_size = get_abi_size_bytes(full_bit_count, 1);
+        if (last_packed_field_type->size_in_bits == full_bit_count && last_packed_field_type->id != ZigTypeIdInt && last_packed_field_type->id != ZigTypeIdEnum) {
+            // If there is only one field that is misaligned and it is a custom type just use it
+            element_types[gen_field_index] = get_llvm_type(g, last_packed_field_type);
+            assert(full_abi_size == LLVMStoreSizeOfType(g->target_data_ref, element_types[gen_field_index]));
+        } else {
+            // Otherwise represent it as array of proper number of bytes in LLVM
+            element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
+        }
         gen_field_index += 1;
     }
 
@@ -9073,8 +9096,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeEnumField *enum_field = &enum_type->data.enumeration.fields[i];
 
-        // TODO send patch to LLVM to support APInt in createEnumerator instead of int64_t
-        // http://lists.llvm.org/pipermail/llvm-dev/2017-December/119456.html
+        // https://github.com/ziglang/zig/issues/645
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(enum_field->name),
                 bigint_as_signed(&enum_field->value));
     }
@@ -10358,7 +10380,7 @@ void ZigValue::dump() {
 
 // float ops that take a single argument
 //TODO Powi, Pow, minnum, maxnum, maximum, minimum, copysign, lround, llround, lrint, llrint
-const char *float_op_to_name(BuiltinFnId op) {
+const char *float_un_op_to_name(BuiltinFnId op) {
     switch (op) {
     case BuiltinFnIdSqrt:
         return "sqrt";
@@ -10366,6 +10388,8 @@ const char *float_op_to_name(BuiltinFnId op) {
         return "sin";
     case BuiltinFnIdCos:
         return "cos";
+    case BuiltinFnIdTan:
+        return "tan";
     case BuiltinFnIdExp:
         return "exp";
     case BuiltinFnIdExp2:
@@ -10388,6 +10412,8 @@ const char *float_op_to_name(BuiltinFnId op) {
         return "nearbyint";
     case BuiltinFnIdRound:
         return "round";
+    case BuiltinFnIdMulAdd:
+        return "fma";
     default:
         zig_unreachable();
     }

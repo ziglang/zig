@@ -282,7 +282,7 @@ const PageAllocator = struct {
                 return @ptrCast([*]u8, addr)[0..alignPageAllocLen(aligned_len, n, len_align)];
             }
 
-            // If it wasn't, actually do an explicitely aligned allocation.
+            // If it wasn't, actually do an explicitly aligned allocation.
             w.VirtualFree(addr, 0, w.MEM_RELEASE);
             const alloc_size = n + alignment - mem.page_size;
 
@@ -1181,7 +1181,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     //  very near usize?
     if (mem.page_size << 2 > maxInt(usize)) return;
 
-    const USizeShift = std.meta.Int(.unsigned, std.math.log2(std.meta.bitCount(usize)));
+    const USizeShift = std.meta.Int(.unsigned, std.math.log2(@bitSizeOf(usize)));
     const large_align = @as(u29, mem.page_size << 2);
 
     var align_mask: usize = undefined;

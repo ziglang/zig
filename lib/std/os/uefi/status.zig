@@ -1,3 +1,5 @@
+const testing = @import("std").testing;
+
 const high_bit = 1 << @typeInfo(usize).Int.bits - 1;
 
 pub const Status = enum(usize) {
@@ -139,4 +141,64 @@ pub const Status = enum(usize) {
     WarnResetRequired = 7,
 
     _,
+
+    pub const EfiError = error{
+        LoadError,
+        InvalidParameter,
+        Unsupported,
+        BadBufferSize,
+        BufferTooSmall,
+        NotReady,
+        DeviceError,
+        WriteProtected,
+        OutOfResources,
+        VolumeCorrupted,
+        VolumeFull,
+        NoMedia,
+        MediaChanged,
+        NotFound,
+        AccessDenied,
+        NoResponse,
+        NoMapping,
+        Timeout,
+        NotStarted,
+        AlreadyStarted,
+        Aborted,
+        IcmpError,
+        TftpError,
+        ProtocolError,
+        IncompatibleVersion,
+        SecurityViolation,
+        CrcError,
+        EndOfMedia,
+        EndOfFile,
+        InvalidLanguage,
+        CompromisedData,
+        IpAddressConflict,
+        HttpError,
+        NetworkUnreachable,
+        HostUnreachable,
+        ProtocolUnreachable,
+        PortUnreachable,
+        ConnectionFin,
+        ConnectionReset,
+        ConnectionRefused,
+    };
+
+    pub fn err(self: Status) EfiError!void {
+        inline for (@typeInfo(EfiError).ErrorSet.?) |efi_err| {
+            if (self == @field(Status, efi_err.name)) {
+                return @field(EfiError, efi_err.name);
+            }
+        }
+        // self is .Success or Warning
+    }
 };
+
+test "status" {
+    var st: Status = .DeviceError;
+    try testing.expectError(error.DeviceError, st.err());
+
+    st = .Success;
+    try st.err();
+}

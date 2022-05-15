@@ -50,7 +50,7 @@ pub fn StaticBitSet(comptime size: usize) type {
 /// This set is good for sets with a small size, but may generate
 /// inefficient code for larger sets, especially in debug mode.
 pub fn IntegerBitSet(comptime size: u16) type {
-    return struct {
+    return packed struct {
         const Self = @This();
 
         // TODO: Make this a comptime field once those are fixed
@@ -252,7 +252,7 @@ pub fn IntegerBitSet(comptime size: u16) type {
 /// This set is good for sets with a larger size, but may use
 /// more bytes than necessary if your set is small.
 pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
-    const mask_info: std.builtin.TypeInfo = @typeInfo(MaskIntType);
+    const mask_info: std.builtin.Type = @typeInfo(MaskIntType);
 
     // Make sure the mask int is indeed an int
     if (mask_info != .Int) @compileError("ArrayBitSet can only operate on integer masks, but was passed " ++ @typeName(MaskIntType));
@@ -287,7 +287,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
             ", which contains padding bits.  Please round this up to an unpadded integer size (i.e. " ++ @typeName(FixedMaskType) ++ ").");
     }
 
-    return struct {
+    return extern struct {
         const Self = @This();
 
         // TODO: Make this a comptime field once those are fixed

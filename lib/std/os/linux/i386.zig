@@ -2,8 +2,8 @@ const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
-const iovec = linux.iovec;
-const iovec_const = linux.iovec_const;
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
@@ -757,7 +757,7 @@ pub const REG = struct {
 
 pub const ucontext_t = extern struct {
     flags: usize,
-    link: *ucontext_t,
+    link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
     sigmask: sigset_t,

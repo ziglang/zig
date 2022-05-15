@@ -63,7 +63,7 @@ pub const ExtraIndex = enum(u32) {
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, end: usize } {
-    const fields = std.meta.fields(T);
+    const fields = @typeInfo(T).Struct.fields;
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
@@ -73,6 +73,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
             i32 => @bitCast(i32, code.extra[i]),
             Inst.Call.Flags => @bitCast(Inst.Call.Flags, code.extra[i]),
             Inst.SwitchBlock.Bits => @bitCast(Inst.SwitchBlock.Bits, code.extra[i]),
+            Inst.ExtendedFunc.Bits => @bitCast(Inst.ExtendedFunc.Bits, code.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -94,7 +95,8 @@ pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
     const raw_slice = code.extra[start..][0..len];
-    return @bitCast([]Inst.Ref, raw_slice);
+    // TODO we should be able to directly `@ptrCast` the slice to the other slice type.
+    return @ptrCast([*]Inst.Ref, raw_slice.ptr)[0..len];
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
@@ -277,8 +279,6 @@ pub const Inst = struct {
         /// break instruction in a block, and the target block is the parent.
         /// Uses the `break` union field.
         break_inline,
-        /// Uses the `node` union field.
-        breakpoint,
         /// Function call.
         /// Uses `pl_node`. AST node is the function call. Payload is `Call`.
         call,
@@ -322,6 +322,18 @@ pub const Inst = struct {
         /// Uses the `dbg_stmt` union field. The line and column are offset
         /// from the parent declaration.
         dbg_stmt,
+        /// Marks a variable declaration. Used for debug info.
+        /// Uses the `str_op` union field. The string is the local variable name,
+        /// and the operand is the pointer to the variable's location. The local
+        /// may be a const or a var.
+        dbg_var_ptr,
+        /// Same as `dbg_var_ptr` but the local is always a const and the operand
+        /// is the local's value.
+        dbg_var_val,
+        /// Marks the beginning of a semantic scope for debug info variables.
+        dbg_block_begin,
+        /// Marks the end of a semantic scope for debug info variables.
+        dbg_block_end,
         /// Uses a name to identify a Decl and takes a pointer to it.
         /// Uses the `str_tok` union field.
         decl_ref,
@@ -398,21 +410,16 @@ pub const Inst = struct {
         /// The field name is a comptime instruction. Used by @field.
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
         field_val_named,
-        /// Given a pointer to a struct or object that contains virtual fields, returns the
-        /// named field.  If there is no named field, searches in the type for a decl that
-        /// matches the field name.  The decl is resolved and we ensure that it's a function
-        /// which can accept the object as the first parameter, with one pointer fixup.  If
-        /// all of that works, this instruction produces a special "bound function" value
-        /// which contains both the function and the saved first parameter value.
-        /// Bound functions may only be used as the function parameter to a `call` or
-        /// `builtin_call` instruction.  Any other use is invalid zir and may crash the compiler.
-        field_call_bind_named,
         /// Returns a function type, or a function instance, depending on whether
         /// the body_len is 0. Calling convention is auto.
         /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
         func,
         /// Same as `func` but has an inferred error set.
         func_inferred,
+        /// Represents a function declaration or function prototype, depending on
+        /// whether body_len is 0.
+        /// Uses the `pl_node` union field. `payload_index` points to a `ExtendedFunc`.
+        func_extended,
         /// Implements the `@import` builtin.
         /// Uses the `str_tok` field.
         import,
@@ -456,6 +463,14 @@ pub const Inst = struct {
         /// Merge two error sets into one, `E1 || E2`.
         /// Uses the `pl_node` field with payload `Bin`.
         merge_error_sets,
+        /// Given a reference to a function and a parameter index, returns the
+        /// type of the parameter. The only usage of this instruction is for the
+        /// result location of parameters of function calls. In the case of a function's
+        /// parameter type being `anytype`, it is the type coercion's job to detect this
+        /// scenario and skip the coercion, so that semantic analysis of this instruction
+        /// is not in a position where it must create an invalid type.
+        /// Uses the `param_type` union field.
+        param_type,
         /// Turns an R-Value into a const L-Value. In other words, it takes a value,
         /// stores it in a memory location, and returns a const pointer to it. If the value
         /// is `comptime`, the memory location is global static constant data. Otherwise,
@@ -477,9 +492,7 @@ pub const Inst = struct {
         /// Includes an operand as the return value.
         /// Includes a token source location.
         /// Uses the `un_tok` union field.
-        /// The operand needs to get coerced to the function's return type.
-        /// TODO rename this to `ret_tok` because coercion is now done unconditionally in Sema.
-        ret_coerce,
+        ret_tok,
         /// Sends control flow back to the function's callee.
         /// The return operand is `error.foo` where `foo` is given by the string.
         /// If the current function has an inferred error set, the error given by the
@@ -493,6 +506,12 @@ pub const Inst = struct {
         /// this instruction; a following 'ret' instruction will do the diversion.
         /// Uses the `str_tok` union field.
         ret_err_value_code,
+        /// Obtains a pointer to the return value.
+        /// Uses the `node` union field.
+        ret_ptr,
+        /// Obtains the return type of the in-scope function.
+        /// Uses the `node` union field.
+        ret_type,
         /// Create a pointer type that does not have a sentinel, alignment, address space, or bit range specified.
         /// Uses the `ptr_type_simple` union field.
         ptr_type_simple,
@@ -518,11 +537,14 @@ pub const Inst = struct {
         /// Same as `store` except provides a source location.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         store_node,
-        /// Same as `store` but the type of the value being stored will be used to infer
-        /// the block type. The LHS is the pointer to store to.
-        /// Uses the `bin` union field.
-        /// If the pointer is none, it means this instruction has been elided in
-        /// AstGen, but AstGen was unable to actually omit it from the ZIR code.
+        /// This instruction is not really supposed to be emitted from AstGen; nevertheless it
+        /// is sometimes emitted due to deficiencies in AstGen. When Sema sees this instruction,
+        /// it must clean up after AstGen's mess by looking at various context clues and
+        /// then treating it as one of the following:
+        ///  * no-op
+        ///  * store_to_inferred_ptr
+        ///  * store
+        /// Uses the `bin` union field with LHS as the pointer to store to.
         store_to_block_ptr,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.
@@ -544,6 +566,9 @@ pub const Inst = struct {
         /// Returns the type of a value.
         /// Uses the `un_node` field.
         typeof,
+        /// Implements `@TypeOf` for one operand.
+        /// Uses the `pl_node` field.
+        typeof_builtin,
         /// Given a value, look at the type of it, which must be an integer type.
         /// Returns the integer type for the RHS of a shift operation.
         /// Uses the `un_node` field.
@@ -643,6 +668,24 @@ pub const Inst = struct {
         /// Result is a pointer to the value.
         /// Uses the `switch_capture` field.
         switch_capture_multi_ref,
+        /// Given a
+        ///   *A returns *A
+        ///   *E!A returns *A
+        ///   *?A returns *A
+        /// Uses the `un_node` field.
+        array_base_ptr,
+        /// Given a
+        ///   *S returns *S
+        ///   *E!S returns *S
+        ///   *?S returns *S
+        /// Uses the `un_node` field.
+        field_base_ptr,
+        /// Checks that the type supports array init syntax.
+        /// Uses the `un_node` field.
+        validate_array_init_ty,
+        /// Checks that the type supports struct init syntax.
+        /// Uses the `un_node` field.
+        validate_struct_init_ty,
         /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
         /// initialization expression, and emits compile errors for duplicate fields
         /// as well as missing fields, if applicable.
@@ -688,27 +731,32 @@ pub const Inst = struct {
         /// Array initialization syntax.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init,
+        /// Array initialization with sentinel.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        /// Final op in MultiOp is the sentinel.
+        array_init_sent,
         /// Anonymous array initialization syntax.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon,
         /// Array initialization syntax, make the result a pointer.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_ref,
+        /// Array initialization with sentinel.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        /// Final op in MultiOp is the sentinel.
+        array_init_sent_ref,
         /// Anonymous array initialization syntax, make the result a pointer.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon_ref,
-        /// Given a pointer to a union and a comptime known field name, activates that field
-        /// and returns a pointer to it.
-        /// Uses the `pl_node` field. Payload is `UnionInitPtr`.
-        union_init_ptr,
+        /// Implements the `@unionInit` builtin.
+        /// Uses the `pl_node` field. Payload is `UnionInit`.
+        union_init,
         /// Implements the `@typeInfo` builtin. Uses `un_node`.
         type_info,
         /// Implements the `@sizeOf` builtin. Uses `un_node`.
         size_of,
         /// Implements the `@bitSizeOf` builtin. Uses `un_node`.
         bit_size_of,
-        /// Implements the `@fence` builtin. Uses `un_node`.
-        fence,
 
         /// Implement builtin `@ptrToInt`. Uses `un_node`.
         /// Convert a pointer to a `usize` integer.
@@ -737,12 +785,8 @@ pub const Inst = struct {
         error_name,
         /// Implement builtin `@panic`. Uses `un_node`.
         panic,
-        /// Implement builtin `@setAlignStack`. Uses `un_node`.
-        set_align_stack,
         /// Implement builtin `@setCold`. Uses `un_node`.
         set_cold,
-        /// Implement builtin `@setFloatMode`. Uses `un_node`.
-        set_float_mode,
         /// Implement builtin `@setRuntimeSafety`. Uses `un_node`.
         set_runtime_safety,
         /// Implement builtin `@sqrt`. Uses `un_node`.
@@ -751,6 +795,8 @@ pub const Inst = struct {
         sin,
         /// Implement builtin `@cos`. Uses `un_node`.
         cos,
+        /// Implement builtin `@tan`. Uses `un_node`.
+        tan,
         /// Implement builtin `@exp`. Uses `un_node`.
         exp,
         /// Implement builtin `@exp2`. Uses `un_node`.
@@ -804,9 +850,6 @@ pub const Inst = struct {
         /// Convert an integer value to another integer type, asserting that the destination type
         /// can hold the same mathematical value.
         int_cast,
-        /// Implements the `@errSetCast` builtin.
-        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
-        err_set_cast,
         /// Implements the `@ptrCast` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
         ptr_cast,
@@ -860,7 +903,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `Select`.
         select,
         /// Implements the `@atomicLoad` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
+        /// Uses the `pl_node` union field with payload `AtomicLoad`.
         atomic_load,
         /// Implements the `@atomicRmw` builtin.
         /// Uses the `pl_node` union field with payload `AtomicRmw`.
@@ -870,14 +913,12 @@ pub const Inst = struct {
         atomic_store,
         /// Implements the `@mulAdd` builtin.
         /// Uses the `pl_node` union field with payload `MulAdd`.
+        /// The addend communicates the type of the builtin.
+        /// The mulends need to be coerced to the same type.
         mul_add,
         /// Implements the `@call` builtin.
         /// Uses the `pl_node` union field with payload `BuiltinCall`.
         builtin_call,
-        /// Given a type and a field name, returns a pointer to the field type.
-        /// Assumed to be part of a `@fieldParentPtr` builtin call.
-        /// Uses the `bin` union field. LHS is type, RHS is field name.
-        field_ptr_type,
         /// Implements the `@fieldParentPtr` builtin.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
@@ -927,11 +968,14 @@ pub const Inst = struct {
         /// is the allocation that needs to have its type inferred.
         /// Uses the `un_node` field. The AST node is the var decl.
         resolve_inferred_alloc,
+        /// Turns a pointer coming from an `alloc`, `alloc_inferred`, `alloc_inferred_comptime` or
+        /// `Extended.alloc` into a constant version of the same pointer.
+        /// Uses the `un_node` union field.
+        make_ptr_const,
 
         /// Implements `resume` syntax. Uses `un_node` field.
         @"resume",
         @"await",
-        await_nosuspend,
 
         /// When a type or function refers to a comptime value from an outer
         /// scope, that forms a closure over comptime value.  The outer scope
@@ -966,6 +1010,7 @@ pub const Inst = struct {
                 .alloc_inferred_mut,
                 .alloc_inferred_comptime,
                 .alloc_inferred_comptime_mut,
+                .make_ptr_const,
                 .array_cat,
                 .array_mul,
                 .array_type,
@@ -986,8 +1031,6 @@ pub const Inst = struct {
                 .bool_br_and,
                 .bool_br_or,
                 .bool_not,
-                .breakpoint,
-                .fence,
                 .call,
                 .cmp_lt,
                 .cmp_lte,
@@ -1000,6 +1043,10 @@ pub const Inst = struct {
                 .error_set_decl_anon,
                 .error_set_decl_func,
                 .dbg_stmt,
+                .dbg_var_ptr,
+                .dbg_var_val,
+                .dbg_block_begin,
+                .dbg_block_end,
                 .decl_ref,
                 .decl_val,
                 .load,
@@ -1018,9 +1065,9 @@ pub const Inst = struct {
                 .field_call_bind,
                 .field_ptr_named,
                 .field_val_named,
-                .field_call_bind_named,
                 .func,
                 .func_inferred,
+                .func_extended,
                 .has_decl,
                 .int,
                 .int_big,
@@ -1035,6 +1082,7 @@ pub const Inst = struct {
                 .mul,
                 .mulwrap,
                 .mul_sat,
+                .param_type,
                 .ref,
                 .shl,
                 .shl_sat,
@@ -1050,6 +1098,7 @@ pub const Inst = struct {
                 .negate,
                 .negate_wrap,
                 .typeof,
+                .typeof_builtin,
                 .xor,
                 .optional_type,
                 .optional_payload_safe,
@@ -1087,6 +1136,10 @@ pub const Inst = struct {
                 .switch_block,
                 .switch_cond,
                 .switch_cond_ref,
+                .array_base_ptr,
+                .field_base_ptr,
+                .validate_array_init_ty,
+                .validate_struct_init_ty,
                 .validate_struct_init,
                 .validate_struct_init_comptime,
                 .validate_array_init,
@@ -1097,10 +1150,12 @@ pub const Inst = struct {
                 .struct_init_anon,
                 .struct_init_anon_ref,
                 .array_init,
+                .array_init_sent,
                 .array_init_anon,
                 .array_init_ref,
+                .array_init_sent_ref,
                 .array_init_anon_ref,
-                .union_init_ptr,
+                .union_init,
                 .field_type,
                 .field_type_ref,
                 .int_to_enum,
@@ -1113,13 +1168,12 @@ pub const Inst = struct {
                 .bool_to_int,
                 .embed_file,
                 .error_name,
-                .set_align_stack,
                 .set_cold,
-                .set_float_mode,
                 .set_runtime_safety,
                 .sqrt,
                 .sin,
                 .cos,
+                .tan,
                 .exp,
                 .exp2,
                 .log,
@@ -1140,7 +1194,6 @@ pub const Inst = struct {
                 .int_to_ptr,
                 .float_cast,
                 .int_cast,
-                .err_set_cast,
                 .ptr_cast,
                 .truncate,
                 .align_cast,
@@ -1170,7 +1223,6 @@ pub const Inst = struct {
                 .atomic_store,
                 .mul_add,
                 .builtin_call,
-                .field_ptr_type,
                 .field_parent_ptr,
                 .maximum,
                 .memcpy,
@@ -1180,11 +1232,12 @@ pub const Inst = struct {
                 .c_import,
                 .@"resume",
                 .@"await",
-                .await_nosuspend,
                 .ret_err_value_code,
                 .extended,
                 .closure_get,
                 .closure_capture,
+                .ret_ptr,
+                .ret_type,
                 => false,
 
                 .@"break",
@@ -1194,13 +1247,283 @@ pub const Inst = struct {
                 .compile_error,
                 .ret_node,
                 .ret_load,
-                .ret_coerce,
+                .ret_tok,
                 .ret_err_value,
                 .@"unreachable",
                 .repeat,
                 .repeat_inline,
                 .panic,
                 => true,
+            };
+        }
+
+        /// AstGen uses this to find out if `Ref.void_value` should be used in place
+        /// of the result of a given instruction. This allows Sema to forego adding
+        /// the instruction to the map after analysis.
+        pub fn isAlwaysVoid(tag: Tag, data: Data) bool {
+            return switch (tag) {
+                .dbg_stmt,
+                .dbg_var_ptr,
+                .dbg_var_val,
+                .dbg_block_begin,
+                .dbg_block_end,
+                .ensure_result_used,
+                .ensure_result_non_error,
+                .ensure_err_payload_void,
+                .set_eval_branch_quota,
+                .atomic_store,
+                .store,
+                .store_node,
+                .store_to_block_ptr,
+                .store_to_inferred_ptr,
+                .resolve_inferred_alloc,
+                .validate_array_init_ty,
+                .validate_struct_init_ty,
+                .validate_struct_init,
+                .validate_struct_init_comptime,
+                .validate_array_init,
+                .validate_array_init_comptime,
+                .@"export",
+                .export_value,
+                .set_cold,
+                .set_runtime_safety,
+                .memcpy,
+                .memset,
+                => true,
+
+                .param,
+                .param_comptime,
+                .param_anytype,
+                .param_anytype_comptime,
+                .add,
+                .addwrap,
+                .add_sat,
+                .alloc,
+                .alloc_mut,
+                .alloc_comptime_mut,
+                .alloc_inferred,
+                .alloc_inferred_mut,
+                .alloc_inferred_comptime,
+                .alloc_inferred_comptime_mut,
+                .make_ptr_const,
+                .array_cat,
+                .array_mul,
+                .array_type,
+                .array_type_sentinel,
+                .vector_type,
+                .elem_type,
+                .indexable_ptr_len,
+                .anyframe_type,
+                .as,
+                .as_node,
+                .bit_and,
+                .bitcast,
+                .bit_or,
+                .block,
+                .block_inline,
+                .suspend_block,
+                .loop,
+                .bool_br_and,
+                .bool_br_or,
+                .bool_not,
+                .call,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                .coerce_result_ptr,
+                .error_set_decl,
+                .error_set_decl_anon,
+                .error_set_decl_func,
+                .decl_ref,
+                .decl_val,
+                .load,
+                .div,
+                .elem_ptr,
+                .elem_val,
+                .elem_ptr_node,
+                .elem_ptr_imm,
+                .elem_val_node,
+                .field_ptr,
+                .field_val,
+                .field_call_bind,
+                .field_ptr_named,
+                .field_val_named,
+                .func,
+                .func_inferred,
+                .func_extended,
+                .has_decl,
+                .int,
+                .int_big,
+                .float,
+                .float128,
+                .int_type,
+                .is_non_null,
+                .is_non_null_ptr,
+                .is_non_err,
+                .is_non_err_ptr,
+                .mod_rem,
+                .mul,
+                .mulwrap,
+                .mul_sat,
+                .param_type,
+                .ref,
+                .shl,
+                .shl_sat,
+                .shr,
+                .str,
+                .sub,
+                .subwrap,
+                .sub_sat,
+                .negate,
+                .negate_wrap,
+                .typeof,
+                .typeof_builtin,
+                .xor,
+                .optional_type,
+                .optional_payload_safe,
+                .optional_payload_unsafe,
+                .optional_payload_safe_ptr,
+                .optional_payload_unsafe_ptr,
+                .err_union_payload_safe,
+                .err_union_payload_unsafe,
+                .err_union_payload_safe_ptr,
+                .err_union_payload_unsafe_ptr,
+                .err_union_code,
+                .err_union_code_ptr,
+                .error_to_int,
+                .int_to_error,
+                .ptr_type,
+                .ptr_type_simple,
+                .enum_literal,
+                .merge_error_sets,
+                .error_union_type,
+                .bit_not,
+                .error_value,
+                .slice_start,
+                .slice_end,
+                .slice_sentinel,
+                .import,
+                .typeof_log2_int_type,
+                .log2_int_type,
+                .switch_capture,
+                .switch_capture_ref,
+                .switch_capture_multi,
+                .switch_capture_multi_ref,
+                .switch_block,
+                .switch_cond,
+                .switch_cond_ref,
+                .array_base_ptr,
+                .field_base_ptr,
+                .struct_init_empty,
+                .struct_init,
+                .struct_init_ref,
+                .struct_init_anon,
+                .struct_init_anon_ref,
+                .array_init,
+                .array_init_sent,
+                .array_init_anon,
+                .array_init_ref,
+                .array_init_sent_ref,
+                .array_init_anon_ref,
+                .union_init,
+                .field_type,
+                .field_type_ref,
+                .int_to_enum,
+                .enum_to_int,
+                .type_info,
+                .size_of,
+                .bit_size_of,
+                .ptr_to_int,
+                .align_of,
+                .bool_to_int,
+                .embed_file,
+                .error_name,
+                .sqrt,
+                .sin,
+                .cos,
+                .tan,
+                .exp,
+                .exp2,
+                .log,
+                .log2,
+                .log10,
+                .fabs,
+                .floor,
+                .ceil,
+                .trunc,
+                .round,
+                .tag_name,
+                .reify,
+                .type_name,
+                .frame_type,
+                .frame_size,
+                .float_to_int,
+                .int_to_float,
+                .int_to_ptr,
+                .float_cast,
+                .int_cast,
+                .ptr_cast,
+                .truncate,
+                .align_cast,
+                .has_field,
+                .clz,
+                .ctz,
+                .pop_count,
+                .byte_swap,
+                .bit_reverse,
+                .div_exact,
+                .div_floor,
+                .div_trunc,
+                .mod,
+                .rem,
+                .shl_exact,
+                .shr_exact,
+                .bit_offset_of,
+                .offset_of,
+                .cmpxchg_strong,
+                .cmpxchg_weak,
+                .splat,
+                .reduce,
+                .shuffle,
+                .select,
+                .atomic_load,
+                .atomic_rmw,
+                .mul_add,
+                .builtin_call,
+                .field_parent_ptr,
+                .maximum,
+                .minimum,
+                .builtin_async_call,
+                .c_import,
+                .@"resume",
+                .@"await",
+                .ret_err_value_code,
+                .closure_get,
+                .closure_capture,
+                .@"break",
+                .break_inline,
+                .condbr,
+                .condbr_inline,
+                .compile_error,
+                .ret_node,
+                .ret_load,
+                .ret_tok,
+                .ret_err_value,
+                .ret_ptr,
+                .ret_type,
+                .@"unreachable",
+                .repeat,
+                .repeat_inline,
+                .panic,
+                => false,
+
+                .extended => switch (data.extended.opcode) {
+                    .breakpoint, .fence => true,
+                    else => false,
+                },
             };
         }
 
@@ -1218,6 +1541,7 @@ pub const Inst = struct {
                 .mulwrap = .pl_node,
                 .mul_sat = .pl_node,
 
+                .param_type = .param_type,
                 .param = .pl_tok,
                 .param_comptime = .pl_tok,
                 .param_anytype = .str_tok,
@@ -1244,7 +1568,6 @@ pub const Inst = struct {
                 .bool_br_or = .bool_br,
                 .@"break" = .@"break",
                 .break_inline = .@"break",
-                .breakpoint = .node,
                 .call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,
@@ -1259,6 +1582,10 @@ pub const Inst = struct {
                 .error_set_decl_anon = .pl_node,
                 .error_set_decl_func = .pl_node,
                 .dbg_stmt = .dbg_stmt,
+                .dbg_var_ptr = .str_op,
+                .dbg_var_val = .str_op,
+                .dbg_block_begin = .tok,
+                .dbg_block_end = .tok,
                 .decl_ref = .str_tok,
                 .decl_val = .str_tok,
                 .load = .un_node,
@@ -1279,9 +1606,9 @@ pub const Inst = struct {
                 .field_ptr_named = .pl_node,
                 .field_val_named = .pl_node,
                 .field_call_bind = .pl_node,
-                .field_call_bind_named = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
+                .func_extended = .pl_node,
                 .import = .str_tok,
                 .int = .int,
                 .int_big = .str,
@@ -1300,9 +1627,11 @@ pub const Inst = struct {
                 .ref = .un_tok,
                 .ret_node = .un_node,
                 .ret_load = .un_node,
-                .ret_coerce = .un_tok,
+                .ret_tok = .un_tok,
                 .ret_err_value = .str_tok,
                 .ret_err_value_code = .str_tok,
+                .ret_ptr = .node,
+                .ret_type = .node,
                 .ptr_type_simple = .ptr_type_simple,
                 .ptr_type = .ptr_type,
                 .slice_start = .pl_node,
@@ -1340,6 +1669,10 @@ pub const Inst = struct {
                 .switch_capture_ref = .switch_capture,
                 .switch_capture_multi = .switch_capture,
                 .switch_capture_multi_ref = .switch_capture,
+                .array_base_ptr = .un_node,
+                .field_base_ptr = .un_node,
+                .validate_array_init_ty = .un_node,
+                .validate_struct_init_ty = .un_node,
                 .validate_struct_init = .pl_node,
                 .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
@@ -1352,14 +1685,15 @@ pub const Inst = struct {
                 .struct_init_anon = .pl_node,
                 .struct_init_anon_ref = .pl_node,
                 .array_init = .pl_node,
+                .array_init_sent = .pl_node,
                 .array_init_anon = .pl_node,
                 .array_init_ref = .pl_node,
+                .array_init_sent_ref = .pl_node,
                 .array_init_anon_ref = .pl_node,
-                .union_init_ptr = .pl_node,
+                .union_init = .pl_node,
                 .type_info = .un_node,
                 .size_of = .un_node,
                 .bit_size_of = .un_node,
-                .fence = .un_node,
 
                 .ptr_to_int = .un_node,
                 .error_to_int = .un_node,
@@ -1372,13 +1706,12 @@ pub const Inst = struct {
                 .embed_file = .un_node,
                 .error_name = .un_node,
                 .panic = .un_node,
-                .set_align_stack = .un_node,
                 .set_cold = .un_node,
-                .set_float_mode = .un_node,
                 .set_runtime_safety = .un_node,
                 .sqrt = .un_node,
                 .sin = .un_node,
                 .cos = .un_node,
+                .tan = .un_node,
                 .exp = .un_node,
                 .exp2 = .un_node,
                 .log = .un_node,
@@ -1401,10 +1734,10 @@ pub const Inst = struct {
                 .int_to_enum = .pl_node,
                 .float_cast = .pl_node,
                 .int_cast = .pl_node,
-                .err_set_cast = .pl_node,
                 .ptr_cast = .pl_node,
                 .truncate = .pl_node,
                 .align_cast = .pl_node,
+                .typeof_builtin = .pl_node,
 
                 .has_decl = .pl_node,
                 .has_field = .pl_node,
@@ -1440,7 +1773,6 @@ pub const Inst = struct {
                 .atomic_store = .pl_node,
                 .mul_add = .pl_node,
                 .builtin_call = .pl_node,
-                .field_ptr_type = .bin,
                 .field_parent_ptr = .pl_node,
                 .maximum = .pl_node,
                 .memcpy = .pl_node,
@@ -1457,10 +1789,10 @@ pub const Inst = struct {
                 .alloc_inferred_comptime = .node,
                 .alloc_inferred_comptime_mut = .node,
                 .resolve_inferred_alloc = .un_node,
+                .make_ptr_const = .un_node,
 
                 .@"resume" = .un_node,
                 .@"await" = .un_node,
-                .await_nosuspend = .un_node,
 
                 .closure_capture = .un_tok,
                 .closure_get = .inst_node,
@@ -1478,11 +1810,6 @@ pub const Inst = struct {
     /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.
     /// `noreturn` instructions may not go here; they must be part of the main `Tag` enum.
     pub const Extended = enum(u16) {
-        /// Represents a function declaration or function prototype, depending on
-        /// whether body_len is 0.
-        /// `operand` is payload index to `ExtendedFunc`.
-        /// `small` is `ExtendedFunc.Small`.
-        func,
         /// Declares a global variable.
         /// `operand` is payload index to `ExtendedVar`.
         /// `small` is `ExtendedVar.Small`.
@@ -1506,12 +1833,6 @@ pub const Inst = struct {
         /// `operand` is payload index to `OpaqueDecl`.
         /// `small` is `OpaqueDecl.Small`.
         opaque_decl,
-        /// Obtains a pointer to the return value.
-        /// `operand` is `src_node: i32`.
-        ret_ptr,
-        /// Obtains the return type of the in-scope function.
-        /// `operand` is `src_node: i32`.
-        ret_type,
         /// Implements the `@This` builtin.
         /// `operand` is `src_node: i32`.
         this,
@@ -1519,7 +1840,7 @@ pub const Inst = struct {
         /// `operand` is `src_node: i32`.
         ret_addr,
         /// Implements the `@src` builtin.
-        /// `operand` is payload index to `ColumnLine`.
+        /// `operand` is payload index to `LineColumn`.
         builtin_src,
         /// Implements the `@errorReturnTrace` builtin.
         /// `operand` is `src_node: i32`.
@@ -1589,6 +1910,32 @@ pub const Inst = struct {
         /// The `@prefetch` builtin.
         /// `operand` is payload index to `BinNode`.
         prefetch,
+        /// Given a pointer to a struct or object that contains virtual fields, returns the
+        /// named field.  If there is no named field, searches in the type for a decl that
+        /// matches the field name.  The decl is resolved and we ensure that it's a function
+        /// which can accept the object as the first parameter, with one pointer fixup.  If
+        /// all of that works, this instruction produces a special "bound function" value
+        /// which contains both the function and the saved first parameter value.
+        /// Bound functions may only be used as the function parameter to a `call` or
+        /// `builtin_call` instruction.  Any other use is invalid zir and may crash the compiler.
+        /// Uses `pl_node` field. The AST node is the `@field` builtin. Payload is FieldNamedNode.
+        field_call_bind_named,
+        /// Implements the `@fence` builtin.
+        /// `operand` is payload index to `UnNode`.
+        fence,
+        /// Implement builtin `@setFloatMode`.
+        /// `operand` is payload index to `UnNode`.
+        set_float_mode,
+        /// Implement builtin `@setAlignStack`.
+        /// `operand` is payload index to `UnNode`.
+        set_align_stack,
+        /// Implements the `@errSetCast` builtin.
+        /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
+        err_set_cast,
+        /// `operand` is payload index to `UnNode`.
+        await_nosuspend,
+        /// `operand` is `src_node: i32`.
+        breakpoint,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2118,7 +2465,7 @@ pub const Inst = struct {
             is_allowzero: bool,
             is_mutable: bool,
             is_volatile: bool,
-            size: std.builtin.TypeInfo.Pointer.Size,
+            size: std.builtin.Type.Pointer.Size,
             elem_type: Ref,
         },
         ptr_type: struct {
@@ -2132,7 +2479,7 @@ pub const Inst = struct {
                 has_bit_range: bool,
                 _: u1 = undefined,
             },
-            size: std.builtin.TypeInfo.Pointer.Size,
+            size: std.builtin.Type.Pointer.Size,
             /// Index into extra. See `PtrType`.
             payload_index: u32,
         },
@@ -2152,15 +2499,15 @@ pub const Inst = struct {
             /// Points to a `Block`.
             payload_index: u32,
         },
+        param_type: struct {
+            callee: Ref,
+            param_index: u32,
+        },
         @"unreachable": struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
             src_node: i32,
-            /// `false`: Not safety checked - the compiler will assume the
-            /// correctness of this instruction.
-            /// `true`: In safety-checked modes, this will generate a call
-            /// to the panic function unless it can be proven unreachable by the compiler.
-            safety: bool,
+            force_comptime: bool,
 
             pub fn src(self: @This()) LazySrcLoc {
                 return .{ .node_offset = self.src_node };
@@ -2185,6 +2532,15 @@ pub const Inst = struct {
 
             pub fn src(self: @This()) LazySrcLoc {
                 return .{ .node_offset = self.src_node };
+            }
+        },
+        str_op: struct {
+            /// Offset into `string_bytes`. Null-terminated.
+            str: u32,
+            operand: Ref,
+
+            pub fn getStr(self: @This(), zir: Zir) [:0]const u8 {
+                return zir.nullTerminatedString(self.str);
             }
         },
 
@@ -2218,11 +2574,13 @@ pub const Inst = struct {
             ptr_type,
             int_type,
             bool_br,
+            param_type,
             @"unreachable",
             @"break",
             switch_capture,
             dbg_stmt,
             inst_node,
+            str_op,
         };
     };
 
@@ -2266,14 +2624,14 @@ pub const Inst = struct {
     /// 4. body: Index // for each body_len
     /// 5. src_locs: Func.SrcLocs // if body_len != 0
     pub const ExtendedFunc = struct {
-        src_node: i32,
         /// If this is 0 it means a void return type.
         ret_body_len: u32,
         /// Points to the block that contains the param instructions for this function.
         param_block: Index,
         body_len: u32,
+        bits: Bits,
 
-        pub const Small = packed struct {
+        pub const Bits = packed struct {
             is_var_args: bool,
             is_inferred_error: bool,
             has_lib_name: bool,
@@ -2281,7 +2639,7 @@ pub const Inst = struct {
             has_align: bool,
             is_test: bool,
             is_extern: bool,
-            _: u9 = undefined,
+            _: u25 = undefined,
         };
     };
 
@@ -2368,6 +2726,12 @@ pub const Inst = struct {
         };
     };
 
+    pub const TypeOfPeer = struct {
+        src_node: i32,
+        body_len: u32,
+        body_index: u32,
+    };
+
     pub const BuiltinCall = struct {
         options: Ref,
         callee: Ref,
@@ -2389,7 +2753,7 @@ pub const Inst = struct {
     /// 1. align: Ref // if `has_align` flag is set
     /// 2. address_space: Ref // if `has_addrspace` flag is set
     /// 3. bit_start: Ref // if `has_bit_range` flag is set
-    /// 4. bit_end: Ref // if `has_bit_range` flag is set
+    /// 4. host_size: Ref // if `has_bit_range` flag is set
     pub const PtrType = struct {
         elem_type: Ref,
     };
@@ -2543,6 +2907,53 @@ pub const Inst = struct {
                 };
             }
         }
+
+        pub const MultiProng = struct {
+            items: []const Ref,
+            body: []const Index,
+        };
+
+        pub fn getMultiProng(
+            self: SwitchBlock,
+            zir: Zir,
+            extra_end: usize,
+            prong_index: usize,
+        ) MultiProng {
+            // +1 for self.bits.has_multi_cases == true
+            var extra_index: usize = extra_end + 1;
+
+            if (self.bits.specialProng() != .none) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const body = zir.extra[extra_index..][0..body_len];
+                extra_index += body.len;
+            }
+
+            var scalar_i: usize = 0;
+            while (scalar_i < self.bits.scalar_cases_len) : (scalar_i += 1) {
+                extra_index += 1;
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                extra_index += body_len;
+            }
+            var multi_i: u32 = 0;
+            while (true) : (multi_i += 1) {
+                const items_len = zir.extra[extra_index];
+                extra_index += 2;
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const items = zir.refSlice(extra_index, items_len);
+                extra_index += items_len;
+                const body = zir.extra[extra_index..][0..body_len];
+                extra_index += body_len;
+
+                if (multi_i < prong_index) continue;
+                return .{
+                    .items = items,
+                    .body = body,
+                };
+            }
+        }
     };
 
     pub const Field = struct {
@@ -2552,6 +2963,12 @@ pub const Inst = struct {
     };
 
     pub const FieldNamed = struct {
+        lhs: Ref,
+        field_name: Ref,
+    };
+
+    pub const FieldNamedNode = struct {
+        node: i32,
         lhs: Ref,
         field_name: Ref,
     };
@@ -2614,7 +3031,7 @@ pub const Inst = struct {
             known_non_opv: bool,
             known_comptime_only: bool,
             name_strategy: NameStrategy,
-            layout: std.builtin.TypeInfo.ContainerLayout,
+            layout: std.builtin.Type.ContainerLayout,
             _: u6 = undefined,
         };
     };
@@ -2733,7 +3150,7 @@ pub const Inst = struct {
             has_fields_len: bool,
             has_decls_len: bool,
             name_strategy: NameStrategy,
-            layout: std.builtin.TypeInfo.ContainerLayout,
+            layout: std.builtin.Type.ContainerLayout,
             /// has_tag_type | auto_enum_tag | result
             /// -------------------------------------
             ///    false     | false         |  union { }
@@ -2817,7 +3234,9 @@ pub const Inst = struct {
         };
     };
 
-    /// Trailing is an item per field.
+    /// Trailing is an Item per field.
+    /// TODO make this instead array of inits followed by array of names because
+    /// it will be simpler Sema code and better for CPU cache.
     pub const StructInitAnon = struct {
         fields_len: u32,
 
@@ -2862,15 +3281,21 @@ pub const Inst = struct {
         ordering: Ref,
     };
 
-    pub const UnionInitPtr = struct {
-        result_ptr: Ref,
+    pub const UnionInit = struct {
         union_type: Ref,
         field_name: Ref,
+        init: Ref,
     };
 
     pub const AtomicStore = struct {
         ptr: Ref,
         operand: Ref,
+        ordering: Ref,
+    };
+
+    pub const AtomicLoad = struct {
+        elem_type: Ref,
+        ptr: Ref,
         ordering: Ref,
     };
 
@@ -3044,14 +3469,11 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
     switch (tags[decl_inst]) {
         // Functions are allowed and yield no iterations.
         // There is one case matching this in the extended instruction set below.
-        .func,
-        .func_inferred,
-        => return declIteratorInner(zir, 0, 0),
+        .func, .func_inferred, .func_extended => return declIteratorInner(zir, 0, 0),
 
         .extended => {
             const extended = datas[decl_inst].extended;
             switch (extended.opcode) {
-                .func => return declIteratorInner(zir, 0, 0),
                 .struct_decl => {
                     const small = @bitCast(Inst.StructDecl.Small, extended.small);
                     var extra_index: usize = extended.operand;
@@ -3156,21 +3578,21 @@ fn findDeclsInner(
             const body = zir.extra[extra.end..][0..extra.data.body_len];
             return zir.findDeclsBody(list, body);
         },
+        .func_extended => {
+            try list.append(inst);
+
+            const inst_data = datas[inst].pl_node;
+            const extra = zir.extraData(Inst.ExtendedFunc, inst_data.payload_index);
+            var extra_index: usize = extra.end;
+            extra_index += @boolToInt(extra.data.bits.has_lib_name);
+            extra_index += @boolToInt(extra.data.bits.has_cc);
+            extra_index += @boolToInt(extra.data.bits.has_align);
+            const body = zir.extra[extra_index..][0..extra.data.body_len];
+            return zir.findDeclsBody(list, body);
+        },
         .extended => {
             const extended = datas[inst].extended;
             switch (extended.opcode) {
-                .func => {
-                    try list.append(inst);
-
-                    const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
-                    const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
-                    var extra_index: usize = extra.end;
-                    extra_index += @boolToInt(small.has_lib_name);
-                    extra_index += @boolToInt(small.has_cc);
-                    extra_index += @boolToInt(small.has_align);
-                    const body = zir.extra[extra_index..][0..extra.data.body_len];
-                    return zir.findDeclsBody(list, body);
-                },
 
                 // Decl instructions are interesting but have no body.
                 // TODO yes they do have a body actually. recurse over them just like block instructions.
@@ -3317,15 +3739,13 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 .body = body,
             };
         },
-        .extended => blk: {
-            const extended = datas[fn_inst].extended;
-            assert(extended.opcode == .func);
-            const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
-            const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
+        .func_extended => blk: {
+            const inst_data = datas[fn_inst].pl_node;
+            const extra = zir.extraData(Inst.ExtendedFunc, inst_data.payload_index);
             var extra_index: usize = extra.end;
-            extra_index += @boolToInt(small.has_lib_name);
-            extra_index += @boolToInt(small.has_cc);
-            extra_index += @boolToInt(small.has_align);
+            extra_index += @boolToInt(extra.data.bits.has_lib_name);
+            extra_index += @boolToInt(extra.data.bits.has_cc);
+            extra_index += @boolToInt(extra.data.bits.has_align);
             const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
             extra_index += ret_ty_body.len;
             const body = zir.extra[extra_index..][0..extra.data.body_len];

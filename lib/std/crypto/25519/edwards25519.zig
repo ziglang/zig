@@ -62,7 +62,7 @@ pub const Edwards25519 = struct {
 
     /// The edwards25519 base point.
     pub const basePoint = Edwards25519{
-        .x = Fe{ .limbs = .{ 3990542415680775, 3398198340507945, 4322667446711068, 2814063955482877, 2839572215813860 } },
+        .x = Fe{ .limbs = .{ 1738742601995546, 1146398526822698, 2070867633025821, 562264141797630, 587772402128613 } },
         .y = Fe{ .limbs = .{ 1801439850948184, 1351079888211148, 450359962737049, 900719925474099, 1801439850948198 } },
         .z = Fe.one,
         .t = Fe{ .limbs = .{ 1841354044333475, 16398895984059, 755974180946558, 900171276175154, 1821297809914039 } },
@@ -147,7 +147,7 @@ pub const Edwards25519 = struct {
     }
 
     fn slide(s: [32]u8) [2 * 32]i8 {
-        const reduced = if ((s[s.len - 1] & 0x80) != 0) s else scalar.reduce(s);
+        const reduced = if ((s[s.len - 1] & 0x80) == 0) s else scalar.reduce(s);
         var e: [2 * 32]i8 = undefined;
         for (reduced) |x, i| {
             e[i * 2 + 0] = @as(i8, @truncate(u4, x));
@@ -548,4 +548,18 @@ test "edwards25519 hash-to-curve operation" {
 
     p = Edwards25519.fromString(false, "QUUX-V01-CS02-with-edwards25519_XMD:SHA-512_ELL2_NU_", "abc");
     try htest.assertEqual("42fa27c8f5a1ae0aa38bb59d5938e5145622ba5dedd11d11736fa2f9502d7367", p.toBytes()[0..]);
+}
+
+test "edwards25519 implicit reduction of invalid scalars" {
+    const s = [_]u8{0} ** 31 ++ [_]u8{255};
+    const p1 = try Edwards25519.basePoint.mulPublic(s);
+    const p2 = try Edwards25519.basePoint.mul(s);
+    const p3 = try p1.mulPublic(s);
+    const p4 = try p1.mul(s);
+
+    try std.testing.expectEqualSlices(u8, p1.toBytes()[0..], p2.toBytes()[0..]);
+    try std.testing.expectEqualSlices(u8, p3.toBytes()[0..], p4.toBytes()[0..]);
+
+    try htest.assertEqual("339f189ecc5fbebe9895345c72dc07bda6e615f8a40e768441b6f529cd6c671a", p1.toBytes()[0..]);
+    try htest.assertEqual("a501e4c595a3686d8bee7058c7e6af7fd237f945c47546910e37e0e79b1bafb0", p3.toBytes()[0..]);
 }

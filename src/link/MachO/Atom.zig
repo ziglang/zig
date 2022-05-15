@@ -13,6 +13,7 @@ const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
+const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const StringIndexAdapter = std.hash_map.StringIndexAdapter;
@@ -71,14 +72,7 @@ stab: ?Stab = null,
 next: ?*Atom,
 prev: ?*Atom,
 
-/// Previous/next linked list pointers.
-/// This is the linked list node for this Decl's corresponding .debug_info tag.
-dbg_info_prev: ?*Atom,
-dbg_info_next: ?*Atom,
-/// Offset into .debug_info pointing to the tag for this Decl.
-dbg_info_off: u32,
-/// Size of the .debug_info tag for this Decl, not including padding.
-dbg_info_len: u32,
+dbg_info_atom: Dwarf.Atom,
 
 dirty: bool = true,
 
@@ -188,10 +182,7 @@ pub const empty = Atom{
     .alignment = 0,
     .prev = null,
     .next = null,
-    .dbg_info_prev = null,
-    .dbg_info_next = null,
-    .dbg_info_off = undefined,
-    .dbg_info_len = undefined,
+    .dbg_info_atom = undefined,
 };
 
 pub fn deinit(self: *Atom, allocator: Allocator) void {
@@ -691,11 +682,11 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
 
             if (is_via_got) {
                 const got_index = macho_file.got_entries_table.get(rel.target) orelse {
-                    const n_strx = switch (rel.target) {
-                        .local => |sym_index| macho_file.locals.items[sym_index].n_strx,
-                        .global => |n_strx| n_strx,
-                    };
-                    log.err("expected GOT entry for symbol '{s}'", .{macho_file.getString(n_strx)});
+                    log.err("expected GOT entry for symbol", .{});
+                    switch (rel.target) {
+                        .local => |sym_index| log.err("  local @{d}", .{sym_index}),
+                        .global => |n_strx| log.err("  global @'{s}'", .{macho_file.getString(n_strx)}),
+                    }
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 };

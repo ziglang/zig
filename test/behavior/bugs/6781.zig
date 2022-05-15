@@ -61,6 +61,8 @@ pub const JournalHeader = packed struct {
 };
 
 test "fixed" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     var buffer = [_]u8{0} ** 65536;
     var entry = std.mem.bytesAsValue(JournalHeader, buffer[0..@sizeOf(JournalHeader)]);
     entry.* = .{

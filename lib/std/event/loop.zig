@@ -8,6 +8,7 @@ const os = std.os;
 const windows = os.windows;
 const maxInt = std.math.maxInt;
 const Thread = std.Thread;
+const Atomic = std.atomic.Atomic;
 
 const is_windows = builtin.os.tag == .windows;
 
@@ -103,12 +104,17 @@ pub const Loop = struct {
         };
     };
 
-    var global_instance_state: Loop = undefined;
-    const default_instance: ?*Loop = switch (std.io.mode) {
+    const LoopOrVoid = switch (std.io.mode) {
+        .blocking => void,
+        .evented => Loop,
+    };
+
+    var global_instance_state: LoopOrVoid = undefined;
+    const default_instance: ?*LoopOrVoid = switch (std.io.mode) {
         .blocking => null,
         .evented => &global_instance_state,
     };
-    pub const instance: ?*Loop = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
+    pub const instance: ?*LoopOrVoid = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
 
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
@@ -163,11 +169,9 @@ pub const Loop = struct {
             .fs_end_request = .{ .data = .{ .msg = .end, .finish = .NoAction } },
             .fs_queue = std.atomic.Queue(Request).init(),
             .fs_thread = undefined,
-            .fs_thread_wakeup = undefined,
+            .fs_thread_wakeup = .{},
             .delay_queue = undefined,
         };
-        try self.fs_thread_wakeup.init();
-        errdefer self.fs_thread_wakeup.deinit();
         errdefer self.arena.deinit();
 
         // We need at least one of these in case the fs thread wants to use onNextTick
@@ -197,7 +201,6 @@ pub const Loop = struct {
 
     pub fn deinit(self: *Loop) void {
         self.deinitOsData();
-        self.fs_thread_wakeup.deinit();
         self.arena.deinit();
         self.* = undefined;
     }
@@ -718,9 +721,7 @@ pub const Loop = struct {
             extra_thread.join();
         }
 
-        @atomicStore(bool, &self.delay_queue.is_running, false, .SeqCst);
-        self.delay_queue.event.set();
-        self.delay_queue.thread.join();
+        self.delay_queue.deinit();
     }
 
     /// Runs the provided function asynchronously. The function's frame is allocated
@@ -846,8 +847,8 @@ pub const Loop = struct {
         timer: std.time.Timer,
         waiters: Waiters,
         thread: std.Thread,
-        event: std.Thread.AutoResetEvent,
-        is_running: bool,
+        event: std.Thread.ResetEvent,
+        is_running: Atomic(bool),
 
         /// Initialize the delay queue by spawning the timer thread
         /// and starting any timer resources.
@@ -857,11 +858,19 @@ pub const Loop = struct {
                 .waiters = DelayQueue.Waiters{
                     .entries = std.atomic.Queue(anyframe).init(),
                 },
-                .event = std.Thread.AutoResetEvent{},
-                .is_running = true,
-                // Must be last so that it can read the other state, such as `is_running`.
-                .thread = try std.Thread.spawn(.{}, DelayQueue.run, .{self}),
+                .thread = undefined,
+                .event = .{},
+                .is_running = Atomic(bool).init(true),
             };
+
+            // Must be after init so that it can read the other state, such as `is_running`.
+            self.thread = try std.Thread.spawn(.{}, DelayQueue.run, .{self});
+        }
+
+        fn deinit(self: *DelayQueue) void {
+            self.is_running.store(false, .SeqCst);
+            self.event.set();
+            self.thread.join();
         }
 
         /// Entry point for the timer thread
@@ -869,7 +878,8 @@ pub const Loop = struct {
         fn run(self: *DelayQueue) void {
             const loop = @fieldParentPtr(Loop, "delay_queue", self);
 
-            while (@atomicLoad(bool, &self.is_running, .SeqCst)) {
+            while (self.is_running.load(.SeqCst)) {
+                self.event.reset();
                 const now = self.timer.read();
 
                 if (self.waiters.popExpired(now)) |entry| {

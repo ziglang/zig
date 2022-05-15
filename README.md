@@ -9,8 +9,8 @@ A general-purpose programming language and toolchain for maintaining
  * [Download & Documentation](https://ziglang.org/download)
  * [Chapter 0 - Getting Started | ZigLearn.org](https://ziglearn.org/)
  * [Community](https://github.com/ziglang/zig/wiki/Community)
- * [Contributing](https://github.com/ziglang/zig/blob/master/CONTRIBUTING.md)
- * [Code of Conduct](https://github.com/ziglang/zig/blob/master/CODE_OF_CONDUCT.md)
+ * [Contributing](https://github.com/ziglang/zig/blob/master/.github/CONTRIBUTING.md)
+ * [Code of Conduct](https://github.com/ziglang/zig/blob/master/.github/CODE_OF_CONDUCT.md)
  * [Frequently Asked Questions](https://github.com/ziglang/zig/wiki/FAQ)
  * [Community Projects](https://github.com/ziglang/zig/wiki/Community-Projects)
 

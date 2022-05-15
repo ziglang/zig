@@ -66,7 +66,7 @@ fn atan32(z: Complex(f32)) Complex(f32) {
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
-    return Complex(f32).init(w, 0.25 * math.ln(a));
+    return Complex(f32).init(w, 0.25 * @log(a));
 }
 
 fn redupif64(x: f64) f64 {
@@ -115,7 +115,7 @@ fn atan64(z: Complex(f64)) Complex(f64) {
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
-    return Complex(f64).init(w, 0.25 * math.ln(a));
+    return Complex(f64).init(w, 0.25 * @log(a));
 }
 
 const epsilon = 0.0001;

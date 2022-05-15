@@ -149,11 +149,11 @@ test "crypto.utils.timingSafeEql (vectors)" {
     var b: [100]u8 = undefined;
     random.bytes(a[0..]);
     random.bytes(b[0..]);
-    const v1: std.meta.Vector(100, u8) = a;
-    const v2: std.meta.Vector(100, u8) = b;
-    try testing.expect(!timingSafeEql(std.meta.Vector(100, u8), v1, v2));
-    const v3: std.meta.Vector(100, u8) = a;
-    try testing.expect(timingSafeEql(std.meta.Vector(100, u8), v1, v3));
+    const v1: @Vector(100, u8) = a;
+    const v2: @Vector(100, u8) = b;
+    try testing.expect(!timingSafeEql(@Vector(100, u8), v1, v2));
+    const v3: @Vector(100, u8) = a;
+    try testing.expect(timingSafeEql(@Vector(100, u8), v1, v3));
 }
 
 test "crypto.utils.timingSafeCompare" {

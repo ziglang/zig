@@ -22,7 +22,7 @@ fn expo2f(x: f32) f32 {
 
     const u = (0x7F + k / 2) << 23;
     const scale = @bitCast(f32, u);
-    return math.exp(x - kln2) * scale * scale;
+    return @exp(x - kln2) * scale * scale;
 }
 
 fn expo2d(x: f64) f64 {
@@ -31,5 +31,5 @@ fn expo2d(x: f64) f64 {
 
     const u = (0x3FF + k / 2) << 20;
     const scale = @bitCast(f64, @as(u64, u) << 32);
-    return math.exp(x - kln2) * scale * scale;
+    return @exp(x - kln2) * scale * scale;
 }

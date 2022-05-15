@@ -62,6 +62,46 @@ pub const sem_t = extern struct {
     _padding: u32,
 };
 
+// https://github.com/freebsd/freebsd-src/blob/main/sys/sys/umtx.h
+pub const UMTX_OP = enum(c_int) {
+    LOCK = 0,
+    UNLOCK = 1,
+    WAIT = 2,
+    WAKE = 3,
+    MUTEX_TRYLOCK = 4,
+    MUTEX_LOCK = 5,
+    MUTEX_UNLOCK = 6,
+    SET_CEILING = 7,
+    CV_WAIT = 8,
+    CV_SIGNAL = 9,
+    CV_BROADCAST = 10,
+    WAIT_UINT = 11,
+    RW_RDLOCK = 12,
+    RW_WRLOCK = 13,
+    RW_UNLOCK = 14,
+    WAIT_UINT_PRIVATE = 15,
+    WAKE_PRIVATE = 16,
+    MUTEX_WAIT = 17,
+    MUTEX_WAKE = 18, // deprecated
+    SEM_WAIT = 19, // deprecated
+    SEM_WAKE = 20, // deprecated
+    NWAKE_PRIVATE = 31,
+    MUTEX_WAKE2 = 22,
+    SEM2_WAIT = 23,
+    SEM2_WAKE = 24,
+    SHM = 25,
+    ROBUST_LISTS = 26,
+};
+
+pub const UMTX_ABSTIME = 0x01;
+pub const _umtx_time = extern struct {
+    _timeout: timespec,
+    _flags: u32,
+    _clockid: u32,
+};
+
+pub extern "c" fn _umtx_op(obj: usize, op: c_int, val: c_ulong, uaddr: usize, uaddr2: usize) c_int;
+
 pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,

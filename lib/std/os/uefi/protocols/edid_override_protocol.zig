@@ -8,9 +8,16 @@ pub const EdidOverrideProtocol = extern struct {
     _get_edid: fn (*const EdidOverrideProtocol, Handle, *u32, *usize, *?[*]u8) callconv(.C) Status,
 
     /// Returns policy information and potentially a replacement EDID for the specified video output device.
-    /// attributes must be align(4)
-    pub fn getEdid(self: *const EdidOverrideProtocol, handle: Handle, attributes: *EdidOverrideProtocolAttributes, edid_size: *usize, edid: *?[*]u8) Status {
-        return self._get_edid(self, handle, attributes, edid_size, edid);
+    pub fn getEdid(
+        self: *const EdidOverrideProtocol,
+        handle: Handle,
+        /// The align(4) here should really be part of the EdidOverrideProtocolAttributes type.
+        /// TODO remove this workaround when packed(u32) structs are implemented.
+        attributes: *align(4) EdidOverrideProtocolAttributes,
+        edid_size: *usize,
+        edid: *?[*]u8,
+    ) Status {
+        return self._get_edid(self, handle, @ptrCast(*u32, attributes), edid_size, edid);
     }
 
     pub const guid align(8) = Guid{
@@ -26,7 +33,5 @@ pub const EdidOverrideProtocol = extern struct {
 pub const EdidOverrideProtocolAttributes = packed struct {
     dont_override: bool,
     enable_hot_plug: bool,
-    _pad1: u6,
-    _pad2: u8,
-    _pad3: u16,
+    _pad: u30 = 0,
 };

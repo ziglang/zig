@@ -15,7 +15,6 @@ const Package = @import("Package.zig");
 const link = @import("link.zig");
 const tracy = @import("tracy.zig");
 const trace = tracy.trace;
-const Liveness = @import("Liveness.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const glibc = @import("glibc.zig");
@@ -84,7 +83,6 @@ clang_preprocessor_mode: ClangPreprocessorMode,
 /// Whether to print clang argvs to stdout.
 verbose_cc: bool,
 verbose_air: bool,
-verbose_mir: bool,
 verbose_llvm_ir: bool,
 verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
@@ -165,8 +163,8 @@ emit_llvm_bc: ?EmitLoc,
 emit_analysis: ?EmitLoc,
 emit_docs: ?EmitLoc,
 
-work_queue_wait_group: WaitGroup,
-astgen_wait_group: WaitGroup,
+work_queue_wait_group: WaitGroup = .{},
+astgen_wait_group: WaitGroup = .{},
 
 /// Exported symbol names. This is only for when the target is wasm.
 /// TODO: Remove this when Stage2 becomes the default compiler as it will already have this information.
@@ -193,22 +191,22 @@ pub const CSourceFile = struct {
 
 const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
-    codegen_decl: *Module.Decl,
+    codegen_decl: Module.Decl.Index,
     /// Write the machine code for a function to the output file.
     codegen_func: *Module.Fn,
     /// Render the .h file snippet for the Decl.
-    emit_h_decl: *Module.Decl,
+    emit_h_decl: Module.Decl.Index,
     /// The Decl needs to be analyzed and possibly export itself.
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
-    analyze_decl: *Module.Decl,
+    analyze_decl: Module.Decl.Index,
     /// The file that was loaded with `@embedFile` has changed on disk
     /// and has been re-loaded into memory. All Decls that depend on it
     /// need to be re-analyzed.
     update_embed_file: *Module.EmbedFile,
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
-    update_line_number: *Module.Decl,
+    update_line_number: Module.Decl.Index,
     /// The main source file for the package needs to be analyzed.
     analyze_pkg: *Package,
 
@@ -233,9 +231,6 @@ const Job = union(enum) {
     zig_libc: void,
     /// one of WASI libc static objects
     wasi_libc_crt_file: wasi_libc.CRTFile,
-
-    /// Use stage1 C++ code to compile zig code into an object file.
-    stage1_module: void,
 
     /// The value is the index into `link.File.Options.system_libs`.
     windows_import_lib: usize,
@@ -758,6 +753,7 @@ pub const InitOptions = struct {
     linker_export_table: bool = false,
     linker_initial_memory: ?u64 = null,
     linker_max_memory: ?u64 = null,
+    linker_shared_memory: bool = false,
     linker_global_base: ?u64 = null,
     linker_export_symbol_names: []const []const u8 = &.{},
     each_lib_rpath: ?bool = null,
@@ -779,7 +775,6 @@ pub const InitOptions = struct {
     verbose_cc: bool = false,
     verbose_link: bool = false,
     verbose_air: bool = false,
-    verbose_mir: bool = false,
     verbose_llvm_ir: bool = false,
     verbose_cimport: bool = false,
     verbose_llvm_cpu_features: bool = false,
@@ -816,6 +811,8 @@ pub const InitOptions = struct {
     native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
     /// (Darwin) Install name of the dylib
     install_name: ?[]const u8 = null,
+    /// (Darwin) Path to entitlements file
+    entitlements: ?[]const u8 = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -898,7 +895,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
         const comp = try arena.create(Compilation);
-        const root_name = try arena.dupe(u8, options.root_name);
+        const root_name = try arena.dupeZ(u8, options.root_name);
 
         const ofmt = options.object_format orelse options.target.getObjectFormat();
 
@@ -944,11 +941,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (use_stage1)
                 break :blk true;
 
-            // Prefer LLVM for release builds as long as it supports the target architecture.
-            if (options.optimize_mode != .Debug and target_util.hasLlvmSupport(options.target))
+            // If LLVM does not support the target, then we can't use it.
+            if (!target_util.hasLlvmSupport(options.target))
+                break :blk false;
+
+            // Prefer LLVM for release builds.
+            if (options.optimize_mode != .Debug)
                 break :blk true;
 
-            break :blk false;
+            // At this point we would prefer to use our own self-hosted backend,
+            // because the compilation speed is better than LLVM. But only do it if
+            // we are confident in the robustness of the backend.
+            break :blk !target_util.selfHostedBackendIsAsRobustAsLlvm(options.target);
         };
         if (!use_llvm) {
             if (options.use_llvm == true) {
@@ -962,7 +966,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const tsan = options.want_tsan orelse false;
         // TSAN is implemented in C++ so it requires linking libc++.
         const link_libcpp = options.link_libcpp or tsan;
-        const link_libc = link_libcpp or options.link_libc or
+        const link_libc = link_libcpp or options.link_libc or options.link_libunwind or
             target_util.osRequiresLibC(options.target);
 
         const link_libunwind = options.link_libunwind or
@@ -1175,6 +1179,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         if (must_single_thread and !single_threaded) {
             return error.TargetRequiresSingleThreaded;
         }
+        if (!single_threaded and options.link_libcpp) {
+            if (options.target.cpu.arch.isARM()) {
+                log.warn(
+                    \\libc++ does not work on multi-threaded ARM yet.
+                    \\For more details: https://github.com/ziglang/zig/issues/6573
+                , .{});
+                return error.TargetRequiresSingleThreaded;
+            }
+        }
 
         const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);
@@ -1219,6 +1232,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         // This is shared hasher state common to zig source and all C source files.
         cache.hash.addBytes(build_options.version);
+        cache.hash.add(builtin.zig_backend);
         cache.hash.addBytes(options.zig_lib_directory.path orelse ".");
         cache.hash.add(options.optimize_mode);
         cache.hash.add(options.target.cpu.arch);
@@ -1346,7 +1360,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 const test_pkg = try Package.createWithDir(
                     gpa,
                     options.zig_lib_directory,
-                    "std" ++ std.fs.path.sep_str ++ "special",
+                    null,
                     "test_runner.zig",
                 );
                 errdefer test_pkg.destroy(gpa);
@@ -1375,6 +1389,20 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             try builtin_pkg.add(gpa, "std", std_pkg);
             try builtin_pkg.add(gpa, "builtin", builtin_pkg);
+
+            const main_pkg_in_std = m: {
+                const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                    std_pkg.root_src_directory.path orelse ".",
+                    std.fs.path.dirname(std_pkg.root_src_path) orelse ".",
+                });
+                defer arena.free(std_path);
+                const main_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                    main_pkg.root_src_directory.path orelse ".",
+                    main_pkg.root_src_path,
+                });
+                defer arena.free(main_path);
+                break :m mem.startsWith(u8, main_path, std_path);
+            };
 
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
@@ -1412,14 +1440,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .gpa = gpa,
                 .comp = comp,
                 .main_pkg = main_pkg,
+                .main_pkg_in_std = main_pkg_in_std,
                 .root_pkg = root_pkg,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
-                .error_name_list = try std.ArrayListUnmanaged([]const u8).initCapacity(gpa, 1),
+                .error_name_list = .{},
             };
-            module.error_name_list.appendAssumeCapacity("(no error)");
+            try module.error_name_list.append(gpa, "(no error)");
 
             break :blk module;
         } else blk: {
@@ -1561,6 +1590,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .export_table = options.linker_export_table,
             .initial_memory = options.linker_initial_memory,
             .max_memory = options.linker_max_memory,
+            .shared_memory = options.linker_shared_memory,
             .global_base = options.linker_global_base,
             .export_symbol_names = options.linker_export_symbol_names,
             .z_nodelete = options.linker_z_nodelete,
@@ -1617,6 +1647,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .enable_link_snapshots = options.enable_link_snapshots,
             .native_darwin_sdk = options.native_darwin_sdk,
             .install_name = options.install_name,
+            .entitlements = options.entitlements,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -1651,7 +1682,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .clang_preprocessor_mode = options.clang_preprocessor_mode,
             .verbose_cc = options.verbose_cc,
             .verbose_air = options.verbose_air,
-            .verbose_mir = options.verbose_mir,
             .verbose_llvm_ir = options.verbose_llvm_ir,
             .verbose_cimport = options.verbose_cimport,
             .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
@@ -1666,18 +1696,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .test_evented_io = options.test_evented_io,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
-            .work_queue_wait_group = undefined,
-            .astgen_wait_group = undefined,
         };
         break :comp comp;
     };
     errdefer comp.destroy();
-
-    try comp.work_queue_wait_group.init();
-    errdefer comp.work_queue_wait_group.deinit();
-
-    try comp.astgen_wait_group.init();
-    errdefer comp.astgen_wait_group.deinit();
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -1821,10 +1843,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         }
     }
 
-    if (comp.bin_file.options.use_stage1 and comp.bin_file.options.module != null) {
-        try comp.work_queue.writeItem(.{ .stage1_module = {} });
-    }
-
     return comp;
 }
 
@@ -1889,9 +1907,6 @@ pub fn destroy(self: *Compilation) void {
 
     self.cache_parent.manifest_dir.close();
     if (self.owned_link_dir) |*dir| dir.close();
-
-    self.work_queue_wait_group.deinit();
-    self.astgen_wait_group.deinit();
 
     for (self.export_symbol_names.items) |symbol_name| {
         gpa.free(symbol_name);
@@ -2032,7 +2047,8 @@ pub fn update(comp: *Compilation) !void {
         comp.c_object_work_queue.writeItemAssumeCapacity(key);
     }
 
-    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
+    const use_stage1 = build_options.omit_stage2 or
+        (build_options.is_stage1 and comp.bin_file.options.use_stage1);
     if (comp.bin_file.options.module) |module| {
         module.compile_log_text.shrinkAndFree(module.gpa, 0);
         module.generation += 1;
@@ -2080,7 +2096,13 @@ pub fn update(comp: *Compilation) !void {
         }
     }
 
-    try comp.performAllTheWork();
+    // If the terminal is dumb, we dont want to show the user all the output.
+    var progress: std.Progress = .{ .dont_print_on_dumb = true };
+    const main_progress_node = progress.start("", 0);
+    defer main_progress_node.end();
+    if (comp.color == .off) progress.terminal = null;
+
+    try comp.performAllTheWork(main_progress_node);
 
     if (!use_stage1) {
         if (comp.bin_file.options.module) |module| {
@@ -2095,17 +2117,18 @@ pub fn update(comp: *Compilation) !void {
             // deletion set may grow as we call `clearDecl` within this loop,
             // and more unreferenced Decls are revealed.
             while (module.deletion_set.count() != 0) {
-                const decl = module.deletion_set.keys()[0];
+                const decl_index = module.deletion_set.keys()[0];
+                const decl = module.declPtr(decl_index);
                 assert(decl.deletion_flag);
                 assert(decl.dependants.count() == 0);
                 const is_anon = if (decl.zir_decl_index == 0) blk: {
-                    break :blk decl.src_namespace.anon_decls.swapRemove(decl);
+                    break :blk decl.src_namespace.anon_decls.swapRemove(decl_index);
                 } else false;
 
-                try module.clearDecl(decl, null);
+                try module.clearDecl(decl_index, null);
 
                 if (is_anon) {
-                    decl.destroy(module);
+                    module.destroyDecl(decl_index);
                 }
             }
 
@@ -2154,9 +2177,9 @@ pub fn update(comp: *Compilation) !void {
                 .path = dir_path,
             };
 
-            try comp.flush();
+            try comp.flush(main_progress_node);
         } else {
-            try comp.flush();
+            try comp.flush(main_progress_node);
         }
 
         // Failure here only means an unnecessary cache miss.
@@ -2167,7 +2190,7 @@ pub fn update(comp: *Compilation) !void {
         assert(comp.bin_file.lock == null);
         comp.bin_file.lock = man.toOwnedLock();
     } else {
-        try comp.flush();
+        try comp.flush(main_progress_node);
     }
 
     // Unload all source files to save memory.
@@ -2184,11 +2207,12 @@ pub fn update(comp: *Compilation) !void {
     }
 }
 
-fn flush(comp: *Compilation) !void {
-    try comp.bin_file.flush(comp); // This is needed before reading the error flags.
+fn flush(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    try comp.bin_file.flush(comp, prog_node); // This is needed before reading the error flags.
     comp.link_error_flags = comp.bin_file.errorFlags();
 
-    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
+    const use_stage1 = build_options.omit_stage2 or
+        (build_options.is_stage1 and comp.bin_file.options.use_stage1);
     if (!use_stage1) {
         if (comp.bin_file.options.module) |module| {
             try link.File.C.flushEmitH(module);
@@ -2338,11 +2362,13 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.import_memory);
     man.hash.addOptional(comp.bin_file.options.initial_memory);
     man.hash.addOptional(comp.bin_file.options.max_memory);
+    man.hash.add(comp.bin_file.options.shared_memory);
     man.hash.addOptional(comp.bin_file.options.global_base);
 
     // Mach-O specific stuff
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.frameworks);
+    try man.addOptionalFile(comp.bin_file.options.entitlements);
 
     // COFF specific stuff
     man.hash.addOptional(comp.bin_file.options.subsystem);
@@ -2431,13 +2457,15 @@ pub fn totalErrorCount(self: *Compilation) usize {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.keys()) |key| {
-            if (key.getFileScope().okToReportErrors()) {
+            const decl = module.declPtr(key);
+            if (decl.getFileScope().okToReportErrors()) {
                 total += 1;
             }
         }
         if (module.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys()) |key| {
-                if (key.getFileScope().okToReportErrors()) {
+                const decl = module.declPtr(key);
+                if (decl.getFileScope().okToReportErrors()) {
                     total += 1;
                 }
             }
@@ -2516,9 +2544,10 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         {
             var it = module.failed_decls.iterator();
             while (it.next()) |entry| {
+                const decl = module.declPtr(entry.key_ptr.*);
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (entry.key_ptr.*.getFileScope().okToReportErrors()) {
+                if (decl.getFileScope().okToReportErrors()) {
                     try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
                 }
             }
@@ -2526,9 +2555,10 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         if (module.emit_h) |emit_h| {
             var it = emit_h.failed_decls.iterator();
             while (it.next()) |entry| {
+                const decl = module.declPtr(entry.key_ptr.*);
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (entry.key_ptr.*.getFileScope().okToReportErrors()) {
+                if (decl.getFileScope().okToReportErrors()) {
                     try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
                 }
             }
@@ -2551,7 +2581,8 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             const keys = module.compile_log_decls.keys();
             const values = module.compile_log_decls.values();
             // First one will be the error; subsequent ones will be notes.
-            const src_loc = keys[0].nodeOffsetSrcLoc(values[0]);
+            const err_decl = module.declPtr(keys[0]);
+            const src_loc = err_decl.nodeOffsetSrcLoc(values[0]);
             const err_msg = Module.ErrorMsg{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
@@ -2560,8 +2591,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             defer self.gpa.free(err_msg.notes);
 
             for (keys[1..]) |key, i| {
+                const note_decl = module.declPtr(key);
                 err_msg.notes[i] = .{
-                    .src_loc = key.nodeOffsetSrcLoc(values[i + 1]),
+                    .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1]),
                     .msg = "also here",
                 };
             }
@@ -2583,14 +2615,10 @@ pub fn getCompileLogOutput(self: *Compilation) []const u8 {
     return module.compile_log_text.items;
 }
 
-pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
-    // If the terminal is dumb, we dont want to show the user all the
-    // output.
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
-    var main_progress_node = progress.start("", 0);
-    defer main_progress_node.end();
-    if (self.color == .off) progress.terminal = null;
-
+pub fn performAllTheWork(
+    comp: *Compilation,
+    main_progress_node: *std.Progress.Node,
+) error{ TimerUnsupported, OutOfMemory }!void {
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation
@@ -2599,316 +2627,261 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var zir_prog_node = main_progress_node.start("AST Lowering", 0);
     defer zir_prog_node.end();
 
-    var c_obj_prog_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
+    var c_obj_prog_node = main_progress_node.start("Compile C Objects", comp.c_source_files.len);
     defer c_obj_prog_node.end();
 
-    var embed_file_prog_node = main_progress_node.start("Detect @embedFile updates", self.embed_file_work_queue.count);
+    var embed_file_prog_node = main_progress_node.start("Detect @embedFile updates", comp.embed_file_work_queue.count);
     defer embed_file_prog_node.end();
 
-    self.work_queue_wait_group.reset();
-    defer self.work_queue_wait_group.wait();
+    comp.work_queue_wait_group.reset();
+    defer comp.work_queue_wait_group.wait();
 
     {
         const astgen_frame = tracy.namedFrame("astgen");
         defer astgen_frame.end();
 
-        self.astgen_wait_group.reset();
-        defer self.astgen_wait_group.wait();
+        comp.astgen_wait_group.reset();
+        defer comp.astgen_wait_group.wait();
 
         // builtin.zig is handled specially for two reasons:
         // 1. to avoid race condition of zig processes truncating each other's builtin.zig files
         // 2. optimization; in the hot path it only incurs a stat() syscall, which happens
         //    in the `astgen_wait_group`.
-        if (self.bin_file.options.module) |mod| {
+        if (comp.bin_file.options.module) |mod| {
             if (mod.job_queued_update_builtin_zig) {
                 mod.job_queued_update_builtin_zig = false;
 
-                self.astgen_wait_group.start();
-                try self.thread_pool.spawn(workerUpdateBuiltinZigFile, .{
-                    self, mod, &self.astgen_wait_group,
+                comp.astgen_wait_group.start();
+                try comp.thread_pool.spawn(workerUpdateBuiltinZigFile, .{
+                    comp, mod, &comp.astgen_wait_group,
                 });
             }
         }
 
-        while (self.astgen_work_queue.readItem()) |file| {
-            self.astgen_wait_group.start();
-            try self.thread_pool.spawn(workerAstGenFile, .{
-                self, file, &zir_prog_node, &self.astgen_wait_group, .root,
+        while (comp.astgen_work_queue.readItem()) |file| {
+            comp.astgen_wait_group.start();
+            try comp.thread_pool.spawn(workerAstGenFile, .{
+                comp, file, &zir_prog_node, &comp.astgen_wait_group, .root,
             });
         }
 
-        while (self.embed_file_work_queue.readItem()) |embed_file| {
-            self.astgen_wait_group.start();
-            try self.thread_pool.spawn(workerCheckEmbedFile, .{
-                self, embed_file, &embed_file_prog_node, &self.astgen_wait_group,
+        while (comp.embed_file_work_queue.readItem()) |embed_file| {
+            comp.astgen_wait_group.start();
+            try comp.thread_pool.spawn(workerCheckEmbedFile, .{
+                comp, embed_file, &embed_file_prog_node, &comp.astgen_wait_group,
             });
         }
 
-        while (self.c_object_work_queue.readItem()) |c_object| {
-            self.work_queue_wait_group.start();
-            try self.thread_pool.spawn(workerUpdateCObject, .{
-                self, c_object, &c_obj_prog_node, &self.work_queue_wait_group,
+        while (comp.c_object_work_queue.readItem()) |c_object| {
+            comp.work_queue_wait_group.start();
+            try comp.thread_pool.spawn(workerUpdateCObject, .{
+                comp, c_object, &c_obj_prog_node, &comp.work_queue_wait_group,
             });
         }
     }
 
-    if (self.emit_docs) |doc_location| {
-        if (self.bin_file.options.module) |module| {
+    if (comp.emit_docs) |doc_location| {
+        if (comp.bin_file.options.module) |module| {
             var autodoc = Autodoc.init(module, doc_location);
             defer autodoc.deinit();
             try autodoc.generateZirData();
         }
     }
 
-    const use_stage1 = build_options.is_stage1 and self.bin_file.options.use_stage1;
+    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
     if (!use_stage1) {
         const outdated_and_deleted_decls_frame = tracy.namedFrame("outdated_and_deleted_decls");
         defer outdated_and_deleted_decls_frame.end();
 
         // Iterate over all the files and look for outdated and deleted declarations.
-        if (self.bin_file.options.module) |mod| {
+        if (comp.bin_file.options.module) |mod| {
             try mod.processOutdatedAndDeletedDecls();
         }
-    } else if (self.bin_file.options.module) |mod| {
+    } else if (comp.bin_file.options.module) |mod| {
         // If there are any AstGen compile errors, report them now to avoid
         // hitting stage1 bugs.
         if (mod.failed_files.count() != 0) {
             return;
         }
+        comp.updateStage1Module(main_progress_node) catch |err| {
+            fatal("unable to build stage1 zig object: {s}", .{@errorName(err)});
+        };
     }
+
+    if (comp.bin_file.options.module) |mod| {
+        mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
+        mod.sema_prog_node.activate();
+    }
+    defer if (comp.bin_file.options.module) |mod| {
+        mod.sema_prog_node.end();
+        mod.sema_prog_node = undefined;
+    };
 
     // In this main loop we give priority to non-anonymous Decls in the work queue, so
     // that they can establish references to anonymous Decls, setting alive=true in the
     // backend, preventing anonymous Decls from being prematurely destroyed.
     while (true) {
-        if (self.work_queue.readItem()) |work_item| {
-            try processOneJob(self, work_item, main_progress_node);
+        if (comp.work_queue.readItem()) |work_item| {
+            try processOneJob(comp, work_item);
             continue;
         }
-        if (self.anon_work_queue.readItem()) |work_item| {
-            try processOneJob(self, work_item, main_progress_node);
+        if (comp.anon_work_queue.readItem()) |work_item| {
+            try processOneJob(comp, work_item);
             continue;
         }
         break;
     }
 }
 
-fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress.Node) !void {
+fn processOneJob(comp: *Compilation, job: Job) !void {
     switch (job) {
-        .codegen_decl => |decl| switch (decl.analysis) {
-            .unreferenced => unreachable,
-            .in_progress => unreachable,
-            .outdated => unreachable,
-
-            .file_failure,
-            .sema_failure,
-            .codegen_failure,
-            .dependency_failure,
-            .sema_failure_retryable,
-            => return,
-
-            .complete, .codegen_failure_retryable => {
-                const named_frame = tracy.namedFrame("codegen_decl");
-                defer named_frame.end();
-
-                if (build_options.omit_stage2)
-                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
-                const module = comp.bin_file.options.module.?;
-                assert(decl.has_tv);
-
-                if (decl.alive) {
-                    try module.linkerUpdateDecl(decl);
-                    return;
-                }
-
-                // Instead of sending this decl to the linker, we actually will delete it
-                // because we found out that it in fact was never referenced.
-                module.deleteUnusedDecl(decl);
-                return;
-            },
-        },
-        .codegen_func => |func| switch (func.owner_decl.analysis) {
-            .unreferenced => unreachable,
-            .in_progress => unreachable,
-            .outdated => unreachable,
-
-            .file_failure,
-            .sema_failure,
-            .codegen_failure,
-            .dependency_failure,
-            .sema_failure_retryable,
-            => return,
-
-            .complete, .codegen_failure_retryable => {
-                if (build_options.omit_stage2)
-                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-                switch (func.state) {
-                    .sema_failure, .dependency_failure => return,
-                    .queued => {},
-                    .in_progress => unreachable,
-                    .inline_only => unreachable, // don't queue work for this
-                    .success => unreachable, // don't queue it twice
-                }
-
-                const gpa = comp.gpa;
-                const module = comp.bin_file.options.module.?;
-                const decl = func.owner_decl;
-
-                var tmp_arena = std.heap.ArenaAllocator.init(gpa);
-                defer tmp_arena.deinit();
-                const sema_arena = tmp_arena.allocator();
-
-                const sema_frame = tracy.namedFrame("sema");
-                var sema_frame_ended = false;
-                errdefer if (!sema_frame_ended) sema_frame.end();
-
-                var air = module.analyzeFnBody(decl, func, sema_arena) catch |err| switch (err) {
-                    error.AnalysisFail => {
-                        if (func.state == .in_progress) {
-                            // If this decl caused the compile error, the analysis field would
-                            // be changed to indicate it was this Decl's fault. Because this
-                            // did not happen, we infer here that it was a dependency failure.
-                            func.state = .dependency_failure;
-                        }
-                        return;
-                    },
-                    error.OutOfMemory => return error.OutOfMemory,
-                };
-                defer air.deinit(gpa);
-
-                sema_frame.end();
-                sema_frame_ended = true;
-
-                const liveness_frame = tracy.namedFrame("liveness");
-                var liveness_frame_ended = false;
-                errdefer if (!liveness_frame_ended) liveness_frame.end();
-
-                log.debug("analyze liveness of {s}", .{decl.name});
-                var liveness = try Liveness.analyze(gpa, air, decl.getFileScope().zir);
-                defer liveness.deinit(gpa);
-
-                liveness_frame.end();
-                liveness_frame_ended = true;
-
-                if (builtin.mode == .Debug and comp.verbose_air) {
-                    std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
-                    @import("print_air.zig").dump(gpa, air, decl.getFileScope().zir, liveness);
-                    std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
-                }
-
-                const named_frame = tracy.namedFrame("codegen");
-                defer named_frame.end();
-
-                comp.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {
-                        decl.analysis = .codegen_failure;
-                        return;
-                    },
-                    else => {
-                        try module.failed_decls.ensureUnusedCapacity(gpa, 1);
-                        module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
-                            gpa,
-                            decl.srcLoc(),
-                            "unable to codegen: {s}",
-                            .{@errorName(err)},
-                        ));
-                        decl.analysis = .codegen_failure_retryable;
-                        return;
-                    },
-                };
-                return;
-            },
-        },
-        .emit_h_decl => |decl| switch (decl.analysis) {
-            .unreferenced => unreachable,
-            .in_progress => unreachable,
-            .outdated => unreachable,
-
-            .file_failure,
-            .sema_failure,
-            .dependency_failure,
-            .sema_failure_retryable,
-            => return,
-
-            // emit-h only requires semantic analysis of the Decl to be complete,
-            // it does not depend on machine code generation to succeed.
-            .codegen_failure, .codegen_failure_retryable, .complete => {
-                const named_frame = tracy.namedFrame("emit_h_decl");
-                defer named_frame.end();
-
-                if (build_options.omit_stage2)
-                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-                const gpa = comp.gpa;
-                const module = comp.bin_file.options.module.?;
-                const emit_h = module.emit_h.?;
-                _ = try emit_h.decl_table.getOrPut(gpa, decl);
-                const decl_emit_h = decl.getEmitH(module);
-                const fwd_decl = &decl_emit_h.fwd_decl;
-                fwd_decl.shrinkRetainingCapacity(0);
-                var typedefs_arena = std.heap.ArenaAllocator.init(gpa);
-                defer typedefs_arena.deinit();
-
-                var dg: c_codegen.DeclGen = .{
-                    .gpa = gpa,
-                    .module = module,
-                    .error_msg = null,
-                    .decl = decl,
-                    .fwd_decl = fwd_decl.toManaged(gpa),
-                    .typedefs = c_codegen.TypedefMap.init(gpa),
-                    .typedefs_arena = typedefs_arena.allocator(),
-                };
-                defer dg.fwd_decl.deinit();
-                defer dg.typedefs.deinit();
-
-                c_codegen.genHeader(&dg) catch |err| switch (err) {
-                    error.AnalysisFail => {
-                        try emit_h.failed_decls.put(gpa, decl, dg.error_msg.?);
-                        return;
-                    },
-                    else => |e| return e,
-                };
-
-                fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
-                fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
-            },
-        },
-        .analyze_decl => |decl| {
-            const named_frame = tracy.namedFrame("analyze_decl");
-            defer named_frame.end();
-
+        .codegen_decl => |decl_index| {
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
             const module = comp.bin_file.options.module.?;
-            module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
+            const decl = module.declPtr(decl_index);
+
+            switch (decl.analysis) {
+                .unreferenced => unreachable,
+                .in_progress => unreachable,
+                .outdated => unreachable,
+
+                .file_failure,
+                .sema_failure,
+                .codegen_failure,
+                .dependency_failure,
+                .sema_failure_retryable,
+                => return,
+
+                .complete, .codegen_failure_retryable => {
+                    const named_frame = tracy.namedFrame("codegen_decl");
+                    defer named_frame.end();
+
+                    assert(decl.has_tv);
+
+                    if (decl.alive) {
+                        try module.linkerUpdateDecl(decl_index);
+                        return;
+                    }
+
+                    // Instead of sending this decl to the linker, we actually will delete it
+                    // because we found out that it in fact was never referenced.
+                    module.deleteUnusedDecl(decl_index);
+                    return;
+                },
+            }
+        },
+        .codegen_func => |func| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
+            const named_frame = tracy.namedFrame("codegen_func");
+            defer named_frame.end();
+
+            const module = comp.bin_file.options.module.?;
+            module.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => return,
+            };
+        },
+        .emit_h_decl => |decl_index| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
+            const module = comp.bin_file.options.module.?;
+            const decl = module.declPtr(decl_index);
+
+            switch (decl.analysis) {
+                .unreferenced => unreachable,
+                .in_progress => unreachable,
+                .outdated => unreachable,
+
+                .file_failure,
+                .sema_failure,
+                .dependency_failure,
+                .sema_failure_retryable,
+                => return,
+
+                // emit-h only requires semantic analysis of the Decl to be complete,
+                // it does not depend on machine code generation to succeed.
+                .codegen_failure, .codegen_failure_retryable, .complete => {
+                    const named_frame = tracy.namedFrame("emit_h_decl");
+                    defer named_frame.end();
+
+                    const gpa = comp.gpa;
+                    const emit_h = module.emit_h.?;
+                    _ = try emit_h.decl_table.getOrPut(gpa, decl_index);
+                    const decl_emit_h = emit_h.declPtr(decl_index);
+                    const fwd_decl = &decl_emit_h.fwd_decl;
+                    fwd_decl.shrinkRetainingCapacity(0);
+                    var typedefs_arena = std.heap.ArenaAllocator.init(gpa);
+                    defer typedefs_arena.deinit();
+
+                    var dg: c_codegen.DeclGen = .{
+                        .gpa = gpa,
+                        .module = module,
+                        .error_msg = null,
+                        .decl_index = decl_index,
+                        .decl = decl,
+                        .fwd_decl = fwd_decl.toManaged(gpa),
+                        .typedefs = c_codegen.TypedefMap.initContext(gpa, .{
+                            .mod = module,
+                        }),
+                        .typedefs_arena = typedefs_arena.allocator(),
+                    };
+                    defer dg.fwd_decl.deinit();
+                    defer dg.typedefs.deinit();
+
+                    c_codegen.genHeader(&dg) catch |err| switch (err) {
+                        error.AnalysisFail => {
+                            try emit_h.failed_decls.put(gpa, decl_index, dg.error_msg.?);
+                            return;
+                        },
+                        else => |e| return e,
+                    };
+
+                    fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
+                    fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
+                },
+            }
+        },
+        .analyze_decl => |decl_index| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
+            const module = comp.bin_file.options.module.?;
+            module.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
         },
         .update_embed_file => |embed_file| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
             const named_frame = tracy.namedFrame("update_embed_file");
             defer named_frame.end();
 
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = comp.bin_file.options.module.?;
             module.updateEmbedFile(embed_file) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
         },
-        .update_line_number => |decl| {
+        .update_line_number => |decl_index| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
             const named_frame = tracy.namedFrame("update_line_number");
             defer named_frame.end();
 
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const gpa = comp.gpa;
             const module = comp.bin_file.options.module.?;
+            const decl = module.declPtr(decl_index);
             comp.bin_file.updateDeclLineNumber(module, decl) catch |err| {
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
-                module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
+                module.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                     gpa,
                     decl.srcLoc(),
                     "unable to update line number: {s}",
@@ -2918,11 +2891,12 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .analyze_pkg => |pkg| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+
             const named_frame = tracy.namedFrame("analyze_pkg");
             defer named_frame.end();
 
-            if (build_options.omit_stage2)
-                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = comp.bin_file.options.module.?;
             module.semaPkg(pkg) catch |err| switch (err) {
                 error.CurrentWorkingDirectoryUnlinked,
@@ -3139,17 +3113,6 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                     "unable to build zig's multitarget libc: {s}",
                     .{@errorName(err)},
                 ),
-            };
-        },
-        .stage1_module => {
-            const named_frame = tracy.namedFrame("stage1_module");
-            defer named_frame.end();
-
-            if (!build_options.is_stage1)
-                unreachable;
-
-            comp.updateStage1Module(main_progress_node) catch |err| {
-                fatal("unable to build stage1 zig object: {s}", .{@errorName(err)});
             };
         },
     }
@@ -3546,7 +3509,7 @@ fn reportRetryableEmbedFileError(
     const mod = comp.bin_file.options.module.?;
     const gpa = mod.gpa;
 
-    const src_loc: Module.SrcLoc = embed_file.owner_decl.srcLoc();
+    const src_loc: Module.SrcLoc = mod.declPtr(embed_file.owner_decl).srcLoc();
 
     const err_msg = if (embed_file.pkg.root_src_directory.path) |dir_path|
         try Module.ErrorMsg.create(
@@ -3678,9 +3641,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         }
 
         if (std.process.can_spawn) {
-            const child = try std.ChildProcess.init(argv.items, arena);
-            defer child.deinit();
-
+            var child = std.ChildProcess.init(argv.items, arena);
             if (comp.clang_passthrough_mode) {
                 child.stdin_behavior = .Inherit;
                 child.stdout_behavior = .Inherit;
@@ -3857,6 +3818,10 @@ pub fn addCCArgs(
         try argv.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
         try argv.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
         try argv.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
+
+        if (comp.bin_file.options.single_threaded) {
+            try argv.append("-D_LIBCPP_HAS_NO_THREADS");
+        }
     }
 
     if (comp.bin_file.options.link_libunwind) {
@@ -4595,8 +4560,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     const target = comp.getTarget();
     const generic_arch_name = target.cpu.arch.genericName();
     const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
-    const stage2_x86_cx16 = target.cpu.arch == .x86_64 and
-        std.Target.x86.featureSetHas(target.cpu.features, .cx16);
 
     const zig_backend: std.builtin.CompilerBackend = blk: {
         if (use_stage1) break :blk .stage1;
@@ -4609,6 +4572,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
             .i386 => .stage2_x86,
             .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
             .riscv64 => .stage2_riscv64,
+            .sparc64 => .stage2_sparc64,
             else => .other,
         };
     };
@@ -4622,8 +4586,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\pub const zig_backend = std.builtin.CompilerBackend.{};
         \\/// Temporary until self-hosted supports the `cpu.arch` value.
         \\pub const stage2_arch: std.Target.Cpu.Arch = .{};
-        \\/// Temporary until self-hosted can call `std.Target.x86.featureSetHas` at comptime.
-        \\pub const stage2_x86_cx16 = {};
         \\
         \\pub const output_mode = std.builtin.OutputMode.{};
         \\pub const link_mode = std.builtin.LinkMode.{};
@@ -4639,7 +4601,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         build_options.version,
         std.zig.fmtId(@tagName(zig_backend)),
         std.zig.fmtId(@tagName(target.cpu.arch)),
-        stage2_x86_cx16,
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,
@@ -4761,6 +4722,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
         \\pub const valgrind_support = {};
+        \\pub const sanitize_thread = {};
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
@@ -4773,6 +4735,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         comp.bin_file.options.link_libcpp,
         comp.bin_file.options.error_return_tracing,
         comp.bin_file.options.valgrind,
+        comp.bin_file.options.tsan,
         comp.bin_file.options.pic,
         comp.bin_file.options.pie,
         comp.bin_file.options.strip,
@@ -4850,18 +4813,9 @@ fn buildOutputFromZig(
     defer tracy_trace.end();
 
     std.debug.assert(output_mode != .Exe);
-    const special_sub = "std" ++ std.fs.path.sep_str ++ "special";
-    const special_path = try comp.zig_lib_directory.join(comp.gpa, &[_][]const u8{special_sub});
-    defer comp.gpa.free(special_path);
-
-    var special_dir = try comp.zig_lib_directory.handle.openDir(special_sub, .{});
-    defer special_dir.close();
 
     var main_pkg: Package = .{
-        .root_src_directory = .{
-            .path = special_path,
-            .handle = special_dir,
-        },
+        .root_src_directory = comp.zig_lib_directory,
         .root_src_path = src_basename,
     };
     defer main_pkg.deinitTable(comp.gpa);

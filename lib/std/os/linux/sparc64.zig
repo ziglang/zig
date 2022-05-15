@@ -9,8 +9,8 @@ const sigset_t = linux.sigset_t;
 const linux = std.os.linux;
 const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
-const iovec = linux.iovec;
-const iovec_const = linux.iovec_const;
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 const timespec = linux.timespec;
 
 pub fn syscall_pipe(fd: *[2]i32) usize {
@@ -656,23 +656,23 @@ pub const Flock = extern struct {
 };
 
 pub const msghdr = extern struct {
-    msg_name: ?*sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec,
-    msg_iovlen: u64,
-    msg_control: ?*anyopaque,
-    msg_controllen: u64,
-    msg_flags: i32,
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: u64,
+    control: ?*anyopaque,
+    controllen: u64,
+    flags: i32,
 };
 
 pub const msghdr_const = extern struct {
-    msg_name: ?*const sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec_const,
-    msg_iovlen: u64,
-    msg_control: ?*anyopaque,
-    msg_controllen: u64,
-    msg_flags: i32,
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec_const,
+    iovlen: u64,
+    control: ?*anyopaque,
+    controllen: u64,
+    flags: i32,
 };
 
 pub const off_t = i64;
@@ -821,7 +821,7 @@ pub const mcontext_t = extern struct {
 };
 
 pub const ucontext_t = extern struct {
-    link: *ucontext_t,
+    link: ?*ucontext_t,
     flags: u64,
     sigmask: u64,
     mcontext: mcontext_t,

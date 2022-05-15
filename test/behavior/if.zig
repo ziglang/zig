@@ -44,6 +44,9 @@ var global_with_val: anyerror!u32 = 0;
 var global_with_err: anyerror!u32 = error.SomeError;
 
 test "unwrap mutable global var" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     if (global_with_val) |v| {
         try expect(v == 0);
     } else |_| {
@@ -76,6 +79,10 @@ test "const result loc, runtime if cond, else unreachable" {
 }
 
 test "if copies its payload" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var tmp: ?i32 = 10;
@@ -91,8 +98,6 @@ test "if copies its payload" {
 }
 
 test "if prongs cast to expected type instead of peer type resolution" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest(f: bool) !void {
             var x: i32 = 0;

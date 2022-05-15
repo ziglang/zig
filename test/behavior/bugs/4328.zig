@@ -1,4 +1,5 @@
-const expectEqual = @import("std").testing.expectEqual;
+const expect = @import("std").testing.expect;
+const builtin = @import("builtin");
 
 const FILE = extern struct {
     dummy_field: u8,
@@ -21,13 +22,13 @@ test "Extern function calls in @TypeOf" {
             return 0;
         }
 
-        fn test_fn_2(a: anytype) @TypeOf((S{ .state = 0 }).s_do_thing(a)) {
+        fn test_fn_2(s: anytype, a: anytype) @TypeOf(s.s_do_thing(a)) {
             return 1;
         }
 
         fn doTheTest() !void {
-            try expectEqual(c_int, @TypeOf(test_fn_1(0, 42)));
-            try expectEqual(c_short, @TypeOf(test_fn_2(0)));
+            try expect(@TypeOf(test_fn_1(0, 42)) == c_int);
+            try expect(@TypeOf(test_fn_2(&S{ .state = 1 }, 0)) == c_short);
         }
     };
 
@@ -42,7 +43,7 @@ test "Peer resolution of extern function calls in @TypeOf" {
         }
 
         fn doTheTest() !void {
-            try expectEqual(c_long, @TypeOf(test_fn()));
+            try expect(@TypeOf(test_fn()) == c_long);
         }
     };
 
@@ -51,6 +52,8 @@ test "Peer resolution of extern function calls in @TypeOf" {
 }
 
 test "Extern function calls, dereferences and field access in @TypeOf" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const Test = struct {
         fn test_fn_1(a: c_long) @TypeOf(fopen("test", "r").*) {
             _ = a;
@@ -63,8 +66,8 @@ test "Extern function calls, dereferences and field access in @TypeOf" {
         }
 
         fn doTheTest() !void {
-            try expectEqual(FILE, @TypeOf(test_fn_1(0)));
-            try expectEqual(u8, @TypeOf(test_fn_2(0)));
+            try expect(@TypeOf(test_fn_1(0)) == FILE);
+            try expect(@TypeOf(test_fn_2(0)) == u8);
         }
     };
 

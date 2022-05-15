@@ -15,6 +15,11 @@ struct Foo {
     int a;
 };
 
+union U {
+    long l;
+    double d;
+};
+
 #define SIZE_OF_FOO sizeof(struct Foo)
 
 #define MAP_FAILED	((void *) -1)
@@ -30,3 +35,7 @@ struct Foo {
 #define IGNORE_ME_8(x) (volatile void)(x)
 #define IGNORE_ME_9(x) (const volatile void)(x)
 #define IGNORE_ME_10(x) (volatile const void)(x)
+
+#define UNION_CAST(X) (union U)(X)
+
+#define NESTED_COMMA_OPERATOR (1, (2, 3))

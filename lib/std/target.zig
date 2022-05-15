@@ -673,8 +673,7 @@ pub const Target = struct {
 
                 /// Adds the specified feature set but not its dependencies.
                 pub fn addFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(std.meta.Vector(usize_count, usize), set.ints) |
-                        @as(std.meta.Vector(usize_count, usize), other_set.ints);
+                    set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
                 }
 
                 /// Removes the specified feature but not its dependents.
@@ -686,8 +685,7 @@ pub const Target = struct {
 
                 /// Removes the specified feature but not its dependents.
                 pub fn removeFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(std.meta.Vector(usize_count, usize), set.ints) &
-                        ~@as(std.meta.Vector(usize_count, usize), other_set.ints);
+                    set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
                 }
 
                 pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
@@ -716,7 +714,7 @@ pub const Target = struct {
                 }
 
                 pub fn isSuperSetOf(set: Set, other_set: Set) bool {
-                    const V = std.meta.Vector(usize_count, usize);
+                    const V = @Vector(usize_count, usize);
                     const set_v: V = set.ints;
                     const other_v: V = other_set.ints;
                     return @reduce(.And, (set_v & other_v) == other_v);
@@ -787,7 +785,7 @@ pub const Target = struct {
             riscv32,
             riscv64,
             sparc,
-            sparcv9,
+            sparc64,
             sparcel,
             s390x,
             tce,
@@ -886,7 +884,7 @@ pub const Target = struct {
 
             pub fn isSPARC(arch: Arch) bool {
                 return switch (arch) {
-                    .sparc, .sparcel, .sparcv9 => true,
+                    .sparc, .sparcel, .sparc64 => true,
                     else => false,
                 };
             }
@@ -916,62 +914,62 @@ pub const Target = struct {
 
             pub fn toElfMachine(arch: Arch) std.elf.EM {
                 return switch (arch) {
-                    .avr => ._AVR,
-                    .msp430 => ._MSP430,
-                    .arc => ._ARC,
-                    .arm => ._ARM,
-                    .armeb => ._ARM,
-                    .hexagon => ._HEXAGON,
-                    .m68k => ._68K,
-                    .le32 => ._NONE,
-                    .mips => ._MIPS,
-                    .mipsel => ._MIPS_RS3_LE,
-                    .powerpc, .powerpcle => ._PPC,
-                    .r600 => ._NONE,
-                    .riscv32 => ._RISCV,
-                    .sparc => ._SPARC,
-                    .sparcel => ._SPARC,
-                    .tce => ._NONE,
-                    .tcele => ._NONE,
-                    .thumb => ._ARM,
-                    .thumbeb => ._ARM,
-                    .i386 => ._386,
-                    .xcore => ._XCORE,
-                    .nvptx => ._NONE,
-                    .amdil => ._NONE,
-                    .hsail => ._NONE,
-                    .spir => ._NONE,
-                    .kalimba => ._CSR_KALIMBA,
-                    .shave => ._NONE,
-                    .lanai => ._LANAI,
-                    .wasm32 => ._NONE,
-                    .renderscript32 => ._NONE,
-                    .aarch64_32 => ._AARCH64,
-                    .aarch64 => ._AARCH64,
-                    .aarch64_be => ._AARCH64,
-                    .mips64 => ._MIPS,
-                    .mips64el => ._MIPS_RS3_LE,
-                    .powerpc64 => ._PPC64,
-                    .powerpc64le => ._PPC64,
-                    .riscv64 => ._RISCV,
-                    .x86_64 => ._X86_64,
-                    .nvptx64 => ._NONE,
-                    .le64 => ._NONE,
-                    .amdil64 => ._NONE,
-                    .hsail64 => ._NONE,
-                    .spir64 => ._NONE,
-                    .wasm64 => ._NONE,
-                    .renderscript64 => ._NONE,
-                    .amdgcn => ._NONE,
-                    .bpfel => ._BPF,
-                    .bpfeb => ._BPF,
-                    .csky => ._NONE,
-                    .sparcv9 => ._SPARCV9,
-                    .s390x => ._S390,
-                    .ve => ._NONE,
-                    .spu_2 => ._SPU_2,
-                    .spirv32 => ._NONE,
-                    .spirv64 => ._NONE,
+                    .avr => .AVR,
+                    .msp430 => .MSP430,
+                    .arc => .ARC,
+                    .arm => .ARM,
+                    .armeb => .ARM,
+                    .hexagon => .HEXAGON,
+                    .m68k => .@"68K",
+                    .le32 => .NONE,
+                    .mips => .MIPS,
+                    .mipsel => .MIPS_RS3_LE,
+                    .powerpc, .powerpcle => .PPC,
+                    .r600 => .NONE,
+                    .riscv32 => .RISCV,
+                    .sparc => .SPARC,
+                    .sparcel => .SPARC,
+                    .tce => .NONE,
+                    .tcele => .NONE,
+                    .thumb => .ARM,
+                    .thumbeb => .ARM,
+                    .i386 => .@"386",
+                    .xcore => .XCORE,
+                    .nvptx => .NONE,
+                    .amdil => .NONE,
+                    .hsail => .NONE,
+                    .spir => .NONE,
+                    .kalimba => .CSR_KALIMBA,
+                    .shave => .NONE,
+                    .lanai => .LANAI,
+                    .wasm32 => .NONE,
+                    .renderscript32 => .NONE,
+                    .aarch64_32 => .AARCH64,
+                    .aarch64 => .AARCH64,
+                    .aarch64_be => .AARCH64,
+                    .mips64 => .MIPS,
+                    .mips64el => .MIPS_RS3_LE,
+                    .powerpc64 => .PPC64,
+                    .powerpc64le => .PPC64,
+                    .riscv64 => .RISCV,
+                    .x86_64 => .X86_64,
+                    .nvptx64 => .NONE,
+                    .le64 => .NONE,
+                    .amdil64 => .NONE,
+                    .hsail64 => .NONE,
+                    .spir64 => .NONE,
+                    .wasm64 => .NONE,
+                    .renderscript64 => .NONE,
+                    .amdgcn => .NONE,
+                    .bpfel => .BPF,
+                    .bpfeb => .BPF,
+                    .csky => .CSKY,
+                    .sparc64 => .SPARCV9,
+                    .s390x => .S390,
+                    .ve => .NONE,
+                    .spu_2 => .SPU_2,
+                    .spirv32 => .NONE,
+                    .spirv64 => .NONE,
                 };
             }
 
@@ -1027,7 +1025,7 @@ pub const Target = struct {
                     .bpfel => .Unknown,
                     .bpfeb => .Unknown,
                     .csky => .Unknown,
-                    .sparcv9 => .Unknown,
+                    .sparc64 => .Unknown,
                     .s390x => .Unknown,
                     .ve => .Unknown,
                     .spu_2 => .Unknown,
@@ -1094,7 +1092,7 @@ pub const Target = struct {
                     .powerpc64,
                     .thumbeb,
                     .sparc,
-                    .sparcv9,
+                    .sparc64,
                     .tce,
                     .lanai,
                     .s390x,
@@ -1161,7 +1159,7 @@ pub const Target = struct {
                     .amdgcn,
                     .bpfel,
                     .bpfeb,
-                    .sparcv9,
+                    .sparc64,
                     .s390x,
                     .ve,
                     .spirv64,
@@ -1179,7 +1177,7 @@ pub const Target = struct {
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
                     .amdgcn => "amdgpu",
                     .riscv32, .riscv64 => "riscv",
-                    .sparc, .sparcv9, .sparcel => "sparc",
+                    .sparc, .sparc64, .sparcel => "sparc",
                     .s390x => "systemz",
                     .i386, .x86_64 => "x86",
                     .nvptx, .nvptx64 => "nvptx",
@@ -1202,7 +1200,7 @@ pub const Target = struct {
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => &powerpc.all_features,
                     .amdgcn => &amdgpu.all_features,
                     .riscv32, .riscv64 => &riscv.all_features,
-                    .sparc, .sparcv9, .sparcel => &sparc.all_features,
+                    .sparc, .sparc64, .sparcel => &sparc.all_features,
                     .spirv32, .spirv64 => &spirv.all_features,
                     .s390x => &systemz.all_features,
                     .i386, .x86_64 => &x86.all_features,
@@ -1227,7 +1225,7 @@ pub const Target = struct {
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
                     .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
                     .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
-                    .sparc, .sparcv9, .sparcel => comptime allCpusFromDecls(sparc.cpu),
+                    .sparc, .sparc64, .sparcel => comptime allCpusFromDecls(sparc.cpu),
                     .s390x => comptime allCpusFromDecls(systemz.cpu),
                     .i386, .x86_64 => comptime allCpusFromDecls(x86.cpu),
                     .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
@@ -1288,7 +1286,7 @@ pub const Target = struct {
                     .riscv32 => &riscv.cpu.generic_rv32,
                     .riscv64 => &riscv.cpu.generic_rv64,
                     .sparc, .sparcel => &sparc.cpu.generic,
-                    .sparcv9 => &sparc.cpu.v9,
+                    .sparc64 => &sparc.cpu.v9, // 64-bit SPARC needs v9 as the baseline
                     .s390x => &systemz.cpu.generic,
                     .i386 => &x86.cpu._i386,
                     .x86_64 => &x86.cpu.x86_64,
@@ -1589,7 +1587,7 @@ pub const Target = struct {
                 .powerpc, .powerpcle => return copy(&result, "/lib/ld.so.1"),
                 .powerpc64, .powerpc64le => return copy(&result, "/lib64/ld64.so.2"),
                 .s390x => return copy(&result, "/lib64/ld64.so.1"),
-                .sparcv9 => return copy(&result, "/lib64/ld-linux.so.2"),
+                .sparc64 => return copy(&result, "/lib64/ld-linux.so.2"),
                 .x86_64 => return copy(&result, switch (self.abi) {
                     .gnux32 => "/libx32/ld-linux-x32.so.2",
                     else => "/lib64/ld-linux-x86-64.so.2",
@@ -1714,10 +1712,147 @@ pub const Target = struct {
         };
     }
 
-    pub inline fn longDoubleIsF128(target: Target) bool {
-        return switch (target.cpu.arch) {
-            .riscv64, .aarch64, .aarch64_be, .aarch64_32, .s390x, .mips64, .mips64el => true,
+    pub inline fn longDoubleIs(target: Target, comptime F: type) bool {
+        if (target.abi == .msvc) {
+            return F == f64;
+        }
+        return switch (F) {
+            f128 => switch (target.cpu.arch) {
+                .aarch64 => {
+                    // According to Apple's official guide:
+                    // > The long double type is a double precision IEEE754 binary floating-point type,
+                    // > which makes it identical to the double type. This behavior contrasts to the
+                    // > standard specification, in which a long double is a quad-precision, IEEE754
+                    // > binary, floating-point type.
+                    // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms
+                    return !target.isDarwin();
+                },
+
+                .riscv64,
+                .aarch64_be,
+                .aarch64_32,
+                .s390x,
+                .mips64,
+                .mips64el,
+                .sparc,
+                .sparc64,
+                .sparcel,
+                .powerpc,
+                .powerpcle,
+                .powerpc64,
+                .powerpc64le,
+                => true,
+
+                else => false,
+            },
+            f80 => switch (target.cpu.arch) {
+                .x86_64, .i386 => true,
+                else => false,
+            },
+            f64 => switch (target.cpu.arch) {
+                .x86_64,
+                .i386,
+                .riscv64,
+                .aarch64,
+                .aarch64_be,
+                .aarch64_32,
+                .s390x,
+                .mips64,
+                .mips64el,
+                .sparc,
+                .sparc64,
+                .sparcel,
+                .powerpc,
+                .powerpcle,
+                .powerpc64,
+                .powerpc64le,
+                => false,
+
+                else => true,
+            },
             else => false,
+        };
+    }
+
+    pub inline fn maxIntAlignment(target: Target) u16 {
+        return switch (target.cpu.arch) {
+            .avr => 1,
+            .msp430 => 2,
+            .xcore => 4,
+
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            .hexagon,
+            .mips,
+            .mipsel,
+            .powerpc,
+            .powerpcle,
+            .r600,
+            .amdgcn,
+            .riscv32,
+            .sparc,
+            .sparcel,
+            .s390x,
+            .lanai,
+            .wasm32,
+            .wasm64,
+            => 8,
+
+            .i386 => return switch (target.os.tag) {
+                .windows => 8,
+                else => 4,
+            },
+
+            // For x86_64, LLVMABIAlignmentOfType(i128) reports 8. However I think 16
+            // is a better number for two reasons:
+            // 1. Better machine code when loading into SIMD register.
+            // 2. The C ABI wants 16 for extern structs.
+            // 3. 16-byte cmpxchg needs 16-byte alignment.
+            // Same logic for riscv64, powerpc64, mips64, sparc64.
+            .x86_64,
+            .riscv64,
+            .powerpc64,
+            .powerpc64le,
+            .mips64,
+            .mips64el,
+            .sparc64,
+
+            // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
+            .aarch64,
+            .aarch64_be,
+            .aarch64_32,
+            .bpfel,
+            .bpfeb,
+            .nvptx,
+            .nvptx64,
+            => 16,
+
+            // Below this comment are unverified but based on the fact that C requires
+            // int128_t to be 16 bytes aligned, it's a safe default.
+            .spu_2,
+            .csky,
+            .arc,
+            .m68k,
+            .tce,
+            .tcele,
+            .le32,
+            .amdil,
+            .hsail,
+            .spir,
+            .kalimba,
+            .renderscript32,
+            .spirv32,
+            .shave,
+            .le64,
+            .amdil64,
+            .hsail64,
+            .spir64,
+            .renderscript64,
+            .ve,
+            .spirv64,
+            => 16,
         };
     }
 };

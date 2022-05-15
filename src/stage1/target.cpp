@@ -1000,18 +1000,36 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
 }
 
 bool target_has_debug_info(const ZigTarget *target) {
-    return !target_is_wasm(target);
+    return true;
 }
 
 bool target_long_double_is_f128(const ZigTarget *target) {
+    if (target->abi == ZigLLVM_MSVC) {
+        return false;
+    }
     switch (target->arch) {
-        case ZigLLVM_riscv64:
         case ZigLLVM_aarch64:
+            // According to Apple's official guide:
+            // > The long double type is a double precision IEEE754 binary floating-point type,
+            // > which makes it identical to the double type. This behavior contrasts to the
+            // > standard specification, in which a long double is a quad-precision, IEEE754
+            // > binary, floating-point type.
+            // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms
+            return !target_os_is_darwin(target->os);
+
+        case ZigLLVM_riscv64:
         case ZigLLVM_aarch64_be:
         case ZigLLVM_aarch64_32:
         case ZigLLVM_systemz:
         case ZigLLVM_mips64:
         case ZigLLVM_mips64el:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
             return true;
 
         default:

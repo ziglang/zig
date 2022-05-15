@@ -5,6 +5,12 @@ const builtin = @import("builtin");
 const has_f80_rt = @import("builtin").cpu.arch == .x86_64;
 
 test "integer widening" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     var a: u8 = 250;
     var b: u16 = a;
     var c: u32 = b;
@@ -14,13 +20,33 @@ test "integer widening" {
     try expect(f == a);
 }
 
+fn zero() u0 {
+    return 0;
+}
+test "integer widening u0 to u8" {
+    const a: u8 = zero();
+    try expect(a == 0);
+}
+
 test "implicit unsigned integer to signed integer" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     var a: u8 = 250;
     var b: i16 = a;
     try expect(b == 250);
 }
 
 test "float widening" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     var a: f16 = 12.34;
     var b: f32 = a;
     var c: f64 = b;
@@ -35,6 +61,12 @@ test "float widening" {
 }
 
 test "float widening f16 to f128" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     // TODO https://github.com/ziglang/zig/issues/3282
     if (builtin.cpu.arch == .aarch64) return error.SkipZigTest;
     if (builtin.cpu.arch == .powerpc64le) return error.SkipZigTest;
@@ -45,6 +77,9 @@ test "float widening f16 to f128" {
 }
 
 test "cast small unsigned to larger signed" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     try expect(castSmallUnsignedToLargerSigned1(200) == @as(i16, 200));
     try expect(castSmallUnsignedToLargerSigned2(9999) == @as(i64, 9999));
 }

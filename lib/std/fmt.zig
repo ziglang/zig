@@ -77,7 +77,6 @@ pub fn format(
 ) !void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
-    // XXX: meta.trait.is(.Struct)(ArgsType) doesn't seem to work...
     if (args_type_info != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
@@ -763,17 +762,14 @@ fn formatFloatValue(
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
         formatFloatScientific(value, options, buf_stream.writer()) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
-            else => |e| return e,
         };
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
         formatFloatDecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
-            else => |e| return e,
         };
     } else if (comptime std.mem.eql(u8, fmt, "x")) {
         formatFloatHexadecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
-            else => |e| return e,
         };
     } else {
         @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
@@ -970,10 +966,10 @@ pub fn formatUnicodeCodepoint(
     writer: anytype,
 ) !void {
     var buf: [4]u8 = undefined;
-    const len = std.unicode.utf8Encode(c, &buf) catch |err| switch (err) {
+    const len = unicode.utf8Encode(c, &buf) catch |err| switch (err) {
         error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => {
-            // In case of error output the replacement char U+FFFD
-            return formatBuf(&[_]u8{ 0xef, 0xbf, 0xbd }, options, writer);
+            const len = unicode.utf8Encode(unicode.replacement_character, &buf) catch unreachable;
+            return formatBuf(buf[0..len], options, writer);
         },
     };
     return formatBuf(buf[0..len], options, writer);
@@ -1125,9 +1121,10 @@ pub fn formatFloatHexadecimal(
     }
 
     const T = @TypeOf(value);
-    const TU = std.meta.Int(.unsigned, std.meta.bitCount(T));
+    const TU = std.meta.Int(.unsigned, @bitSizeOf(T));
 
     const mantissa_bits = math.floatMantissaBits(T);
+    const fractional_bits = math.floatFractionalBits(T);
     const exponent_bits = math.floatExponentBits(T);
     const mantissa_mask = (1 << mantissa_bits) - 1;
     const exponent_mask = (1 << exponent_bits) - 1;
@@ -1159,14 +1156,14 @@ pub fn formatFloatHexadecimal(
         // Adjust the exponent for printing.
         exponent += 1;
     } else {
-        // Add the implicit 1.
-        mantissa |= 1 << mantissa_bits;
+        if (fractional_bits == mantissa_bits)
+            mantissa |= 1 << fractional_bits; // Add the implicit integer bit.
     }
 
     // Fill in zeroes to round the mantissa width to a multiple of 4.
     if (T == f16) mantissa <<= 2 else if (T == f32) mantissa <<= 1;
 
-    const mantissa_digits = (mantissa_bits + 3) / 4;
+    const mantissa_digits = (fractional_bits + 3) / 4;
 
     if (options.precision) |precision| {
         // Round if needed.
@@ -1716,14 +1713,17 @@ test "parseInt" {
     try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
     try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
     try std.testing.expect((try parseInt(i32, "+0b111", 0)) == 7);
+    try std.testing.expect((try parseInt(i32, "+0B111", 0)) == 7);
     try std.testing.expect((try parseInt(i32, "+0b1_11", 0)) == 7);
     try std.testing.expect((try parseInt(i32, "+0o111", 0)) == 73);
+    try std.testing.expect((try parseInt(i32, "+0O111", 0)) == 73);
     try std.testing.expect((try parseInt(i32, "+0o11_1", 0)) == 73);
     try std.testing.expect((try parseInt(i32, "+0x111", 0)) == 273);
     try std.testing.expect((try parseInt(i32, "-0b111", 0)) == -7);
     try std.testing.expect((try parseInt(i32, "-0b11_1", 0)) == -7);
     try std.testing.expect((try parseInt(i32, "-0o111", 0)) == -73);
     try std.testing.expect((try parseInt(i32, "-0x111", 0)) == -273);
+    try std.testing.expect((try parseInt(i32, "-0X111", 0)) == -273);
     try std.testing.expect((try parseInt(i32, "-0x1_11", 0)) == -273);
 
     // bare binary/octal/decimal prefix is invalid
@@ -1747,7 +1747,7 @@ fn parseWithSign(
         buf_radix = 10;
         // Detect the radix by looking at buf prefix.
         if (buf.len > 2 and buf[0] == '0') {
-            switch (buf[1]) {
+            switch (std.ascii.toLower(buf[1])) {
                 'b' => {
                     buf_radix = 2;
                     buf_start = buf[2..];
@@ -1837,12 +1837,11 @@ test "parseUnsigned" {
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
+pub const parseHexFloat = @compileError("deprecated; use `parseFloat`");
 pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
-pub const parseHexFloat = @import("fmt/parse_hex_float.zig").parseHexFloat;
 
 test {
     _ = parseFloat;
-    _ = parseHexFloat;
 }
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
@@ -2186,7 +2185,7 @@ test "enum" {
     try expectFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
 
     // test very large enum to verify ct branch quota is large enough
-    try expectFmt("enum: Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
+    try expectFmt("enum: os.windows.win32error.Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
 }
 
 test "non-exhaustive enum" {
@@ -2227,8 +2226,8 @@ test "float.special" {
     if (builtin.target.cpu.arch != .arm) {
         try expectFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
     }
-    try expectFmt("f64: inf", "f64: {}", .{math.inf_f64});
-    try expectFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
+    try expectFmt("f64: inf", "f64: {}", .{math.inf(f64)});
+    try expectFmt("f64: -inf", "f64: {}", .{-math.inf(f64)});
 }
 
 test "float.hexadecimal.special" {
@@ -2238,8 +2237,8 @@ test "float.hexadecimal.special" {
     if (builtin.target.cpu.arch != .arm) {
         try expectFmt("f64: -nan", "f64: {x}", .{-math.nan_f64});
     }
-    try expectFmt("f64: inf", "f64: {x}", .{math.inf_f64});
-    try expectFmt("f64: -inf", "f64: {x}", .{-math.inf_f64});
+    try expectFmt("f64: inf", "f64: {x}", .{math.inf(f64)});
+    try expectFmt("f64: -inf", "f64: {x}", .{-math.inf(f64)});
 
     try expectFmt("f64: 0x0.0p0", "f64: {x}", .{@as(f64, 0)});
     try expectFmt("f64: -0x0.0p0", "f64: {x}", .{-@as(f64, 0)});
@@ -2251,20 +2250,20 @@ test "float.hexadecimal" {
     try expectFmt("f64: 0x1.5555555555555p-2", "f64: {x}", .{@as(f64, 1.0 / 3.0)});
     try expectFmt("f128: 0x1.5555555555555555555555555555p-2", "f128: {x}", .{@as(f128, 1.0 / 3.0)});
 
-    try expectFmt("f16: 0x1p-14", "f16: {x}", .{@as(f16, math.f16_min)});
-    try expectFmt("f32: 0x1p-126", "f32: {x}", .{@as(f32, math.f32_min)});
-    try expectFmt("f64: 0x1p-1022", "f64: {x}", .{@as(f64, math.f64_min)});
-    try expectFmt("f128: 0x1p-16382", "f128: {x}", .{@as(f128, math.f128_min)});
+    try expectFmt("f16: 0x1p-14", "f16: {x}", .{math.floatMin(f16)});
+    try expectFmt("f32: 0x1p-126", "f32: {x}", .{math.floatMin(f32)});
+    try expectFmt("f64: 0x1p-1022", "f64: {x}", .{math.floatMin(f64)});
+    try expectFmt("f128: 0x1p-16382", "f128: {x}", .{math.floatMin(f128)});
 
-    try expectFmt("f16: 0x0.004p-14", "f16: {x}", .{@as(f16, math.f16_true_min)});
-    try expectFmt("f32: 0x0.000002p-126", "f32: {x}", .{@as(f32, math.f32_true_min)});
-    try expectFmt("f64: 0x0.0000000000001p-1022", "f64: {x}", .{@as(f64, math.f64_true_min)});
-    try expectFmt("f128: 0x0.0000000000000000000000000001p-16382", "f128: {x}", .{@as(f128, math.f128_true_min)});
+    try expectFmt("f16: 0x0.004p-14", "f16: {x}", .{math.floatTrueMin(f16)});
+    try expectFmt("f32: 0x0.000002p-126", "f32: {x}", .{math.floatTrueMin(f32)});
+    try expectFmt("f64: 0x0.0000000000001p-1022", "f64: {x}", .{math.floatTrueMin(f64)});
+    try expectFmt("f128: 0x0.0000000000000000000000000001p-16382", "f128: {x}", .{math.floatTrueMin(f128)});
 
-    try expectFmt("f16: 0x1.ffcp15", "f16: {x}", .{@as(f16, math.f16_max)});
-    try expectFmt("f32: 0x1.fffffep127", "f32: {x}", .{@as(f32, math.f32_max)});
-    try expectFmt("f64: 0x1.fffffffffffffp1023", "f64: {x}", .{@as(f64, math.f64_max)});
-    try expectFmt("f128: 0x1.ffffffffffffffffffffffffffffp16383", "f128: {x}", .{@as(f128, math.f128_max)});
+    try expectFmt("f16: 0x1.ffcp15", "f16: {x}", .{math.floatMax(f16)});
+    try expectFmt("f32: 0x1.fffffep127", "f32: {x}", .{math.floatMax(f32)});
+    try expectFmt("f64: 0x1.fffffffffffffp1023", "f64: {x}", .{math.floatMax(f64)});
+    try expectFmt("f128: 0x1.ffffffffffffffffffffffffffffp16383", "f128: {x}", .{math.floatMax(f128)});
 }
 
 test "float.hexadecimal.precision" {
@@ -2298,6 +2297,8 @@ test "float.decimal" {
     try expectFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
     try expectFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
     try expectFmt("f64: 10000000000000.00", "f64: {d:.2}", .{@as(f64, 9999999999999.999)});
+    try expectFmt("f64: 10000000000000000000000000000000000000", "f64: {d}", .{@as(f64, 1e37)});
+    try expectFmt("f64: 100000000000000000000000000000000000000", "f64: {d}", .{@as(f64, 1e38)});
 }
 
 test "float.libc.sanity" {
@@ -2593,9 +2594,9 @@ test "vector" {
         return error.SkipZigTest;
     }
 
-    const vbool: std.meta.Vector(4, bool) = [_]bool{ true, false, true, false };
-    const vi64: std.meta.Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
-    const vu64: std.meta.Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
+    const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
+    const vi64: @Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
+    const vu64: @Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
 
     try expectFmt("{ true, false, true, false }", "{}", .{vbool});
     try expectFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});

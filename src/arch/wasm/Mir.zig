@@ -10,7 +10,7 @@ const Mir = @This();
 
 const std = @import("std");
 
-/// A struct of array that represents each individual wasm 
+/// A struct of array that represents each individual wasm
 instructions: std.MultiArrayList(Inst).Slice,
 /// A slice of indexes where the meaning of the data is determined by the
 /// `Inst.Tag` value.
@@ -47,6 +47,19 @@ pub const Inst = struct {
         ///
         /// Type of the loop is given in data `block_type`
         loop = 0x03,
+        /// Inserts debug information about the current line and column
+        /// of the source code
+        ///
+        /// Uses `payload` of which the payload type is `DbgLineColumn`
+        dbg_line = 0x06,
+        /// Emits epilogue begin debug information
+        ///
+        /// Uses `nop`
+        dbg_epilogue_begin = 0x07,
+        /// Emits prologue end debug information
+        ///
+        /// Uses `nop`
+        dbg_prologue_end = 0x08,
         /// Represents the end of a function body or an initialization expression
         ///
         /// Payload is `nop`
@@ -77,6 +90,10 @@ pub const Inst = struct {
         ///
         /// Uses `label`
         call_indirect = 0x11,
+        /// Pops three values from the stack and pushes
+        /// the first or second value dependent on the third value.
+        /// Uses `tag`
+        select = 0x1B,
         /// Loads a local at given index onto the stack.
         ///
         /// Uses `label`
@@ -226,9 +243,9 @@ pub const Inst = struct {
         i64_store32 = 0x3E,
         /// Returns the memory size in amount of pages.
         ///
-        /// Uses `nop`
+        /// Uses `label`
         memory_size = 0x3F,
-        /// Increases the memory at by given number of pages.
+        /// Increases the memory by given number of pages.
         ///
         /// Uses `label`
         memory_grow = 0x40,
@@ -317,6 +334,12 @@ pub const Inst = struct {
         /// Uses `tag`
         f64_ge = 0x66,
         /// Uses `tag`
+        i32_clz = 0x67,
+        /// Uses `tag`
+        i32_ctz = 0x68,
+        /// Uses `tag`
+        i32_popcnt = 0x69,
+        /// Uses `tag`
         i32_add = 0x6A,
         /// Uses `tag`
         i32_sub = 0x6B,
@@ -342,6 +365,12 @@ pub const Inst = struct {
         i32_shr_s = 0x75,
         /// Uses `tag`
         i32_shr_u = 0x76,
+        /// Uses `tag`
+        i64_clz = 0x79,
+        /// Uses `tag`
+        i64_ctz = 0x7A,
+        /// Uses `tag`
+        i64_popcnt = 0x7B,
         /// Uses `tag`
         i64_add = 0x7C,
         /// Uses `tag`
@@ -369,6 +398,62 @@ pub const Inst = struct {
         /// Uses `tag`
         i64_shr_u = 0x88,
         /// Uses `tag`
+        f32_abs = 0x8B,
+        /// Uses `tag`
+        f32_neg = 0x8C,
+        /// Uses `tag`
+        f32_ceil = 0x8D,
+        /// Uses `tag`
+        f32_floor = 0x8E,
+        /// Uses `tag`
+        f32_trunc = 0x8F,
+        /// Uses `tag`
+        f32_nearest = 0x90,
+        /// Uses `tag`
+        f32_sqrt = 0x91,
+        /// Uses `tag`
+        f32_add = 0x92,
+        /// Uses `tag`
+        f32_sub = 0x93,
+        /// Uses `tag`
+        f32_mul = 0x94,
+        /// Uses `tag`
+        f32_div = 0x95,
+        /// Uses `tag`
+        f32_min = 0x96,
+        /// Uses `tag`
+        f32_max = 0x97,
+        /// Uses `tag`
+        f32_copysign = 0x98,
+        /// Uses `tag`
+        f64_abs = 0x99,
+        /// Uses `tag`
+        f64_neg = 0x9A,
+        /// Uses `tag`
+        f64_ceil = 0x9B,
+        /// Uses `tag`
+        f64_floor = 0x9C,
+        /// Uses `tag`
+        f64_trunc = 0x9D,
+        /// Uses `tag`
+        f64_nearest = 0x9E,
+        /// Uses `tag`
+        f64_sqrt = 0x9F,
+        /// Uses `tag`
+        f64_add = 0xA0,
+        /// Uses `tag`
+        f64_sub = 0xA1,
+        /// Uses `tag`
+        f64_mul = 0xA2,
+        /// Uses `tag`
+        f64_div = 0xA3,
+        /// Uses `tag`
+        f64_min = 0xA4,
+        /// Uses `tag`
+        f64_max = 0xA5,
+        /// Uses `tag`
+        f64_copysign = 0xA6,
+        /// Uses `tag`
         i32_wrap_i64 = 0xA7,
         /// Uses `tag`
         i32_trunc_f32_s = 0xA8,
@@ -390,6 +475,26 @@ pub const Inst = struct {
         i64_trunc_f64_s = 0xB0,
         /// Uses `tag`
         i64_trunc_f64_u = 0xB1,
+        /// Uses `tag`
+        f32_convert_i32_s = 0xB2,
+        /// Uses `tag`
+        f32_convert_i32_u = 0xB3,
+        /// Uses `tag`
+        f32_convert_i64_s = 0xB4,
+        /// Uses `tag`
+        f32_convert_i64_u = 0xB5,
+        /// Uses `tag`
+        f32_demote_f64 = 0xB6,
+        /// Uses `tag`
+        f64_convert_i32_s = 0xB7,
+        /// Uses `tag`
+        f64_convert_i32_u = 0xB8,
+        /// Uses `tag`
+        f64_convert_i64_s = 0xB9,
+        /// Uses `tag`
+        f64_convert_i64_u = 0xBA,
+        /// Uses `tag`
+        f64_promote_f32 = 0xBB,
         /// Uses `tag`
         i32_reinterpret_f32 = 0xBC,
         /// Uses `tag`
@@ -450,7 +555,7 @@ pub const Inst = struct {
         /// Contains an u32 index into a wasm section entry, such as a local.
         /// Note: This is not an index to another instruction.
         ///
-        /// Used by e.g. `local_get`, `local_set`, etc. 
+        /// Used by e.g. `local_get`, `local_set`, etc.
         label: u32,
         /// A 32-bit immediate value.
         ///
@@ -552,4 +657,10 @@ pub const MemArg = struct {
 pub const Memory = struct {
     pointer: u32,
     offset: u32,
+};
+
+/// Maps a source line with wasm bytecode
+pub const DbgLineColumn = struct {
+    line: u32,
+    column: u32,
 };

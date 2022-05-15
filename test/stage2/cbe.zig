@@ -693,7 +693,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = E1.a;
             \\}
         , &.{
-            ":3:6: error: expected ',' after field",
+            ":3:7: error: expected ',' after field",
         });
 
         // Redundant non-exhaustive enum mark.

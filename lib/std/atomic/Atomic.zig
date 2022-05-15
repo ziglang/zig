@@ -1,7 +1,7 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 
 const testing = std.testing;
-const target = @import("builtin").target;
 const Ordering = std.atomic.Ordering;
 
 pub fn Atomic(comptime T: type) type {
@@ -14,19 +14,66 @@ pub fn Atomic(comptime T: type) type {
             return .{ .value = value };
         }
 
+        /// Perform an atomic fence which uses the atomic value as a hint for the modification order.
+        /// Use this when you want to imply a fence on an atomic variable without necessarily performing a memory access.
+        ///
+        /// Example:
+        /// ```
+        /// const RefCount = struct {
+        ///     count: Atomic(usize),
+        ///     dropFn: *const fn(*RefCount) void,
+        ///
+        ///     fn ref(self: *RefCount) void {
+        ///         _ =  self.count.fetchAdd(1, .Monotonic); // no ordering necessary, just updating a counter
+        ///     }
+        ///
+        ///     fn unref(self: *RefCount) void {
+        ///         // Release ensures code before unref() happens-before the count is decremented as dropFn could be called by then.
+        ///         if (self.count.fetchSub(1, .Release)) {
+        ///             // Acquire ensures count decrement and code before previous unrefs()s happens-before we call dropFn below.
+        ///             // NOTE: another alterative is to use .AcqRel on the fetchSub count decrement but it's extra barrier in possibly hot path.
+        ///             self.count.fence(.Acquire);
+        ///             (self.dropFn)(self);
+        ///         }
+        ///     }
+        /// };
+        /// ```
+        pub inline fn fence(self: *Self, comptime ordering: Ordering) void {
+            // LLVM's ThreadSanitizer doesn't support the normal fences so we specialize for it.
+            if (builtin.sanitize_thread) {
+                const tsan = struct {
+                    extern "c" fn __tsan_acquire(addr: *anyopaque) void;
+                    extern "c" fn __tsan_release(addr: *anyopaque) void;
+                };
+
+                const addr = @ptrCast(*anyopaque, self);
+                return switch (ordering) {
+                    .Unordered, .Monotonic => @compileError(@tagName(ordering) ++ " only applies to atomic loads and stores"),
+                    .Acquire => tsan.__tsan_acquire(addr),
+                    .Release => tsan.__tsan_release(addr),
+                    .AcqRel, .SeqCst => {
+                        tsan.__tsan_acquire(addr);
+                        tsan.__tsan_release(addr);
+                    },
+                };
+            }
+
+            return std.atomic.fence(ordering);
+        }
+
         /// Non-atomically load from the atomic value without synchronization.
         /// Care must be taken to avoid data-races when interacting with other atomic operations.
-        pub fn loadUnchecked(self: Self) T {
+        pub inline fn loadUnchecked(self: Self) T {
             return self.value;
         }
 
         /// Non-atomically store to the atomic value without synchronization.
         /// Care must be taken to avoid data-races when interacting with other atomic operations.
-        pub fn storeUnchecked(self: *Self, value: T) void {
+        pub inline fn storeUnchecked(self: *Self, value: T) void {
             self.value = value;
         }
 
-        pub fn load(self: *const Self, comptime ordering: Ordering) T {
+        pub inline fn load(self: *const Self, comptime ordering: Ordering) T {
             return switch (ordering) {
                 .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(Ordering.Release) ++ " which is only allowed on atomic stores"),
                 .Release => @compileError(@tagName(ordering) ++ " is only allowed on atomic stores"),
@@ -34,7 +81,7 @@ pub fn Atomic(comptime T: type) type {
             };
         }
 
-        pub fn store(self: *Self, value: T, comptime ordering: Ordering) void {
+        pub inline fn store(self: *Self, value: T, comptime ordering: Ordering) void {
             return switch (ordering) {
                 .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(Ordering.Acquire) ++ " which is only allowed on atomic loads"),
                 .Acquire => @compileError(@tagName(ordering) ++ " is only allowed on atomic loads"),
@@ -164,87 +211,13 @@ pub fn Atomic(comptime T: type) type {
                 return bitRmw(self, .Toggle, bit, ordering);
             }
 
-            inline fn bitRmw(
-                self: *Self,
-                comptime op: BitRmwOp,
-                bit: Bit,
-                comptime ordering: Ordering,
-            ) u1 {
+            inline fn bitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
                 // x86 supports dedicated bitwise instructions
-                if (comptime target.cpu.arch.isX86() and @sizeOf(T) >= 2 and @sizeOf(T) <= 8) {
-                    const old_bit: u8 = switch (@sizeOf(T)) {
-                        2 => switch (op) {
-                            .Set => asm volatile ("lock btsw %[bit], %[ptr]"
-                                // LLVM doesn't support u1 flag register return values
-                                : [result] "={@ccc}" (-> u8),
-                                : [ptr] "*p" (&self.value),
-                                  [bit] "X" (@as(T, bit)),
-                                : "cc", "memory"
-                            ),
-                            .Reset => asm volatile ("lock btrw %[bit], %[ptr]"
-                                // LLVM doesn't support u1 flag register return values
-                                : [result] "={@ccc}" (-> u8),
-                                : [ptr] "*p" (&self.value),
-                                  [bit] "X" (@as(T, bit)),
-                                : "cc", "memory"
-                            ),
-                            .Toggle => asm volatile ("lock btcw %[bit], %[ptr]"
-                                // LLVM doesn't support u1 flag register return values
-                                : [result] "={@ccc}" (-> u8),
-                                : [ptr] "*p" (&self.value),
-                                  [bit] "X" (@as(T, bit)),
-                                : "cc", "memory"
-                            ),
-                        },
-                        4 => switch (op) {
-                            .Set => asm volatile ("lock btsl %[bit], %[ptr]"
-                                // LLVM doesn't support u1 flag register return values
-                                : [result] "={@ccc}" (-> u8),
-                                : [ptr] "*p" (&self.value),
-                                  [bit] "X" (@as(T, bit)),
-                                : "cc", "memory"
-                            ),
-                            .Reset => asm volatile ("lock btrl %[bit], %[ptr]"
-                                // LLVM doesn't support u1 flag register return values
-                                : [result] "={@ccc}" (-> u8),
-                                : [ptr] "*p" (&self.value),
-                                  [bit] "X" (@as(T, bit)),
-                                : "cc", "memory"
-                            ),
-                            .Toggle => asm volatile ("lock btcl %[bit], %[ptr]"
-                                // LLVM doesn't support u1 flag register return values
-                                : [result] "={@ccc}" (-> u8),
-                                : [ptr] "*p" (&self.value),
-                                  [bit] "X" (@as(T, bit)),
-                                : "cc", "memory"
-                            ),
-                        },
-                        8 => switch (op) {
-                            .Set => asm volatile ("lock btsq %[bit], %[ptr]"
-                                // LLVM doesn't support u1 flag register return values
-                                : [result] "={@ccc}" (-> u8),
-                                : [ptr] "*p" (&self.value),
-                                  [bit] "X" (@as(T, bit)),
-                                : "cc", "memory"
-                            ),
-                            .Reset => asm volatile ("lock btrq %[bit], %[ptr]"
-                                // LLVM doesn't support u1 flag register return values
-                                : [result] "={@ccc}" (-> u8),
-                                : [ptr] "*p" (&self.value),
-                                  [bit] "X" (@as(T, bit)),
-                                : "cc", "memory"
-                            ),
-                            .Toggle => asm volatile ("lock btcq %[bit], %[ptr]"
-                                // LLVM doesn't support u1 flag register return values
-                                : [result] "={@ccc}" (-> u8),
-                                : [ptr] "*p" (&self.value),
-                                  [bit] "X" (@as(T, bit)),
-                                : "cc", "memory"
-                            ),
-                        },
-                        else => @compileError("Invalid atomic type " ++ @typeName(T)),
-                    };
-                    return @intCast(u1, old_bit);
+                if (comptime builtin.target.cpu.arch.isX86() and @sizeOf(T) >= 2 and @sizeOf(T) <= 8) {
+                    // TODO: stage2 currently doesn't like the inline asm this function emits.
+                    if (builtin.zig_backend == .stage1) {
+                        return x86BitRmw(self, op, bit, ordering);
+                    }
                 }
 
                 const mask = @as(T, 1) << bit;
@@ -256,8 +229,95 @@ pub fn Atomic(comptime T: type) type {
 
                 return @boolToInt(value & mask != 0);
             }
+
+            inline fn x86BitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
+                const old_bit: u8 = switch (@sizeOf(T)) {
+                    2 => switch (op) {
+                        .Set => asm volatile ("lock btsw %[bit], %[ptr]"
+                            // LLVM doesn't support u1 flag register return values
+                            : [result] "={@ccc}" (-> u8),
+                            : [ptr] "*m" (&self.value),
+                              [bit] "X" (@as(T, bit)),
+                            : "cc", "memory"
+                        ),
+                        .Reset => asm volatile ("lock btrw %[bit], %[ptr]"
+                            // LLVM doesn't support u1 flag register return values
+                            : [result] "={@ccc}" (-> u8),
+                            : [ptr] "*m" (&self.value),
+                              [bit] "X" (@as(T, bit)),
+                            : "cc", "memory"
+                        ),
+                        .Toggle => asm volatile ("lock btcw %[bit], %[ptr]"
+                            // LLVM doesn't support u1 flag register return values
+                            : [result] "={@ccc}" (-> u8),
+                            : [ptr] "*m" (&self.value),
+                              [bit] "X" (@as(T, bit)),
+                            : "cc", "memory"
+                        ),
+                    },
+                    4 => switch (op) {
+                        .Set => asm volatile ("lock btsl %[bit], %[ptr]"
+                            // LLVM doesn't support u1 flag register return values
+                            : [result] "={@ccc}" (-> u8),
+                            : [ptr] "*m" (&self.value),
+                              [bit] "X" (@as(T, bit)),
+                            : "cc", "memory"
+                        ),
+                        .Reset => asm volatile ("lock btrl %[bit], %[ptr]"
+                            // LLVM doesn't support u1 flag register return values
+                            : [result] "={@ccc}" (-> u8),
+                            : [ptr] "*m" (&self.value),
+                              [bit] "X" (@as(T, bit)),
+                            : "cc", "memory"
+                        ),
+                        .Toggle => asm volatile ("lock btcl %[bit], %[ptr]"
+                            // LLVM doesn't support u1 flag register return values
+                            : [result] "={@ccc}" (-> u8),
+                            : [ptr] "*m" (&self.value),
+                              [bit] "X" (@as(T, bit)),
+                            : "cc", "memory"
+                        ),
+                    },
+                    8 => switch (op) {
+                        .Set => asm volatile ("lock btsq %[bit], %[ptr]"
+                            // LLVM doesn't support u1 flag register return values
+                            : [result] "={@ccc}" (-> u8),
+                            : [ptr] "*m" (&self.value),
+                              [bit] "X" (@as(T, bit)),
+                            : "cc", "memory"
+                        ),
+                        .Reset => asm volatile ("lock btrq %[bit], %[ptr]"
+                            // LLVM doesn't support u1 flag register return values
+                            : [result] "={@ccc}" (-> u8),
+                            : [ptr] "*m" (&self.value),
+                              [bit] "X" (@as(T, bit)),
+                            : "cc", "memory"
+                        ),
+                        .Toggle => asm volatile ("lock btcq %[bit], %[ptr]"
+                            // LLVM doesn't support u1 flag register return values
+                            : [result] "={@ccc}" (-> u8),
+                            : [ptr] "*m" (&self.value),
+                              [bit] "X" (@as(T, bit)),
+                            : "cc", "memory"
+                        ),
+                    },
+                    else => @compileError("Invalid atomic type " ++ @typeName(T)),
+                };
+
+                // TODO: emit appropriate tsan fence if compiling with tsan
+                _ = ordering;
+
+                return @intCast(u1, old_bit);
+            }
         });
     };
+}
+
+test "Atomic.fence" {
+    inline for (.{ .Acquire, .Release, .AcqRel, .SeqCst }) |ordering| {
+        var x = Atomic(usize).init(0);
+        x.fence(ordering);
+    }
 }
 
 fn atomicIntTypes() []const type {
@@ -482,7 +542,7 @@ test "Atomic.bitSet" {
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(0);
-            const bit_array = @as([std.meta.bitCount(Int)]void, undefined);
+            const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
             for (bit_array) |_, bit_index| {
                 const bit = @intCast(std.math.Log2Int(Int), bit_index);
@@ -512,7 +572,7 @@ test "Atomic.bitReset" {
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(0);
-            const bit_array = @as([std.meta.bitCount(Int)]void, undefined);
+            const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
             for (bit_array) |_, bit_index| {
                 const bit = @intCast(std.math.Log2Int(Int), bit_index);
@@ -543,7 +603,7 @@ test "Atomic.bitToggle" {
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(0);
-            const bit_array = @as([std.meta.bitCount(Int)]void, undefined);
+            const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
             for (bit_array) |_, bit_index| {
                 const bit = @intCast(std.math.Log2Int(Int), bit_index);

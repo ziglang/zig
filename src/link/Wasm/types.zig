@@ -67,6 +67,18 @@ pub const Relocation = struct {
         };
     }
 
+    /// Returns true when the relocation represents a table index relocatable
+    pub fn isTableIndex(self: Relocation) bool {
+        return switch (self.relocation_type) {
+            .R_WASM_TABLE_INDEX_I32,
+            .R_WASM_TABLE_INDEX_I64,
+            .R_WASM_TABLE_INDEX_SLEB,
+            .R_WASM_TABLE_INDEX_SLEB64,
+            => true,
+            else => false,
+        };
+    }
+
     pub fn format(self: Relocation, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
@@ -76,6 +88,26 @@ pub const Relocation = struct {
             self.index,
         });
     }
+};
+
+/// Unlike the `Import` object defined by the wasm spec, and existing
+/// in the std.wasm namespace, this construct saves the 'module name' and 'name'
+/// of the import using offsets into a string table, rather than the slices itself.
+/// This saves us (potentially) 24 bytes per import on 64bit machines.
+pub const Import = struct {
+    module_name: u32,
+    name: u32,
+    kind: std.wasm.Import.Kind,
+};
+
+/// Unlike the `Export` object defined by the wasm spec, and existing
+/// in the std.wasm namespace, this construct saves the 'name'
+/// of the export using offsets into a string table, rather than the slice itself.
+/// This saves us (potentially) 12 bytes per export on 64bit machines.
+pub const Export = struct {
+    name: u32,
+    index: u32,
+    kind: std.wasm.ExternalKind,
 };
 
 pub const SubsectionType = enum(u8) {
@@ -93,7 +125,8 @@ pub const Segment = struct {
     /// Bitfield containing flags for a segment
     flags: u32,
 
-    pub fn outputName(self: Segment) []const u8 {
+    pub fn outputName(self: Segment, merge_segments: bool) []const u8 {
+        if (!merge_segments) return self.name;
         if (std.mem.startsWith(u8, self.name, ".rodata.")) {
             return ".rodata";
         } else if (std.mem.startsWith(u8, self.name, ".text.")) {

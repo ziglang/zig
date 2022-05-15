@@ -605,7 +605,7 @@ pub const Dir = struct {
                             .BADF => unreachable, // Dir is invalid or was opened without iteration ability
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
-                            .INVAL => unreachable,
+                            .INVAL => return error.Unexpected, // Linux may in some cases return EINVAL when reading /proc/$PID/net.
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;
@@ -923,6 +923,7 @@ pub const Dir = struct {
     pub const OpenError = error{
         FileNotFound,
         NotDir,
+        InvalidHandle,
         AccessDenied,
         SymLinkLoop,
         ProcessFdQuotaExceeded,
@@ -980,6 +981,13 @@ pub const Dir = struct {
                 w.RIGHT.FD_ADVISE |
                 w.RIGHT.FD_FILESTAT_SET_TIMES |
                 w.RIGHT.FD_FILESTAT_SET_SIZE;
+        }
+        if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(sub_path)) {
+            // Resolve absolute or CWD-relative paths to a path within a Preopen
+            var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+            const resolved_path = try os.resolvePathWasi(sub_path, &resolved_path_buf);
+            const fd = try os.openatWasi(resolved_path.dir_fd, resolved_path.relative_path, 0x0, 0x0, fdflags, base, 0x0);
+            return File{ .handle = fd };
         }
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, 0x0, fdflags, base, 0x0);
         return File{ .handle = fd };
@@ -1145,6 +1153,13 @@ pub const Dir = struct {
         if (flags.exclusive) {
             oflags |= w.O.EXCL;
         }
+        if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(sub_path)) {
+            // Resolve absolute or CWD-relative paths to a path within a Preopen
+            var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+            const resolved_path = try os.resolvePathWasi(sub_path, &resolved_path_buf);
+            const fd = try os.openatWasi(resolved_path.dir_fd, resolved_path.relative_path, 0x0, oflags, 0x0, base, 0x0);
+            return File{ .handle = fd };
+        }
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, oflags, 0x0, base, 0x0);
         return File{ .handle = fd };
     }
@@ -1293,9 +1308,9 @@ pub const Dir = struct {
                     if (end_index == sub_path.len) return;
                 },
                 error.FileNotFound => {
-                    if (end_index == 0) return err;
                     // march end_index backward until next path component
                     while (true) {
+                        if (end_index == 0) return err;
                         end_index -= 1;
                         if (path.isSep(sub_path[end_index])) break;
                     }
@@ -1330,7 +1345,19 @@ pub const Dir = struct {
     /// See also `Dir.realpathZ`, `Dir.realpathW`, and `Dir.realpathAlloc`.
     pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
         if (builtin.os.tag == .wasi) {
-            @compileError("realpath is unsupported in WASI");
+            if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(pathname)) {
+                var buffer: [MAX_PATH_BYTES]u8 = undefined;
+                const out_path = try os.realpath(pathname, &buffer);
+                if (out_path.len > out_buffer.len) {
+                    return error.NameTooLong;
+                }
+                mem.copy(u8, out_buffer, out_path);
+                return out_buffer[0..out_path.len];
+            } else {
+                // Unfortunately, we have no ability to look up the path for an fd_t
+                // on WASI, so we have to give up here.
+                return error.InvalidHandle;
+            }
         }
         if (builtin.os.tag == .windows) {
             const pathname_w = try os.windows.sliceToPrefixedFileW(pathname);
@@ -1507,7 +1534,16 @@ pub const Dir = struct {
         // TODO do we really need all the rights here?
         const inheriting: w.rights_t = w.RIGHT.ALL ^ w.RIGHT.SOCK_SHUTDOWN;
 
-        const result = os.openatWasi(self.fd, sub_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
+        const result = blk: {
+            if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(sub_path)) {
+                // Resolve absolute or CWD-relative paths to a path within a Preopen
+                var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                const resolved_path = try os.resolvePathWasi(sub_path, &resolved_path_buf);
+                break :blk os.openatWasi(resolved_path.dir_fd, resolved_path.relative_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
+            } else {
+                break :blk os.openatWasi(self.fd, sub_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
+            }
+        };
         const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O.DIRECTORY
@@ -1622,7 +1658,7 @@ pub const Dir = struct {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.deleteFileW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-            os.unlinkatWasi(self.fd, sub_path, 0) catch |err| switch (err) {
+            os.unlinkat(self.fd, sub_path, 0) catch |err| switch (err) {
                 error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
                 else => |e| return e,
             };
@@ -1761,7 +1797,7 @@ pub const Dir = struct {
         sym_link_path: []const u8,
         _: SymLinkFlags,
     ) !void {
-        return os.symlinkatWasi(target_path, self.fd, sym_link_path);
+        return os.symlinkat(target_path, self.fd, sym_link_path);
     }
 
     /// Same as `symLink`, except the pathname parameters are null-terminated.
@@ -1807,7 +1843,7 @@ pub const Dir = struct {
 
     /// WASI-only. Same as `readLink` except targeting WASI.
     pub fn readLinkWasi(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
-        return os.readlinkatWasi(self.fd, sub_path, buffer);
+        return os.readlinkat(self.fd, sub_path, buffer);
     }
 
     /// Same as `readLink`, except the `pathname` parameter is null-terminated.
@@ -1870,6 +1906,7 @@ pub const Dir = struct {
     }
 
     pub const DeleteTreeError = error{
+        InvalidHandle,
         AccessDenied,
         FileTooBig,
         SymLinkLoop,
@@ -1935,6 +1972,7 @@ pub const Dir = struct {
                     continue :start_over;
                 },
 
+                error.InvalidHandle,
                 error.AccessDenied,
                 error.SymLinkLoop,
                 error.ProcessFdQuotaExceeded,
@@ -2002,6 +2040,7 @@ pub const Dir = struct {
                             continue :scan_dir;
                         },
 
+                        error.InvalidHandle,
                         error.AccessDenied,
                         error.SymLinkLoop,
                         error.ProcessFdQuotaExceeded,
@@ -2272,8 +2311,6 @@ pub const Dir = struct {
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
-    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        @compileError("WASI doesn't have a concept of cwd(); use std.fs.wasi.PreopenList to get available Dir handles instead");
     } else {
         return Dir{ .fd = os.AT.FDCWD };
     }
@@ -2285,26 +2322,17 @@ pub fn cwd() Dir {
 ///
 /// Asserts that the path parameter has no null bytes.
 pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
-    if (builtin.os.tag == .wasi) {
-        @compileError("WASI doesn't have the concept of an absolute directory; use openDir instead for WASI.");
-    }
     assert(path.isAbsolute(absolute_path));
     return cwd().openDir(absolute_path, flags);
 }
 
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
 pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
-    if (builtin.os.tag == .wasi) {
-        @compileError("WASI doesn't have the concept of an absolute directory; use openDir instead for WASI.");
-    }
     assert(path.isAbsoluteZ(absolute_path_c));
     return cwd().openDirZ(absolute_path_c, flags);
 }
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
 pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
-    if (builtin.os.tag == .wasi) {
-        @compileError("WASI doesn't have the concept of an absolute directory; use openDir instead for WASI.");
-    }
     assert(path.isAbsoluteWindowsW(absolute_path_c));
     return cwd().openDirW(absolute_path_c, flags);
 }
@@ -2339,25 +2367,16 @@ pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) Fi
 /// open it and handle the error for file not found.
 /// See `accessAbsoluteZ` for a function that accepts a null-terminated path.
 pub fn accessAbsolute(absolute_path: []const u8, flags: File.OpenFlags) Dir.AccessError!void {
-    if (builtin.os.tag == .wasi) {
-        @compileError("WASI doesn't have the concept of an absolute path; use access instead for WASI.");
-    }
     assert(path.isAbsolute(absolute_path));
     try cwd().access(absolute_path, flags);
 }
 /// Same as `accessAbsolute` but the path parameter is null-terminated.
 pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.AccessError!void {
-    if (builtin.os.tag == .wasi) {
-        @compileError("WASI doesn't have the concept of an absolute path; use access instead for WASI.");
-    }
     assert(path.isAbsoluteZ(absolute_path));
     try cwd().accessZ(absolute_path, flags);
 }
 /// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
 pub fn accessAbsoluteW(absolute_path: [*:0]const 16, flags: File.OpenFlags) Dir.AccessError!void {
-    if (builtin.os.tag == .wasi) {
-        @compileError("WASI doesn't have the concept of an absolute path; use access instead for WASI.");
-    }
     assert(path.isAbsoluteWindowsW(absolute_path));
     try cwd().accessW(absolute_path, flags);
 }
@@ -2458,9 +2477,6 @@ pub const SymLinkFlags = struct {
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symLinkAbsoluteZ` and `symLinkAbsoluteW`.
 pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags: SymLinkFlags) !void {
-    if (builtin.os.tag == .wasi) {
-        @compileError("symLinkAbsolute is not supported in WASI; use Dir.symLinkWasi instead");
-    }
     assert(path.isAbsolute(target_path));
     assert(path.isAbsolute(sym_link_path));
     if (builtin.os.tag == .windows) {
@@ -2627,6 +2643,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
             return out_buffer[0..end_index];
         },
+        .wasi => @compileError("std.fs.selfExePath not supported for WASI. Use std.fs.selfExePathAlloc instead."),
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }
 }

@@ -30,6 +30,12 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
                 else => {},
             }
         },
+        .Union => |info| {
+            inline for (info.fields) |field| {
+                if (field.field_type == SourceType) return @unionInit(DestType, field.name, target);
+            }
+            @compileError("cast to union type '" ++ @typeName(DestType) ++ "' from type '" ++ @typeName(SourceType) ++ "' which is not present in union");
+        },
         else => {},
     }
     return @as(DestType, target);
@@ -82,7 +88,7 @@ fn castToPtr(comptime DestType: type, comptime SourceType: type, target: anytype
     return @as(DestType, target);
 }
 
-fn ptrInfo(comptime PtrType: type) std.builtin.TypeInfo.Pointer {
+fn ptrInfo(comptime PtrType: type) std.builtin.Type.Pointer {
     return switch (@typeInfo(PtrType)) {
         .Optional => |opt_info| @typeInfo(opt_info.child).Pointer,
         .Pointer => |ptr_info| ptr_info,

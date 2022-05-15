@@ -170,7 +170,7 @@ fn writeString(section: *Section, str: []const u8) void {
 
         var j: usize = 0;
         while (j < @sizeOf(Word) and i + j < str.len) : (j += 1) {
-            word |= @as(Word, str[i + j]) << @intCast(Log2Word, j * std.meta.bitCount(u8));
+            word |= @as(Word, str[i + j]) << @intCast(Log2Word, j * @bitSizeOf(u8));
         }
 
         section.instructions.appendAssumeCapacity(word);

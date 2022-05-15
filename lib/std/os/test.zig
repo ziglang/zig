@@ -22,7 +22,7 @@ const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 test "chdir smoke test" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest; // WASI doesn't allow navigating outside of a preopen
 
     // Get current working directory path
     var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -48,7 +48,8 @@ test "chdir smoke test" {
 }
 
 test "open smoke test" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     // TODO verify file attributes using `fstat`
 
@@ -102,7 +103,8 @@ test "open smoke test" {
 }
 
 test "openat smoke test" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     // TODO verify file attributes using `fstatat`
 
@@ -138,7 +140,8 @@ test "openat smoke test" {
 }
 
 test "symlink with relative paths" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     const cwd = fs.cwd();
     cwd.deleteFile("file.txt") catch {};
@@ -190,6 +193,13 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 
 test "link with relative paths" {
     switch (native_os) {
+        .wasi => {
+            if (builtin.link_libc) {
+                return error.SkipZigTest;
+            } else {
+                try os.initPreopensWasi(std.heap.page_allocator, "/");
+            }
+        },
         .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
@@ -212,14 +222,14 @@ test "link with relative paths" {
         const nstat = try os.fstat(nfd.handle);
 
         try testing.expectEqual(estat.ino, nstat.ino);
-        try testing.expectEqual(@as(usize, 2), nstat.nlink);
+        try testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
     }
 
     try os.unlink("new.txt");
 
     {
         const estat = try os.fstat(efd.handle);
-        try testing.expectEqual(@as(usize, 1), estat.nlink);
+        try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
     }
 
     try cwd.deleteFile("example.txt");
@@ -227,6 +237,7 @@ test "link with relative paths" {
 
 test "linkat with different directories" {
     switch (native_os) {
+        .wasi => if (!builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/"),
         .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
@@ -250,14 +261,14 @@ test "linkat with different directories" {
         const nstat = try os.fstat(nfd.handle);
 
         try testing.expectEqual(estat.ino, nstat.ino);
-        try testing.expectEqual(@as(usize, 2), nstat.nlink);
+        try testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
     }
 
     try os.unlinkat(tmp.dir.fd, "new.txt", 0);
 
     {
         const estat = try os.fstat(efd.handle);
-        try testing.expectEqual(@as(usize, 1), estat.nlink);
+        try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
     }
 
     try cwd.deleteFile("example.txt");
@@ -388,8 +399,6 @@ test "getrandom" {
 }
 
 test "getcwd" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
     // at least call it so it gets compiled
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     _ = os.getcwd(&buf) catch undefined;
@@ -438,7 +447,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
         // Find the ELF header
         const elf_header = @intToPtr(*elf.Ehdr, reloc_addr - phdr.p_offset);
         // Validate the magic
-        if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return error.BadElfMagic;
+        if (!mem.eql(u8, elf_header.e_ident[0..4], elf.MAGIC)) return error.BadElfMagic;
         // Consistency check
         if (elf_header.e_phnum != info.dlpi_phnum) return error.FailedConsistencyCheck;
 
@@ -763,16 +772,16 @@ test "sigaction" {
     };
     var old_sa: os.Sigaction = undefined;
     // Install the new signal handler.
-    os.sigaction(os.SIG.USR1, &sa, null);
+    try os.sigaction(os.SIG.USR1, &sa, null);
     // Check that we can read it back correctly.
-    os.sigaction(os.SIG.USR1, null, &old_sa);
+    try os.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & os.SA.SIGINFO) != 0);
     // Invoke the handler.
     try os.raise(os.SIG.USR1);
     try testing.expect(signal_test_failed == false);
     // Check if the handler has been correctly reset to SIG_DFL
-    os.sigaction(os.SIG.USR1, null, &old_sa);
+    try os.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(os.SIG.DFL, old_sa.handler.sigaction);
 }
 
@@ -823,7 +832,15 @@ test "writev longer than IOV_MAX" {
 }
 
 test "POSIX file locking with fcntl" {
-    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows or native_os == .wasi) {
+        // Not POSIX.
+        return error.SkipZigTest;
+    }
+
+    if (true) {
+        // https://github.com/ziglang/zig/issues/11074
+        return error.SkipZigTest;
+    }
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -877,4 +894,108 @@ test "POSIX file locking with fcntl" {
         const result = std.os.waitpid(pid, 0);
         try expect(result.status == 0 * 256);
     }
+}
+
+test "rename smoke test" {
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Get base abs path
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = undefined;
+    var fd: os.fd_t = undefined;
+    const mode: os.mode_t = if (native_os == .windows) 0 else 0o666;
+
+    // Create some file using `open`.
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    os.close(fd);
+
+    // Rename the file
+    var new_file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_file" });
+    try os.rename(file_path, new_file_path);
+
+    // Try opening renamed file
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_file" });
+    fd = try os.open(file_path, os.O.RDWR, mode);
+    os.close(fd);
+
+    // Try opening original file - should fail with error.FileNotFound
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    try expectError(error.FileNotFound, os.open(file_path, os.O.RDWR, mode));
+
+    // Create some directory
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
+    try os.mkdir(file_path, mode);
+
+    // Rename the directory
+    new_file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_dir" });
+    try os.rename(file_path, new_file_path);
+
+    // Try opening renamed directory
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_dir" });
+    fd = try os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode);
+    os.close(fd);
+
+    // Try opening original directory - should fail with error.FileNotFound
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
+    try expectError(error.FileNotFound, os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode));
+}
+
+test "access smoke test" {
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Get base abs path
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
+    };
+
+    var file_path: []u8 = undefined;
+    var fd: os.fd_t = undefined;
+    const mode: os.mode_t = if (native_os == .windows) 0 else 0o666;
+
+    // Create some file using `open`.
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    os.close(fd);
+
+    // Try to access() the file
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    if (builtin.os.tag == .windows) {
+        try os.access(file_path, os.F_OK);
+    } else {
+        try os.access(file_path, os.F_OK | os.W_OK | os.R_OK);
+    }
+
+    // Try to access() a non-existent file - should fail with error.FileNotFound
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_file" });
+    try expectError(error.FileNotFound, os.access(file_path, os.F_OK));
+
+    // Create some directory
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
+    try os.mkdir(file_path, mode);
+
+    // Try to access() the directory
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
+    try os.access(file_path, os.F_OK);
 }

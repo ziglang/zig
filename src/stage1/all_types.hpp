@@ -84,6 +84,7 @@ enum CallingConvention {
     CallingConventionAAPCS,
     CallingConventionAAPCSVFP,
     CallingConventionSysV,
+    CallingConventionWin64,
     CallingConventionPtxKernel
 };
 
@@ -1398,6 +1399,7 @@ enum StructSpecial {
 struct ZigTypeStruct {
     AstNode *decl_node;
     TypeStructField **fields;
+    TypeStructField *misaligned_field;
     ScopeDecls *decls_scope;
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
     RootStruct *root_struct;
@@ -1767,6 +1769,7 @@ enum BuiltinFnId {
     BuiltinFnIdSqrt,
     BuiltinFnIdSin,
     BuiltinFnIdCos,
+    BuiltinFnIdTan,
     BuiltinFnIdExp,
     BuiltinFnIdExp2,
     BuiltinFnIdLog,
@@ -2142,7 +2145,6 @@ struct CodeGen {
     Buf docs_output_path;
 
     Buf *builtin_zig_path;
-    Buf *zig_std_special_dir; // Cannot be overridden; derived from zig_lib_dir.
 
     Stage1ZirInst *invalid_inst_src;
     Stage1AirInst *invalid_inst_gen;

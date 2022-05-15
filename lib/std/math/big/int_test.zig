@@ -7,6 +7,7 @@ const Limb = std.math.big.Limb;
 const SignedLimb = std.math.big.SignedLimb;
 const DoubleLimb = std.math.big.DoubleLimb;
 const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
+const calcTwosCompLimbCount = std.math.big.int.calcTwosCompLimbCount;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
@@ -1344,6 +1345,95 @@ test "big.int div trunc single-single -/-" {
     try testing.expect((try r.to(i32)) == er);
 }
 
+test "big.int divFloor #10932" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var res = try Managed.init(testing.allocator);
+    defer res.deinit();
+
+    try a.setString(10, "40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+    try b.setString(10, "8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+
+    var mod = try Managed.init(testing.allocator);
+    defer mod.deinit();
+
+    try res.divFloor(&mod, a.toConst(), b.toConst());
+
+    const ress = try res.toString(testing.allocator, 16, .lower);
+    defer testing.allocator.free(ress);
+    try testing.expect(std.mem.eql(u8, ress, "194bd136316c046d070b763396297bf8869a605030216b52597015902a172b2a752f62af1568dcd431602f03725bfa62b0be71ae86616210972c0126e173503011ca48c5747ff066d159c95e46b69cbb14c8fc0bd2bf0919f921be96463200000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+    try testing.expect((try mod.to(i32)) == 0);
+}
+
+test "big.int divFloor #11166" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var res = try Managed.init(testing.allocator);
+    defer res.deinit();
+
+    try a.setString(10, "10000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000870000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+    try b.setString(10, "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+
+    var mod = try Managed.init(testing.allocator);
+    defer mod.deinit();
+
+    try res.divFloor(&mod, a.toConst(), b.toConst());
+
+    const ress = try res.toString(testing.allocator, 10, .lower);
+    defer testing.allocator.free(ress);
+    try testing.expect(std.mem.eql(u8, ress, "1000000700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+
+    const mods = try mod.toString(testing.allocator, 10, .lower);
+    defer testing.allocator.free(mods);
+    try testing.expect(std.mem.eql(u8, mods, "870000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+}
+
+test "big.int gcd #10932" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var res = try Managed.init(testing.allocator);
+    defer res.deinit();
+
+    try a.setString(10, "3000000000000000000000000000000000000000000000000000000000000000000000001461501637330902918203684832716283019655932542975000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+    try b.setString(10, "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200001001500000000000000000100000000040000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000003000000000000000000000000000000000000000000000000000058715661000000000000000000000000000000000000023553252000000000180000000000000000000000000000000000000000000000000250000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001005000002000000000000000000000000000000000000000021000000001000000000000000000000000100000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000200000000000000000000004000000000000000000000000000000000000000000000301000000000000000000000000000500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+
+    try res.gcd(a, b);
+
+    const ress = try res.toString(testing.allocator, 16, .lower);
+    defer testing.allocator.free(ress);
+    try testing.expect(std.mem.eql(u8, ress, "1a974a5c9734476ff5a3604bcc678a756beacfc21b4427d1f2c1f56f5d4e411a162c56136e20000000000000000000000000000000"));
+}
+
+test "big.int bitAnd #10932" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var res = try Managed.init(testing.allocator);
+    defer res.deinit();
+
+    try a.setString(10, "154954885951624787839743960731760616696");
+    try b.setString(10, "55000000000915215865915724129619485917228346934191537590366734850266784978214506142389798064826139649163838075568111457203909393174933092857416500785632012953993352521899237655507306575657169267399324107627651067352600878339870446048204062696260567762088867991835386857942106708741836433444432529637331429212430394179472179237695833247299409249810963487516399177133175950185719220422442438098353430605822151595560743492661038899294517012784306863064670126197566982968906306814338148792888550378533207318063660581924736840687332023636827401670268933229183389040490792300121030647791095178823932734160000000000000000000000000000000000000555555550000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+
+    try res.bitAnd(a, b);
+
+    try testing.expect((try res.to(i32)) == 0);
+}
+
 test "big.int div floor single-single +/+" {
     const u: i32 = 5;
     const v: i32 = 3;
@@ -2485,4 +2575,311 @@ test "big int popcount" {
     try a.popCount(b.toConst(), 16);
 
     try testing.expect(a.toConst().orderAgainstScalar(16) == .eq);
+}
+
+test "big int conversion read/write twos complement" {
+    var a = try Managed.initSet(testing.allocator, (1 << 493) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, (1 << 493) - 1);
+    defer b.deinit();
+    var m = b.toMutable();
+
+    var buffer1 = try testing.allocator.alloc(u8, 64);
+    defer testing.allocator.free(buffer1);
+
+    const endians = [_]std.builtin.Endian{ .Little, .Big };
+    const abi_size = 64;
+
+    for (endians) |endian| {
+        // Writing to buffer and back should not change anything
+        a.toConst().writeTwosComplement(buffer1, 493, abi_size, endian);
+        m.readTwosComplement(buffer1, 493, abi_size, endian, .unsigned);
+        try testing.expect(m.toConst().order(a.toConst()) == .eq);
+
+        // Equivalent to @bitCast(i493, @as(u493, intMax(u493))
+        a.toConst().writeTwosComplement(buffer1, 493, abi_size, endian);
+        m.readTwosComplement(buffer1, 493, abi_size, endian, .signed);
+        try testing.expect(m.toConst().orderAgainstScalar(-1) == .eq);
+    }
+}
+
+test "big int conversion read twos complement with padding" {
+    var a = try Managed.initSet(testing.allocator, 0x01_02030405_06070809_0a0b0c0d);
+    defer a.deinit();
+
+    var buffer1 = try testing.allocator.alloc(u8, 16);
+    defer testing.allocator.free(buffer1);
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+
+    // writeTwosComplement:
+    // (1) should not write beyond buffer[0..abi_size]
+    // (2) should correctly order bytes based on the provided endianness
+    // (3) should sign-extend any bits from bit_count to 8 * abi_size
+
+    var bit_count: usize = 12 * 8 + 1;
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0x0, 0x0, 0x0 }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x0, 0x0, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd }));
+
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    try a.set(-0x01_02030405_06070809_0a0b0c0d);
+    bit_count = 12 * 8 + 2;
+
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff, 0xff, 0xff }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xff, 0xff, 0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 }));
+}
+
+test "big int write twos complement +/- zero" {
+    var a = try Managed.initSet(testing.allocator, 0x0);
+    defer a.deinit();
+    var m = a.toMutable();
+
+    var buffer1 = try testing.allocator.alloc(u8, 16);
+    defer testing.allocator.free(buffer1);
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+
+    var bit_count: usize = 0;
+
+    // Test zero
+
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    m.positive = false;
+
+    // Test negative zero
+
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+}
+
+test "big int conversion write twos complement with padding" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    var m = a.toMutable();
+
+    // readTwosComplement:
+    // (1) should not read beyond buffer[0..abi_size]
+    // (2) should correctly interpret bytes based on the provided endianness
+    // (3) should ignore any bits from bit_count to 8 * abi_size
+
+    var bit_count: usize = 12 * 8 + 1;
+    var buffer: []const u8 = undefined;
+
+    // Test 0x01_02030405_06070809_0a0b0c0d
+
+    buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xb };
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xb, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xab, 0xaa, 0xaa, 0xaa };
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0xab, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    bit_count = 12 * 8 + 2;
+
+    // Test -0x01_02030405_06070809_0a0b0c0d
+
+    buffer = &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0x02 };
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0x02, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 };
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0x02, 0xaa, 0xaa, 0xaa };
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0x02, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 };
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    // Test 0
+
+    buffer = &([_]u8{0} ** 16);
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+
+    bit_count = 0;
+    buffer = &([_]u8{0xaa} ** 16);
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+}
+
+test "big int conversion write twos complement zero" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    var m = a.toMutable();
+
+    // readTwosComplement:
+    // (1) should not read beyond buffer[0..abi_size]
+    // (2) should correctly interpret bytes based on the provided endianness
+    // (3) should ignore any bits from bit_count to 8 * abi_size
+
+    var bit_count: usize = 12 * 8 + 1;
+    var buffer: []const u8 = undefined;
+
+    buffer = &([_]u8{0} ** 13);
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+
+    buffer = &([_]u8{0} ** 16);
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+}
+
+fn bitReverseTest(comptime T: type, comptime input: comptime_int, comptime expected_output: comptime_int) !void {
+    const bit_count = @typeInfo(T).Int.bits;
+    const signedness = @typeInfo(T).Int.signedness;
+
+    var a = try Managed.initSet(testing.allocator, input);
+    defer a.deinit();
+
+    try a.ensureCapacity(calcTwosCompLimbCount(bit_count));
+    var m = a.toMutable();
+    m.bitReverse(a.toConst(), signedness, bit_count);
+    try testing.expect(m.toConst().orderAgainstScalar(expected_output) == .eq);
+}
+
+test "big int bit reverse" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    try bitReverseTest(u0, 0, 0);
+    try bitReverseTest(u5, 0x12, 0x09);
+    try bitReverseTest(u8, 0x12, 0x48);
+    try bitReverseTest(u16, 0x1234, 0x2c48);
+    try bitReverseTest(u24, 0x123456, 0x6a2c48);
+    try bitReverseTest(u32, 0x12345678, 0x1e6a2c48);
+    try bitReverseTest(u40, 0x123456789a, 0x591e6a2c48);
+    try bitReverseTest(u48, 0x123456789abc, 0x3d591e6a2c48);
+    try bitReverseTest(u56, 0x123456789abcde, 0x7b3d591e6a2c48);
+    try bitReverseTest(u64, 0x123456789abcdef1, 0x8f7b3d591e6a2c48);
+    try bitReverseTest(u95, 0x123456789abcdef111213141, 0x4146424447bd9eac8f351624);
+    try bitReverseTest(u96, 0x123456789abcdef111213141, 0x828c84888f7b3d591e6a2c48);
+    try bitReverseTest(u128, 0x123456789abcdef11121314151617181, 0x818e868a828c84888f7b3d591e6a2c48);
+
+    try bitReverseTest(i8, @bitCast(i8, @as(u8, 0x92)), @bitCast(i8, @as(u8, 0x49)));
+    try bitReverseTest(i16, @bitCast(i16, @as(u16, 0x1234)), @bitCast(i16, @as(u16, 0x2c48)));
+    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0x123456)), @bitCast(i24, @as(u24, 0x6a2c48)));
+    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0x12345f)), @bitCast(i24, @as(u24, 0xfa2c48)));
+    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0xf23456)), @bitCast(i24, @as(u24, 0x6a2c4f)));
+    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0x12345678)), @bitCast(i32, @as(u32, 0x1e6a2c48)));
+    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0xf2345678)), @bitCast(i32, @as(u32, 0x1e6a2c4f)));
+    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0x1234567f)), @bitCast(i32, @as(u32, 0xfe6a2c48)));
+    try bitReverseTest(i40, @bitCast(i40, @as(u40, 0x123456789a)), @bitCast(i40, @as(u40, 0x591e6a2c48)));
+    try bitReverseTest(i48, @bitCast(i48, @as(u48, 0x123456789abc)), @bitCast(i48, @as(u48, 0x3d591e6a2c48)));
+    try bitReverseTest(i56, @bitCast(i56, @as(u56, 0x123456789abcde)), @bitCast(i56, @as(u56, 0x7b3d591e6a2c48)));
+    try bitReverseTest(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1)), @bitCast(i64, @as(u64, 0x8f7b3d591e6a2c48)));
+    try bitReverseTest(i96, @bitCast(i96, @as(u96, 0x123456789abcdef111213141)), @bitCast(i96, @as(u96, 0x828c84888f7b3d591e6a2c48)));
+    try bitReverseTest(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181)), @bitCast(i128, @as(u128, 0x818e868a828c84888f7b3d591e6a2c48)));
+}
+
+fn byteSwapTest(comptime T: type, comptime input: comptime_int, comptime expected_output: comptime_int) !void {
+    const byte_count = @typeInfo(T).Int.bits / 8;
+    const signedness = @typeInfo(T).Int.signedness;
+
+    var a = try Managed.initSet(testing.allocator, input);
+    defer a.deinit();
+
+    try a.ensureCapacity(calcTwosCompLimbCount(8 * byte_count));
+    var m = a.toMutable();
+    m.byteSwap(a.toConst(), signedness, byte_count);
+    try testing.expect(m.toConst().orderAgainstScalar(expected_output) == .eq);
+}
+
+test "big int byte swap" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    @setEvalBranchQuota(10_000);
+
+    try byteSwapTest(u0, 0, 0);
+    try byteSwapTest(u8, 0x12, 0x12);
+    try byteSwapTest(u16, 0x1234, 0x3412);
+    try byteSwapTest(u24, 0x123456, 0x563412);
+    try byteSwapTest(u32, 0x12345678, 0x78563412);
+    try byteSwapTest(u40, 0x123456789a, 0x9a78563412);
+    try byteSwapTest(u48, 0x123456789abc, 0xbc9a78563412);
+    try byteSwapTest(u56, 0x123456789abcde, 0xdebc9a78563412);
+    try byteSwapTest(u64, 0x123456789abcdef1, 0xf1debc9a78563412);
+    try byteSwapTest(u88, 0x123456789abcdef1112131, 0x312111f1debc9a78563412);
+    try byteSwapTest(u96, 0x123456789abcdef111213141, 0x41312111f1debc9a78563412);
+    try byteSwapTest(u128, 0x123456789abcdef11121314151617181, 0x8171615141312111f1debc9a78563412);
+
+    try byteSwapTest(i8, -50, -50);
+    try byteSwapTest(i16, @bitCast(i16, @as(u16, 0x1234)), @bitCast(i16, @as(u16, 0x3412)));
+    try byteSwapTest(i24, @bitCast(i24, @as(u24, 0x123456)), @bitCast(i24, @as(u24, 0x563412)));
+    try byteSwapTest(i32, @bitCast(i32, @as(u32, 0x12345678)), @bitCast(i32, @as(u32, 0x78563412)));
+    try byteSwapTest(i40, @bitCast(i40, @as(u40, 0x123456789a)), @bitCast(i40, @as(u40, 0x9a78563412)));
+    try byteSwapTest(i48, @bitCast(i48, @as(u48, 0x123456789abc)), @bitCast(i48, @as(u48, 0xbc9a78563412)));
+    try byteSwapTest(i56, @bitCast(i56, @as(u56, 0x123456789abcde)), @bitCast(i56, @as(u56, 0xdebc9a78563412)));
+    try byteSwapTest(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1)), @bitCast(i64, @as(u64, 0xf1debc9a78563412)));
+    try byteSwapTest(i88, @bitCast(i88, @as(u88, 0x123456789abcdef1112131)), @bitCast(i88, @as(u88, 0x312111f1debc9a78563412)));
+    try byteSwapTest(i96, @bitCast(i96, @as(u96, 0x123456789abcdef111213141)), @bitCast(i96, @as(u96, 0x41312111f1debc9a78563412)));
+    try byteSwapTest(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181)), @bitCast(i128, @as(u128, 0x8171615141312111f1debc9a78563412)));
+
+    try byteSwapTest(u512, 0x80, 1 << 511);
+    try byteSwapTest(i512, 0x80, minInt(i512));
+    try byteSwapTest(i512, 0x40, 1 << 510);
+    try byteSwapTest(i512, -0x100, (1 << 504) - 1);
+    try byteSwapTest(i400, -0x100, (1 << 392) - 1);
+    try byteSwapTest(i400, -0x2, -(1 << 392) - 1);
+    try byteSwapTest(i24, @bitCast(i24, @as(u24, 0xf23456)), 0x5634f2);
+    try byteSwapTest(i24, 0x1234f6, @bitCast(i24, @as(u24, 0xf63412)));
+    try byteSwapTest(i32, @bitCast(i32, @as(u32, 0xf2345678)), 0x785634f2);
+    try byteSwapTest(i32, 0x123456f8, @bitCast(i32, @as(u32, 0xf8563412)));
+    try byteSwapTest(i48, 0x123456789abc, @bitCast(i48, @as(u48, 0xbc9a78563412)));
 }

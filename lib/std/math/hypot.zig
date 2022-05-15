@@ -56,7 +56,7 @@ fn hypot32(x: f32, y: f32) f32 {
         yy *= 0x1.0p-90;
     }
 
-    return z * math.sqrt(@floatCast(f32, @as(f64, x) * x + @as(f64, y) * y));
+    return z * @sqrt(@floatCast(f32, @as(f64, x) * x + @as(f64, y) * y));
 }
 
 fn sq(hi: *f64, lo: *f64, x: f64) void {
@@ -117,7 +117,7 @@ fn hypot64(x: f64, y: f64) f64 {
     sq(&hx, &lx, x);
     sq(&hy, &ly, y);
 
-    return z * math.sqrt(ly + lx + hy + hx);
+    return z * @sqrt(ly + lx + hy + hx);
 }
 
 test "math.hypot" {

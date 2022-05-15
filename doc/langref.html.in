@@ -52,255 +52,255 @@
         #contents-wrapper {
           margin-left: calc(var(--nav-width) + var(--nav-margin-l));
         }
-    }
-
-    a:hover,a:focus {
-      background: #fff2a8;
-    }
-    dt {
-      font-weight: bold;
-    }
-    table, th, td {
-      border-collapse: collapse;
-      border: 1px solid grey;
-    }
-    th, td {
-      padding: 0.1em;
-    }
-    th[scope=row] {
-        text-align: left;
-        font-weight: normal;
-    }
-    .t0_1, .t37, .t37_1 {
-      font-weight: bold;
-    }
-    .t2_0 {
-      color: #575757;
-    }
-    .t31_1 {
-      color: #b40000;
-    }
-    .t32_1 {
-      color: green;
-    }
-    .t36_1 {
-      color: #005C7A;
-    }
-    .file {
-      font-weight: bold;
-      border: unset;
-    }
-    code {
-      background: #f8f8f8;
-      border: 1px dotted silver;
-      padding-left: 0.3em;
-      padding-right: 0.3em;
-    }
-    pre > code {
-      display: block;
-      overflow: auto;
-      padding: 0.5em;
-      border: 1px solid #eee;
-      line-height: normal;
-    }
-    samp {
-      background: #fafafa;
-    }
-    pre > samp {
-      display: block;
-      overflow: auto;
-      padding: 0.5em;
-      border: 1px solid #eee;
-      line-height: normal;
-    }
-    kbd {
-      font-weight: bold;
-    }
-    .table-wrapper {
-      width: 100%;
-      overflow-x: auto;
-    }
-
-    .tok-kw {
-        color: #333;
-        font-weight: bold;
-    }
-    .tok-str {
-        color: #d14;
-    }
-    .tok-builtin {
-        color: #005C7A;
-    }
-    .tok-comment {
-        color: #545454;
-        font-style: italic;
-    }
-    .tok-fn {
-        color: #900;
-        font-weight: bold;
-    }
-    .tok-null {
-        color: #005C5C;
-    }
-    .tok-number {
-        color: #005C5C;
-    }
-    .tok-type {
-        color: #458;
-        font-weight: bold;
-    }
-
-    figure {
-      margin: auto 0;
-    }
-    figure pre {
-      margin-top: 0;
-    }
-
-    figcaption {
-      padding-left: 0.5em;
-      font-size: small;
-      border-top-left-radius: 5px;
-      border-top-right-radius: 5px;
-    }
-    figcaption.zig-cap {
-      background: #fcdba5;
-    }
-    figcaption.c-cap {
-      background: #a8b9cc;
-      color: #000;
-    }
-    figcaption.peg-cap {
-      background: #fcdba5;
-    }
-    figcaption.javascript-cap {
-      background: #365d95;
-      color: #fff;
-    }
-    figcaption.shell-cap {
-      background: #ccc;
-      color: #000;
-    }
-
-    aside {
-      border-left: 0.25em solid #f7a41d;
-      padding: 0 1em 0 1em;
-    }
-
-    h1 a, h2 a, h3 a, h4 a, h5 a {
-      text-decoration: none;
-      color: #333;
-    }
-
-    a.hdr {
-      visibility: hidden;
-    }
-    h1:hover > a.hdr, h2:hover > a.hdr, h3:hover > a.hdr, h4:hover > a.hdr, h5:hover > a.hdr {
-      visibility: visible;
-    }
-
-    pre {
-      counter-reset: line;
-    }
-    pre .line:before {
-      counter-increment: line;
-      content: counter(line);
-      display: inline-block;
-      padding-right: 1em;
-      width: 2em;
-      text-align: right;
-      color: #999;
-    }
-    th pre code {
-        background: none;
-    }
-    th .line:before {
-        display: none;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      body{
-          background:#121212;
-          color: #ccc;
       }
-      a {
-          color: #88f;
-      }
+
       a:hover,a:focus {
-          color: #000;
+        background: #fff2a8;
+      }
+      dt {
+        font-weight: bold;
       }
       table, th, td {
-          border-color: grey;
+        border-collapse: collapse;
+        border: 1px solid grey;
+      }
+      th, td {
+        padding: 0.1em;
+      }
+      th[scope=row] {
+          text-align: left;
+          font-weight: normal;
+      }
+      .t0_1, .t37, .t37_1 {
+        font-weight: bold;
       }
       .t2_0 {
-          color: grey;
+        color: #575757;
       }
       .t31_1 {
-          color: red;
+        color: #b40000;
       }
       .t32_1 {
-          color: #00B800;
+        color: green;
       }
       .t36_1 {
-          color: #0086b3;
+        color: #005C7A;
       }
-      code {
-        background: #222;
-        border-color: #444;
-      }
-      pre > code {
-          color: #ccc;
-          background: #222;
-          border: unset;
-      }
-      samp {
-        background: #000;
-        color: #ccc;
-      }
-      pre > samp {
+      .file {
+        font-weight: bold;
         border: unset;
       }
+      code {
+        background: #f8f8f8;
+        border: 1px dotted silver;
+        padding-left: 0.3em;
+        padding-right: 0.3em;
+      }
+      pre > code {
+        display: block;
+        overflow: auto;
+        padding: 0.5em;
+        border: 1px solid #eee;
+        line-height: normal;
+      }
+      samp {
+        background: #fafafa;
+      }
+      pre > samp {
+        display: block;
+        overflow: auto;
+        padding: 0.5em;
+        border: 1px solid #eee;
+        line-height: normal;
+      }
+      kbd {
+        font-weight: bold;
+      }
+      .table-wrapper {
+        width: 100%;
+        overflow-x: auto;
+      }
+
       .tok-kw {
-          color: #eee;
+          color: #333;
+          font-weight: bold;
       }
       .tok-str {
-          color: #2e5;
+          color: #d14;
       }
       .tok-builtin {
-          color: #ff894c;
+          color: #005C7A;
       }
       .tok-comment {
-          color: #aa7;
+          color: #545454;
+          font-style: italic;
       }
       .tok-fn {
-          color: #B1A0F8;
+          color: #900;
+          font-weight: bold;
       }
       .tok-null {
-          color: #ff8080;
+          color: #005C5C;
       }
       .tok-number {
-          color: #ff8080;
+          color: #005C5C;
       }
       .tok-type {
-          color: #68f;
+          color: #458;
+          font-weight: bold;
       }
-      h1 a, h2 a, h3 a, h4 a, h5 a {
-          color: #aaa;
+
+      figure {
+        margin: auto 0;
+      }
+      figure pre {
+        margin-top: 0;
+      }
+
+      figcaption {
+        padding-left: 0.5em;
+        font-size: small;
+        border-top-left-radius: 5px;
+        border-top-right-radius: 5px;
       }
       figcaption.zig-cap {
-          background-color: #b27306;
-          color: #000;
+        background: #fcdba5;
+      }
+      figcaption.c-cap {
+        background: #a8b9cc;
+        color: #000;
       }
       figcaption.peg-cap {
-          background-color: #b27306;
-          color: #000;
+        background: #fcdba5;
       }
-      figcaption.shell-cap {
-        background: #2a2a2a;
+      figcaption.javascript-cap {
+        background: #365d95;
         color: #fff;
       }
-    }
-  </style>
+      figcaption.shell-cap {
+        background: #ccc;
+        color: #000;
+      }
+
+      aside {
+        border-left: 0.25em solid #f7a41d;
+        padding: 0 1em 0 1em;
+      }
+
+      h1 a, h2 a, h3 a, h4 a, h5 a {
+        text-decoration: none;
+        color: #333;
+      }
+
+      a.hdr {
+        visibility: hidden;
+      }
+      h1:hover > a.hdr, h2:hover > a.hdr, h3:hover > a.hdr, h4:hover > a.hdr, h5:hover > a.hdr {
+        visibility: visible;
+      }
+
+      pre {
+        counter-reset: line;
+      }
+      pre .line:before {
+        counter-increment: line;
+        content: counter(line);
+        display: inline-block;
+        padding-right: 1em;
+        width: 2em;
+        text-align: right;
+        color: #999;
+      }
+      th pre code {
+          background: none;
+      }
+      th .line:before {
+          display: none;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body{
+            background:#121212;
+            color: #ccc;
+        }
+        a {
+            color: #88f;
+        }
+        a:hover,a:focus {
+            color: #000;
+        }
+        table, th, td {
+            border-color: grey;
+        }
+        .t2_0 {
+            color: grey;
+        }
+        .t31_1 {
+            color: red;
+        }
+        .t32_1 {
+            color: #00B800;
+        }
+        .t36_1 {
+            color: #0086b3;
+        }
+        code {
+          background: #222;
+          border-color: #444;
+        }
+        pre > code {
+            color: #ccc;
+            background: #222;
+            border: unset;
+        }
+        samp {
+          background: #000;
+          color: #ccc;
+        }
+        pre > samp {
+          border: unset;
+        }
+        .tok-kw {
+            color: #eee;
+        }
+        .tok-str {
+            color: #2e5;
+        }
+        .tok-builtin {
+            color: #ff894c;
+        }
+        .tok-comment {
+            color: #aa7;
+        }
+        .tok-fn {
+            color: #B1A0F8;
+        }
+        .tok-null {
+            color: #ff8080;
+        }
+        .tok-number {
+            color: #ff8080;
+        }
+        .tok-type {
+            color: #68f;
+        }
+        h1 a, h2 a, h3 a, h4 a, h5 a {
+            color: #aaa;
+        }
+        figcaption.zig-cap {
+            background-color: #b27306;
+            color: #000;
+        }
+        figcaption.peg-cap {
+            background-color: #b27306;
+            color: #000;
+        }
+        figcaption.shell-cap {
+          background: #2a2a2a;
+          color: #fff;
+        }
+      }
+    </style>
 </head>
 <body>
   <header><h1>Zig Language Reference</h1></header>
@@ -535,8 +535,8 @@ const Timestamp = struct {
       {#header_close#}
       {#header_open|Top-Level Doc Comments#}
       <p>User documentation that doesn't belong to whatever
-      immediately follows it, like package-level documentation, goes
-      in top-level doc comments. A top-level doc comment is one that
+      immediately follows it, like container level documentation, goes
+      in top level doc comments. A top level doc comment is one that
       begins with two slashes and an exclamation point:
       {#syntax#}//!{#endsyntax#}.</p>
       {#code_begin|syntax|tldoc_comments#}
@@ -672,8 +672,8 @@ pub fn main() void {
         </tr>
         <tr>
             <th scope="row">{#syntax#}usize{#endsyntax#}</th>
-          <td><code class="c">uintptr_t</code></td>
-          <td>unsigned pointer sized integer</td>
+          <td><code class="c">uintptr_t</code>, <code class="c">size_t</code></td>
+          <td>unsigned pointer sized integer. Also see <a href="https://github.com/ziglang/zig/issues/5185">#5185</a></td>
         </tr>
 
         <tr>
@@ -1040,7 +1040,7 @@ fn addOne(number: i32) i32 {
       </p>
       <aside>
         This documentation discusses the features of the default test runner as provided by the Zig Standard Library.
-        Its source code is located in <code class="file">lib/std/special/test_runner.zig</code>.
+        Its source code is located in <code class="file">lib/test_runner.zig</code>.
       </aside>
       <p>
         The shell output shown above displays two lines after the <kbd>zig test</kbd> command. These lines are
@@ -1317,7 +1317,7 @@ const @"identifier with spaces in it" = 0xff;
 const @"1SmallStep4Man" = 112358;
 
 const c = @import("std").c;
-pub extern "c" fn @"error"() anyopaque;
+pub extern "c" fn @"error"() void;
 pub extern "c" fn @"fstat$INODE64"(fd: c.fd_t, buf: *c.Stat) c_int;
 
 const Color = enum {
@@ -2515,13 +2515,14 @@ test "null terminated array" {
 
       {#header_open|Vectors#}
       <p>
-      A vector is a group of booleans, {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
-      in parallel using SIMD instructions. Vector types are created with the builtin function {#link|@Type#},
-      or using the shorthand function {#syntax#}std.meta.Vector{#endsyntax#}.
+      A vector is a group of booleans, {#link|Integers#}, {#link|Floats#}, or
+      {#link|Pointers#} which are operated on in parallel, using SIMD instructions if possible.
+      Vector types are created with the builtin function {#link|@Vector#}.
       </p>
       <p>
-      Vectors support the same builtin operators as their underlying base types. These operations are performed
-      element-wise, and return a vector of the same length as the input vectors. This includes:
+      Vectors support the same builtin operators as their underlying base types.
+      These operations are performed element-wise, and return a vector of the same length
+      as the input vectors. This includes:
       </p>
       <ul>
           <li>Arithmetic ({#syntax#}+{#endsyntax#}, {#syntax#}-{#endsyntax#}, {#syntax#}/{#endsyntax#}, {#syntax#}*{#endsyntax#},
@@ -2532,10 +2533,11 @@ test "null terminated array" {
           <li>Comparison operators ({#syntax#}<{#endsyntax#}, {#syntax#}>{#endsyntax#}, {#syntax#}=={#endsyntax#}, etc.)</li>
       </ul>
       <p>
-      It is prohibited to use a math operator on a mixture of scalars (individual numbers) and vectors.
-      Zig provides the {#link|@splat#} builtin to easily convert from scalars to vectors, and it supports {#link|@reduce#}
-      and array indexing syntax to convert from vectors to scalars. Vectors also support assignment to and from
-      fixed-length arrays with comptime known length.
+      It is prohibited to use a math operator on a mixture of scalars (individual numbers)
+      and vectors. Zig provides the {#link|@splat#} builtin to easily convert from scalars
+      to vectors, and it supports {#link|@reduce#} and array indexing syntax to convert
+      from vectors to scalars. Vectors also support assignment to and from fixed-length
+      arrays with comptime known length.
       </p>
       <p>
       For rearranging elements within and between vectors, Zig provides the {#link|@shuffle#} and {#link|@select#} functions.
@@ -2550,16 +2552,14 @@ test "null terminated array" {
       </p>
       {#code_begin|test|vector_example#}
 const std = @import("std");
-const Vector = std.meta.Vector;
 const expectEqual = std.testing.expectEqual;
 
 test "Basic vector usage" {
-    // Vectors have a compile-time known length and base type,
-    // and can be assigned to using array literal syntax
-    const a: Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
-    const b: Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
+    // Vectors have a compile-time known length and base type.
+    const a = @Vector(4, i32){ 1, 2, 3, 4 };
+    const b = @Vector(4, i32){ 5, 6, 7, 8 };
 
-    // Math operations take place element-wise
+    // Math operations take place element-wise.
     const c = a + b;
 
     // Individual vector elements can be accessed using array indexing syntax.
@@ -2572,19 +2572,19 @@ test "Basic vector usage" {
 test "Conversion between vectors, arrays, and slices" {
     // Vectors and fixed-length arrays can be automatically assigned back and forth
     var arr1: [4]f32 = [_]f32{ 1.1, 3.2, 4.5, 5.6 };
-    var vec: Vector(4, f32) = arr1;
+    var vec: @Vector(4, f32) = arr1;
     var arr2: [4]f32 = vec;
     try expectEqual(arr1, arr2);
 
     // You can also assign from a slice with comptime-known length to a vector using .*
-    const vec2: Vector(2, f32) = arr1[1..3].*;
+    const vec2: @Vector(2, f32) = arr1[1..3].*;
 
     var slice: []const f32 = &arr1;
     var offset: u32 = 1;
     // To extract a comptime-known length from a runtime-known offset,
     // first extract a new slice from the starting offset, then an array of
     // comptime known length
-    const vec3: Vector(2, f32) = slice[offset..][0..2].*;
+    const vec3: @Vector(2, f32) = slice[offset..][0..2].*;
     try expectEqual(slice[offset], vec2[0]);
     try expectEqual(slice[offset + 1], vec2[1]);
     try expectEqual(vec2, vec3);
@@ -3454,6 +3454,8 @@ test "aligned struct fields" {
           <li>If the struct is in the {#syntax#}return{#endsyntax#} expression, it gets named after
           the function it is returning from, with the parameter values serialized.</li>
           <li>Otherwise, the struct gets a name such as <code>(anonymous struct at file.zig:7:38)</code>.</li>
+          <li>If the struct is declared inside another struct, it gets named after both the parent
+          struct and the name inferred by the previous rules, separated by a dot.</li>
       </ul>
       {#code_begin|exe|struct_name#}
 const std = @import("std");
@@ -5334,6 +5336,179 @@ fn createFoo(param: i32) !Foo {
       the verbosity and cognitive overhead of trying to make sure every exit path
       is covered. The deallocation code is always directly following the allocation code.
       </p>
+      {#header_close#}
+      {#header_open|Common errdefer Slip-Ups#}
+      <p>
+      It should be noted that {#syntax#}errdefer{#endsyntax#} statements only last until the end of the block
+      they are written in, and therefore are not run if an error is returned outside of that block:
+      </p>
+      {#code_begin|test_err|1 tests leaked memory#}
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Foo = struct {
+    data: u32,
+};
+
+fn tryToAllocateFoo(allocator: Allocator) !*Foo {
+    return allocator.create(Foo);
+}
+
+fn deallocateFoo(allocator: Allocator, foo: *Foo) void {
+    allocator.destroy(foo);
+}
+
+fn getFooData() !u32 {
+    return 666;
+}
+
+fn createFoo(allocator: Allocator, param: i32) !*Foo {
+    const foo = getFoo: {
+        var foo = try tryToAllocateFoo(allocator);
+        errdefer deallocateFoo(allocator, foo); // Only lasts until the end of getFoo
+
+        // Calls deallocateFoo on error
+        foo.data = try getFooData();
+
+        break :getFoo foo;
+    };
+
+    // Outside of the scope of the errdefer, so
+    // deallocateFoo will not be called here
+    if (param > 1337) return error.InvalidParam;
+
+    return foo;
+}
+
+test "createFoo" {
+    try std.testing.expectError(error.InvalidParam, createFoo(std.testing.allocator, 2468));
+}
+      {#code_end#}
+      <p>
+      To ensure that {#syntax#}deallocateFoo{#endsyntax#} is properly called
+      when returning an error, you must add an {#syntax#}errdefer{#endsyntax#} outside of the block:
+      {#code_begin|test|test_errdefer_block#}
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Foo = struct {
+    data: u32,
+};
+
+fn tryToAllocateFoo(allocator: Allocator) !*Foo {
+    return allocator.create(Foo);
+}
+
+fn deallocateFoo(allocator: Allocator, foo: *Foo) void {
+    allocator.destroy(foo);
+}
+
+fn getFooData() !u32 {
+    return 666;
+}
+
+fn createFoo(allocator: Allocator, param: i32) !*Foo {
+    const foo = getFoo: {
+        var foo = try tryToAllocateFoo(allocator);
+        errdefer deallocateFoo(allocator, foo);
+
+        foo.data = try getFooData();
+
+        break :getFoo foo;
+    };
+    // This lasts for the rest of the function
+    errdefer deallocateFoo(allocator, foo);
+
+    // Error is now properly handled by errdefer
+    if (param > 1337) return error.InvalidParam;
+
+    return foo;
+}
+
+test "createFoo" {
+    try std.testing.expectError(error.InvalidParam, createFoo(std.testing.allocator, 2468));
+}
+      {#code_end#}
+      <p>
+      The fact that errdefers only last for the block they are declared in is
+      especially important when using loops:
+      </p>
+      {#code_begin|test_err|3 errors were logged#}
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Foo = struct {
+    data: *u32
+};
+
+fn getData() !u32 {
+    return 666;
+}
+
+fn genFoos(allocator: Allocator, num: usize) ![]Foo {
+    var foos = try allocator.alloc(Foo, num);
+    errdefer allocator.free(foos);
+
+    for(foos) |*foo, i| {
+        foo.data = try allocator.create(u32);
+        // This errdefer does not last between iterations
+        errdefer allocator.destroy(foo.data);
+
+        // The data for the first 3 foos will be leaked
+        if(i >= 3) return error.TooManyFoos;
+
+        foo.data.* = try getData();
+    }
+
+    return foos;
+}
+
+test "genFoos" {
+    try std.testing.expectError(error.TooManyFoos, genFoos(std.testing.allocator, 5));
+}
+      {#code_end#}
+      <p>
+      Special care must be taken with code that allocates in a loop
+      to make sure that no memory is leaked when returning an error:
+      </p>
+      {#code_begin|test|test_errdefer_loop#}
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Foo = struct {
+    data: *u32
+};
+
+fn getData() !u32 {
+    return 666;
+}
+
+fn genFoos(allocator: Allocator, num: usize) ![]Foo {
+    var foos = try allocator.alloc(Foo, num);
+    errdefer allocator.free(foos);
+
+    // Used to track how many foos have been initialized
+    // (including their data being allocated)
+    var num_allocated: usize = 0;
+    errdefer for(foos[0..num_allocated]) |foo| {
+        allocator.destroy(foo.data);
+    };
+    for(foos) |*foo, i| {
+        foo.data = try allocator.create(u32);
+        num_allocated += 1;
+
+        if(i >= 3) return error.TooManyFoos;
+
+        foo.data.* = try getData();
+    }
+
+    return foos;
+}
+
+test "genFoos" {
+    try std.testing.expectError(error.TooManyFoos, genFoos(std.testing.allocator, 5));
+}
+      {#code_end#}
       {#header_close#}
       <p>
       A couple of other tidbits about error handling:
@@ -7658,7 +7833,7 @@ fn readFile(allocator: Allocator, filename: []const u8) ![]u8 {
       for the current target to match the C ABI. When the child type of a pointer has
       this alignment, the alignment can be omitted from the type.
       </p>
-      <pre>{#syntax#}const expect = @import("std").debug.assert;
+      <pre>{#syntax#}const assert = @import("std").debug.assert;
 comptime {
     assert(*u32 == *align(@alignOf(u32)) u32);
 }{#endsyntax#}</pre>
@@ -7851,7 +8026,7 @@ fn func(y: *i32) void {
       only rounds once, and is thus more accurate.
       </p>
       <p>
-      Supports Floats and Vectors of floats.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
@@ -8491,7 +8666,7 @@ fn func() void {
       {#header_close#}
 
       {#header_open|@frameSize#}
-      <pre>{#syntax#}@frameSize() usize{#endsyntax#}</pre>
+      <pre>{#syntax#}@frameSize(func: anytype) usize{#endsyntax#}</pre>
       <p>
       This is the same as {#syntax#}@sizeOf(@Frame(func)){#endsyntax#}, where {#syntax#}func{#endsyntax#}
       may be runtime-known.
@@ -8911,7 +9086,7 @@ pub const PrefetchOptions = struct {
       {#header_close#}
 
       {#header_open|@select#}
-      <pre>{#syntax#}@select(comptime T: type, pred: std.meta.Vector(len, bool), a: std.meta.Vector(len, T), b: std.meta.Vector(len, T)) std.meta.Vector(len, T){#endsyntax#}</pre>
+      <pre>{#syntax#}@select(comptime T: type, pred: @Vector(len, bool), a: @Vector(len, T), b: @Vector(len, T)) @Vector(len, T){#endsyntax#}</pre>
       <p>
       Selects values element-wise from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} based on {#syntax#}pred{#endsyntax#}. If {#syntax#}pred[i]{#endsyntax#} is {#syntax#}true{#endsyntax#}, the corresponding element in the result will be {#syntax#}a[i]{#endsyntax#} and otherwise {#syntax#}b[i]{#endsyntax#}.
       </p>
@@ -9045,8 +9220,8 @@ test "@setRuntimeSafety" {
       any bits that disagree with the resultant sign bit are shifted out.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}
@@ -9059,8 +9234,8 @@ test "@setRuntimeSafety" {
                          If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
@@ -9072,14 +9247,14 @@ test "@setRuntimeSafety" {
       that the shift will not shift any 1 bits out.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
 
       {#header_open|@shuffle#}
-      <pre>{#syntax#}@shuffle(comptime E: type, a: std.meta.Vector(a_len, E), b: std.meta.Vector(b_len, E), comptime mask: std.meta.Vector(mask_len, i32)) std.meta.Vector(mask_len, E){#endsyntax#}</pre>
+      <pre>{#syntax#}@shuffle(comptime E: type, a: @Vector(a_len, E), b: @Vector(b_len, E), comptime mask: @Vector(mask_len, i32)) @Vector(mask_len, E){#endsyntax#}</pre>
       <p>
       Constructs a new {#link|vector|Vectors#} by selecting elements from {#syntax#}a{#endsyntax#} and
       {#syntax#}b{#endsyntax#} based on {#syntax#}mask{#endsyntax#}.
@@ -9114,22 +9289,21 @@ test "@setRuntimeSafety" {
       </p>
       {#code_begin|test|vector_shuffle#}
 const std = @import("std");
-const Vector = std.meta.Vector;
 const expect = std.testing.expect;
 
 test "vector @shuffle" {
-    const a: Vector(7, u8) = [_]u8{ 'o', 'l', 'h', 'e', 'r', 'z', 'w' };
-    const b: Vector(4, u8) = [_]u8{ 'w', 'd', '!', 'x' };
+    const a = @Vector(7, u8){ 'o', 'l', 'h', 'e', 'r', 'z', 'w' };
+    const b = @Vector(4, u8){ 'w', 'd', '!', 'x' };
 
     // To shuffle within a single vector, pass undefined as the second argument.
     // Notice that we can re-order, duplicate, or omit elements of the input vector
-    const mask1: Vector(5, i32) = [_]i32{ 2, 3, 1, 1, 0 };
-    const res1: Vector(5, u8) = @shuffle(u8, a, undefined, mask1);
+    const mask1 = @Vector(5, i32){ 2, 3, 1, 1, 0 };
+    const res1: @Vector(5, u8) = @shuffle(u8, a, undefined, mask1);
     try expect(std.mem.eql(u8, &@as([5]u8, res1), "hello"));
 
     // Combining two vectors
-    const mask2: Vector(6, i32) = [_]i32{ -1, 0, 4, 1, -2, -3 };
-    const res2: Vector(6, u8) = @shuffle(u8, a, b, mask2);
+    const mask2 = @Vector(6, i32){ -1, 0, 4, 1, -2, -3 };
+    const res2: @Vector(6, u8) = @shuffle(u8, a, b, mask2);
     try expect(std.mem.eql(u8, &@as([6]u8, res2), "world!"));
 }
       {#code_end#}
@@ -9156,7 +9330,7 @@ test "vector @shuffle" {
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: anytype) std.meta.Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(comptime len: u32, scalar: anytype) @Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
       <p>
       Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
       {#syntax#}scalar{#endsyntax#}:
@@ -9168,7 +9342,7 @@ const expect = std.testing.expect;
 test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
-    comptime try expect(@TypeOf(result) == std.meta.Vector(4, u32));
+    comptime try expect(@TypeOf(result) == @Vector(4, u32));
     try expect(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
@@ -9180,22 +9354,23 @@ test "vector @splat" {
       {#header_close#}
 
       {#header_open|@reduce#}
-      <pre>{#syntax#}@reduce(comptime op: std.builtin.ReduceOp, value: anytype) std.meta.Child(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@reduce(comptime op: std.builtin.ReduceOp, value: anytype) E{#endsyntax#}</pre>
       <p>
-      Transforms a {#link|vector|Vectors#} into a scalar value by performing a
-      sequential horizontal reduction of its elements using the specified operator {#syntax#}op{#endsyntax#}.
+      Transforms a {#link|vector|Vectors#} into a scalar value (of type <code>E</code>)
+      by performing a sequential horizontal reduction of its elements using the
+      specified operator {#syntax#}op{#endsyntax#}.
       </p>
       <p>
       Not every operator is available for every vector element type:
       </p>
       <ul>
+          <li>Every operator is available for {#link|integer|Integers#} vectors.</li>
           <li>{#syntax#}.And{#endsyntax#}, {#syntax#}.Or{#endsyntax#},
-            {#syntax#}.Xor{#endsyntax#} are available for
+            {#syntax#}.Xor{#endsyntax#} are additionally available for
             {#syntax#}bool{#endsyntax#} vectors,</li>
           <li>{#syntax#}.Min{#endsyntax#}, {#syntax#}.Max{#endsyntax#},
             {#syntax#}.Add{#endsyntax#}, {#syntax#}.Mul{#endsyntax#} are
-            available for {#link|floating point|Floats#} vectors,</li>
-          <li>Every operator is available for {#link|integer|Integers#} vectors.</li>
+            additionally available for {#link|floating point|Floats#} vectors,</li>
       </ul>
       <p>
       Note that {#syntax#}.Add{#endsyntax#} and {#syntax#}.Mul{#endsyntax#}
@@ -9208,10 +9383,10 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "vector @reduce" {
-    const value: std.meta.Vector(4, i32) = [_]i32{ 1, -1, 1, -1 };
+    const value = @Vector(4, i32){ 1, -1, 1, -1 };
     const result = value > @splat(4, @as(i32, 0));
     // result is { true, false, true, false };
-    comptime try expect(@TypeOf(result) == std.meta.Vector(4, bool));
+    comptime try expect(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);
     comptime try expect(@TypeOf(is_all_true) == bool);
     try expect(is_all_true == false);
@@ -9265,6 +9440,7 @@ fn doTheTest() !void {
       <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
+
       {#header_open|@cos#}
       <pre>{#syntax#}@cos(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
@@ -9276,6 +9452,19 @@ fn doTheTest() !void {
       <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
+
+      {#header_open|@tan#}
+      <pre>{#syntax#}@tan(value: anytype) @TypeOf(value){#endsyntax#}</pre>
+      <p>
+      Tangent trigonometric function on a floating point number.
+      Uses a dedicated hardware instruction when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      </p>
+      {#header_close#}
+
       {#header_open|@exp#}
       <pre>{#syntax#}@exp(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
@@ -9529,8 +9718,9 @@ test "integer truncation" {
       <p>
       This function returns the string representation of a type, as
       an array. It is equivalent to a string literal of the type name.
+      The returned type name is fully qualified with the parent namespace included
+      as part of the type name with a series of dots.
       </p>
-
       {#header_close#}
 
       {#header_open|@TypeOf#}
@@ -9569,6 +9759,12 @@ fn foo(comptime T: type, ptr: *T) T {
       <p>
       {#syntax#}@unionInit{#endsyntax#} forwards its {#link|result location|Result Location Semantics#} to {#syntax#}init_expr{#endsyntax#}.
       </p>
+      {#header_close#}
+
+
+      {#header_open|@Vector#}
+      <pre>{#syntax#}@Vector(len: comptime_int, Element: type) type{#endsyntax#}</pre>
+      <p>Creates {#link|Vectors#}.</p>
       {#header_close#}
       {#header_close#}
 
@@ -10405,7 +10601,7 @@ pub fn main() !void {
       <p>String literals such as {#syntax#}"foo"{#endsyntax#} are in the global constant data section.
       This is why it is an error to pass a string literal to a mutable slice, like this:
       </p>
-      {#code_begin|test_err|expected type '[]u8'#}
+      {#code_begin|test_err|cannot cast pointer to array literal to slice type '[]u8'#}
 fn foo(s: []u8) void {
     _ = s;
 }
@@ -11097,7 +11293,7 @@ pub fn main() !void {
     var preopens = PreopenList.init(gpa);
     defer preopens.deinit();
 
-    try preopens.populate();
+    try preopens.populate(null);
 
     for (preopens.asSlice()) |preopen, i| {
         std.debug.print("{}: {}\n", .{ i, preopen });
@@ -11196,7 +11392,7 @@ Architectures:
   riscv32
   riscv64
   sparc
-  sparcv9
+  sparc64
   sparcel
   s390x
   thumb
@@ -11347,7 +11543,7 @@ Available libcs:
   s390x-linux-gnu
   s390x-linux-musl
   sparc-linux-gnu
-  sparcv9-linux-gnu
+  sparc64-linux-gnu
   wasm32-freestanding-musl
   wasm32-wasi-musl
   x86_64-linux-gnu
@@ -11775,17 +11971,6 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
-            <pre>{#syntax#}false{#endsyntax#}</pre>
-          </th>
-          <td>
-            The boolean value {#syntax#}false{#endsyntax#}.
-            <ul>
-              <li>See also {#link|Primitive Values#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
             <pre>{#syntax#}fn{#endsyntax#}</pre>
           </th>
           <td>
@@ -11856,17 +12041,6 @@ fn readU32Be() u32 {}
             Code inside a {#syntax#}nosuspend{#endsyntax#} scope does not cause the enclosing function to become an {#link|async function|Async Functions#}.
             <ul>
               <li>See also {#link|Async Functions#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
-            <pre>{#syntax#}null{#endsyntax#}</pre>
-          </th>
-          <td>
-            The optional value {#syntax#}null{#endsyntax#}.
-            <ul>
-              <li>See also {#link|null#}</li>
             </ul>
           </td>
         </tr>
@@ -12010,17 +12184,6 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
-            <pre>{#syntax#}true{#endsyntax#}</pre>
-          </th>
-          <td>
-            The boolean value {#syntax#}true{#endsyntax#}.
-            <ul>
-              <li>See also {#link|Primitive Values#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
             <pre>{#syntax#}try{#endsyntax#}</pre>
           </th>
           <td>
@@ -12029,17 +12192,6 @@ fn readU32Be() u32 {}
             Otherwise, the expression results in the unwrapped value.
             <ul>
               <li>See also {#link|try#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
-            <pre>{#syntax#}undefined{#endsyntax#}</pre>
-          </th>
-          <td>
-            {#syntax#}undefined{#endsyntax#} can be used to leave a value uninitialized.
-            <ul>
-              <li>See also {#link|undefined#}</li>
             </ul>
           </td>
         </tr>

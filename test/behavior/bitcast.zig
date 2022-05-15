@@ -3,27 +3,75 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const maxInt = std.math.maxInt;
+const minInt = std.math.minInt;
 const native_endian = builtin.target.cpu.arch.endian();
 
-test "@bitCast i32 -> u32" {
-    try testBitCast_i32_u32();
-    comptime try testBitCast_i32_u32();
+test "@bitCast iX -> uX (32, 64)" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const bit_values = [_]usize{ 32, 64 };
+
+    inline for (bit_values) |bits| {
+        try testBitCast(bits);
+        comptime try testBitCast(bits);
+    }
 }
 
-fn testBitCast_i32_u32() !void {
-    try expect(conv(-1) == maxInt(u32));
-    try expect(conv2(maxInt(u32)) == -1);
+test "@bitCast iX -> uX (8, 16, 128)" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const bit_values = [_]usize{ 8, 16, 128 };
+
+    inline for (bit_values) |bits| {
+        try testBitCast(bits);
+        comptime try testBitCast(bits);
+    }
 }
 
-fn conv(x: i32) u32 {
-    return @bitCast(u32, x);
-}
-fn conv2(x: u32) i32 {
-    return @bitCast(i32, x);
+test "@bitCast iX -> uX exotic integers" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const bit_values = [_]usize{ 1, 48, 27, 512, 493, 293, 125, 204, 112 };
+
+    inline for (bit_values) |bits| {
+        try testBitCast(bits);
+        comptime try testBitCast(bits);
+    }
 }
 
-test "bitcast result to _" {
-    _ = @bitCast(u8, @as(i8, 1));
+fn testBitCast(comptime N: usize) !void {
+    const iN = std.meta.Int(.signed, N);
+    const uN = std.meta.Int(.unsigned, N);
+
+    try expect(conv_iN(N, -1) == maxInt(uN));
+    try expect(conv_uN(N, maxInt(uN)) == -1);
+
+    try expect(conv_iN(N, maxInt(iN)) == maxInt(iN));
+    try expect(conv_uN(N, maxInt(iN)) == maxInt(iN));
+
+    try expect(conv_uN(N, 1 << (N - 1)) == minInt(iN));
+    try expect(conv_iN(N, minInt(iN)) == (1 << (N - 1)));
+
+    try expect(conv_uN(N, 0) == 0);
+    try expect(conv_iN(N, 0) == 0);
+
+    try expect(conv_iN(N, -0) == 0);
+}
+
+fn conv_iN(comptime N: usize, x: std.meta.Int(.signed, N)) std.meta.Int(.unsigned, N) {
+    return @bitCast(std.meta.Int(.unsigned, N), x);
+}
+
+fn conv_uN(comptime N: usize, x: std.meta.Int(.unsigned, N)) std.meta.Int(.signed, N) {
+    return @bitCast(std.meta.Int(.signed, N), x);
 }
 
 test "nested bitcast" {
@@ -72,10 +120,15 @@ test "bitcast generates a temporary value" {
 }
 
 test "@bitCast packed structs at runtime and comptime" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the wrong answer for a lot of targets
+        return error.SkipZigTest;
+    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const Full = packed struct {
         number: u16,
@@ -89,18 +142,9 @@ test "@bitCast packed structs at runtime and comptime" {
         fn doTheTest() !void {
             var full = Full{ .number = 0x1234 };
             var two_halves = @bitCast(Divided, full);
-            switch (native_endian) {
-                .Big => {
-                    try expect(two_halves.half1 == 0x12);
-                    try expect(two_halves.quarter3 == 0x3);
-                    try expect(two_halves.quarter4 == 0x4);
-                },
-                .Little => {
-                    try expect(two_halves.half1 == 0x34);
-                    try expect(two_halves.quarter3 == 0x2);
-                    try expect(two_halves.quarter4 == 0x1);
-                },
-            }
+            try expect(two_halves.half1 == 0x34);
+            try expect(two_halves.quarter3 == 0x2);
+            try expect(two_halves.quarter4 == 0x1);
         }
     };
     try S.doTheTest();
@@ -108,10 +152,10 @@ test "@bitCast packed structs at runtime and comptime" {
 }
 
 test "@bitCast extern structs at runtime and comptime" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const Full = extern struct {
         number: u16,
@@ -141,10 +185,11 @@ test "@bitCast extern structs at runtime and comptime" {
 }
 
 test "bitcast packed struct to integer and back" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const LevelUpMove = packed struct {
         move_id: u9,
@@ -164,6 +209,9 @@ test "bitcast packed struct to integer and back" {
 }
 
 test "implicit cast to error union by returning" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         fn entry() !void {
             try expect((func(-1) catch unreachable) == maxInt(u64));
@@ -177,10 +225,8 @@ test "implicit cast to error union by returning" {
 }
 
 test "bitcast packed struct literal to byte" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const Foo = packed struct {
         value: u8,
@@ -190,10 +236,7 @@ test "bitcast packed struct literal to byte" {
 }
 
 test "comptime bitcast used in expression has the correct type" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const Foo = packed struct {
         value: u8,
@@ -206,6 +249,8 @@ test "bitcast passed as tuple element" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn foo(args: anytype) !void {

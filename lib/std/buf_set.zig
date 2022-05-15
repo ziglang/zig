@@ -71,6 +71,26 @@ pub const BufSet = struct {
         return self.hash_map.allocator;
     }
 
+    /// Creates a copy of this BufSet, using a specified allocator.
+    pub fn cloneWithAllocator(
+        self: *const BufSet,
+        new_allocator: Allocator,
+    ) Allocator.Error!BufSet {
+        var cloned_hashmap = try self.hash_map.cloneWithAllocator(new_allocator);
+        var cloned = BufSet{ .hash_map = cloned_hashmap };
+        var it = cloned.hash_map.keyIterator();
+        while (it.next()) |key_ptr| {
+            key_ptr.* = try cloned.copy(key_ptr.*);
+        }
+
+        return cloned;
+    }
+
+    /// Creates a copy of this BufSet, using the same allocator.
+    pub fn clone(self: *const BufSet) Allocator.Error!BufSet {
+        return self.cloneWithAllocator(self.allocator());
+    }
+
     fn free(self: *const BufSet, value: []const u8) void {
         self.hash_map.allocator.free(value);
     }
@@ -94,4 +114,34 @@ test "BufSet" {
     try bufset.insert("x");
     try bufset.insert("y");
     try bufset.insert("z");
+}
+
+test "BufSet clone" {
+    var original = BufSet.init(testing.allocator);
+    defer original.deinit();
+    try original.insert("x");
+
+    var cloned = try original.clone();
+    defer cloned.deinit();
+    cloned.remove("x");
+    try testing.expect(original.count() == 1);
+    try testing.expect(cloned.count() == 0);
+
+    try testing.expectError(
+        error.OutOfMemory,
+        original.cloneWithAllocator(testing.failing_allocator),
+    );
+}
+
+test "BufSet.clone with arena" {
+    var allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var buf = BufSet.init(allocator);
+    defer buf.deinit();
+    try buf.insert("member1");
+    try buf.insert("member2");
+
+    _ = try buf.cloneWithAllocator(arena.allocator());
 }

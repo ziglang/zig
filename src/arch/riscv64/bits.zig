@@ -409,24 +409,12 @@ pub const Register = enum(u6) {
         return @truncate(u5, @enumToInt(self));
     }
 
-    /// Returns the index into `callee_preserved_regs`.
-    pub fn allocIndex(self: Register) ?u4 {
-        inline for (callee_preserved_regs) |cpreg, i| {
-            if (self.id() == cpreg.id()) return i;
-        }
-        return null;
-    }
-
     pub fn dwarfLocOp(reg: Register) u8 {
         return @as(u8, reg.id()) + DW.OP.reg0;
     }
 };
 
 // zig fmt: on
-
-pub const callee_preserved_regs = [_]Register{
-    .s0, .s1, .s2, .s3, .s4, .s5, .s6, .s7, .s8, .s9, .s10, .s11,
-};
 
 test "serialize instructions" {
     const Testcase = struct {
