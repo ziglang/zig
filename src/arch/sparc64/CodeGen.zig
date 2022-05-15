@@ -483,7 +483,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
         switch (air_tags[inst]) {
             // zig fmt: off
-            .add, .ptr_add   => @panic("TODO try self.airBinOp(inst)"),
+            .add, .ptr_add   => try self.airBinOp(inst),
             .addwrap         => @panic("TODO try self.airAddWrap(inst)"),
             .add_sat         => @panic("TODO try self.airAddSat(inst)"),
             .sub, .ptr_sub   => @panic("TODO try self.airBinOp(inst)"),
@@ -823,6 +823,21 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     return self.finishAir(inst, mcv, .{ .none, .none, .none });
+}
+
+fn airBinOp(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[inst];
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        try self.binOp(tag, inst, lhs, rhs, lhs_ty, rhs_ty);
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
@@ -1601,7 +1616,7 @@ fn binOp(
 ) InnerError!MCValue {
     const mod = self.bin_file.options.module.?;
     switch (tag) {
-        .cmp_eq => {
+        .add, .cmp_eq => {
             switch (lhs_ty.zigTypeTag()) {
                 .Float => return self.fail("TODO binary operations on floats", .{}),
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
@@ -1609,14 +1624,37 @@ fn binOp(
                     assert(lhs_ty.eql(rhs_ty, mod));
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 64) {
-                        // TODO optimize for small (i13) values by putting them inside immediates
+                        // Only say yes if the operation is
+                        // commutative, i.e. we can swap both of the
+                        // operands
+                        const lhs_immediate_ok = switch (tag) {
+                            .add => lhs == .immediate and lhs.immediate <= std.math.maxInt(u12),
+                            .sub, .cmp_eq => false,
+                            else => unreachable,
+                        };
+                        const rhs_immediate_ok = switch (tag) {
+                            .add,
+                            .sub,
+                            .cmp_eq,
+                            => rhs == .immediate and rhs.immediate <= std.math.maxInt(u12),
+                            else => unreachable,
+                        };
 
                         const mir_tag: Mir.Inst.Tag = switch (tag) {
+                            .add => .add,
                             .cmp_eq => .subcc,
                             else => unreachable,
                         };
 
-                        return try self.binOpRegister(mir_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        if (rhs_immediate_ok) {
+                            return try self.binOpImmediate(mir_tag, maybe_inst, lhs, rhs, lhs_ty, false);
+                        } else if (lhs_immediate_ok) {
+                            // swap lhs and rhs
+                            return try self.binOpImmediate(mir_tag, maybe_inst, rhs, lhs, rhs_ty, true);
+                        } else {
+                            // TODO convert large immediates to register before adding
+                            return try self.binOpRegister(mir_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        }
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
