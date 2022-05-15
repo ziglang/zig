@@ -623,10 +623,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .atomic_store_release   => @panic("TODO try self.airAtomicStore(inst, .Release)"),
             .atomic_store_seq_cst   => @panic("TODO try self.airAtomicStore(inst, .SeqCst)"),
 
-            .struct_field_ptr_index_0 => @panic("TODO try self.airStructFieldPtrIndex(inst, 0)"),
-            .struct_field_ptr_index_1 => @panic("TODO try self.airStructFieldPtrIndex(inst, 1)"),
-            .struct_field_ptr_index_2 => @panic("TODO try self.airStructFieldPtrIndex(inst, 2)"),
-            .struct_field_ptr_index_3 => @panic("TODO try self.airStructFieldPtrIndex(inst, 3)"),
+            .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
+            .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
+            .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
+            .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
 
             .field_parent_ptr => @panic("TODO try self.airFieldParentPtr(inst)"),
 
@@ -1450,6 +1450,12 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
     try self.store(ptr, value, ptr_ty, value_ty);
 
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result = try self.structFieldPtr(inst, ty_op.operand, index);
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
@@ -2985,6 +2991,42 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             try self.store(.{ .register = addr_reg }, value, ptr_ty, value_ty);
         },
     }
+}
+
+fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
+    return if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(operand);
+        const ptr_ty = self.air.typeOf(operand);
+        const struct_ty = ptr_ty.childType();
+        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+        switch (mcv) {
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off - struct_field_offset };
+            },
+            else => {
+                const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
+                    .immediate = struct_field_offset,
+                });
+                const offset_reg_lock = self.register_manager.lockRegAssumeUnused(offset_reg);
+                defer self.register_manager.unlockReg(offset_reg_lock);
+
+                const addr_reg = try self.copyToTmpRegister(ptr_ty, mcv);
+                const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+                defer self.register_manager.unlockReg(addr_reg_lock);
+
+                const dest = try self.binOp(
+                    .add,
+                    null,
+                    .{ .register = addr_reg },
+                    .{ .register = offset_reg },
+                    Type.usize,
+                    Type.usize,
+                );
+
+                break :result dest;
+            },
+        }
+    };
 }
 
 fn truncRegister(
