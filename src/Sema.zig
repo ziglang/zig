@@ -9839,6 +9839,21 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         error.ImportOutsidePkgPath => {
             return sema.fail(block, operand_src, "import of file outside package path: '{s}'", .{operand});
         },
+        error.PackageNotFound => {
+            const cur_pkg = block.getFileScope().pkg;
+            const parent = if (cur_pkg == sema.mod.main_pkg or cur_pkg == sema.mod.root_pkg)
+                "root"
+            else if (cur_pkg.parent) |parent| blk: {
+                var it = parent.table.iterator();
+                while (it.next()) |pkg| {
+                    if (pkg.value_ptr.* == cur_pkg) {
+                        break :blk pkg.key_ptr.*;
+                    }
+                }
+                unreachable;
+            } else unreachable;
+            return sema.fail(block, operand_src, "no package named '{s}' available within package '{s}'", .{ operand, parent });
+        },
         else => {
             // TODO: these errors are file system errors; make sure an update() will
             // retry this and not cache the file system error, which may be transient.
