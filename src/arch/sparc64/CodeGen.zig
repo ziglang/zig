@@ -564,7 +564,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_err          => try self.airIsErr(inst),
             .is_err_ptr      => @panic("TODO try self.airIsErrPtr(inst)"),
             .load            => try self.airLoad(inst),
-            .loop            => @panic("TODO try self.airLoop(inst)"),
+            .loop            => try self.airLoop(inst),
             .not             => @panic("TODO try self.airNot(inst)"),
             .ptrtoint        => @panic("TODO try self.airPtrToInt(inst)"),
             .ret             => try self.airRet(inst),
@@ -1340,6 +1340,17 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
         break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
+    // A loop is a setup to be able to jump back to the beginning.
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const loop = self.air.extraData(Air.Block, ty_pl.payload);
+    const body = self.air.extra[loop.end .. loop.end + loop.data.body_len];
+    const start = @intCast(u32, self.mir_instructions.len);
+    try self.genBody(body);
+    try self.jump(start);
+    return self.finishAirBookkeeping();
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
@@ -2229,6 +2240,26 @@ fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigT
         .big_tomb_bits = self.liveness.special.get(inst) orelse 0,
         .bit_index = 0,
     };
+}
+
+/// Send control flow to `inst`.
+fn jump(self: *Self, inst: Mir.Inst.Index) !void {
+    _ = try self.addInst(.{
+        .tag = .bpcc,
+        .data = .{
+            .branch_predict_int = .{
+                .cond = .al,
+                .ccr = .xcc,
+                .inst = inst,
+            },
+        },
+    });
+
+    // TODO find out a way to fill this delay slot
+    _ = try self.addInst(.{
+        .tag = .nop,
+        .data = .{ .nop = {} },
+    });
 }
 
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
