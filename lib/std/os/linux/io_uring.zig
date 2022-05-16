@@ -1990,53 +1990,15 @@ test "accept/connect/send/recv" {
     };
     defer ring.deinit();
 
-    const address = try net.Address.parseIp4("127.0.0.1", 3131);
-    const kernel_backlog = 1;
-    const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-    defer os.close(server);
-    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
-    try os.bind(server, &address.any, address.getOsSockLen());
-    try os.listen(server, kernel_backlog);
+    const socket_test_harness = try createSocketTestHarness(&ring);
+    defer socket_test_harness.close();
 
     const buffer_send = [_]u8{ 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 };
     var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
-    var accept_addr: os.sockaddr = undefined;
-    var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
-    _ = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
-    try testing.expectEqual(@as(u32, 1), try ring.submit());
-
-    const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-    defer os.close(client);
-    _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
-    try testing.expectEqual(@as(u32, 1), try ring.submit());
-
-    var cqe_accept = try ring.copy_cqe();
-    if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
-    var cqe_connect = try ring.copy_cqe();
-    if (cqe_connect.err() == .INVAL) return error.SkipZigTest;
-
-    // The accept/connect CQEs may arrive in any order, the connect CQE will sometimes come first:
-    if (cqe_accept.user_data == 0xcccccccc and cqe_connect.user_data == 0xaaaaaaaa) {
-        const a = cqe_accept;
-        const b = cqe_connect;
-        cqe_accept = b;
-        cqe_connect = a;
-    }
-
-    try testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
-    if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{cqe_accept.res});
-    try testing.expect(cqe_accept.res > 0);
-    try testing.expectEqual(@as(u32, 0), cqe_accept.flags);
-    try testing.expectEqual(linux.io_uring_cqe{
-        .user_data = 0xcccccccc,
-        .res = 0,
-        .flags = 0,
-    }, cqe_connect);
-
-    const send = try ring.send(0xeeeeeeee, client, buffer_send[0..], 0);
+    const send = try ring.send(0xeeeeeeee, socket_test_harness.client, buffer_send[0..], 0);
     send.flags |= linux.IOSQE_IO_LINK;
-    _ = try ring.recv(0xffffffff, cqe_accept.res, .{ .buffer = buffer_recv[0..] }, 0);
+    _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     const cqe_send = try ring.copy_cqe();
@@ -2261,50 +2223,12 @@ test "accept/connect/recv/link_timeout" {
     };
     defer ring.deinit();
 
-    const address = try net.Address.parseIp4("127.0.0.1", 3131);
-    const kernel_backlog = 1;
-    const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-    defer os.close(server);
-    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
-    try os.bind(server, &address.any, address.getOsSockLen());
-    try os.listen(server, kernel_backlog);
+    const socket_test_harness = try createSocketTestHarness(&ring);
+    defer socket_test_harness.close();
 
     var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
-    var accept_addr: os.sockaddr = undefined;
-    var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
-    _ = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
-    try testing.expectEqual(@as(u32, 1), try ring.submit());
-
-    const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-    defer os.close(client);
-    _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
-    try testing.expectEqual(@as(u32, 1), try ring.submit());
-
-    var cqe_accept = try ring.copy_cqe();
-    if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
-    var cqe_connect = try ring.copy_cqe();
-    if (cqe_connect.err() == .INVAL) return error.SkipZigTest;
-
-    // The accept/connect CQEs may arrive in any order, the connect CQE will sometimes come first:
-    if (cqe_accept.user_data == 0xcccccccc and cqe_connect.user_data == 0xaaaaaaaa) {
-        const a = cqe_accept;
-        const b = cqe_connect;
-        cqe_accept = b;
-        cqe_connect = a;
-    }
-
-    try testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
-    if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{cqe_accept.res});
-    try testing.expect(cqe_accept.res > 0);
-    try testing.expectEqual(@as(u32, 0), cqe_accept.flags);
-    try testing.expectEqual(linux.io_uring_cqe{
-        .user_data = 0xcccccccc,
-        .res = 0,
-        .flags = 0,
-    }, cqe_connect);
-
-    const sqe_recv = try ring.recv(0xffffffff, cqe_accept.res, .{ .buffer = buffer_recv[0..] }, 0);
+    const sqe_recv = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     sqe_recv.flags |= linux.IOSQE_IO_LINK;
 
     const ts = os.linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = 1000000 };
@@ -2448,50 +2372,12 @@ test "accept/connect/recv/cancel" {
     };
     defer ring.deinit();
 
-    const address = try net.Address.parseIp4("127.0.0.1", 3131);
-    const kernel_backlog = 1;
-    const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-    defer os.close(server);
-    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
-    try os.bind(server, &address.any, address.getOsSockLen());
-    try os.listen(server, kernel_backlog);
+    const socket_test_harness = try createSocketTestHarness(&ring);
+    defer socket_test_harness.close();
 
     var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
-    var accept_addr: os.sockaddr = undefined;
-    var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
-    _ = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
-    try testing.expectEqual(@as(u32, 1), try ring.submit());
-
-    const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-    defer os.close(client);
-    _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
-    try testing.expectEqual(@as(u32, 1), try ring.submit());
-
-    var cqe_accept = try ring.copy_cqe();
-    if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
-    var cqe_connect = try ring.copy_cqe();
-    if (cqe_connect.err() == .INVAL) return error.SkipZigTest;
-
-    // The accept/connect CQEs may arrive in any order, the connect CQE will sometimes come first:
-    if (cqe_accept.user_data == 0xcccccccc and cqe_connect.user_data == 0xaaaaaaaa) {
-        const a = cqe_accept;
-        const b = cqe_connect;
-        cqe_accept = b;
-        cqe_connect = a;
-    }
-
-    try testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
-    if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{cqe_accept.res});
-    try testing.expect(cqe_accept.res > 0);
-    try testing.expectEqual(@as(u32, 0), cqe_accept.flags);
-    try testing.expectEqual(linux.io_uring_cqe{
-        .user_data = 0xcccccccc,
-        .res = 0,
-        .flags = 0,
-    }, cqe_connect);
-
-    _ = try ring.recv(0xffffffff, cqe_accept.res, .{ .buffer = buffer_recv[0..] }, 0);
+    _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const sqe_cancel = try ring.cancel(0x99999999, 0xffffffff, 0);
