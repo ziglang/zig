@@ -43,17 +43,36 @@ pub const Register = enum(u7) {
     al, cl, dl, bl, ah, ch, dh, bh,
     r8b, r9b, r10b, r11b, r12b, r13b, r14b, r15b,
 
-    // Pseudo, used only for MIR to signify that the
-    // operand is not a register but an immediate, etc.
+    // 64-79, 256-bit registers.
+    // id is int value - 64.
+    ymm0, ymm1, ymm2,  ymm3,  ymm4,  ymm5,  ymm6,  ymm7,
+    ymm8, ymm9, ymm10, ymm11, ymm12, ymm13, ymm14, ymm15,
+
+    // 80-95, 128-bit registers.
+    // id is int value - 80.
+    xmm0, xmm1, xmm2,  xmm3,  xmm4,  xmm5,  xmm6,  xmm7,
+    xmm8, xmm9, xmm10, xmm11, xmm12, xmm13, xmm14, xmm15,
+
+    // Pseudo-value for MIR instructions.
     none,
 
+    pub fn id(self: Register) u5 {
+        return switch (@enumToInt(self)) {
+            0...63 => @as(u5, @truncate(u4, @enumToInt(self))),
+            64...79 => @truncate(u5, @enumToInt(self)),
+            else => unreachable,
+        };
+    }
+        
     /// Returns the bit-width of the register.
-    pub fn size(self: Register) u7 {
+    pub fn size(self: Register) u9 {
         return switch (@enumToInt(self)) {
             0...15 => 64,
             16...31 => 32,
             32...47 => 16,
-            48...64 => 8,
+            48...63 => 8,
+            64...79 => 256,
+            80...95 => 128,
             else => unreachable,
         };
     }
@@ -72,13 +91,21 @@ pub const Register = enum(u7) {
     /// an instruction (@see isExtended), and requires special handling. The
     /// lower three bits are often embedded directly in instructions (such as
     /// the B8 variant of moves), or used in R/M bytes.
-    pub fn id(self: Register) u4 {
+    pub fn enc(self: Register) u4 {
         return @truncate(u4, @enumToInt(self));
     }
 
-    /// Like id, but only returns the lower 3 bits.
-    pub fn lowId(self: Register) u3 {
+    /// Like enc, but only returns the lower 3 bits.
+    pub fn lowEnc(self: Register) u3 {
         return @truncate(u3, @enumToInt(self));
+    }
+
+    pub fn to256(self: Register) Register {
+        return @intToEnum(Register, @as(u8, self.id()) + 64);
+    }
+
+    pub fn to128(self: Register) Register {
+        return @intToEnum(Register, @as(u8, self.id()) + 80);
     }
 
     /// Convert from any register to its 64 bit alias.
@@ -123,57 +150,6 @@ pub const Register = enum(u7) {
 
             else => unreachable,
         };
-    }
-};
-
-/// AVX registers.
-/// TODO missing dwarfLocOp implementation.
-/// TODO add support for AVX-512
-pub const AvxRegister = enum(u6) {
-    // 256-bit registers
-    ymm0, ymm1, ymm2,  ymm3,  ymm4,  ymm5,  ymm6,  ymm7,
-    ymm8, ymm9, ymm10, ymm11, ymm12, ymm13, ymm14, ymm15,
-
-    // 128-bit registers
-    xmm0, xmm1, xmm2,  xmm3,  xmm4,  xmm5,  xmm6,  xmm7,
-    xmm8, xmm9, xmm10, xmm11, xmm12, xmm13, xmm14, xmm15,
-
-    // Pseudo, used only for MIR to signify that the
-    // operand is not a register but an immediate, etc.
-    none,
-
-    /// Returns the bit-width of the register.
-    pub fn size(self: AvxRegister) u9 {
-        return switch (@enumToInt(self)) {
-            0...15 => 256,
-            16...31 => 128,
-            else => unreachable,
-        };
-    }
-
-    /// Returns whether the register is *extended*.
-    pub fn isExtended(self: AvxRegister) bool {
-        return @enumToInt(self) & 0x08 != 0;
-    }
-
-    /// This returns the 4-bit register ID.
-    pub fn id(self: AvxRegister) u4 {
-        return @truncate(u4, @enumToInt(self));
-    }
-
-    /// Like id, but only returns the lower 3 bits.
-    pub fn lowId(self: AvxRegister) u3 {
-        return @truncate(u3, @enumToInt(self));
-    }
-
-    /// Convert from any register to its 256 bit alias.
-    pub fn to256(self: AvxRegister) AvxRegister {
-        return @intToEnum(AvxRegister, self.id());
-    }
-
-    /// Convert from any register to its 128 bit alias.
-    pub fn to128(self: AvxRegister) AvxRegister {
-        return @intToEnum(AvxRegister, @as(u8, self.id()) + 16);
     }
 };
 
@@ -792,7 +768,7 @@ test "Encoder helpers - Vex prefix" {
     {
         stream.reset();
         var vex_prefix = Encoder.Vex{};
-        vex_prefix.reg(AvxRegister.xmm15.id());
+        vex_prefix.reg(Register.xmm15.id());
         const nwritten = vex_prefix.write(writer);
         try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x80 }, buf[0..nwritten]);
     }
@@ -832,7 +808,7 @@ test "Encoder helpers - Vex prefix" {
         vex.simd_prefix_66();
         encoder.vex(vex); // use 64 bit operation
         encoder.opcode_1byte(0x28);
-        encoder.modRm_direct(0, AvxRegister.xmm1.lowId());
+        encoder.modRm_direct(0, Register.xmm1.lowId());
         try testing.expectEqualSlices(u8, &[_]u8{ 0xC5, 0xF9, 0x28, 0xC1 }, code.items);
     }
 
@@ -846,10 +822,10 @@ test "Encoder helpers - Vex prefix" {
         vex.simd_prefix_66();
         vex.lead_opc_0f();
         vex.rex(.{ .r = true });
-        vex.reg(AvxRegister.xmm1.id());
+        vex.reg(Register.xmm1.id());
         encoder.vex(vex);
         encoder.opcode_1byte(0x16);
-        encoder.modRm_RIPDisp32(AvxRegister.xmm13.lowId());
+        encoder.modRm_RIPDisp32(Register.xmm13.lowId());
         encoder.disp32(0);
         try testing.expectEqualSlices(u8, &[_]u8{ 0xC5, 0x71, 0x16, 0x2D, 0x00, 0x00, 0x00, 0x00 }, code.items);
     }
