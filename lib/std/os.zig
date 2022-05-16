@@ -6926,3 +6926,52 @@ pub fn perf_event_open(
         else => |err| return unexpectedErrno(err),
     }
 }
+
+pub const TimerFdCreateError = error{
+    AccessDenied,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    SystemResources,
+} || UnexpectedError;
+
+pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
+pub const TimerFdSetError = TimerFdGetError || error{Canceled};
+
+pub fn timerfd_create(clokid: i32, flags: u32) TimerFdCreateError!fd_t {
+    var rc = linux.timerfd_create(clokid, flags);
+    return switch (errno(rc)) {
+        .SUCCESS => @intCast(fd_t, rc),
+        .INVAL => unreachable,
+        .MFILE => return error.ProcessFdQuotaExceeded,
+        .NFILE => return error.SystemFdQuotaExceeded,
+        .NODEV => return error.NoDevice,
+        .NOMEM => return error.SystemResources,
+        .PERM => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    };
+}
+
+pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const linux.itimerspec, old_value: ?*linux.itimerspec) TimerFdSetError!void {
+    var rc = linux.timerfd_settime(fd, flags, new_value, old_value);
+    return switch (errno(rc)) {
+        .SUCCESS => {},
+        .BADF => error.InvalidHandle,
+        .FAULT => unreachable,
+        .INVAL => unreachable,
+        .CANCELED => error.Canceled,
+        else => |err| return unexpectedErrno(err),
+    };
+}
+
+pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
+    var curr_value: linux.itimerspec = undefined;
+    var rc = linux.timerfd_gettime(fd, &curr_value);
+    return switch (errno(rc)) {
+        .SUCCESS => return curr_value,
+        .BADF => error.InvalidHandle,
+        .FAULT => unreachable,
+        .INVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
+    };
+}
