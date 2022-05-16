@@ -630,7 +630,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .switch_br       => try self.airSwitch(inst),
             .slice_ptr       => @panic("TODO try self.airSlicePtr(inst)"),
-            .slice_len       => @panic("TODO try self.airSliceLen(inst)"),
+            .slice_len       => try self.airSliceLen(inst),
 
             .ptr_slice_len_ptr => @panic("TODO try self.airPtrSliceLenPtr(inst)"),
             .ptr_slice_ptr_ptr => @panic("TODO try self.airPtrSlicePtrPtr(inst)"),
@@ -1383,6 +1383,27 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
     try self.store(ptr, value, ptr_ty, value_ty);
 
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes = @divExact(ptr_bits, 8);
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach, .none => unreachable,
+            .register => unreachable, // a slice doesn't fit in one register
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off - ptr_bytes };
+            },
+            .memory => |addr| {
+                break :result MCValue{ .memory = addr + ptr_bytes };
+            },
+            else => return self.fail("TODO implement slice_len for {}", .{mcv}),
+        }
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
