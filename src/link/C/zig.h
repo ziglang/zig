@@ -415,15 +415,15 @@ static inline long long zig_subw_longlong(long long lhs, long long rhs, long lon
 static inline bool zig_addo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, int8_t max) {
 #if defined(__GNUC__) && INT8_MAX == INT_MAX
     if (min == INT8_MIN && max == INT8_MAX) {
-        return __builtin_sadd_overflow(lhs, rhs, res);
+        return __builtin_sadd_overflow(lhs, rhs, (int*)res);
     }
 #elif defined(__GNUC__) && INT8_MAX == LONG_MAX
     if (min == INT8_MIN && max == INT8_MAX) {
-        return __builtin_saddl_overflow(lhs, rhs, res);
+        return __builtin_saddl_overflow(lhs, rhs, (long*)res);
     }
 #elif defined(__GNUC__) && INT8_MAX == LLONG_MAX
     if (min == INT8_MIN && max == INT8_MAX) {
-        return __builtin_saddll_overflow(lhs, rhs, res);
+        return __builtin_saddll_overflow(lhs, rhs, (long long*)res);
     }
 #endif
     int16_t big_result = (int16_t)lhs + (int16_t)rhs;
@@ -442,15 +442,15 @@ static inline bool zig_addo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, 
 static inline bool zig_addo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t min, int16_t max) {
 #if defined(__GNUC__) && INT16_MAX == INT_MAX
     if (min == INT16_MIN && max == INT16_MAX) {
-        return __builtin_sadd_overflow(lhs, rhs, res);
+        return __builtin_sadd_overflow(lhs, rhs, (int*)res);
     }
 #elif defined(__GNUC__) && INT16_MAX == LONG_MAX
     if (min == INT16_MIN && max == INT16_MAX) {
-        return __builtin_saddl_overflow(lhs, rhs, res);
+        return __builtin_saddl_overflow(lhs, rhs, (long*)res);
     }
 #elif defined(__GNUC__) && INT16_MAX == LLONG_MAX
     if (min == INT16_MIN && max == INT16_MAX) {
-        return __builtin_saddll_overflow(lhs, rhs, res);
+        return __builtin_saddll_overflow(lhs, rhs, (long long*)res);
     }
 #endif
     int32_t big_result = (int32_t)lhs + (int32_t)rhs;
@@ -469,15 +469,15 @@ static inline bool zig_addo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t 
 static inline bool zig_addo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t min, int32_t max) {
 #if defined(__GNUC__) && INT32_MAX == INT_MAX
     if (min == INT32_MIN && max == INT32_MAX) {
-        return __builtin_sadd_overflow(lhs, rhs, res);
+        return __builtin_sadd_overflow(lhs, rhs, (int*)res);
     }
 #elif defined(__GNUC__) && INT32_MAX == LONG_MAX
     if (min == INT32_MIN && max == INT32_MAX) {
-        return __builtin_saddl_overflow(lhs, rhs, res);
+        return __builtin_saddl_overflow(lhs, rhs, (long*)res);
     }
 #elif defined(__GNUC__) && INT32_MAX == LLONG_MAX
     if (min == INT32_MIN && max == INT32_MAX) {
-        return __builtin_saddll_overflow(lhs, rhs, res);
+        return __builtin_saddll_overflow(lhs, rhs, (long long*)res);
     }
 #endif
     int64_t big_result = (int64_t)lhs + (int64_t)rhs;
@@ -496,11 +496,11 @@ static inline bool zig_addo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t 
 static inline bool zig_addo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t min, int64_t max) {
     bool overflow;
 #if defined(__GNUC__) && INT64_MAX == INT_MAX
-    overflow = __builtin_sadd_overflow(lhs, rhs, res);
+    overflow = __builtin_sadd_overflow(lhs, rhs, (int*)res);
 #elif defined(__GNUC__) && INT64_MAX == LONG_MAX
-    overflow = __builtin_saddl_overflow(lhs, rhs, res);
+    overflow = __builtin_saddl_overflow(lhs, rhs, (long*)res);
 #elif defined(__GNUC__) && INT64_MAX == LLONG_MAX
-    overflow = __builtin_saddll_overflow(lhs, rhs, res);
+    overflow = __builtin_saddll_overflow(lhs, rhs, (long long*)res);
 #else
     int int_overflow;
     *res = __addodi4(lhs, rhs, &int_overflow);
@@ -521,11 +521,11 @@ static inline bool zig_addo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t 
 static inline bool zig_addo_i128(int128_t lhs, int128_t rhs, int128_t *res, int128_t min, int128_t max) {
     bool overflow;
 #if defined(__GNUC__) && INT128_MAX == INT_MAX
-    overflow = __builtin_sadd_overflow(lhs, rhs, res);
+    overflow = __builtin_sadd_overflow(lhs, rhs, (int*)res);
 #elif defined(__GNUC__) && INT128_MAX == LONG_MAX
-    overflow = __builtin_saddl_overflow(lhs, rhs, res);
+    overflow = __builtin_saddl_overflow(lhs, rhs, (long*)res);
 #elif defined(__GNUC__) && INT128_MAX == LLONG_MAX
-    overflow = __builtin_saddll_overflow(lhs, rhs, res);
+    overflow = __builtin_saddll_overflow(lhs, rhs, (long long*)res);
 #else
     int int_overflow;
     *res = __addoti4(lhs, rhs, &int_overflow);
@@ -546,15 +546,15 @@ static inline bool zig_addo_i128(int128_t lhs, int128_t rhs, int128_t *res, int1
 static inline bool zig_addo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t max) {
 #if defined(__GNUC__) && UINT8_MAX == UINT_MAX
     if (max == UINT8_MAX) {
-        return __builtin_uadd_overflow(lhs, rhs, res);
+        return __builtin_uadd_overflow(lhs, rhs, (unsigned int*)res);
     }
 #elif defined(__GNUC__) && UINT8_MAX == ULONG_MAX
     if (max == UINT8_MAX) {
-        return __builtin_uaddl_overflow(lhs, rhs, res);
+        return __builtin_uaddl_overflow(lhs, rhs, (unsigned long*)res);
     }
 #elif defined(__GNUC__) && UINT8_MAX == ULLONG_MAX
     if (max == UINT8_MAX) {
-        return __builtin_uaddll_overflow(lhs, rhs, res);
+        return __builtin_uaddll_overflow(lhs, rhs, (unsigned long long*)res);
     }
 #endif
     uint16_t big_result = (uint16_t)lhs + (uint16_t)rhs;
@@ -569,15 +569,15 @@ static inline bool zig_addo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t m
 static inline uint16_t zig_addo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, uint16_t max) {
 #if defined(__GNUC__) && UINT16_MAX == UINT_MAX
     if (max == UINT16_MAX) {
-        return __builtin_uadd_overflow(lhs, rhs, res);
+        return __builtin_uadd_overflow(lhs, rhs, (unsigned int*)res);
     }
 #elif defined(__GNUC__) && UINT16_MAX == ULONG_MAX
     if (max == UINT16_MAX) {
-        return __builtin_uaddl_overflow(lhs, rhs, res);
+        return __builtin_uaddl_overflow(lhs, rhs, (unsigned long*)res);
     }
 #elif defined(__GNUC__) && UINT16_MAX == ULLONG_MAX
     if (max == UINT16_MAX) {
-        return __builtin_uaddll_overflow(lhs, rhs, res);
+        return __builtin_uaddll_overflow(lhs, rhs, (unsigned long long*)res);
     }
 #endif
     uint32_t big_result = (uint32_t)lhs + (uint32_t)rhs;
@@ -592,15 +592,15 @@ static inline uint16_t zig_addo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, u
 static inline uint32_t zig_addo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, uint32_t max) {
 #if defined(__GNUC__) && UINT32_MAX == UINT_MAX
     if (max == UINT32_MAX) {
-        return __builtin_uadd_overflow(lhs, rhs, res);
+        return __builtin_uadd_overflow(lhs, rhs, (unsigned int*)res);
     }
 #elif defined(__GNUC__) && UINT32_MAX == ULONG_MAX
     if (max == UINT32_MAX) {
-        return __builtin_uaddl_overflow(lhs, rhs, res);
+        return __builtin_uaddl_overflow(lhs, rhs, (unsigned long*)res);
     }
 #elif defined(__GNUC__) && UINT32_MAX == ULLONG_MAX
     if (max == UINT32_MAX) {
-        return __builtin_uaddll_overflow(lhs, rhs, res);
+        return __builtin_uaddll_overflow(lhs, rhs, (unsigned long long*)res);
     }
 #endif
     uint64_t big_result = (uint64_t)lhs + (uint64_t)rhs;
@@ -615,11 +615,11 @@ static inline uint32_t zig_addo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, u
 static inline uint64_t zig_addo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, uint64_t max) {
     bool overflow;
 #if defined(__GNUC__) && UINT64_MAX == UINT_MAX
-    overflow = __builtin_uadd_overflow(lhs, rhs, res);
+    overflow = __builtin_uadd_overflow(lhs, rhs, (unsigned int*)res);
 #elif defined(__GNUC__) && UINT64_MAX == ULONG_MAX
-    overflow = __builtin_uaddl_overflow(lhs, rhs, res);
+    overflow = __builtin_uaddl_overflow(lhs, rhs, (unsigned long*)res);
 #elif defined(__GNUC__) && UINT64_MAX == ULLONG_MAX
-    overflow = __builtin_uaddll_overflow(lhs, rhs, res);
+    overflow = __builtin_uaddll_overflow(lhs, rhs, (unsigned long long*)res);
 #else
     int int_overflow;
     *res = __uaddodi4(lhs, rhs, &int_overflow);
@@ -645,15 +645,15 @@ static inline uint128_t zig_addo_u128(uint128_t lhs, uint128_t rhs, uint128_t *r
 static inline bool zig_subo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, int8_t max) {
 #if defined(__GNUC__) && INT8_MAX == INT_MAX
     if (min == INT8_MIN && max == INT8_MAX) {
-        return __builtin_ssub_overflow(lhs, rhs, res);
+        return __builtin_ssub_overflow(lhs, rhs, (int*)res);
     }
 #elif defined(__GNUC__) && INT8_MAX == LONG_MAX
     if (min == INT8_MIN && max == INT8_MAX) {
-        return __builtin_ssubl_overflow(lhs, rhs, res);
+        return __builtin_ssubl_overflow(lhs, rhs, (long*)res);
     }
 #elif defined(__GNUC__) && INT8_MAX == LLONG_MAX
     if (min == INT8_MIN && max == INT8_MAX) {
-        return __builtin_ssubll_overflow(lhs, rhs, res);
+        return __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
     }
 #endif
     int16_t big_result = (int16_t)lhs - (int16_t)rhs;
@@ -672,15 +672,15 @@ static inline bool zig_subo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, 
 static inline bool zig_subo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t min, int16_t max) {
 #if defined(__GNUC__) && INT16_MAX == INT_MAX
     if (min == INT16_MIN && max == INT16_MAX) {
-        return __builtin_ssub_overflow(lhs, rhs, res);
+        return __builtin_ssub_overflow(lhs, rhs, (int*)res);
     }
 #elif defined(__GNUC__) && INT16_MAX == LONG_MAX
     if (min == INT16_MIN && max == INT16_MAX) {
-        return __builtin_ssubl_overflow(lhs, rhs, res);
+        return __builtin_ssubl_overflow(lhs, rhs, (long*)res);
     }
 #elif defined(__GNUC__) && INT16_MAX == LLONG_MAX
     if (min == INT16_MIN && max == INT16_MAX) {
-        return __builtin_ssubll_overflow(lhs, rhs, res);
+        return __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
     }
 #endif
     int32_t big_result = (int32_t)lhs - (int32_t)rhs;
@@ -699,15 +699,15 @@ static inline bool zig_subo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t 
 static inline bool zig_subo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t min, int32_t max) {
 #if defined(__GNUC__) && INT32_MAX == INT_MAX
     if (min == INT32_MIN && max == INT32_MAX) {
-        return __builtin_ssub_overflow(lhs, rhs, res);
+        return __builtin_ssub_overflow(lhs, rhs, (int*)res);
     }
 #elif defined(__GNUC__) && INT32_MAX == LONG_MAX
     if (min == INT32_MIN && max == INT32_MAX) {
-        return __builtin_ssubl_overflow(lhs, rhs, res);
+        return __builtin_ssubl_overflow(lhs, rhs, (long*)res);
     }
 #elif defined(__GNUC__) && INT32_MAX == LLONG_MAX
     if (min == INT32_MIN && max == INT32_MAX) {
-        return __builtin_ssubll_overflow(lhs, rhs, res);
+        return __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
     }
 #endif
     int64_t big_result = (int64_t)lhs - (int64_t)rhs;
@@ -726,11 +726,11 @@ static inline bool zig_subo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t 
 static inline bool zig_subo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t min, int64_t max) {
     bool overflow;
 #if defined(__GNUC__) && INT64_MAX == INT_MAX
-    overflow = __builtin_ssub_overflow(lhs, rhs, res);
+    overflow = __builtin_ssub_overflow(lhs, rhs, (int*)res);
 #elif defined(__GNUC__) && INT64_MAX == LONG_MAX
-    overflow = __builtin_ssubl_overflow(lhs, rhs, res);
+    overflow = __builtin_ssubl_overflow(lhs, rhs, (long*)res);
 #elif defined(__GNUC__) && INT64_MAX == LLONG_MAX
-    overflow = __builtin_ssubll_overflow(lhs, rhs, res);
+    overflow = __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
 #else
     int int_overflow;
     *res = __subodi4(lhs, rhs, &int_overflow);
@@ -751,11 +751,11 @@ static inline bool zig_subo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t 
 static inline bool zig_subo_i128(int128_t lhs, int128_t rhs, int128_t *res, int128_t min, int128_t max) {
     bool overflow;
 #if defined(__GNUC__) && INT128_MAX == INT_MAX
-    overflow = __builtin_ssub_overflow(lhs, rhs, res);
+    overflow = __builtin_ssub_overflow(lhs, rhs, (int*)res);
 #elif defined(__GNUC__) && INT128_MAX == LONG_MAX
-    overflow = __builtin_ssubl_overflow(lhs, rhs, res);
+    overflow = __builtin_ssubl_overflow(lhs, rhs, (long*)res);
 #elif defined(__GNUC__) && INT128_MAX == LLONG_MAX
-    overflow = __builtin_ssubll_overflow(lhs, rhs, res);
+    overflow = __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
 #else
     int int_overflow;
     *res = __suboti4(lhs, rhs, &int_overflow);
@@ -775,11 +775,11 @@ static inline bool zig_subo_i128(int128_t lhs, int128_t rhs, int128_t *res, int1
 
 static inline bool zig_subo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t max) {
 #if defined(__GNUC__) && UINT8_MAX == UINT_MAX
-    return __builtin_usub_overflow(lhs, rhs, res);
+    return __builtin_usub_overflow(lhs, rhs, (unsigned int*)res);
 #elif defined(__GNUC__) && UINT8_MAX == ULONG_MAX
-    return __builtin_usubl_overflow(lhs, rhs, res);
+    return __builtin_usubl_overflow(lhs, rhs, (unsigned long*)res);
 #elif defined(__GNUC__) && UINT8_MAX == ULLONG_MAX
-    return __builtin_usubll_overflow(lhs, rhs, res);
+    return __builtin_usubll_overflow(lhs, rhs, (unsigned long long*)res);
 #endif
     if (rhs > lhs) {
         *res = max - (rhs - lhs - 1);
@@ -791,11 +791,11 @@ static inline bool zig_subo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t m
 
 static inline uint16_t zig_subo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, uint16_t max) {
 #if defined(__GNUC__) && UINT16_MAX == UINT_MAX
-    return __builtin_usub_overflow(lhs, rhs, res);
+    return __builtin_usub_overflow(lhs, rhs, (unsigned int*)res);
 #elif defined(__GNUC__) && UINT16_MAX == ULONG_MAX
-    return __builtin_usubl_overflow(lhs, rhs, res);
+    return __builtin_usubl_overflow(lhs, rhs, (unsigned long*)res);
 #elif defined(__GNUC__) && UINT16_MAX == ULLONG_MAX
-    return __builtin_usubll_overflow(lhs, rhs, res);
+    return __builtin_usubll_overflow(lhs, rhs, (unsigned long long*)res);
 #endif
     if (rhs > lhs) {
         *res = max - (rhs - lhs - 1);
@@ -808,11 +808,11 @@ static inline uint16_t zig_subo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, u
 static inline uint32_t zig_subo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, uint32_t max) {
     if (max == UINT32_MAX) {
 #if defined(__GNUC__) && UINT32_MAX == UINT_MAX
-        return __builtin_usub_overflow(lhs, rhs, res);
+        return __builtin_usub_overflow(lhs, rhs, (unsigned int*)res);
 #elif defined(__GNUC__) && UINT32_MAX == ULONG_MAX
-        return __builtin_usubl_overflow(lhs, rhs, res);
+        return __builtin_usubl_overflow(lhs, rhs, (unsigned long*)res);
 #elif defined(__GNUC__) && UINT32_MAX == ULLONG_MAX
-        return __builtin_usubll_overflow(lhs, rhs, res);
+        return __builtin_usubll_overflow(lhs, rhs, (unsigned long long*)res);
 #endif
         int int_overflow;
         *res = __usubosi4(lhs, rhs, &int_overflow);
@@ -830,11 +830,11 @@ static inline uint32_t zig_subo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, u
 static inline uint64_t zig_subo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, uint64_t max) {
     if (max == UINT64_MAX) {
 #if defined(__GNUC__) && UINT64_MAX == UINT_MAX
-        return __builtin_usub_overflow(lhs, rhs, res);
+        return __builtin_usub_overflow(lhs, rhs, (unsigned int*)res);
 #elif defined(__GNUC__) && UINT64_MAX == ULONG_MAX
-        return __builtin_usubl_overflow(lhs, rhs, res);
+        return __builtin_usubl_overflow(lhs, rhs, (unsigned long*)res);
 #elif defined(__GNUC__) && UINT64_MAX == ULLONG_MAX
-        return __builtin_usubll_overflow(lhs, rhs, res);
+        return __builtin_usubll_overflow(lhs, rhs, (unsigned long long*)res);
 #else
         int int_overflow;
         *res = __usubodi4(lhs, rhs, &int_overflow);
@@ -868,15 +868,15 @@ static inline uint128_t zig_subo_u128(uint128_t lhs, uint128_t rhs, uint128_t *r
 static inline bool zig_mulo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, int8_t max) {
 #if defined(__GNUC__) && INT8_MAX == INT_MAX
     if (min == INT8_MIN && max == INT8_MAX) {
-        return __builtin_smul_overflow(lhs, rhs, res);
+        return __builtin_smul_overflow(lhs, rhs, (int*)res);
     }
 #elif defined(__GNUC__) && INT8_MAX == LONG_MAX
     if (min == INT8_MIN && max == INT8_MAX) {
-        return __builtin_smull_overflow(lhs, rhs, res);
+        return __builtin_smull_overflow(lhs, rhs, (long*)res);
     }
 #elif defined(__GNUC__) && INT8_MAX == LLONG_MAX
     if (min == INT8_MIN && max == INT8_MAX) {
-        return __builtin_smulll_overflow(lhs, rhs, res);
+        return __builtin_smulll_overflow(lhs, rhs, (long long*)res);
     }
 #endif
     int16_t big_result = (int16_t)lhs * (int16_t)rhs;
@@ -895,15 +895,15 @@ static inline bool zig_mulo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, 
 static inline bool zig_mulo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t min, int16_t max) {
 #if defined(__GNUC__) && INT16_MAX == INT_MAX
     if (min == INT16_MIN && max == INT16_MAX) {
-        return __builtin_smul_overflow(lhs, rhs, res);
+        return __builtin_smul_overflow(lhs, rhs, (int*)res);
     }
 #elif defined(__GNUC__) && INT16_MAX == LONG_MAX
     if (min == INT16_MIN && max == INT16_MAX) {
-        return __builtin_smull_overflow(lhs, rhs, res);
+        return __builtin_smull_overflow(lhs, rhs, (long*)res);
     }
 #elif defined(__GNUC__) && INT16_MAX == LLONG_MAX
     if (min == INT16_MIN && max == INT16_MAX) {
-        return __builtin_smulll_overflow(lhs, rhs, res);
+        return __builtin_smulll_overflow(lhs, rhs, (long long*)res);
     }
 #endif
     int32_t big_result = (int32_t)lhs * (int32_t)rhs;
@@ -922,15 +922,15 @@ static inline bool zig_mulo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t 
 static inline bool zig_mulo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t min, int32_t max) {
 #if defined(__GNUC__) && INT32_MAX == INT_MAX
     if (min == INT32_MIN && max == INT32_MAX) {
-        return __builtin_smul_overflow(lhs, rhs, res);
+        return __builtin_smul_overflow(lhs, rhs, (int*)res);
     }
 #elif defined(__GNUC__) && INT32_MAX == LONG_MAX
     if (min == INT32_MIN && max == INT32_MAX) {
-        return __builtin_smull_overflow(lhs, rhs, res);
+        return __builtin_smull_overflow(lhs, rhs, (long*)res);
     }
 #elif defined(__GNUC__) && INT32_MAX == LLONG_MAX
     if (min == INT32_MIN && max == INT32_MAX) {
-        return __builtin_smulll_overflow(lhs, rhs, res);
+        return __builtin_smulll_overflow(lhs, rhs, (long long*)res);
     }
 #endif
     int64_t big_result = (int64_t)lhs * (int64_t)rhs;
@@ -949,11 +949,11 @@ static inline bool zig_mulo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t 
 static inline bool zig_mulo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t min, int64_t max) {
     bool overflow;
 #if defined(__GNUC__) && INT64_MAX == INT_MAX
-    overflow = __builtin_smul_overflow(lhs, rhs, res);
+    overflow = __builtin_smul_overflow(lhs, rhs, (int*)res);
 #elif defined(__GNUC__) && INT64_MAX == LONG_MAX
-    overflow = __builtin_smull_overflow(lhs, rhs, res);
+    overflow = __builtin_smull_overflow(lhs, rhs, (long*)res);
 #elif defined(__GNUC__) && INT64_MAX == LLONG_MAX
-    overflow = __builtin_smulll_overflow(lhs, rhs, res);
+    overflow = __builtin_smulll_overflow(lhs, rhs, (long long*)res);
 #else
     int int_overflow;
     *res = __mulodi4(lhs, rhs, &int_overflow);
@@ -974,11 +974,11 @@ static inline bool zig_mulo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t 
 static inline bool zig_mulo_i128(int128_t lhs, int128_t rhs, int128_t *res, int128_t min, int128_t max) {
     bool overflow;
 #if defined(__GNUC__) && INT128_MAX == INT_MAX
-    overflow = __builtin_smul_overflow(lhs, rhs, res);
+    overflow = __builtin_smul_overflow(lhs, rhs, (int*)res);
 #elif defined(__GNUC__) && INT128_MAX == LONG_MAX
-    overflow = __builtin_smull_overflow(lhs, rhs, res);
+    overflow = __builtin_smull_overflow(lhs, rhs, (long*)res);
 #elif defined(__GNUC__) && INT128_MAX == LLONG_MAX
-    overflow = __builtin_smulll_overflow(lhs, rhs, res);
+    overflow = __builtin_smulll_overflow(lhs, rhs, (long long*)res);
 #else
     int int_overflow;
     *res = __muloti4(lhs, rhs, &int_overflow);
@@ -999,15 +999,15 @@ static inline bool zig_mulo_i128(int128_t lhs, int128_t rhs, int128_t *res, int1
 static inline bool zig_mulo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t max) {
 #if defined(__GNUC__) && UINT8_MAX == UINT_MAX
     if (max == UINT8_MAX) {
-        return __builtin_umul_overflow(lhs, rhs, res);
+        return __builtin_umul_overflow(lhs, rhs, (unsigned int*)res);
     }
 #elif defined(__GNUC__) && UINT8_MAX == ULONG_MAX
     if (max == UINT8_MAX) {
-        return __builtin_umull_overflow(lhs, rhs, res);
+        return __builtin_umull_overflow(lhs, rhs, (unsigned long*)res);
     }
 #elif defined(__GNUC__) && UINT8_MAX == ULLONG_MAX
     if (max == UINT8_MAX) {
-        return __builtin_umulll_overflow(lhs, rhs, res);
+        return __builtin_umulll_overflow(lhs, rhs, (unsigned long long*)res);
     }
 #endif
     uint16_t big_result = (uint16_t)lhs * (uint16_t)rhs;
@@ -1022,15 +1022,15 @@ static inline bool zig_mulo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t m
 static inline uint16_t zig_mulo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, uint16_t max) {
 #if defined(__GNUC__) && UINT16_MAX == UINT_MAX
     if (max == UINT16_MAX) {
-        return __builtin_umul_overflow(lhs, rhs, res);
+        return __builtin_umul_overflow(lhs, rhs, (unsigned int*)res);
     }
 #elif defined(__GNUC__) && UINT16_MAX == ULONG_MAX
     if (max == UINT16_MAX) {
-        return __builtin_umull_overflow(lhs, rhs, res);
+        return __builtin_umull_overflow(lhs, rhs, (unsigned long*)res);
     }
 #elif defined(__GNUC__) && UINT16_MAX == ULLONG_MAX
     if (max == UINT16_MAX) {
-        return __builtin_umulll_overflow(lhs, rhs, res);
+        return __builtin_umulll_overflow(lhs, rhs, (unsigned long long*)res);
     }
 #endif
     uint32_t big_result = (uint32_t)lhs * (uint32_t)rhs;
@@ -1045,15 +1045,15 @@ static inline uint16_t zig_mulo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, u
 static inline uint32_t zig_mulo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, uint32_t max) {
 #if defined(__GNUC__) && UINT32_MAX == UINT_MAX
     if (max == UINT32_MAX) {
-        return __builtin_umul_overflow(lhs, rhs, res);
+        return __builtin_umul_overflow(lhs, rhs, (unsigned int*)res);
     }
 #elif defined(__GNUC__) && UINT32_MAX == ULONG_MAX
     if (max == UINT32_MAX) {
-        return __builtin_umull_overflow(lhs, rhs, res);
+        return __builtin_umull_overflow(lhs, rhs, (unsigned long*)res);
     }
 #elif defined(__GNUC__) && UINT32_MAX == ULLONG_MAX
     if (max == UINT32_MAX) {
-        return __builtin_umulll_overflow(lhs, rhs, res);
+        return __builtin_umulll_overflow(lhs, rhs, (unsigned long long*)res);
     }
 #endif
     uint64_t big_result = (uint64_t)lhs * (uint64_t)rhs;
@@ -1068,11 +1068,11 @@ static inline uint32_t zig_mulo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, u
 static inline uint64_t zig_mulo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, uint64_t max) {
     bool overflow;
 #if defined(__GNUC__) && UINT64_MAX == UINT_MAX
-    overflow = __builtin_umul_overflow(lhs, rhs, res);
+    overflow = __builtin_umul_overflow(lhs, rhs, (unsigned int*)res);
 #elif defined(__GNUC__) && UINT64_MAX == ULONG_MAX
-    overflow = __builtin_umull_overflow(lhs, rhs, res);
+    overflow = __builtin_umull_overflow(lhs, rhs, (unsigned long*)res);
 #elif defined(__GNUC__) && UINT64_MAX == ULLONG_MAX
-    overflow = __builtin_umulll_overflow(lhs, rhs, res);
+    overflow = __builtin_umulll_overflow(lhs, rhs, (unsigned long long*)res);
 #else
     int int_overflow;
     *res = __umulodi4(lhs, rhs, &int_overflow);
