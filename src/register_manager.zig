@@ -23,15 +23,10 @@ pub const AllocateRegistersError = error{
     CodegenFail,
 };
 
-pub fn SpillFn(comptime Function: type, comptime Register: type) type {
-    return fn (*Function, Register, Air.Inst.Index) anyerror!void;
-}
-
 pub fn RegisterManager(
     comptime Function: type,
     comptime Register: type,
     comptime tracked_registers: []const Register,
-    comptime spill_fn: SpillFn(Function, Register),
 ) type {
     // architectures which do not have a concept of registers should
     // refrain from using RegisterManager
@@ -52,7 +47,6 @@ pub fn RegisterManager(
         allocated_registers: FreeRegInt = 0,
         /// Tracks registers which are locked from being allocated
         locked_registers: FreeRegInt = 0,
-        function: *Function,
 
         const Self = @This();
 
@@ -61,8 +55,8 @@ pub fn RegisterManager(
         const FreeRegInt = std.meta.Int(.unsigned, tracked_registers.len);
         const ShiftInt = math.Log2Int(FreeRegInt);
 
-        fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) AllocateRegistersError!void {
-            return try spill_fn(self.function, reg, inst);
+        fn getFunction(self: *Self) *Function {
+            return @fieldParentPtr(Function, "register_manager", self);
         }
 
         fn getRegisterMask(reg: Register) ?FreeRegInt {
@@ -257,14 +251,14 @@ pub fn RegisterManager(
                             self.markRegUsed(reg);
                         } else {
                             const spilled_inst = self.registers[index];
-                            try self.spillInstruction(reg, spilled_inst);
+                            try self.getFunction().spillInstruction(reg, spilled_inst);
                         }
                         self.registers[index] = inst;
                     } else {
                         // Don't track the register
                         if (!self.isRegFree(reg)) {
                             const spilled_inst = self.registers[index];
-                            try self.spillInstruction(reg, spilled_inst);
+                            try self.getFunction().spillInstruction(reg, spilled_inst);
                             self.freeReg(reg);
                         }
                     }
@@ -299,7 +293,7 @@ pub fn RegisterManager(
                     // stack allocation.
                     const spilled_inst = self.registers[index];
                     self.registers[index] = tracked_inst;
-                    try self.spillInstruction(reg, spilled_inst);
+                    try self.getFunction().spillInstruction(reg, spilled_inst);
                 } else {
                     self.getRegAssumeFree(reg, tracked_inst);
                 }
@@ -308,7 +302,7 @@ pub fn RegisterManager(
                     // Move the instruction that was previously there to a
                     // stack allocation.
                     const spilled_inst = self.registers[index];
-                    try self.spillInstruction(reg, spilled_inst);
+                    try self.getFunction().spillInstruction(reg, spilled_inst);
                     self.freeReg(reg);
                 }
             }
@@ -338,253 +332,253 @@ pub fn RegisterManager(
     };
 }
 
-//const MockRegister1 = enum(u2) {
-//    r0,
-//    r1,
-//    r2,
-//    r3,
+const MockRegister1 = enum(u2) {
+    r0,
+    r1,
+    r2,
+    r3,
 
-//    pub fn id(reg: MockRegister1) u2 {
-//        return @enumToInt(reg);
-//    }
+    pub fn id(reg: MockRegister1) u2 {
+        return @enumToInt(reg);
+    }
 
-//    const allocatable_registers = [_]MockRegister1{ .r2, .r3 };
-//};
+    const allocatable_registers = [_]MockRegister1{ .r2, .r3 };
+};
 
-//const MockRegister2 = enum(u2) {
-//    r0,
-//    r1,
-//    r2,
-//    r3,
+const MockRegister2 = enum(u2) {
+    r0,
+    r1,
+    r2,
+    r3,
 
-//    pub fn id(reg: MockRegister2) u2 {
-//        return @enumToInt(reg);
-//    }
+    pub fn id(reg: MockRegister2) u2 {
+        return @enumToInt(reg);
+    }
 
-//    const allocatable_registers = [_]MockRegister2{ .r0, .r1, .r2, .r3 };
-//};
+    const allocatable_registers = [_]MockRegister2{ .r0, .r1, .r2, .r3 };
+};
 
-//fn MockFunction(comptime Register: type) type {
-//    return struct {
-//        allocator: Allocator,
-//        register_manager: RegisterManager(Self, Register, &Register.allocatable_registers) = .{},
-//        spilled: std.ArrayListUnmanaged(Register) = .{},
+fn MockFunction(comptime Register: type) type {
+    return struct {
+        allocator: Allocator,
+        register_manager: RegisterManager(Self, Register, &Register.allocatable_registers) = .{},
+        spilled: std.ArrayListUnmanaged(Register) = .{},
 
-//        const Self = @This();
+        const Self = @This();
 
-//        pub fn deinit(self: *Self) void {
-//            self.spilled.deinit(self.allocator);
-//        }
+        pub fn deinit(self: *Self) void {
+            self.spilled.deinit(self.allocator);
+        }
 
-//        pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
-//            _ = inst;
-//            try self.spilled.append(self.allocator, reg);
-//        }
+        pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
+            _ = inst;
+            try self.spilled.append(self.allocator, reg);
+        }
 
-//        pub fn genAdd(self: *Self, res: Register, lhs: Register, rhs: Register) !void {
-//            _ = self;
-//            _ = res;
-//            _ = lhs;
-//            _ = rhs;
-//        }
-//    };
-//}
+        pub fn genAdd(self: *Self, res: Register, lhs: Register, rhs: Register) !void {
+            _ = self;
+            _ = res;
+            _ = lhs;
+            _ = rhs;
+        }
+    };
+}
 
-//const MockFunction1 = MockFunction(MockRegister1);
-//const MockFunction2 = MockFunction(MockRegister2);
+const MockFunction1 = MockFunction(MockRegister1);
+const MockFunction2 = MockFunction(MockRegister2);
 
-//test "default state" {
-//    const allocator = std.testing.allocator;
+test "default state" {
+    const allocator = std.testing.allocator;
 
-//    var function = MockFunction1{
-//        .allocator = allocator,
-//    };
-//    defer function.deinit();
+    var function = MockFunction1{
+        .allocator = allocator,
+    };
+    defer function.deinit();
 
-//    try expect(!function.register_manager.isRegAllocated(.r2));
-//    try expect(!function.register_manager.isRegAllocated(.r3));
-//    try expect(function.register_manager.isRegFree(.r2));
-//    try expect(function.register_manager.isRegFree(.r3));
-//}
+    try expect(!function.register_manager.isRegAllocated(.r2));
+    try expect(!function.register_manager.isRegAllocated(.r3));
+    try expect(function.register_manager.isRegFree(.r2));
+    try expect(function.register_manager.isRegFree(.r3));
+}
 
-//test "tryAllocReg: no spilling" {
-//    const allocator = std.testing.allocator;
+test "tryAllocReg: no spilling" {
+    const allocator = std.testing.allocator;
 
-//    var function = MockFunction1{
-//        .allocator = allocator,
-//    };
-//    defer function.deinit();
+    var function = MockFunction1{
+        .allocator = allocator,
+    };
+    defer function.deinit();
 
-//    const mock_instruction: Air.Inst.Index = 1;
+    const mock_instruction: Air.Inst.Index = 1;
 
-//    try expectEqual(@as(?MockRegister1, .r2), function.register_manager.tryAllocReg(mock_instruction));
-//    try expectEqual(@as(?MockRegister1, .r3), function.register_manager.tryAllocReg(mock_instruction));
-//    try expectEqual(@as(?MockRegister1, null), function.register_manager.tryAllocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r2), function.register_manager.tryAllocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r3), function.register_manager.tryAllocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, null), function.register_manager.tryAllocReg(mock_instruction));
 
-//    try expect(function.register_manager.isRegAllocated(.r2));
-//    try expect(function.register_manager.isRegAllocated(.r3));
-//    try expect(!function.register_manager.isRegFree(.r2));
-//    try expect(!function.register_manager.isRegFree(.r3));
+    try expect(function.register_manager.isRegAllocated(.r2));
+    try expect(function.register_manager.isRegAllocated(.r3));
+    try expect(!function.register_manager.isRegFree(.r2));
+    try expect(!function.register_manager.isRegFree(.r3));
 
-//    function.register_manager.freeReg(.r2);
-//    function.register_manager.freeReg(.r3);
+    function.register_manager.freeReg(.r2);
+    function.register_manager.freeReg(.r3);
 
-//    try expect(function.register_manager.isRegAllocated(.r2));
-//    try expect(function.register_manager.isRegAllocated(.r3));
-//    try expect(function.register_manager.isRegFree(.r2));
-//    try expect(function.register_manager.isRegFree(.r3));
-//}
+    try expect(function.register_manager.isRegAllocated(.r2));
+    try expect(function.register_manager.isRegAllocated(.r3));
+    try expect(function.register_manager.isRegFree(.r2));
+    try expect(function.register_manager.isRegFree(.r3));
+}
 
-//test "allocReg: spilling" {
-//    const allocator = std.testing.allocator;
+test "allocReg: spilling" {
+    const allocator = std.testing.allocator;
 
-//    var function = MockFunction1{
-//        .allocator = allocator,
-//    };
-//    defer function.deinit();
+    var function = MockFunction1{
+        .allocator = allocator,
+    };
+    defer function.deinit();
 
-//    const mock_instruction: Air.Inst.Index = 1;
+    const mock_instruction: Air.Inst.Index = 1;
 
-//    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction));
-//    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
 
-//    // Spill a register
-//    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction));
-//    try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
+    // Spill a register
+    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction));
+    try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
 
-//    // No spilling necessary
-//    function.register_manager.freeReg(.r3);
-//    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
-//    try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
+    // No spilling necessary
+    function.register_manager.freeReg(.r3);
+    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
+    try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
 
-//    // Locked registers
-//    function.register_manager.freeReg(.r3);
-//    {
-//        const lock = function.register_manager.lockReg(.r2);
-//        defer if (lock) |reg| function.register_manager.unlockReg(reg);
+    // Locked registers
+    function.register_manager.freeReg(.r3);
+    {
+        const lock = function.register_manager.lockReg(.r2);
+        defer if (lock) |reg| function.register_manager.unlockReg(reg);
 
-//        try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
-//    }
-//    try expect(!function.register_manager.lockedRegsExist());
-//}
+        try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
+    }
+    try expect(!function.register_manager.lockedRegsExist());
+}
 
-//test "tryAllocRegs" {
-//    const allocator = std.testing.allocator;
+test "tryAllocRegs" {
+    const allocator = std.testing.allocator;
 
-//    var function = MockFunction2{
-//        .allocator = allocator,
-//    };
-//    defer function.deinit();
+    var function = MockFunction2{
+        .allocator = allocator,
+    };
+    defer function.deinit();
 
-//    try expectEqual([_]MockRegister2{ .r0, .r1, .r2 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
+    try expectEqual([_]MockRegister2{ .r0, .r1, .r2 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
 
-//    try expect(function.register_manager.isRegAllocated(.r0));
-//    try expect(function.register_manager.isRegAllocated(.r1));
-//    try expect(function.register_manager.isRegAllocated(.r2));
-//    try expect(!function.register_manager.isRegAllocated(.r3));
+    try expect(function.register_manager.isRegAllocated(.r0));
+    try expect(function.register_manager.isRegAllocated(.r1));
+    try expect(function.register_manager.isRegAllocated(.r2));
+    try expect(!function.register_manager.isRegAllocated(.r3));
 
-//    // Locked registers
-//    function.register_manager.freeReg(.r0);
-//    function.register_manager.freeReg(.r2);
-//    function.register_manager.freeReg(.r3);
-//    {
-//        const lock = function.register_manager.lockReg(.r1);
-//        defer if (lock) |reg| function.register_manager.unlockReg(reg);
+    // Locked registers
+    function.register_manager.freeReg(.r0);
+    function.register_manager.freeReg(.r2);
+    function.register_manager.freeReg(.r3);
+    {
+        const lock = function.register_manager.lockReg(.r1);
+        defer if (lock) |reg| function.register_manager.unlockReg(reg);
 
-//        try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
-//    }
-//    try expect(!function.register_manager.lockedRegsExist());
+        try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
+    }
+    try expect(!function.register_manager.lockedRegsExist());
 
-//    try expect(function.register_manager.isRegAllocated(.r0));
-//    try expect(function.register_manager.isRegAllocated(.r1));
-//    try expect(function.register_manager.isRegAllocated(.r2));
-//    try expect(function.register_manager.isRegAllocated(.r3));
-//}
+    try expect(function.register_manager.isRegAllocated(.r0));
+    try expect(function.register_manager.isRegAllocated(.r1));
+    try expect(function.register_manager.isRegAllocated(.r2));
+    try expect(function.register_manager.isRegAllocated(.r3));
+}
 
-//test "allocRegs: normal usage" {
-//    // TODO: convert this into a decltest once that is supported
+test "allocRegs: normal usage" {
+    // TODO: convert this into a decltest once that is supported
 
-//    const allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
 
-//    var function = MockFunction2{
-//        .allocator = allocator,
-//    };
-//    defer function.deinit();
+    var function = MockFunction2{
+        .allocator = allocator,
+    };
+    defer function.deinit();
 
-//    {
-//        const result_reg: MockRegister2 = .r1;
+    {
+        const result_reg: MockRegister2 = .r1;
 
-//        // The result register is known and fixed at this point, we
-//        // don't want to accidentally allocate lhs or rhs to the
-//        // result register, this is why we lock it.
-//        //
-//        // Using defer unlock right after lock is a good idea in
-//        // most cases as you probably are using the locked registers
-//        // in the remainder of this scope and don't need to use it
-//        // after the end of this scope. However, in some situations,
-//        // it may make sense to manually unlock registers before the
-//        // end of the scope when you are certain that they don't
-//        // contain any valuable data anymore and can be reused. For an
-//        // example of that, see `selectively reducing register
-//        // pressure`.
-//        const lock = function.register_manager.lockReg(result_reg);
-//        defer if (lock) |reg| function.register_manager.unlockReg(reg);
+        // The result register is known and fixed at this point, we
+        // don't want to accidentally allocate lhs or rhs to the
+        // result register, this is why we lock it.
+        //
+        // Using defer unlock right after lock is a good idea in
+        // most cases as you probably are using the locked registers
+        // in the remainder of this scope and don't need to use it
+        // after the end of this scope. However, in some situations,
+        // it may make sense to manually unlock registers before the
+        // end of the scope when you are certain that they don't
+        // contain any valuable data anymore and can be reused. For an
+        // example of that, see `selectively reducing register
+        // pressure`.
+        const lock = function.register_manager.lockReg(result_reg);
+        defer if (lock) |reg| function.register_manager.unlockReg(reg);
 
-//        const regs = try function.register_manager.allocRegs(2, .{ null, null });
-//        try function.genAdd(result_reg, regs[0], regs[1]);
-//    }
-//}
+        const regs = try function.register_manager.allocRegs(2, .{ null, null });
+        try function.genAdd(result_reg, regs[0], regs[1]);
+    }
+}
 
-//test "allocRegs: selectively reducing register pressure" {
-//    // TODO: convert this into a decltest once that is supported
+test "allocRegs: selectively reducing register pressure" {
+    // TODO: convert this into a decltest once that is supported
 
-//    const allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
 
-//    var function = MockFunction2{
-//        .allocator = allocator,
-//    };
-//    defer function.deinit();
+    var function = MockFunction2{
+        .allocator = allocator,
+    };
+    defer function.deinit();
 
-//    {
-//        const result_reg: MockRegister2 = .r1;
+    {
+        const result_reg: MockRegister2 = .r1;
 
-//        const lock = function.register_manager.lockReg(result_reg);
+        const lock = function.register_manager.lockReg(result_reg);
 
-//        // Here, we don't defer unlock because we manually unlock
-//        // after genAdd
-//        const regs = try function.register_manager.allocRegs(2, .{ null, null });
+        // Here, we don't defer unlock because we manually unlock
+        // after genAdd
+        const regs = try function.register_manager.allocRegs(2, .{ null, null });
 
-//        try function.genAdd(result_reg, regs[0], regs[1]);
-//        function.register_manager.unlockReg(lock.?);
+        try function.genAdd(result_reg, regs[0], regs[1]);
+        function.register_manager.unlockReg(lock.?);
 
-//        const extra_summand_reg = try function.register_manager.allocReg(null);
-//        try function.genAdd(result_reg, result_reg, extra_summand_reg);
-//    }
-//}
+        const extra_summand_reg = try function.register_manager.allocReg(null);
+        try function.genAdd(result_reg, result_reg, extra_summand_reg);
+    }
+}
 
-//test "getReg" {
-//    const allocator = std.testing.allocator;
+test "getReg" {
+    const allocator = std.testing.allocator;
 
-//    var function = MockFunction1{
-//        .allocator = allocator,
-//    };
-//    defer function.deinit();
+    var function = MockFunction1{
+        .allocator = allocator,
+    };
+    defer function.deinit();
 
-//    const mock_instruction: Air.Inst.Index = 1;
+    const mock_instruction: Air.Inst.Index = 1;
 
-//    try function.register_manager.getReg(.r3, mock_instruction);
+    try function.register_manager.getReg(.r3, mock_instruction);
 
-//    try expect(!function.register_manager.isRegAllocated(.r2));
-//    try expect(function.register_manager.isRegAllocated(.r3));
-//    try expect(function.register_manager.isRegFree(.r2));
-//    try expect(!function.register_manager.isRegFree(.r3));
+    try expect(!function.register_manager.isRegAllocated(.r2));
+    try expect(function.register_manager.isRegAllocated(.r3));
+    try expect(function.register_manager.isRegFree(.r2));
+    try expect(!function.register_manager.isRegFree(.r3));
 
-//    // Spill r3
-//    try function.register_manager.getReg(.r3, mock_instruction);
+    // Spill r3
+    try function.register_manager.getReg(.r3, mock_instruction);
 
-//    try expect(!function.register_manager.isRegAllocated(.r2));
-//    try expect(function.register_manager.isRegAllocated(.r3));
-//    try expect(function.register_manager.isRegFree(.r2));
-//    try expect(!function.register_manager.isRegFree(.r3));
-//    try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r3}, function.spilled.items);
-//}
+    try expect(!function.register_manager.isRegAllocated(.r2));
+    try expect(function.register_manager.isRegAllocated(.r3));
+    try expect(function.register_manager.isRegFree(.r2));
+    try expect(!function.register_manager.isRegFree(.r3));
+    try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r3}, function.spilled.items);
+}

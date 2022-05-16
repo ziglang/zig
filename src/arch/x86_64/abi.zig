@@ -3,7 +3,6 @@ const Type = @import("../../type.zig").Type;
 const Target = std.Target;
 const assert = std.debug.assert;
 const Register = @import("bits.zig").Register;
-const AvxRegister = @import("bits.zig").AvxRegister;
 
 pub const Class = enum { integer, sse, sseup, x87, x87up, complex_x87, memory, none };
 
@@ -379,11 +378,17 @@ pub const callee_preserved_regs = [_]Register{ .rbx, .r12, .r13, .r14, .r15 };
 /// the caller relinquishes control to a subroutine via call instruction (or similar).
 /// In other words, these registers are free to use by the callee.
 pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
-pub const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs;
-pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
-pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
-
-pub const avx_regs = [_]AvxRegister{
+pub const avx_regs = [_]Register{
     .ymm0, .ymm1, .ymm2,  .ymm3,  .ymm4,  .ymm5,  .ymm6,  .ymm7,
     .ymm8, .ymm9, .ymm10, .ymm11, .ymm12, .ymm13, .ymm14, .ymm15,
 };
+pub const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs ++ avx_regs;
+
+// Masks for register manager
+const FreeRegInt = std.meta.Int(.unsigned, allocatable_registers.len);
+// TODO
+pub const gp_mask: FreeRegInt = 0x3fff;
+pub const avx_mask: FreeRegInt = 0x3fff_c000;
+
+pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
