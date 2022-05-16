@@ -115,6 +115,10 @@ pub const Inst = struct {
         /// A.61 Trap on Integer Condition Codes (Tcc)
         /// This uses the trap field.
         tcc,
+
+        // TODO add synthetic instructions
+        // TODO add cmp synthetic instruction to avoid wasting a register when
+        // comparing with subcc
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
