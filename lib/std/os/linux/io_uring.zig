@@ -2943,3 +2943,71 @@ test "linkat" {
     const read = try second_file.readAll(&second_file_data);
     try testing.expectEqualStrings("hello", second_file_data[0..read]);
 }
+
+/// Used for testing server/client interactions.
+const SocketTestHarness = struct {
+    listener: os.socket_t,
+    server: os.socket_t,
+    client: os.socket_t,
+
+    fn close(self: SocketTestHarness) void {
+        os.closeSocket(self.client);
+        os.closeSocket(self.listener);
+    }
+};
+
+fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
+    // Create a TCP server socket
+
+    const address = try net.Address.parseIp4("127.0.0.1", 3131);
+    const kernel_backlog = 1;
+    const listener_socket = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+    errdefer os.closeSocket(listener_socket);
+
+    try os.setsockopt(listener_socket, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+    try os.bind(listener_socket, &address.any, address.getOsSockLen());
+    try os.listen(listener_socket, kernel_backlog);
+
+    // Submit 1 accept
+    var accept_addr: os.sockaddr = undefined;
+    var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
+    _ = try ring.accept(0xaaaaaaaa, listener_socket, &accept_addr, &accept_addr_len, 0);
+
+    // Create a TCP client socket
+    const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+    errdefer os.closeSocket(client);
+    _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
+
+    try testing.expectEqual(@as(u32, 2), try ring.submit());
+
+    var cqe_accept = try ring.copy_cqe();
+    if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
+    var cqe_connect = try ring.copy_cqe();
+    if (cqe_connect.err() == .INVAL) return error.SkipZigTest;
+
+    // The accept/connect CQEs may arrive in any order, the connect CQE will sometimes come first:
+    if (cqe_accept.user_data == 0xcccccccc and cqe_connect.user_data == 0xaaaaaaaa) {
+        const a = cqe_accept;
+        const b = cqe_connect;
+        cqe_accept = b;
+        cqe_connect = a;
+    }
+
+    try testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
+    if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{cqe_accept.res});
+    try testing.expect(cqe_accept.res > 0);
+    try testing.expectEqual(@as(u32, 0), cqe_accept.flags);
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0xcccccccc,
+        .res = 0,
+        .flags = 0,
+    }, cqe_connect);
+
+    // All good
+
+    return SocketTestHarness{
+        .listener = listener_socket,
+        .server = cqe_accept.res,
+        .client = client,
+    };
+}
