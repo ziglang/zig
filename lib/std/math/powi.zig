@@ -10,108 +10,94 @@ const testing = std.testing;
 
 /// Returns the power of x raised by the integer y (x^y).
 ///
-/// Special Cases:
-///  - powi(x, +-0)   = 1 for any x
-///  - powi(0, y)     = 0 for any y
-///  - powi(1, y)     = 1 for any y
-///  - powi(-1, y)    = -1 for y an odd integer
-///  - powi(-1, y)    = 1 for y an even integer
-///  - powi(x, y)     = Overflow for y >= @sizeOf(x) - 1 or y > 0
-///  - powi(x, y)     = Underflow for y > @sizeOf(x) - 1 or y < 0
+/// Errors:
+///  - Overflow: Integer overflow or Infinity
+///  - Underflow: Absolute value of result smaller than 1
+/// Edge case rules ordered by precedence:
+///  - powi(T, x, 0)   = 1 unless T is i1, i0, u0
+///  - powi(T, 0, x)   = 0 when x > 0
+///  - powi(T, 0, x)   = Overflow
+///  - powi(T, 1, y)   = 1
+///  - powi(T, -1, y)  = -1 for y an odd integer
+///  - powi(T, -1, y)  = 1 unless T is i1, i0, u0
+///  - powi(T, -1, y)  = Overflow
+///  - powi(T, x, y)   = Overflow when y >= @bitSizeOf(x)
+///  - powi(T, x, y)   = Underflow when y < 0
 pub fn powi(comptime T: type, x: T, y: T) (error{
     Overflow,
     Underflow,
 }!T) {
-    const info = @typeInfo(T);
+    const bit_size = @typeInfo(T).Int.bits;
 
-    comptime assert(@typeInfo(T) == .Int);
+    // `y & 1 == 0` won't compile when `does_one_overflow`.
+    const does_one_overflow = math.maxInt(T) < 1;
+    const is_y_even = !does_one_overflow and y & 1 == 0;
 
-    //  powi(x, +-0)   = 1 for any x
-    if (y == 0 or y == -0) {
-        return 1;
+    if (x == 1 or y == 0 or (x == -1 and is_y_even)) {
+        if (does_one_overflow) {
+            return error.Overflow;
+        } else {
+            return 1;
+        }
     }
 
-    switch (x) {
-        //  powi(0, y)     = 0 for any y
-        0 => return 0,
-
-        //  powi(1, y)     = 1 for any y
-        1 => return 1,
-
-        else => {
-            //  powi(x, y)     = Overflow for for y >= @sizeOf(x) - 1 y > 0
-            //  powi(x, y)     = Underflow for for y > @sizeOf(x) - 1 y < 0
-            const bit_size = @sizeOf(T) * 8;
-            if (info.Int.signedness == .signed) {
-                if (x == -1) {
-                    //  powi(-1, y)    = -1 for for y an odd integer
-                    //  powi(-1, y)    = 1 for for y an even integer
-                    if (@mod(y, 2) == 0) {
-                        return 1;
-                    } else {
-                        return -1;
-                    }
-                }
-
-                if (x > 0 and y >= bit_size - 1) {
-                    return error.Overflow;
-                } else if (x < 0 and y > bit_size - 1) {
-                    return error.Underflow;
-                }
-            } else {
-                if (y >= bit_size) {
-                    return error.Overflow;
-                }
-            }
-
-            var base = x;
-            var exp = y;
-            var acc: T = 1;
-
-            while (exp > 1) {
-                if (exp & 1 == 1) {
-                    if (@mulWithOverflow(T, acc, base, &acc)) {
-                        if (x > 0) {
-                            return error.Overflow;
-                        } else {
-                            return error.Underflow;
-                        }
-                    }
-                }
-
-                exp >>= 1;
-
-                if (@mulWithOverflow(T, base, base, &base)) {
-                    if (x > 0) {
-                        return error.Overflow;
-                    } else {
-                        return error.Underflow;
-                    }
-                }
-            }
-
-            if (exp == 1) {
-                if (@mulWithOverflow(T, acc, base, &acc)) {
-                    if (x > 0) {
-                        return error.Overflow;
-                    } else {
-                        return error.Underflow;
-                    }
-                }
-            }
-
-            return acc;
-        },
+    if (x == -1) {
+        return -1;
     }
+
+    if (x == 0) {
+        if (y > 0) {
+            return 0;
+        } else {
+            // Infinity/NaN, not overflow in strict sense
+            return error.Overflow;
+        }
+    }
+    // x >= 2 or x <= -2 from this point
+    if (y >= bit_size) {
+        return error.Overflow;
+    }
+    if (y < 0) {
+        return error.Underflow;
+    }
+
+    // invariant :
+    // return value = powi(T, base, exp) * acc;
+
+    var base = x;
+    var exp = y;
+    var acc: T = if (does_one_overflow) unreachable else 1;
+
+    while (exp > 1) {
+        if (exp & 1 == 1) {
+            if (@mulWithOverflow(T, acc, base, &acc)) {
+                return error.Overflow;
+            }
+        }
+
+        exp >>= 1;
+
+        if (@mulWithOverflow(T, base, base, &base)) {
+            return error.Overflow;
+        }
+    }
+
+    if (exp == 1) {
+        if (@mulWithOverflow(T, acc, base, &acc)) {
+            return error.Overflow;
+        }
+    }
+
+    return acc;
 }
 
 test "math.powi" {
-    try testing.expectError(error.Underflow, powi(i8, -66, 6));
-    try testing.expectError(error.Underflow, powi(i16, -13, 13));
-    try testing.expectError(error.Underflow, powi(i32, -32, 21));
-    try testing.expectError(error.Underflow, powi(i64, -24, 61));
-    try testing.expectError(error.Underflow, powi(i17, -15, 15));
-    try testing.expectError(error.Underflow, powi(i42, -6, 40));
+    try testing.expectError(error.Overflow, powi(i8, -66, 6));
+    try testing.expectError(error.Overflow, powi(i16, -13, 13));
+    try testing.expectError(error.Overflow, powi(i32, -32, 21));
+    try testing.expectError(error.Overflow, powi(i64, -24, 61));
+    try testing.expectError(error.Overflow, powi(i17, -15, 15));
+    try testing.expectError(error.Overflow, powi(i42, -6, 40));
 
     try testing.expect((try powi(i8, -5, 3)) == -125);
     try testing.expect((try powi(i16, -16, 3)) == -4096);
@@ -140,15 +126,29 @@ test "math.powi" {
     try testing.expectError(error.Overflow, powi(u64, 2342, 63));
     try testing.expectError(error.Overflow, powi(u17, 2723, 16));
     try testing.expectError(error.Overflow, powi(u42, 8234, 41));
+
+    const minInt = std.math.minInt;
+    try testing.expect((try powi(i8, -2, 7)) == minInt(i8));
+    try testing.expect((try powi(i16, -2, 15)) == minInt(i16));
+    try testing.expect((try powi(i32, -2, 31)) == minInt(i32));
+    try testing.expect((try powi(i64, -2, 63)) == minInt(i64));
+
+    try testing.expectError(error.Underflow, powi(i8, 6, -2));
+    try testing.expectError(error.Underflow, powi(i16, 5, -4));
+    try testing.expectError(error.Underflow, powi(i32, 12, -6));
+    try testing.expectError(error.Underflow, powi(i64, 34, -2));
+    try testing.expectError(error.Underflow, powi(i17, 16, -3));
+    try testing.expectError(error.Underflow, powi(i42, 34, -6));
 }
 
 test "math.powi.special" {
-    try testing.expectError(error.Underflow, powi(i8, -2, 8));
-    try testing.expectError(error.Underflow, powi(i16, -2, 16));
-    try testing.expectError(error.Underflow, powi(i32, -2, 32));
-    try testing.expectError(error.Underflow, powi(i64, -2, 64));
-    try testing.expectError(error.Underflow, powi(i17, -2, 17));
-    try testing.expectError(error.Underflow, powi(i42, -2, 42));
+    try testing.expectError(error.Overflow, powi(i8, -2, 8));
+    try testing.expectError(error.Overflow, powi(i16, -2, 16));
+    try testing.expectError(error.Overflow, powi(i32, -2, 32));
+    try testing.expectError(error.Overflow, powi(i64, -2, 64));
+    try testing.expectError(error.Overflow, powi(i17, -2, 17));
+    try testing.expectError(error.Overflow, powi(i17, -2, 16));
+    try testing.expectError(error.Overflow, powi(i42, -2, 42));
 
     try testing.expect((try powi(i8, -1, 3)) == -1);
     try testing.expect((try powi(i16, -1, 2)) == 1);
@@ -184,4 +184,13 @@ test "math.powi.special" {
     try testing.expect((try powi(u64, 34, 0)) == 1);
     try testing.expect((try powi(u17, 16, 0)) == 1);
     try testing.expect((try powi(u42, 34, 0)) == 1);
+}
+
+test "math.powi.narrow" {
+    try testing.expectError(error.Overflow, powi(u0, 0, 0));
+    try testing.expectError(error.Overflow, powi(i0, 0, 0));
+    try testing.expectError(error.Overflow, powi(i1, 0, 0));
+    try testing.expectError(error.Overflow, powi(i1, -1, 0));
+    try testing.expectError(error.Overflow, powi(i1, 0, -1));
+    try testing.expect((try powi(i1, -1, -1)) == -1);
 }
