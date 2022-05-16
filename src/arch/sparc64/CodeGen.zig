@@ -541,7 +541,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ret_ptr         => try self.airRetPtr(inst),
             .arg             => try self.airArg(inst),
             .assembly        => try self.airAsm(inst),
-            .bitcast         => @panic("TODO try self.airBitCast(inst)"),
+            .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
             .breakpoint      => try self.airBreakpoint(),
@@ -821,6 +821,12 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     return self.finishAir(inst, mcv, .{ .none, .none, .none });
+}
+
+fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result = try self.resolveInst(ty_op.operand);
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
