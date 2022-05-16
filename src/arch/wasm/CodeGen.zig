@@ -2014,13 +2014,13 @@ fn binOpBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerErr
     const rhs_high_bit = try self.load(rhs, Type.u64, 0);
     const rhs_low_bit = try self.load(rhs, Type.u64, 8);
 
-    const low_op_res = try self.binOp(rhs_low_bit, lhs_low_bit, Type.u64, op);
+    const low_op_res = try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op);
     const high_op_res = try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
 
     const lt = if (op == .add) blk: {
         break :blk try self.cmp(high_op_res, rhs_high_bit, Type.u64, .lt);
     } else if (op == .sub) blk: {
-        break :blk try self.cmp(rhs_high_bit, lhs_high_bit, Type.u64, .lt);
+        break :blk try self.cmp(lhs_high_bit, rhs_high_bit, Type.u64, .lt);
     } else unreachable;
     const tmp = try self.intcast(lt, Type.u32, Type.u64);
     const tmp_op = try self.binOp(low_op_res, tmp, Type.u64, op);
@@ -2078,6 +2078,7 @@ fn wrapOperand(self: *Self, operand: WValue, ty: Type) InnerError!WValue {
     const wasm_bits = toWasmBits(bitsize) orelse {
         return self.fail("TODO: Implement wrapOperand for bitsize '{d}'", .{bitsize});
     };
+
     if (wasm_bits == bitsize) return operand;
 
     if (wasm_bits == 128) {
@@ -2424,15 +2425,16 @@ fn valueAsI32(self: Self, val: Value, ty: Type) i32 {
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const block_ty = genBlockType(self.air.getRefType(ty_pl.ty), self.target);
+    const block_ty = self.air.getRefType(ty_pl.ty);
+    const wasm_block_ty = genBlockType(block_ty, self.target);
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[extra.end..][0..extra.data.body_len];
 
-    // if block_ty is non-empty, we create a register to store the temporary value
-    const block_result: WValue = if (block_ty != wasm.block_empty)
-        try self.allocLocal(self.air.getRefType(ty_pl.ty))
-    else
-        WValue.none;
+    // if wasm_block_ty is non-empty, we create a register to store the temporary value
+    const block_result: WValue = if (wasm_block_ty != wasm.block_empty) blk: {
+        const ty: Type = if (isByRef(block_ty, self.target)) Type.u32 else block_ty;
+        break :blk try self.allocLocal(ty);
+    } else WValue.none;
 
     try self.startBlock(.block, wasm.block_empty);
     // Here we set the current block idx, so breaks know the depth to jump
@@ -2600,16 +2602,43 @@ fn airNot(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
     const operand = try self.resolveInst(ty_op.operand);
-    try self.emitWValue(operand);
+    const operand_ty = self.air.typeOf(ty_op.operand);
 
-    // wasm does not have booleans nor the `not` instruction, therefore compare with 0
-    // to create the same logic
-    try self.addTag(.i32_eqz);
+    if (operand_ty.zigTypeTag() == .Bool) {
+        try self.emitWValue(operand);
+        try self.addTag(.i32_eqz);
+        const not_tmp = try self.allocLocal(operand_ty);
+        try self.addLabel(.local_set, not_tmp.local);
+        return not_tmp;
+    } else {
+        const operand_bits = operand_ty.intInfo(self.target).bits;
+        const wasm_bits = toWasmBits(operand_bits) orelse {
+            return self.fail("TODO: Implement binary NOT for integer with bitsize '{d}'", .{operand_bits});
+        };
 
-    // save the result in the local
-    const not_tmp = try self.allocLocal(Type.initTag(.i32));
-    try self.addLabel(.local_set, not_tmp.local);
-    return not_tmp;
+        switch (wasm_bits) {
+            32 => {
+                const bin_op = try self.binOp(operand, .{ .imm32 = ~@as(u32, 0) }, operand_ty, .xor);
+                return self.wrapOperand(bin_op, operand_ty);
+            },
+            64 => {
+                const bin_op = try self.binOp(operand, .{ .imm64 = ~@as(u64, 0) }, operand_ty, .xor);
+                return self.wrapOperand(bin_op, operand_ty);
+            },
+            128 => {
+                const result_ptr = try self.allocStack(operand_ty);
+                const msb = try self.load(operand, Type.u64, 0);
+                const lsb = try self.load(operand, Type.u64, 8);
+
+                const msb_xor = try self.binOp(msb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
+                const lsb_xor = try self.binOp(lsb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
+                try self.store(result_ptr, msb_xor, Type.u64, 0);
+                try self.store(result_ptr, lsb_xor, Type.u64, 8);
+                return result_ptr;
+            },
+            else => unreachable,
+        }
+    }
 }
 
 fn airBreakpoint(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
