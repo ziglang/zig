@@ -4831,9 +4831,23 @@ fn deferErrorExample(is_error: bool) !void {
     }
 }
 
+// The errdefer keyword support also an alternative syntax to capture the
+// error generated in case of one error.
+//
+// This is useful when during the clean up after an error additional
+// message want to be printed.
+fn deferErrorCaptureExample() !void {
+    errdefer |err| {
+        std.debug.print("the error is {s}\n", .{@errorName(err)});
+    }
+
+    return error.DeferError;
+}
+
 test "errdefer unwinding" {
     deferErrorExample(false) catch {};
     deferErrorExample(true) catch {};
+    deferErrorCaptureExample() catch {};
 }
       {#code_end#}
       {#see_also|Errors#}
@@ -11941,7 +11955,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}errdefer{#endsyntax#}</pre>
           </th>
           <td>
-            {#syntax#}errdefer{#endsyntax#} will execute an expression when control flow leaves the current block if the function returns an error.
+            {#syntax#}errdefer{#endsyntax#} will execute an expression when control flow leaves the current block if the function returns an error, the errdefer expression can capture the unwrapped value.
             <ul>
               <li>See also {#link|errdefer#}</li>
             </ul>
