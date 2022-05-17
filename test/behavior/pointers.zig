@@ -214,7 +214,10 @@ test "allowzero pointer and slice" {
 }
 
 test "assign null directly to C pointer and test null equality" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var x: [*c]i32 = null;
     try expect(x == null);
@@ -238,7 +241,8 @@ test "assign null directly to C pointer and test null equality" {
         @panic("fail");
     }
     const othery: i32 = undefined;
-    comptime try expect((y orelse &othery) == &othery);
+    const ptr_othery = &othery;
+    comptime try expect((y orelse ptr_othery) == ptr_othery);
 
     var n: i32 = 1234;
     var x1: [*c]i32 = &n;
