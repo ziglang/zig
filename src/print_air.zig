@@ -114,8 +114,6 @@ const Writer = struct {
             .div_exact,
             .rem,
             .mod,
-            .ptr_add,
-            .ptr_sub,
             .bit_and,
             .bit_or,
             .xor,
@@ -231,6 +229,12 @@ const Writer = struct {
             .slice,
             .slice_elem_ptr,
             .ptr_elem_ptr,
+            .ptr_add,
+            .ptr_sub,
+            .add_with_overflow,
+            .sub_with_overflow,
+            .mul_with_overflow,
+            .shl_with_overflow,
             => try w.writeTyPlBin(s, inst),
 
             .call,
@@ -274,12 +278,6 @@ const Writer = struct {
             .shuffle => try w.writeShuffle(s, inst),
             .reduce => try w.writeReduce(s, inst),
             .cmp_vector => try w.writeCmpVector(s, inst),
-
-            .add_with_overflow,
-            .sub_with_overflow,
-            .mul_with_overflow,
-            .shl_with_overflow,
-            => try w.writeOverflow(s, inst),
 
             .dbg_block_begin, .dbg_block_end => {},
         }
@@ -476,15 +474,6 @@ const Writer = struct {
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 1, extra.operand);
         try s.print(", {s}, {s}", .{ @tagName(extra.op()), @tagName(extra.ordering()) });
-    }
-
-    fn writeOverflow(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const extra = w.air.extraData(Air.Bin, ty_pl.payload).data;
-
-        try w.writeOperand(s, inst, 0, extra.lhs);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.rhs);
     }
 
     fn writeMemset(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

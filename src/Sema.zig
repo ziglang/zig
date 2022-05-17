@@ -10610,28 +10610,55 @@ fn analyzePtrArithmetic(
     // TODO if the operand is comptime-known to be negative, or is a negative int,
     // coerce to isize instead of usize.
     const offset = try sema.coerce(block, Type.usize, uncasted_offset, offset_src);
-    // TODO adjust the return type according to alignment and other factors
     const target = sema.mod.getTarget();
-    const runtime_src = rs: {
-        if (try sema.resolveMaybeUndefVal(block, ptr_src, ptr)) |ptr_val| {
-            if (try sema.resolveMaybeUndefVal(block, offset_src, offset)) |offset_val| {
-                const ptr_ty = sema.typeOf(ptr);
-                const new_ptr_ty = ptr_ty; // TODO modify alignment
+    const opt_ptr_val = try sema.resolveMaybeUndefVal(block, ptr_src, ptr);
+    const opt_off_val = try sema.resolveDefinedValue(block, offset_src, offset);
+    const ptr_ty = sema.typeOf(ptr);
+    const ptr_info = ptr_ty.ptrInfo().data;
+    const elem_ty = if (ptr_info.size == .One and ptr_info.pointee_type.zigTypeTag() == .Array)
+        ptr_info.pointee_type.childType()
+    else
+        ptr_info.pointee_type;
 
-                if (ptr_val.isUndef() or offset_val.isUndef()) {
-                    return sema.addConstUndef(new_ptr_ty);
-                }
+    const new_ptr_ty = t: {
+        // Calculate the new pointer alignment.
+        if (ptr_info.@"align" == 0) {
+            // ABI-aligned pointer. Any pointer arithmetic maintains the same ABI-alignedness.
+            break :t ptr_ty;
+        }
+        // If the addend is not a comptime-known value we can still count on
+        // it being a multiple of the type size.
+        const elem_size = elem_ty.abiSize(target);
+        const addend = if (opt_off_val) |off_val| a: {
+            const off_int = try sema.usizeCast(block, offset_src, off_val.toUnsignedInt(target));
+            break :a elem_size * off_int;
+        } else elem_size;
+
+        // The resulting pointer is aligned to the lcd between the offset (an
+        // arbitrary number) and the alignment factor (always a power of two,
+        // non zero).
+        const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, addend | ptr_info.@"align"));
+
+        break :t try Type.ptr(sema.arena, sema.mod, .{
+            .pointee_type = ptr_info.pointee_type,
+            .sentinel = ptr_info.sentinel,
+            .@"align" = new_align,
+            .@"addrspace" = ptr_info.@"addrspace",
+            .mutable = ptr_info.mutable,
+            .@"allowzero" = ptr_info.@"allowzero",
+            .@"volatile" = ptr_info.@"volatile",
+            .size = ptr_info.size,
+        });
+    };
+
+    const runtime_src = rs: {
+        if (opt_ptr_val) |ptr_val| {
+            if (opt_off_val) |offset_val| {
+                if (ptr_val.isUndef()) return sema.addConstUndef(new_ptr_ty);
 
                 const offset_int = try sema.usizeCast(block, offset_src, offset_val.toUnsignedInt(target));
-                // TODO I tried to put this check earlier but it the LLVM backend generate invalid instructinons
                 if (offset_int == 0) return ptr;
                 if (try ptr_val.getUnsignedIntAdvanced(target, sema.kit(block, ptr_src))) |addr| {
-                    const ptr_child_ty = ptr_ty.childType();
-                    const elem_ty = if (ptr_ty.isSinglePointer() and ptr_child_ty.zigTypeTag() == .Array)
-                        ptr_child_ty.childType()
-                    else
-                        ptr_child_ty;
-
                     const elem_size = elem_ty.abiSize(target);
                     const new_addr = switch (air_tag) {
                         .ptr_add => addr + elem_size * offset_int,
@@ -10651,7 +10678,16 @@ fn analyzePtrArithmetic(
     };
 
     try sema.requireRuntimeBlock(block, runtime_src);
-    return block.addBinOp(air_tag, ptr, offset);
+    return block.addInst(.{
+        .tag = air_tag,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(new_ptr_ty),
+            .payload = try sema.addExtra(Air.Bin{
+                .lhs = ptr,
+                .rhs = offset,
+            }),
+        } },
+    });
 }
 
 fn zirLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
