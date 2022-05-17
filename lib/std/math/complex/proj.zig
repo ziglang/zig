@@ -9,7 +9,7 @@ pub fn proj(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
 
     if (math.isInf(z.re) or math.isInf(z.im)) {
-        return Complex(T).init(math.inf(T), math.copysign(T, 0, z.re));
+        return Complex(T).init(math.inf(T), math.copysign(@as(T, 0.0), z.re));
     }
 
     return Complex(T).init(z.re, z.im);

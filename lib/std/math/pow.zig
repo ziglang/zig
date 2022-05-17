@@ -60,7 +60,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
         if (y < 0) {
             // pow(+-0, y) = +- 0   for y an odd integer
             if (isOddInteger(y)) {
-                return math.copysign(T, math.inf(T), x);
+                return math.copysign(math.inf(T), x);
             }
             // pow(+-0, y) = +inf   for y an even integer
             else {
