@@ -3801,6 +3801,7 @@ fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std
 /// Compares big integers by checking both its high bits and low bits.
 /// TODO: Lower this to compiler_rt call when bitsize > 128
 fn cmpBigInt(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
+    assert(operand_ty.abiSize(self.target) >= 16);
     if (operand_ty.intInfo(self.target).bits > 128) {
         return self.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.intInfo(self.target).bits});
     }
@@ -4093,6 +4094,10 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!W
         return self.fail("TODO: Implement {{add/sub}}_with_overflow for integer bitsize: {d}", .{int_info.bits});
     };
 
+    if (wasm_bits == 128) {
+        return self.airAddSubWithOverflowBigInt(lhs_op, rhs_op, lhs_ty, self.air.typeOfIndex(inst), op);
+    }
+
     const zero = switch (wasm_bits) {
         32 => WValue{ .imm32 = 0 },
         64 => WValue{ .imm64 = 0 },
@@ -4140,6 +4145,64 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!W
     try self.store(result_ptr, result, lhs_ty, 0);
     const offset = @intCast(u32, lhs_ty.abiSize(self.target));
     try self.store(result_ptr, overflow_bit, Type.initTag(.u1), offset);
+
+    return result_ptr;
+}
+
+fn airAddSubWithOverflowBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, result_ty: Type, op: Op) InnerError!WValue {
+    assert(op == .add or op == .sub);
+    const int_info = ty.intInfo(self.target);
+    const is_signed = int_info.signedness == .signed;
+    if (int_info.bits != 128) {
+        return self.fail("TODO: Implement @{{add/sub}}WithOverflow for integer bitsize '{d}'", .{int_info.bits});
+    }
+
+    const lhs_high_bit = try self.load(lhs, Type.u64, 0);
+    const lhs_low_bit = try self.load(lhs, Type.u64, 8);
+    const rhs_high_bit = try self.load(rhs, Type.u64, 0);
+    const rhs_low_bit = try self.load(rhs, Type.u64, 8);
+
+    const low_op_res = try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op);
+    const high_op_res = try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
+
+    const lt = if (op == .add) blk: {
+        break :blk try self.cmp(high_op_res, lhs_high_bit, Type.u64, .lt);
+    } else if (op == .sub) blk: {
+        break :blk try self.cmp(lhs_high_bit, rhs_high_bit, Type.u64, .lt);
+    } else unreachable;
+    const tmp = try self.intcast(lt, Type.u32, Type.u64);
+    const tmp_op = try self.binOp(low_op_res, tmp, Type.u64, op);
+
+    const overflow_bit = if (is_signed) blk: {
+        const xor_op = try self.binOp(lhs_low_bit, tmp_op, Type.u64, .xor);
+        const xor_low = try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, .xor);
+        const to_wrap = if (op == .add) wrap: {
+            break :wrap try self.binOp(xor_low, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
+        } else xor_low;
+        const wrap = try self.binOp(to_wrap, xor_op, Type.u64, .@"and");
+        break :blk try self.cmp(wrap, .{ .imm64 = 0 }, Type.i64, .lt); // i64 because signed
+    } else blk: {
+        const eq = try self.cmp(tmp_op, lhs_low_bit, Type.u64, .eq);
+        const op_eq = try self.cmp(tmp_op, lhs_low_bit, Type.u64, if (op == .add) .lt else .gt);
+
+        const first_arg = if (op == .sub) arg: {
+            break :arg try self.cmp(high_op_res, lhs_high_bit, Type.u64, .gt);
+        } else lt;
+
+        try self.emitWValue(first_arg);
+        try self.emitWValue(op_eq);
+        try self.emitWValue(eq);
+        try self.addTag(.select);
+
+        const overflow_bit = try self.allocLocal(Type.initTag(.u1));
+        try self.addLabel(.local_set, overflow_bit.local);
+        break :blk overflow_bit;
+    };
+
+    const result_ptr = try self.allocStack(result_ty);
+    try self.store(result_ptr, high_op_res, Type.u64, 0);
+    try self.store(result_ptr, tmp_op, Type.u64, 8);
+    try self.store(result_ptr, overflow_bit, Type.initTag(.u1), 16);
 
     return result_ptr;
 }
