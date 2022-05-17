@@ -4813,6 +4813,19 @@ fn deferErrorExample(is_error: bool) !void {
         print("encountered an error!\n", .{});
     }
 
+    // inside a defer method the return statement
+    // is not allowed.
+    // The following lines produce the following
+    // error if uncomment
+    // ```
+    // defer.zig:73:9: error: cannot return from defer expression
+    // return error.DeferError;
+    // ```
+    //
+    //defer {
+    //    return error.DeferError;
+    //}
+
     if (is_error) {
         return error.DeferError;
     }
