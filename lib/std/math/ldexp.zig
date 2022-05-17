@@ -15,10 +15,7 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     var shift = n;
 
     const T = @TypeOf(base);
-    const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
-    if (@typeInfo(T) != .Float) {
-        @compileError("ldexp not implemented for " ++ @typeName(T));
-    }
+    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
 
     const mantissa_bits = math.floatMantissaBits(T);
     const exponent_min = math.floatExponentMin(T);
