@@ -1766,10 +1766,10 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 
             .mul_add => try airMulAdd(f, inst),
 
-            .add_with_overflow => try airAddWithOverflow(f, inst),
-            .sub_with_overflow => try airSubWithOverflow(f, inst),
-            .mul_with_overflow => try airMulWithOverflow(f, inst),
-            .shl_with_overflow => try airShlWithOverflow(f, inst),
+            .add_with_overflow => try airOverflow(f, inst, "addo_"),
+            .sub_with_overflow => try airOverflow(f, inst, "subo_"),
+            .mul_with_overflow => try airOverflow(f, inst, "mulo_"),
+            .shl_with_overflow => try airOverflow(f, inst, "shlo_"),
 
             .min => try airMinMax(f, inst, "<"),
             .max => try airMinMax(f, inst, ">"),
@@ -2295,7 +2295,8 @@ fn airWrapOp(
 
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const inst_ty = f.air.typeOfIndex(inst);
-    const int_info = inst_ty.intInfo(f.object.dg.module.getTarget());
+    const target = f.object.dg.module.getTarget();
+    const int_info = inst_ty.intInfo(target);
     const bits = int_info.bits;
 
     // if it's an unsigned int with non-arbitrary bit size then we can just add
@@ -2313,47 +2314,8 @@ fn airWrapOp(
         return f.fail("TODO: C backend: airWrapOp for large integers", .{});
     }
 
-    var min_buf: [80]u8 = undefined;
-    const min = switch (int_info.signedness) {
-        .unsigned => "0",
-        else => switch (inst_ty.tag()) {
-            .c_short => "SHRT_MIN",
-            .c_int => "INT_MIN",
-            .c_long => "LONG_MIN",
-            .c_longlong => "LLONG_MIN",
-            .isize => "INTPTR_MIN",
-            else => blk: {
-                const val = -1 * std.math.pow(i64, 2, @intCast(i64, bits - 1));
-                break :blk std.fmt.bufPrint(&min_buf, "{d}", .{val}) catch |err| switch (err) {
-                    error.NoSpaceLeft => unreachable,
-                };
-            },
-        },
-    };
-
     var max_buf: [80]u8 = undefined;
-    const max = switch (inst_ty.tag()) {
-        .c_short => "SHRT_MAX",
-        .c_ushort => "USHRT_MAX",
-        .c_int => "INT_MAX",
-        .c_uint => "UINT_MAX",
-        .c_long => "LONG_MAX",
-        .c_ulong => "ULONG_MAX",
-        .c_longlong => "LLONG_MAX",
-        .c_ulonglong => "ULLONG_MAX",
-        .isize => "INTPTR_MAX",
-        .usize => "UINTPTR_MAX",
-        else => blk: {
-            const pow_bits = switch (int_info.signedness) {
-                .signed => bits - 1,
-                .unsigned => bits,
-            };
-            const val = std.math.pow(u64, 2, pow_bits) - 1;
-            break :blk std.fmt.bufPrint(&max_buf, "{}", .{val}) catch |err| switch (err) {
-                error.NoSpaceLeft => unreachable,
-            };
-        },
-    };
+    const max = intMax(inst_ty, target, &max_buf);
 
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
@@ -2369,10 +2331,7 @@ fn airWrapOp(
         .c_long => try w.writeAll("long"),
         .c_longlong => try w.writeAll("longlong"),
         else => {
-            const prefix_byte: u8 = switch (int_info.signedness) {
-                .signed => 'i',
-                .unsigned => 'u',
-            };
+            const prefix_byte: u8 = signAbbrev(int_info.signedness);
             for ([_]u8{ 8, 16, 32, 64 }) |nbits| {
                 if (bits <= nbits) {
                     try w.print("{c}{d}", .{ prefix_byte, nbits });
@@ -2390,6 +2349,9 @@ fn airWrapOp(
     try f.writeCValue(w, rhs);
 
     if (int_info.signedness == .signed) {
+        var min_buf: [80]u8 = undefined;
+        const min = intMin(inst_ty, target, &min_buf);
+
         try w.print(", {s}", .{min});
     }
 
@@ -2475,10 +2437,7 @@ fn airSatOp(f: *Function, inst: Air.Inst.Index, fn_op: [*:0]const u8) !CValue {
         .c_long => try w.writeAll("long"),
         .c_longlong => try w.writeAll("longlong"),
         else => {
-            const prefix_byte: u8 = switch (int_info.signedness) {
-                .signed => 'i',
-                .unsigned => 'u',
-            };
+            const prefix_byte: u8 = signAbbrev(int_info.signedness);
             for ([_]u8{ 8, 16, 32, 64 }) |nbits| {
                 if (bits <= nbits) {
                     try w.print("{c}{d}", .{ prefix_byte, nbits });
@@ -2505,28 +2464,63 @@ fn airSatOp(f: *Function, inst: Air.Inst.Index, fn_op: [*:0]const u8) !CValue {
     return ret;
 }
 
-fn airAddWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
-    _ = f;
-    _ = inst;
-    return f.fail("TODO add with overflow", .{});
-}
+fn airOverflow(f: *Function, inst: Air.Inst.Index, op_abbrev: [*:0]const u8) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
 
-fn airSubWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
-    _ = f;
-    _ = inst;
-    return f.fail("TODO sub with overflow", .{});
-}
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
 
-fn airMulWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
-    _ = f;
-    _ = inst;
-    return f.fail("TODO mul with overflow", .{});
-}
+    const lhs = try f.resolveInst(bin_op.lhs);
+    const rhs = try f.resolveInst(bin_op.rhs);
 
-fn airShlWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
-    _ = f;
-    _ = inst;
-    return f.fail("TODO shl with overflow", .{});
+    const inst_ty = f.air.typeOfIndex(inst);
+    const scalar_ty = f.air.typeOf(bin_op.lhs).scalarType();
+    const target = f.object.dg.module.getTarget();
+    const int_info = scalar_ty.intInfo(target);
+    const w = f.object.writer();
+    const c_bits = toCIntBits(int_info.bits) orelse
+        return f.fail("TODO: C backend: implement integer arithmetic larger than 128 bits", .{});
+
+    var max_buf: [80]u8 = undefined;
+    const max = intMax(scalar_ty, target, &max_buf);
+
+    const ret = try f.allocLocal(inst_ty, .Mut);
+    try w.writeAll(";");
+    try f.object.indent_writer.insertNewline();
+    try f.writeCValue(w, ret);
+
+    switch (int_info.signedness) {
+        .unsigned => {
+            try w.print(".field_1 = zig_{s}u{d}(", .{
+                op_abbrev, c_bits,
+            });
+            try f.writeCValue(w, lhs);
+            try w.writeAll(", ");
+            try f.writeCValue(w, rhs);
+            try w.writeAll(", &");
+            try f.writeCValue(w, ret);
+            try w.print(".field_0, {s}", .{max});
+        },
+        .signed => {
+            var min_buf: [80]u8 = undefined;
+            const min = intMin(scalar_ty, target, &min_buf);
+
+            try w.print(".field_1 = zig_{s}i{d}(", .{
+                op_abbrev, c_bits,
+            });
+            try f.writeCValue(w, lhs);
+            try w.writeAll(", ");
+            try f.writeCValue(w, rhs);
+            try w.writeAll(", &");
+            try f.writeCValue(w, ret);
+            try w.print(".field_0, {s}, {s}", .{ min, max });
+        },
+    }
+
+    try w.writeAll(");");
+    try f.object.indent_writer.insertNewline();
+    return ret;
 }
 
 fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -3571,11 +3565,7 @@ fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !C
         return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
 
     try writer.print(" = zig_{s}_", .{fn_name});
-    const prefix_byte: u8 = switch (int_info.signedness) {
-        .signed => 'i',
-        .unsigned => 'u',
-    };
-    try writer.print("{c}{d}(", .{ prefix_byte, c_bits });
+    try writer.print("{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
     try f.writeCValue(writer, try f.resolveInst(operand));
     try writer.print(", {d});\n", .{int_info.bits});
     return local;
@@ -3596,11 +3586,7 @@ fn airBinOpBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u
         const int_info = lhs_ty.intInfo(target);
         const c_bits = toCIntBits(int_info.bits) orelse
             return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
-        const prefix_byte: u8 = switch (int_info.signedness) {
-            .signed => 'i',
-            .unsigned => 'u',
-        };
-        try writer.print(" = zig_{s}_{c}{d}", .{ fn_name, prefix_byte, c_bits });
+        try writer.print(" = zig_{s}_{c}{d}", .{ fn_name, signAbbrev(int_info.signedness), c_bits });
     } else if (lhs_ty.isRuntimeFloat()) {
         const c_bits = lhs_ty.floatBits(target);
         try writer.print(" = zig_{s}_f{d}", .{ fn_name, c_bits });
@@ -4084,4 +4070,54 @@ fn toCIntBits(zig_bits: u32) ?u32 {
         }
     }
     return null;
+}
+
+fn signAbbrev(signedness: std.builtin.Signedness) u8 {
+    return switch (signedness) {
+        .signed => 'i',
+        .unsigned => 'u',
+    };
+}
+
+fn intMax(ty: Type, target: std.Target, buf: []u8) []const u8 {
+    switch (ty.tag()) {
+        .c_short => return "SHRT_MAX",
+        .c_ushort => return "USHRT_MAX",
+        .c_int => return "INT_MAX",
+        .c_uint => return "UINT_MAX",
+        .c_long => return "LONG_MAX",
+        .c_ulong => return "ULONG_MAX",
+        .c_longlong => return "LLONG_MAX",
+        .c_ulonglong => return "ULLONG_MAX",
+        else => {
+            const int_info = ty.intInfo(target);
+            const rhs = @intCast(u7, int_info.bits - @boolToInt(int_info.signedness == .signed));
+            const val = (@as(u128, 1) << rhs) - 1;
+            // TODO make this integer literal have a suffix if necessary (such as "ull")
+            return std.fmt.bufPrint(buf, "{}", .{val}) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+            };
+        },
+    }
+}
+
+fn intMin(ty: Type, target: std.Target, buf: []u8) []const u8 {
+    switch (ty.tag()) {
+        .c_short => return "SHRT_MIN",
+        .c_int => return "INT_MIN",
+        .c_long => return "LONG_MIN",
+        .c_longlong => return "LLONG_MIN",
+        else => {
+            const int_info = ty.intInfo(target);
+            assert(int_info.signedness == .signed);
+            const val = v: {
+                if (int_info.bits == 0) break :v 0;
+                const rhs = @intCast(u7, (int_info.bits - 1));
+                break :v -(@as(i128, 1) << rhs);
+            };
+            return std.fmt.bufPrint(buf, "{d}", .{val}) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+            };
+        },
+    }
 }

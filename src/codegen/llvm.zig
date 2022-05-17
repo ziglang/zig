@@ -5604,14 +5604,25 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(extra.rhs);
 
         const lhs_ty = self.air.typeOf(extra.lhs);
+        const scalar_ty = lhs_ty.scalarType();
+        const dest_ty = self.air.typeOfIndex(inst);
 
-        const intrinsic_name = if (lhs_ty.isSignedInt()) signed_intrinsic else unsigned_intrinsic;
+        const intrinsic_name = if (scalar_ty.isSignedInt()) signed_intrinsic else unsigned_intrinsic;
 
         const llvm_lhs_ty = try self.dg.llvmType(lhs_ty);
+        const llvm_dest_ty = try self.dg.llvmType(dest_ty);
+
+        const tg = self.dg.module.getTarget();
 
         const llvm_fn = self.getIntrinsic(intrinsic_name, &.{llvm_lhs_ty});
         const result_struct = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{ lhs, rhs }, 2, .Fast, .Auto, "");
-        return result_struct;
+
+        const result = self.builder.buildExtractValue(result_struct, 0, "");
+        const overflow_bit = self.builder.buildExtractValue(result_struct, 1, "");
+
+        var ty_buf: Type.Payload.Pointer = undefined;
+        const partial = self.builder.buildInsertValue(llvm_dest_ty.getUndef(), result, llvmFieldIndex(dest_ty, 0, tg, &ty_buf).?, "");
+        return self.builder.buildInsertValue(partial, overflow_bit, llvmFieldIndex(dest_ty, 1, tg, &ty_buf).?, "");
     }
 
     fn buildElementwiseCall(
@@ -5898,26 +5909,30 @@ pub const FuncGen = struct {
 
         const lhs_ty = self.air.typeOf(extra.lhs);
         const rhs_ty = self.air.typeOf(extra.rhs);
+        const lhs_scalar_ty = lhs_ty.scalarType();
+        const rhs_scalar_ty = rhs_ty.scalarType();
+
         const dest_ty = self.air.typeOfIndex(inst);
         const llvm_dest_ty = try self.dg.llvmType(dest_ty);
 
         const tg = self.dg.module.getTarget();
 
-        const casted_rhs = if (rhs_ty.bitSize(tg) < lhs_ty.bitSize(tg))
+        const casted_rhs = if (rhs_scalar_ty.bitSize(tg) < lhs_scalar_ty.bitSize(tg))
             self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_ty), "")
         else
             rhs;
 
         const result = self.builder.buildShl(lhs, casted_rhs, "");
-        const reconstructed = if (lhs_ty.isSignedInt())
+        const reconstructed = if (lhs_scalar_ty.isSignedInt())
             self.builder.buildAShr(result, casted_rhs, "")
         else
             self.builder.buildLShr(result, casted_rhs, "");
 
         const overflow_bit = self.builder.buildICmp(.NE, lhs, reconstructed, "");
 
-        const partial = self.builder.buildInsertValue(llvm_dest_ty.getUndef(), result, 0, "");
-        return self.builder.buildInsertValue(partial, overflow_bit, 1, "");
+        var ty_buf: Type.Payload.Pointer = undefined;
+        const partial = self.builder.buildInsertValue(llvm_dest_ty.getUndef(), result, llvmFieldIndex(dest_ty, 0, tg, &ty_buf).?, "");
+        return self.builder.buildInsertValue(partial, overflow_bit, llvmFieldIndex(dest_ty, 1, tg, &ty_buf).?, "");
     }
 
     fn airAnd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

@@ -1901,6 +1901,10 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             }
                         };
 
+                        if (tag == .sub_with_overflow) {
+                            break :result MCValue{ .register_v_flag = dest.register };
+                        }
+
                         switch (int_info.signedness) {
                             .unsigned => break :result MCValue{ .register_c_flag = dest.register },
                             .signed => break :result MCValue{ .register_v_flag = dest.register },
