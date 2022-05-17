@@ -43,8 +43,12 @@ pub const Inst = struct {
         // TODO add other operations.
         add,
 
+        /// A.3 Branch on Integer Register with Prediction (BPr)
+        /// This uses the branch_predict_reg field.
+        bpr,
+
         /// A.7 Branch on Integer Condition Codes with Prediction (BPcc)
-        /// This uses the branch_predict field.
+        /// This uses the branch_predict_int field.
         bpcc,
 
         /// A.8 Call and Link
@@ -70,6 +74,11 @@ pub const Inst = struct {
         // TODO add other operations.
         @"or",
 
+        /// A.37 Multiply and Divide (64-bit)
+        /// This uses the arithmetic_3op field.
+        // TODO add other operations.
+        mulx,
+
         /// A.40 No Operation
         /// This uses the nop field.
         nop,
@@ -89,8 +98,12 @@ pub const Inst = struct {
 
         /// A.49 Shift
         /// This uses the shift field.
-        // TODO add other operations.
+        sll,
+        srl,
+        sra,
         sllx,
+        srlx,
+        srax,
 
         /// A.54 Store Integer
         /// This uses the arithmetic_3op field.
@@ -106,10 +119,15 @@ pub const Inst = struct {
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
         sub,
+        subcc,
 
         /// A.61 Trap on Integer Condition Codes (Tcc)
         /// This uses the trap field.
         tcc,
+
+        // TODO add synthetic instructions
+        // TODO add cmp synthetic instruction to avoid wasting a register when
+        // comparing with subcc
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -164,13 +182,23 @@ pub const Inst = struct {
             link: Register = .o7,
         },
 
-        /// Branch with prediction.
+        /// Branch with prediction, checking the integer status code
         /// Used by e.g. bpcc
-        branch_predict: struct {
+        branch_predict_int: struct {
             annul: bool = false,
             pt: bool = true,
             ccr: Instruction.CCR,
-            cond: Instruction.Condition,
+            cond: Instruction.ICondition,
+            inst: Index,
+        },
+
+        /// Branch with prediction, comparing a register's content with zero
+        /// Used by e.g. bpr
+        branch_predict_reg: struct {
+            annul: bool = false,
+            pt: bool = true,
+            cond: Instruction.RCondition,
+            rs1: Register,
             inst: Index,
         },
 
@@ -191,7 +219,7 @@ pub const Inst = struct {
         /// if is_imm true then it uses the imm field of rs2_or_imm,
         /// otherwise it uses rs2 field.
         ///
-        /// Used by e.g. add, sub
+        /// Used by e.g. sllx
         shift: struct {
             is_imm: bool,
             width: Instruction.ShiftWidth,
@@ -210,7 +238,7 @@ pub const Inst = struct {
         /// Used by e.g. tcc
         trap: struct {
             is_imm: bool = true,
-            cond: Instruction.Condition,
+            cond: Instruction.ICondition,
             ccr: Instruction.CCR = .icc,
             rs1: Register = .g0,
             rs2_or_imm: union {
