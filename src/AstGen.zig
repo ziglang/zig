@@ -856,6 +856,33 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
                 catch_token + 2
             else
                 null;
+
+            var rhs = node_datas[node].rhs;
+            while (true) switch (node_tags[rhs]) {
+                .grouped_expression => rhs = node_datas[rhs].lhs,
+                .unreachable_literal => {
+                    if (payload_token != null and mem.eql(u8, tree.tokenSlice(payload_token.?), "_")) {
+                        return astgen.failTok(payload_token.?, "discard of error capture; omit it instead", .{});
+                    } else if (payload_token != null) {
+                        return astgen.failTok(payload_token.?, "unused capture", .{});
+                    }
+                    const lhs = node_datas[node].lhs;
+
+                    const operand = try reachableExpr(gz, scope, switch (rl) {
+                        .ref => .ref,
+                        else => .none,
+                    }, lhs, lhs);
+                    const result = try gz.addUnNode(switch (rl) {
+                        .ref => .err_union_payload_safe_ptr,
+                        else => .err_union_payload_safe,
+                    }, operand, node);
+                    switch (rl) {
+                        .none, .coerced_ty, .discard, .ref => return result,
+                        else => return rvalue(gz, rl, result, lhs),
+                    }
+                },
+                else => break,
+            };
             switch (rl) {
                 .ref => return orelseCatchExpr(
                     gz,

@@ -655,6 +655,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .unwrap_errunion_err_ptr    => @panic("TODO try self.airUnwrapErrErrPtr(inst)"),
             .unwrap_errunion_payload_ptr=> @panic("TODO try self.airUnwrapErrPayloadPtr(inst)"),
             .errunion_payload_ptr_set   => @panic("TODO try self.airErrUnionPayloadPtrSet(inst)"),
+            .err_return_trace           => @panic("TODO try self.airErrReturnTrace(inst)"),
+            .set_err_return_trace       => @panic("TODO try self.airSetErrReturnTrace(inst)"),
 
             .wrap_optional         => @panic("TODO try self.airWrapOptional(inst)"),
             .wrap_errunion_payload => @panic("TODO try self.airWrapErrUnionPayload(inst)"),

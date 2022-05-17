@@ -1427,6 +1427,7 @@ pub const Fn = struct {
     state: Analysis,
     is_cold: bool = false,
     is_noinline: bool = false,
+    calls_or_awaits_errorable_fn: bool = false,
 
     /// Any inferred error sets that this function owns, both its own inferred error set and
     /// inferred error sets of any inline/comptime functions called. Not to be confused
@@ -4838,6 +4839,9 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     };
     defer sema.deinit();
 
+    // reset in case calls to errorable functions are removed.
+    func.calls_or_awaits_errorable_fn = false;
+
     // First few indexes of extra are reserved and set at the end.
     const reserved_count = @typeInfo(Air.ExtraIndex).Enum.fields.len;
     try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
@@ -4936,6 +4940,8 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
+    const last_arg_index = inner_block.instructions.items.len;
+
     sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
         // TODO make these unreachable instead of @panic
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
@@ -4943,6 +4949,21 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
         error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
         else => |e| return e,
     };
+
+    // If we don't get an error return trace from a caller, create our own.
+    if (func.calls_or_awaits_errorable_fn and
+        mod.comp.bin_file.options.error_return_tracing and
+        !sema.fn_ret_ty.isError())
+    {
+        sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
+            // TODO make these unreachable instead of @panic
+            error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
+            error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
+            error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
+            error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
+            else => |e| return e,
+        };
+    }
 
     try wip_captures.finalize();
 

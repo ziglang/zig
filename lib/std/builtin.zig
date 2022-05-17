@@ -846,5 +846,26 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
     }
 }
 
+pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
+    @setCold(true);
+    std.debug.panicExtra(st, "attempt to unwrap error: {s}", .{@errorName(err)});
+}
+
+pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
+    @setCold(true);
+    std.debug.panic("attempt to index out of bound: index {d}, len {d}", .{ index, len });
+}
+
+pub noinline fn returnError(maybe_st: ?*StackTrace) void {
+    @setCold(true);
+    const st = maybe_st orelse return;
+    addErrRetTraceAddr(st, @returnAddress());
+}
+
+pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
+    st.instruction_addresses[st.index & (st.instruction_addresses.len - 1)] = addr;
+    st.index +%= 1;
+}
+
 const std = @import("std.zig");
 const root = @import("root");
