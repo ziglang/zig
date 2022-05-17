@@ -164,7 +164,6 @@ pub fn utf8ValidCodepoint(value: u21) bool {
 
 /// Returns the length of a supplied UTF-8 string literal in terms of unicode
 /// codepoints.
-/// Asserts that the data is valid UTF-8.
 pub fn utf8CountCodepoints(s: []const u8) !usize {
     var len: usize = 0;
 
@@ -351,7 +350,6 @@ fn testUtf16CountCodepoints() !void {
         @as(usize, 5),
         try utf16CountCodepoints(utf8ToUtf16LeStringLiteral("こんにちは")),
     );
-    // testing.expectError(error.Utf8EncodesSurrogateHalf, utf8CountCodepoints("\xED\xA0\x80"));
 }
 
 test "utf16 count codepoints" {
@@ -820,7 +818,6 @@ fn testCalcUtf16LeLen() !void {
     try testing.expectEqual(@as(usize, 10), try calcUtf16LeLen("abcdefghij"));
     try testing.expectEqual(@as(usize, 10), try calcUtf16LeLen("äåéëþüúíóö"));
     try testing.expectEqual(@as(usize, 5), try calcUtf16LeLen("こんにちは"));
-    // testing.expectError(error.Utf8EncodesSurrogateHalf, utf8CountCodepoints("\xED\xA0\x80"));
 }
 
 test "calculate utf16 string length of given utf8 string in u16" {
