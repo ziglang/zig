@@ -345,7 +345,7 @@ const PageAllocator = struct {
         // Unmap extra pages
         const aligned_buffer_len = alloc_len - drop_len;
         if (aligned_buffer_len > aligned_len) {
-            os.munmap(result_ptr[aligned_len..aligned_buffer_len]);
+            os.munmap(@alignCast(mem.page_size, result_ptr[aligned_len..aligned_buffer_len]));
         }
 
         const new_hint = @alignCast(mem.page_size, result_ptr + aligned_len);

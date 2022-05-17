@@ -5679,7 +5679,8 @@ pub const FuncGen = struct {
     fn airPtrAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
@@ -5698,7 +5699,8 @@ pub const FuncGen = struct {
     fn airPtrSub(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const negative_offset = self.builder.buildNeg(offset, "");

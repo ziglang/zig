@@ -377,8 +377,6 @@ test "pointer to array at fixed address" {
 }
 
 test "pointer arithmetic affects the alignment" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     {
         var ptr: [*]align(8) u32 = undefined;
         var x: usize = 1;

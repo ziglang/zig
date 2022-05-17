@@ -1813,27 +1813,6 @@ pub const Value = extern union {
         };
     }
 
-    /// Asserts the value is numeric
-    pub fn isZero(self: Value) bool {
-        return switch (self.tag()) {
-            .zero, .the_only_possible_value => true,
-            .one => false,
-
-            .int_u64 => self.castTag(.int_u64).?.data == 0,
-            .int_i64 => self.castTag(.int_i64).?.data == 0,
-
-            .float_16 => self.castTag(.float_16).?.data == 0,
-            .float_32 => self.castTag(.float_32).?.data == 0,
-            .float_64 => self.castTag(.float_64).?.data == 0,
-            .float_80 => self.castTag(.float_80).?.data == 0,
-            .float_128 => self.castTag(.float_128).?.data == 0,
-
-            .int_big_positive => self.castTag(.int_big_positive).?.asBigInt().eqZero(),
-            .int_big_negative => self.castTag(.int_big_negative).?.asBigInt().eqZero(),
-            else => unreachable,
-        };
-    }
-
     pub fn orderAgainstZero(lhs: Value) std.math.Order {
         return orderAgainstZeroAdvanced(lhs, null) catch unreachable;
     }
@@ -3442,7 +3421,6 @@ pub const Value = extern union {
         const info = ty.intInfo(target);
 
         if (info.bits == 0) {
-            assert(val.isZero()); // Sema should guarantee
             return val;
         }
 
