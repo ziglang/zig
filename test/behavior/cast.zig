@@ -326,8 +326,7 @@ test "array coersion to undefined at runtime" {
 
     @setRuntimeSafety(true);
 
-    // TODO implement @setRuntimeSafety in stage2
-    if (builtin.zig_backend != .stage1 and builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
+    if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
         return error.SkipZigTest;
     }
 
