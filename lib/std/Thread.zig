@@ -893,6 +893,7 @@ const LinuxThreadImpl = struct {
     };
 
     fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) !Impl {
+        const page_size = std.mem.page_size;
         const Args = @TypeOf(args);
         const Instance = struct {
             fn_args: Args,
@@ -915,11 +916,11 @@ const LinuxThreadImpl = struct {
         var instance_offset: usize = undefined;
 
         const map_bytes = blk: {
-            var bytes: usize = std.mem.page_size;
+            var bytes: usize = page_size;
             guard_offset = bytes;
 
-            bytes += std.math.max(std.mem.page_size, config.stack_size);
-            bytes = std.mem.alignForward(bytes, std.mem.page_size);
+            bytes += std.math.max(page_size, config.stack_size);
+            bytes = std.mem.alignForward(bytes, page_size);
             stack_offset = bytes;
 
             bytes = std.mem.alignForward(bytes, linux.tls.tls_image.alloc_align);
@@ -930,7 +931,7 @@ const LinuxThreadImpl = struct {
             instance_offset = bytes;
             bytes += @sizeOf(Instance);
 
-            bytes = std.mem.alignForward(bytes, std.mem.page_size);
+            bytes = std.mem.alignForward(bytes, page_size);
             break :blk bytes;
         };
 
@@ -954,7 +955,7 @@ const LinuxThreadImpl = struct {
 
         // map everything but the guard page as read/write
         os.mprotect(
-            mapped[guard_offset..],
+            @alignCast(page_size, mapped[guard_offset..]),
             os.PROT.READ | os.PROT.WRITE,
         ) catch |err| switch (err) {
             error.AccessDenied => unreachable,
