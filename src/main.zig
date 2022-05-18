@@ -2415,9 +2415,18 @@ fn buildOutputType(
                 const sdk = std.zig.system.darwin.getDarwinSDK(arena, target_info.target) orelse
                     break :outer false;
                 native_darwin_sdk = sdk;
+
                 try clang_argv.ensureUnusedCapacity(2);
                 clang_argv.appendAssumeCapacity("-isysroot");
                 clang_argv.appendAssumeCapacity(sdk.path);
+
+                // if we're on darwin and nix, add a sysroot relative include path
+                if (paths.is_nix) {
+                    try clang_argv.ensureUnusedCapacity(paths.nix_include_dirs.items.len * 2);
+                    clang_argv.appendAssumeCapacity("-iwithsysroot");
+                    clang_argv.appendAssumeCapacity("/usr/include");
+                }
+
                 break :outer true;
             } else break :outer false;
         } else false;
@@ -2432,7 +2441,7 @@ fn buildOutputType(
         }
 
         try clang_argv.ensureUnusedCapacity(paths.nix_framework_dirs.items.len * 2);
-        for (paths.nix_include_dirs.items) |framework_dir| {
+        for (paths.nix_framework_dirs.items) |framework_dir| {
             clang_argv.appendAssumeCapacity("-iframework");
             clang_argv.appendAssumeCapacity(framework_dir);
         }

@@ -8,6 +8,8 @@ const mem = std.mem;
 const NativePaths = @This();
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
+is_nix: bool,
+
 include_dirs: ArrayList([:0]u8),
 lib_dirs: ArrayList([:0]u8),
 framework_dirs: ArrayList([:0]u8),
@@ -22,6 +24,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
     const native_target = native_info.target;
 
     var self: NativePaths = .{
+        .is_nix = false,
         .include_dirs = ArrayList([:0]u8).init(allocator),
         .nix_include_dirs = ArrayList([:0]u8).init(allocator),
         .lib_dirs = ArrayList([:0]u8).init(allocator),
@@ -32,11 +35,10 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
     };
     errdefer self.deinit();
 
-    var is_nix = false;
     if (process.getEnvVarOwned(allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
         defer allocator.free(nix_cflags_compile);
 
-        is_nix = true;
+        self.is_nix = true;
         var it = mem.tokenize(u8, nix_cflags_compile, " ");
         while (true) {
             const word = it.next() orelse break;
@@ -67,7 +69,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
     if (process.getEnvVarOwned(allocator, "NIX_LDFLAGS")) |nix_ldflags| {
         defer allocator.free(nix_ldflags);
 
-        is_nix = true;
+        self.is_nix = true;
         var it = mem.tokenize(u8, nix_ldflags, " ");
         while (true) {
             const word = it.next() orelse break;
@@ -90,7 +92,8 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         error.EnvironmentVariableNotFound => {},
         error.OutOfMemory => |e| return e,
     }
-    if (is_nix) {
+
+    if (self.is_nix) {
         return self;
     }
 
